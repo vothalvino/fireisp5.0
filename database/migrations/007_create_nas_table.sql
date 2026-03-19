@@ -4,7 +4,8 @@
 CREATE TABLE IF NOT EXISTS nas (
     id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     name        VARCHAR(255)    NOT NULL,
-    ip_address  VARCHAR(45)     NOT NULL COMMENT 'IPv4 or IPv6 address',
+    ip_address    VARCHAR(45)     NOT NULL COMMENT 'Primary IPv4 address',
+    ipv6_address  VARCHAR(45)     NULL     COMMENT 'IPv6 management address (dual-stack)',
     secret      VARCHAR(255)    NOT NULL COMMENT 'RADIUS shared secret',
     type        VARCHAR(50)     NOT NULL DEFAULT 'other' COMMENT 'e.g. mikrotik, cisco, ubiquiti',
     ports       INT UNSIGNED    NULL,
