@@ -40,7 +40,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 6 | `contracts` | Service contracts linking clients to plans |
 | 7 | `nas` | Network Access Servers for RADIUS authentication |
 | 8 | `radius` | RADIUS subscriber authentication accounts |
-| 9 | `devices` | Network equipment inventory (CPEs, antennas, routers, switches) |
+| 9 | `devices` | Network equipment inventory — client CPE (outdoor/indoor) and POP infrastructure (PTP, PTMP, OLT, Router, Switch, ONU) |
 | 10 | `tickets` | Customer support tickets |
 | 11 | `invoices` | Billing records issued to clients |
 | 12 | `payments` | Payment records received from clients |
