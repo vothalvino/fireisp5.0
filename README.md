@@ -102,6 +102,16 @@ The `storage/` directory holds user-uploaded and system-generated files organize
 
 ## Getting Started
 
+### Connection Types
+
+Each contract specifies a `connection_type` that determines how the client connects and whether RADIUS is required:
+
+| Connection Type | Description | RADIUS Required | IP Management |
+|-----------------|-------------|-----------------|---------------|
+| `pppoe` (default) | PPPoE session — dynamic or static IP via RADIUS | Yes — create a `radius` record linked to the contract | `radius.ip_address` (static) or pool-assigned (dynamic) |
+| `static` | Static IPv4 — IP assigned directly, no PPPoE | No | `ip_assignments` row linked to the contract via `contract_id` |
+| `dual` | Dual-stack static IPv4 + IPv6 — no PPPoE | No | One IPv4 + one IPv6 `ip_assignments` row, both linked to the contract |
+
 ### IPv4 / IPv6 / Dual-Stack Support
 
 The schema is ready for IPv4-only, IPv6-only, and dual-stack deployments:

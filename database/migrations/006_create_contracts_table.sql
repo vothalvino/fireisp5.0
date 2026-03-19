@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS contracts (
     billing_cycle  ENUM('monthly', 'quarterly', 'semi_annual', 'annual') NULL COMMENT 'Override cycle; NULL means use the plan billing cycle',
     price_override DECIMAL(10, 2)  NULL COMMENT 'Custom price; NULL means use plan price',
     notes          TEXT            NULL,
+    connection_type ENUM('pppoe', 'static', 'dual') NOT NULL DEFAULT 'pppoe'
+                       COMMENT 'pppoe = PPPoE (requires RADIUS); static = static IPv4 (no RADIUS); dual = dual-stack static IPv4+IPv6 (no RADIUS)',
     status         ENUM('active', 'expired', 'cancelled', 'pending') NOT NULL DEFAULT 'pending',
     created_by     BIGINT UNSIGNED NULL,
     created_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -20,6 +22,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     KEY idx_contracts_client_id (client_id),
     KEY idx_contracts_plan_id (plan_id),
     KEY idx_contracts_site_id (site_id),
+    KEY idx_contracts_connection_type (connection_type),
     KEY idx_contracts_status (status),
     CONSTRAINT fk_contracts_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
