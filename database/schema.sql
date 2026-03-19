@@ -263,6 +263,10 @@ CREATE TABLE IF NOT EXISTS devices (
     ip_address    VARCHAR(45)     NULL COMMENT 'Management IPv4 address',
     ipv6_address  VARCHAR(45)     NULL COMMENT 'Management IPv6 address (dual-stack)',
     firmware      VARCHAR(100)    NULL,
+    snmp_enabled  BOOLEAN         NOT NULL DEFAULT FALSE COMMENT 'Enable SNMP polling for this device',
+    snmp_community VARCHAR(100)   NULL COMMENT 'SNMP community string (v1/v2c)',
+    snmp_version  ENUM('v1','v2c','v3') NULL DEFAULT 'v2c' COMMENT 'SNMP protocol version',
+    snmp_port     SMALLINT UNSIGNED NULL DEFAULT 161 COMMENT 'SNMP UDP port',
     status        ENUM('online', 'offline', 'maintenance') NOT NULL DEFAULT 'offline',
     notes         TEXT            NULL,
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -273,6 +277,7 @@ CREATE TABLE IF NOT EXISTS devices (
     KEY idx_devices_client_id (client_id),
     KEY idx_devices_category (category),
     KEY idx_devices_status (status),
+    KEY idx_devices_snmp_enabled (snmp_enabled),
     CONSTRAINT fk_devices_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_devices_client FOREIGN KEY (client_id)
@@ -736,6 +741,75 @@ CREATE TABLE IF NOT EXISTS files (
      OR (entity_type = 'organization' AND category IN ('isp_info', 'sat', 'online_payment', 'map', 'logo'))
      OR (entity_type = 'backup'       AND category = 'backup')
     )
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: snmp_metrics
+-- Purpose: Raw SNMP poll data collected every 5 minutes from devices.
+--          Retained for 90 days; older rows should be purged or rolled up.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS snmp_metrics (
+    id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    device_id    BIGINT UNSIGNED NOT NULL,
+    metric_name  VARCHAR(100)    NOT NULL COMMENT 'Metric key, e.g. ifInOctets, ifOutOctets, sysUptime',
+    metric_oid   VARCHAR(255)    NULL     COMMENT 'SNMP OID that was polled',
+    value_numeric DECIMAL(20,4)  NULL     COMMENT 'Numeric metric value',
+    value_text   VARCHAR(500)    NULL     COMMENT 'Text metric value (for non-numeric OIDs)',
+    polled_at    TIMESTAMP       NOT NULL COMMENT 'Timestamp of the SNMP poll',
+    created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_snmp_metrics_device_metric_time (device_id, metric_name, polled_at),
+    KEY idx_snmp_metrics_polled_at (polled_at),
+    CONSTRAINT fk_snmp_metrics_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: snmp_metrics_1hr
+-- Purpose: Hourly aggregates of SNMP metrics (avg / min / max / sample count).
+--          Retained for 1 year; built from snmp_metrics via scheduled rollup.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS snmp_metrics_1hr (
+    id           BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    device_id    BIGINT UNSIGNED  NOT NULL,
+    metric_name  VARCHAR(100)     NOT NULL COMMENT 'Metric key matching snmp_metrics.metric_name',
+    period_start TIMESTAMP        NOT NULL COMMENT 'Start of the 1-hour aggregation window',
+    avg_value    DECIMAL(20,4)    NULL     COMMENT 'Average of numeric values in the period',
+    min_value    DECIMAL(20,4)    NULL     COMMENT 'Minimum numeric value in the period',
+    max_value    DECIMAL(20,4)    NULL     COMMENT 'Maximum numeric value in the period',
+    sample_count INT UNSIGNED     NOT NULL DEFAULT 0 COMMENT 'Number of raw samples aggregated',
+    created_at   TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_snmp_1hr_device_metric_period (device_id, metric_name, period_start),
+    KEY idx_snmp_1hr_period_start (period_start),
+    CONSTRAINT fk_snmp_1hr_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: snmp_metrics_1day
+-- Purpose: Daily aggregates of SNMP metrics (avg / min / max / sample count).
+--          Retained for 3+ years; built from snmp_metrics_1hr via scheduled
+--          rollup.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS snmp_metrics_1day (
+    id           BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    device_id    BIGINT UNSIGNED  NOT NULL,
+    metric_name  VARCHAR(100)     NOT NULL COMMENT 'Metric key matching snmp_metrics.metric_name',
+    period_start DATE             NOT NULL COMMENT 'Date of the daily aggregation window',
+    avg_value    DECIMAL(20,4)    NULL     COMMENT 'Average of hourly averages in the period',
+    min_value    DECIMAL(20,4)    NULL     COMMENT 'Minimum value across hourly windows',
+    max_value    DECIMAL(20,4)    NULL     COMMENT 'Maximum value across hourly windows',
+    sample_count INT UNSIGNED     NOT NULL DEFAULT 0 COMMENT 'Number of hourly samples aggregated',
+    created_at   TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_snmp_1day_device_metric_period (device_id, metric_name, period_start),
+    KEY idx_snmp_1day_period_start (period_start),
+    CONSTRAINT fk_snmp_1day_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
