@@ -87,9 +87,10 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 22 | `invoice_items` | Individual line items that make up an invoice's subtotal |
 | 23 | `quote_items` | Individual line items that make up a quote's subtotal |
 | 24 | `ticket_comments` | Conversation tracking and internal notes on support tickets |
-| 25 | `snmp_metrics` | Raw SNMP poll data (5-min intervals, 90-day retention) for client and POP devices |
-| 26 | `snmp_metrics_1hr` | Hourly SNMP metric aggregates (avg/min/max, 1-year retention) |
-| 27 | `snmp_metrics_1day` | Daily SNMP metric aggregates (avg/min/max, 3+ year retention) |
+| 25 | `snmp_metrics` | Raw SNMP poll data (5-min intervals, 90-day retention) — wide table, one row per device/interface per poll, partitioned by month |
+| 26 | `snmp_metrics_1hr` | Hourly SNMP metric aggregates (avg/min/max per metric column, 1-year retention) |
+| 27 | `snmp_metrics_1day` | Daily SNMP metric aggregates (avg/min/max per metric column, 3+ year retention) |
+| 28 | `snmp_rollup_state` | High-watermark table tracking the last successfully rolled-up timestamp per tier |
 
 ### Storage Folders
 
@@ -134,9 +135,36 @@ The `devices` table includes SNMP configuration columns (`snmp_enabled`, `snmp_c
 
 | Data Tier | Resolution | Retention | Description |
 |-----------|------------|-----------|-------------|
-| `snmp_metrics` (raw) | 5-min polls | 90 days | Raw SNMP poll values per device and metric |
-| `snmp_metrics_1hr` | Hourly averages | 1 year | Aggregated avg / min / max per hour |
-| `snmp_metrics_1day` | Daily averages | 3+ years | Aggregated avg / min / max per day |
+| `snmp_metrics` (raw) | 5-min polls | 90 days | Wide table — one row per device/interface per poll (8× fewer rows than narrow EAV); monthly partitions enable instant `DROP PARTITION` retention |
+| `snmp_metrics_1hr` | Hourly averages | 1 year | Wide table — per-metric `avg_*` / `min_*` / `max_*` columns; idempotent rollup via `INSERT … ON DUPLICATE KEY UPDATE` |
+| `snmp_metrics_1day` | Daily averages | 3+ years | Wide table — aggregated from `snmp_metrics_1hr`; kept indefinitely |
+
+#### Supported SNMP Metrics
+
+Each raw poll row stores up to eight metrics as individual columns:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `if_in_octets` | `BIGINT` | ifInOctets — bytes received |
+| `if_out_octets` | `BIGINT` | ifOutOctets — bytes transmitted |
+| `if_in_errors` | `BIGINT` | ifInErrors — inbound error count |
+| `if_out_errors` | `BIGINT` | ifOutErrors — outbound error count |
+| `cpu_usage` | `SMALLINT` | CPU utilization percentage |
+| `memory_usage` | `SMALLINT` | Memory utilization percentage |
+| `signal_strength` | `INTEGER` | Wireless signal strength in dBm |
+| `latency_ms` | `DECIMAL(10,2)` | ICMP ping latency in milliseconds |
+
+The optional `interface_id` column stores the SNMP `ifIndex` or `ifDescr` for interface-level metrics (e.g., multiple interfaces on a router or switch).
+
+#### Scale Targets
+
+| Metric | Value |
+|--------|-------|
+| Devices | 6,000 |
+| Poll interval | 5 minutes |
+| Rows per day (raw) | ~1.73 million |
+| Raw retention | 90 days (~155 million rows) |
+| Raw table design | Wide — no FK, no per-row OID, monthly partitions |
 
 #### Automated Rollup & Retention (MySQL Event Scheduler)
 
@@ -155,11 +183,12 @@ event_scheduler = ON
 
 | Event | Schedule | Action |
 |-------|----------|--------|
-| `evt_snmp_rollup_1hr` | Every hour at :05 | Calls `snmp_rollup_to_1hr()` — aggregates raw → hourly |
-| `evt_snmp_rollup_1day` | Daily at 00:30 | Calls `snmp_rollup_to_1day()` — aggregates hourly → daily |
-| `evt_snmp_retention` | Daily at 02:00 | Calls `snmp_apply_retention()` — purges raw > 90 days, hourly > 1 year |
+| `evt_snmp_rollup_1hr` | Every hour at :05 | Calls `snmp_rollup_to_1hr()` — aggregates raw → hourly using high-watermark |
+| `evt_snmp_rollup_1day` | Daily at 00:30 | Calls `snmp_rollup_to_1day()` — aggregates hourly → daily using high-watermark |
+| `evt_snmp_retention` | Daily at 02:00 | Calls `snmp_apply_retention()` — purges hourly data older than 1 year |
+| `evt_snmp_partition_maintenance` | Daily at 03:00 | Calls `snmp_maintain_partitions()` — adds future month partitions and drops expired ones (replaces batch DELETE for raw data retention) |
 
-All rollup procedures use `INSERT … ON DUPLICATE KEY UPDATE` for idempotent re-runs. Retention purges use batch deletes (10 000 rows per iteration) to avoid long-running locks.
+All rollup procedures use a **high-watermark** (`snmp_rollup_state` table) to track the last successfully processed timestamp, so missed runs catch up automatically rather than only looking back a fixed window. Rollup procedures use `INSERT … ON DUPLICATE KEY UPDATE` for idempotent re-runs. Raw data retention is instant (partition `DROP`) while hourly retention uses batch deletes (10 000 rows per iteration) since that table is much smaller.
 
 Documentation and setup instructions will be added as the project develops.
 
