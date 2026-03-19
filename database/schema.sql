@@ -436,4 +436,81 @@ CREATE TABLE IF NOT EXISTS expenses (
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ---------------------------------------------------------------------------
+-- Table: organizations
+-- Purpose: ISP company / tenant configuration (one row per organization)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS organizations (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    name                VARCHAR(255)    NOT NULL,
+    legal_name          VARCHAR(255)    NULL,
+    tax_id              VARCHAR(50)     NULL COMMENT 'SAT / tax-authority registration number',
+    email               VARCHAR(255)    NULL,
+    phone               VARCHAR(30)     NULL,
+    address             VARCHAR(255)    NULL,
+    city                VARCHAR(100)    NULL,
+    state               VARCHAR(100)    NULL,
+    country             VARCHAR(100)    NULL DEFAULT 'US',
+    zip_code            VARCHAR(20)     NULL,
+    website             VARCHAR(255)    NULL,
+    online_payment_url  VARCHAR(255)    NULL COMMENT 'URL for the online payment portal',
+    map_url             VARCHAR(500)    NULL COMMENT 'URL or embed link for office/coverage map',
+    notes               TEXT            NULL,
+    status              ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_organizations_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: files
+-- Purpose: File metadata for all entity-scoped and system storage folders:
+--          devices   (device_history, evidence)
+--          clients   (client_file, notification_log)
+--          tickets   (chat_history, document)
+--          organizations (isp_info, sat, online_payment, map, logo)
+--          backup    (backup)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS files (
+    id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    entity_type  ENUM('device', 'client', 'ticket', 'organization', 'backup') NOT NULL
+                     COMMENT 'Top-level folder: devices | clients | tickets | organizations | backup',
+    entity_id    BIGINT UNSIGNED NULL
+                     COMMENT 'ID of the related entity; NULL for backup files',
+    category     ENUM(
+                     'device_history',   -- devices / p/device
+                     'evidence',         -- devices / p/device
+                     'client_file',      -- clients / p/client
+                     'notification_log', -- clients / p/client
+                     'chat_history',     -- tickets / p/ticket
+                     'document',         -- tickets / p/ticket
+                     'isp_info',         -- organizations / p/organization
+                     'sat',              -- organizations / p/organization
+                     'online_payment',   -- organizations / p/organization
+                     'map',              -- organizations / p/organization
+                     'logo',             -- organizations / p/organization
+                     'backup'            -- backup folder
+                 ) NOT NULL COMMENT 'File category within its entity folder',
+    file_name    VARCHAR(255)    NOT NULL COMMENT 'Original file name as uploaded',
+    file_path    VARCHAR(500)    NOT NULL COMMENT 'Relative storage path on disk or object store',
+    file_size    BIGINT UNSIGNED NULL     COMMENT 'File size in bytes',
+    mime_type    VARCHAR(100)    NULL     COMMENT 'MIME type e.g. image/png, application/pdf',
+    uploaded_by  BIGINT UNSIGNED NULL     COMMENT 'User who uploaded the file',
+    notes        TEXT            NULL,
+    created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_files_entity      (entity_type, entity_id),
+    KEY idx_files_category    (category),
+    KEY idx_files_uploaded_by (uploaded_by),
+    CONSTRAINT fk_files_uploaded_by FOREIGN KEY (uploaded_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT chk_files_entity_id CHECK (
+        entity_type = 'backup' OR entity_id IS NOT NULL
+    )
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;
