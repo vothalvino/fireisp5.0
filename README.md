@@ -108,7 +108,8 @@ Each contract specifies a `connection_type` that determines how the client conne
 
 | Connection Type | Description | RADIUS Required | IP Management |
 |-----------------|-------------|-----------------|---------------|
-| `pppoe` (default) | PPPoE session — dynamic or static IP via RADIUS | Yes — create a `radius` record linked to the contract | `radius.ip_address` (static) or pool-assigned (dynamic) |
+| `pppoe` (default) | PPPoE session — IPv4 only via RADIUS | Yes — create a `radius` record linked to the contract | `radius.ip_address` (static) or `radius.ipv4_pool_id` pool-assigned (dynamic) |
+| `pppoe_dual` | PPPoE session — dual-stack IPv4 + IPv6 via RADIUS | Yes — create a `radius` record with IPv4 and IPv6 fields | `radius.ip_address` + `radius.ipv6_address` / `radius.ipv6_delegated_prefix` (static) or pool-assigned via `radius.ipv4_pool_id` + `radius.ipv6_pool_id` (dynamic) |
 | `static` | Static IPv4 — IP assigned directly, no PPPoE | No | `ip_assignments` row linked to the contract via `contract_id` |
 | `dual` | Dual-stack static IPv4 + IPv6 — no PPPoE | No | One IPv4 + one IPv6 `ip_assignments` row, both linked to the contract |
 
@@ -120,7 +121,7 @@ The schema is ready for IPv4-only, IPv6-only, and dual-stack deployments:
 |-------|------|------|------------------|
 | `ip_pools` | `ip_version = '4'` | `ip_version = '6'` | Create separate pools per address family; link both to the same site |
 | `ip_assignments` | Single address (`prefix_len` = NULL) | Address or prefix (`prefix_len` = 48, 56, 64, …) | One row per address/prefix; a dual-stack subscriber gets one v4 + one v6 assignment |
-| `radius` | `ip_address` | `ipv6_address` + `ipv6_delegated_prefix` / `ipv6_prefix_len` | All IPv6 fields coexist with the IPv4 field for seamless dual-stack RADIUS sessions |
+| `radius` | `ip_address` (static) or `ipv4_pool_id` (dynamic) | `ipv6_address` + `ipv6_delegated_prefix` / `ipv6_prefix_len` (static) or `ipv6_pool_id` (dynamic) | All IPv6 fields coexist with IPv4 for seamless dual-stack PPPoE sessions; `nas_id` links the subscriber to its NAS |
 | `nas` | `ip_address` | `ipv6_address` | Both addresses stored per NAS for dual-stack management |
 | `devices` | `ip_address` | `ipv6_address` | Both addresses stored per device for dual-stack management |
 
