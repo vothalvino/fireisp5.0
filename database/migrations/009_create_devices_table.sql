@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS devices (
     ip_address    VARCHAR(45)     NULL COMMENT 'Management IPv4 address',
     ipv6_address  VARCHAR(45)     NULL COMMENT 'Management IPv6 address (dual-stack)',
     firmware      VARCHAR(100)    NULL,
+    snmp_enabled  BOOLEAN         NOT NULL DEFAULT FALSE COMMENT 'Enable SNMP polling for this device',
+    snmp_community VARCHAR(255)   NULL COMMENT 'SNMP community string (v1/v2c) — store encrypted; decrypt at application layer',
+    snmp_version  ENUM('v1','v2c','v3') NULL DEFAULT 'v2c' COMMENT 'SNMP protocol version',
+    snmp_port     SMALLINT UNSIGNED NULL DEFAULT 161 COMMENT 'SNMP UDP port',
     status        ENUM('online', 'offline', 'maintenance') NOT NULL DEFAULT 'offline',
     notes         TEXT            NULL,
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -39,6 +43,7 @@ CREATE TABLE IF NOT EXISTS devices (
     KEY idx_devices_client_id (client_id),
     KEY idx_devices_category (category),
     KEY idx_devices_status (status),
+    KEY idx_devices_snmp_enabled (snmp_enabled),
     CONSTRAINT fk_devices_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_devices_client FOREIGN KEY (client_id)

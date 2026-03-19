@@ -7,7 +7,7 @@ An open source ISP (Internet Service Provider) management software designed to h
 - Customer management
 - Service plan management
 - Billing and invoicing
-- Network device monitoring
+- Network device monitoring with SNMP metrics collection
 - User and role management
 - IP address management (IPAM) with IPv4, IPv6, and dual-stack support
 - Audit logging and notifications
@@ -87,6 +87,9 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 22 | `invoice_items` | Individual line items that make up an invoice's subtotal |
 | 23 | `quote_items` | Individual line items that make up a quote's subtotal |
 | 24 | `ticket_comments` | Conversation tracking and internal notes on support tickets |
+| 25 | `snmp_metrics` | Raw SNMP poll data (5-min intervals, 90-day retention) for client and POP devices |
+| 26 | `snmp_metrics_1hr` | Hourly SNMP metric aggregates (avg/min/max, 1-year retention) |
+| 27 | `snmp_metrics_1day` | Daily SNMP metric aggregates (avg/min/max, 3+ year retention) |
 
 ### Storage Folders
 
@@ -124,6 +127,39 @@ The schema is ready for IPv4-only, IPv6-only, and dual-stack deployments:
 | `radius` | `ip_address` (static) or `ipv4_pool_id` (dynamic) | `ipv6_address` + `ipv6_delegated_prefix` / `ipv6_prefix_len` (static) or `ipv6_pool_id` (dynamic) | All IPv6 fields coexist with IPv4 for seamless dual-stack PPPoE sessions; `nas_id` links the subscriber to its NAS |
 | `nas` | `ip_address` | `ipv6_address` | Both addresses stored per NAS for dual-stack management |
 | `devices` | `ip_address` | `ipv6_address` | Both addresses stored per device for dual-stack management |
+
+### SNMP Monitoring
+
+The `devices` table includes SNMP configuration columns (`snmp_enabled`, `snmp_community`, `snmp_version`, `snmp_port`) so that both **client CPE** and **POP infrastructure** devices can be polled. Collected metrics are stored in a three-tier structure for efficient querying and long-term retention:
+
+| Data Tier | Resolution | Retention | Description |
+|-----------|------------|-----------|-------------|
+| `snmp_metrics` (raw) | 5-min polls | 90 days | Raw SNMP poll values per device and metric |
+| `snmp_metrics_1hr` | Hourly averages | 1 year | Aggregated avg / min / max per hour |
+| `snmp_metrics_1day` | Daily averages | 3+ years | Aggregated avg / min / max per day |
+
+#### Automated Rollup & Retention (MySQL Event Scheduler)
+
+Data aggregation and retention are handled by MySQL stored procedures and scheduled events — the MySQL equivalent of TimescaleDB continuous aggregates and retention policies. The MySQL Event Scheduler must be enabled:
+
+```sql
+SET GLOBAL event_scheduler = ON;
+```
+
+Or in `my.cnf` / `my.ini`:
+
+```ini
+[mysqld]
+event_scheduler = ON
+```
+
+| Event | Schedule | Action |
+|-------|----------|--------|
+| `evt_snmp_rollup_1hr` | Every hour at :05 | Calls `snmp_rollup_to_1hr()` — aggregates raw → hourly |
+| `evt_snmp_rollup_1day` | Daily at 00:30 | Calls `snmp_rollup_to_1day()` — aggregates hourly → daily |
+| `evt_snmp_retention` | Daily at 02:00 | Calls `snmp_apply_retention()` — purges raw > 90 days, hourly > 1 year |
+
+All rollup procedures use `INSERT … ON DUPLICATE KEY UPDATE` for idempotent re-runs. Retention purges use batch deletes (10 000 rows per iteration) to avoid long-running locks.
 
 Documentation and setup instructions will be added as the project develops.
 

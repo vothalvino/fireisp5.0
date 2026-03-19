@@ -263,6 +263,10 @@ CREATE TABLE IF NOT EXISTS devices (
     ip_address    VARCHAR(45)     NULL COMMENT 'Management IPv4 address',
     ipv6_address  VARCHAR(45)     NULL COMMENT 'Management IPv6 address (dual-stack)',
     firmware      VARCHAR(100)    NULL,
+    snmp_enabled  BOOLEAN         NOT NULL DEFAULT FALSE COMMENT 'Enable SNMP polling for this device',
+    snmp_community VARCHAR(255)   NULL COMMENT 'SNMP community string (v1/v2c) — store encrypted; decrypt at application layer',
+    snmp_version  ENUM('v1','v2c','v3') NULL DEFAULT 'v2c' COMMENT 'SNMP protocol version',
+    snmp_port     SMALLINT UNSIGNED NULL DEFAULT 161 COMMENT 'SNMP UDP port',
     status        ENUM('online', 'offline', 'maintenance') NOT NULL DEFAULT 'offline',
     notes         TEXT            NULL,
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -273,6 +277,7 @@ CREATE TABLE IF NOT EXISTS devices (
     KEY idx_devices_client_id (client_id),
     KEY idx_devices_category (category),
     KEY idx_devices_status (status),
+    KEY idx_devices_snmp_enabled (snmp_enabled),
     CONSTRAINT fk_devices_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_devices_client FOREIGN KEY (client_id)
@@ -737,5 +742,204 @@ CREATE TABLE IF NOT EXISTS files (
      OR (entity_type = 'backup'       AND category = 'backup')
     )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: snmp_metrics
+-- Purpose: Raw SNMP poll data collected every 5 minutes from devices.
+--          Retained for 90 days; older rows should be purged or rolled up.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS snmp_metrics (
+    id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    device_id    BIGINT UNSIGNED NOT NULL,
+    metric_name  VARCHAR(100)    NOT NULL COMMENT 'Metric key, e.g. ifInOctets, ifOutOctets, sysUptime',
+    metric_oid   VARCHAR(255)    NULL     COMMENT 'SNMP OID that was polled',
+    value_numeric DECIMAL(20,4)  NULL     COMMENT 'Numeric metric value',
+    value_text   VARCHAR(500)    NULL     COMMENT 'Text metric value (for non-numeric OIDs)',
+    polled_at    TIMESTAMP       NOT NULL COMMENT 'Timestamp of the SNMP poll',
+    created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_snmp_metrics_device_metric_time (device_id, metric_name, polled_at),
+    KEY idx_snmp_metrics_polled_at (polled_at),
+    CONSTRAINT fk_snmp_metrics_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: snmp_metrics_1hr
+-- Purpose: Hourly aggregates of SNMP metrics (avg / min / max / sample count).
+--          Retained for 1 year; built from snmp_metrics via scheduled rollup.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS snmp_metrics_1hr (
+    id           BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    device_id    BIGINT UNSIGNED  NOT NULL,
+    metric_name  VARCHAR(100)     NOT NULL COMMENT 'Metric key matching snmp_metrics.metric_name',
+    period_start TIMESTAMP        NOT NULL COMMENT 'Start of the 1-hour aggregation window',
+    avg_value    DECIMAL(20,4)    NULL     COMMENT 'Average of numeric values in the period',
+    min_value    DECIMAL(20,4)    NULL     COMMENT 'Minimum numeric value in the period',
+    max_value    DECIMAL(20,4)    NULL     COMMENT 'Maximum numeric value in the period',
+    sample_count INT UNSIGNED     NOT NULL DEFAULT 0 COMMENT 'Number of raw samples aggregated',
+    created_at   TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_snmp_1hr_device_metric_period (device_id, metric_name, period_start),
+    KEY idx_snmp_1hr_period_start (period_start),
+    CONSTRAINT fk_snmp_1hr_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: snmp_metrics_1day
+-- Purpose: Daily aggregates of SNMP metrics (avg / min / max / sample count).
+--          Retained for 3+ years; built from snmp_metrics_1hr via scheduled
+--          rollup.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS snmp_metrics_1day (
+    id           BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    device_id    BIGINT UNSIGNED  NOT NULL,
+    metric_name  VARCHAR(100)     NOT NULL COMMENT 'Metric key matching snmp_metrics.metric_name',
+    period_start DATE             NOT NULL COMMENT 'Date of the daily aggregation window',
+    avg_value    DECIMAL(20,4)    NULL     COMMENT 'Average of hourly averages in the period',
+    min_value    DECIMAL(20,4)    NULL     COMMENT 'Minimum value across hourly windows',
+    max_value    DECIMAL(20,4)    NULL     COMMENT 'Maximum value across hourly windows',
+    sample_count INT UNSIGNED     NOT NULL DEFAULT 0 COMMENT 'Number of hourly samples aggregated',
+    created_at   TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_snmp_1day_device_metric_period (device_id, metric_name, period_start),
+    KEY idx_snmp_1day_period_start (period_start),
+    CONSTRAINT fk_snmp_1day_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================================
+-- SNMP Rollup Procedures & Scheduled Events
+-- =============================================================================
+-- MySQL equivalents of TimescaleDB continuous aggregates and retention policies.
+-- Requires:  SET GLOBAL event_scheduler = ON;  (in my.cnf or at runtime)
+--
+-- Rollup flow : snmp_metrics (raw 5-min) → snmp_metrics_1hr → snmp_metrics_1day
+-- Retention   : raw kept 90 days, hourly kept 1 year, daily kept indefinitely
+-- =============================================================================
+
+DELIMITER $$
+
+-- ---------------------------------------------------------------------------
+-- Procedure: snmp_rollup_to_1hr
+-- Purpose:   Aggregate the last 2 hours of raw 5-min samples into hourly
+--            rows.  Uses INSERT … ON DUPLICATE KEY UPDATE so re-runs are
+--            idempotent.
+-- ---------------------------------------------------------------------------
+CREATE PROCEDURE IF NOT EXISTS snmp_rollup_to_1hr()
+BEGIN
+    INSERT INTO snmp_metrics_1hr
+        (device_id, metric_name, period_start,
+         avg_value, min_value, max_value, sample_count)
+    SELECT
+        device_id,
+        metric_name,
+        DATE_FORMAT(polled_at, '%Y-%m-%d %H:00:00') AS period_start,
+        AVG(value_numeric),
+        MIN(value_numeric),
+        MAX(value_numeric),
+        COUNT(*)
+    FROM snmp_metrics
+    WHERE polled_at >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
+      AND value_numeric IS NOT NULL
+    GROUP BY device_id, metric_name, DATE_FORMAT(polled_at, '%Y-%m-%d %H:00:00')
+    AS new
+    ON DUPLICATE KEY UPDATE
+        avg_value    = new.avg_value,
+        min_value    = new.min_value,
+        max_value    = new.max_value,
+        sample_count = new.sample_count;
+END$$
+
+-- ---------------------------------------------------------------------------
+-- Procedure: snmp_rollup_to_1day
+-- Purpose:   Aggregate the last 2 days of hourly rows into daily rows.
+--            Idempotent via ON DUPLICATE KEY UPDATE.
+-- ---------------------------------------------------------------------------
+CREATE PROCEDURE IF NOT EXISTS snmp_rollup_to_1day()
+BEGIN
+    INSERT INTO snmp_metrics_1day
+        (device_id, metric_name, period_start,
+         avg_value, min_value, max_value, sample_count)
+    SELECT
+        device_id,
+        metric_name,
+        DATE(period_start) AS period_start,
+        AVG(avg_value),
+        MIN(min_value),
+        MAX(max_value),
+        SUM(sample_count)
+    FROM snmp_metrics_1hr
+    WHERE period_start >= DATE_SUB(CURDATE(), INTERVAL 2 DAY)
+    GROUP BY device_id, metric_name, DATE(period_start)
+    AS new
+    ON DUPLICATE KEY UPDATE
+        avg_value    = new.avg_value,
+        min_value    = new.min_value,
+        max_value    = new.max_value,
+        sample_count = new.sample_count;
+END$$
+
+-- ---------------------------------------------------------------------------
+-- Procedure: snmp_apply_retention
+-- Purpose:   Purge raw samples older than 90 days and hourly rows older than
+--            1 year.  Daily rows are kept indefinitely (3+ years).
+--            Deletes in batches of 10 000 to avoid long-running locks.
+-- ---------------------------------------------------------------------------
+CREATE PROCEDURE IF NOT EXISTS snmp_apply_retention()
+BEGIN
+    DECLARE rows_deleted INT DEFAULT 1;
+
+    -- Purge raw data older than 90 days (batch delete)
+    WHILE rows_deleted > 0 DO
+        DELETE FROM snmp_metrics
+        WHERE polled_at < DATE_SUB(NOW(), INTERVAL 90 DAY)
+        LIMIT 10000;
+        SET rows_deleted = ROW_COUNT();
+    END WHILE;
+
+    -- Purge hourly data older than 1 year (batch delete)
+    SET rows_deleted = 1;
+    WHILE rows_deleted > 0 DO
+        DELETE FROM snmp_metrics_1hr
+        WHERE period_start < DATE_SUB(NOW(), INTERVAL 1 YEAR)
+        LIMIT 10000;
+        SET rows_deleted = ROW_COUNT();
+    END WHILE;
+END$$
+
+DELIMITER ;
+
+-- ---------------------------------------------------------------------------
+-- Scheduled events (require event_scheduler = ON)
+-- ---------------------------------------------------------------------------
+
+-- Run hourly rollup every hour at minute :05
+CREATE EVENT IF NOT EXISTS evt_snmp_rollup_1hr
+    ON SCHEDULE EVERY 1 HOUR
+    STARTS DATE_FORMAT(NOW() + INTERVAL 1 HOUR, '%Y-%m-%d %H:05:00')
+    ON COMPLETION PRESERVE
+    COMMENT 'Aggregate raw SNMP samples into snmp_metrics_1hr every hour'
+    DO CALL snmp_rollup_to_1hr();
+
+-- Run daily rollup once per day at 00:30
+CREATE EVENT IF NOT EXISTS evt_snmp_rollup_1day
+    ON SCHEDULE EVERY 1 DAY
+    STARTS (CURRENT_DATE + INTERVAL 1 DAY + INTERVAL 30 MINUTE)
+    ON COMPLETION PRESERVE
+    COMMENT 'Aggregate hourly SNMP rows into snmp_metrics_1day once per day'
+    DO CALL snmp_rollup_to_1day();
+
+-- Run retention purge once per day at 02:00
+CREATE EVENT IF NOT EXISTS evt_snmp_retention
+    ON SCHEDULE EVERY 1 DAY
+    STARTS (CURRENT_DATE + INTERVAL 1 DAY + INTERVAL 2 HOUR)
+    ON COMPLETION PRESERVE
+    COMMENT 'Purge raw SNMP data >90 days and hourly data >1 year'
+    DO CALL snmp_apply_retention();
 
 SET FOREIGN_KEY_CHECKS = 1;
