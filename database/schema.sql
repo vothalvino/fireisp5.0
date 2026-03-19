@@ -847,11 +847,12 @@ BEGIN
     WHERE polled_at >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
       AND value_numeric IS NOT NULL
     GROUP BY device_id, metric_name, DATE_FORMAT(polled_at, '%Y-%m-%d %H:00:00')
+    AS new
     ON DUPLICATE KEY UPDATE
-        avg_value    = VALUES(avg_value),
-        min_value    = VALUES(min_value),
-        max_value    = VALUES(max_value),
-        sample_count = VALUES(sample_count);
+        avg_value    = new.avg_value,
+        min_value    = new.min_value,
+        max_value    = new.max_value,
+        sample_count = new.sample_count;
 END$$
 
 -- ---------------------------------------------------------------------------
@@ -875,11 +876,12 @@ BEGIN
     FROM snmp_metrics_1hr
     WHERE period_start >= DATE_SUB(CURDATE(), INTERVAL 2 DAY)
     GROUP BY device_id, metric_name, DATE(period_start)
+    AS new
     ON DUPLICATE KEY UPDATE
-        avg_value    = VALUES(avg_value),
-        min_value    = VALUES(min_value),
-        max_value    = VALUES(max_value),
-        sample_count = VALUES(sample_count);
+        avg_value    = new.avg_value,
+        min_value    = new.min_value,
+        max_value    = new.max_value,
+        sample_count = new.sample_count;
 END$$
 
 -- ---------------------------------------------------------------------------
@@ -919,7 +921,7 @@ DELIMITER ;
 -- Run hourly rollup every hour at minute :05
 CREATE EVENT IF NOT EXISTS evt_snmp_rollup_1hr
     ON SCHEDULE EVERY 1 HOUR
-    STARTS CURRENT_TIMESTAMP + INTERVAL (60 - MINUTE(CURRENT_TIMESTAMP) + 5) MINUTE
+    STARTS DATE_FORMAT(NOW() + INTERVAL 1 HOUR, '%Y-%m-%d %H:05:00')
     ON COMPLETION PRESERVE
     COMMENT 'Aggregate raw SNMP samples into snmp_metrics_1hr every hour'
     DO CALL snmp_rollup_to_1hr();
