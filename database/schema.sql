@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     site_id        BIGINT UNSIGNED NULL,
     start_date     DATE            NOT NULL,
     end_date       DATE            NULL,
-    billing_cycle  ENUM('monthly', 'quarterly', 'semi_annual', 'annual') NOT NULL DEFAULT 'monthly',
+    billing_cycle  ENUM('monthly', 'quarterly', 'semi_annual', 'annual') NULL COMMENT 'Override cycle; NULL means use the plan billing cycle',
     price_override DECIMAL(10, 2)  NULL COMMENT 'Custom price; NULL means use plan price',
     notes          TEXT            NULL,
     status         ENUM('active', 'expired', 'cancelled', 'pending') NOT NULL DEFAULT 'pending',
@@ -600,6 +600,68 @@ CREATE TABLE IF NOT EXISTS notifications (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
+-- Table: invoice_items
+-- Purpose: Individual line items that make up an invoice's subtotal
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS invoice_items (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    invoice_id  BIGINT UNSIGNED NOT NULL,
+    description VARCHAR(255)    NOT NULL COMMENT 'Line-item description e.g. plan name, one-time fee',
+    quantity    DECIMAL(10, 2)  NOT NULL DEFAULT 1.00,
+    unit_price  DECIMAL(10, 2)  NOT NULL,
+    total       DECIMAL(10, 2)  NOT NULL COMMENT 'quantity * unit_price',
+    created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_invoice_items_invoice_id (invoice_id),
+    CONSTRAINT fk_invoice_items_invoice FOREIGN KEY (invoice_id)
+        REFERENCES invoices (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: quote_items
+-- Purpose: Individual line items that make up a quote's subtotal
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS quote_items (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    quote_id    BIGINT UNSIGNED NOT NULL,
+    description VARCHAR(255)    NOT NULL COMMENT 'Line-item description e.g. service, installation fee',
+    quantity    DECIMAL(10, 2)  NOT NULL DEFAULT 1.00,
+    unit_price  DECIMAL(10, 2)  NOT NULL,
+    total       DECIMAL(10, 2)  NOT NULL COMMENT 'quantity * unit_price',
+    created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_quote_items_quote_id (quote_id),
+    CONSTRAINT fk_quote_items_quote FOREIGN KEY (quote_id)
+        REFERENCES quotes (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: ticket_comments
+-- Purpose: Conversation tracking and internal notes on support tickets
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ticket_comments (
+    id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    ticket_id  BIGINT UNSIGNED NOT NULL,
+    user_id    BIGINT UNSIGNED NULL     COMMENT 'Staff member who posted the comment; NULL for system messages',
+    body       TEXT            NOT NULL,
+    is_internal TINYINT(1)     NOT NULL DEFAULT 0 COMMENT '1 = internal note visible only to staff',
+    created_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_ticket_comments_ticket_id (ticket_id),
+    KEY idx_ticket_comments_user_id (user_id),
+    CONSTRAINT fk_ticket_comments_ticket FOREIGN KEY (ticket_id)
+        REFERENCES tickets (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_ticket_comments_user FOREIGN KEY (user_id)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
 -- Table: files
 -- Purpose: File metadata for all entity-scoped and system storage folders:
 --          devices   (device_history, evidence)
@@ -645,6 +707,13 @@ CREATE TABLE IF NOT EXISTS files (
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT chk_files_entity_id CHECK (
         entity_type = 'backup' OR entity_id IS NOT NULL
+    ),
+    CONSTRAINT chk_files_category_match CHECK (
+        (entity_type = 'device'       AND category IN ('device_history', 'evidence'))
+     OR (entity_type = 'client'       AND category IN ('client_file', 'notification_log'))
+     OR (entity_type = 'ticket'       AND category IN ('chat_history', 'document'))
+     OR (entity_type = 'organization' AND category IN ('isp_info', 'sat', 'online_payment', 'map', 'logo'))
+     OR (entity_type = 'backup'       AND category = 'backup')
     )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
