@@ -138,7 +138,28 @@ The `devices` table includes SNMP configuration columns (`snmp_enabled`, `snmp_c
 | `snmp_metrics_1hr` | Hourly averages | 1 year | Aggregated avg / min / max per hour |
 | `snmp_metrics_1day` | Daily averages | 3+ years | Aggregated avg / min / max per day |
 
-Hourly and daily aggregates are built via scheduled rollup jobs. Older raw data should be purged after rollup.
+#### Automated Rollup & Retention (MySQL Event Scheduler)
+
+Data aggregation and retention are handled by MySQL stored procedures and scheduled events — the MySQL equivalent of TimescaleDB continuous aggregates and retention policies. The MySQL Event Scheduler must be enabled:
+
+```sql
+SET GLOBAL event_scheduler = ON;
+```
+
+Or in `my.cnf` / `my.ini`:
+
+```ini
+[mysqld]
+event_scheduler = ON
+```
+
+| Event | Schedule | Action |
+|-------|----------|--------|
+| `evt_snmp_rollup_1hr` | Every hour at :05 | Calls `snmp_rollup_to_1hr()` — aggregates raw → hourly |
+| `evt_snmp_rollup_1day` | Daily at 00:30 | Calls `snmp_rollup_to_1day()` — aggregates hourly → daily |
+| `evt_snmp_retention` | Daily at 02:00 | Calls `snmp_apply_retention()` — purges raw > 90 days, hourly > 1 year |
+
+All rollup procedures use `INSERT … ON DUPLICATE KEY UPDATE` for idempotent re-runs. Retention purges use batch deletes (10 000 rows per iteration) to avoid long-running locks.
 
 Documentation and setup instructions will be added as the project develops.
 
