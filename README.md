@@ -35,7 +35,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 1 | `users` | System users and employees (admins, technicians, billing, support) |
 | 2 | `clients` | ISP customer records |
 | 3 | `contacts` | Contact persons associated with clients |
-| 4 | `sites` | Physical installation locations |
+| 4 | `sites` | Transport network NMS locations (POPs, data centers, towers, aggregation nodes) |
 | 5 | `plans` | Internet service packages |
 | 6 | `contracts` | Service contracts linking clients to plans |
 | 7 | `nas` | Network Access Servers for RADIUS authentication |

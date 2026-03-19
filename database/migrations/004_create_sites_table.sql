@@ -1,10 +1,12 @@
 -- Migration: 004_create_sites_table
--- Description: Creates the sites table for physical installation locations
+-- Description: Creates the sites table for transport network NMS locations
 
 CREATE TABLE IF NOT EXISTS sites (
     id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    client_id   BIGINT UNSIGNED NOT NULL,
     name        VARCHAR(255)    NOT NULL,
+    site_type   ENUM('pop', 'data_center', 'tower', 'aggregation_node', 'other')
+                                NOT NULL DEFAULT 'other'
+                                COMMENT 'pop=Point of Presence, data_center=Data Center, tower=Transmission Tower, aggregation_node=Network Aggregation Node',
     address     VARCHAR(255)    NULL,
     city        VARCHAR(100)    NULL,
     state       VARCHAR(100)    NULL,
@@ -18,7 +20,5 @@ CREATE TABLE IF NOT EXISTS sites (
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    KEY idx_sites_client_id (client_id),
-    CONSTRAINT fk_sites_client FOREIGN KEY (client_id)
-        REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
+    KEY idx_sites_site_type (site_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
