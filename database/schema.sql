@@ -144,6 +144,8 @@ CREATE TABLE IF NOT EXISTS contracts (
     billing_cycle  ENUM('monthly', 'quarterly', 'semi_annual', 'annual') NULL COMMENT 'Override cycle; NULL means use the plan billing cycle',
     price_override DECIMAL(10, 2)  NULL COMMENT 'Custom price; NULL means use plan price',
     notes          TEXT            NULL,
+    connection_type ENUM('pppoe', 'static', 'dual') NOT NULL DEFAULT 'pppoe'
+                       COMMENT 'pppoe = PPPoE (requires RADIUS); static = static IPv4 (no RADIUS); dual = dual-stack static IPv4+IPv6 (no RADIUS)',
     status         ENUM('active', 'expired', 'cancelled', 'pending') NOT NULL DEFAULT 'pending',
     created_by     BIGINT UNSIGNED NULL,
     created_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -153,6 +155,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     KEY idx_contracts_client_id (client_id),
     KEY idx_contracts_plan_id (plan_id),
     KEY idx_contracts_site_id (site_id),
+    KEY idx_contracts_connection_type (connection_type),
     KEY idx_contracts_status (status),
     CONSTRAINT fk_contracts_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -521,6 +524,7 @@ CREATE TABLE IF NOT EXISTS ip_pools (
 CREATE TABLE IF NOT EXISTS ip_assignments (
     id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     pool_id     BIGINT UNSIGNED NOT NULL COMMENT 'Parent IP pool',
+    contract_id BIGINT UNSIGNED NULL     COMMENT 'Linked contract (for static/dual connection types)',
     client_id   BIGINT UNSIGNED NULL     COMMENT 'Assigned client',
     device_id   BIGINT UNSIGNED NULL     COMMENT 'Assigned device',
     ip_address  VARCHAR(45)     NOT NULL COMMENT 'Assigned IPv4 or IPv6 address',
@@ -538,11 +542,14 @@ CREATE TABLE IF NOT EXISTS ip_assignments (
     PRIMARY KEY (id),
     UNIQUE KEY uq_ip_assignments_ip (ip_address),
     KEY idx_ip_assignments_pool_id (pool_id),
+    KEY idx_ip_assignments_contract_id (contract_id),
     KEY idx_ip_assignments_client_id (client_id),
     KEY idx_ip_assignments_device_id (device_id),
     KEY idx_ip_assignments_status (status),
     CONSTRAINT fk_ip_assignments_pool FOREIGN KEY (pool_id)
         REFERENCES ip_pools (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_ip_assignments_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_ip_assignments_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_ip_assignments_device FOREIGN KEY (device_id)

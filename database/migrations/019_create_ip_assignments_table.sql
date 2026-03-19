@@ -5,6 +5,7 @@
 CREATE TABLE IF NOT EXISTS ip_assignments (
     id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     pool_id     BIGINT UNSIGNED NOT NULL COMMENT 'Parent IP pool',
+    contract_id BIGINT UNSIGNED NULL     COMMENT 'Linked contract (for static/dual connection types)',
     client_id   BIGINT UNSIGNED NULL     COMMENT 'Assigned client',
     device_id   BIGINT UNSIGNED NULL     COMMENT 'Assigned device',
     ip_address  VARCHAR(45)     NOT NULL COMMENT 'Assigned IPv4 or IPv6 address',
@@ -22,11 +23,14 @@ CREATE TABLE IF NOT EXISTS ip_assignments (
     PRIMARY KEY (id),
     UNIQUE KEY uq_ip_assignments_ip (ip_address),
     KEY idx_ip_assignments_pool_id (pool_id),
+    KEY idx_ip_assignments_contract_id (contract_id),
     KEY idx_ip_assignments_client_id (client_id),
     KEY idx_ip_assignments_device_id (device_id),
     KEY idx_ip_assignments_status (status),
     CONSTRAINT fk_ip_assignments_pool FOREIGN KEY (pool_id)
         REFERENCES ip_pools (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_ip_assignments_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_ip_assignments_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_ip_assignments_device FOREIGN KEY (device_id)
