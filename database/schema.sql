@@ -746,43 +746,80 @@ CREATE TABLE IF NOT EXISTS files (
 -- ---------------------------------------------------------------------------
 -- Table: snmp_metrics
 -- Purpose: Raw SNMP poll data collected every 5 minutes from devices.
---          Retained for 90 days; older rows should be purged or rolled up.
+--          Wide-table design (one row per device/interface per poll) with
+--          monthly RANGE partitioning for instant DROP PARTITION retention.
+--          Retained for 90 days via snmp_maintain_partitions().
+--          No FK on device_id to avoid write overhead on the hot insert path.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS snmp_metrics (
-    id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    device_id    BIGINT UNSIGNED NOT NULL,
-    metric_name  VARCHAR(100)    NOT NULL COMMENT 'Metric key, e.g. ifInOctets, ifOutOctets, sysUptime',
-    metric_oid   VARCHAR(255)    NULL     COMMENT 'SNMP OID that was polled',
-    value_numeric DECIMAL(20,4)  NULL     COMMENT 'Numeric metric value',
-    value_text   VARCHAR(500)    NULL     COMMENT 'Text metric value (for non-numeric OIDs)',
-    polled_at    TIMESTAMP       NOT NULL COMMENT 'Timestamp of the SNMP poll',
-    created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    device_id       BIGINT UNSIGNED NOT NULL,
+    interface_id    VARCHAR(64)     NULL       COMMENT 'SNMP ifIndex or ifDescr for interface-level metrics',
+    if_in_octets    BIGINT          NULL       COMMENT 'ifInOctets -- bytes received',
+    if_out_octets   BIGINT          NULL       COMMENT 'ifOutOctets -- bytes transmitted',
+    if_in_errors    BIGINT          NULL       COMMENT 'ifInErrors -- inbound errors',
+    if_out_errors   BIGINT          NULL       COMMENT 'ifOutErrors -- outbound errors',
+    cpu_usage       SMALLINT        NULL       COMMENT 'CPU utilization percentage',
+    memory_usage    SMALLINT        NULL       COMMENT 'Memory utilization percentage',
+    signal_strength INTEGER         NULL       COMMENT 'Wireless signal strength in dBm',
+    latency_ms      DECIMAL(10,2)   NULL       COMMENT 'ICMP ping latency in milliseconds',
+    polled_at       TIMESTAMP       NOT NULL   COMMENT 'Timestamp of the SNMP poll',
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    PRIMARY KEY (id),
-    KEY idx_snmp_metrics_device_metric_time (device_id, metric_name, polled_at),
-    KEY idx_snmp_metrics_polled_at (polled_at),
-    CONSTRAINT fk_snmp_metrics_device FOREIGN KEY (device_id)
-        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    PRIMARY KEY (id, polled_at),
+    KEY idx_snmp_metrics_device_time (device_id, polled_at),
+    KEY idx_snmp_metrics_device_iface_time (device_id, interface_id, polled_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+PARTITION BY RANGE (UNIX_TIMESTAMP(polled_at)) (
+    PARTITION p2026_01 VALUES LESS THAN (UNIX_TIMESTAMP('2026-02-01')),
+    PARTITION p2026_02 VALUES LESS THAN (UNIX_TIMESTAMP('2026-03-01')),
+    PARTITION p2026_03 VALUES LESS THAN (UNIX_TIMESTAMP('2026-04-01')),
+    PARTITION p2026_04 VALUES LESS THAN (UNIX_TIMESTAMP('2026-05-01')),
+    PARTITION p2026_05 VALUES LESS THAN (UNIX_TIMESTAMP('2026-06-01')),
+    PARTITION p2026_06 VALUES LESS THAN (UNIX_TIMESTAMP('2026-07-01')),
+    PARTITION p_future  VALUES LESS THAN MAXVALUE
+);
 
 -- ---------------------------------------------------------------------------
 -- Table: snmp_metrics_1hr
--- Purpose: Hourly aggregates of SNMP metrics (avg / min / max / sample count).
---          Retained for 1 year; built from snmp_metrics via scheduled rollup.
+-- Purpose: Hourly aggregates of SNMP metrics.  Wide-table design: one row per
+--          device / interface per hour with per-metric avg / min / max columns.
+--          Retained for 1 year via batch DELETE in snmp_apply_retention().
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS snmp_metrics_1hr (
-    id           BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
-    device_id    BIGINT UNSIGNED  NOT NULL,
-    metric_name  VARCHAR(100)     NOT NULL COMMENT 'Metric key matching snmp_metrics.metric_name',
-    period_start TIMESTAMP        NOT NULL COMMENT 'Start of the 1-hour aggregation window',
-    avg_value    DECIMAL(20,4)    NULL     COMMENT 'Average of numeric values in the period',
-    min_value    DECIMAL(20,4)    NULL     COMMENT 'Minimum numeric value in the period',
-    max_value    DECIMAL(20,4)    NULL     COMMENT 'Maximum numeric value in the period',
-    sample_count INT UNSIGNED     NOT NULL DEFAULT 0 COMMENT 'Number of raw samples aggregated',
-    created_at   TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    device_id           BIGINT UNSIGNED NOT NULL,
+    interface_id        VARCHAR(64)     NOT NULL DEFAULT '' COMMENT 'SNMP ifIndex or ifDescr; empty string for device-level metrics',
+    period_start        TIMESTAMP       NOT NULL             COMMENT 'Start of the 1-hour aggregation window',
+    avg_if_in_octets    DECIMAL(20,4)   NULL     COMMENT 'Average ifInOctets in the period',
+    min_if_in_octets    BIGINT          NULL     COMMENT 'Minimum ifInOctets in the period',
+    max_if_in_octets    BIGINT          NULL     COMMENT 'Maximum ifInOctets in the period',
+    avg_if_out_octets   DECIMAL(20,4)   NULL     COMMENT 'Average ifOutOctets in the period',
+    min_if_out_octets   BIGINT          NULL     COMMENT 'Minimum ifOutOctets in the period',
+    max_if_out_octets   BIGINT          NULL     COMMENT 'Maximum ifOutOctets in the period',
+    avg_if_in_errors    DECIMAL(20,4)   NULL     COMMENT 'Average ifInErrors in the period',
+    min_if_in_errors    BIGINT          NULL     COMMENT 'Minimum ifInErrors in the period',
+    max_if_in_errors    BIGINT          NULL     COMMENT 'Maximum ifInErrors in the period',
+    avg_if_out_errors   DECIMAL(20,4)   NULL     COMMENT 'Average ifOutErrors in the period',
+    min_if_out_errors   BIGINT          NULL     COMMENT 'Minimum ifOutErrors in the period',
+    max_if_out_errors   BIGINT          NULL     COMMENT 'Maximum ifOutErrors in the period',
+    avg_cpu_usage       DECIMAL(5,2)    NULL     COMMENT 'Average CPU utilization percentage',
+    min_cpu_usage       SMALLINT        NULL     COMMENT 'Minimum CPU utilization percentage',
+    max_cpu_usage       SMALLINT        NULL     COMMENT 'Maximum CPU utilization percentage',
+    avg_memory_usage    DECIMAL(5,2)    NULL     COMMENT 'Average memory utilization percentage',
+    min_memory_usage    SMALLINT        NULL     COMMENT 'Minimum memory utilization percentage',
+    max_memory_usage    SMALLINT        NULL     COMMENT 'Maximum memory utilization percentage',
+    avg_signal_strength DECIMAL(7,2)    NULL     COMMENT 'Average signal strength in dBm',
+    min_signal_strength INTEGER         NULL     COMMENT 'Minimum signal strength in dBm',
+    max_signal_strength INTEGER         NULL     COMMENT 'Maximum signal strength in dBm',
+    avg_latency_ms      DECIMAL(10,2)   NULL     COMMENT 'Average latency in milliseconds',
+    min_latency_ms      DECIMAL(10,2)   NULL     COMMENT 'Minimum latency in milliseconds',
+    max_latency_ms      DECIMAL(10,2)   NULL     COMMENT 'Maximum latency in milliseconds',
+    sample_count        INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Number of raw samples aggregated',
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_snmp_1hr_device_metric_period (device_id, metric_name, period_start),
+    UNIQUE KEY uq_snmp_1hr_device_iface_period (device_id, interface_id, period_start),
     KEY idx_snmp_1hr_period_start (period_start),
     CONSTRAINT fk_snmp_1hr_device FOREIGN KEY (device_id)
         REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
@@ -790,27 +827,66 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1hr (
 
 -- ---------------------------------------------------------------------------
 -- Table: snmp_metrics_1day
--- Purpose: Daily aggregates of SNMP metrics (avg / min / max / sample count).
---          Retained for 3+ years; built from snmp_metrics_1hr via scheduled
---          rollup.
+-- Purpose: Daily aggregates of SNMP metrics.  Wide-table design: one row per
+--          device / interface per day with per-metric avg / min / max columns.
+--          Retained indefinitely (3+ years).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS snmp_metrics_1day (
-    id           BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
-    device_id    BIGINT UNSIGNED  NOT NULL,
-    metric_name  VARCHAR(100)     NOT NULL COMMENT 'Metric key matching snmp_metrics.metric_name',
-    period_start DATE             NOT NULL COMMENT 'Date of the daily aggregation window',
-    avg_value    DECIMAL(20,4)    NULL     COMMENT 'Average of hourly averages in the period',
-    min_value    DECIMAL(20,4)    NULL     COMMENT 'Minimum value across hourly windows',
-    max_value    DECIMAL(20,4)    NULL     COMMENT 'Maximum value across hourly windows',
-    sample_count INT UNSIGNED     NOT NULL DEFAULT 0 COMMENT 'Number of hourly samples aggregated',
-    created_at   TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    device_id           BIGINT UNSIGNED NOT NULL,
+    interface_id        VARCHAR(64)     NOT NULL DEFAULT '' COMMENT 'SNMP ifIndex or ifDescr; empty string for device-level metrics',
+    period_start        DATE            NOT NULL             COMMENT 'Date of the daily aggregation window',
+    avg_if_in_octets    DECIMAL(20,4)   NULL     COMMENT 'Average ifInOctets across hourly windows',
+    min_if_in_octets    BIGINT          NULL     COMMENT 'Minimum ifInOctets across hourly windows',
+    max_if_in_octets    BIGINT          NULL     COMMENT 'Maximum ifInOctets across hourly windows',
+    avg_if_out_octets   DECIMAL(20,4)   NULL     COMMENT 'Average ifOutOctets across hourly windows',
+    min_if_out_octets   BIGINT          NULL     COMMENT 'Minimum ifOutOctets across hourly windows',
+    max_if_out_octets   BIGINT          NULL     COMMENT 'Maximum ifOutOctets across hourly windows',
+    avg_if_in_errors    DECIMAL(20,4)   NULL     COMMENT 'Average ifInErrors across hourly windows',
+    min_if_in_errors    BIGINT          NULL     COMMENT 'Minimum ifInErrors across hourly windows',
+    max_if_in_errors    BIGINT          NULL     COMMENT 'Maximum ifInErrors across hourly windows',
+    avg_if_out_errors   DECIMAL(20,4)   NULL     COMMENT 'Average ifOutErrors across hourly windows',
+    min_if_out_errors   BIGINT          NULL     COMMENT 'Minimum ifOutErrors across hourly windows',
+    max_if_out_errors   BIGINT          NULL     COMMENT 'Maximum ifOutErrors across hourly windows',
+    avg_cpu_usage       DECIMAL(5,2)    NULL     COMMENT 'Average CPU utilization percentage',
+    min_cpu_usage       SMALLINT        NULL     COMMENT 'Minimum CPU utilization percentage',
+    max_cpu_usage       SMALLINT        NULL     COMMENT 'Maximum CPU utilization percentage',
+    avg_memory_usage    DECIMAL(5,2)    NULL     COMMENT 'Average memory utilization percentage',
+    min_memory_usage    SMALLINT        NULL     COMMENT 'Minimum memory utilization percentage',
+    max_memory_usage    SMALLINT        NULL     COMMENT 'Maximum memory utilization percentage',
+    avg_signal_strength DECIMAL(7,2)    NULL     COMMENT 'Average signal strength in dBm',
+    min_signal_strength INTEGER         NULL     COMMENT 'Minimum signal strength in dBm',
+    max_signal_strength INTEGER         NULL     COMMENT 'Maximum signal strength in dBm',
+    avg_latency_ms      DECIMAL(10,2)   NULL     COMMENT 'Average latency in milliseconds',
+    min_latency_ms      DECIMAL(10,2)   NULL     COMMENT 'Minimum latency in milliseconds',
+    max_latency_ms      DECIMAL(10,2)   NULL     COMMENT 'Maximum latency in milliseconds',
+    sample_count        INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Number of hourly samples aggregated',
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_snmp_1day_device_metric_period (device_id, metric_name, period_start),
+    UNIQUE KEY uq_snmp_1day_device_iface_period (device_id, interface_id, period_start),
     KEY idx_snmp_1day_period_start (period_start),
     CONSTRAINT fk_snmp_1day_device FOREIGN KEY (device_id)
         REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: snmp_rollup_state
+-- Purpose: High-watermark table tracking the last successfully processed
+--          timestamp for each rollup tier.  Enables rollup procedures to
+--          catch up automatically after a missed run or server restart.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS snmp_rollup_state (
+    rollup_name    VARCHAR(32)  NOT NULL COMMENT 'Rollup tier identifier (1hr, 1day)',
+    last_processed TIMESTAMP    NULL     COMMENT 'High-watermark: last successfully processed timestamp',
+    updated_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (rollup_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO snmp_rollup_state (rollup_name, last_processed) VALUES
+    ('1hr',  NULL),
+    ('1day', NULL);
 
 -- =============================================================================
 -- SNMP Rollup Procedures & Scheduled Events
@@ -818,98 +894,270 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1day (
 -- MySQL equivalents of TimescaleDB continuous aggregates and retention policies.
 -- Requires:  SET GLOBAL event_scheduler = ON;  (in my.cnf or at runtime)
 --
--- Rollup flow : snmp_metrics (raw 5-min) → snmp_metrics_1hr → snmp_metrics_1day
--- Retention   : raw kept 90 days, hourly kept 1 year, daily kept indefinitely
+-- Rollup flow : snmp_metrics (raw 5-min) -> snmp_metrics_1hr -> snmp_metrics_1day
+-- Retention   : raw kept 90 days (DROP PARTITION), hourly kept 1 year (batch
+--               DELETE), daily kept indefinitely (3+ years)
 -- =============================================================================
 
 DELIMITER $$
 
 -- ---------------------------------------------------------------------------
 -- Procedure: snmp_rollup_to_1hr
--- Purpose:   Aggregate the last 2 hours of raw 5-min samples into hourly
---            rows.  Uses INSERT … ON DUPLICATE KEY UPDATE so re-runs are
---            idempotent.
+-- Purpose:   Aggregate raw 5-min samples into hourly rows using a
+--            high-watermark so missed runs catch up automatically.
+--            Idempotent via INSERT ... ON DUPLICATE KEY UPDATE.
 -- ---------------------------------------------------------------------------
 CREATE PROCEDURE IF NOT EXISTS snmp_rollup_to_1hr()
-BEGIN
+proc: BEGIN
+    DECLARE v_from_ts TIMESTAMP;
+    DECLARE v_to_ts   TIMESTAMP;
+
+    SELECT COALESCE(last_processed, DATE_SUB(NOW(), INTERVAL 90 DAY))
+    INTO v_from_ts
+    FROM snmp_rollup_state
+    WHERE rollup_name = '1hr';
+
+    SET v_to_ts = DATE_FORMAT(NOW(), '%Y-%m-%d %H:00:00');
+
+    IF v_from_ts >= v_to_ts THEN
+        LEAVE proc;
+    END IF;
+
     INSERT INTO snmp_metrics_1hr
-        (device_id, metric_name, period_start,
-         avg_value, min_value, max_value, sample_count)
+        (device_id, interface_id, period_start,
+         avg_if_in_octets,    min_if_in_octets,    max_if_in_octets,
+         avg_if_out_octets,   min_if_out_octets,   max_if_out_octets,
+         avg_if_in_errors,    min_if_in_errors,    max_if_in_errors,
+         avg_if_out_errors,   min_if_out_errors,   max_if_out_errors,
+         avg_cpu_usage,       min_cpu_usage,        max_cpu_usage,
+         avg_memory_usage,    min_memory_usage,     max_memory_usage,
+         avg_signal_strength, min_signal_strength,  max_signal_strength,
+         avg_latency_ms,      min_latency_ms,       max_latency_ms,
+         sample_count)
     SELECT
         device_id,
-        metric_name,
-        DATE_FORMAT(polled_at, '%Y-%m-%d %H:00:00') AS period_start,
-        AVG(value_numeric),
-        MIN(value_numeric),
-        MAX(value_numeric),
+        COALESCE(interface_id, '')                        AS interface_id,
+        DATE_FORMAT(polled_at, '%Y-%m-%d %H:00:00')       AS period_start,
+        AVG(if_in_octets),    MIN(if_in_octets),    MAX(if_in_octets),
+        AVG(if_out_octets),   MIN(if_out_octets),   MAX(if_out_octets),
+        AVG(if_in_errors),    MIN(if_in_errors),    MAX(if_in_errors),
+        AVG(if_out_errors),   MIN(if_out_errors),   MAX(if_out_errors),
+        AVG(cpu_usage),       MIN(cpu_usage),        MAX(cpu_usage),
+        AVG(memory_usage),    MIN(memory_usage),     MAX(memory_usage),
+        AVG(signal_strength), MIN(signal_strength),  MAX(signal_strength),
+        AVG(latency_ms),      MIN(latency_ms),       MAX(latency_ms),
         COUNT(*)
     FROM snmp_metrics
-    WHERE polled_at >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
-      AND value_numeric IS NOT NULL
-    GROUP BY device_id, metric_name, DATE_FORMAT(polled_at, '%Y-%m-%d %H:00:00')
-    AS new
+    WHERE polled_at >  v_from_ts
+      AND polled_at <  v_to_ts
+    GROUP BY
+        device_id,
+        COALESCE(interface_id, ''),
+        DATE_FORMAT(polled_at, '%Y-%m-%d %H:00:00')
+    AS new_data
     ON DUPLICATE KEY UPDATE
-        avg_value    = new.avg_value,
-        min_value    = new.min_value,
-        max_value    = new.max_value,
-        sample_count = new.sample_count;
+        avg_if_in_octets    = new_data.avg_if_in_octets,
+        min_if_in_octets    = new_data.min_if_in_octets,
+        max_if_in_octets    = new_data.max_if_in_octets,
+        avg_if_out_octets   = new_data.avg_if_out_octets,
+        min_if_out_octets   = new_data.min_if_out_octets,
+        max_if_out_octets   = new_data.max_if_out_octets,
+        avg_if_in_errors    = new_data.avg_if_in_errors,
+        min_if_in_errors    = new_data.min_if_in_errors,
+        max_if_in_errors    = new_data.max_if_in_errors,
+        avg_if_out_errors   = new_data.avg_if_out_errors,
+        min_if_out_errors   = new_data.min_if_out_errors,
+        max_if_out_errors   = new_data.max_if_out_errors,
+        avg_cpu_usage       = new_data.avg_cpu_usage,
+        min_cpu_usage       = new_data.min_cpu_usage,
+        max_cpu_usage       = new_data.max_cpu_usage,
+        avg_memory_usage    = new_data.avg_memory_usage,
+        min_memory_usage    = new_data.min_memory_usage,
+        max_memory_usage    = new_data.max_memory_usage,
+        avg_signal_strength = new_data.avg_signal_strength,
+        min_signal_strength = new_data.min_signal_strength,
+        max_signal_strength = new_data.max_signal_strength,
+        avg_latency_ms      = new_data.avg_latency_ms,
+        min_latency_ms      = new_data.min_latency_ms,
+        max_latency_ms      = new_data.max_latency_ms,
+        sample_count        = new_data.sample_count;
+
+    UPDATE snmp_rollup_state
+    SET last_processed = v_to_ts
+    WHERE rollup_name  = '1hr';
 END$$
 
 -- ---------------------------------------------------------------------------
 -- Procedure: snmp_rollup_to_1day
--- Purpose:   Aggregate the last 2 days of hourly rows into daily rows.
+-- Purpose:   Aggregate hourly rows into daily rows using a high-watermark.
 --            Idempotent via ON DUPLICATE KEY UPDATE.
 -- ---------------------------------------------------------------------------
 CREATE PROCEDURE IF NOT EXISTS snmp_rollup_to_1day()
-BEGIN
+proc: BEGIN
+    DECLARE v_from_date DATE;
+    DECLARE v_to_date   DATE;
+
+    SELECT COALESCE(DATE(last_processed), DATE_SUB(CURDATE(), INTERVAL 1 YEAR))
+    INTO v_from_date
+    FROM snmp_rollup_state
+    WHERE rollup_name = '1day';
+
+    SET v_to_date = CURDATE();
+
+    IF v_from_date >= v_to_date THEN
+        LEAVE proc;
+    END IF;
+
     INSERT INTO snmp_metrics_1day
-        (device_id, metric_name, period_start,
-         avg_value, min_value, max_value, sample_count)
+        (device_id, interface_id, period_start,
+         avg_if_in_octets,    min_if_in_octets,    max_if_in_octets,
+         avg_if_out_octets,   min_if_out_octets,   max_if_out_octets,
+         avg_if_in_errors,    min_if_in_errors,    max_if_in_errors,
+         avg_if_out_errors,   min_if_out_errors,   max_if_out_errors,
+         avg_cpu_usage,       min_cpu_usage,        max_cpu_usage,
+         avg_memory_usage,    min_memory_usage,     max_memory_usage,
+         avg_signal_strength, min_signal_strength,  max_signal_strength,
+         avg_latency_ms,      min_latency_ms,       max_latency_ms,
+         sample_count)
     SELECT
         device_id,
-        metric_name,
-        DATE(period_start) AS period_start,
-        AVG(avg_value),
-        MIN(min_value),
-        MAX(max_value),
+        interface_id,
+        DATE(period_start)                                AS period_start,
+        AVG(avg_if_in_octets),    MIN(min_if_in_octets),    MAX(max_if_in_octets),
+        AVG(avg_if_out_octets),   MIN(min_if_out_octets),   MAX(max_if_out_octets),
+        AVG(avg_if_in_errors),    MIN(min_if_in_errors),    MAX(max_if_in_errors),
+        AVG(avg_if_out_errors),   MIN(min_if_out_errors),   MAX(max_if_out_errors),
+        AVG(avg_cpu_usage),       MIN(min_cpu_usage),        MAX(max_cpu_usage),
+        AVG(avg_memory_usage),    MIN(min_memory_usage),     MAX(max_memory_usage),
+        AVG(avg_signal_strength), MIN(min_signal_strength),  MAX(max_signal_strength),
+        AVG(avg_latency_ms),      MIN(min_latency_ms),       MAX(max_latency_ms),
         SUM(sample_count)
     FROM snmp_metrics_1hr
-    WHERE period_start >= DATE_SUB(CURDATE(), INTERVAL 2 DAY)
-    GROUP BY device_id, metric_name, DATE(period_start)
-    AS new
+    WHERE period_start >= v_from_date
+      AND period_start <  v_to_date
+    GROUP BY device_id, interface_id, DATE(period_start)
+    AS new_data
     ON DUPLICATE KEY UPDATE
-        avg_value    = new.avg_value,
-        min_value    = new.min_value,
-        max_value    = new.max_value,
-        sample_count = new.sample_count;
+        avg_if_in_octets    = new_data.avg_if_in_octets,
+        min_if_in_octets    = new_data.min_if_in_octets,
+        max_if_in_octets    = new_data.max_if_in_octets,
+        avg_if_out_octets   = new_data.avg_if_out_octets,
+        min_if_out_octets   = new_data.min_if_out_octets,
+        max_if_out_octets   = new_data.max_if_out_octets,
+        avg_if_in_errors    = new_data.avg_if_in_errors,
+        min_if_in_errors    = new_data.min_if_in_errors,
+        max_if_in_errors    = new_data.max_if_in_errors,
+        avg_if_out_errors   = new_data.avg_if_out_errors,
+        min_if_out_errors   = new_data.min_if_out_errors,
+        max_if_out_errors   = new_data.max_if_out_errors,
+        avg_cpu_usage       = new_data.avg_cpu_usage,
+        min_cpu_usage       = new_data.min_cpu_usage,
+        max_cpu_usage       = new_data.max_cpu_usage,
+        avg_memory_usage    = new_data.avg_memory_usage,
+        min_memory_usage    = new_data.min_memory_usage,
+        max_memory_usage    = new_data.max_memory_usage,
+        avg_signal_strength = new_data.avg_signal_strength,
+        min_signal_strength = new_data.min_signal_strength,
+        max_signal_strength = new_data.max_signal_strength,
+        avg_latency_ms      = new_data.avg_latency_ms,
+        min_latency_ms      = new_data.min_latency_ms,
+        max_latency_ms      = new_data.max_latency_ms,
+        sample_count        = new_data.sample_count;
+
+    UPDATE snmp_rollup_state
+    SET last_processed = TIMESTAMP(v_to_date)
+    WHERE rollup_name  = '1day';
 END$$
 
 -- ---------------------------------------------------------------------------
 -- Procedure: snmp_apply_retention
--- Purpose:   Purge raw samples older than 90 days and hourly rows older than
---            1 year.  Daily rows are kept indefinitely (3+ years).
---            Deletes in batches of 10 000 to avoid long-running locks.
+-- Purpose:   Purge hourly rows older than 1 year via batch DELETE.
+--            Daily rows are kept indefinitely (3+ years).
+--            Raw snmp_metrics retention is handled by snmp_maintain_partitions()
+--            using instant DROP PARTITION.
 -- ---------------------------------------------------------------------------
 CREATE PROCEDURE IF NOT EXISTS snmp_apply_retention()
 BEGIN
     DECLARE rows_deleted INT DEFAULT 1;
 
-    -- Purge raw data older than 90 days (batch delete)
-    WHILE rows_deleted > 0 DO
-        DELETE FROM snmp_metrics
-        WHERE polled_at < DATE_SUB(NOW(), INTERVAL 90 DAY)
-        LIMIT 10000;
-        SET rows_deleted = ROW_COUNT();
-    END WHILE;
-
-    -- Purge hourly data older than 1 year (batch delete)
-    SET rows_deleted = 1;
     WHILE rows_deleted > 0 DO
         DELETE FROM snmp_metrics_1hr
         WHERE period_start < DATE_SUB(NOW(), INTERVAL 1 YEAR)
         LIMIT 10000;
         SET rows_deleted = ROW_COUNT();
     END WHILE;
+END$$
+
+-- ---------------------------------------------------------------------------
+-- Procedure: snmp_maintain_partitions
+-- Purpose:   (1) Ensure monthly partitions exist for the next 3 months by
+--                reorganising p_future before it is needed.
+--            (2) Drop partitions whose upper bound is older than 90 days
+--                (instant operation -- replaces batch-DELETE retention for
+--                raw snmp_metrics).
+-- ---------------------------------------------------------------------------
+CREATE PROCEDURE IF NOT EXISTS snmp_maintain_partitions()
+BEGIN
+    DECLARE v_month     DATE;
+    DECLARE v_pname     VARCHAR(32);
+    DECLARE v_next_ts   BIGINT;
+    DECLARE v_exists    INT  DEFAULT 0;
+    DECLARE v_cutoff_ts BIGINT;
+    DECLARE v_old_pname VARCHAR(32);
+    DECLARE v_done      TINYINT DEFAULT 0;
+
+    DECLARE c_old CURSOR FOR
+        SELECT partition_name
+        FROM information_schema.PARTITIONS
+        WHERE table_schema = DATABASE()
+          AND table_name   = 'snmp_metrics'
+          AND partition_name != 'p_future'
+          AND partition_description != 'MAXVALUE'
+          AND CAST(partition_description AS UNSIGNED) <= v_cutoff_ts;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_done = 1;
+
+    -- Ensure partitions exist for the next 3 full months
+    SET v_month = DATE_FORMAT(DATE_ADD(CURDATE(), INTERVAL 1 MONTH), '%Y-%m-01');
+
+    WHILE v_month <= DATE_FORMAT(DATE_ADD(CURDATE(), INTERVAL 3 MONTH), '%Y-%m-01') DO
+        SET v_pname   = CONCAT('p', DATE_FORMAT(v_month, '%Y_%m'));
+        SET v_next_ts = UNIX_TIMESTAMP(DATE_ADD(v_month, INTERVAL 1 MONTH));
+
+        SELECT COUNT(*) INTO v_exists
+        FROM information_schema.PARTITIONS
+        WHERE table_schema = DATABASE()
+          AND table_name   = 'snmp_metrics'
+          AND partition_name = v_pname;
+
+        IF v_exists = 0 THEN
+            SET @sql = CONCAT(
+                'ALTER TABLE snmp_metrics REORGANIZE PARTITION p_future INTO (',
+                'PARTITION ', v_pname, ' VALUES LESS THAN (', v_next_ts, '), ',
+                'PARTITION p_future VALUES LESS THAN MAXVALUE)'
+            );
+            PREPARE stmt FROM @sql;
+            EXECUTE stmt;
+            DEALLOCATE PREPARE stmt;
+        END IF;
+
+        SET v_month = DATE_ADD(v_month, INTERVAL 1 MONTH);
+    END WHILE;
+
+    -- Drop partitions older than 90 days
+    SET v_cutoff_ts = UNIX_TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL 90 DAY));
+    SET v_done = 0;
+
+    OPEN c_old;
+    drop_loop: LOOP
+        FETCH c_old INTO v_old_pname;
+        IF v_done THEN LEAVE drop_loop; END IF;
+        SET @sql = CONCAT('ALTER TABLE snmp_metrics DROP PARTITION ', v_old_pname);
+        PREPARE stmt FROM @sql;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+    END LOOP;
+    CLOSE c_old;
 END$$
 
 DELIMITER ;
@@ -934,12 +1182,19 @@ CREATE EVENT IF NOT EXISTS evt_snmp_rollup_1day
     COMMENT 'Aggregate hourly SNMP rows into snmp_metrics_1day once per day'
     DO CALL snmp_rollup_to_1day();
 
--- Run retention purge once per day at 02:00
+-- Run retention purge once per day at 02:00 (hourly data only)
 CREATE EVENT IF NOT EXISTS evt_snmp_retention
     ON SCHEDULE EVERY 1 DAY
     STARTS (CURRENT_DATE + INTERVAL 1 DAY + INTERVAL 2 HOUR)
     ON COMPLETION PRESERVE
-    COMMENT 'Purge raw SNMP data >90 days and hourly data >1 year'
+    COMMENT 'Purge hourly SNMP data older than 1 year'
     DO CALL snmp_apply_retention();
 
+-- Run partition maintenance daily at 03:00
+CREATE EVENT IF NOT EXISTS evt_snmp_partition_maintenance
+    ON SCHEDULE EVERY 1 DAY
+    STARTS (CURRENT_DATE + INTERVAL 1 DAY + INTERVAL 3 HOUR)
+    ON COMPLETION PRESERVE
+    COMMENT 'Maintain snmp_metrics monthly partitions: add future, drop expired'
+    DO CALL snmp_maintain_partitions();
 SET FOREIGN_KEY_CHECKS = 1;
