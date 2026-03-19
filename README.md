@@ -84,6 +84,9 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 19 | `ip_assignments` | Individual IP / prefix assignments to clients and devices (IPv4 single-address or IPv6 prefix delegation) |
 | 20 | `audit_logs` | System-wide audit trail (who changed what and when) |
 | 21 | `notifications` | User notifications and alerts (billing, network, tickets) |
+| 22 | `invoice_items` | Individual line items that make up an invoice's subtotal |
+| 23 | `quote_items` | Individual line items that make up a quote's subtotal |
+| 24 | `ticket_comments` | Conversation tracking and internal notes on support tickets |
 
 ### Storage Folders
 

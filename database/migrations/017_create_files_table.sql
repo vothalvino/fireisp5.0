@@ -43,5 +43,12 @@ CREATE TABLE IF NOT EXISTS files (
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT chk_files_entity_id CHECK (
         entity_type = 'backup' OR entity_id IS NOT NULL
+    ),
+    CONSTRAINT chk_files_category_match CHECK (
+        (entity_type = 'device'       AND category IN ('device_history', 'evidence'))
+     OR (entity_type = 'client'       AND category IN ('client_file', 'notification_log'))
+     OR (entity_type = 'ticket'       AND category IN ('chat_history', 'document'))
+     OR (entity_type = 'organization' AND category IN ('isp_info', 'sat', 'online_payment', 'map', 'logo'))
+     OR (entity_type = 'backup'       AND category = 'backup')
     )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
