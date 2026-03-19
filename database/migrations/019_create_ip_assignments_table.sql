@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS ip_assignments (
     mac_address VARCHAR(17)     NULL     COMMENT 'Bound MAC address (XX:XX:XX:XX:XX:XX)',
     type        ENUM('static', 'dynamic', 'reserved') NOT NULL DEFAULT 'dynamic',
     notes       TEXT            NULL,
-    status      ENUM('active', 'available', 'reserved', 'expired') NOT NULL DEFAULT 'available',
+    status      ENUM('active', 'available', 'expired') NOT NULL DEFAULT 'available'
+                    COMMENT 'Lifecycle state — reservation intent is captured by the type field',
     assigned_at TIMESTAMP       NULL,
     expires_at  TIMESTAMP       NULL,
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
