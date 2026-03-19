@@ -609,7 +609,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     description VARCHAR(255)    NOT NULL COMMENT 'Line-item description e.g. plan name, one-time fee',
     quantity    DECIMAL(10, 2)  NOT NULL DEFAULT 1.00,
     unit_price  DECIMAL(10, 2)  NOT NULL,
-    total       DECIMAL(10, 2)  NOT NULL COMMENT 'quantity * unit_price',
+    total       DECIMAL(10, 2)  GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT 'quantity * unit_price',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
@@ -629,7 +629,7 @@ CREATE TABLE IF NOT EXISTS quote_items (
     description VARCHAR(255)    NOT NULL COMMENT 'Line-item description e.g. service, installation fee',
     quantity    DECIMAL(10, 2)  NOT NULL DEFAULT 1.00,
     unit_price  DECIMAL(10, 2)  NOT NULL,
-    total       DECIMAL(10, 2)  NOT NULL COMMENT 'quantity * unit_price',
+    total       DECIMAL(10, 2)  GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT 'quantity * unit_price',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
