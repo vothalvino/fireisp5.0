@@ -7,8 +7,8 @@ ALTER TABLE devices
     ADD COLUMN snmp_enabled   BOOLEAN         NOT NULL DEFAULT FALSE
         COMMENT 'Enable SNMP polling for this device'
         AFTER firmware,
-    ADD COLUMN snmp_community VARCHAR(100)    NULL
-        COMMENT 'SNMP community string (v1/v2c)'
+    ADD COLUMN snmp_community VARCHAR(255)    NULL
+        COMMENT 'SNMP community string (v1/v2c) — store encrypted; decrypt at application layer'
         AFTER snmp_enabled,
     ADD COLUMN snmp_version   ENUM('v1','v2c','v3') NULL DEFAULT 'v2c'
         COMMENT 'SNMP protocol version'

@@ -264,7 +264,7 @@ CREATE TABLE IF NOT EXISTS devices (
     ipv6_address  VARCHAR(45)     NULL COMMENT 'Management IPv6 address (dual-stack)',
     firmware      VARCHAR(100)    NULL,
     snmp_enabled  BOOLEAN         NOT NULL DEFAULT FALSE COMMENT 'Enable SNMP polling for this device',
-    snmp_community VARCHAR(100)   NULL COMMENT 'SNMP community string (v1/v2c)',
+    snmp_community VARCHAR(255)   NULL COMMENT 'SNMP community string (v1/v2c) — store encrypted; decrypt at application layer',
     snmp_version  ENUM('v1','v2c','v3') NULL DEFAULT 'v2c' COMMENT 'SNMP protocol version',
     snmp_port     SMALLINT UNSIGNED NULL DEFAULT 161 COMMENT 'SNMP UDP port',
     status        ENUM('online', 'offline', 'maintenance') NOT NULL DEFAULT 'offline',
