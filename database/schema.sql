@@ -480,6 +480,117 @@ CREATE TABLE IF NOT EXISTS organizations (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
+-- Table: ip_pools
+-- Purpose: IP address pools available for subscriber assignment (IPAM)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ip_pools (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    name        VARCHAR(255)    NOT NULL COMMENT 'Pool name e.g. Residential-Pool-1',
+    network     VARCHAR(45)     NOT NULL COMMENT 'Network address e.g. 10.0.0.0',
+    cidr        TINYINT UNSIGNED NOT NULL COMMENT 'CIDR prefix length e.g. 24',
+    gateway     VARCHAR(45)     NULL     COMMENT 'Default gateway for the pool',
+    dns_primary VARCHAR(45)     NULL     COMMENT 'Primary DNS server',
+    dns_secondary VARCHAR(45)   NULL     COMMENT 'Secondary DNS server',
+    site_id     BIGINT UNSIGNED NULL     COMMENT 'Site / POP the pool is served from',
+    notes       TEXT            NULL,
+    status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_ip_pools_network_cidr (network, cidr),
+    KEY idx_ip_pools_site_id (site_id),
+    KEY idx_ip_pools_status (status),
+    CONSTRAINT fk_ip_pools_site FOREIGN KEY (site_id)
+        REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: ip_assignments
+-- Purpose: Track individual IP address assignments to clients / devices
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ip_assignments (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    pool_id     BIGINT UNSIGNED NOT NULL COMMENT 'Parent IP pool',
+    client_id   BIGINT UNSIGNED NULL     COMMENT 'Assigned client',
+    device_id   BIGINT UNSIGNED NULL     COMMENT 'Assigned device',
+    ip_address  VARCHAR(45)     NOT NULL COMMENT 'Assigned IPv4 or IPv6 address',
+    mac_address VARCHAR(17)     NULL     COMMENT 'Bound MAC address (XX:XX:XX:XX:XX:XX)',
+    type        ENUM('static', 'dynamic', 'reserved') NOT NULL DEFAULT 'dynamic',
+    notes       TEXT            NULL,
+    status      ENUM('active', 'available', 'reserved', 'expired') NOT NULL DEFAULT 'available',
+    assigned_at TIMESTAMP       NULL,
+    expires_at  TIMESTAMP       NULL,
+    created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_ip_assignments_ip (ip_address),
+    KEY idx_ip_assignments_pool_id (pool_id),
+    KEY idx_ip_assignments_client_id (client_id),
+    KEY idx_ip_assignments_device_id (device_id),
+    KEY idx_ip_assignments_status (status),
+    CONSTRAINT fk_ip_assignments_pool FOREIGN KEY (pool_id)
+        REFERENCES ip_pools (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_ip_assignments_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_ip_assignments_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: audit_logs
+-- Purpose: System-wide audit trail for tracking who changed what and when
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id     BIGINT UNSIGNED NULL     COMMENT 'User who performed the action; NULL for system actions',
+    action      ENUM('create', 'update', 'delete', 'login', 'logout', 'export', 'other') NOT NULL,
+    entity_type VARCHAR(50)     NOT NULL COMMENT 'Table or resource name e.g. clients, invoices',
+    entity_id   BIGINT UNSIGNED NULL     COMMENT 'ID of the affected record',
+    summary     VARCHAR(500)    NULL     COMMENT 'Human-readable description of the change',
+    old_values  JSON            NULL     COMMENT 'Previous field values (JSON)',
+    new_values  JSON            NULL     COMMENT 'Updated field values (JSON)',
+    ip_address  VARCHAR(45)     NULL     COMMENT 'IP address of the request origin',
+    user_agent  VARCHAR(500)    NULL     COMMENT 'Browser / API client identifier',
+    created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_audit_logs_user_id (user_id),
+    KEY idx_audit_logs_entity (entity_type, entity_id),
+    KEY idx_audit_logs_action (action),
+    KEY idx_audit_logs_created_at (created_at),
+    CONSTRAINT fk_audit_logs_user FOREIGN KEY (user_id)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: notifications
+-- Purpose: System notifications and alerts for users (billing reminders,
+--          network alerts, ticket updates, etc.)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS notifications (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id     BIGINT UNSIGNED NOT NULL COMMENT 'Recipient user',
+    title       VARCHAR(255)    NOT NULL,
+    body        TEXT            NULL,
+    type        ENUM('info', 'warning', 'error', 'billing', 'network', 'ticket') NOT NULL DEFAULT 'info',
+    entity_type VARCHAR(50)     NULL     COMMENT 'Related entity e.g. invoices, tickets',
+    entity_id   BIGINT UNSIGNED NULL     COMMENT 'Related entity ID for deep linking',
+    is_read     TINYINT(1)      NOT NULL DEFAULT 0,
+    read_at     TIMESTAMP       NULL,
+    created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_notifications_user_id (user_id),
+    KEY idx_notifications_is_read (is_read),
+    KEY idx_notifications_type (type),
+    KEY idx_notifications_created_at (created_at),
+    CONSTRAINT fk_notifications_user FOREIGN KEY (user_id)
+        REFERENCES users (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
 -- Table: files
 -- Purpose: File metadata for all entity-scoped and system storage folders:
 --          devices   (device_history, evidence)
