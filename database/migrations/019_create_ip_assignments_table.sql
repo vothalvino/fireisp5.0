@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS ip_assignments (
     client_id   BIGINT UNSIGNED NULL     COMMENT 'Assigned client',
     device_id   BIGINT UNSIGNED NULL     COMMENT 'Assigned device',
     ip_address  VARCHAR(45)     NOT NULL COMMENT 'Assigned IPv4 or IPv6 address',
+    prefix_len  TINYINT UNSIGNED NULL     COMMENT 'For IPv6 prefix delegation: prefix length delegated to subscriber (e.g. 48, 56, 64); NULL for single-address assignments',
     mac_address VARCHAR(17)     NULL     COMMENT 'Bound MAC address (XX:XX:XX:XX:XX:XX)',
     type        ENUM('static', 'dynamic', 'reserved') NOT NULL DEFAULT 'dynamic',
     notes       TEXT            NULL,
