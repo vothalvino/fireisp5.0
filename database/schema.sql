@@ -267,6 +267,8 @@ CREATE TABLE IF NOT EXISTS devices (
     snmp_community VARCHAR(255)   NULL COMMENT 'SNMP community string (v1/v2c) — store encrypted; decrypt at application layer',
     snmp_version  ENUM('v1','v2c','v3') NULL DEFAULT 'v2c' COMMENT 'SNMP protocol version',
     snmp_port     SMALLINT UNSIGNED NULL DEFAULT 161 COMMENT 'SNMP UDP port',
+    snmp_profile_id BIGINT UNSIGNED NULL
+                                       COMMENT 'Explicit SNMP profile override; NULL = auto-match by manufacturer/model/type',
     status        ENUM('online', 'offline', 'maintenance') NOT NULL DEFAULT 'offline',
     notes         TEXT            NULL,
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -278,10 +280,13 @@ CREATE TABLE IF NOT EXISTS devices (
     KEY idx_devices_category (category),
     KEY idx_devices_status (status),
     KEY idx_devices_snmp_enabled (snmp_enabled),
+    KEY idx_devices_snmp_profile_id (snmp_profile_id),
     CONSTRAINT fk_devices_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_devices_client FOREIGN KEY (client_id)
-        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_devices_snmp_profile FOREIGN KEY (snmp_profile_id)
+        REFERENCES snmp_profiles (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -887,6 +892,192 @@ CREATE TABLE IF NOT EXISTS snmp_rollup_state (
 INSERT IGNORE INTO snmp_rollup_state (rollup_name, last_processed) VALUES
     ('1hr',  NULL),
     ('1day', NULL);
+
+-- ---------------------------------------------------------------------------
+-- Table: snmp_profiles
+-- Purpose: Named SNMP polling templates matched by manufacturer/model/device_type.
+--          The poller selects a profile per device and walks only the OIDs
+--          defined in snmp_profile_oids for that profile.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS snmp_profiles (
+    id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    name          VARCHAR(100)    NOT NULL COMMENT 'Profile name e.g. Ubiquiti airOS, MikroTik RouterOS',
+    manufacturer  VARCHAR(100)    NULL     COMMENT 'Match devices.manufacturer (NULL = any)',
+    model_pattern VARCHAR(100)    NULL     COMMENT 'SQL LIKE pattern to match devices.model (NULL = any)',
+    device_type   ENUM('outdoor_cpe','indoor_cpe','ptp','ptmp_ap','olt','router','switch','onu','other') NULL
+                                           COMMENT 'Match devices.type (NULL = any)',
+    snmp_version  ENUM('v1','v2c','v3') NULL DEFAULT 'v2c' COMMENT 'Preferred SNMP version for this profile',
+    poll_interval_sec INT UNSIGNED NOT NULL DEFAULT 300 COMMENT 'Poll interval in seconds (default 5 min)',
+    is_default    BOOLEAN         NOT NULL DEFAULT FALSE COMMENT 'Fallback profile when no manufacturer/model match',
+    description   TEXT            NULL,
+    status        ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_snmp_profiles_name (name),
+    KEY idx_snmp_profiles_manufacturer (manufacturer),
+    KEY idx_snmp_profiles_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: snmp_profile_oids
+-- Purpose: Maps vendor-specific SNMP OIDs to the normalized metric columns in
+--          snmp_metrics (if_in_octets, cpu_usage, signal_strength, etc.).
+--          Each row tells the poller: "for this profile, poll this OID and
+--          store the result in this snmp_metrics column".
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS snmp_profile_oids (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    profile_id      BIGINT UNSIGNED NOT NULL,
+    oid             VARCHAR(255)    NOT NULL COMMENT 'SNMP OID to poll e.g. 1.3.6.1.2.1.2.2.1.10',
+    metric_column   VARCHAR(64)     NOT NULL COMMENT 'Target column in snmp_metrics: if_in_octets, cpu_usage, signal_strength, etc.',
+    label           VARCHAR(100)    NULL     COMMENT 'Human-readable label for display',
+    oid_type        ENUM('gauge','counter','counter64','string','timeticks') NOT NULL DEFAULT 'gauge'
+                                             COMMENT 'SNMP value type for proper delta/rate calculation',
+    is_per_interface BOOLEAN        NOT NULL DEFAULT FALSE COMMENT 'TRUE = walk ifTable with ifIndex, FALSE = scalar',
+    transform       VARCHAR(255)    NULL     COMMENT 'Optional transform expression e.g. "value / 10", "value * -1"',
+    sort_order      INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Display ordering within the profile',
+    status          ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_profile_oid (profile_id, oid),
+    KEY idx_snmp_profile_oids_metric (metric_column),
+    KEY idx_snmp_profile_oids_status (status),
+    CONSTRAINT fk_snmp_profile_oids_profile FOREIGN KEY (profile_id)
+        REFERENCES snmp_profiles (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Seed: snmp_profiles — pre-built profiles for common ISP device vendors
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO snmp_profiles
+    (name, manufacturer, model_pattern, device_type, snmp_version, poll_interval_sec, is_default, description)
+VALUES
+    (
+        'Generic IF-MIB',
+        NULL, NULL, NULL,
+        'v2c', 300, TRUE,
+        'Default fallback profile using standard IF-MIB (RFC 2863) and HOST-RESOURCES-MIB (RFC 2790) OIDs. Applied to any device that does not match a more specific profile.'
+    ),
+    (
+        'Ubiquiti airOS',
+        'Ubiquiti', NULL, NULL,
+        'v2c', 300, FALSE,
+        'Ubiquiti airOS devices (airMAX, airFiber). Uses Ubiquiti enterprise MIB (OID prefix 1.3.6.1.4.1.41112) for signal strength, CPU, and memory in addition to standard IF-MIB interface counters.'
+    ),
+    (
+        'MikroTik RouterOS',
+        'MikroTik', NULL, NULL,
+        'v2c', 300, FALSE,
+        'MikroTik RouterOS devices. Uses MikroTik enterprise MIB (OID prefix 1.3.6.1.4.1.14988) for wireless signal strength in addition to standard IF-MIB interface counters and HOST-RESOURCES-MIB CPU/memory.'
+    ),
+    (
+        'Cambium Networks',
+        'Cambium', NULL, NULL,
+        'v2c', 300, FALSE,
+        'Cambium Networks devices (ePMP, PMP, cnPilot). Uses Cambium enterprise MIB (OID prefix 1.3.6.1.4.1.161) for RSSI and CPU in addition to standard IF-MIB interface counters.'
+    );
+
+-- ---------------------------------------------------------------------------
+-- Seed: snmp_profile_oids — OID mappings per vendor profile
+-- ---------------------------------------------------------------------------
+
+-- Generic IF-MIB OIDs
+INSERT IGNORE INTO snmp_profile_oids
+    (profile_id, oid, metric_column, label, oid_type, is_per_interface, transform, sort_order)
+SELECT
+    p.id,
+    o.oid,
+    o.metric_column,
+    o.label,
+    o.oid_type,
+    o.is_per_interface,
+    o.transform,
+    o.sort_order
+FROM snmp_profiles p
+JOIN (
+    SELECT '1.3.6.1.2.1.2.2.1.10'   AS oid, 'if_in_octets'   AS metric_column, 'Inbound Octets'           AS label, 'counter' AS oid_type, TRUE  AS is_per_interface, NULL        AS transform, 10 AS sort_order UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.16',         'if_out_octets',               'Outbound Octets',             'counter', TRUE,  NULL,  20 UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.14',         'if_in_errors',                'Inbound Errors',              'counter', TRUE,  NULL,  30 UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.20',         'if_out_errors',               'Outbound Errors',             'counter', TRUE,  NULL,  40 UNION ALL
+    SELECT '1.3.6.1.2.1.25.3.3.1.2',       'cpu_usage',                   'CPU Usage (%)',               'gauge',   FALSE, NULL,  50 UNION ALL
+    SELECT '1.3.6.1.2.1.25.2.3.1.6',       'memory_usage',                'Memory Used (storage units)', 'gauge',   FALSE, NULL,  60
+) o
+WHERE p.name = 'Generic IF-MIB';
+
+-- Ubiquiti airOS OIDs
+INSERT IGNORE INTO snmp_profile_oids
+    (profile_id, oid, metric_column, label, oid_type, is_per_interface, transform, sort_order)
+SELECT
+    p.id,
+    o.oid,
+    o.metric_column,
+    o.label,
+    o.oid_type,
+    o.is_per_interface,
+    o.transform,
+    o.sort_order
+FROM snmp_profiles p
+JOIN (
+    SELECT '1.3.6.1.2.1.2.2.1.10'        AS oid, 'if_in_octets'   AS metric_column, 'Inbound Octets'    AS label, 'counter' AS oid_type, TRUE  AS is_per_interface, NULL AS transform, 10 AS sort_order UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.16',              'if_out_octets',               'Outbound Octets',        'counter', TRUE,  NULL, 20 UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.14',              'if_in_errors',                'Inbound Errors',         'counter', TRUE,  NULL, 30 UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.20',              'if_out_errors',               'Outbound Errors',        'counter', TRUE,  NULL, 40 UNION ALL
+    SELECT '1.3.6.1.4.1.41112.1.4.5.1.5',       'signal_strength',             'airOS Signal (dBm)',     'gauge',   FALSE, NULL, 50 UNION ALL
+    SELECT '1.3.6.1.4.1.41112.1.4.5.1.2',       'cpu_usage',                   'airOS CPU (%)',          'gauge',   FALSE, NULL, 60 UNION ALL
+    SELECT '1.3.6.1.4.1.41112.1.4.5.1.4',       'memory_usage',                'airOS Memory (%)',       'gauge',   FALSE, NULL, 70
+) o
+WHERE p.name = 'Ubiquiti airOS';
+
+-- MikroTik RouterOS OIDs
+INSERT IGNORE INTO snmp_profile_oids
+    (profile_id, oid, metric_column, label, oid_type, is_per_interface, transform, sort_order)
+SELECT
+    p.id,
+    o.oid,
+    o.metric_column,
+    o.label,
+    o.oid_type,
+    o.is_per_interface,
+    o.transform,
+    o.sort_order
+FROM snmp_profiles p
+JOIN (
+    SELECT '1.3.6.1.2.1.2.2.1.10'           AS oid, 'if_in_octets'   AS metric_column, 'Inbound Octets'             AS label, 'counter' AS oid_type, TRUE  AS is_per_interface, NULL AS transform, 10 AS sort_order UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.16',                 'if_out_octets',               'Outbound Octets',                'counter', TRUE,  NULL, 20 UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.14',                 'if_in_errors',                'Inbound Errors',                 'counter', TRUE,  NULL, 30 UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.20',                 'if_out_errors',               'Outbound Errors',                'counter', TRUE,  NULL, 40 UNION ALL
+    SELECT '1.3.6.1.2.1.25.3.3.1.2',               'cpu_usage',                   'CPU Usage (HOST-RESOURCES)',     'gauge',   FALSE, NULL, 50 UNION ALL
+    SELECT '1.3.6.1.2.1.25.2.3.1.6',               'memory_usage',                'Memory Used (hrStorageUsed)',    'gauge',   FALSE, NULL, 60 UNION ALL
+    SELECT '1.3.6.1.4.1.14988.1.1.1.2.1.3',        'signal_strength',             'RouterOS Wireless Signal (dBm)', 'gauge',   FALSE, NULL, 70
+) o
+WHERE p.name = 'MikroTik RouterOS';
+
+-- Cambium Networks OIDs
+INSERT IGNORE INTO snmp_profile_oids
+    (profile_id, oid, metric_column, label, oid_type, is_per_interface, transform, sort_order)
+SELECT
+    p.id,
+    o.oid,
+    o.metric_column,
+    o.label,
+    o.oid_type,
+    o.is_per_interface,
+    o.transform,
+    o.sort_order
+FROM snmp_profiles p
+JOIN (
+    SELECT '1.3.6.1.2.1.2.2.1.10'           AS oid, 'if_in_octets'   AS metric_column, 'Inbound Octets'   AS label, 'counter' AS oid_type, TRUE  AS is_per_interface, NULL AS transform, 10 AS sort_order UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.16',                 'if_out_octets',               'Outbound Octets',       'counter', TRUE,  NULL, 20 UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.14',                 'if_in_errors',                'Inbound Errors',        'counter', TRUE,  NULL, 30 UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.20',                 'if_out_errors',               'Outbound Errors',       'counter', TRUE,  NULL, 40 UNION ALL
+    SELECT '1.3.6.1.4.1.161.19.3.2.2.117.0',       'signal_strength',             'Cambium RSSI (dBm)',    'gauge',   FALSE, NULL, 50 UNION ALL
+    SELECT '1.3.6.1.4.1.161.19.3.1.4.1.0',         'cpu_usage',                   'Cambium CPU (%)',       'gauge',   FALSE, NULL, 60
+) o
+WHERE p.name = 'Cambium Networks';
 
 -- =============================================================================
 -- SNMP Rollup Procedures & Scheduled Events

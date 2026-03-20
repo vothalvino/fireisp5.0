@@ -190,6 +190,61 @@ event_scheduler = ON
 
 All rollup procedures use a **high-watermark** (`snmp_rollup_state` table) to track the last successfully processed timestamp, so missed runs catch up automatically rather than only looking back a fixed window. Rollup procedures use `INSERT … ON DUPLICATE KEY UPDATE` for idempotent re-runs. Raw data retention is instant (partition `DROP`) while hourly retention uses batch deletes (10 000 rows per iteration) since that table is much smaller.
 
+### SNMP OID Profile System
+
+The SNMP OID profile system lets you customize which OIDs are polled for each device brand and model without changing any application code — just insert new rows into the profile tables.
+
+#### How Profiles Work
+
+Each `snmp_profiles` row is a named polling template that the poller selects for a device. Once a profile is selected, the poller walks every OID listed in `snmp_profile_oids` for that profile and stores each result in the corresponding `snmp_metrics` wide-table column (`metric_column`).
+
+#### Profile Resolution Order
+
+For every device where `snmp_enabled = TRUE`, the poller resolves its profile as follows:
+
+1. **Explicit override** — if `devices.snmp_profile_id IS NOT NULL`, use that profile directly.
+2. **Auto-match** — otherwise query `snmp_profiles` for the best match:
+   ```sql
+   SELECT * FROM snmp_profiles
+   WHERE (manufacturer  = device.manufacturer  OR manufacturer  IS NULL)
+     AND (device.model LIKE model_pattern       OR model_pattern IS NULL)
+     AND (device_type   = device.type           OR device_type   IS NULL)
+     AND status = 'active'
+   ORDER BY manufacturer DESC, model_pattern DESC, device_type DESC
+   LIMIT 1;
+   ```
+   More-specific matches (manufacturer + model_pattern + device_type) rank higher than wildcard rows.
+3. **Default fallback** — if no profile matches, select the profile with `is_default = TRUE` and `status = 'active'`.
+4. **Walk OIDs** — fetch all `snmp_profile_oids` rows for the resolved profile and poll each OID, storing results into `snmp_metrics` using the `metric_column` mapping.
+
+#### Pre-Seeded Profiles
+
+| Profile | `manufacturer` | Key Vendor OIDs |
+|---------|---------------|-----------------|
+| **Generic IF-MIB** *(default)* | `NULL` (any) | Standard IF-MIB (RFC 2863) interface counters + HOST-RESOURCES-MIB CPU/memory |
+| **Ubiquiti airOS** | `Ubiquiti` | Enterprise `1.3.6.1.4.1.41112.*` OIDs for signal strength, CPU, memory |
+| **MikroTik RouterOS** | `MikroTik` | Enterprise `1.3.6.1.4.1.14988.*` OID for wireless signal + HOST-RESOURCES-MIB |
+| **Cambium Networks** | `Cambium` | Enterprise `1.3.6.1.4.1.161.*` OIDs for RSSI and CPU |
+
+#### Adding a New Vendor Profile
+
+To add a new brand or model without touching any code:
+
+```sql
+-- 1. Create the profile
+INSERT INTO snmp_profiles (name, manufacturer, model_pattern, device_type, snmp_version, poll_interval_sec, description)
+VALUES ('Huawei OLT', 'Huawei', NULL, 'olt', 'v2c', 300, 'Huawei OLT devices — MA5800 series');
+
+-- 2. Map the OIDs
+INSERT INTO snmp_profile_oids (profile_id, oid, metric_column, label, oid_type, is_per_interface, sort_order)
+VALUES
+    (LAST_INSERT_ID(), '1.3.6.1.2.1.2.2.1.10', 'if_in_octets',  'Inbound Octets',  'counter', TRUE,  10),
+    (LAST_INSERT_ID(), '1.3.6.1.2.1.2.2.1.16', 'if_out_octets', 'Outbound Octets', 'counter', TRUE,  20),
+    (LAST_INSERT_ID(), '1.3.6.1.4.1.2011.6.128.1.1.2.51.1.4', 'cpu_usage', 'Huawei CPU (%)', 'gauge', FALSE, 30);
+```
+
+The next poll cycle will automatically use the new profile for all Huawei OLT devices.
+
 Documentation and setup instructions will be added as the project develops.
 
 ## Contributing
