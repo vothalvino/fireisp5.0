@@ -8,6 +8,8 @@ An open source ISP (Internet Service Provider) management software designed to h
 - Service plan management
 - Billing and invoicing
 - Network device monitoring with SNMP metrics collection
+- NetFlow per-contract data usage tracking and daily aggregation
+- Connection logging for regulatory compliance (RADIUS accounting)
 - User and role management
 - IP address management (IPAM) with IPv4, IPv6, and dual-stack support
 - Audit logging and notifications
@@ -91,6 +93,12 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 26 | `snmp_metrics_1hr` | Hourly SNMP metric aggregates (avg/min/max per metric column, 1-year retention) |
 | 27 | `snmp_metrics_1day` | Daily SNMP metric aggregates (avg/min/max per metric column, 3+ year retention) |
 | 28 | `snmp_rollup_state` | High-watermark table tracking the last successfully rolled-up timestamp per tier |
+| 29 | `snmp_profiles` | SNMP OID polling profiles — named templates that map device brands/models to their OIDs |
+| 30 | `snmp_profile_oids` | Individual OID-to-column mappings belonging to an SNMP profile |
+| 31 | `netflow_usage` | Raw per-contract NetFlow data usage (5-min intervals, 90-day retention) — one row per contract per sampling interval, partitioned by month |
+| 32 | `netflow_usage_1day` | Daily aggregated data usage per contract (sum of bytes/packets, 3+ year retention) |
+| 33 | `connection_logs` | Subscriber session events (start/stop/interim-update) for regulatory compliance — partitioned by month, 2-year retention |
+| 34 | `netflow_rollup_state` | High-watermark table tracking the last successfully rolled-up timestamp for netflow daily aggregation |
 
 ### Storage Folders
 
@@ -189,6 +197,73 @@ event_scheduler = ON
 | `evt_snmp_partition_maintenance` | Daily at 03:00 | Calls `snmp_maintain_partitions()` — adds future month partitions and drops expired ones (replaces batch DELETE for raw data retention) |
 
 All rollup procedures use a **high-watermark** (`snmp_rollup_state` table) to track the last successfully processed timestamp, so missed runs catch up automatically rather than only looking back a fixed window. Rollup procedures use `INSERT … ON DUPLICATE KEY UPDATE` for idempotent re-runs. Raw data retention is instant (partition `DROP`) while hourly retention uses batch deletes (10 000 rows per iteration) since that table is much smaller.
+
+### NetFlow Data Usage
+
+Per-contract bandwidth consumption is tracked via NetFlow/IPFIX data collected from edge routers. Usage records are stored in a two-tier structure for efficient querying and long-term billing/compliance:
+
+| Data Tier | Resolution | Retention | Description |
+|-----------|------------|-----------|-------------|
+| `netflow_usage` (raw) | 5-min intervals | 90 days | One row per contract per sampling interval; monthly partitions enable instant `DROP PARTITION` retention |
+| `netflow_usage_1day` | Daily totals | 3+ years | `SUM(bytes_in/out)` and `SUM(packets_in/out)` per contract per day; idempotent rollup via `INSERT … ON DUPLICATE KEY UPDATE` |
+
+#### Tracked Metrics
+
+Each raw row stores the following counters for a single contract during one 5-minute interval:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `bytes_in` | `BIGINT UNSIGNED` | Inbound (download) bytes during the interval |
+| `bytes_out` | `BIGINT UNSIGNED` | Outbound (upload) bytes during the interval |
+| `packets_in` | `BIGINT UNSIGNED` | Inbound packets during the interval |
+| `packets_out` | `BIGINT UNSIGNED` | Outbound packets during the interval |
+
+#### Automated Rollup & Retention
+
+| Event | Schedule | Action |
+|-------|----------|--------|
+| `evt_netflow_rollup_1day` | Daily at 01:00 | Calls `netflow_rollup_to_1day()` — aggregates raw → daily using high-watermark |
+| `evt_netflow_partition_maintenance` | Daily at 03:30 | Calls `netflow_maintain_partitions()` — adds future month partitions and drops expired ones for both `netflow_usage` (90 days) and `connection_logs` (2 years) |
+
+The daily rollup procedure uses the same **high-watermark** pattern as SNMP (`netflow_rollup_state` table). Raw data retention is handled by instant partition `DROP` (90 days), while daily aggregates are kept indefinitely for billing and compliance.
+
+### Connection Logs (Compliance)
+
+The `connection_logs` table records every RADIUS accounting event (`start`, `stop`, `interim-update`) per contract, providing a complete audit trail of subscriber sessions for regulatory compliance. Each row is **self-contained** — it captures the subscriber identity, assigned IP address(es), NAS, and session counters at the time of the event, so the record remains valid even if the contract or client is later deleted.
+
+| Column | Description |
+|--------|-------------|
+| `contract_id` / `client_id` | Contract and client at time of session (no FK — compliance) |
+| `username` | RADIUS username at time of session |
+| `session_id` | RADIUS Acct-Session-Id |
+| `ip_address` / `ipv6_address` / `ipv6_delegated_prefix` | IP address(es) assigned during the session |
+| `nas_id` / `nas_ip_address` | NAS that authenticated the session |
+| `event_type` | `start`, `stop`, or `interim-update` |
+| `bytes_in` / `bytes_out` / `packets_in` / `packets_out` | Session traffic counters (at stop/interim) |
+| `session_duration` | Duration in seconds (at stop) |
+| `terminate_cause` | RADIUS Acct-Terminate-Cause (at stop) |
+
+**Retention:** 2 years via monthly partition `DROP`, managed by `netflow_maintain_partitions()`.
+
+**Typical compliance queries:**
+
+```sql
+-- Who had IP 10.0.1.42 on 2026-03-15?
+SELECT * FROM connection_logs
+WHERE ip_address = '10.0.1.42'
+  AND event_at >= '2026-03-15' AND event_at < '2026-03-16';
+
+-- All sessions for contract #123 in March 2026
+SELECT * FROM connection_logs
+WHERE contract_id = 123
+  AND event_at >= '2026-03-01' AND event_at < '2026-04-01';
+
+-- Total data usage per contract for billing period
+SELECT contract_id, SUM(sum_bytes_in) AS total_download, SUM(sum_bytes_out) AS total_upload
+FROM netflow_usage_1day
+WHERE period_start >= '2026-03-01' AND period_start < '2026-04-01'
+GROUP BY contract_id;
+```
 
 ### SNMP OID Profile System
 

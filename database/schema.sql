@@ -1080,6 +1080,129 @@ JOIN (
 WHERE p.name = 'Cambium Networks';
 
 -- =============================================================================
+-- NetFlow Usage & Connection Logs
+-- =============================================================================
+-- NetFlow data usage tracks per-contract bandwidth consumption.
+-- Connection logs record every subscriber session event for regulatory compliance.
+-- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- Table 31: netflow_usage
+-- Purpose: Raw per-contract data usage from NetFlow/IPFIX collectors.
+--          One row per contract per 5-minute sampling interval.
+--          No FK on contract_id to avoid write overhead on the hot insert path.
+--          Monthly RANGE partitions for instant DROP PARTITION retention (90 days).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS netflow_usage (
+    id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    contract_id   BIGINT UNSIGNED NOT NULL          COMMENT 'Contract this usage belongs to (no FK — hot path)',
+    bytes_in      BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Inbound bytes (download) during interval',
+    bytes_out     BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Outbound bytes (upload) during interval',
+    packets_in    BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Inbound packets during interval',
+    packets_out   BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Outbound packets during interval',
+    sampled_at    TIMESTAMP       NOT NULL           COMMENT 'Start of the 5-minute sampling interval',
+    created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id, sampled_at),
+    KEY idx_netflow_usage_contract_time (contract_id, sampled_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+PARTITION BY RANGE (UNIX_TIMESTAMP(sampled_at)) (
+    PARTITION p2026_01 VALUES LESS THAN (UNIX_TIMESTAMP('2026-02-01')),
+    PARTITION p2026_02 VALUES LESS THAN (UNIX_TIMESTAMP('2026-03-01')),
+    PARTITION p2026_03 VALUES LESS THAN (UNIX_TIMESTAMP('2026-04-01')),
+    PARTITION p2026_04 VALUES LESS THAN (UNIX_TIMESTAMP('2026-05-01')),
+    PARTITION p2026_05 VALUES LESS THAN (UNIX_TIMESTAMP('2026-06-01')),
+    PARTITION p2026_06 VALUES LESS THAN (UNIX_TIMESTAMP('2026-07-01')),
+    PARTITION p_future  VALUES LESS THAN MAXVALUE
+);
+
+-- ---------------------------------------------------------------------------
+-- Table 32: netflow_usage_1day
+-- Purpose: Daily aggregated data usage per contract.  Rolled up from raw
+--          netflow_usage via the netflow_rollup_to_1day() procedure.
+--          Kept indefinitely (3+ years) for billing and compliance.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS netflow_usage_1day (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    contract_id     BIGINT UNSIGNED NOT NULL,
+    period_start    DATE            NOT NULL           COMMENT 'Calendar day this row covers',
+    sum_bytes_in    BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Total inbound bytes for the day',
+    sum_bytes_out   BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Total outbound bytes for the day',
+    sum_packets_in  BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Total inbound packets for the day',
+    sum_packets_out BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Total outbound packets for the day',
+    sample_count    INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Number of raw 5-min samples aggregated',
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_netflow_1day_contract_period (contract_id, period_start),
+    KEY idx_netflow_1day_period_start (period_start),
+    CONSTRAINT fk_netflow_1day_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table 33: connection_logs
+-- Purpose: Records every subscriber session event (start / stop /
+--          interim-update) for regulatory compliance.  Denormalised so each
+--          row is self-contained even if the referenced contract or client is
+--          later deleted.  No FK on contract_id / client_id for this reason.
+--          Monthly RANGE partitions for instant DROP PARTITION retention (2 years).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS connection_logs (
+    id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    contract_id           BIGINT UNSIGNED NOT NULL          COMMENT 'Contract at time of session (no FK — compliance)',
+    client_id             BIGINT UNSIGNED NOT NULL          COMMENT 'Client at time of session (no FK — compliance)',
+    nas_id                BIGINT UNSIGNED NULL              COMMENT 'NAS that authenticated the session',
+    username              VARCHAR(64)     NOT NULL          COMMENT 'RADIUS username at time of session',
+    session_id            VARCHAR(64)     NULL              COMMENT 'RADIUS Acct-Session-Id',
+    ip_address            VARCHAR(45)     NULL              COMMENT 'IPv4 address assigned during session',
+    ipv6_address          VARCHAR(45)     NULL              COMMENT 'IPv6 address assigned during session',
+    ipv6_delegated_prefix VARCHAR(45)     NULL              COMMENT 'Delegated IPv6 prefix during session',
+    nas_ip_address        VARCHAR(45)     NULL              COMMENT 'NAS IP address at time of session',
+    event_type            ENUM('start','stop','interim-update') NOT NULL COMMENT 'RADIUS accounting event type',
+    bytes_in              BIGINT UNSIGNED NULL              COMMENT 'Session inbound bytes (at stop/interim)',
+    bytes_out             BIGINT UNSIGNED NULL              COMMENT 'Session outbound bytes (at stop/interim)',
+    packets_in            BIGINT UNSIGNED NULL              COMMENT 'Session inbound packets (at stop/interim)',
+    packets_out           BIGINT UNSIGNED NULL              COMMENT 'Session outbound packets (at stop/interim)',
+    session_duration      INT UNSIGNED    NULL              COMMENT 'Session duration in seconds (at stop)',
+    terminate_cause       VARCHAR(64)     NULL              COMMENT 'RADIUS Acct-Terminate-Cause',
+    event_at              TIMESTAMP       NOT NULL          COMMENT 'When the accounting event occurred',
+    created_at            TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id, event_at),
+    KEY idx_conn_logs_contract_time (contract_id, event_at),
+    KEY idx_conn_logs_client_time (client_id, event_at),
+    KEY idx_conn_logs_username (username, event_at),
+    KEY idx_conn_logs_ip_address (ip_address, event_at),
+    KEY idx_conn_logs_session_id (session_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+PARTITION BY RANGE (UNIX_TIMESTAMP(event_at)) (
+    PARTITION p2026_01 VALUES LESS THAN (UNIX_TIMESTAMP('2026-02-01')),
+    PARTITION p2026_02 VALUES LESS THAN (UNIX_TIMESTAMP('2026-03-01')),
+    PARTITION p2026_03 VALUES LESS THAN (UNIX_TIMESTAMP('2026-04-01')),
+    PARTITION p2026_04 VALUES LESS THAN (UNIX_TIMESTAMP('2026-05-01')),
+    PARTITION p2026_05 VALUES LESS THAN (UNIX_TIMESTAMP('2026-06-01')),
+    PARTITION p2026_06 VALUES LESS THAN (UNIX_TIMESTAMP('2026-07-01')),
+    PARTITION p_future  VALUES LESS THAN MAXVALUE
+);
+
+-- ---------------------------------------------------------------------------
+-- Table 34: netflow_rollup_state
+-- Purpose: Tracks the high-watermark timestamp for the netflow daily rollup
+--          so the procedure picks up exactly where it left off.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS netflow_rollup_state (
+    rollup_name    VARCHAR(32)  NOT NULL COMMENT 'Rollup tier identifier (1day)',
+    last_processed TIMESTAMP    NULL     COMMENT 'High-watermark: last successfully processed timestamp',
+    updated_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (rollup_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO netflow_rollup_state (rollup_name, last_processed) VALUES
+    ('1day', NULL);
+
+-- =============================================================================
 -- SNMP Rollup Procedures & Scheduled Events
 -- =============================================================================
 -- MySQL equivalents of TimescaleDB continuous aggregates and retention policies.
@@ -1388,4 +1511,224 @@ CREATE EVENT IF NOT EXISTS evt_snmp_partition_maintenance
     ON COMPLETION PRESERVE
     COMMENT 'Maintain snmp_metrics monthly partitions: add future, drop expired'
     DO CALL snmp_maintain_partitions();
+
+-- =============================================================================
+-- NetFlow Rollup Procedures & Scheduled Events
+-- =============================================================================
+-- Rollup flow : netflow_usage (raw 5-min) -> netflow_usage_1day
+-- Retention   : raw netflow_usage kept 90 days (DROP PARTITION),
+--               daily netflow_usage_1day kept indefinitely (3+ years),
+--               connection_logs kept 2 years (DROP PARTITION — compliance)
+-- =============================================================================
+
+DELIMITER $$
+
+-- ---------------------------------------------------------------------------
+-- Procedure: netflow_rollup_to_1day
+-- Purpose:   Aggregate raw 5-min netflow_usage samples into daily rows using a
+--            high-watermark so missed runs catch up automatically.
+--            Idempotent via INSERT ... ON DUPLICATE KEY UPDATE.
+-- ---------------------------------------------------------------------------
+CREATE PROCEDURE IF NOT EXISTS netflow_rollup_to_1day()
+proc: BEGIN
+    DECLARE v_from_ts TIMESTAMP;
+    DECLARE v_to_ts   TIMESTAMP;
+
+    -- Read high-watermark; default to 90 days ago on first run
+    SELECT COALESCE(last_processed, DATE_SUB(NOW(), INTERVAL 90 DAY))
+    INTO v_from_ts
+    FROM netflow_rollup_state
+    WHERE rollup_name = '1day';
+
+    -- Process up to (but not including) the current day to avoid partial days
+    SET v_to_ts = TIMESTAMP(CURDATE());
+
+    IF v_from_ts >= v_to_ts THEN
+        LEAVE proc;
+    END IF;
+
+    INSERT INTO netflow_usage_1day
+        (contract_id, period_start,
+         sum_bytes_in, sum_bytes_out,
+         sum_packets_in, sum_packets_out,
+         sample_count)
+    SELECT
+        contract_id,
+        DATE(sampled_at)                                  AS period_start,
+        SUM(bytes_in),    SUM(bytes_out),
+        SUM(packets_in),  SUM(packets_out),
+        COUNT(*)
+    FROM netflow_usage
+    WHERE sampled_at >  v_from_ts
+      AND sampled_at <  v_to_ts
+    GROUP BY contract_id, DATE(sampled_at)
+    AS new_data
+    ON DUPLICATE KEY UPDATE
+        sum_bytes_in    = new_data.sum_bytes_in,
+        sum_bytes_out   = new_data.sum_bytes_out,
+        sum_packets_in  = new_data.sum_packets_in,
+        sum_packets_out = new_data.sum_packets_out,
+        sample_count    = new_data.sample_count;
+
+    -- Advance the high-watermark
+    UPDATE netflow_rollup_state
+    SET last_processed = v_to_ts
+    WHERE rollup_name  = '1day';
+END$$
+
+-- ---------------------------------------------------------------------------
+-- Procedure: netflow_maintain_partitions
+-- Purpose:   (1) Ensure monthly partitions exist for the next 3 months on both
+--                netflow_usage and connection_logs.
+--            (2) Drop netflow_usage partitions older than 90 days.
+--            (3) Drop connection_logs partitions older than 2 years.
+-- ---------------------------------------------------------------------------
+CREATE PROCEDURE IF NOT EXISTS netflow_maintain_partitions()
+BEGIN
+    DECLARE v_month     DATE;
+    DECLARE v_pname     VARCHAR(32);
+    DECLARE v_next_ts   BIGINT;
+    DECLARE v_exists    INT  DEFAULT 0;
+    DECLARE v_cutoff_ts BIGINT;
+    DECLARE v_old_pname VARCHAR(32);
+    DECLARE v_done      TINYINT DEFAULT 0;
+
+    DECLARE c_old_nf CURSOR FOR
+        SELECT partition_name
+        FROM information_schema.PARTITIONS
+        WHERE table_schema = DATABASE()
+          AND table_name   = 'netflow_usage'
+          AND partition_name != 'p_future'
+          AND partition_description != 'MAXVALUE'
+          AND CAST(partition_description AS UNSIGNED) <= v_cutoff_ts;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_done = 1;
+
+    -- -------------------------------------------------------------------
+    -- 1a. Ensure netflow_usage has partitions for the next 3 full months
+    -- -------------------------------------------------------------------
+    SET v_month = DATE_FORMAT(DATE_ADD(CURDATE(), INTERVAL 1 MONTH), '%Y-%m-01');
+
+    WHILE v_month <= DATE_FORMAT(DATE_ADD(CURDATE(), INTERVAL 3 MONTH), '%Y-%m-01') DO
+        SET v_pname   = CONCAT('p', DATE_FORMAT(v_month, '%Y_%m'));
+        SET v_next_ts = UNIX_TIMESTAMP(DATE_ADD(v_month, INTERVAL 1 MONTH));
+
+        SELECT COUNT(*) INTO v_exists
+        FROM information_schema.PARTITIONS
+        WHERE table_schema = DATABASE()
+          AND table_name   = 'netflow_usage'
+          AND partition_name = v_pname;
+
+        IF v_exists = 0 THEN
+            SET @sql = CONCAT(
+                'ALTER TABLE netflow_usage REORGANIZE PARTITION p_future INTO (',
+                'PARTITION ', v_pname, ' VALUES LESS THAN (', v_next_ts, '), ',
+                'PARTITION p_future VALUES LESS THAN MAXVALUE)'
+            );
+            PREPARE stmt FROM @sql;
+            EXECUTE stmt;
+            DEALLOCATE PREPARE stmt;
+        END IF;
+
+        SET v_month = DATE_ADD(v_month, INTERVAL 1 MONTH);
+    END WHILE;
+
+    -- -------------------------------------------------------------------
+    -- 1b. Ensure connection_logs has partitions for the next 3 full months
+    -- -------------------------------------------------------------------
+    SET v_month = DATE_FORMAT(DATE_ADD(CURDATE(), INTERVAL 1 MONTH), '%Y-%m-01');
+
+    WHILE v_month <= DATE_FORMAT(DATE_ADD(CURDATE(), INTERVAL 3 MONTH), '%Y-%m-01') DO
+        SET v_pname   = CONCAT('p', DATE_FORMAT(v_month, '%Y_%m'));
+        SET v_next_ts = UNIX_TIMESTAMP(DATE_ADD(v_month, INTERVAL 1 MONTH));
+
+        SELECT COUNT(*) INTO v_exists
+        FROM information_schema.PARTITIONS
+        WHERE table_schema = DATABASE()
+          AND table_name   = 'connection_logs'
+          AND partition_name = v_pname;
+
+        IF v_exists = 0 THEN
+            SET @sql = CONCAT(
+                'ALTER TABLE connection_logs REORGANIZE PARTITION p_future INTO (',
+                'PARTITION ', v_pname, ' VALUES LESS THAN (', v_next_ts, '), ',
+                'PARTITION p_future VALUES LESS THAN MAXVALUE)'
+            );
+            PREPARE stmt FROM @sql;
+            EXECUTE stmt;
+            DEALLOCATE PREPARE stmt;
+        END IF;
+
+        SET v_month = DATE_ADD(v_month, INTERVAL 1 MONTH);
+    END WHILE;
+
+    -- -------------------------------------------------------------------
+    -- 2. Drop netflow_usage partitions older than 90 days
+    -- -------------------------------------------------------------------
+    SET v_cutoff_ts = UNIX_TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL 90 DAY));
+    SET v_done = 0;
+
+    OPEN c_old_nf;
+    drop_nf_loop: LOOP
+        FETCH c_old_nf INTO v_old_pname;
+        IF v_done THEN LEAVE drop_nf_loop; END IF;
+        SET @sql = CONCAT('ALTER TABLE netflow_usage DROP PARTITION ', v_old_pname);
+        PREPARE stmt FROM @sql;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+    END LOOP;
+    CLOSE c_old_nf;
+
+    -- -------------------------------------------------------------------
+    -- 3. Drop connection_logs partitions older than 2 years
+    -- -------------------------------------------------------------------
+    BEGIN
+        DECLARE v_cutoff_cl BIGINT;
+        DECLARE v_old_cl    VARCHAR(32);
+        DECLARE v_done_cl   TINYINT DEFAULT 0;
+
+        DECLARE c_old_cl CURSOR FOR
+            SELECT partition_name
+            FROM information_schema.PARTITIONS
+            WHERE table_schema = DATABASE()
+              AND table_name   = 'connection_logs'
+              AND partition_name != 'p_future'
+              AND partition_description != 'MAXVALUE'
+              AND CAST(partition_description AS UNSIGNED) <= v_cutoff_cl;
+
+        DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_done_cl = 1;
+
+        SET v_cutoff_cl = UNIX_TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL 2 YEAR));
+
+        OPEN c_old_cl;
+        drop_cl_loop: LOOP
+            FETCH c_old_cl INTO v_old_cl;
+            IF v_done_cl THEN LEAVE drop_cl_loop; END IF;
+            SET @sql = CONCAT('ALTER TABLE connection_logs DROP PARTITION ', v_old_cl);
+            PREPARE stmt FROM @sql;
+            EXECUTE stmt;
+            DEALLOCATE PREPARE stmt;
+        END LOOP;
+        CLOSE c_old_cl;
+    END;
+END$$
+
+DELIMITER ;
+
+-- Run daily netflow rollup once per day at 01:00
+CREATE EVENT IF NOT EXISTS evt_netflow_rollup_1day
+    ON SCHEDULE EVERY 1 DAY
+    STARTS (CURRENT_DATE + INTERVAL 1 DAY + INTERVAL 1 HOUR)
+    ON COMPLETION PRESERVE
+    COMMENT 'Aggregate raw netflow_usage samples into netflow_usage_1day once per day'
+    DO CALL netflow_rollup_to_1day();
+
+-- Run netflow partition maintenance daily at 03:30
+CREATE EVENT IF NOT EXISTS evt_netflow_partition_maintenance
+    ON SCHEDULE EVERY 1 DAY
+    STARTS (CURRENT_DATE + INTERVAL 1 DAY + INTERVAL 3 HOUR + INTERVAL 30 MINUTE)
+    ON COMPLETION PRESERVE
+    COMMENT 'Maintain netflow_usage and connection_logs monthly partitions: add future, drop expired'
+    DO CALL netflow_maintain_partitions();
+
 SET FOREIGN_KEY_CHECKS = 1;
