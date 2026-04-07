@@ -1,4 +1,4 @@
--- Migration: 036_create_connection_logs_table
+-- Migration: 034_create_connection_logs_table
 -- Description: Creates the connection_logs table to record every subscriber
 --              session event (start / stop / interim-update) for regulatory
 --              compliance.  Each row captures the subscriber identity, the IP
