@@ -1538,4 +1538,154 @@ CREATE EVENT IF NOT EXISTS evt_connection_logs_partition_maintenance
     COMMENT 'Maintain connection_logs monthly partitions: add future, drop expired (2-year retention)'
     DO CALL connection_logs_maintain_partitions();
 
+-- ---------------------------------------------------------------------------
+-- Table: warehouses
+-- Purpose: Physical storage locations for spare equipment and materials.
+--          Multiple warehouses supported; aisle/column/shelf granularity is
+--          tracked at the inventory_stock level.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS warehouses (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    name        VARCHAR(255)    NOT NULL COMMENT 'Warehouse name (e.g. Main Warehouse, Site B Storage)',
+    address     VARCHAR(255)    NULL,
+    city        VARCHAR(100)    NULL,
+    state       VARCHAR(100)    NULL,
+    country     VARCHAR(100)    NULL DEFAULT 'US',
+    zip_code    VARCHAR(20)     NULL,
+    latitude    DECIMAL(10, 8)  NULL,
+    longitude   DECIMAL(11, 8)  NULL,
+    notes       TEXT            NULL,
+    status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_warehouses_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: inventory_items
+-- Purpose: Catalog of spare equipment and materials that can be stocked in
+--          warehouses (antennas, cables, routers, ONUs, connectors, etc.).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS inventory_items (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    sku             VARCHAR(100)    NULL COMMENT 'Stock-keeping unit / internal part number',
+    name            VARCHAR(255)    NOT NULL COMMENT 'Item name (e.g. MikroTik hAP ac³)',
+    category        ENUM(
+                        'antenna',
+                        'cable',
+                        'router',
+                        'switch',
+                        'onu',
+                        'olt',
+                        'cpe',
+                        'connector',
+                        'power_supply',
+                        'enclosure',
+                        'tool',
+                        'other'
+                    ) NOT NULL DEFAULT 'other'
+                        COMMENT 'Item category for filtering and reporting',
+    manufacturer    VARCHAR(100)    NULL,
+    model           VARCHAR(100)    NULL,
+    description     TEXT            NULL,
+    unit            VARCHAR(30)     NOT NULL DEFAULT 'unit'
+                        COMMENT 'Unit of measure (unit, meter, roll, box, pair, etc.)',
+    unit_cost       DECIMAL(10, 2)  NULL COMMENT 'Default purchase cost per unit',
+    sale_price      DECIMAL(10, 2)  NULL COMMENT 'Default sale price per unit when sold to a client',
+    reorder_level   INT UNSIGNED    NULL COMMENT 'Minimum total stock before a reorder alert is triggered',
+    notes           TEXT            NULL,
+    status          ENUM('active', 'discontinued') NOT NULL DEFAULT 'active',
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_inventory_items_sku (sku),
+    KEY idx_inventory_items_category (category),
+    KEY idx_inventory_items_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: inventory_stock
+-- Purpose: Current stock level of each item at each warehouse location.
+--          Each row represents a unique combination of item + warehouse +
+--          aisle/column/shelf.  Granular location fields are optional.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS inventory_stock (
+    id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    item_id       BIGINT UNSIGNED NOT NULL,
+    warehouse_id  BIGINT UNSIGNED NOT NULL,
+    aisle         VARCHAR(20)     NULL COMMENT 'Aisle identifier within the warehouse',
+    col           VARCHAR(20)     NULL COMMENT 'Column identifier within the aisle',
+    shelf         VARCHAR(20)     NULL COMMENT 'Shelf identifier within the column',
+    quantity      INT             NOT NULL DEFAULT 0 COMMENT 'Current quantity on hand',
+    created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_inventory_stock_location (item_id, warehouse_id, aisle, col, shelf),
+    KEY idx_inventory_stock_warehouse_id (warehouse_id),
+    KEY idx_inventory_stock_item_id (item_id),
+    CONSTRAINT fk_inventory_stock_item FOREIGN KEY (item_id)
+        REFERENCES inventory_items (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_inventory_stock_warehouse FOREIGN KEY (warehouse_id)
+        REFERENCES warehouses (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: inventory_transactions
+-- Purpose: Immutable log of every stock movement — receiving, job assignments,
+--          client sales, warehouse transfers, returns, and adjustments.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS inventory_transactions (
+    id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    stock_id          BIGINT UNSIGNED NOT NULL COMMENT 'inventory_stock row affected',
+    transaction_type  ENUM(
+                          'receive',
+                          'assign_to_job',
+                          'sell_to_client',
+                          'transfer_out',
+                          'transfer_in',
+                          'return',
+                          'adjustment'
+                      ) NOT NULL
+                          COMMENT 'receive=new stock in, assign_to_job=used on a work order, sell_to_client=sold directly to client, transfer_out/in=warehouse-to-warehouse move, return=returned from job/client, adjustment=manual correction',
+    quantity          INT             NOT NULL COMMENT 'Positive for inbound, negative for outbound',
+    unit_price        DECIMAL(10, 2)  NULL COMMENT 'Price per unit at time of transaction (for sales/receives)',
+
+    -- Optional context references
+    job_id            BIGINT UNSIGNED NULL COMMENT 'Related job (assign_to_job / return)',
+    client_id         BIGINT UNSIGNED NULL COMMENT 'Related client (sell_to_client)',
+    invoice_id        BIGINT UNSIGNED NULL COMMENT 'Invoice tied to a client sale, if any',
+    destination_stock_id BIGINT UNSIGNED NULL COMMENT 'Target inventory_stock row for transfers',
+
+    performed_by      BIGINT UNSIGNED NULL COMMENT 'User who performed the transaction',
+    reference         VARCHAR(255)    NULL COMMENT 'External reference (PO number, receipt, etc.)',
+    notes             TEXT            NULL,
+    created_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_inv_txn_stock_id (stock_id),
+    KEY idx_inv_txn_type (transaction_type),
+    KEY idx_inv_txn_job_id (job_id),
+    KEY idx_inv_txn_client_id (client_id),
+    KEY idx_inv_txn_invoice_id (invoice_id),
+    KEY idx_inv_txn_destination_stock_id (destination_stock_id),
+    KEY idx_inv_txn_performed_by (performed_by),
+    KEY idx_inv_txn_created_at (created_at),
+    CONSTRAINT fk_inv_txn_stock FOREIGN KEY (stock_id)
+        REFERENCES inventory_stock (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_inv_txn_job FOREIGN KEY (job_id)
+        REFERENCES jobs (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_inv_txn_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_inv_txn_invoice FOREIGN KEY (invoice_id)
+        REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_inv_txn_destination_stock FOREIGN KEY (destination_stock_id)
+        REFERENCES inventory_stock (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_inv_txn_performed_by FOREIGN KEY (performed_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

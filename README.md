@@ -9,6 +9,7 @@ An open source ISP (Internet Service Provider) management software designed to h
 - Billing and invoicing
 - Network device monitoring with SNMP metrics collection
 - Connection logging for regulatory compliance and per-contract data usage (RADIUS accounting)
+- Inventory and warehouse management — track spare equipment across multiple storage locations
 - User and role management
 - IP address management (IPAM) with IPv4, IPv6, and dual-stack support
 - Audit logging and notifications
@@ -95,6 +96,10 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 29 | `snmp_profiles` | SNMP OID polling profiles — named templates that map device brands/models to their OIDs |
 | 30 | `snmp_profile_oids` | Individual OID-to-column mappings belonging to an SNMP profile |
 | 31 | `connection_logs` | Subscriber session events (start/stop/interim-update) for regulatory compliance and per-contract data usage — partitioned by month, 2-year retention |
+| 32 | `warehouses` | Physical storage locations for spare equipment and materials (multiple warehouses supported) |
+| 33 | `inventory_items` | Catalog of spare equipment and materials (antennas, cables, routers, ONUs, etc.) |
+| 34 | `inventory_stock` | Current stock levels per item per warehouse location (aisle / column / shelf) |
+| 35 | `inventory_transactions` | Immutable log of every stock movement — receiving, job assignments, client sales, transfers, returns, and adjustments |
 
 ### Storage Folders
 
@@ -293,6 +298,71 @@ VALUES
 ```
 
 The next poll cycle will automatically use the new profile for all Huawei OLT devices.
+
+### Inventory / Warehouse
+
+The inventory system tracks spare equipment and materials across multiple physical warehouses. Each warehouse can define granular storage locations using **aisle**, **column**, and **shelf** identifiers. Items move through the system via an immutable transaction log, supporting the full lifecycle from purchase to deployment or sale.
+
+#### Tables Overview
+
+| Table | Purpose |
+|-------|---------|
+| `warehouses` | Physical storage locations (multiple warehouses supported) |
+| `inventory_items` | Product catalog — each row is a type of spare part or material |
+| `inventory_stock` | Current quantity on hand per item per warehouse location (aisle/column/shelf) |
+| `inventory_transactions` | Immutable movement log — every receive, assignment, sale, transfer, return, or adjustment |
+
+#### Transaction Types
+
+| Type | Direction | Description |
+|------|-----------|-------------|
+| `receive` | Inbound (+) | New stock received from a supplier |
+| `assign_to_job` | Outbound (−) | Item used on a field work order (`jobs`) |
+| `sell_to_client` | Outbound (−) | Item sold directly to a client (optionally linked to an invoice) |
+| `transfer_out` | Outbound (−) | Item sent to another warehouse location |
+| `transfer_in` | Inbound (+) | Item received from another warehouse location |
+| `return` | Inbound (+) | Item returned from a job or client |
+| `adjustment` | +/− | Manual stock correction (shrinkage, recount, etc.) |
+
+#### Item Categories
+
+`antenna`, `cable`, `router`, `switch`, `onu`, `olt`, `cpe`, `connector`, `power_supply`, `enclosure`, `tool`, `other`
+
+#### Typical Queries
+
+```sql
+-- Current stock for all items across all warehouses
+SELECT ii.name, w.name AS warehouse, s.aisle, s.col, s.shelf, s.quantity
+FROM inventory_stock s
+JOIN inventory_items ii ON ii.id = s.item_id
+JOIN warehouses w ON w.id = s.warehouse_id
+ORDER BY ii.name, w.name;
+
+-- Items below reorder level
+SELECT ii.name, ii.reorder_level, SUM(s.quantity) AS total_on_hand
+FROM inventory_items ii
+JOIN inventory_stock s ON s.item_id = ii.id
+WHERE ii.reorder_level IS NOT NULL AND ii.status = 'active'
+GROUP BY ii.id
+HAVING total_on_hand < ii.reorder_level;
+
+-- All transactions for a specific job
+SELECT it.*, ii.name AS item_name
+FROM inventory_transactions it
+JOIN inventory_stock s ON s.id = it.stock_id
+JOIN inventory_items ii ON ii.id = s.item_id
+WHERE it.job_id = 42;
+
+-- Revenue from inventory sales in March 2026
+SELECT ii.name, SUM(ABS(it.quantity)) AS units_sold,
+       SUM(ABS(it.quantity) * it.unit_price) AS revenue
+FROM inventory_transactions it
+JOIN inventory_stock s ON s.id = it.stock_id
+JOIN inventory_items ii ON ii.id = s.item_id
+WHERE it.transaction_type = 'sell_to_client'
+  AND it.created_at >= '2026-03-01' AND it.created_at < '2026-04-01'
+GROUP BY ii.id;
+```
 
 Documentation and setup instructions will be added as the project develops.
 
