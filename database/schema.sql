@@ -16,7 +16,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organisation this user belongs to; NULL = single-tenant deployment',
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this user belongs to; NULL = single-tenant deployment',
     first_name      VARCHAR(100)    NOT NULL,
     last_name       VARCHAR(100)    NOT NULL,
     email           VARCHAR(255)    NOT NULL,
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS clients (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organisation this client belongs to; NULL = single-tenant deployment',
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this client belongs to; NULL = single-tenant deployment',
     name            VARCHAR(255)    NOT NULL,
     email           VARCHAR(255)    NULL,
     phone           VARCHAR(30)     NULL,
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS contacts (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sites (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organisation this site belongs to; NULL = single-tenant deployment',
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this site belongs to; NULL = single-tenant deployment',
     name            VARCHAR(255)    NOT NULL,
     site_type       ENUM('pop', 'data_center', 'tower', 'aggregation_node', 'other')
                                     NOT NULL DEFAULT 'other'
@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS sites (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS plans (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organisation this plan belongs to; NULL = single-tenant deployment',
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this plan belongs to; NULL = single-tenant deployment',
     name            VARCHAR(255)    NOT NULL,
     description     TEXT            NULL,
     download_speed  INT UNSIGNED    NOT NULL COMMENT 'Speed in Mbps',
@@ -1605,7 +1605,7 @@ CREATE EVENT IF NOT EXISTS evt_connection_logs_partition_maintenance
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS warehouses (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organisation this warehouse belongs to; NULL = single-tenant deployment',
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this warehouse belongs to; NULL = single-tenant deployment',
     name            VARCHAR(255)    NOT NULL COMMENT 'Warehouse name (e.g. Main Warehouse, Site B Storage)',
     address         VARCHAR(255)    NULL,
     city            VARCHAR(100)    NULL,

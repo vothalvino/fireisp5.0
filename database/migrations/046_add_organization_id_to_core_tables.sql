@@ -9,7 +9,7 @@
 -- ---------------------------------------------------------------------------
 ALTER TABLE users
     ADD COLUMN organization_id BIGINT UNSIGNED NULL
-        COMMENT 'Tenant organisation this user belongs to; NULL = single-tenant deployment'
+        COMMENT 'Tenant organization this user belongs to; NULL = single-tenant deployment'
         AFTER id,
     ADD KEY idx_users_organization_id (organization_id),
     ADD CONSTRAINT fk_users_organization FOREIGN KEY (organization_id)
@@ -20,7 +20,7 @@ ALTER TABLE users
 -- ---------------------------------------------------------------------------
 ALTER TABLE clients
     ADD COLUMN organization_id BIGINT UNSIGNED NULL
-        COMMENT 'Tenant organisation this client belongs to; NULL = single-tenant deployment'
+        COMMENT 'Tenant organization this client belongs to; NULL = single-tenant deployment'
         AFTER id,
     ADD KEY idx_clients_organization_id (organization_id),
     ADD CONSTRAINT fk_clients_organization FOREIGN KEY (organization_id)
@@ -31,7 +31,7 @@ ALTER TABLE clients
 -- ---------------------------------------------------------------------------
 ALTER TABLE sites
     ADD COLUMN organization_id BIGINT UNSIGNED NULL
-        COMMENT 'Tenant organisation this site belongs to; NULL = single-tenant deployment'
+        COMMENT 'Tenant organization this site belongs to; NULL = single-tenant deployment'
         AFTER id,
     ADD KEY idx_sites_organization_id (organization_id),
     ADD CONSTRAINT fk_sites_organization FOREIGN KEY (organization_id)
@@ -42,7 +42,7 @@ ALTER TABLE sites
 -- ---------------------------------------------------------------------------
 ALTER TABLE plans
     ADD COLUMN organization_id BIGINT UNSIGNED NULL
-        COMMENT 'Tenant organisation this plan belongs to; NULL = single-tenant deployment'
+        COMMENT 'Tenant organization this plan belongs to; NULL = single-tenant deployment'
         AFTER id,
     ADD KEY idx_plans_organization_id (organization_id),
     ADD CONSTRAINT fk_plans_organization FOREIGN KEY (organization_id)
@@ -53,7 +53,7 @@ ALTER TABLE plans
 -- ---------------------------------------------------------------------------
 ALTER TABLE warehouses
     ADD COLUMN organization_id BIGINT UNSIGNED NULL
-        COMMENT 'Tenant organisation this warehouse belongs to; NULL = single-tenant deployment'
+        COMMENT 'Tenant organization this warehouse belongs to; NULL = single-tenant deployment'
         AFTER id,
     ADD KEY idx_warehouses_organization_id (organization_id),
     ADD CONSTRAINT fk_warehouses_organization FOREIGN KEY (organization_id)
