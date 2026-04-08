@@ -1868,7 +1868,7 @@ CREATE TABLE IF NOT EXISTS billing_periods (
 
 -- ---------------------------------------------------------------------------
 -- Table: network_links
--- Purpose: Device-to-device connections — fibre, wireless, copper, or virtual
+-- Purpose: Device-to-device connections — fiber, wireless, copper, or virtual
 --          links between two devices, with optional capacity and interface info.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS network_links (
