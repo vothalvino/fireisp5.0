@@ -102,6 +102,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 35 | `inventory_transactions` | Immutable log of every stock movement — receiving, job assignments, client sales, transfers, returns, and adjustments |
 | 36 | `credit_notes` | Credit notes issued to clients — for returns, courtesy, service outages, billing errors, duplicate payments, downgrades, cancellations, etc. |
 | 37 | `credit_note_items` | Individual line items that make up a credit note's subtotal |
+| 38 | `payment_allocations` | Junction table for split payments — records what portion of a payment was applied to each invoice (supports one-payment-many-invoices) |
 
 ### Storage Folders
 

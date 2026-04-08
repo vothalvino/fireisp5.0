@@ -15,20 +15,24 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- Purpose: System users and employees (administrators, technicians, billing)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
-    id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    first_name    VARCHAR(100)    NOT NULL,
-    last_name     VARCHAR(100)    NOT NULL,
-    email         VARCHAR(255)    NOT NULL,
-    password_hash VARCHAR(255)    NOT NULL,
-    role          ENUM('admin', 'billing', 'support', 'technician') NOT NULL DEFAULT 'support',
-    phone         VARCHAR(30)     NULL,
-    status        ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
-    last_login_at TIMESTAMP       NULL,
-    created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organisation this user belongs to; NULL = single-tenant deployment',
+    first_name      VARCHAR(100)    NOT NULL,
+    last_name       VARCHAR(100)    NOT NULL,
+    email           VARCHAR(255)    NOT NULL,
+    password_hash   VARCHAR(255)    NOT NULL,
+    role            ENUM('admin', 'billing', 'support', 'technician') NOT NULL DEFAULT 'support',
+    phone           VARCHAR(30)     NULL,
+    status          ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    last_login_at   TIMESTAMP       NULL,
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_users_email (email)
+    UNIQUE KEY uq_users_email (email),
+    KEY idx_users_organization_id (organization_id),
+    CONSTRAINT fk_users_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -36,26 +40,30 @@ CREATE TABLE IF NOT EXISTS users (
 -- Purpose: ISP customer records
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS clients (
-    id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    name         VARCHAR(255)    NOT NULL,
-    email        VARCHAR(255)    NULL,
-    phone        VARCHAR(30)     NULL,
-    client_type  ENUM('personal', 'company') NOT NULL DEFAULT 'personal',
-    tax_id       VARCHAR(50)     NULL,
-    curp         VARCHAR(18)     NULL COMMENT 'Mexican personal ID (CURP) — personal clients only',
-    address      VARCHAR(255)    NULL,
-    city         VARCHAR(100)    NULL,
-    state        VARCHAR(100)    NULL,
-    country      VARCHAR(100)    NULL DEFAULT 'US',
-    zip_code     VARCHAR(20)     NULL,
-    notes        TEXT            NULL,
-    status       ENUM('active', 'inactive', 'suspended') NOT NULL DEFAULT 'active',
-    created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organisation this client belongs to; NULL = single-tenant deployment',
+    name            VARCHAR(255)    NOT NULL,
+    email           VARCHAR(255)    NULL,
+    phone           VARCHAR(30)     NULL,
+    client_type     ENUM('personal', 'company') NOT NULL DEFAULT 'personal',
+    tax_id          VARCHAR(50)     NULL,
+    curp            VARCHAR(18)     NULL COMMENT 'Mexican personal ID (CURP) — personal clients only',
+    address         VARCHAR(255)    NULL,
+    city            VARCHAR(100)    NULL,
+    state           VARCHAR(100)    NULL,
+    country         VARCHAR(100)    NULL DEFAULT 'US',
+    zip_code        VARCHAR(20)     NULL,
+    notes           TEXT            NULL,
+    status          ENUM('active', 'inactive', 'suspended') NOT NULL DEFAULT 'active',
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
+    KEY idx_clients_organization_id (organization_id),
     KEY idx_clients_status (status),
-    KEY idx_clients_email (email)
+    KEY idx_clients_email (email),
+    CONSTRAINT fk_clients_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -86,25 +94,29 @@ CREATE TABLE IF NOT EXISTS contacts (
 -- Purpose: Transport network NMS locations (POPs, data centers, towers, etc.)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sites (
-    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    name        VARCHAR(255)    NOT NULL,
-    site_type   ENUM('pop', 'data_center', 'tower', 'aggregation_node', 'other')
-                                NOT NULL DEFAULT 'other'
-                                COMMENT 'pop=Point of Presence, data_center=Data Center, tower=Transmission Tower, aggregation_node=Network Aggregation Node',
-    address     VARCHAR(255)    NULL,
-    city        VARCHAR(100)    NULL,
-    state       VARCHAR(100)    NULL,
-    country     VARCHAR(100)    NULL DEFAULT 'US',
-    zip_code    VARCHAR(20)     NULL,
-    latitude    DECIMAL(10, 8)  NULL,
-    longitude   DECIMAL(11, 8)  NULL,
-    notes       TEXT            NULL,
-    status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
-    created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organisation this site belongs to; NULL = single-tenant deployment',
+    name            VARCHAR(255)    NOT NULL,
+    site_type       ENUM('pop', 'data_center', 'tower', 'aggregation_node', 'other')
+                                    NOT NULL DEFAULT 'other'
+                                    COMMENT 'pop=Point of Presence, data_center=Data Center, tower=Transmission Tower, aggregation_node=Network Aggregation Node',
+    address         VARCHAR(255)    NULL,
+    city            VARCHAR(100)    NULL,
+    state           VARCHAR(100)    NULL,
+    country         VARCHAR(100)    NULL DEFAULT 'US',
+    zip_code        VARCHAR(20)     NULL,
+    latitude        DECIMAL(10, 8)  NULL,
+    longitude       DECIMAL(11, 8)  NULL,
+    notes           TEXT            NULL,
+    status          ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    KEY idx_sites_site_type (site_type)
+    KEY idx_sites_organization_id (organization_id),
+    KEY idx_sites_site_type (site_type),
+    CONSTRAINT fk_sites_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -113,6 +125,7 @@ CREATE TABLE IF NOT EXISTS sites (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS plans (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organisation this plan belongs to; NULL = single-tenant deployment',
     name            VARCHAR(255)    NOT NULL,
     description     TEXT            NULL,
     download_speed  INT UNSIGNED    NOT NULL COMMENT 'Speed in Mbps',
@@ -127,7 +140,10 @@ CREATE TABLE IF NOT EXISTS plans (
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    KEY idx_plans_status (status)
+    KEY idx_plans_organization_id (organization_id),
+    KEY idx_plans_status (status),
+    CONSTRAINT fk_plans_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -241,6 +257,7 @@ CREATE TABLE IF NOT EXISTS devices (
     id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     site_id       BIGINT UNSIGNED NULL,
     client_id     BIGINT UNSIGNED NULL,
+    contract_id   BIGINT UNSIGNED NULL     COMMENT 'Contract this device serves (e.g. which service a CPE belongs to)',
     category      ENUM('client', 'pop') NOT NULL DEFAULT 'client'
                       COMMENT 'client=Customer Premises Equipment (Outdoor/Indoor CPE), pop=POP Infrastructure (PTP, PTMP, OLT, Router, etc.)',
     name          VARCHAR(255)    NOT NULL,
@@ -275,8 +292,10 @@ CREATE TABLE IF NOT EXISTS devices (
     updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
+    UNIQUE KEY uq_devices_serial_number (serial_number),
     KEY idx_devices_site_id (site_id),
     KEY idx_devices_client_id (client_id),
+    KEY idx_devices_contract_id (contract_id),
     KEY idx_devices_category (category),
     KEY idx_devices_status (status),
     KEY idx_devices_snmp_enabled (snmp_enabled),
@@ -285,6 +304,8 @@ CREATE TABLE IF NOT EXISTS devices (
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_devices_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_devices_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_devices_snmp_profile FOREIGN KEY (snmp_profile_id)
         REFERENCES snmp_profiles (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -296,6 +317,7 @@ CREATE TABLE IF NOT EXISTS devices (
 CREATE TABLE IF NOT EXISTS tickets (
     id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     client_id    BIGINT UNSIGNED NOT NULL,
+    contract_id  BIGINT UNSIGNED NULL     COMMENT 'Contract this ticket concerns (NULL = general client-level ticket)',
     assigned_to  BIGINT UNSIGNED NULL,
     title        VARCHAR(255)    NOT NULL,
     description  TEXT            NULL,
@@ -308,11 +330,14 @@ CREATE TABLE IF NOT EXISTS tickets (
 
     PRIMARY KEY (id),
     KEY idx_tickets_client_id (client_id),
+    KEY idx_tickets_contract_id (contract_id),
     KEY idx_tickets_assigned_to (assigned_to),
     KEY idx_tickets_status (status),
     KEY idx_tickets_priority (priority),
     CONSTRAINT fk_tickets_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_tickets_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_tickets_assigned_to FOREIGN KEY (assigned_to)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -384,6 +409,30 @@ CREATE TABLE IF NOT EXISTS payments (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
+-- Table: payment_allocations
+-- Purpose: Junction table for split payments — records what portion of a payment
+--          was applied to each invoice.  Supports one-payment-many-invoices flows
+--          (e.g. client pays a lump sum covering several outstanding invoices).
+--          The payments.invoice_id column is kept for simple single-invoice cases.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS payment_allocations (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    payment_id  BIGINT UNSIGNED NOT NULL  COMMENT 'Payment being allocated',
+    invoice_id  BIGINT UNSIGNED NOT NULL  COMMENT 'Invoice receiving this portion of the payment',
+    amount      DECIMAL(10, 2)  NOT NULL  COMMENT 'Portion of the payment applied to this invoice',
+    created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_payment_allocations_payment_invoice (payment_id, invoice_id),
+    KEY idx_payment_allocations_invoice_id (invoice_id),
+    CONSTRAINT fk_payment_allocations_payment FOREIGN KEY (payment_id)
+        REFERENCES payments (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_payment_allocations_invoice FOREIGN KEY (invoice_id)
+        REFERENCES invoices (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
 -- Table: quotes
 -- Purpose: Service estimates and proposals for prospective or existing clients
 -- ---------------------------------------------------------------------------
@@ -421,6 +470,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     client_id      BIGINT UNSIGNED NOT NULL,
     site_id        BIGINT UNSIGNED NULL,
+    contract_id    BIGINT UNSIGNED NULL     COMMENT 'Contract this job is related to (installation, repair, maintenance)',
+    ticket_id      BIGINT UNSIGNED NULL     COMMENT 'Originating support ticket, if this job was escalated from a ticket',
     assigned_to    BIGINT UNSIGNED NULL,
     title          VARCHAR(255)    NOT NULL,
     description    TEXT            NULL,
@@ -438,6 +489,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     PRIMARY KEY (id),
     KEY idx_jobs_client_id (client_id),
     KEY idx_jobs_site_id (site_id),
+    KEY idx_jobs_contract_id (contract_id),
+    KEY idx_jobs_ticket_id (ticket_id),
     KEY idx_jobs_assigned_to (assigned_to),
     KEY idx_jobs_status (status),
     KEY idx_jobs_scheduled_date (scheduled_date),
@@ -445,6 +498,10 @@ CREATE TABLE IF NOT EXISTS jobs (
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_jobs_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_jobs_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_jobs_ticket FOREIGN KEY (ticket_id)
+        REFERENCES tickets (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_jobs_assigned_to FOREIGN KEY (assigned_to)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_jobs_created_by FOREIGN KEY (created_by)
@@ -1122,6 +1179,8 @@ CREATE TABLE IF NOT EXISTS connection_logs (
     KEY idx_conn_logs_client_time (client_id, event_at),
     KEY idx_conn_logs_username (username, event_at),
     KEY idx_conn_logs_ip_address (ip_address, event_at),
+    KEY idx_connection_logs_ip_address (ip_address),
+    KEY idx_connection_logs_ipv6_address (ipv6_address),
     KEY idx_conn_logs_session_id (session_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 PARTITION BY RANGE (UNIX_TIMESTAMP(event_at)) (
@@ -1545,22 +1604,26 @@ CREATE EVENT IF NOT EXISTS evt_connection_logs_partition_maintenance
 --          tracked at the inventory_stock level.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS warehouses (
-    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    name        VARCHAR(255)    NOT NULL COMMENT 'Warehouse name (e.g. Main Warehouse, Site B Storage)',
-    address     VARCHAR(255)    NULL,
-    city        VARCHAR(100)    NULL,
-    state       VARCHAR(100)    NULL,
-    country     VARCHAR(100)    NULL DEFAULT 'US',
-    zip_code    VARCHAR(20)     NULL,
-    latitude    DECIMAL(10, 8)  NULL,
-    longitude   DECIMAL(11, 8)  NULL,
-    notes       TEXT            NULL,
-    status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
-    created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organisation this warehouse belongs to; NULL = single-tenant deployment',
+    name            VARCHAR(255)    NOT NULL COMMENT 'Warehouse name (e.g. Main Warehouse, Site B Storage)',
+    address         VARCHAR(255)    NULL,
+    city            VARCHAR(100)    NULL,
+    state           VARCHAR(100)    NULL,
+    country         VARCHAR(100)    NULL DEFAULT 'US',
+    zip_code        VARCHAR(20)     NULL,
+    latitude        DECIMAL(10, 8)  NULL,
+    longitude       DECIMAL(11, 8)  NULL,
+    notes           TEXT            NULL,
+    status          ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    KEY idx_warehouses_status (status)
+    KEY idx_warehouses_organization_id (organization_id),
+    KEY idx_warehouses_status (status),
+    CONSTRAINT fk_warehouses_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -1700,6 +1763,7 @@ CREATE TABLE IF NOT EXISTS credit_notes (
     client_id          BIGINT UNSIGNED NOT NULL,
     contract_id        BIGINT UNSIGNED NULL,
     invoice_id         BIGINT UNSIGNED NULL      COMMENT 'Original invoice being credited, if any',
+    payment_id         BIGINT UNSIGNED NULL      COMMENT 'Payment that triggered this credit note (e.g. duplicate payment refund)',
     credit_note_number VARCHAR(50)     NOT NULL,
     issue_date         DATE            NOT NULL,
     reason             ENUM(
@@ -1730,6 +1794,7 @@ CREATE TABLE IF NOT EXISTS credit_notes (
     KEY idx_credit_notes_client_id (client_id),
     KEY idx_credit_notes_contract_id (contract_id),
     KEY idx_credit_notes_invoice_id (invoice_id),
+    KEY idx_credit_notes_payment_id (payment_id),
     KEY idx_credit_notes_status (status),
     KEY idx_credit_notes_reason (reason),
     KEY idx_credit_notes_issue_date (issue_date),
@@ -1739,6 +1804,8 @@ CREATE TABLE IF NOT EXISTS credit_notes (
         REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_credit_notes_invoice FOREIGN KEY (invoice_id)
         REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_credit_notes_payment FOREIGN KEY (payment_id)
+        REFERENCES payments (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_credit_notes_created_by FOREIGN KEY (created_by)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
