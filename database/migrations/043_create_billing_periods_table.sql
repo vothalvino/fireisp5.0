@@ -26,5 +26,8 @@ CREATE TABLE IF NOT EXISTS billing_periods (
     CONSTRAINT fk_billing_periods_contract FOREIGN KEY (contract_id)
         REFERENCES contracts (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_billing_periods_invoice FOREIGN KEY (invoice_id)
-        REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT chk_billing_periods_invoiced CHECK (
+        status != 'invoiced' OR invoice_id IS NOT NULL
+    )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
