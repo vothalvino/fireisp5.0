@@ -1,4 +1,4 @@
--- Migration: 040_create_credit_notes_table
+-- Migration: 038_create_credit_notes_table
 -- Description: Creates the credit_notes table for issuing credits to clients.
 --              Credit notes reduce the amount a client owes and are linked to the
 --              original invoice when applicable.

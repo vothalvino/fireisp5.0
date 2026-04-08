@@ -1,9 +1,9 @@
--- Migration: 031_create_snmp_profile_oids_table
+-- Migration: 030_create_snmp_profile_oids_table
 -- Description: Creates the snmp_profile_oids table — maps vendor-specific OIDs
 --              to the normalized snmp_metrics wide-table columns for each
 --              snmp_profiles entry.
 --
--- Requires:    030_create_snmp_profiles_table
+-- Requires:    029_create_snmp_profiles_table
 
 -- ---------------------------------------------------------------------------
 -- Table: snmp_profile_oids

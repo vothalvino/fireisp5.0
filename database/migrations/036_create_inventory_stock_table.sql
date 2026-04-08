@@ -1,4 +1,4 @@
--- Migration: 038_create_inventory_stock_table
+-- Migration: 036_create_inventory_stock_table
 -- Description: Creates the inventory_stock table — current stock levels per item
 --              per warehouse location. Each row represents a unique combination
 --              of item + warehouse + aisle/column/shelf.

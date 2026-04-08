@@ -1,4 +1,4 @@
--- Migration: 030_create_snmp_profiles_table
+-- Migration: 029_create_snmp_profiles_table
 -- Description: Creates the snmp_profiles table — named SNMP polling templates
 --              matched by manufacturer, model pattern, and device type.
 --              Profiles allow per-vendor/model OID customization without changing

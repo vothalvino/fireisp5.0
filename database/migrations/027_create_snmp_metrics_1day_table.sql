@@ -1,4 +1,4 @@
--- Migration: 028_create_snmp_metrics_1day_table
+-- Migration: 027_create_snmp_metrics_1day_table
 -- Description: Creates the snmp_metrics_1day table for daily aggregates of
 --              SNMP metrics. Wide-table design: one row per device / interface
 --              per day with per-metric avg / min / max columns matching the

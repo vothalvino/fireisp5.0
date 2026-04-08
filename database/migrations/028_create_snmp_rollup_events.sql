@@ -1,4 +1,4 @@
--- Migration: 029_create_snmp_rollup_events
+-- Migration: 028_create_snmp_rollup_events
 -- Description: Creates the snmp_rollup_state high-watermark table, MySQL stored
 --              procedures, and scheduled events to automate SNMP metrics rollup,
 --              partition maintenance, and retention.
