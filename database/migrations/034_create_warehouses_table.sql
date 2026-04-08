@@ -1,4 +1,4 @@
--- Migration: 036_create_warehouses_table
+-- Migration: 034_create_warehouses_table
 -- Description: Creates the warehouses table for tracking physical storage locations.
 --              Supports multiple warehouses, each with optional aisle/column/shelf
 --              location granularity defined at the stock level.

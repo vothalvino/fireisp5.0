@@ -1,4 +1,4 @@
--- Migration: 037_create_inventory_items_table
+-- Migration: 035_create_inventory_items_table
 -- Description: Creates the inventory_items table — a catalog of spare equipment
 --              and materials that can be stocked in warehouses (antennas, cables,
 --              routers, ONUs, connectors, etc.).

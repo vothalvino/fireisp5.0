@@ -1,4 +1,4 @@
--- Migration: 035_create_connection_logs_events
+-- Migration: 033_create_connection_logs_events
 -- Description: Creates the MySQL stored procedure and scheduled event to automate
 --              connection_logs partition maintenance and retention.
 --

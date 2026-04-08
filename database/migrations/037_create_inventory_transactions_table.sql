@@ -1,4 +1,4 @@
--- Migration: 039_create_inventory_transactions_table
+-- Migration: 037_create_inventory_transactions_table
 -- Description: Creates the inventory_transactions table — an immutable log of every
 --              stock movement. Tracks receiving, job assignments, client sales,
 --              warehouse transfers, and manual adjustments.

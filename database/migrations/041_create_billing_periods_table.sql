@@ -1,4 +1,4 @@
--- Migration: 043_create_billing_periods_table
+-- Migration: 041_create_billing_periods_table
 -- Description: Creates the billing_periods table to track each contract's
 --              billing windows — which periods have been invoiced, which are
 --              upcoming, and when the next invoice should be auto-generated.

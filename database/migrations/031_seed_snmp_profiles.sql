@@ -1,4 +1,4 @@
--- Migration: 033_seed_snmp_profiles
+-- Migration: 031_seed_snmp_profiles
 -- Description: Seeds snmp_profiles and snmp_profile_oids with pre-built OID
 --              mappings for the most common ISP device vendors:
 --                  a) Generic IF-MIB (default fallback, is_default = TRUE)
@@ -8,8 +8,8 @@
 --
 -- Uses INSERT IGNORE so re-running this migration is safe.
 --
--- Requires:    030_create_snmp_profiles_table
---              031_create_snmp_profile_oids_table
+-- Requires:    029_create_snmp_profiles_table
+--              030_create_snmp_profile_oids_table
 
 -- ---------------------------------------------------------------------------
 -- Profiles

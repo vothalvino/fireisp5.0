@@ -1,4 +1,4 @@
--- Migration: 044_create_network_links_table
+-- Migration: 042_create_network_links_table
 -- Description: Creates the network_links table to model device-to-device
 --              connections — fiber, wireless, copper, or virtual links between
 --              two devices, with optional capacity and interface metadata.

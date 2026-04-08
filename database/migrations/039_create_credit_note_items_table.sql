@@ -1,4 +1,4 @@
--- Migration: 041_create_credit_note_items_table
+-- Migration: 039_create_credit_note_items_table
 -- Description: Creates the credit_note_items table for individual line items on
 --              credit notes (same pattern as invoice_items).
 

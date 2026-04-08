@@ -1,4 +1,4 @@
--- Migration: 026_create_snmp_metrics_table
+-- Migration: 025_create_snmp_metrics_table
 -- Description: Creates the snmp_metrics table for raw SNMP poll data collected
 --              every 5 minutes from devices (both client and POP).
 --

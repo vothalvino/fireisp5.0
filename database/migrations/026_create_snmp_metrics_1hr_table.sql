@@ -1,4 +1,4 @@
--- Migration: 027_create_snmp_metrics_1hr_table
+-- Migration: 026_create_snmp_metrics_1hr_table
 -- Description: Creates the snmp_metrics_1hr table for hourly aggregates of
 --              SNMP metrics. Wide-table design: one row per device / interface
 --              per hour with per-metric avg / min / max columns matching the

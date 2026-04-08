@@ -3,6 +3,11 @@
 --              supporting both client devices (Outdoor/Indoor CPE) and
 --              POP infrastructure (PTP, PTMP, OLT, Router, Switch, ONU, etc.)
 
+-- Temporarily disable FK checks: snmp_profile_id references snmp_profiles
+-- which is created in a later migration (029). This is safe — MySQL stores
+-- the FK metadata now and enforces it once the referenced table exists.
+SET FOREIGN_KEY_CHECKS = 0;
+
 CREATE TABLE IF NOT EXISTS devices (
     id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     site_id       BIGINT UNSIGNED NULL,
@@ -34,6 +39,8 @@ CREATE TABLE IF NOT EXISTS devices (
     snmp_community VARCHAR(255)   NULL COMMENT 'SNMP community string (v1/v2c) — store encrypted; decrypt at application layer',
     snmp_version  ENUM('v1','v2c','v3') NULL DEFAULT 'v2c' COMMENT 'SNMP protocol version',
     snmp_port     SMALLINT UNSIGNED NULL DEFAULT 161 COMMENT 'SNMP UDP port',
+    snmp_profile_id BIGINT UNSIGNED NULL
+                                       COMMENT 'Explicit SNMP profile override; NULL = auto-match by manufacturer/model/type',
     status        ENUM('online', 'offline', 'maintenance') NOT NULL DEFAULT 'offline',
     notes         TEXT            NULL,
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -47,10 +54,15 @@ CREATE TABLE IF NOT EXISTS devices (
     KEY idx_devices_category (category),
     KEY idx_devices_status (status),
     KEY idx_devices_snmp_enabled (snmp_enabled),
+    KEY idx_devices_snmp_profile_id (snmp_profile_id),
     CONSTRAINT fk_devices_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_devices_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_devices_contract FOREIGN KEY (contract_id)
-        REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_devices_snmp_profile FOREIGN KEY (snmp_profile_id)
+        REFERENCES snmp_profiles (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET FOREIGN_KEY_CHECKS = 1;

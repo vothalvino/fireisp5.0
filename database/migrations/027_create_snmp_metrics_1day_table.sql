@@ -1,4 +1,4 @@
--- Migration: 028_create_snmp_metrics_1day_table
+-- Migration: 027_create_snmp_metrics_1day_table
 -- Description: Creates the snmp_metrics_1day table for daily aggregates of
 --              SNMP metrics. Wide-table design: one row per device / interface
 --              per day with per-metric avg / min / max columns matching the
@@ -7,7 +7,7 @@
 --              rollup.
 --
 --              interface_id is NOT NULL DEFAULT '' to enforce the unique key
---              correctly (see snmp_metrics_1hr notes in migration 027).
+--              correctly (see snmp_metrics_1hr notes in migration 026).
 
 CREATE TABLE IF NOT EXISTS snmp_metrics_1day (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
