@@ -7,7 +7,7 @@
 --              rollup.
 --
 --              interface_id is NOT NULL DEFAULT '' to enforce the unique key
---              correctly (see snmp_metrics_1hr notes in migration 027).
+--              correctly (see snmp_metrics_1hr notes in migration 026).
 
 CREATE TABLE IF NOT EXISTS snmp_metrics_1day (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
