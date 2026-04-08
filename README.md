@@ -104,6 +104,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 37 | `credit_note_items` | Individual line items that make up a credit note's subtotal |
 | 38 | `payment_allocations` | Junction table for split payments — records what portion of a payment was applied to each invoice (supports one-payment-many-invoices) |
 | 39 | `billing_periods` | Tracks each contract's billing windows — which periods have been invoiced, which are upcoming, and when the next invoice should be auto-generated |
+| 40 | `network_links` | Device-to-device connections — fiber, wireless, copper, or virtual links with capacity and interface metadata |
 
 ### Storage Folders
 
