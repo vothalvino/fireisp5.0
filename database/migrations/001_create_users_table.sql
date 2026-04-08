@@ -1,6 +1,11 @@
 -- Migration: 001_create_users_table
 -- Description: Creates the users/employees table for system access and staff management
 
+-- Temporarily disable FK checks: organization_id references organizations
+-- which is created in a later migration (016). Safe — MySQL stores the FK
+-- metadata now and enforces it once the referenced table exists.
+SET FOREIGN_KEY_CHECKS = 0;
+
 CREATE TABLE IF NOT EXISTS users (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this user belongs to; NULL = single-tenant deployment',
@@ -21,3 +26,5 @@ CREATE TABLE IF NOT EXISTS users (
     CONSTRAINT fk_users_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET FOREIGN_KEY_CHECKS = 1;

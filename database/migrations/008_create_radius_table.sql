@@ -1,6 +1,11 @@
 -- Migration: 008_create_radius_table
 -- Description: Creates the radius table for subscriber authentication accounts
 
+-- Temporarily disable FK checks: ipv4_pool_id and ipv6_pool_id reference
+-- ip_pools which is created in a later migration (018). Safe — MySQL stores
+-- the FK metadata now and enforces it once the referenced table exists.
+SET FOREIGN_KEY_CHECKS = 0;
+
 CREATE TABLE IF NOT EXISTS radius (
     id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     client_id     BIGINT UNSIGNED NOT NULL,
@@ -39,3 +44,5 @@ CREATE TABLE IF NOT EXISTS radius (
     CONSTRAINT fk_radius_ipv6_pool FOREIGN KEY (ipv6_pool_id)
         REFERENCES ip_pools (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET FOREIGN_KEY_CHECKS = 1;
