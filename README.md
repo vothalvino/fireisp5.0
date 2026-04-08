@@ -6,7 +6,7 @@ An open source ISP (Internet Service Provider) management software designed to h
 
 - Customer management
 - Service plan management
-- Billing and invoicing
+- Billing, invoicing, and credit notes
 - Network device monitoring with SNMP metrics collection
 - Connection logging for regulatory compliance and per-contract data usage (RADIUS accounting)
 - Inventory and warehouse management — track spare equipment across multiple storage locations
@@ -100,6 +100,8 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 33 | `inventory_items` | Catalog of spare equipment and materials (antennas, cables, routers, ONUs, etc.) |
 | 34 | `inventory_stock` | Current stock levels per item per warehouse location (aisle / column / shelf) |
 | 35 | `inventory_transactions` | Immutable log of every stock movement — receiving, job assignments, client sales, transfers, returns, and adjustments |
+| 36 | `credit_notes` | Credit notes issued to clients — for returns, courtesy, service outages, billing errors, duplicate payments, downgrades, cancellations, etc. |
+| 37 | `credit_note_items` | Individual line items that make up a credit note's subtotal |
 
 ### Storage Folders
 
