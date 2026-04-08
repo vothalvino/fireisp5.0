@@ -4,6 +4,7 @@
 CREATE TABLE IF NOT EXISTS tickets (
     id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     client_id    BIGINT UNSIGNED NOT NULL,
+    contract_id  BIGINT UNSIGNED NULL     COMMENT 'Contract this ticket concerns (NULL = general client-level ticket)',
     assigned_to  BIGINT UNSIGNED NULL,
     title        VARCHAR(255)    NOT NULL,
     description  TEXT            NULL,
@@ -16,11 +17,14 @@ CREATE TABLE IF NOT EXISTS tickets (
 
     PRIMARY KEY (id),
     KEY idx_tickets_client_id (client_id),
+    KEY idx_tickets_contract_id (contract_id),
     KEY idx_tickets_assigned_to (assigned_to),
     KEY idx_tickets_status (status),
     KEY idx_tickets_priority (priority),
     CONSTRAINT fk_tickets_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_tickets_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_tickets_assigned_to FOREIGN KEY (assigned_to)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

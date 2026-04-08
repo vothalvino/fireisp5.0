@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS credit_notes (
     client_id          BIGINT UNSIGNED NOT NULL,
     contract_id        BIGINT UNSIGNED NULL,
     invoice_id         BIGINT UNSIGNED NULL      COMMENT 'Original invoice being credited, if any',
+    payment_id         BIGINT UNSIGNED NULL      COMMENT 'Payment that triggered this credit note (e.g. duplicate payment refund)',
     credit_note_number VARCHAR(50)     NOT NULL,
     issue_date         DATE            NOT NULL,
     reason             ENUM(
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS credit_notes (
     KEY idx_credit_notes_client_id (client_id),
     KEY idx_credit_notes_contract_id (contract_id),
     KEY idx_credit_notes_invoice_id (invoice_id),
+    KEY idx_credit_notes_payment_id (payment_id),
     KEY idx_credit_notes_status (status),
     KEY idx_credit_notes_reason (reason),
     KEY idx_credit_notes_issue_date (issue_date),
@@ -47,6 +49,8 @@ CREATE TABLE IF NOT EXISTS credit_notes (
         REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_credit_notes_invoice FOREIGN KEY (invoice_id)
         REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_credit_notes_payment FOREIGN KEY (payment_id)
+        REFERENCES payments (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_credit_notes_created_by FOREIGN KEY (created_by)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

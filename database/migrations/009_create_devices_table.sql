@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS devices (
     id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     site_id       BIGINT UNSIGNED NULL,
     client_id     BIGINT UNSIGNED NULL,
+    contract_id   BIGINT UNSIGNED NULL     COMMENT 'Contract this device serves (e.g. which service a CPE belongs to)',
     category      ENUM('client', 'pop') NOT NULL DEFAULT 'client'
                       COMMENT 'client=Customer Premises Equipment (Outdoor/Indoor CPE), pop=POP Infrastructure (PTP, PTMP, OLT, Router, etc.)',
     name          VARCHAR(255)    NOT NULL,
@@ -39,13 +40,17 @@ CREATE TABLE IF NOT EXISTS devices (
     updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
+    UNIQUE KEY uq_devices_serial_number (serial_number),
     KEY idx_devices_site_id (site_id),
     KEY idx_devices_client_id (client_id),
+    KEY idx_devices_contract_id (contract_id),
     KEY idx_devices_category (category),
     KEY idx_devices_status (status),
     KEY idx_devices_snmp_enabled (snmp_enabled),
     CONSTRAINT fk_devices_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_devices_client FOREIGN KEY (client_id)
-        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_devices_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

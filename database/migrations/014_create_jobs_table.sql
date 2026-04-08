@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     client_id      BIGINT UNSIGNED NOT NULL,
     site_id        BIGINT UNSIGNED NULL,
+    contract_id    BIGINT UNSIGNED NULL     COMMENT 'Contract this job is related to (installation, repair, maintenance)',
+    ticket_id      BIGINT UNSIGNED NULL     COMMENT 'Originating support ticket, if this job was escalated from a ticket',
     assigned_to    BIGINT UNSIGNED NULL,
     title          VARCHAR(255)    NOT NULL,
     description    TEXT            NULL,
@@ -22,6 +24,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     PRIMARY KEY (id),
     KEY idx_jobs_client_id (client_id),
     KEY idx_jobs_site_id (site_id),
+    KEY idx_jobs_contract_id (contract_id),
+    KEY idx_jobs_ticket_id (ticket_id),
     KEY idx_jobs_assigned_to (assigned_to),
     KEY idx_jobs_status (status),
     KEY idx_jobs_scheduled_date (scheduled_date),
@@ -29,6 +33,10 @@ CREATE TABLE IF NOT EXISTS jobs (
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_jobs_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_jobs_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_jobs_ticket FOREIGN KEY (ticket_id)
+        REFERENCES tickets (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_jobs_assigned_to FOREIGN KEY (assigned_to)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_jobs_created_by FOREIGN KEY (created_by)

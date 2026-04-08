@@ -1,4 +1,4 @@
--- Migration: 044_create_payment_allocations_table
+-- Migration: 042_create_payment_allocations_table
 -- Description: Creates the payment_allocations junction table to support split
 --              payments — one payment applied across multiple invoices.
 --              The existing payments.invoice_id column is kept for backward
