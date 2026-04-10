@@ -123,6 +123,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 53 | `tax_rates` | Named tax configurations (e.g. "IVA 16%", "Exempt", "GST 5%") — master table of reusable tax rates referenced by invoices, quotes, and credit notes |
 | 54 | `message_templates` | Reusable message templates for email, SMS, and WhatsApp — stores subject, body, and placeholder variables for outbound communications (invoice reminders, welcome messages, outage alerts) |
 | 55 | `api_tokens` | API keys for external integrations — hashed token secrets with optional scopes, expiry, revocation, and last-used tracking for third-party billing, monitoring tools, and custom integrations |
+| 56 | `promotions` | Coupon codes, promotional pricing, and referral discounts — supports percentage and fixed-amount discounts with optional coupon codes, validity windows, per-client usage limits, and minimum order thresholds |
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 
