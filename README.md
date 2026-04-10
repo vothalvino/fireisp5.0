@@ -110,7 +110,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 40 | `network_links` | Device-to-device connections — fiber, wireless, copper, or virtual links with capacity and interface metadata |
 | 41 | `settings` | App settings / key-value configuration store — system-wide settings such as default tax rate, currency, invoice prefix, SMTP config, and SNMP poll interval |
 | 42 | `tax_rules` | Tax rules per region and service type — supports VAT, sales tax, GST, and other regional tax configurations for multi-country ISPs |
-| 43 | `client_balance_ledger` | Running client balance / account statement ledger — records every debit (invoice) and credit (payment, credit note, adjustment) with a running balance per client |
+| 43 | `client_balance_ledger` | Running account balance per client (prepaid / postpaid tracking) — records every debit (invoice, usage deduction) and credit (payment, top-up, credit note, adjustment) with a running balance; supports prepaid (credit remaining) and postpaid (amount owed) billing models |
 | 44 | `email_logs` | Email / SMS / WhatsApp send log — records every message sent to clients or internal users with delivery status (queued, sent, delivered, failed, bounced) |
 | 45 | `scheduled_tasks` | App-level task queue — dispatches recurring and one-shot jobs (auto-suspend overdue clients, generate invoices, RADIUS sync, SNMP polls) with cron scheduling, distributed locking, retry logic, priority ordering, and JSON payloads |
 | 46 | `user_sessions` | Active session tracking for security audit — stores hashed session tokens, IP address, user-agent, and expiry; enables "logout all devices" and suspicious-login detection |
