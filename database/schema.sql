@@ -3257,7 +3257,8 @@ CREATE TABLE IF NOT EXISTS regulatory_filings (
     CONSTRAINT fk_regulatory_filings_concession_title FOREIGN KEY (concession_title_id)
         REFERENCES concession_titles (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_regulatory_filings_document FOREIGN KEY (document_file_id)
-        REFERENCES files (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES files (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT chk_regulatory_filings_period CHECK (period_end IS NULL OR period_start IS NULL OR period_end >= period_start)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -3327,7 +3328,8 @@ CREATE TABLE IF NOT EXISTS ift_statistical_reports (
     CONSTRAINT fk_ift_statistical_reports_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_ift_statistical_reports_filing FOREIGN KEY (filing_id)
-        REFERENCES regulatory_filings (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES regulatory_filings (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT chk_ift_statistical_reports_period CHECK (period_end >= period_start)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
