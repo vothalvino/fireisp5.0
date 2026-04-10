@@ -128,6 +128,22 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 58 | `coverage_zones` | Coverage zones within a service area — finer-grained polygons describing network reach, access technology (fiber, fixed wireless, DSL, cable, satellite, LTE, 5G), maximum speeds, and build-out status |
 | 59 | `sla_definitions` | SLA terms per plan — uptime guarantees (e.g. 99.95%), maximum response and resolution times, compensation rules for SLA breaches, measurement periods, and maintenance-window exclusions |
 | 60 | `device_config_backups` | Versioned configuration snapshots per device — stores MikroTik exports, RouterOS backups, Cisco running-config, and similar captures with SHA-256 checksums for change detection, version tracking, and capture method (manual, scheduled, pre/post change) |
+| 61 | `client_mx_profiles` | Mexico extension for clients (1:1) — required when `clients.locale = 'MX'`; stores RFC, CURP, razon_social, regimen_fiscal, codigo_postal_fiscal, and Mexican address fields for CFDI 4.0 compliance |
+| 62 | `organization_mx_profiles` | Mexico extension for organizations (1:1) — required when `organizations.locale = 'MX'`; stores RFC, razon_social, CSD digital-seal certificate, PAC stamping credentials, CFDI series/folio numbering, and Mexican address fields |
+| 63 | `sat_regimen_fiscal` | SAT catalog c_RegimenFiscal — fiscal regime codes (601–626) used on CFDI 4.0 issuer and receptor nodes |
+| 64 | `sat_uso_cfdi` | SAT catalog c_UsoCFDI — permitted use codes for the CFDI receptor (G01, G03, S01, CP01, etc.) |
+| 65 | `sat_forma_pago` | SAT catalog c_FormaPago — payment instrument codes (01=cash, 03=SPEI, 28=debit card, 99=TBD, etc.) |
+| 66 | `sat_metodo_pago` | SAT catalog c_MetodoPago — payment timing: PUE (single payment) or PPD (installments / deferred) |
+| 67 | `sat_tipo_comprobante` | SAT catalog c_TipoDeComprobante — CFDI document type: I=ingreso, E=egreso, P=pago, T=traslado, N=nómina |
+| 68 | `sat_moneda` | SAT catalog c_Moneda (subset) — currencies accepted in CFDI 4.0: MXN, USD, EUR, XXX |
+| 69 | `cfdi_documents` | Core CFDI 4.0 fiscal document records linked to invoices, credit notes, and payments — stores folio fiscal UUID, XML, PDF URL, PAC stamping metadata, SAT status, and receiver snapshot |
+| 70 | `cfdi_related_documents` | CfdiRelacionados rows per CFDI document — records relationships between CFDIs (e.g. credit note referencing original invoice, substitution of cancelled CFDI) |
+| 71 | `cfdi_payment_complements` | Complemento de Pago 2.0 headers — one per payment event for PPD invoices; records payment date, payment form, amounts, and bank details |
+| 72 | `cfdi_payment_complement_items` | DoctoRelacionado rows per Complemento de Pago — links each payment event to the specific PPD invoices being settled with balance tracking |
+| 73 | `concession_titles` | IFT/CRT concession title registry — tracks title number, type, authorized services, spectrum bands, validity dates, and regulatory status for each organization |
+| 74 | `regulatory_filings` | IFT/CRT periodic filing log — annual reports, quarterly stats, tariff registrations, QoS reports, and other LFTR-mandated submissions |
+| 75 | `contract_templates_mx` | IFT/CRT-registered Carta de Adhesión templates — stores the registered standard contract model including registration number, version, body text, and approval status |
+| 76 | `ift_statistical_reports` | Pre-aggregated IFT/CRT reporting snapshots — subscriber counts by speed tier/state/technology, average speeds, coverage municipalities, and revenue per reporting period |
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 
@@ -136,6 +152,14 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 056 — Tax rate references ALTER:** `056_add_tax_rate_id_to_financial_tables.sql` adds a `tax_rate_id BIGINT UNSIGNED NULL` foreign key column to `invoices`, `quotes`, and `credit_notes`, linking them to the `tax_rates` master table. The existing `tax_rate` DECIMAL column is kept as a snapshot of the rate at document-creation time.
 
 > **Migration 058 — Template FK on email_logs ALTER:** `058_add_template_id_to_email_logs.sql` adds a `template_id BIGINT UNSIGNED NULL` foreign key column to `email_logs`, linking each sent message to the `message_templates` table. The existing `template` VARCHAR column is kept for backward compatibility and free-text template names.
+
+> **Migration 065 — Locale switch ALTER:** `065_add_locale_to_clients_and_organizations.sql` adds `locale ENUM('global','MX') NOT NULL DEFAULT 'global'` to both `clients` and `organizations`. Setting `locale = 'MX'` activates SAT CFDI 4.0 and IFT/CRT compliance requirements at the app layer. Existing clients with a CURP are back-filled to `'MX'`.
+
+> **Migration 069 — SAT catalog seed:** `069_seed_sat_catalogs.sql` populates the six SAT CFDI 4.0 catalog tables (sat_regimen_fiscal, sat_uso_cfdi, sat_forma_pago, sat_metodo_pago, sat_tipo_comprobante, sat_moneda) with official SAT values. Uses `INSERT IGNORE` for idempotent re-runs.
+
+> **Migration 074 — Mexico payment methods ALTER:** `074_add_mexico_payment_methods.sql` extends `payments.payment_method` with `oxxo_pay`, `spei`, `codi`, `convenience_store`, and `digital_wallet`, and adds `sat_forma_pago VARCHAR(2)`, `clabe VARCHAR(18)`, and `bank_name VARCHAR(100)` columns.
+
+> **Migration 078 — MX contract template FK ALTER:** `078_add_mx_template_to_contracts.sql` adds `contract_template_mx_id BIGINT UNSIGNED NULL` to `contracts`, linking each contract to an IFT/CRT-registered Carta de Adhesión template. NULL for global clients.
 
 ### Storage Folders
 
