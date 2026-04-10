@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS clients (
     email           VARCHAR(255)    NULL,
     phone           VARCHAR(30)     NULL,
     client_type     ENUM('personal', 'company') NOT NULL DEFAULT 'personal',
+    locale          ENUM('global', 'MX') NOT NULL DEFAULT 'global'
+                        COMMENT 'Regional compliance switch: global = no country-specific requirements; MX = SAT CFDI 4.0 + IFT/CRT compliance required',
     tax_id          VARCHAR(50)     NULL,
     curp            VARCHAR(18)     NULL COMMENT 'Mexican personal ID (CURP) — personal clients only',
     address         VARCHAR(255)    NULL,
@@ -60,6 +62,7 @@ CREATE TABLE IF NOT EXISTS clients (
 
     PRIMARY KEY (id),
     KEY idx_clients_organization_id (organization_id),
+    KEY idx_clients_locale (locale),
     KEY idx_clients_status (status),
     KEY idx_clients_email (email),
     CONSTRAINT fk_clients_organization FOREIGN KEY (organization_id)
@@ -162,6 +165,8 @@ CREATE TABLE IF NOT EXISTS contracts (
     notes          TEXT            NULL,
     connection_type ENUM('pppoe', 'pppoe_dual', 'static', 'dual') NOT NULL DEFAULT 'pppoe'
                        COMMENT 'pppoe = PPPoE IPv4-only (requires RADIUS); pppoe_dual = PPPoE dual-stack IPv4+IPv6 (requires RADIUS); static = static IPv4 (no RADIUS); dual = dual-stack static IPv4+IPv6 (no RADIUS)',
+    contract_template_mx_id BIGINT UNSIGNED NULL
+                       COMMENT 'IFT/CRT-registered Carta de Adhesión template used for this contract; NULL for global clients',
     status         ENUM('active', 'expired', 'cancelled', 'pending') NOT NULL DEFAULT 'pending',
     created_by     BIGINT UNSIGNED NULL,
     created_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -172,6 +177,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     KEY idx_contracts_plan_id (plan_id),
     KEY idx_contracts_site_id (site_id),
     KEY idx_contracts_connection_type (connection_type),
+    KEY idx_contracts_contract_template_mx_id (contract_template_mx_id),
     KEY idx_contracts_status (status),
     CONSTRAINT fk_contracts_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -180,7 +186,9 @@ CREATE TABLE IF NOT EXISTS contracts (
     CONSTRAINT fk_contracts_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_contracts_created_by FOREIGN KEY (created_by)
-        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_contracts_contract_template_mx FOREIGN KEY (contract_template_mx_id)
+        REFERENCES contract_templates_mx (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -388,9 +396,15 @@ CREATE TABLE IF NOT EXISTS payments (
     invoice_id       BIGINT UNSIGNED NULL,
     amount           DECIMAL(10, 2)  NOT NULL,
     payment_date     DATE            NOT NULL,
-    payment_method   ENUM('cash', 'check', 'credit_card', 'debit_card', 'bank_transfer', 'other')
-                                     NOT NULL DEFAULT 'cash',
+    payment_method   ENUM('cash', 'check', 'credit_card', 'debit_card', 'bank_transfer',
+                         'oxxo_pay', 'spei', 'codi', 'convenience_store', 'digital_wallet',
+                         'other')
+                                     NOT NULL DEFAULT 'cash'
+                                     COMMENT 'Payment instrument; MX methods: oxxo_pay, spei, codi, convenience_store, digital_wallet',
+    sat_forma_pago   VARCHAR(2)      NULL COMMENT 'SAT c_FormaPago code used to stamp on CFDI pago complement (e.g. 01=cash, 03=SPEI, 06=CoDi)',
     reference_number VARCHAR(100)    NULL COMMENT 'Check number, transaction ID, etc.',
+    clabe            VARCHAR(18)     NULL COMMENT '18-digit CLABE interbank key — required for SPEI and CoDi transactions',
+    bank_name        VARCHAR(100)    NULL COMMENT 'Bank name for SPEI / CoDi transactions',
     notes            TEXT            NULL,
     recorded_by      BIGINT UNSIGNED NULL,
     created_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -547,6 +561,8 @@ CREATE TABLE IF NOT EXISTS expenses (
 CREATE TABLE IF NOT EXISTS organizations (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     name                VARCHAR(255)    NOT NULL,
+    locale              ENUM('global', 'MX') NOT NULL DEFAULT 'global'
+                            COMMENT 'Regional compliance switch: global = no country-specific requirements; MX = SAT CFDI 4.0 + IFT/CRT compliance required',
     legal_name          VARCHAR(255)    NULL,
     tax_id              VARCHAR(50)     NULL COMMENT 'SAT / tax-authority registration number',
     email               VARCHAR(255)    NULL,
@@ -565,6 +581,7 @@ CREATE TABLE IF NOT EXISTS organizations (
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
+    KEY idx_organizations_locale (locale),
     KEY idx_organizations_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -2544,6 +2561,775 @@ CREATE TABLE IF NOT EXISTS device_config_backups (
         REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_device_config_backups_user FOREIGN KEY (captured_by_user_id)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: client_mx_profiles
+-- Purpose: One-to-one Mexico extension for clients. Required (enforced at the
+--          app layer) when clients.locale = 'MX'. Stores SAT-specific identity
+--          fields that CFDI 4.0 mandates: RFC, razon_social, regimen_fiscal,
+--          and codigo_postal_fiscal must match the SAT taxpayer registry exactly.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS client_mx_profiles (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    client_id               BIGINT UNSIGNED NOT NULL
+                                COMMENT 'References clients(id) — one profile per client',
+    rfc                     VARCHAR(13)     NOT NULL
+                                COMMENT 'Registro Federal de Contribuyentes — 12 chars for companies, 13 for individuals',
+    curp                    VARCHAR(18)     NULL
+                                COMMENT 'Clave Única de Registro de Población — personal clients only',
+    razon_social            VARCHAR(300)    NOT NULL
+                                COMMENT 'Legal name exactly as registered with SAT — must match for CFDI validation',
+    regimen_fiscal          VARCHAR(3)      NOT NULL
+                                COMMENT 'SAT fiscal regime code from c_RegimenFiscal (e.g. 601, 612, 626)',
+    codigo_postal_fiscal    VARCHAR(5)      NOT NULL
+                                COMMENT 'Fiscal ZIP code as registered with SAT — required on CFDI 4.0 receptor node',
+    uso_cfdi_default        VARCHAR(4)      NULL
+                                COMMENT 'Default CFDI use code from c_UsoCFDI (e.g. G03, S01) — pre-filled on new invoices',
+    colonia                 VARCHAR(150)    NULL
+                                COMMENT 'Neighborhood — required for Mexican addresses on CFDI',
+    municipio               VARCHAR(150)    NULL
+                                COMMENT 'Municipality — required for Mexican addresses on CFDI',
+    exterior_number         VARCHAR(20)     NULL
+                                COMMENT 'Street exterior number',
+    interior_number         VARCHAR(20)     NULL
+                                COMMENT 'Suite / interior number',
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_client_mx_profiles_client_id (client_id),
+    UNIQUE KEY uq_client_mx_profiles_rfc (rfc),
+    KEY idx_client_mx_profiles_regimen_fiscal (regimen_fiscal),
+    CONSTRAINT fk_client_mx_profiles_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: organization_mx_profiles
+-- Purpose: One-to-one Mexico extension for organizations. Required (enforced
+--          at the app layer) when organizations.locale = 'MX'. Stores the CSD
+--          digital seal certificate, PAC stamping credentials, CFDI series/folio
+--          numbering, and SAT identity fields for the CFDI issuer node.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS organization_mx_profiles (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id         BIGINT UNSIGNED NOT NULL
+                                COMMENT 'References organizations(id) — one profile per organization',
+
+    -- SAT taxpayer identity
+    rfc                     VARCHAR(13)     NOT NULL
+                                COMMENT 'RFC of the ISP as the CFDI issuer',
+    razon_social            VARCHAR(300)    NOT NULL
+                                COMMENT 'Legal name of the ISP exactly as registered with SAT',
+    regimen_fiscal          VARCHAR(3)      NOT NULL
+                                COMMENT 'SAT fiscal regime code for the issuer (e.g. 601, 621)',
+    codigo_postal_fiscal    VARCHAR(5)      NOT NULL
+                                COMMENT 'Fiscal ZIP code of the ISP as registered with SAT',
+
+    -- CSD (Certificado de Sello Digital) for signing CFDIs
+    csd_certificate_number  VARCHAR(30)     NULL
+                                COMMENT 'SAT-assigned certificate serial number',
+    csd_certificate_pem     TEXT            NULL
+                                COMMENT 'CSD public certificate in PEM format (.cer)',
+    csd_private_key_enc     TEXT            NULL
+                                COMMENT 'CSD private key encrypted at rest (.key) — app handles encryption',
+    csd_valid_from          DATE            NULL
+                                COMMENT 'CSD certificate validity start date',
+    csd_valid_to            DATE            NULL
+                                COMMENT 'CSD certificate expiry date — alerts should fire before this date',
+
+    -- PAC (Proveedor Autorizado de Certificación) integration
+    pac_provider            VARCHAR(50)     NULL
+                                COMMENT 'PAC provider name (e.g. Finkok, TimbraSoft, SW Sapien)',
+    pac_username            VARCHAR(255)    NULL
+                                COMMENT 'PAC API username',
+    pac_password_enc        VARCHAR(500)    NULL
+                                COMMENT 'PAC API password encrypted at rest — app handles encryption',
+    pac_environment         ENUM('sandbox', 'production') NOT NULL DEFAULT 'sandbox'
+                                COMMENT 'sandbox = PAC test environment; production = live stamping',
+
+    -- CFDI series & folio auto-numbering
+    cfdi_serie_ingreso      VARCHAR(10)     NOT NULL DEFAULT 'A'
+                                COMMENT 'Series prefix for CFDI tipo I (ingreso / invoice)',
+    cfdi_serie_egreso       VARCHAR(10)     NOT NULL DEFAULT 'E'
+                                COMMENT 'Series prefix for CFDI tipo E (egreso / credit note)',
+    cfdi_serie_pago         VARCHAR(10)     NOT NULL DEFAULT 'P'
+                                COMMENT 'Series prefix for CFDI tipo P (pago / payment complement)',
+    cfdi_folio_next         BIGINT UNSIGNED NOT NULL DEFAULT 1
+                                COMMENT 'Next available folio number — incremented atomically by the app on each issue',
+
+    -- Mexican fiscal address
+    colonia                 VARCHAR(150)    NULL
+                                COMMENT 'Neighborhood',
+    municipio               VARCHAR(150)    NULL
+                                COMMENT 'Municipality',
+    exterior_number         VARCHAR(20)     NULL
+                                COMMENT 'Street exterior number',
+    interior_number         VARCHAR(20)     NULL
+                                COMMENT 'Suite / interior number',
+
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_organization_mx_profiles_org_id (organization_id),
+    UNIQUE KEY uq_organization_mx_profiles_rfc (rfc),
+    KEY idx_organization_mx_profiles_pac_environment (pac_environment),
+    CONSTRAINT fk_organization_mx_profiles_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: sat_regimen_fiscal
+-- Purpose: SAT catalog c_RegimenFiscal — fiscal regime codes used on CFDI 4.0
+--          issuer and receptor nodes.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sat_regimen_fiscal (
+    code        VARCHAR(3)      NOT NULL
+                    COMMENT 'SAT c_RegimenFiscal code (e.g. 601, 612, 626)',
+    description VARCHAR(200)    NOT NULL
+                    COMMENT 'Official SAT description in Spanish',
+    applies_to  ENUM('personal', 'company', 'both') NOT NULL DEFAULT 'both'
+                    COMMENT 'Whether the regime applies to individuals, moral persons, or both',
+    status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+
+    PRIMARY KEY (code),
+    KEY idx_sat_regimen_fiscal_applies_to (applies_to),
+    KEY idx_sat_regimen_fiscal_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='SAT catalog: c_RegimenFiscal — fiscal regime codes for CFDI 4.0';
+
+-- ---------------------------------------------------------------------------
+-- Table: sat_uso_cfdi
+-- Purpose: SAT catalog c_UsoCFDI — permitted use codes for the CFDI receptor.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sat_uso_cfdi (
+    code        VARCHAR(4)      NOT NULL
+                    COMMENT 'SAT c_UsoCFDI code (e.g. G03, S01, P01)',
+    description VARCHAR(200)    NOT NULL
+                    COMMENT 'Official SAT description in Spanish',
+    applies_to  ENUM('personal', 'company', 'both') NOT NULL DEFAULT 'both'
+                    COMMENT 'Whether the use code applies to individuals, moral persons, or both',
+    status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+
+    PRIMARY KEY (code),
+    KEY idx_sat_uso_cfdi_applies_to (applies_to),
+    KEY idx_sat_uso_cfdi_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='SAT catalog: c_UsoCFDI — permitted use codes for CFDI 4.0 receptor';
+
+-- ---------------------------------------------------------------------------
+-- Table: sat_forma_pago
+-- Purpose: SAT catalog c_FormaPago — how a payment was or will be made.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sat_forma_pago (
+    code        VARCHAR(2)      NOT NULL
+                    COMMENT 'SAT c_FormaPago code (e.g. 01, 03, 28)',
+    description VARCHAR(200)    NOT NULL
+                    COMMENT 'Official SAT description in Spanish',
+    status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+
+    PRIMARY KEY (code),
+    KEY idx_sat_forma_pago_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='SAT catalog: c_FormaPago — how a payment was or will be made';
+
+-- ---------------------------------------------------------------------------
+-- Table: sat_metodo_pago
+-- Purpose: SAT catalog c_MetodoPago — PUE or PPD payment timing.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sat_metodo_pago (
+    code        VARCHAR(3)      NOT NULL
+                    COMMENT 'SAT c_MetodoPago code: PUE (pago en una sola exhibición) or PPD (pago en parcialidades o diferido)',
+    description VARCHAR(200)    NOT NULL
+                    COMMENT 'Official SAT description in Spanish',
+    status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+
+    PRIMARY KEY (code),
+    KEY idx_sat_metodo_pago_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='SAT catalog: c_MetodoPago — PUE or PPD payment timing';
+
+-- ---------------------------------------------------------------------------
+-- Table: sat_tipo_comprobante
+-- Purpose: SAT catalog c_TipoDeComprobante — CFDI document type.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sat_tipo_comprobante (
+    code        VARCHAR(1)      NOT NULL
+                    COMMENT 'SAT c_TipoDeComprobante: I=ingreso, E=egreso, P=pago, T=traslado, N=nomina',
+    description VARCHAR(200)    NOT NULL
+                    COMMENT 'Official SAT description in Spanish',
+    status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+
+    PRIMARY KEY (code),
+    KEY idx_sat_tipo_comprobante_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='SAT catalog: c_TipoDeComprobante — CFDI document type';
+
+-- ---------------------------------------------------------------------------
+-- Table: sat_moneda
+-- Purpose: SAT catalog c_Moneda (subset) — currencies accepted in CFDI 4.0.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sat_moneda (
+    code        VARCHAR(3)      NOT NULL
+                    COMMENT 'ISO 4217 / SAT c_Moneda currency code (e.g. MXN, USD, EUR, XXX)',
+    description VARCHAR(100)    NOT NULL
+                    COMMENT 'Official SAT description in Spanish',
+    decimals    TINYINT UNSIGNED NOT NULL DEFAULT 2
+                    COMMENT 'Number of decimal places allowed for amounts in this currency',
+    status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+
+    PRIMARY KEY (code),
+    KEY idx_sat_moneda_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='SAT catalog: c_Moneda — currencies accepted in CFDI 4.0';
+
+-- ---------------------------------------------------------------------------
+-- Seed data: SAT CFDI 4.0 catalog tables (migration 069)
+-- Uses INSERT IGNORE for idempotent re-runs.
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO sat_regimen_fiscal (code, description, applies_to, status) VALUES
+('601', 'General de Ley Personas Morales',                                          'company',  'active'),
+('603', 'Personas Morales con Fines no Lucrativos',                                 'company',  'active'),
+('605', 'Sueldos y Salarios e Ingresos Asimilados a Salarios',                      'personal', 'active'),
+('606', 'Arrendamiento',                                                             'personal', 'active'),
+('608', 'Demás ingresos',                                                            'personal', 'active'),
+('610', 'Residentes en el Extranjero sin Establecimiento Permanente en México',      'both',     'active'),
+('612', 'Personas Físicas con Actividades Empresariales y Profesionales',            'personal', 'active'),
+('614', 'Ingresos por intereses',                                                    'personal', 'active'),
+('616', 'Sin obligaciones fiscales',                                                 'personal', 'active'),
+('620', 'Sociedades Cooperativas de Producción que optan por diferir sus ingresos',  'company',  'active'),
+('621', 'Incorporación Fiscal',                                                      'personal', 'active'),
+('622', 'Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras',                 'company',  'active'),
+('623', 'Opcional para Grupos de Sociedades',                                        'company',  'active'),
+('624', 'Coordinados',                                                               'company',  'active'),
+('625', 'Régimen de las Actividades Empresariales con ingresos a través de Plataformas Tecnológicas', 'personal', 'active'),
+('626', 'Régimen Simplificado de Confianza',                                         'both',     'active');
+
+INSERT IGNORE INTO sat_uso_cfdi (code, description, applies_to, status) VALUES
+('G01', 'Adquisición de mercancias',                                        'both',     'active'),
+('G02', 'Devoluciones, descuentos o bonificaciones',                        'both',     'active'),
+('G03', 'Gastos en general',                                                'both',     'active'),
+('I01', 'Construcciones',                                                   'both',     'active'),
+('I02', 'Mobilario y equipo de oficina por inversiones',                    'both',     'active'),
+('I03', 'Equipo de transporte',                                             'both',     'active'),
+('I04', 'Equipo de computo y accesorios',                                   'both',     'active'),
+('I08', 'Otra maquinaria y equipo',                                         'both',     'active'),
+('D01', 'Honorarios médicos, dentales y gastos hospitalarios',              'personal', 'active'),
+('D02', 'Gastos médicos por incapacidad o discapacidad',                    'personal', 'active'),
+('D03', 'Gastos funerales',                                                 'personal', 'active'),
+('D04', 'Donativos',                                                        'personal', 'active'),
+('P01', 'Por definir',                                                      'both',     'active'),
+('S01', 'Sin efectos fiscales',                                             'both',     'active'),
+('CP01', 'Pagos',                                                           'both',     'active');
+
+INSERT IGNORE INTO sat_forma_pago (code, description, status) VALUES
+('01', 'Efectivo',                                                          'active'),
+('02', 'Cheque nominativo',                                                 'active'),
+('03', 'Transferencia electrónica de fondos',                               'active'),
+('04', 'Tarjeta de crédito',                                                'active'),
+('05', 'Monedero electrónico',                                              'active'),
+('06', 'Dinero electrónico',                                                'active'),
+('08', 'Vales de despensa',                                                 'active'),
+('12', 'Dación en pago',                                                    'active'),
+('13', 'Pago por subrogación',                                              'active'),
+('14', 'Pago por consignación',                                             'active'),
+('15', 'Condonación',                                                       'active'),
+('17', 'Compensación',                                                      'active'),
+('23', 'Novación',                                                          'active'),
+('24', 'Confusión',                                                         'active'),
+('25', 'Remisión de deuda',                                                 'active'),
+('26', 'Prescripción o caducidad',                                          'active'),
+('27', 'A satisfacción del acreedor',                                       'active'),
+('28', 'Tarjeta de débito',                                                 'active'),
+('29', 'Tarjeta de servicios',                                              'active'),
+('30', 'Aplicación de anticipos',                                           'active'),
+('31', 'Intermediario pagos',                                               'active'),
+('99', 'Por definir',                                                       'active');
+
+INSERT IGNORE INTO sat_metodo_pago (code, description, status) VALUES
+('PUE', 'Pago en una sola exhibición',              'active'),
+('PPD', 'Pago en parcialidades o diferido',         'active');
+
+INSERT IGNORE INTO sat_tipo_comprobante (code, description, status) VALUES
+('I', 'Ingreso',    'active'),
+('E', 'Egreso',     'active'),
+('P', 'Pago',       'active'),
+('T', 'Traslado',   'active'),
+('N', 'Nómina',     'active');
+
+INSERT IGNORE INTO sat_moneda (code, description, decimals, status) VALUES
+('MXN', 'Peso Mexicano',                    2, 'active'),
+('USD', 'Dólar americano',                  2, 'active'),
+('EUR', 'Euro',                             2, 'active'),
+('XXX', 'Los derechos en esta divisa',      2, 'active');
+
+-- ---------------------------------------------------------------------------
+-- Table: cfdi_documents
+-- Purpose: Core CFDI 4.0 fiscal document records. One row per stamped (or
+--          draft) electronic fiscal document issued by an organization to a
+--          client. Polymorphic source linkage ensures at most one of invoice_id,
+--          credit_note_id, or payment_id is set per document.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cfdi_documents (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+    -- Issuer & receiver references
+    organization_id         BIGINT UNSIGNED NOT NULL
+                                COMMENT 'Organization (ISP) that issued this CFDI',
+    client_id               BIGINT UNSIGNED NOT NULL
+                                COMMENT 'Client (receptor) for this CFDI',
+
+    -- SAT folio fiscal (UUID assigned by PAC after stamping)
+    uuid                    CHAR(36)        NULL     UNIQUE
+                                COMMENT 'Folio fiscal UUID assigned by the PAC after successful stamping; NULL while in draft',
+
+    -- Series and folio (issuer-assigned numbering)
+    serie                   VARCHAR(10)     NULL
+                                COMMENT 'CFDI series prefix (e.g. A, E, P)',
+    folio                   BIGINT UNSIGNED NULL
+                                COMMENT 'Sequential folio number within the series',
+
+    -- Document classification (FK to SAT catalog)
+    tipo_comprobante        VARCHAR(1)      NOT NULL
+                                COMMENT 'SAT c_TipoDeComprobante: I=ingreso, E=egreso, P=pago, T=traslado, N=nomina',
+    uso_cfdi                VARCHAR(4)      NOT NULL
+                                COMMENT 'SAT c_UsoCFDI — receptor intended use (e.g. G03, S01)',
+    metodo_pago             VARCHAR(3)      NULL
+                                COMMENT 'SAT c_MetodoPago: PUE or PPD',
+    forma_pago              VARCHAR(2)      NULL
+                                COMMENT 'SAT c_FormaPago: payment instrument code (e.g. 03, 28)',
+
+    -- Currency
+    moneda                  VARCHAR(3)      NOT NULL DEFAULT 'MXN'
+                                COMMENT 'SAT c_Moneda currency code',
+    tipo_cambio             DECIMAL(10, 4)  NULL
+                                COMMENT 'Exchange rate to MXN when moneda != MXN; NULL when moneda = MXN',
+
+    -- Receiver snapshot (denormalized at stamp time — must match SAT records)
+    receptor_rfc            VARCHAR(13)     NULL
+                                COMMENT 'Receiver RFC captured at stamp time',
+    receptor_nombre         VARCHAR(300)    NULL
+                                COMMENT 'Receiver razon_social captured at stamp time',
+    receptor_regimen        VARCHAR(3)      NULL
+                                COMMENT 'Receiver regimen_fiscal captured at stamp time',
+    receptor_cp             VARCHAR(5)      NULL
+                                COMMENT 'Receiver codigo_postal_fiscal captured at stamp time',
+
+    -- Amounts
+    subtotal                DECIMAL(12, 2)  NOT NULL DEFAULT 0.00
+                                COMMENT 'Sum of concept amounts before taxes',
+    total_impuestos         DECIMAL(12, 2)  NOT NULL DEFAULT 0.00
+                                COMMENT 'Total taxes (IVA, IEPS, etc.) transferred or withheld',
+    total                   DECIMAL(12, 2)  NOT NULL DEFAULT 0.00
+                                COMMENT 'Grand total: subtotal +/- taxes',
+
+    -- XML & PDF storage
+    xml_content             MEDIUMTEXT      NULL
+                                COMMENT 'Full signed CFDI XML as returned by the PAC',
+    pdf_url                 VARCHAR(500)    NULL
+                                COMMENT 'URL or path to the generated PDF representation',
+
+    -- PAC stamping metadata
+    pac_provider            VARCHAR(50)     NULL
+                                COMMENT 'PAC that stamped this CFDI (e.g. Finkok, TimbraSoft)',
+    stamp_date              DATETIME        NULL
+                                COMMENT 'FechaTimbrado from the PAC timbrado complement',
+    certificate_number      VARCHAR(30)     NULL
+                                COMMENT 'NoCertificadoSAT from the PAC timbrado complement',
+    sat_seal                TEXT            NULL
+                                COMMENT 'SelloSAT from the PAC timbrado complement',
+
+    -- SAT status lifecycle
+    sat_status              ENUM('draft', 'vigente', 'cancelado', 'cancel_pending')
+                                NOT NULL DEFAULT 'draft'
+                                COMMENT 'draft=not yet stamped; vigente=valid; cancel_pending=cancellation requested; cancelado=SAT confirmed cancellation',
+
+    -- Cancellation fields
+    cancellation_reason     ENUM('01', '02', '03', '04') NULL
+                                COMMENT 'SAT c_MotivoCancelacion: 01=error in invoice, 02=not issued, 03=not defined, 04=nominative substitution',
+    cancellation_uuid       CHAR(36)        NULL
+                                COMMENT 'UUID of the substitute CFDI (required for reason 04)',
+    cancelled_at            DATETIME        NULL
+                                COMMENT 'Timestamp when SAT confirmed cancellation',
+
+    -- Source document linkage (polymorphic — at most one may be non-NULL)
+    invoice_id              BIGINT UNSIGNED NULL
+                                COMMENT 'Invoice this CFDI type-I belongs to; NULL for other types or drafts',
+    credit_note_id          BIGINT UNSIGNED NULL
+                                COMMENT 'Credit note this CFDI type-E belongs to; NULL for other types',
+    payment_id              BIGINT UNSIGNED NULL
+                                COMMENT 'Payment this CFDI type-P complement belongs to; NULL for other types',
+
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_cfdi_documents_uuid (uuid),
+    KEY idx_cfdi_documents_organization_id (organization_id),
+    KEY idx_cfdi_documents_client_id (client_id),
+    KEY idx_cfdi_documents_tipo_comprobante (tipo_comprobante),
+    KEY idx_cfdi_documents_sat_status (sat_status),
+    KEY idx_cfdi_documents_stamp_date (stamp_date),
+    KEY idx_cfdi_documents_invoice_id (invoice_id),
+    KEY idx_cfdi_documents_credit_note_id (credit_note_id),
+    KEY idx_cfdi_documents_payment_id (payment_id),
+    KEY idx_cfdi_documents_serie_folio (serie, folio),
+
+    CONSTRAINT fk_cfdi_documents_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_cfdi_documents_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_cfdi_documents_invoice FOREIGN KEY (invoice_id)
+        REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cfdi_documents_credit_note FOREIGN KEY (credit_note_id)
+        REFERENCES credit_notes (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cfdi_documents_payment FOREIGN KEY (payment_id)
+        REFERENCES payments (id) ON DELETE SET NULL ON UPDATE CASCADE,
+
+    -- At most one source document may be linked per CFDI
+    CONSTRAINT chk_cfdi_documents_single_source CHECK (
+        (
+            (invoice_id     IS NOT NULL AND credit_note_id IS NULL     AND payment_id IS NULL)
+         OR (invoice_id     IS NULL     AND credit_note_id IS NOT NULL  AND payment_id IS NULL)
+         OR (invoice_id     IS NULL     AND credit_note_id IS NULL      AND payment_id IS NOT NULL)
+         OR (invoice_id     IS NULL     AND credit_note_id IS NULL      AND payment_id IS NULL)
+        )
+    )
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: cfdi_related_documents
+-- Purpose: CfdiRelacionados (CFDI 4.0) — tracks relationships between CFDIs,
+--          e.g. credit note referencing original invoice, or substitution of
+--          a cancelled document.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cfdi_related_documents (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    cfdi_document_id    BIGINT UNSIGNED NOT NULL
+                            COMMENT 'The CFDI that declares the relationship',
+    related_uuid        CHAR(36)        NOT NULL
+                            COMMENT 'UUID (folio fiscal) of the related CFDI',
+    relationship_type   VARCHAR(2)      NOT NULL
+                            COMMENT 'SAT c_TipoRelacion code (e.g. 01=nota de crédito, 04=sustitución)',
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_cfdi_related_docs_cfdi_id (cfdi_document_id),
+    KEY idx_cfdi_related_docs_related_uuid (related_uuid),
+    KEY idx_cfdi_related_docs_relationship_type (relationship_type),
+    CONSTRAINT fk_cfdi_related_docs_cfdi FOREIGN KEY (cfdi_document_id)
+        REFERENCES cfdi_documents (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: cfdi_payment_complements
+-- Purpose: Complemento de Pago 2.0 (Recibo Electrónico de Pago) headers.
+--          One row per payment event that settles one or more PPD invoices.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cfdi_payment_complements (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    cfdi_document_id    BIGINT UNSIGNED NOT NULL
+                            COMMENT 'Parent CFDI type-P document that carries this complement',
+
+    -- Payment event details
+    payment_date        DATE            NOT NULL
+                            COMMENT 'Date the payment was received (FechaPago)',
+    forma_pago          VARCHAR(2)      NOT NULL
+                            COMMENT 'SAT c_FormaPago — how the payment was made (e.g. 03=transfer, 28=debit card)',
+    moneda              VARCHAR(3)      NOT NULL DEFAULT 'MXN'
+                            COMMENT 'SAT c_Moneda — currency the payment was received in',
+    tipo_cambio         DECIMAL(10, 4)  NULL
+                            COMMENT 'Exchange rate to MXN when moneda != MXN',
+    amount              DECIMAL(12, 2)  NOT NULL
+                            COMMENT 'Total amount of this payment event',
+    operation_number    VARCHAR(100)    NULL
+                            COMMENT 'Bank transaction or reference number for the payment',
+
+    -- Payer bank details
+    payer_rfc           VARCHAR(13)     NULL
+                            COMMENT 'RFC of the payer (when available from bank data)',
+    payer_bank_name     VARCHAR(100)    NULL
+                            COMMENT 'Name of the payer bank',
+    payer_account       VARCHAR(50)     NULL
+                            COMMENT 'CLABE or account number of the payer',
+
+    -- Beneficiary (ISP) bank details
+    beneficiary_rfc     VARCHAR(13)     NULL
+                            COMMENT 'RFC of the beneficiary (organization RFC)',
+    beneficiary_account VARCHAR(50)     NULL
+                            COMMENT 'CLABE or account number of the beneficiary',
+
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_cfdi_payment_complements_cfdi_id (cfdi_document_id),
+    KEY idx_cfdi_payment_complements_payment_date (payment_date),
+    KEY idx_cfdi_payment_complements_forma_pago (forma_pago),
+    CONSTRAINT fk_cfdi_payment_complements_cfdi FOREIGN KEY (cfdi_document_id)
+        REFERENCES cfdi_documents (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: cfdi_payment_complement_items
+-- Purpose: DoctoRelacionado rows for Complemento de Pago 2.0. Each item links
+--          one PPD invoice (by CFDI UUID) to a payment complement, tracking
+--          the outstanding balance before and after the payment.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cfdi_payment_complement_items (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    complement_id       BIGINT UNSIGNED NOT NULL
+                            COMMENT 'Parent payment complement this item belongs to',
+
+    -- Related CFDI being settled
+    related_cfdi_uuid   CHAR(36)        NOT NULL
+                            COMMENT 'UUID (folio fiscal) of the PPD invoice being paid',
+    serie               VARCHAR(10)     NULL
+                            COMMENT 'Series of the related CFDI (for display)',
+    folio               VARCHAR(40)     NULL
+                            COMMENT 'Folio of the related CFDI (for display)',
+
+    -- Currency of the related document
+    moneda_dr           VARCHAR(3)      NOT NULL DEFAULT 'MXN'
+                            COMMENT 'SAT c_Moneda — currency of the document being paid (MonedaDR)',
+    equivalencia_dr     DECIMAL(10, 4)  NOT NULL DEFAULT 1.0000
+                            COMMENT 'Exchange rate between moneda_dr and the complement payment currency',
+
+    -- Installment tracking
+    num_parcialidad     INT UNSIGNED    NOT NULL DEFAULT 1
+                            COMMENT 'Installment number for this payment (1 = first partial or full payment)',
+
+    -- Balance tracking (required by Complemento de Pago 2.0)
+    imp_saldo_ant       DECIMAL(12, 2)  NOT NULL
+                            COMMENT 'Outstanding balance before this payment (ImpSaldoAnt)',
+    imp_pagado          DECIMAL(12, 2)  NOT NULL
+                            COMMENT 'Amount paid toward this document in this complement (ImpPagado)',
+    imp_saldo_insoluto  DECIMAL(12, 2)  NOT NULL
+                            COMMENT 'Remaining balance after this payment: imp_saldo_ant - imp_pagado (ImpSaldoInsoluto)',
+
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_cfdi_pci_complement_id (complement_id),
+    KEY idx_cfdi_pci_related_uuid (related_cfdi_uuid),
+    CONSTRAINT fk_cfdi_pci_complement FOREIGN KEY (complement_id)
+        REFERENCES cfdi_payment_complements (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: concession_titles
+-- Purpose: IFT/CRT concession title registry. Mexican ISPs must hold a valid
+--          concession title to operate legally. Tracks title number, type,
+--          authorized services, spectrum bands, validity dates, and status.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS concession_titles (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NOT NULL
+                            COMMENT 'Organization that holds this concession title',
+    title_number        VARCHAR(100)    NOT NULL UNIQUE
+                            COMMENT 'Official concession title number as issued by IFT/CRT',
+    concession_type     ENUM('commercial', 'public', 'social', 'community', 'indigenous', 'private')
+                            NOT NULL DEFAULT 'commercial'
+                            COMMENT 'Type of concession as defined by the LFTR',
+    services_authorized JSON            NOT NULL
+                            COMMENT 'JSON array of authorized services (e.g. ["internet","voip","data"])',
+    geographic_scope    TEXT            NULL
+                            COMMENT 'Description of the authorized geographic area (states, municipalities)',
+    spectrum_bands      JSON            NULL
+                            COMMENT 'JSON array of spectrum bands assigned (if applicable)',
+    granted_date        DATE            NOT NULL
+                            COMMENT 'Date the concession was originally granted',
+    expiration_date     DATE            NULL
+                            COMMENT 'Concession expiry date; NULL = indefinite duration',
+    renewal_filed_at    DATE            NULL
+                            COMMENT 'Date the renewal application was submitted to IFT/CRT',
+    regulatory_body     ENUM('IFT', 'CRT') NOT NULL DEFAULT 'CRT'
+                            COMMENT 'IFT = Instituto Federal de Telecomunicaciones (pre-2025); CRT = Comisión de Regulación de Telecomunicaciones (from 2025)',
+    document_file_id    BIGINT UNSIGNED NULL
+                            COMMENT 'Reference to the official title document in the files table',
+    status              ENUM('active', 'expired', 'revoked', 'pending_renewal')
+                            NOT NULL DEFAULT 'active'
+                            COMMENT 'active=valid; expired=past expiry; revoked=cancelled by authority; pending_renewal=renewal in progress',
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_concession_titles_title_number (title_number),
+    KEY idx_concession_titles_organization_id (organization_id),
+    KEY idx_concession_titles_status (status),
+    KEY idx_concession_titles_regulatory_body (regulatory_body),
+    KEY idx_concession_titles_expiration_date (expiration_date),
+    CONSTRAINT fk_concession_titles_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_concession_titles_document FOREIGN KEY (document_file_id)
+        REFERENCES files (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: contract_templates_mx
+-- Purpose: IFT/CRT-registered Carta de Adhesión templates. Mexican ISPs must
+--          register their standard contract model with IFT/CRT. Contracts
+--          reference the specific registered template via FK.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS contract_templates_mx (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id         BIGINT UNSIGNED NOT NULL
+                                COMMENT 'Organization that owns this registered template',
+    template_name           VARCHAR(200)    NOT NULL
+                                COMMENT 'Internal descriptive name for this template version',
+    ift_registration_number VARCHAR(100)    NULL
+                                COMMENT 'Official registration number issued by IFT/CRT when the template was approved',
+    registered_at           DATE            NULL
+                                COMMENT 'Date IFT/CRT officially registered this template',
+    version                 VARCHAR(20)     NOT NULL DEFAULT '1.0'
+                                COMMENT 'Internal version label (e.g. 1.0, 2.0, 2025-rev1)',
+    template_body           LONGTEXT        NULL
+                                COMMENT 'Full text of the registered contract template',
+    document_file_id        BIGINT UNSIGNED NULL
+                                COMMENT 'Uploaded PDF/Word of the registered template in the files table',
+    status                  ENUM('draft', 'submitted', 'registered', 'expired', 'revoked')
+                                NOT NULL DEFAULT 'draft'
+                                COMMENT 'draft=being prepared; submitted=sent to IFT/CRT; registered=officially approved; expired=superseded; revoked=withdrawn',
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_contract_templates_mx_organization_id (organization_id),
+    KEY idx_contract_templates_mx_status (status),
+    KEY idx_contract_templates_mx_registered_at (registered_at),
+    CONSTRAINT fk_contract_templates_mx_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_contract_templates_mx_document FOREIGN KEY (document_file_id)
+        REFERENCES files (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: regulatory_filings
+-- Purpose: Tracks periodic regulatory filings submitted to IFT/CRT. Records
+--          each filing event, status, and optional links to an uploaded document
+--          and a concession title.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS regulatory_filings (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id         BIGINT UNSIGNED NOT NULL
+                                COMMENT 'Organization responsible for this filing',
+    concession_title_id     BIGINT UNSIGNED NULL
+                                COMMENT 'Concession title this filing relates to; NULL = general organizational filing',
+    filing_type             ENUM(
+                                'annual_report',
+                                'quarterly_stats',
+                                'tariff_registration',
+                                'qos_report',
+                                'coverage_report',
+                                'spectrum_usage',
+                                'other'
+                            ) NOT NULL
+                                COMMENT 'annual_report=yearly LFTR report; quarterly_stats=subscriber/usage stats; tariff_registration=tariff change notification; qos_report=quality of service; coverage_report=geographic coverage update; spectrum_usage=spectrum use report',
+    period_start            DATE            NULL
+                                COMMENT 'Start date of the reporting period',
+    period_end              DATE            NULL
+                                COMMENT 'End date of the reporting period',
+    filed_at                TIMESTAMP       NULL
+                                COMMENT 'Timestamp when the filing was submitted to IFT/CRT',
+    acknowledgement_number  VARCHAR(100)    NULL
+                                COMMENT 'Official acknowledgement number assigned by IFT/CRT upon receipt',
+    document_file_id        BIGINT UNSIGNED NULL
+                                COMMENT 'Uploaded filing document in the files table',
+    status                  ENUM('pending', 'filed', 'accepted', 'rejected', 'overdue')
+                                NOT NULL DEFAULT 'pending'
+                                COMMENT 'pending=not yet submitted; filed=submitted awaiting response; accepted=authority confirmed; rejected=returned for correction; overdue=deadline passed without filing',
+    notes                   TEXT            NULL,
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_regulatory_filings_organization_id (organization_id),
+    KEY idx_regulatory_filings_concession_title_id (concession_title_id),
+    KEY idx_regulatory_filings_filing_type (filing_type),
+    KEY idx_regulatory_filings_status (status),
+    KEY idx_regulatory_filings_filed_at (filed_at),
+    KEY idx_regulatory_filings_period_start (period_start),
+    CONSTRAINT fk_regulatory_filings_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_regulatory_filings_concession_title FOREIGN KEY (concession_title_id)
+        REFERENCES concession_titles (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_regulatory_filings_document FOREIGN KEY (document_file_id)
+        REFERENCES files (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT chk_regulatory_filings_period CHECK (period_end IS NULL OR period_start IS NULL OR period_end >= period_start)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: ift_statistical_reports
+-- Purpose: Pre-aggregated IFT/CRT reporting snapshots per organization per
+--          reporting period. Stores subscriber counts, speed metrics, coverage,
+--          and revenue data for export and official filing.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ift_statistical_reports (
+    id                          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id             BIGINT UNSIGNED NOT NULL
+                                    COMMENT 'Organization this report snapshot belongs to',
+
+    -- Reporting period
+    report_period               VARCHAR(10)     NOT NULL
+                                    COMMENT 'Human-readable period identifier (e.g. 2026-Q1, 2026-06, 2026-01)',
+    period_start                DATE            NOT NULL
+                                    COMMENT 'First day of the reporting period',
+    period_end                  DATE            NOT NULL
+                                    COMMENT 'Last day of the reporting period',
+
+    -- Subscriber counts
+    total_subscribers           INT UNSIGNED    NOT NULL DEFAULT 0
+                                    COMMENT 'Total active subscribers at the end of the period',
+    subscribers_by_speed_tier   JSON            NULL
+                                    COMMENT 'JSON object: speed tier label => subscriber count (e.g. {"10Mbps":120,"50Mbps":300})',
+    subscribers_by_state        JSON            NULL
+                                    COMMENT 'JSON object: state code => subscriber count',
+    subscribers_by_technology   JSON            NULL
+                                    COMMENT 'JSON object: technology label => subscriber count (e.g. {"fiber":200,"wireless":220})',
+    coverage_localities         JSON            NULL
+                                    COMMENT 'JSON array of locality codes (INEGI AGEB / localidad) covered',
+
+    -- Speed metrics
+    avg_download_speed_mbps     DECIMAL(8, 2)   NULL
+                                    COMMENT 'Average contracted download speed across all active subscribers (Mbps)',
+    avg_upload_speed_mbps       DECIMAL(8, 2)   NULL
+                                    COMMENT 'Average contracted upload speed across all active subscribers (Mbps)',
+
+    -- Coverage
+    coverage_municipalities     INT UNSIGNED    NULL
+                                    COMMENT 'Number of municipalities with at least one active subscriber',
+
+    -- Revenue (optional — may be omitted if reported separately)
+    revenue_total               DECIMAL(14, 2)  NULL
+                                    COMMENT 'Total gross revenue for the period in local currency; NULL if not included in this report',
+
+    -- Filing linkage
+    filed_at                    TIMESTAMP       NULL
+                                    COMMENT 'Timestamp when this snapshot was submitted to IFT/CRT',
+    filing_id                   BIGINT UNSIGNED NULL
+                                    COMMENT 'Regulatory filing record this snapshot was submitted as part of',
+
+    status                      ENUM('draft', 'final', 'filed')
+                                    NOT NULL DEFAULT 'draft'
+                                    COMMENT 'draft=being prepared; final=ready for submission; filed=submitted to regulator',
+
+    created_at                  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at                  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_ift_statistical_reports_org_period (organization_id, report_period),
+    KEY idx_ift_statistical_reports_organization_id (organization_id),
+    KEY idx_ift_statistical_reports_status (status),
+    KEY idx_ift_statistical_reports_period_start (period_start),
+    KEY idx_ift_statistical_reports_filing_id (filing_id),
+    CONSTRAINT fk_ift_statistical_reports_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_ift_statistical_reports_filing FOREIGN KEY (filing_id)
+        REFERENCES regulatory_filings (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT chk_ift_statistical_reports_period CHECK (period_end >= period_start)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
