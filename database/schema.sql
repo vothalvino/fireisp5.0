@@ -2181,6 +2181,55 @@ CREATE TABLE IF NOT EXISTS vlans (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
+-- Table: tax_rates
+-- Purpose: Master list of named tax configurations (e.g. "IVA 16%", "Exempt",
+--          "Sales Tax 8%"). Referenced by invoices, quotes, and credit notes
+--          so that rate changes only need to happen in one place.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tax_rates (
+    id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED  NULL     COMMENT 'Tenant organization; NULL = applies to all tenants',
+    name            VARCHAR(100)     NOT NULL COMMENT 'Human-readable label, e.g. "IVA 16%", "Exempt", "GST 5%"',
+    rate            DECIMAL(5, 4)    NOT NULL COMMENT 'Tax rate as a decimal, e.g. 0.1600 = 16%',
+    description     TEXT             NULL     COMMENT 'Optional explanation or legal reference',
+    is_default      BOOLEAN          NOT NULL DEFAULT FALSE COMMENT 'Default rate applied to new invoices/quotes when none is selected',
+    status          ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_tax_rates_organization_id (organization_id),
+    KEY idx_tax_rates_status (status),
+    KEY idx_tax_rates_is_default (is_default),
+    CONSTRAINT fk_tax_rates_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Tax rate references (migration 056)
+-- Purpose: Links invoices, quotes, and credit notes to the tax_rates master
+--          table. The existing tax_rate DECIMAL column is kept as a snapshot
+--          of the rate at document-creation time.
+-- ---------------------------------------------------------------------------
+ALTER TABLE invoices
+    ADD COLUMN tax_rate_id BIGINT UNSIGNED NULL COMMENT 'Tax rate configuration used; NULL = manual / legacy rate',
+    ADD KEY idx_invoices_tax_rate_id (tax_rate_id),
+    ADD CONSTRAINT fk_invoices_tax_rate FOREIGN KEY (tax_rate_id)
+        REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE quotes
+    ADD COLUMN tax_rate_id BIGINT UNSIGNED NULL COMMENT 'Tax rate configuration used; NULL = manual / legacy rate',
+    ADD KEY idx_quotes_tax_rate_id (tax_rate_id),
+    ADD CONSTRAINT fk_quotes_tax_rate FOREIGN KEY (tax_rate_id)
+        REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE credit_notes
+    ADD COLUMN tax_rate_id BIGINT UNSIGNED NULL COMMENT 'Tax rate configuration used; NULL = manual / legacy rate',
+    ADD KEY idx_credit_notes_tax_rate_id (tax_rate_id),
+    ADD CONSTRAINT fk_credit_notes_tax_rate FOREIGN KEY (tax_rate_id)
+        REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- ---------------------------------------------------------------------------
 -- Table: schema_migrations
 -- Purpose: Migration state tracking. Records which migration files have been
 --          applied so the deploy script can skip already-run files.
