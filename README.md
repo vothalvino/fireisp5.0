@@ -144,6 +144,10 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 74 | `regulatory_filings` | IFT/CRT periodic filing log — annual reports, quarterly stats, tariff registrations, QoS reports, and other LFTR-mandated submissions |
 | 75 | `contract_templates_mx` | IFT/CRT-registered Carta de Adhesión templates — stores the registered standard contract model including registration number, version, body text, and approval status |
 | 76 | `ift_statistical_reports` | Pre-aggregated IFT/CRT reporting snapshots — subscriber counts by speed tier/state/technology, average speeds, coverage municipalities, and revenue per reporting period |
+| 77 | `sat_clave_prod_serv` | SAT catalog c_ClaveProdServ — product and service classification codes (e.g. `81161700` for internet access) required on every CFDI 4.0 line item |
+| 78 | `sat_clave_unidad` | SAT catalog c_ClaveUnidad — unit-of-measure codes (e.g. `E48` for service unit, `H87` for piece) required on every CFDI 4.0 line item |
+| 79 | `cfdi_conceptos` | CFDI 4.0 concept (line item) rows — one per `<Concepto>` node; stores SAT product/service key, unit key, quantity, description, unit price, line total, optional discount, and ObjetoImp indicator |
+| 80 | `cfdi_concepto_impuestos` | Per-line tax breakdown for CFDI 4.0 — one row per `<Traslado>` or `<Retencion>` inside a concept; stores tax type, SAT tax code (ISR/IVA/IEPS), rate type, rate, taxable base, and calculated tax amount |
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 
@@ -160,6 +164,10 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 074 — Mexico payment methods ALTER:** `074_add_mexico_payment_methods.sql` extends `payments.payment_method` with `oxxo_pay`, `spei`, `codi`, `convenience_store`, and `digital_wallet`, and adds `sat_forma_pago VARCHAR(2)`, `clabe VARCHAR(18)`, and `bank_name VARCHAR(100)` columns.
 
 > **Migration 078 — MX contract template FK ALTER:** `078_add_mx_template_to_contracts.sql` adds `contract_template_mx_id BIGINT UNSIGNED NULL` to `contracts`, linking each contract to an IFT/CRT-registered Carta de Adhesión template. NULL for global clients.
+
+> **Migration 082 — SAT product/unit catalog seed:** `082_seed_sat_clave_prod_serv_and_unidad.sql` populates the ISP-relevant subset of the SAT `c_ClaveProdServ` (7 codes including `81161700` Internet, `81161500` VoIP, `01010101` No aplica) and `c_ClaveUnidad` (6 codes including `E48` Service unit, `MON` Month, `H87` Piece) catalog tables. Uses `INSERT IGNORE` for idempotent re-runs.
+
+> **Migration 084 — CFDI XML/PDF storage ALTER:** `084_add_xml_pdf_storage_to_cfdi_documents.sql` adds `signed_xml LONGTEXT NULL` (complete timbrado XML from PAC — SAT requires 5-year retention), `xml_file_id BIGINT UNSIGNED NULL` (FK to `files` for archival/object-storage), and `pdf_file_id BIGINT UNSIGNED NULL` (FK to `files` for generated PDF) to `cfdi_documents`.
 
 ### Storage Folders
 
