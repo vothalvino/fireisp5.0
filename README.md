@@ -127,6 +127,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 57 | `service_areas` | Geographic service areas (regions / markets) for sales territory assignment and network planning — named boundary polygons (WGS 84) linked to sites, with planned/active/retired status and map colour |
 | 58 | `coverage_zones` | Coverage zones within a service area — finer-grained polygons describing network reach, access technology (fiber, fixed wireless, DSL, cable, satellite, LTE, 5G), maximum speeds, and build-out status |
 | 59 | `sla_definitions` | SLA terms per plan — uptime guarantees (e.g. 99.95%), maximum response and resolution times, compensation rules for SLA breaches, measurement periods, and maintenance-window exclusions |
+| 60 | `device_config_backups` | Versioned configuration snapshots per device — stores MikroTik exports, RouterOS backups, Cisco running-config, and similar captures with SHA-256 checksums for change detection, version tracking, and capture method (manual, scheduled, pre/post change) |
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 
