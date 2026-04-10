@@ -2440,7 +2440,7 @@ CREATE TABLE IF NOT EXISTS sla_definitions (
     name                    VARCHAR(255)     NOT NULL COMMENT 'Human-readable SLA name, e.g. "Gold SLA", "Enterprise 99.99%"',
     description             TEXT             NULL     COMMENT 'Detailed SLA terms and conditions',
     uptime_pct              DECIMAL(5, 2)    NOT NULL DEFAULT 99.00
-                                             COMMENT 'Guaranteed monthly uptime percentage, e.g. 99.95',
+                                             COMMENT 'Guaranteed uptime percentage over the configured measurement period, e.g. 99.95',
     max_response_minutes    INT UNSIGNED     NULL     COMMENT 'Maximum time to first response after an incident is reported (minutes)',
     max_resolution_minutes  INT UNSIGNED     NULL     COMMENT 'Maximum time to resolve an incident after it is reported (minutes)',
     measurement_period      ENUM('monthly', 'quarterly', 'annual')
