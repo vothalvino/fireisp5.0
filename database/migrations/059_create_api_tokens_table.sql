@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     organization_id BIGINT UNSIGNED  NULL     COMMENT 'Tenant organization; NULL = single-tenant deployment',
     name            VARCHAR(100)     NOT NULL COMMENT 'Human-readable label, e.g. "Grafana read-only"',
     token_hash      VARCHAR(255)     NOT NULL COMMENT 'SHA-256 hash of the API token (plain-text never stored)',
-    scopes          JSON             NULL     COMMENT 'Allowed scopes, e.g. ["clients.read","invoices.read"]',
+    scopes          JSON             NULL     COMMENT 'Flat JSON array of permission slugs, e.g. ["clients.read","invoices.read"]; NULL = all scopes',
     last_used_at    TIMESTAMP        NULL     COMMENT 'Last time this token was used for authentication',
     last_used_ip    VARCHAR(45)      NULL     COMMENT 'IP address of last use',
     expires_at      TIMESTAMP        NULL     COMMENT 'Optional expiry; NULL = never expires',
@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     KEY idx_api_tokens_user_id (user_id),
     KEY idx_api_tokens_organization_id (organization_id),
     KEY idx_api_tokens_expires_at (expires_at),
+    KEY idx_api_tokens_valid (revoked_at, expires_at) COMMENT 'Optimises WHERE revoked_at IS NULL AND expires_at > NOW()',
     CONSTRAINT fk_api_tokens_user FOREIGN KEY (user_id)
         REFERENCES users (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_api_tokens_organization FOREIGN KEY (organization_id)
