@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS device_config_backups (
     config_type     ENUM('mikrotik_export', 'mikrotik_compact', 'mikrotik_backup',
                          'running_config', 'startup_config', 'full_backup', 'other')
                                      NOT NULL DEFAULT 'running_config'
-                                     COMMENT 'Format / flavour of the captured configuration',
+                                     COMMENT 'Format / flavor of the captured configuration',
     content         LONGTEXT         NOT NULL COMMENT 'Full configuration text',
     file_size       INT UNSIGNED     NOT NULL DEFAULT 0
                                      COMMENT 'Size of the config content in bytes',
