@@ -117,7 +117,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 47 | `roles` | RBAC role definitions — named roles with optional system-role flag (system roles cannot be deleted) |
 | 48 | `permissions` | RBAC permission definitions — granular permission slugs (e.g. `clients.view`, `invoices.create`) grouped by functional module |
 | 49 | `role_permissions` | RBAC junction table — maps roles to their granted permissions (many-to-many) |
-| 50 | `service_outages` | Planned and unplanned outage log — tracks outages per site and/or device with start/end times, severity, affected client count, root cause, and resolution status |
+| 50 | `outages` | Planned and unplanned outage log — tracks network-wide events affecting many clients at once, per site and/or device with start/end times, severity, affected client count, root cause, and resolution status |
 | 51 | `schema_migrations` | Migration state tracking — records which migration files have been applied so the deploy script can skip already-run files |
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
