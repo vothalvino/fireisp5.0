@@ -41,13 +41,12 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_scheduled_tasks_org_name (organization_id, task_name),
-    KEY idx_scheduled_tasks_organization_id (organization_id),
     KEY idx_scheduled_tasks_enabled_next (is_enabled, next_run_at),
     KEY idx_scheduled_tasks_task_type (task_type),
     KEY idx_scheduled_tasks_priority_next (priority, next_run_at)
         COMMENT 'Worker pick query: enabled + due + highest priority first',
-    KEY idx_scheduled_tasks_locked (locked_at)
-        COMMENT 'Identify stuck tasks whose lock has expired',
+    KEY idx_scheduled_tasks_locked (locked_at, timeout_seconds)
+        COMMENT 'Identify stuck tasks: WHERE locked_at IS NOT NULL AND locked_at < NOW() - INTERVAL timeout_seconds SECOND',
     CONSTRAINT fk_scheduled_tasks_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT chk_scheduled_tasks_retry CHECK (retry_count <= max_retries)
