@@ -20,5 +20,6 @@ CREATE TABLE IF NOT EXISTS vlans (
     KEY idx_vlans_site_id (site_id),
     KEY idx_vlans_status (status),
     CONSTRAINT fk_vlans_site FOREIGN KEY (site_id)
-        REFERENCES sites (id) ON DELETE CASCADE ON UPDATE CASCADE
+        REFERENCES sites (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT chk_vlans_vlan_id CHECK (vlan_id BETWEEN 1 AND 4094)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
