@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS client_balance_ledger (
     PRIMARY KEY (id),
     KEY idx_ledger_organization_id (organization_id),
     KEY idx_ledger_client_id (client_id),
-    KEY idx_ledger_client_date (client_id, entry_date),
+    KEY idx_ledger_client_balance_date (client_id, balance_type, entry_date),
     KEY idx_ledger_entry_date (entry_date),
     KEY idx_ledger_entry_type (entry_type),
     KEY idx_ledger_balance_type (balance_type),
