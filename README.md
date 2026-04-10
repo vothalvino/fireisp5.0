@@ -120,10 +120,13 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 50 | `outages` | Planned and unplanned outage log — tracks network-wide events affecting many clients at once, per site and/or device with start/end times, severity, affected client count, root cause, and resolution status |
 | 51 | `schema_migrations` | Migration state tracking — records which migration files have been applied so the deploy script can skip already-run files |
 | 52 | `vlans` | VLAN registry linked to sites — tracks IEEE 802.1Q VLAN IDs per site for network segmentation, service isolation, and capacity planning |
+| 53 | `tax_rates` | Named tax configurations (e.g. "IVA 16%", "Exempt", "GST 5%") — master table of reusable tax rates referenced by invoices, quotes, and credit notes |
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 
 > **Migration 053 — Preflight check procedure:** `053_create_preflight_check_event_scheduler.sql` creates the `preflight_check_event_scheduler()` stored procedure. It does not create a table. Call `CALL preflight_check_event_scheduler();` during deployment to verify the MySQL Event Scheduler is enabled before the application starts.
+
+> **Migration 056 — Tax rate references ALTER:** `056_add_tax_rate_id_to_financial_tables.sql` adds a `tax_rate_id BIGINT UNSIGNED NULL` foreign key column to `invoices`, `quotes`, and `credit_notes`, linking them to the `tax_rates` master table. The existing `tax_rate` DECIMAL column is kept as a snapshot of the rate at document-creation time.
 
 ### Storage Folders
 
