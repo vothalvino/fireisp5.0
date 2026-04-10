@@ -2866,6 +2866,63 @@ INSERT IGNORE INTO sat_moneda (code, description, decimals, status) VALUES
 ('XXX', 'Los derechos en esta divisa',      2, 'active');
 
 -- ---------------------------------------------------------------------------
+-- Table: sat_clave_prod_serv
+-- Purpose: SAT catalog c_ClaveProdServ — product and service classification
+--          codes required on every concept (line item) in a CFDI 4.0 document.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sat_clave_prod_serv (
+    code        VARCHAR(8)      NOT NULL
+                    COMMENT 'SAT c_ClaveProdServ code (e.g. 81161700 for internet access services)',
+    description VARCHAR(500)    NOT NULL
+                    COMMENT 'Official SAT description in Spanish',
+    status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active'
+                    COMMENT 'Whether this code is currently valid in the SAT catalog',
+
+    PRIMARY KEY (code),
+    KEY idx_sat_clave_prod_serv_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='SAT catalog: c_ClaveProdServ — product and service classification codes for CFDI 4.0 concepts';
+
+-- ---------------------------------------------------------------------------
+-- Table: sat_clave_unidad
+-- Purpose: SAT catalog c_ClaveUnidad — unit-of-measure codes required on
+--          every concept (line item) in a CFDI 4.0 document.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sat_clave_unidad (
+    code        VARCHAR(10)     NOT NULL
+                    COMMENT 'SAT c_ClaveUnidad code (e.g. E48 for service unit, H87 for piece)',
+    description VARCHAR(200)    NOT NULL
+                    COMMENT 'Official SAT description in Spanish and/or English',
+    status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active'
+                    COMMENT 'Whether this code is currently valid in the SAT catalog',
+
+    PRIMARY KEY (code),
+    KEY idx_sat_clave_unidad_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='SAT catalog: c_ClaveUnidad — unit-of-measure codes for CFDI 4.0 concepts';
+
+-- ---------------------------------------------------------------------------
+-- Seed data: SAT c_ClaveProdServ and c_ClaveUnidad (migration 082)
+-- ISP-relevant subset. Uses INSERT IGNORE for idempotent re-runs.
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO sat_clave_prod_serv (code, description, status) VALUES
+('81161700', 'Servicios de acceso a Internet',                   'active'),
+('81161500', 'Servicios de telefonía y voz sobre IP (VoIP)',     'active'),
+('81112200', 'Soporte técnico',                                  'active'),
+('81112100', 'Mantenimiento y actualización de software',        'active'),
+('43231500', 'Equipo de redes y telecomunicaciones',             'active'),
+('43222600', 'Enrutadores y conmutadores de red (routers/switches)', 'active'),
+('01010101', 'No aplica',                                        'active');
+
+INSERT IGNORE INTO sat_clave_unidad (code, description, status) VALUES
+('E48', 'Unidad de servicio / Service unit',    'active'),
+('ACT', 'Actividad / Activity',                 'active'),
+('HUR', 'Hora / Hour',                          'active'),
+('MON', 'Mes / Month',                          'active'),
+('H87', 'Pieza / Piece',                        'active'),
+('MTR', 'Metro / Meter',                        'active');
+
+-- ---------------------------------------------------------------------------
 -- Table: cfdi_documents
 -- Purpose: Core CFDI 4.0 fiscal document records. One row per stamped (or
 --          draft) electronic fiscal document issued by an organization to a
@@ -2941,6 +2998,14 @@ CREATE TABLE IF NOT EXISTS cfdi_documents (
     sat_seal                TEXT            NULL
                                 COMMENT 'SelloSAT from the PAC timbrado complement',
 
+    -- Signed XML / PDF archival storage (SAT requires 5-year XML retention)
+    signed_xml              LONGTEXT        NULL
+                                COMMENT 'Complete signed and stamped CFDI XML document as returned by PAC',
+    xml_file_id             BIGINT UNSIGNED NULL
+                                COMMENT 'Reference to XML file in files table for large-document or archival storage',
+    pdf_file_id             BIGINT UNSIGNED NULL
+                                COMMENT 'Reference to generated PDF representation in files table',
+
     -- SAT status lifecycle
     sat_status              ENUM('draft', 'vigente', 'cancelado', 'cancel_pending')
                                 NOT NULL DEFAULT 'draft'
@@ -2987,6 +3052,10 @@ CREATE TABLE IF NOT EXISTS cfdi_documents (
         REFERENCES credit_notes (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cfdi_documents_payment FOREIGN KEY (payment_id)
         REFERENCES payments (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cfdi_documents_xml_file FOREIGN KEY (xml_file_id)
+        REFERENCES files (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cfdi_documents_pdf_file FOREIGN KEY (pdf_file_id)
+        REFERENCES files (id) ON DELETE SET NULL ON UPDATE CASCADE,
 
     -- At most one source document may be linked per CFDI
     CONSTRAINT chk_cfdi_documents_single_source CHECK (
@@ -3117,6 +3186,99 @@ CREATE TABLE IF NOT EXISTS cfdi_payment_complement_items (
     CONSTRAINT fk_cfdi_pci_complement FOREIGN KEY (complement_id)
         REFERENCES cfdi_payment_complements (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: cfdi_conceptos
+-- Purpose: CFDI 4.0 concept (line item) rows — one per <Concepto> node inside
+--          a cfdi_document. Captures SAT-required fields: product/service key,
+--          unit key, quantity, description, unit price, line total, optional
+--          discount, and the SAT ObjetoImp indicator.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cfdi_conceptos (
+    id                  BIGINT UNSIGNED     NOT NULL AUTO_INCREMENT,
+
+    -- Parent CFDI document
+    cfdi_document_id    BIGINT UNSIGNED     NOT NULL
+                            COMMENT 'CFDI document this line item belongs to',
+
+    -- SAT-required product/service and unit classification
+    clave_prod_serv     VARCHAR(8)          NOT NULL
+                            COMMENT 'SAT c_ClaveProdServ code identifying the product or service (e.g. 81161700)',
+    clave_unidad        VARCHAR(10)         NOT NULL
+                            COMMENT 'SAT c_ClaveUnidad unit-of-measure code (e.g. E48 for service unit)',
+
+    -- Optional internal identifier
+    no_identificacion   VARCHAR(100)        NULL
+                            COMMENT 'Internal SKU or product code assigned by the issuer; NULL if not applicable',
+
+    -- Quantity, description, and pricing
+    cantidad            DECIMAL(12, 4)      NOT NULL
+                            COMMENT 'Quantity of units sold or delivered',
+    descripcion         VARCHAR(1000)       NOT NULL
+                            COMMENT 'Free-text description of the product or service as it appears on the CFDI',
+    valor_unitario      DECIMAL(14, 4)      NOT NULL
+                            COMMENT 'Unit price before taxes',
+    importe             DECIMAL(14, 4)      NOT NULL
+                            COMMENT 'Line total: cantidad × valor_unitario (before discount)',
+    descuento           DECIMAL(14, 4)      NULL
+                            COMMENT 'Discount amount applied to this line; NULL when no discount',
+
+    -- SAT tax object indicator (ObjetoImp)
+    objeto_imp          ENUM('01', '02', '03') NOT NULL DEFAULT '02'
+                            COMMENT 'SAT ObjetoImp: 01=No objeto de impuesto, 02=Sí objeto de impuesto, 03=Sí objeto del impuesto y no obligado al desglose',
+
+    created_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_cfdi_conceptos_cfdi_document_id (cfdi_document_id),
+    KEY idx_cfdi_conceptos_clave_prod_serv (clave_prod_serv),
+
+    CONSTRAINT fk_cfdi_conceptos_cfdi_document FOREIGN KEY (cfdi_document_id)
+        REFERENCES cfdi_documents (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='CFDI 4.0 concept (line item) rows — one row per <Concepto> node inside a cfdi_document';
+
+-- ---------------------------------------------------------------------------
+-- Table: cfdi_concepto_impuestos
+-- Purpose: Per-line tax breakdown for CFDI 4.0. SAT requires explicit
+--          <Traslados> and <Retenciones> nodes inside each <Concepto> when
+--          objeto_imp = '02'. Each row maps to one <Traslado> or <Retencion>
+--          element for a specific concept.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cfdi_concepto_impuestos (
+    id                  BIGINT UNSIGNED     NOT NULL AUTO_INCREMENT,
+
+    -- Parent concept
+    cfdi_concepto_id    BIGINT UNSIGNED     NOT NULL
+                            COMMENT 'CFDI concept (line item) this tax row belongs to',
+
+    -- Tax classification
+    tax_type            ENUM('traslado', 'retencion') NOT NULL
+                            COMMENT 'traslado = tax transferred to the buyer (IVA, IEPS); retencion = withholding retained from the supplier (ISR, IVA retencion)',
+    impuesto            VARCHAR(3)          NOT NULL
+                            COMMENT 'SAT tax code: 001=ISR, 002=IVA, 003=IEPS',
+    tipo_factor         ENUM('Tasa', 'Cuota', 'Exento') NOT NULL DEFAULT 'Tasa'
+                            COMMENT 'Rate type: Tasa=percentage rate, Cuota=fixed quota per unit, Exento=exempt (no tax)',
+
+    -- Rate and amounts
+    tasa_o_cuota        DECIMAL(8, 6)       NULL
+                            COMMENT 'Tax rate or quota (e.g. 0.160000 for IVA 16 %); NULL when tipo_factor = Exento',
+    base                DECIMAL(14, 4)      NOT NULL
+                            COMMENT 'Taxable base amount for this line (importe - descuento of the parent concept)',
+    importe             DECIMAL(14, 4)      NULL
+                            COMMENT 'Calculated tax amount: base × tasa_o_cuota; NULL when tipo_factor = Exento',
+
+    created_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_cfdi_ci_cfdi_concepto_id (cfdi_concepto_id),
+    KEY idx_cfdi_ci_tax_type (tax_type),
+    KEY idx_cfdi_ci_impuesto (impuesto),
+
+    CONSTRAINT fk_cfdi_ci_cfdi_concepto FOREIGN KEY (cfdi_concepto_id)
+        REFERENCES cfdi_conceptos (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Per-line tax breakdown for CFDI 4.0 — one row per <Traslado> or <Retencion> inside a <Concepto>';
 
 -- ---------------------------------------------------------------------------
 -- Table: concession_titles
