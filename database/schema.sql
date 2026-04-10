@@ -1985,6 +1985,7 @@ CREATE TABLE IF NOT EXISTS email_logs (
     subject          VARCHAR(255)     NULL,
     body             TEXT             NULL,
     template         VARCHAR(100)     NULL     COMMENT 'Template name used to render the message',
+    template_id      BIGINT UNSIGNED  NULL     COMMENT 'Template used to render this message; NULL = ad-hoc / legacy',
     reference_type   VARCHAR(50)      NULL     COMMENT 'Entity type the message relates to, e.g. invoice, ticket',
     reference_id     BIGINT UNSIGNED  NULL     COMMENT 'ID of the referenced entity',
     status           ENUM('queued', 'sent', 'delivered', 'failed', 'bounced') NOT NULL DEFAULT 'queued',
@@ -1997,10 +1998,13 @@ CREATE TABLE IF NOT EXISTS email_logs (
     KEY idx_email_logs_status (status),
     KEY idx_email_logs_reference (reference_type, reference_id),
     KEY idx_email_logs_sent_at (sent_at),
+    KEY idx_email_logs_template_id (template_id),
     CONSTRAINT fk_email_logs_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_email_logs_user FOREIGN KEY (user_id)
-        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_email_logs_template FOREIGN KEY (template_id)
+        REFERENCES message_templates (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -2228,6 +2232,35 @@ ALTER TABLE credit_notes
     ADD KEY idx_credit_notes_tax_rate_id (tax_rate_id),
     ADD CONSTRAINT fk_credit_notes_tax_rate FOREIGN KEY (tax_rate_id)
         REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- ---------------------------------------------------------------------------
+-- Table: message_templates
+-- Purpose: Reusable message templates for emails, SMS, and WhatsApp.
+--          Stores subject, body, and available placeholder variables so
+--          operators can customise outbound communications (invoice
+--          reminders, welcome messages, outage alerts, etc.) without
+--          touching code.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS message_templates (
+    id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED  NULL     COMMENT 'Owning tenant; NULL = global / system default',
+    name            VARCHAR(100)     NOT NULL COMMENT 'Unique machine-readable name, e.g. invoice_reminder',
+    channel         ENUM('email', 'sms', 'whatsapp', 'other') NOT NULL DEFAULT 'email',
+    subject         VARCHAR(255)     NULL     COMMENT 'Email subject template (NULL for SMS/WhatsApp)',
+    body            TEXT             NOT NULL COMMENT 'Template body — supports placeholder variables e.g. {{client_name}}',
+    description     VARCHAR(255)     NULL     COMMENT 'Human-readable purpose of this template',
+    variables       JSON             NULL     COMMENT 'List of available placeholder names, e.g. ["client_name","invoice_number"]',
+    is_active       TINYINT(1)       NOT NULL DEFAULT 1,
+    created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_message_templates_org_name_channel (organization_id, name, channel),
+    KEY idx_message_templates_channel (channel),
+    KEY idx_message_templates_is_active (is_active),
+    CONSTRAINT fk_message_templates_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
 -- Table: schema_migrations
