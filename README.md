@@ -112,7 +112,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 42 | `tax_rules` | Tax rules per region and service type — supports VAT, sales tax, GST, and other regional tax configurations for multi-country ISPs |
 | 43 | `client_balance_ledger` | Running client balance / account statement ledger — records every debit (invoice) and credit (payment, credit note, adjustment) with a running balance per client |
 | 44 | `email_logs` | Email / SMS / WhatsApp send log — records every message sent to clients or internal users with delivery status (queued, sent, delivered, failed, bounced) |
-| 45 | `scheduled_tasks` | App-level job queue / cron history — tracks scheduled tasks (billing auto-generation, RADIUS sync, SNMP polls) with last-run, next-run, duration, and status |
+| 45 | `scheduled_tasks` | App-level task queue — dispatches recurring and one-shot jobs (auto-suspend overdue clients, generate invoices, RADIUS sync, SNMP polls) with cron scheduling, distributed locking, retry logic, priority ordering, and JSON payloads |
 | 46 | `user_sessions` | Active session tracking for security audit — stores hashed session tokens, IP address, user-agent, and expiry; enables "logout all devices" and suspicious-login detection |
 | 47 | `roles` | RBAC role definitions — named roles with optional system-role flag (system roles cannot be deleted) |
 | 48 | `permissions` | RBAC permission definitions — granular permission slugs (e.g. `clients.view`, `invoices.create`) grouped by functional module |
