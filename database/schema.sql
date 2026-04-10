@@ -1179,7 +1179,6 @@ CREATE TABLE IF NOT EXISTS connection_logs (
     KEY idx_conn_logs_client_time (client_id, event_at),
     KEY idx_conn_logs_username (username, event_at),
     KEY idx_conn_logs_ip_address (ip_address, event_at),
-    KEY idx_connection_logs_ip_address (ip_address),
     KEY idx_connection_logs_ipv6_address (ipv6_address),
     KEY idx_conn_logs_session_id (session_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -1898,6 +1897,274 @@ CREATE TABLE IF NOT EXISTS network_links (
     CONSTRAINT fk_network_links_device_b FOREIGN KEY (device_b_id)
         REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT chk_network_links_different_devices CHECK (device_a_id != device_b_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: settings
+-- Purpose: App settings / key-value configuration store for system-wide
+--          settings such as default tax rate, currency, invoice number prefix,
+--          SMTP config, SNMP poll interval, etc.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS settings (
+    id            BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    setting_key   VARCHAR(100)     NOT NULL,
+    setting_value TEXT             NULL,
+    description   VARCHAR(255)     NULL,
+    created_at    TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_settings_key (setting_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: tax_rules
+-- Purpose: Tax rules per region and service type. Supports VAT, sales tax,
+--          GST, and other regional tax configurations.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tax_rules (
+    id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED  NULL     COMMENT 'Tenant organization; NULL = applies to all tenants',
+    name            VARCHAR(255)     NOT NULL,
+    region          VARCHAR(100)     NULL     COMMENT 'State, province, or country the rule applies to',
+    tax_type        ENUM('vat', 'sales_tax', 'gst', 'other') NOT NULL DEFAULT 'sales_tax',
+    rate            DECIMAL(5, 4)    NOT NULL COMMENT 'Tax rate as a decimal, e.g. 0.0800 = 8%',
+    is_default      BOOLEAN          NOT NULL DEFAULT FALSE COMMENT 'Default rule applied when no region match is found',
+    status          ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_tax_rules_organization_id (organization_id),
+    KEY idx_tax_rules_region (region),
+    KEY idx_tax_rules_status (status),
+    CONSTRAINT fk_tax_rules_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: client_balance_ledger
+-- Purpose: Running client balance / account statement ledger. Each row records
+--          a debit (invoice) or credit (payment, credit note, adjustment) and
+--          maintains a running balance per client.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS client_balance_ledger (
+    id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    client_id       BIGINT UNSIGNED  NOT NULL,
+    entry_type      ENUM('invoice', 'payment', 'credit_note', 'adjustment') NOT NULL,
+    reference_id    BIGINT UNSIGNED  NULL     COMMENT 'Polymorphic ID of the invoice, payment, or credit_note',
+    description     VARCHAR(255)     NULL,
+    debit           DECIMAL(10, 2)   NOT NULL DEFAULT 0.00 COMMENT 'Amount charged (increases balance owed)',
+    credit          DECIMAL(10, 2)   NOT NULL DEFAULT 0.00 COMMENT 'Amount credited (decreases balance owed)',
+    running_balance DECIMAL(10, 2)   NOT NULL DEFAULT 0.00 COMMENT 'Client account balance after this entry',
+    entry_date      DATE             NOT NULL,
+    created_by      BIGINT UNSIGNED  NULL     COMMENT 'User who created this entry; NULL = system',
+    created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_ledger_client_id (client_id),
+    KEY idx_ledger_entry_date (entry_date),
+    KEY idx_ledger_entry_type (entry_type),
+    CONSTRAINT fk_ledger_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_ledger_created_by FOREIGN KEY (created_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: email_logs
+-- Purpose: Email / SMS / WhatsApp send log for auditing. Records every message
+--          sent to a client or internal user with delivery status tracking.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS email_logs (
+    id               BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    client_id        BIGINT UNSIGNED  NULL     COMMENT 'Client recipient; NULL for internal messages',
+    user_id          BIGINT UNSIGNED  NULL     COMMENT 'Internal user recipient; NULL for client messages',
+    channel          ENUM('email', 'sms', 'whatsapp', 'other') NOT NULL DEFAULT 'email',
+    recipient        VARCHAR(255)     NOT NULL COMMENT 'Email address or phone number',
+    subject          VARCHAR(255)     NULL,
+    body             TEXT             NULL,
+    template         VARCHAR(100)     NULL     COMMENT 'Template name used to render the message',
+    reference_type   VARCHAR(50)      NULL     COMMENT 'Entity type the message relates to, e.g. invoice, ticket',
+    reference_id     BIGINT UNSIGNED  NULL     COMMENT 'ID of the referenced entity',
+    status           ENUM('queued', 'sent', 'delivered', 'failed', 'bounced') NOT NULL DEFAULT 'queued',
+    error_message    TEXT             NULL     COMMENT 'Delivery error details when status = failed or bounced',
+    sent_at          TIMESTAMP        NULL,
+    created_at       TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_email_logs_client_id (client_id),
+    KEY idx_email_logs_status (status),
+    KEY idx_email_logs_reference (reference_type, reference_id),
+    KEY idx_email_logs_sent_at (sent_at),
+    CONSTRAINT fk_email_logs_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_email_logs_user FOREIGN KEY (user_id)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: scheduled_tasks
+-- Purpose: App-level job queue / cron history for observability. Tracks every
+--          scheduled task with last-run, next-run, and status beyond the MySQL
+--          Event Scheduler's own limited history.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id                BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    task_name         VARCHAR(100)     NOT NULL,
+    description       VARCHAR(255)     NULL,
+    cron_expression   VARCHAR(50)      NULL     COMMENT 'Cron expression, e.g. ''0 * * * *'' for every hour',
+    last_run_at       TIMESTAMP        NULL,
+    next_run_at       TIMESTAMP        NULL,
+    last_status       ENUM('success', 'failed', 'running', 'skipped') NULL,
+    last_error        TEXT             NULL,
+    last_duration_ms  INT UNSIGNED     NULL     COMMENT 'Duration of the last run in milliseconds',
+    is_enabled        BOOLEAN          NOT NULL DEFAULT TRUE,
+    created_at        TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_scheduled_tasks_name (task_name),
+    KEY idx_scheduled_tasks_enabled_next (is_enabled, next_run_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: user_sessions
+-- Purpose: Active session tracking for security audit. Stores user sessions
+--          (hashed token, IP, user-agent, expiry) enabling "logout all devices"
+--          and suspicious-login detection.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_sessions (
+    id             BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    user_id        BIGINT UNSIGNED  NOT NULL,
+    token_hash     VARCHAR(255)     NOT NULL COMMENT 'Hashed session or refresh token',
+    ip_address     VARCHAR(45)      NULL,
+    user_agent     VARCHAR(500)     NULL,
+    expires_at     TIMESTAMP        NOT NULL,
+    last_active_at TIMESTAMP        NULL,
+    created_at     TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_user_sessions_token (token_hash),
+    KEY idx_user_sessions_user_id (user_id),
+    KEY idx_user_sessions_expires_at (expires_at),
+    CONSTRAINT fk_user_sessions_user FOREIGN KEY (user_id)
+        REFERENCES users (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Tables: roles, permissions, role_permissions
+-- Purpose: RBAC roles and permissions — flexible custom roles replacing the
+--          rigid role ENUM on the users table.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS roles (
+    id          BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    name        VARCHAR(50)      NOT NULL,
+    description VARCHAR(255)     NULL,
+    is_system   BOOLEAN          NOT NULL DEFAULT FALSE COMMENT 'System roles cannot be deleted',
+    created_at  TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_roles_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS permissions (
+    id          BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    name        VARCHAR(100)     NOT NULL COMMENT 'Permission slug, e.g. clients.view, invoices.create',
+    description VARCHAR(255)     NULL,
+    module      VARCHAR(50)      NULL     COMMENT 'Functional module, e.g. clients, billing, network',
+    created_at  TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_permissions_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS role_permissions (
+    id            BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    role_id       BIGINT UNSIGNED  NOT NULL,
+    permission_id BIGINT UNSIGNED  NOT NULL,
+    created_at    TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_role_permissions (role_id, permission_id),
+    KEY idx_role_permissions_permission_id (permission_id),
+    CONSTRAINT fk_role_permissions_role FOREIGN KEY (role_id)
+        REFERENCES roles (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_role_permissions_permission FOREIGN KEY (permission_id)
+        REFERENCES permissions (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: service_outages
+-- Purpose: Planned and unplanned outage log. Tracks outages per site and/or
+--          device with start/end times, affected client count, root cause, and
+--          resolution status. Feeds into SLA reporting.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS service_outages (
+    id                      BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    site_id                 BIGINT UNSIGNED  NULL     COMMENT 'Affected site; NULL if device-level only',
+    device_id               BIGINT UNSIGNED  NULL     COMMENT 'Affected device; NULL if site-wide',
+    outage_type             ENUM('planned', 'unplanned') NOT NULL DEFAULT 'unplanned',
+    title                   VARCHAR(255)     NOT NULL,
+    description             TEXT             NULL,
+    severity                ENUM('minor', 'major', 'critical') NOT NULL DEFAULT 'major',
+    started_at              TIMESTAMP        NOT NULL,
+    resolved_at             TIMESTAMP        NULL,
+    affected_clients_count  INT UNSIGNED     NULL,
+    root_cause              TEXT             NULL,
+    status                  ENUM('ongoing', 'resolved', 'post_mortem') NOT NULL DEFAULT 'ongoing',
+    created_by              BIGINT UNSIGNED  NULL     COMMENT 'User who logged the outage; NULL = system',
+    created_at              TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_service_outages_site_id (site_id),
+    KEY idx_service_outages_device_id (device_id),
+    KEY idx_service_outages_status (status),
+    KEY idx_service_outages_started_at (started_at),
+    CONSTRAINT fk_service_outages_site FOREIGN KEY (site_id)
+        REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_service_outages_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_service_outages_created_by FOREIGN KEY (created_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Multi-currency support (migration 051)
+-- Purpose: Adds currency CHAR(3) (ISO 4217) to core financial tables.
+-- ---------------------------------------------------------------------------
+ALTER TABLE invoices
+    ADD COLUMN currency CHAR(3) NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code';
+
+ALTER TABLE payments
+    ADD COLUMN currency CHAR(3) NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code';
+
+ALTER TABLE credit_notes
+    ADD COLUMN currency CHAR(3) NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code';
+
+ALTER TABLE quotes
+    ADD COLUMN currency CHAR(3) NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code';
+
+ALTER TABLE plans
+    ADD COLUMN currency CHAR(3) NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code';
+
+ALTER TABLE expenses
+    ADD COLUMN currency CHAR(3) NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code';
+
+-- ---------------------------------------------------------------------------
+-- Table: schema_migrations
+-- Purpose: Migration state tracking. Records which migration files have been
+--          applied so the deploy script can skip already-run files.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    id         BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    filename   VARCHAR(255)     NOT NULL COMMENT 'Migration filename, e.g. 001_create_users_table.sql',
+    applied_at TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_schema_migrations_filename (filename)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

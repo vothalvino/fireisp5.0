@@ -6,13 +6,16 @@ An open source ISP (Internet Service Provider) management software designed to h
 
 - Customer management
 - Service plan management
-- Billing, invoicing, and credit notes
+- Billing, invoicing, and credit notes with multi-currency support (ISO 4217)
 - Network device monitoring with SNMP metrics collection
 - Connection logging for regulatory compliance and per-contract data usage (RADIUS accounting)
 - Inventory and warehouse management — track spare equipment across multiple storage locations
-- User and role management
+- User and role management with RBAC (roles, permissions, role_permissions)
 - IP address management (IPAM) with IPv4, IPv6, and dual-stack support
 - Audit logging and notifications
+- Email / SMS / WhatsApp send log for auditing and billing disputes
+- Service outage tracking with SLA reporting hooks
+- Scheduled task observability and active session management
 
 ## Project Structure
 
@@ -105,6 +108,19 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 38 | `payment_allocations` | Junction table for split payments — records what portion of a payment was applied to each invoice (supports one-payment-many-invoices) |
 | 39 | `billing_periods` | Tracks each contract's billing windows — which periods have been invoiced, which are upcoming, and when the next invoice should be auto-generated |
 | 40 | `network_links` | Device-to-device connections — fiber, wireless, copper, or virtual links with capacity and interface metadata |
+| 41 | `settings` | App settings / key-value configuration store — system-wide settings such as default tax rate, currency, invoice prefix, SMTP config, and SNMP poll interval |
+| 42 | `tax_rules` | Tax rules per region and service type — supports VAT, sales tax, GST, and other regional tax configurations for multi-country ISPs |
+| 43 | `client_balance_ledger` | Running client balance / account statement ledger — records every debit (invoice) and credit (payment, credit note, adjustment) with a running balance per client |
+| 44 | `email_logs` | Email / SMS / WhatsApp send log — records every message sent to clients or internal users with delivery status (queued, sent, delivered, failed, bounced) |
+| 45 | `scheduled_tasks` | App-level job queue / cron history — tracks scheduled tasks (billing auto-generation, RADIUS sync, SNMP polls) with last-run, next-run, duration, and status |
+| 46 | `user_sessions` | Active session tracking for security audit — stores hashed session tokens, IP address, user-agent, and expiry; enables "logout all devices" and suspicious-login detection |
+| 47 | `roles` | RBAC role definitions — named roles with optional system-role flag (system roles cannot be deleted) |
+| 48 | `permissions` | RBAC permission definitions — granular permission slugs (e.g. `clients.view`, `invoices.create`) grouped by functional module |
+| 49 | `role_permissions` | RBAC junction table — maps roles to their granted permissions (many-to-many) |
+| 50 | `service_outages` | Planned and unplanned outage log — tracks outages per site and/or device with start/end times, severity, affected client count, root cause, and resolution status |
+| 51 | `schema_migrations` | Migration state tracking — records which migration files have been applied so the deploy script can skip already-run files |
+
+> **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 
 ### Storage Folders
 

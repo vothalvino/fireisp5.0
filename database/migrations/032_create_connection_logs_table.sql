@@ -40,7 +40,6 @@ CREATE TABLE IF NOT EXISTS connection_logs (
     KEY idx_conn_logs_client_time (client_id, event_at),
     KEY idx_conn_logs_username (username, event_at),
     KEY idx_conn_logs_ip_address (ip_address, event_at),
-    KEY idx_connection_logs_ip_address (ip_address),
     KEY idx_connection_logs_ipv6_address (ipv6_address),
     KEY idx_conn_logs_session_id (session_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
