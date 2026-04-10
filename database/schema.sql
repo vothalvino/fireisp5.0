@@ -2359,4 +2359,73 @@ CREATE TABLE IF NOT EXISTS promotions (
     CONSTRAINT chk_promotions_ends_after_starts CHECK (ends_at IS NULL OR starts_at IS NULL OR ends_at >= starts_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ---------------------------------------------------------------------------
+-- Table: service_areas
+-- Purpose: Geographic service areas (regions / markets) used for sales
+--          territory assignment and network planning.  Each area has a
+--          named boundary stored as a MySQL POLYGON geometry with SRID
+--          4326 (WGS 84) and an optional link to the owning site (POP /
+--          data center) that serves the region.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS service_areas (
+    id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED  NULL     COMMENT 'Tenant organization; NULL = single-tenant deployment',
+    site_id         BIGINT UNSIGNED  NULL     COMMENT 'Primary site (POP / tower) serving this area; NULL = unassigned',
+    name            VARCHAR(150)     NOT NULL COMMENT 'Human-readable label, e.g. "Downtown Metro", "North Rural"',
+    description     TEXT             NULL     COMMENT 'Notes about terrain, demographics, or expansion plans',
+    boundary        POLYGON          NOT NULL /*!80003 SRID 4326 */
+                                     COMMENT 'WGS 84 polygon that defines the outer boundary of this service area',
+    color           VARCHAR(7)       NULL     COMMENT 'Hex colour for map rendering, e.g. "#3B82F6"',
+    status          ENUM('planned', 'active', 'retired')
+                                     NOT NULL DEFAULT 'planned'
+                                     COMMENT 'planned = future build-out; active = currently served; retired = decommissioned',
+    created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    SPATIAL KEY spx_service_areas_boundary (boundary),
+    KEY idx_service_areas_organization_id (organization_id),
+    KEY idx_service_areas_site_id (site_id),
+    KEY idx_service_areas_status (status),
+    CONSTRAINT fk_service_areas_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_service_areas_site FOREIGN KEY (site_id)
+        REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: coverage_zones
+-- Purpose: Coverage zones within a service area — finer-grained polygons
+--          that describe the actual network reach, technology type, and
+--          maximum available speed.  Used on public coverage-check pages
+--          and for internal capacity planning.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS coverage_zones (
+    id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    service_area_id BIGINT UNSIGNED  NOT NULL COMMENT 'Parent service area this zone belongs to',
+    name            VARCHAR(150)     NOT NULL COMMENT 'Label, e.g. "FTTH Zone A", "Fixed-Wireless Sector 3"',
+    description     TEXT             NULL     COMMENT 'Additional notes (equipment used, limitations, etc.)',
+    zone_type       ENUM('fiber', 'fixed_wireless', 'dsl', 'cable', 'satellite', 'lte', '5g', 'other')
+                                     NOT NULL DEFAULT 'fiber'
+                                     COMMENT 'Access technology available in this zone',
+    boundary        POLYGON          NOT NULL /*!80003 SRID 4326 */
+                                     COMMENT 'WGS 84 polygon defining the zone boundary',
+    max_download_mbps INT UNSIGNED   NULL     COMMENT 'Maximum advertised download speed in Mbps',
+    max_upload_mbps   INT UNSIGNED   NULL     COMMENT 'Maximum advertised upload speed in Mbps',
+    color           VARCHAR(7)       NULL     COMMENT 'Hex colour for map rendering, e.g. "#10B981"',
+    status          ENUM('planned', 'under_construction', 'active', 'degraded', 'retired')
+                                     NOT NULL DEFAULT 'planned'
+                                     COMMENT 'planned = design phase; under_construction = build in progress; active = live; degraded = reduced capacity; retired = decommissioned',
+    created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    SPATIAL KEY spx_coverage_zones_boundary (boundary),
+    KEY idx_coverage_zones_service_area_id (service_area_id),
+    KEY idx_coverage_zones_zone_type (zone_type),
+    KEY idx_coverage_zones_status (status),
+    CONSTRAINT fk_coverage_zones_service_area FOREIGN KEY (service_area_id)
+        REFERENCES service_areas (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;
