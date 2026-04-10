@@ -122,6 +122,8 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 
+> **Migration 053 — Preflight check procedure:** `053_create_preflight_check_event_scheduler.sql` creates the `preflight_check_event_scheduler()` stored procedure. It does not create a table. Call `CALL preflight_check_event_scheduler();` during deployment to verify the MySQL Event Scheduler is enabled before the application starts.
+
 ### Storage Folders
 
 The `storage/` directory holds user-uploaded and system-generated files organized by entity type. The `files` database table stores metadata and paths for every stored file.
@@ -211,6 +213,8 @@ Or in `my.cnf` / `my.ini`:
 event_scheduler = ON
 ```
 
+> **⚠️ Prerequisite:** `event_scheduler = ON` is **required** for automated SNMP rollup/retention and `connection_logs` partition maintenance. If it is disabled, SNMP aggregation stops, old partitions accumulate past their retention windows, and `connection_logs` inserts will eventually fail when `p_future` is exhausted. Run the preflight check procedure (see [Preflight Check](#preflight-check-event-scheduler)) during deployment to detect this early.
+
 | Event | Schedule | Action |
 |-------|----------|--------|
 | `evt_snmp_rollup_1hr` | Every hour at :05 | Calls `snmp_rollup_to_1hr()` — aggregates raw → hourly using high-watermark |
@@ -238,6 +242,8 @@ The `connection_logs` table records every RADIUS accounting event (`start`, `sto
 
 **Retention:** 2 years via monthly partition `DROP`, managed by `connection_logs_maintain_partitions()`.
 
+> **⚠️ Requires `event_scheduler = ON`:** The scheduled event below will not run if the MySQL Event Scheduler is disabled. Without it, future partitions are never created (causing inserts to fail) and expired partitions are never dropped (violating the 2-year compliance retention window). See [Preflight Check](#preflight-check-event-scheduler) to validate this at deployment time.
+
 | Event | Schedule | Action |
 |-------|----------|--------|
 | `evt_connection_logs_partition_maintenance` | Daily at 03:30 | Calls `connection_logs_maintain_partitions()` — adds future month partitions and drops expired ones (2-year retention) |
@@ -263,6 +269,37 @@ FROM connection_logs
 WHERE event_type IN ('stop', 'interim-update')
   AND event_at >= '2026-03-01' AND event_at < '2026-04-01'
 GROUP BY contract_id;
+```
+
+### Preflight Check: Event Scheduler
+
+Migration `053` creates a `preflight_check_event_scheduler()` stored procedure that validates the MySQL Event Scheduler is enabled. Call it during deployment or application startup:
+
+```sql
+CALL preflight_check_event_scheduler();
+```
+
+If `event_scheduler` is **not** `ON`, the procedure raises a `SQLSTATE '45000'` error with a descriptive message explaining the risk and how to fix it. It returns silently when the scheduler is correctly enabled.
+
+**Why this matters:**
+
+| Consequence | Detail |
+|-------------|--------|
+| `connection_logs` insert failures | Without daily partition maintenance, `p_future` fills up and INSERTs start failing |
+| Compliance retention violation | Partitions older than 2 years are never dropped, accumulating data beyond the regulatory window |
+| SNMP data gap | Rollup and retention events stop running, leaving raw data unbounded |
+
+**To enable the Event Scheduler:**
+
+```sql
+-- At runtime (resets on MySQL restart unless also set in my.cnf):
+SET GLOBAL event_scheduler = ON;
+```
+
+```ini
+# In my.cnf / my.ini (persistent across restarts):
+[mysqld]
+event_scheduler = ON
 ```
 
 ### SNMP OID Profile System
