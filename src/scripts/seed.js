@@ -1,0 +1,147 @@
+// =============================================================================
+// FireISP 5.0 — Development Seed Script
+// =============================================================================
+// Inserts sample data for development/testing: an organization, admin user,
+// a few clients, plans, and contracts. Safe to re-run — uses INSERT IGNORE.
+//
+// Usage:  node src/scripts/seed.js
+//         npm run seed
+// =============================================================================
+
+require('dotenv').config();
+const bcrypt = require('bcryptjs');
+const mysql = require('mysql2/promise');
+const db = require('../config/database');
+
+async function seed() {
+  const pool = mysql.createPool({
+    ...db.baseConnectionConfig,
+    waitForConnections: true,
+    connectionLimit: 1,
+    multipleStatements: true,
+  });
+
+  let conn;
+  try {
+    conn = await pool.getConnection();
+
+    // 1. Organization
+    console.log('  Seeding organization...');
+    await conn.execute(`
+      INSERT IGNORE INTO organizations (id, name, slug, locale, country, currency, status)
+      VALUES (1, 'Demo ISP', 'demo-isp', 'global', 'US', 'USD', 'active')
+    `);
+
+    // 2. Admin user (password: admin123!)
+    console.log('  Seeding admin user...');
+    const passwordHash = await bcrypt.hash('admin123!', 12);
+    await conn.execute(`
+      INSERT IGNORE INTO users (id, first_name, last_name, email, password_hash, role, organization_id, status)
+      VALUES (1, 'Admin', 'User', 'admin@demo-isp.com', ?, 'admin', 1, 'active')
+    `, [passwordHash]);
+
+    // Organization-user membership
+    await conn.execute(`
+      INSERT IGNORE INTO organization_users (organization_id, user_id, role)
+      VALUES (1, 1, 'owner')
+    `);
+
+    // 3. Sites
+    console.log('  Seeding sites...');
+    await conn.execute(`
+      INSERT IGNORE INTO sites (id, organization_id, name, address, city, state, zip_code, country, status)
+      VALUES
+        (1, 1, 'Main Office', '123 Network Ave', 'Austin', 'TX', '78701', 'US', 'active'),
+        (2, 1, 'North Tower', '456 Fiber Rd', 'Austin', 'TX', '78702', 'US', 'active')
+    `);
+
+    // 4. Plans
+    console.log('  Seeding plans...');
+    await conn.execute(`
+      INSERT IGNORE INTO plans (id, organization_id, name, download_speed, upload_speed, price, currency, billing_cycle, status)
+      VALUES
+        (1, 1, 'Basic 50 Mbps',   50,  10,  29.99, 'USD', 'monthly', 'active'),
+        (2, 1, 'Standard 100 Mbps', 100, 25,  49.99, 'USD', 'monthly', 'active'),
+        (3, 1, 'Premium 300 Mbps',  300, 50,  79.99, 'USD', 'monthly', 'active'),
+        (4, 1, 'Business 500 Mbps', 500, 100, 149.99, 'USD', 'monthly', 'active')
+    `);
+
+    // 5. Clients
+    console.log('  Seeding clients...');
+    await conn.execute(`
+      INSERT IGNORE INTO clients (id, organization_id, first_name, last_name, email, phone, client_type, status, city, state, country)
+      VALUES
+        (1, 1, 'John',    'Doe',     'john@example.com',    '+15551234567', 'residential', 'active', 'Austin', 'TX', 'US'),
+        (2, 1, 'Jane',    'Smith',   'jane@example.com',    '+15559876543', 'residential', 'active', 'Austin', 'TX', 'US'),
+        (3, 1, 'Acme',    'Corp',    'billing@acme.com',    '+15555551234', 'business',    'active', 'Austin', 'TX', 'US'),
+        (4, 1, 'Bob',     'Wilson',  'bob@example.com',     '+15551112222', 'residential', 'active', 'Austin', 'TX', 'US'),
+        (5, 1, 'Alice',   'Johnson', 'alice@example.com',   '+15553334444', 'residential', 'active', 'Austin', 'TX', 'US')
+    `);
+
+    // 6. Contracts
+    console.log('  Seeding contracts...');
+    await conn.execute(`
+      INSERT IGNORE INTO contracts (id, organization_id, client_id, plan_id, site_id, start_date, status, connection_type)
+      VALUES
+        (1, 1, 1, 1, 1, '2025-01-01', 'active', 'fiber'),
+        (2, 1, 2, 2, 1, '2025-02-01', 'active', 'fiber'),
+        (3, 1, 3, 4, 2, '2025-01-15', 'active', 'fiber'),
+        (4, 1, 4, 3, 1, '2025-03-01', 'active', 'wireless'),
+        (5, 1, 5, 1, 2, '2025-04-01', 'active', 'fiber')
+    `);
+
+    // 7. Devices
+    console.log('  Seeding devices...');
+    await conn.execute(`
+      INSERT IGNORE INTO devices (id, organization_id, site_id, name, ip_address, type, status, snmp_enabled)
+      VALUES
+        (1, 1, 1, 'Core Router',     '10.0.0.1',   'router',  'active', 1),
+        (2, 1, 1, 'Access Switch 1', '10.0.0.2',   'switch',  'active', 1),
+        (3, 1, 2, 'North AP',        '10.0.1.1',   'ap',      'active', 1),
+        (4, 1, 2, 'North OLT',       '10.0.1.2',   'olt',     'active', 1)
+    `);
+
+    // 8. NAS (RADIUS)
+    console.log('  Seeding NAS...');
+    await conn.execute(`
+      INSERT IGNORE INTO nas (id, organization_id, name, ip_address, secret, type, coa_port, status)
+      VALUES
+        (1, 1, 'Main NAS', '10.0.0.1', 'testing123', 'mikrotik', 3799, 'active')
+    `);
+
+    // 9. A couple of tickets
+    console.log('  Seeding tickets...');
+    await conn.execute(`
+      INSERT IGNORE INTO tickets (id, organization_id, client_id, subject, description, status, priority)
+      VALUES
+        (1, 1, 1, 'Slow internet speeds', 'Customer reports download speed below 20 Mbps during peak hours', 'open', 'high'),
+        (2, 1, 3, 'New office connection', 'Need to set up a second connection at the new Acme Corp office', 'open', 'medium')
+    `);
+
+    console.log('  ✓ Seed data inserted successfully.');
+    console.log('');
+    console.log('  Demo credentials:');
+    console.log('    Email:    admin@demo-isp.com');
+    console.log('    Password: admin123!');
+  } finally {
+    if (conn) conn.release();
+    await pool.end();
+    await db.close();
+  }
+}
+
+// Run when invoked directly
+if (require.main === module) {
+  console.log('FireISP 5.0 — Seeding development data...');
+  seed()
+    .then(() => {
+      console.log('Done.');
+      process.exit(0);
+    })
+    .catch(err => {
+      console.error('Seed failed:', err.message);
+      process.exit(1);
+    });
+}
+
+module.exports = { seed };

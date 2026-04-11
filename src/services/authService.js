@@ -45,8 +45,7 @@ async function register({ firstName, lastName, email, password, organizationId, 
     );
   }
 
-  // Strip password_hash from return
-  const { password_hash: _ph, ...safeUser } = user;
+  const { password_hash: _passwordHash, ...safeUser } = user;
   return safeUser;
 }
 
@@ -94,7 +93,7 @@ async function login({ email, password }) {
     [user.id, sessionHash, null, null],
   );
 
-  const { password_hash: _ph, ...safeUser } = user;
+  const { password_hash: _hash, ...safeUser } = user;
   return {
     token,
     user: safeUser,

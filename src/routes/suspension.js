@@ -7,6 +7,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
+const suspensionSchemas = require('../middleware/schemas/suspension');
 const suspensionController = require('../controllers/suspensionController');
 
 const router = Router();
@@ -20,13 +21,13 @@ router.post('/evaluate',
 
 router.post('/suspend',
   requirePermission('contracts.update'),
-  validate({ contract_id: { type: 'number', required: true, min: 1 } }),
+  validate(suspensionSchemas.suspend),
   suspensionController.suspend,
 );
 
 router.post('/reconnect',
   requirePermission('contracts.update'),
-  validate({ contract_id: { type: 'number', required: true, min: 1 } }),
+  validate(suspensionSchemas.reconnect),
   suspensionController.reconnect,
 );
 
