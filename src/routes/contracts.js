@@ -8,6 +8,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createContract, updateContract, createContractAddon } = require('../middleware/schemas/contracts');
 const db = require('../config/database');
 
 const router = Router();
@@ -18,8 +20,8 @@ router.use(orgScope);
 
 router.get('/', requirePermission('contracts.view'), ctrl.list);
 router.get('/:id', requirePermission('contracts.view'), ctrl.get);
-router.post('/', requirePermission('contracts.create'), ctrl.create);
-router.put('/:id', requirePermission('contracts.update'), ctrl.update);
+router.post('/', requirePermission('contracts.create'), validate(createContract), ctrl.create);
+router.put('/:id', requirePermission('contracts.update'), validate(updateContract), ctrl.update);
 router.delete('/:id', requirePermission('contracts.delete'), ctrl.destroy);
 
 // Contract add-ons
@@ -32,7 +34,7 @@ router.get('/:id/addons', requirePermission('contracts.view'), async (req, res, 
   }
 });
 
-router.post('/:id/addons', requirePermission('contracts.update'), async (req, res, next) => {
+router.post('/:id/addons', requirePermission('contracts.update'), validate(createContractAddon), async (req, res, next) => {
   try {
     const { plan_addon_id, quantity, unit_price, start_date, end_date } = req.body;
     const [result] = await db.query(

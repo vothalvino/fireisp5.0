@@ -8,6 +8,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createPlan, updatePlan, createPlanAddon } = require('../middleware/schemas/plans');
 const db = require('../config/database');
 
 const router = Router();
@@ -18,8 +20,8 @@ router.use(orgScope);
 
 router.get('/', requirePermission('plans.view'), ctrl.list);
 router.get('/:id', requirePermission('plans.view'), ctrl.get);
-router.post('/', requirePermission('plans.create'), ctrl.create);
-router.put('/:id', requirePermission('plans.update'), ctrl.update);
+router.post('/', requirePermission('plans.create'), validate(createPlan), ctrl.create);
+router.put('/:id', requirePermission('plans.update'), validate(updatePlan), ctrl.update);
 router.delete('/:id', requirePermission('plans.delete'), ctrl.destroy);
 
 // Plan add-ons
@@ -32,7 +34,7 @@ router.get('/addons/catalog', requirePermission('plans.view'), async (req, res, 
   }
 });
 
-router.post('/addons', requirePermission('plans.create'), async (req, res, next) => {
+router.post('/addons', requirePermission('plans.create'), validate(createPlanAddon), async (req, res, next) => {
   try {
     const { name, addon_type, price, billing_cycle, taxable, status } = req.body;
     const [result] = await db.query(
