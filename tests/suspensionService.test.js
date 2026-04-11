@@ -91,6 +91,8 @@ describe('suspensionService', () => {
   describe('suspendContract', () => {
     test('suspends contract and logs event within transaction', async () => {
       mockConnection.execute.mockResolvedValue([{ affectedRows: 1 }]);
+      // RADIUS lookup returns empty (no RADIUS account)
+      db.query.mockResolvedValueOnce([[]]);
 
       await suspensionService.suspendContract(10, 1, 5, 50);
 
@@ -101,7 +103,7 @@ describe('suspensionService', () => {
       expect(mockConnection.execute.mock.calls[0][0]).toContain('UPDATE contracts SET status');
       expect(mockConnection.execute.mock.calls[0][1]).toEqual(['suspended', 10]);
 
-      // Second call: INSERT suspension_logs
+      // Second call: INSERT suspension_logs (includes coa_sent and coa_response columns)
       expect(mockConnection.execute.mock.calls[1][0]).toContain('INSERT INTO suspension_logs');
       expect(mockConnection.execute.mock.calls[1][1]).toContain(10);
 
@@ -127,6 +129,8 @@ describe('suspensionService', () => {
   describe('reconnectContract', () => {
     test('reactivates contract and logs unsuspend event', async () => {
       mockConnection.execute.mockResolvedValue([{ affectedRows: 1 }]);
+      // RADIUS lookup returns empty (no RADIUS account)
+      db.query.mockResolvedValueOnce([[]]);
 
       await suspensionService.reconnectContract(10, 5, 50);
 
@@ -136,7 +140,7 @@ describe('suspensionService', () => {
       expect(mockConnection.execute.mock.calls[0][0]).toContain('UPDATE contracts SET status');
       expect(mockConnection.execute.mock.calls[0][1]).toEqual(['active', 10]);
 
-      // INSERT suspension_logs with 'unsuspend'
+      // INSERT suspension_logs with 'unsuspend' (includes coa_sent/coa_response)
       expect(mockConnection.execute.mock.calls[1][0]).toContain('INSERT INTO suspension_logs');
 
       expect(mockConnection.commit).toHaveBeenCalled();
@@ -147,6 +151,8 @@ describe('suspensionService', () => {
       mockConnection.execute
         .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE
         .mockRejectedValueOnce(new Error('Log fail'));  // INSERT
+      // RADIUS lookup
+      db.query.mockResolvedValueOnce([[]]);
 
       await expect(
         suspensionService.reconnectContract(10, 5, 50),

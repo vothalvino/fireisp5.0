@@ -8,6 +8,8 @@ const helmet = require('helmet');
 const config = require('./config');
 const { AppError } = require('./utils/errors');
 const { apiLimiter, authLimiter } = require('./middleware/rateLimit');
+const { requestLogger } = require('./middleware/requestLogger');
+const logger = require('./utils/logger');
 
 // Route imports
 const authRoutes = require('./routes/auth');
@@ -62,6 +64,12 @@ const regulatoryFilingRoutes = require('./routes/regulatoryFilings');
 const iftStatisticalReportRoutes = require('./routes/iftStatisticalReports');
 const satCatalogRoutes = require('./routes/satCatalogs');
 const facturaPublicaRoutes = require('./routes/facturasPublicas');
+const billingRoutes = require('./routes/billing');
+const cfdiRoutes = require('./routes/cfdi');
+const suspensionRoutes = require('./routes/suspension');
+const dashboardRoutes = require('./routes/dashboard');
+const exportRoutes = require('./routes/export');
+const importRoutes = require('./routes/import');
 
 const app = express();
 
@@ -72,6 +80,7 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(requestLogger);
 app.use('/api/', apiLimiter);
 app.use('/api/auth', authLimiter);
 
@@ -137,6 +146,18 @@ app.use('/api/regulatory-filings', regulatoryFilingRoutes);
 app.use('/api/ift-statistical-reports', iftStatisticalReportRoutes);
 app.use('/api/sat-catalogs', satCatalogRoutes);
 app.use('/api/facturas-publicas', facturaPublicaRoutes);
+app.use('/api/billing', billingRoutes);
+app.use('/api/cfdi', cfdiRoutes);
+app.use('/api/suspension', suspensionRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/export', exportRoutes);
+app.use('/api/import', importRoutes);
+
+// ---------------------------------------------------------------------------
+// API documentation (Swagger UI)
+// ---------------------------------------------------------------------------
+const { mountApiDocs } = require('./utils/openapi');
+mountApiDocs(app);
 
 // ---------------------------------------------------------------------------
 // 404 handler
@@ -190,7 +211,7 @@ app.use((err, _req, res, _next) => {
   }
 
   // Unexpected errors
-  console.error('Unhandled error:', err);
+  logger.error({ err }, 'Unhandled error');
   const statusCode = err.statusCode || 500;
   res.status(statusCode).json({
     error: {
