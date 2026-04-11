@@ -8,6 +8,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createTicket, updateTicket, createComment } = require('../middleware/schemas/tickets');
 
 const router = Router();
 const ctrl = crudController(Ticket);
@@ -17,8 +19,8 @@ router.use(orgScope);
 
 router.get('/', requirePermission('tickets.view'), ctrl.list);
 router.get('/:id', requirePermission('tickets.view'), ctrl.get);
-router.post('/', requirePermission('tickets.create'), ctrl.create);
-router.put('/:id', requirePermission('tickets.update'), ctrl.update);
+router.post('/', requirePermission('tickets.create'), validate(createTicket), ctrl.create);
+router.put('/:id', requirePermission('tickets.update'), validate(updateTicket), ctrl.update);
 router.delete('/:id', requirePermission('tickets.delete'), ctrl.destroy);
 
 // Comments
@@ -31,7 +33,7 @@ router.get('/:id/comments', requirePermission('tickets.view'), async (req, res, 
   }
 });
 
-router.post('/:id/comments', requirePermission('tickets.update'), async (req, res, next) => {
+router.post('/:id/comments', requirePermission('tickets.update'), validate(createComment), async (req, res, next) => {
   try {
     const comment = await Ticket.addComment({
       ticket_id: req.params.id,

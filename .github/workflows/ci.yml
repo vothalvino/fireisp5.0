@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18, 20]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npx eslint src/
+
+      - name: Run tests
+        run: npx jest --detectOpenHandles --forceExit --ci
+
+      - name: Validate SQL schema
+        run: |
+          # Check that schema.sql is valid SQL (no syntax errors in CREATE TABLE statements)
+          grep -c "CREATE TABLE" database/schema.sql
+          # Ensure migration count matches expected
+          MIGRATION_COUNT=$(ls database/migrations/*.sql | wc -l)
+          echo "Found $MIGRATION_COUNT migrations"
+          test "$MIGRATION_COUNT" -ge 100

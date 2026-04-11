@@ -554,9 +554,9 @@ FireRelay is **Step 5** in the FireISP 5.0 development roadmap. It must not be b
 | Step | What | Status |
 |------|------|--------|
 | 1 | Database schema (migrations) | ✅ Complete — 118 migrations, 101 tables |
-| 2 | Node.js application scaffold (`package.json`, `server.js`, database connection) | 🔲 Next |
-| 3 | Authentication (login, logout, sessions) | 🔲 Pending |
-| 4 | Core CRUD modules (clients, plans, invoices, devices, tickets, etc.) | 🔲 Pending |
+| 2 | Node.js application scaffold (`package.json`, `server.js`, database connection) | ✅ Complete — Express 5, JWT, Helmet, CORS, rate limiting |
+| 3 | Authentication (login, logout, sessions) | ✅ Complete — register/login/logout, JWT, RBAC, org scoping |
+| 4 | Core CRUD modules (clients, plans, invoices, devices, tickets, etc.) | ✅ Complete — 43 models, 52 routes, 6 services |
 | **5** | **FireRelay** ← this document describes what will be built here | 🔲 Pending |
 
 > **Note:** FireRelay's `standalone` mode middleware should be included from the very beginning of Step 2 — it is a ~30-line pass-through that costs nothing and avoids a larger refactor later. Steps 3 and 4 proceed as if FireRelay does not exist. Only Step 5 implements the actual relay logic.
@@ -564,4 +564,4 @@ FireRelay is **Step 5** in the FireISP 5.0 development roadmap. It must not be b
 ---
 
 *Document created: 2025 — FireISP 5.0 project.*
-*This is a design specification. No application code has been written yet.*
+*Updated: 2026 — Steps 2–4 complete. FireRelay is next.*

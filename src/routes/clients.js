@@ -8,6 +8,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createClient, updateClient, createContact, updateMxProfile } = require('../middleware/schemas/clients');
 const db = require('../config/database');
 
 const router = Router();
@@ -18,8 +20,8 @@ router.use(orgScope);
 
 router.get('/', requirePermission('clients.view'), ctrl.list);
 router.get('/:id', requirePermission('clients.view'), ctrl.get);
-router.post('/', requirePermission('clients.create'), ctrl.create);
-router.put('/:id', requirePermission('clients.update'), ctrl.update);
+router.post('/', requirePermission('clients.create'), validate(createClient), ctrl.create);
+router.put('/:id', requirePermission('clients.update'), validate(updateClient), ctrl.update);
 router.delete('/:id', requirePermission('clients.delete'), ctrl.destroy);
 
 // Contacts sub-routes
@@ -32,7 +34,7 @@ router.get('/:id/contacts', requirePermission('clients.view'), async (req, res, 
   }
 });
 
-router.post('/:id/contacts', requirePermission('clients.update'), async (req, res, next) => {
+router.post('/:id/contacts', requirePermission('clients.update'), validate(createContact), async (req, res, next) => {
   try {
     const { name, email, phone, role } = req.body;
     const [result] = await db.query(
@@ -56,7 +58,7 @@ router.get('/:id/mx-profile', requirePermission('clients.view'), async (req, res
   }
 });
 
-router.put('/:id/mx-profile', requirePermission('clients.update'), async (req, res, next) => {
+router.put('/:id/mx-profile', requirePermission('clients.update'), validate(updateMxProfile), async (req, res, next) => {
   try {
     const { rfc, curp, razon_social, regimen_fiscal, codigo_postal_fiscal } = req.body;
     const existing = await Client.getMxProfile(req.params.id);

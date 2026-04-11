@@ -8,6 +8,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createPayment, updatePayment, allocatePayment } = require('../middleware/schemas/payments');
 const billingService = require('../services/billingService');
 const suspensionService = require('../services/suspensionService');
 const db = require('../config/database');
@@ -22,7 +24,7 @@ router.get('/', requirePermission('payments.view'), ctrl.list);
 router.get('/:id', requirePermission('payments.view'), ctrl.get);
 
 // Create a payment and optionally allocate + reconnect
-router.post('/', requirePermission('payments.create'), async (req, res, next) => {
+router.post('/', requirePermission('payments.create'), validate(createPayment), async (req, res, next) => {
   try {
     req.body.organization_id = req.orgId;
     const payment = await Payment.create(req.body);
@@ -36,11 +38,11 @@ router.post('/', requirePermission('payments.create'), async (req, res, next) =>
   }
 });
 
-router.put('/:id', requirePermission('payments.update'), ctrl.update);
+router.put('/:id', requirePermission('payments.update'), validate(updatePayment), ctrl.update);
 router.delete('/:id', requirePermission('payments.delete'), ctrl.destroy);
 
 // Allocate payment to invoice
-router.post('/:id/allocate', requirePermission('payments.create'), async (req, res, next) => {
+router.post('/:id/allocate', requirePermission('payments.create'), validate(allocatePayment), async (req, res, next) => {
   try {
     const { invoice_id, amount } = req.body;
     const allocation = await Payment.allocate(req.params.id, invoice_id, amount);

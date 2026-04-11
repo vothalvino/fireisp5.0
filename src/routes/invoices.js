@@ -8,6 +8,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createInvoice, updateInvoice, addInvoiceItem, generateInvoice } = require('../middleware/schemas/invoices');
 const billingService = require('../services/billingService');
 const db = require('../config/database');
 
@@ -19,8 +21,8 @@ router.use(orgScope);
 
 router.get('/', requirePermission('invoices.view'), ctrl.list);
 router.get('/:id', requirePermission('invoices.view'), ctrl.get);
-router.post('/', requirePermission('invoices.create'), ctrl.create);
-router.put('/:id', requirePermission('invoices.update'), ctrl.update);
+router.post('/', requirePermission('invoices.create'), validate(createInvoice), ctrl.create);
+router.put('/:id', requirePermission('invoices.update'), validate(updateInvoice), ctrl.update);
 router.delete('/:id', requirePermission('invoices.delete'), ctrl.destroy);
 
 // Get invoice line items
@@ -34,7 +36,7 @@ router.get('/:id/items', requirePermission('invoices.view'), async (req, res, ne
 });
 
 // Add invoice line item
-router.post('/:id/items', requirePermission('invoices.update'), async (req, res, next) => {
+router.post('/:id/items', requirePermission('invoices.update'), validate(addInvoiceItem), async (req, res, next) => {
   try {
     const item = await Invoice.addItem({ invoice_id: req.params.id, ...req.body });
     res.status(201).json({ data: item });
@@ -44,7 +46,7 @@ router.post('/:id/items', requirePermission('invoices.update'), async (req, res,
 });
 
 // Generate invoice for a contract billing period
-router.post('/generate', requirePermission('invoices.create'), async (req, res, next) => {
+router.post('/generate', requirePermission('invoices.create'), validate(generateInvoice), async (req, res, next) => {
   try {
     const { contract_id } = req.body;
 
