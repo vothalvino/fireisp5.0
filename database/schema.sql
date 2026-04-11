@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS clients (
     address         VARCHAR(255)    NULL,
     city            VARCHAR(100)    NULL,
     state           VARCHAR(100)    NULL,
-    country         VARCHAR(100)    NULL DEFAULT 'US',
+    country         VARCHAR(100)    NULL DEFAULT NULL,
     zip_code        VARCHAR(20)     NULL,
     notes           TEXT            NULL,
     status          ENUM('active', 'inactive', 'suspended') NOT NULL DEFAULT 'active',
@@ -573,7 +573,7 @@ CREATE TABLE IF NOT EXISTS organizations (
     address             VARCHAR(255)    NULL,
     city                VARCHAR(100)    NULL,
     state               VARCHAR(100)    NULL,
-    country             VARCHAR(100)    NULL DEFAULT 'US',
+    country             VARCHAR(100)    NULL DEFAULT NULL,
     zip_code            VARCHAR(20)     NULL,
     website             VARCHAR(255)    NULL,
     online_payment_url  VARCHAR(255)    NULL COMMENT 'URL for the online payment portal',
@@ -2815,7 +2815,12 @@ INSERT IGNORE INTO sat_regimen_fiscal (code, description, applies_to, status) VA
 ('623', 'Opcional para Grupos de Sociedades',                                        'company',  'active'),
 ('624', 'Coordinados',                                                               'company',  'active'),
 ('625', 'Régimen de las Actividades Empresariales con ingresos a través de Plataformas Tecnológicas', 'personal', 'active'),
-('626', 'Régimen Simplificado de Confianza',                                         'both',     'active');
+('626', 'Régimen Simplificado de Confianza',                                         'both',     'active'),
+-- Additional regimes (migration 096)
+('607', 'Régimen de Enajenación o Adquisición de Bienes',                          'personal', 'active'),
+('609', 'Consolidación',                                                             'company',  'active'),
+('611', 'Ingresos por Dividendos (y en general por las Sociedades y Asociaciones Civiles)', 'personal', 'active'),
+('615', 'Régimen de los ingresos por obtención de premios',                         'personal', 'active');
 
 INSERT IGNORE INTO sat_uso_cfdi (code, description, applies_to, status) VALUES
 ('G01', 'Adquisición de mercancias',                                        'both',     'active'),
@@ -2832,7 +2837,14 @@ INSERT IGNORE INTO sat_uso_cfdi (code, description, applies_to, status) VALUES
 ('D04', 'Donativos',                                                        'personal', 'active'),
 ('P01', 'Por definir',                                                      'both',     'active'),
 ('S01', 'Sin efectos fiscales',                                             'both',     'active'),
-('CP01', 'Pagos',                                                           'both',     'active');
+('CP01', 'Pagos',                                                           'both',     'active'),
+-- Additional uso CFDI codes (migration 096)
+('D05', 'Primas por seguros de gastos médicos',                                                             'personal', 'active'),
+('D06', 'Gastos de transportación escolar obligatoria',                                                     'personal', 'active'),
+('D07', 'Depósitos en cuentas para el ahorro, primas que tengan como base planes de pensiones',             'personal', 'active'),
+('D08', 'Pagos por servicios educativos (colegiaturas)',                                                    'personal', 'active'),
+('D09', 'Aportaciones voluntarias al SAR',                                                                  'personal', 'active'),
+('D10', 'Primas por seguros de gastos médicos mayores',                                                     'personal', 'active');
 
 INSERT IGNORE INTO sat_forma_pago (code, description, status) VALUES
 ('01', 'Efectivo',                                                          'active'),
@@ -2873,7 +2885,7 @@ INSERT IGNORE INTO sat_moneda (code, description, decimals, status) VALUES
 ('MXN', 'Peso Mexicano',                    2, 'active'),
 ('USD', 'Dólar americano',                  2, 'active'),
 ('EUR', 'Euro',                             2, 'active'),
-('XXX', 'Los derechos en esta divisa',      2, 'active');
+('XXX', 'Los códigos asignados para las transacciones en que no intervenga ninguna moneda',      2, 'active');
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_clave_prod_serv
@@ -2974,6 +2986,10 @@ CREATE TABLE IF NOT EXISTS cfdi_documents (
     tipo_cambio             DECIMAL(10, 4)  NULL
                                 COMMENT 'Exchange rate to MXN when moneda != MXN; NULL when moneda = MXN',
 
+    -- Export classification (mandatory in CFDI 4.0 even for domestic transactions)
+    exportacion             ENUM('01','02','03') NOT NULL DEFAULT '01'
+                                COMMENT 'SAT Exportacion: 01=No exporta, 02=Exportación definitiva, 03=Exportación temporal',
+
     -- Receiver snapshot (denormalized at stamp time — must match SAT records)
     receptor_rfc            VARCHAR(13)     NULL
                                 COMMENT 'Receiver RFC captured at stamp time',
@@ -3056,6 +3072,16 @@ CREATE TABLE IF NOT EXISTS cfdi_documents (
         REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_cfdi_documents_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_cfdi_documents_tipo_comprobante FOREIGN KEY (tipo_comprobante)
+        REFERENCES sat_tipo_comprobante (code) ON UPDATE CASCADE,
+    CONSTRAINT fk_cfdi_documents_uso_cfdi FOREIGN KEY (uso_cfdi)
+        REFERENCES sat_uso_cfdi (code) ON UPDATE CASCADE,
+    CONSTRAINT fk_cfdi_documents_metodo_pago FOREIGN KEY (metodo_pago)
+        REFERENCES sat_metodo_pago (code) ON UPDATE CASCADE,
+    CONSTRAINT fk_cfdi_documents_forma_pago FOREIGN KEY (forma_pago)
+        REFERENCES sat_forma_pago (code) ON UPDATE CASCADE,
+    CONSTRAINT fk_cfdi_documents_moneda FOREIGN KEY (moneda)
+        REFERENCES sat_moneda (code) ON UPDATE CASCADE,
     CONSTRAINT fk_cfdi_documents_invoice FOREIGN KEY (invoice_id)
         REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cfdi_documents_credit_note FOREIGN KEY (credit_note_id)
@@ -3188,6 +3214,10 @@ CREATE TABLE IF NOT EXISTS cfdi_payment_complement_items (
     imp_saldo_insoluto  DECIMAL(12, 2)  NOT NULL
                             COMMENT 'Remaining balance after this payment: imp_saldo_ant - imp_pagado (ImpSaldoInsoluto)',
 
+    -- Tax object indicator for this related document (Complemento de Pago 2.0)
+    objeto_imp_dr       ENUM('01','02','03') NOT NULL DEFAULT '02'
+                            COMMENT 'SAT ObjetoImpDR on DoctoRelacionado: 01=No objeto, 02=Sí objeto, 03=Sí objeto y no obligado al desglose',
+
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
@@ -3196,6 +3226,41 @@ CREATE TABLE IF NOT EXISTS cfdi_payment_complement_items (
     CONSTRAINT fk_cfdi_pci_complement FOREIGN KEY (complement_id)
         REFERENCES cfdi_payment_complements (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: cfdi_payment_complement_item_taxes
+-- Purpose: Per-DoctoRelacionado tax breakdown (ImpuestosP) for Complemento de
+--          Pago 2.0.  Required by the SAT when objeto_imp_dr = '02' on the
+--          parent cfdi_payment_complement_items row.  Each row corresponds to
+--          one Traslado or Retencion node inside ImpuestosP.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cfdi_payment_complement_item_taxes (
+    id                  BIGINT UNSIGNED     NOT NULL AUTO_INCREMENT,
+    complement_item_id  BIGINT UNSIGNED     NOT NULL
+                            COMMENT 'Parent DoctoRelacionado item this tax row belongs to',
+    tax_type            ENUM('traslado','retencion') NOT NULL
+                            COMMENT 'Whether this is a transferred tax (Traslado) or a withholding (Retencion)',
+    impuesto            VARCHAR(3)          NOT NULL
+                            COMMENT 'SAT tax code: 001=ISR, 002=IVA, 003=IEPS',
+    tipo_factor         ENUM('Tasa','Cuota','Exento') NOT NULL DEFAULT 'Tasa'
+                            COMMENT 'SAT TipoFactorP: Tasa=rate, Cuota=fixed amount per unit, Exento=exempt',
+    tasa_o_cuota        DECIMAL(8,6)        NULL
+                            COMMENT 'Tax rate or per-unit quota; NULL when tipo_factor = ''Exento''',
+    base                DECIMAL(14,4)       NOT NULL
+                            COMMENT 'Taxable base amount for this tax line (BaseP)',
+    importe             DECIMAL(14,4)       NULL
+                            COMMENT 'Computed tax amount (ImporteP); NULL when tipo_factor = ''Exento''',
+    created_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_cfdi_pcit_complement_item_id (complement_item_id),
+    KEY idx_cfdi_pcit_tax_type (tax_type),
+    KEY idx_cfdi_pcit_impuesto (impuesto),
+
+    CONSTRAINT fk_cfdi_pcit_complement_item FOREIGN KEY (complement_item_id)
+        REFERENCES cfdi_payment_complement_items (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='SAT Complemento de Pago 2.0: per-DoctoRelacionado tax breakdown (ImpuestosP)';
 
 -- ---------------------------------------------------------------------------
 -- Table: cfdi_conceptos
@@ -3244,7 +3309,11 @@ CREATE TABLE IF NOT EXISTS cfdi_conceptos (
     KEY idx_cfdi_conceptos_clave_prod_serv (clave_prod_serv),
 
     CONSTRAINT fk_cfdi_conceptos_cfdi_document FOREIGN KEY (cfdi_document_id)
-        REFERENCES cfdi_documents (id) ON DELETE CASCADE ON UPDATE CASCADE
+        REFERENCES cfdi_documents (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_cfdi_conceptos_clave_prod_serv FOREIGN KEY (clave_prod_serv)
+        REFERENCES sat_clave_prod_serv (code) ON UPDATE CASCADE,
+    CONSTRAINT fk_cfdi_conceptos_clave_unidad FOREIGN KEY (clave_unidad)
+        REFERENCES sat_clave_unidad (code) ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='CFDI 4.0 concept (line item) rows — one row per <Concepto> node inside a cfdi_document';
 
@@ -4051,6 +4120,66 @@ BEGIN
     IF v_invoice_status IS NULL OR v_invoice_status != 'paid' THEN
         SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'Cannot add invoice to factura pública: invoice must have status = ''paid''.';
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- ---------------------------------------------------------------------------
+-- Seed: CSD expiry monitoring scheduled task (migration 100)
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO scheduled_tasks
+    (organization_id, task_name, task_type, handler, description,
+     cron_expression, payload, priority, max_retries, timeout_seconds,
+     is_enabled)
+VALUES
+    (NULL,
+     'csd_expiry_monitor',
+     'notification',
+     'App\\Tasks\\Mx\\CsdExpiryMonitorTask',
+     'Checks organization_mx_profiles.csd_valid_to and sends an alert when a CSD is within 30 days of expiration.',
+     '0 8 * * *',
+     JSON_OBJECT(
+         'warning_days',    30,
+         'critical_days',   7,
+         'notification_channels', JSON_ARRAY('email', 'in_app')
+     ),
+     'high',
+     3,
+     120,
+     TRUE);
+
+-- ---------------------------------------------------------------------------
+-- Triggers: contracts.facturar guard (migration 097)
+-- Purpose: Prevent facturar = TRUE on contracts for non-MX clients.
+-- ---------------------------------------------------------------------------
+DELIMITER $$
+
+CREATE TRIGGER trg_contracts_facturar_bi
+BEFORE INSERT ON contracts
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    IF NEW.facturar = TRUE THEN
+        SELECT locale INTO v_locale FROM clients WHERE id = NEW.client_id;
+        IF v_locale IS NULL OR v_locale != 'MX' THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'contracts.facturar can only be TRUE when the client has locale = ''MX''';
+        END IF;
+    END IF;
+END$$
+
+CREATE TRIGGER trg_contracts_facturar_bu
+BEFORE UPDATE ON contracts
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    IF NEW.facturar = TRUE AND (OLD.facturar = FALSE OR OLD.client_id != NEW.client_id) THEN
+        SELECT locale INTO v_locale FROM clients WHERE id = NEW.client_id;
+        IF v_locale IS NULL OR v_locale != 'MX' THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'contracts.facturar can only be TRUE when the client has locale = ''MX''';
+        END IF;
     END IF;
 END$$
 
