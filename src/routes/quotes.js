@@ -9,6 +9,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createQuote, updateQuote, createQuoteItem } = require('../middleware/schemas/quotes');
 const db = require('../config/database');
 
 const router = Router();
@@ -19,8 +21,8 @@ router.use(orgScope);
 
 router.get('/', requirePermission('quotes.view'), ctrl.list);
 router.get('/:id', requirePermission('quotes.view'), ctrl.get);
-router.post('/', requirePermission('quotes.create'), ctrl.create);
-router.put('/:id', requirePermission('quotes.update'), ctrl.update);
+router.post('/', requirePermission('quotes.create'), validate(createQuote), ctrl.create);
+router.put('/:id', requirePermission('quotes.update'), validate(updateQuote), ctrl.update);
 router.delete('/:id', requirePermission('quotes.delete'), ctrl.destroy);
 
 // Get quote line items
@@ -34,7 +36,7 @@ router.get('/:id/items', requirePermission('quotes.view'), async (req, res, next
 });
 
 // Add quote line item
-router.post('/:id/items', requirePermission('quotes.update'), async (req, res, next) => {
+router.post('/:id/items', requirePermission('quotes.update'), validate(createQuoteItem), async (req, res, next) => {
   try {
     const item = await Quote.addItem({ quote_id: req.params.id, ...req.body });
     res.status(201).json({ data: item });

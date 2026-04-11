@@ -8,6 +8,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createExpense, updateExpense } = require('../middleware/schemas/expenses');
 
 const router = Router();
 const ctrl = crudController(Expense);
@@ -17,8 +19,8 @@ router.use(orgScope);
 
 router.get('/', requirePermission('expenses.view'), ctrl.list);
 router.get('/:id', requirePermission('expenses.view'), ctrl.get);
-router.post('/', requirePermission('expenses.create'), ctrl.create);
-router.put('/:id', requirePermission('expenses.update'), ctrl.update);
+router.post('/', requirePermission('expenses.create'), validate(createExpense), ctrl.create);
+router.put('/:id', requirePermission('expenses.update'), validate(updateExpense), ctrl.update);
 router.delete('/:id', requirePermission('expenses.delete'), ctrl.destroy);
 
 module.exports = router;

@@ -6,6 +6,8 @@ const { Router } = require('express');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createRole, updateRole, assignPermission } = require('../middleware/schemas/roles');
 const db = require('../config/database');
 
 const router = Router();
@@ -47,7 +49,7 @@ router.get('/:id', requirePermission('roles.view'), async (req, res, next) => {
 });
 
 // Create a role
-router.post('/', requirePermission('roles.manage'), async (req, res, next) => {
+router.post('/', requirePermission('roles.manage'), validate(createRole), async (req, res, next) => {
   try {
     const { name, description } = req.body;
     const [result] = await db.query(
@@ -62,7 +64,7 @@ router.post('/', requirePermission('roles.manage'), async (req, res, next) => {
 });
 
 // Update a role
-router.put('/:id', requirePermission('roles.manage'), async (req, res, next) => {
+router.put('/:id', requirePermission('roles.manage'), validate(updateRole), async (req, res, next) => {
   try {
     const { name, description } = req.body;
     await db.query(
@@ -94,7 +96,7 @@ router.delete('/:id', requirePermission('roles.manage'), async (req, res, next) 
 });
 
 // Assign a permission to a role
-router.post('/:id/permissions', requirePermission('roles.manage'), async (req, res, next) => {
+router.post('/:id/permissions', requirePermission('roles.manage'), validate(assignPermission), async (req, res, next) => {
   try {
     const { permission_id } = req.body;
     await db.query(
