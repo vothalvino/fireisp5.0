@@ -1,21 +1,31 @@
 -- Migration: 066_create_client_mx_profiles_table
 -- Description: One-to-one Mexico extension for clients.
---              Required (enforced at the app layer) when clients.locale = 'MX'.
+--              Required (enforced at the app layer) when clients.locale = 'MX'
+--              AND at least one of the client's contracts has facturar = TRUE.
 --              Stores SAT-specific identity fields that CFDI 4.0 mandates on
 --              every fiscal document: RFC, razon_social, regimen_fiscal, and
 --              codigo_postal_fiscal must match the SAT taxpayer registry exactly.
 --
 --              This is a separate table rather than nullable columns on clients so
---              that the base clients table stays lean for global deployments.
+--              that the base clients table stays lean for non-MX deployments.
 --
 --              Venta al público en general:
---              When requires_cfdi = FALSE the client does not receive individual
---              CFDIs.  Instead, their invoices are aggregated into periodic CFDI
---              Global documents (Factura Global).  The RFC for these clients is
---              the SAT-defined generic RFC XAXX010101000.  A stored generated
---              column (rfc_unique_check) allows multiple público-en-general
---              clients to share that RFC while still enforcing uniqueness for
---              all other RFCs (NULL values are ignored by the UNIQUE constraint).
+--              Contracts where the client does not request a factura have
+--              contracts.facturar = FALSE.  Those invoices are aggregated into
+--              periodic "factura pública" documents instead of individual CFDIs.
+--              The facturar flag lives on contracts (not here) so the same client
+--              can have some contracts that generate individual CFDIs and others
+--              that go into the público en general aggregate.
+--
+--              If ALL of a client's contracts have facturar = FALSE, the client
+--              does not need a client_mx_profiles row — their invoices are billed
+--              using the generic RFC XAXX010101000 on the factura pública.
+--              If ANY contract has facturar = TRUE, the client MUST have a
+--              client_mx_profiles row with valid SAT data (enforced at app layer).
+--
+--              RFC uniqueness: a stored generated column (rfc_unique_check)
+--              allows multiple clients to share the generic RFC XAXX010101000
+--              while still enforcing uniqueness for all other RFCs.
 
 -- Temporarily disable FK checks: clients is created in migration 002.
 SET FOREIGN_KEY_CHECKS = 0;
@@ -26,8 +36,6 @@ CREATE TABLE IF NOT EXISTS client_mx_profiles (
                                 COMMENT 'References clients(id) — one profile per client',
     rfc                     VARCHAR(13)     NOT NULL
                                 COMMENT 'Registro Federal de Contribuyentes — 12 chars for companies, 13 for individuals; XAXX010101000 for público en general',
-    requires_cfdi           BOOLEAN         NOT NULL DEFAULT TRUE
-                                COMMENT 'TRUE = client receives individual CFDIs; FALSE = sales go to CFDI Global (público en general, RFC XAXX010101000)',
     rfc_unique_check        VARCHAR(13)     AS (CASE WHEN rfc = 'XAXX010101000' THEN NULL ELSE rfc END) STORED
                                 COMMENT 'Generated column for conditional uniqueness — NULL for público en general (allows duplicates), non-NULL for real RFCs (enforces uniqueness)',
     curp                    VARCHAR(18)     NULL
@@ -56,18 +64,8 @@ CREATE TABLE IF NOT EXISTS client_mx_profiles (
     UNIQUE KEY uq_client_mx_profiles_rfc (rfc_unique_check),
     KEY idx_client_mx_profiles_rfc (rfc),
     KEY idx_client_mx_profiles_regimen_fiscal (regimen_fiscal),
-    KEY idx_client_mx_profiles_requires_cfdi (requires_cfdi),
     CONSTRAINT fk_client_mx_profiles_client FOREIGN KEY (client_id)
-        REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE,
-
-    -- When requires_cfdi is FALSE, RFC must be the SAT generic público en general RFC
-    CONSTRAINT chk_client_mx_profiles_publico_general CHECK (
-        requires_cfdi = TRUE OR rfc = 'XAXX010101000'
-    ),
-    -- When RFC is the SAT generic RFC, requires_cfdi must be FALSE
-    CONSTRAINT chk_client_mx_profiles_generic_rfc CHECK (
-        rfc != 'XAXX010101000' OR requires_cfdi = FALSE
-    )
+        REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

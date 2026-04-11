@@ -166,7 +166,9 @@ CREATE TABLE IF NOT EXISTS contracts (
     connection_type ENUM('pppoe', 'pppoe_dual', 'static', 'dual') NOT NULL DEFAULT 'pppoe'
                        COMMENT 'pppoe = PPPoE IPv4-only (requires RADIUS); pppoe_dual = PPPoE dual-stack IPv4+IPv6 (requires RADIUS); static = static IPv4 (no RADIUS); dual = dual-stack static IPv4+IPv6 (no RADIUS)',
     contract_template_mx_id BIGINT UNSIGNED NULL
-                       COMMENT 'IFT/CRT-registered Carta de Adhesión template used for this contract; NULL for global clients',
+                       COMMENT 'IFT/CRT-registered Carta de Adhesión template used for this contract; NULL for non-MX clients',
+    facturar       BOOLEAN         NOT NULL DEFAULT FALSE
+                       COMMENT 'MX only: TRUE = generate individual CFDI for this contract invoices; FALSE = invoices go to factura pública (venta al público en general). When TRUE the client must have a client_mx_profiles row with valid SAT data. Ignored when client locale is not MX',
     status         ENUM('active', 'expired', 'cancelled', 'pending') NOT NULL DEFAULT 'pending',
     created_by     BIGINT UNSIGNED NULL,
     created_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -178,6 +180,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     KEY idx_contracts_site_id (site_id),
     KEY idx_contracts_connection_type (connection_type),
     KEY idx_contracts_contract_template_mx_id (contract_template_mx_id),
+    KEY idx_contracts_facturar (facturar),
     KEY idx_contracts_status (status),
     CONSTRAINT fk_contracts_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -2566,12 +2569,13 @@ CREATE TABLE IF NOT EXISTS device_config_backups (
 -- ---------------------------------------------------------------------------
 -- Table: client_mx_profiles
 -- Purpose: One-to-one Mexico extension for clients. Required (enforced at the
---          app layer) when clients.locale = 'MX'. Stores SAT-specific identity
+--          app layer) when clients.locale = 'MX' AND at least one of the
+--          client's contracts has facturar = TRUE. Stores SAT-specific identity
 --          fields that CFDI 4.0 mandates: RFC, razon_social, regimen_fiscal,
 --          and codigo_postal_fiscal must match the SAT taxpayer registry exactly.
---          Supports "venta al público en general" (requires_cfdi = FALSE) for
---          clients who do not request individual CFDIs — their invoices are
---          aggregated into periodic CFDI Global documents (Factura Global).
+--          The facturar flag lives on contracts (per-contract), so the same
+--          client can have some contracts generating individual CFDIs and others
+--          going to the factura pública aggregate (venta al público en general).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS client_mx_profiles (
     id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -2579,8 +2583,6 @@ CREATE TABLE IF NOT EXISTS client_mx_profiles (
                                 COMMENT 'References clients(id) — one profile per client',
     rfc                     VARCHAR(13)     NOT NULL
                                 COMMENT 'Registro Federal de Contribuyentes — 12 chars for companies, 13 for individuals; XAXX010101000 for público en general',
-    requires_cfdi           BOOLEAN         NOT NULL DEFAULT TRUE
-                                COMMENT 'TRUE = client receives individual CFDIs; FALSE = sales go to CFDI Global (público en general, RFC XAXX010101000)',
     rfc_unique_check        VARCHAR(13)     AS (CASE WHEN rfc = 'XAXX010101000' THEN NULL ELSE rfc END) STORED
                                 COMMENT 'Generated column for conditional uniqueness — NULL for público en general (allows duplicates), non-NULL for real RFCs (enforces uniqueness)',
     curp                    VARCHAR(18)     NULL
@@ -2609,18 +2611,8 @@ CREATE TABLE IF NOT EXISTS client_mx_profiles (
     UNIQUE KEY uq_client_mx_profiles_rfc (rfc_unique_check),
     KEY idx_client_mx_profiles_rfc (rfc),
     KEY idx_client_mx_profiles_regimen_fiscal (regimen_fiscal),
-    KEY idx_client_mx_profiles_requires_cfdi (requires_cfdi),
     CONSTRAINT fk_client_mx_profiles_client FOREIGN KEY (client_id)
-        REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE,
-
-    -- When requires_cfdi is FALSE, RFC must be the SAT generic público en general RFC
-    CONSTRAINT chk_client_mx_profiles_publico_general CHECK (
-        requires_cfdi = TRUE OR rfc = 'XAXX010101000'
-    ),
-    -- When RFC is the SAT generic RFC, requires_cfdi must be FALSE
-    CONSTRAINT chk_client_mx_profiles_generic_rfc CHECK (
-        rfc != 'XAXX010101000' OR requires_cfdi = FALSE
-    )
+        REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -3855,23 +3847,23 @@ END$$
 DELIMITER ;
 
 -- ---------------------------------------------------------------------------
--- Table: cfdi_global_invoices
--- Purpose: CFDI Global (Factura Global) periodic aggregation documents.
---          When MX-locale clients opt out of individual CFDIs (requires_cfdi =
---          FALSE / RFC XAXX010101000), their invoices are aggregated into a
---          periodic Factura Global per the SAT InformacionGlobal node fields
---          (Periodicidad, Meses, Año).  One row per organization per period.
+-- Table: factura_publica_invoices
+-- Purpose: Factura pública (venta al público en general) periodic aggregation
+--          documents.  When MX-locale contracts have facturar = FALSE, their
+--          invoices are aggregated into a periodic factura pública per the SAT
+--          InformacionGlobal node fields (Periodicidad, Meses, Año).  One row
+--          per organization per period.
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS cfdi_global_invoices (
+CREATE TABLE IF NOT EXISTS factura_publica_invoices (
     id                      BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
 
     -- Issuer
     organization_id         BIGINT UNSIGNED  NOT NULL
-                                COMMENT 'Organization (ISP) issuing this CFDI Global',
+                                COMMENT 'Organization (ISP) issuing this factura pública',
 
     -- Link to the stamped CFDI record (NULL while accumulating / draft)
     cfdi_document_id        BIGINT UNSIGNED  NULL
-                                COMMENT 'Stamped CFDI document record; NULL while the Factura Global is still in draft',
+                                COMMENT 'Stamped CFDI document record; NULL while the factura pública is still in draft',
 
     -- SAT InformacionGlobal node fields
     periodicidad            ENUM('01', '02', '03', '04', '05') NOT NULL
@@ -3891,55 +3883,55 @@ CREATE TABLE IF NOT EXISTS cfdi_global_invoices (
 
     -- Lifecycle
     status                  ENUM('draft', 'stamped', 'cancelled') NOT NULL DEFAULT 'draft'
-                                COMMENT 'draft=accumulating invoices; stamped=CFDI Global issued via PAC; cancelled=voided',
+                                COMMENT 'draft=accumulating invoices; stamped=factura pública issued via PAC; cancelled=voided',
 
     created_at              TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_cfdi_global_invoices_period (organization_id, periodicidad, meses, anio),
-    KEY idx_cfdi_global_invoices_cfdi_document_id (cfdi_document_id),
-    KEY idx_cfdi_global_invoices_status (status),
-    KEY idx_cfdi_global_invoices_anio_meses (anio, meses),
+    UNIQUE KEY uq_factura_publica_invoices_period (organization_id, periodicidad, meses, anio),
+    KEY idx_factura_publica_invoices_cfdi_document_id (cfdi_document_id),
+    KEY idx_factura_publica_invoices_status (status),
+    KEY idx_factura_publica_invoices_anio_meses (anio, meses),
 
-    CONSTRAINT fk_cfdi_global_invoices_organization FOREIGN KEY (organization_id)
+    CONSTRAINT fk_factura_publica_invoices_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT fk_cfdi_global_invoices_cfdi_document FOREIGN KEY (cfdi_document_id)
+    CONSTRAINT fk_factura_publica_invoices_cfdi_document FOREIGN KEY (cfdi_document_id)
         REFERENCES cfdi_documents (id) ON DELETE SET NULL ON UPDATE CASCADE,
 
     -- Meses must be a valid SAT c_Meses code (01-18)
-    CONSTRAINT chk_cfdi_global_invoices_meses CHECK (
+    CONSTRAINT chk_factura_publica_invoices_meses CHECK (
         meses IN ('01','02','03','04','05','06','07','08','09','10','11','12',
                   '13','14','15','16','17','18')
     )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='CFDI Global (Factura Global) — periodic aggregation of venta al público en general sales per SAT CFDI 4.0 InformacionGlobal';
+  COMMENT='Factura pública (venta al público en general) — periodic aggregation of non-facturar sales per SAT CFDI 4.0 InformacionGlobal';
 
 -- ---------------------------------------------------------------------------
--- Table: cfdi_global_invoice_items
--- Purpose: Junction table linking individual invoices from "público en general"
---          clients to their parent CFDI Global (Factura Global).  Each invoice
---          may belong to at most one CFDI Global document.
+-- Table: factura_publica_invoice_items
+-- Purpose: Junction table linking individual invoices from contracts with
+--          facturar = FALSE to their parent factura pública.  Each invoice
+--          may belong to at most one factura pública document.
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS cfdi_global_invoice_items (
-    id                          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+CREATE TABLE IF NOT EXISTS factura_publica_invoice_items (
+    id                              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 
-    cfdi_global_invoice_id      BIGINT UNSIGNED NOT NULL
-                                    COMMENT 'Parent CFDI Global document this invoice is aggregated into',
-    invoice_id                  BIGINT UNSIGNED NOT NULL
-                                    COMMENT 'Individual invoice from a público en general client',
+    factura_publica_invoice_id      BIGINT UNSIGNED NOT NULL
+                                        COMMENT 'Parent factura pública document this invoice is aggregated into',
+    invoice_id                      BIGINT UNSIGNED NOT NULL
+                                        COMMENT 'Individual invoice from a contract with facturar = FALSE',
 
-    created_at                  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at                      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_cfdi_global_invoice_items_invoice (invoice_id),
-    KEY idx_cfdi_global_invoice_items_global_id (cfdi_global_invoice_id),
+    UNIQUE KEY uq_factura_publica_invoice_items_invoice (invoice_id),
+    KEY idx_factura_publica_invoice_items_parent_id (factura_publica_invoice_id),
 
-    CONSTRAINT fk_cfdi_global_invoice_items_global FOREIGN KEY (cfdi_global_invoice_id)
-        REFERENCES cfdi_global_invoices (id) ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT fk_cfdi_global_invoice_items_invoice FOREIGN KEY (invoice_id)
+    CONSTRAINT fk_factura_publica_invoice_items_parent FOREIGN KEY (factura_publica_invoice_id)
+        REFERENCES factura_publica_invoices (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_factura_publica_invoice_items_invoice FOREIGN KEY (invoice_id)
         REFERENCES invoices (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Links individual invoices to their parent CFDI Global (Factura Global) — each invoice belongs to at most one CFDI Global';
+  COMMENT='Links individual invoices to their parent factura pública — each invoice belongs to at most one factura pública';
 
 SET FOREIGN_KEY_CHECKS = 1;

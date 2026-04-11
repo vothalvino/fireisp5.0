@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS contracts (
     notes          TEXT            NULL,
     connection_type ENUM('pppoe', 'pppoe_dual', 'static', 'dual') NOT NULL DEFAULT 'pppoe'
                        COMMENT 'pppoe = PPPoE IPv4-only (requires RADIUS); pppoe_dual = PPPoE dual-stack IPv4+IPv6 (requires RADIUS); static = static IPv4 (no RADIUS); dual = dual-stack static IPv4+IPv6 (no RADIUS)',
+    facturar       BOOLEAN         NOT NULL DEFAULT FALSE
+                       COMMENT 'MX only: TRUE = generate individual CFDI for this contract invoices; FALSE = invoices go to factura pública (venta al público en general). When TRUE the client must have a client_mx_profiles row with valid SAT data. Ignored when client locale is not MX',
     status         ENUM('active', 'expired', 'cancelled', 'pending') NOT NULL DEFAULT 'pending',
     created_by     BIGINT UNSIGNED NULL,
     created_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -23,6 +25,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     KEY idx_contracts_plan_id (plan_id),
     KEY idx_contracts_site_id (site_id),
     KEY idx_contracts_connection_type (connection_type),
+    KEY idx_contracts_facturar (facturar),
     KEY idx_contracts_status (status),
     CONSTRAINT fk_contracts_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
