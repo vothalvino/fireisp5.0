@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: fireisp_root
+      MYSQL_DATABASE: fireisp
+    ports:
+      - '3306:3306'
+    volumes:
+      - db_data:/var/lib/mysql
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --event-scheduler=ON
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: fireisp_root
+      DB_NAME: fireisp
+      JWT_SECRET: dev-jwt-secret-change-in-production
+    volumes:
+      - ./src:/app/src
+      - ./storage:/app/storage
+
+volumes:
+  db_data:
