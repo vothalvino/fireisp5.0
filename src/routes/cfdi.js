@@ -7,6 +7,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
+const cfdiSchemas = require('../middleware/schemas/cfdi');
 const cfdiController = require('../controllers/cfdiController');
 
 const router = Router();
@@ -15,23 +16,19 @@ router.use(orgScope);
 
 router.post('/generate-xml',
   requirePermission('cfdi_documents.create'),
-  validate({ cfdi_document_id: { type: 'number', required: true, min: 1 } }),
+  validate(cfdiSchemas.generateXml),
   cfdiController.generateXml,
 );
 
 router.post('/stamp',
   requirePermission('cfdi_documents.create'),
-  validate({ cfdi_document_id: { type: 'number', required: true, min: 1 } }),
+  validate(cfdiSchemas.stamp),
   cfdiController.stamp,
 );
 
 router.post('/cancel',
   requirePermission('cfdi_documents.update'),
-  validate({
-    cfdi_document_id: { type: 'number', required: true, min: 1 },
-    reason: { type: 'string', required: true, enum: ['01', '02', '03', '04'] },
-    replacement_uuid: { type: 'string' },
-  }),
+  validate(cfdiSchemas.cancel),
   cfdiController.cancel,
 );
 

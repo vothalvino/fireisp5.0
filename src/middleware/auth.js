@@ -23,7 +23,7 @@ async function authenticate(req, _res, next) {
     let payload;
     try {
       payload = jwt.verify(token, config.jwt.secret);
-    } catch (err) {
+    } catch (_err) {
       throw new UnauthorizedError('Invalid or expired token');
     }
 

@@ -118,7 +118,7 @@ async function sendViaTwilio({ to, body, channel }) {
           } else {
             resolve(parsed);
           }
-        } catch (_e) {
+        } catch (_parseErr) {
           reject(new Error(`Twilio response parse error: ${data.slice(0, 200)}`));
         }
       });

@@ -13,8 +13,7 @@ const auditLog = require('../services/auditLog');
  * @param {object} [options]
  * @param {string} [options.resourceName] - Name for error messages
  */
-function crudController(Model, options = {}) {
-  const resourceName = options.resourceName || Model.tableName;
+function crudController(Model, _options = {}) {
 
   return {
     /**

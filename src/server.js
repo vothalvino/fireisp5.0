@@ -21,6 +21,32 @@ async function start() {
     process.exit(1);
   }
 
+  // Check migration status
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const migrationsDir = path.resolve(__dirname, '../database/migrations');
+    const migrationFiles = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+
+    const [applied] = await db.query(
+      'SELECT COUNT(*) AS count FROM schema_migrations',
+    );
+    const appliedCount = applied[0].count;
+    const totalCount = migrationFiles.length;
+
+    if (appliedCount < totalCount) {
+      logger.warn(
+        { applied: appliedCount, total: totalCount, pending: totalCount - appliedCount },
+        'Pending migrations detected — run `npm run migrate`',
+      );
+    } else {
+      logger.info({ migrations: appliedCount }, 'All migrations applied');
+    }
+  } catch (migrationErr) {
+    // schema_migrations table may not exist yet on fresh installs
+    logger.warn({ err: migrationErr }, 'Could not check migration status — run `npm run migrate` first');
+  }
+
   // Start the cron scheduler
   try {
     await scheduler.start();
