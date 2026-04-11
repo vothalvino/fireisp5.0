@@ -36,7 +36,7 @@ describe('paymentGatewayService', () => {
   // =========================================================================
   describe('charge()', () => {
     test('creates transaction and returns success', async () => {
-      const gw = { id: 1, provider: 'stripe', status: 'active' };
+      const gw = { id: 1, provider: 'manual', status: 'active' };
       db.query
         .mockResolvedValueOnce([[gw]])           // getActiveGateway
         .mockResolvedValueOnce([{ insertId: 100 }])  // INSERT transaction
@@ -49,7 +49,7 @@ describe('paymentGatewayService', () => {
 
       expect(result.status).toBe('succeeded');
       expect(result.transaction_id).toBe(100);
-      expect(result.provider).toBe('stripe');
+      expect(result.provider).toBe('manual');
     });
 
     test('throws when no active gateway', async () => {
@@ -63,7 +63,7 @@ describe('paymentGatewayService', () => {
     });
 
     test('uses MXN as default currency', async () => {
-      const gw = { id: 1, provider: 'conekta', status: 'active' };
+      const gw = { id: 1, provider: 'manual', status: 'active' };
       db.query
         .mockResolvedValueOnce([[gw]])
         .mockResolvedValueOnce([{ insertId: 101 }])

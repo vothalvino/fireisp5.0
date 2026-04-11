@@ -67,4 +67,63 @@ router.get('/me', authenticate, async (req, res, next) => {
   }
 });
 
+// POST /api/auth/password-reset/request — request a password reset email
+router.post('/password-reset/request',
+  validate({ email: { type: 'email', required: true } }),
+  async (req, res, next) => {
+    try {
+      const result = await authService.requestPasswordReset(req.body.email);
+      // Always return success to prevent user enumeration
+      res.json({ message: result.message || 'If that email exists, a reset link has been sent' });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/auth/password-reset — reset password with token
+router.post('/password-reset',
+  validate({
+    token: { type: 'string', required: true },
+    password: { type: 'string', required: true, min: 8 },
+  }),
+  async (req, res, next) => {
+    try {
+      const result = await authService.resetPassword(req.body.token, req.body.password);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/auth/change-password — change password for authenticated user
+router.post('/change-password', authenticate,
+  validate({
+    currentPassword: { type: 'string', required: true },
+    newPassword: { type: 'string', required: true, min: 8 },
+  }),
+  async (req, res, next) => {
+    try {
+      const result = await authService.changePassword(req.user.id, req.body.currentPassword, req.body.newPassword);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/auth/verify-email — verify email with token
+router.post('/verify-email',
+  validate({ token: { type: 'string', required: true } }),
+  async (req, res, next) => {
+    try {
+      const result = await authService.verifyEmail(req.body.token);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 module.exports = router;
