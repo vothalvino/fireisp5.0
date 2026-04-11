@@ -3935,3 +3935,123 @@ CREATE TABLE IF NOT EXISTS factura_publica_invoice_items (
   COMMENT='Links individual invoices to their parent factura pública — each invoice belongs to at most one factura pública';
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+-- ---------------------------------------------------------------------------
+-- Function: fn_predominant_forma_pago
+-- Migration: 091_add_factura_publica_stamping_safeguards
+-- Purpose: Returns the SAT FormaPago code (VARCHAR 2) that accounts for the
+--          largest share of payments linked to the given factura pública.
+--          Defaults to '99' (Por definir) when no payments exist or when two
+--          or more codes tie for the highest total.
+--          Call at stamp time to populate cfdi_documents.forma_pago.
+-- ---------------------------------------------------------------------------
+DELIMITER $$
+
+CREATE FUNCTION fn_predominant_forma_pago(
+    p_factura_publica_invoice_id BIGINT UNSIGNED
+)
+RETURNS VARCHAR(2)
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE v_forma_pago VARCHAR(2) DEFAULT '99';
+    DECLARE v_max_total  DECIMAL(14, 2);
+    DECLARE v_tie_count  INT DEFAULT 0;
+
+    -- Step 1: Find the highest payment total across all FormaPago codes.
+    SELECT MAX(group_total)
+    INTO   v_max_total
+    FROM (
+        SELECT SUM(p.amount) AS group_total
+        FROM   factura_publica_invoice_items fpi
+        JOIN   payments p ON p.invoice_id = fpi.invoice_id
+        WHERE  fpi.factura_publica_invoice_id = p_factura_publica_invoice_id
+          AND  p.sat_forma_pago IS NOT NULL
+        GROUP  BY p.sat_forma_pago
+    ) grouped;
+
+    IF v_max_total IS NULL THEN
+        RETURN '99';
+    END IF;
+
+    -- Step 2: Count how many codes share the maximum total (tie detection).
+    SELECT COUNT(*) INTO v_tie_count
+    FROM (
+        SELECT   p.sat_forma_pago
+        FROM     factura_publica_invoice_items fpi
+        JOIN     payments p ON p.invoice_id = fpi.invoice_id
+        WHERE    fpi.factura_publica_invoice_id = p_factura_publica_invoice_id
+          AND    p.sat_forma_pago IS NOT NULL
+        GROUP BY p.sat_forma_pago
+        HAVING   SUM(p.amount) = v_max_total
+    ) tied;
+
+    IF v_tie_count != 1 THEN
+        RETURN '99';
+    END IF;
+
+    -- Step 3: Retrieve the unique winning code.
+    SELECT   p.sat_forma_pago
+    INTO     v_forma_pago
+    FROM     factura_publica_invoice_items fpi
+    JOIN     payments p ON p.invoice_id = fpi.invoice_id
+    WHERE    fpi.factura_publica_invoice_id = p_factura_publica_invoice_id
+      AND    p.sat_forma_pago IS NOT NULL
+    GROUP BY p.sat_forma_pago
+    HAVING   SUM(p.amount) = v_max_total
+    LIMIT 1;
+
+    RETURN v_forma_pago;
+END$$
+
+-- ---------------------------------------------------------------------------
+-- Trigger: trg_factura_publica_invoices_bu
+-- Migration: 091_add_factura_publica_stamping_safeguards
+-- Purpose: Prevents factura_publica_invoices.status from being set to
+--          'stamped' when any linked invoice is not 'paid'.
+--          Raises SQLSTATE '45000' on violation.
+-- ---------------------------------------------------------------------------
+CREATE TRIGGER trg_factura_publica_invoices_bu
+BEFORE UPDATE ON factura_publica_invoices
+FOR EACH ROW
+BEGIN
+    DECLARE v_unpaid_count INT DEFAULT 0;
+
+    IF NEW.status = 'stamped' AND OLD.status != 'stamped' THEN
+        SELECT COUNT(*) INTO v_unpaid_count
+        FROM   factura_publica_invoice_items fpi
+        JOIN   invoices i ON i.id = fpi.invoice_id
+        WHERE  fpi.factura_publica_invoice_id = NEW.id
+          AND  i.status != 'paid';
+
+        IF v_unpaid_count > 0 THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Cannot stamp factura pública: all linked invoices must have status = ''paid''. Remove or pay unpaid invoices before stamping.';
+        END IF;
+    END IF;
+END$$
+
+-- ---------------------------------------------------------------------------
+-- Trigger: trg_factura_publica_invoice_items_bi
+-- Migration: 091_add_factura_publica_stamping_safeguards
+-- Purpose: Prevents inserting a row into factura_publica_invoice_items when
+--          the referenced invoice does not have status = 'paid'.
+--          Raises SQLSTATE '45000' on violation.
+-- ---------------------------------------------------------------------------
+CREATE TRIGGER trg_factura_publica_invoice_items_bi
+BEFORE INSERT ON factura_publica_invoice_items
+FOR EACH ROW
+BEGIN
+    DECLARE v_invoice_status VARCHAR(20);
+
+    SELECT status INTO v_invoice_status
+    FROM   invoices
+    WHERE  id = NEW.invoice_id;
+
+    IF v_invoice_status IS NULL OR v_invoice_status != 'paid' THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Cannot add invoice to factura pública: invoice must have status = ''paid''.';
+    END IF;
+END$$
+
+DELIMITER ;

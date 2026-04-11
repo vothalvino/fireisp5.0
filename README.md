@@ -177,6 +177,11 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 
 > **Migration 088 — Locale downgrade guard triggers:** `088_create_locale_downgrade_guard_triggers.sql` adds BEFORE UPDATE triggers on `clients` and `organizations` to prevent changing `locale` from `'MX'` to `'global'` when MX-dependent records exist (MX profiles, CFDI documents, concession titles, contract templates, regulatory filings, IFT statistical reports). Raises SQLSTATE '45000' on violation.
 
+> **Migration 091 — Factura pública stamping safeguards:** `091_add_factura_publica_stamping_safeguards.sql` adds a stored function and two triggers that enforce business rules at stamp time:
+> - **`fn_predominant_forma_pago(p_factura_publica_invoice_id)`** — stored function that calculates the predominant SAT `FormaPago` code for a factura pública by summing `payments.amount` grouped by `sat_forma_pago` across all linked invoices and returning the code with the highest total. Defaults to `'99'` (Por definir) when no payments exist or when two or more codes tie for the highest total. Call this function at stamp time to populate `cfdi_documents.forma_pago`. Business rule (SAT Anexo 20 CFDI 4.0): *"En caso de que el pago se realice utilizando más de una forma de pago, se debe indicar la que represente el monto mayor."*
+> - **`trg_factura_publica_invoices_bu`** — BEFORE UPDATE trigger on `factura_publica_invoices` that prevents `status` from being set to `'stamped'` if any invoice linked via `factura_publica_invoice_items` does not have `status = 'paid'`. Raises SQLSTATE '45000'. Business rule: including unpaid invoices in a stamped CFDI forces the ISP to pay taxes on revenue it has not yet collected; if the client cancels or never pays, those taxes cannot be recovered.
+> - **`trg_factura_publica_invoice_items_bi`** — BEFORE INSERT trigger on `factura_publica_invoice_items` that rejects linking an invoice whose `status` is not `'paid'`. Raises SQLSTATE '45000'. Enforces the same unpaid-invoice exclusion incrementally at insert time.
+
 ### Venta al Público en General (Factura Pública)
 
 Mexican tax law (SAT CFDI 4.0) requires every sale to be fiscally documented, even when the client does not request an individual factura. For MX-locale contracts where the client opts out of individual CFDIs, the ISP uses the **"venta al público en general"** mechanism:
@@ -197,6 +202,10 @@ Mexican tax law (SAT CFDI 4.0) requires every sale to be fiscally documented, ev
 6. **Invoice-to-factura-pública linking:** The `factura_publica_invoice_items` junction table links each invoice to its parent factura pública. Each invoice can belong to at most one factura pública (enforced by UNIQUE constraint on `invoice_id`).
 
 7. **Factura pública receptor data:** When the factura pública is stamped, the `cfdi_documents` receptor snapshot uses: RFC `XAXX010101000`, Nombre `PUBLICO EN GENERAL`, RegimenFiscal `616` (Sin obligaciones fiscales), UsoCFDI `S01` (Sin efectos fiscales).
+
+8. **Predominant FormaPago calculation (migration 091):** Every CFDI 4.0 requires exactly one `FormaPago` code. When a factura pública aggregates invoices paid via different methods, call `fn_predominant_forma_pago(factura_publica_invoice_id)` at stamp time to obtain the correct code. The function sums `payments.amount` grouped by `sat_forma_pago` and returns the code with the highest total. If two or more codes tie, or if no payments are recorded, it returns `'99'` (Por definir) per SAT Anexo 20 rules.
+
+9. **Unpaid invoice exclusion (migration 091):** Only invoices with `status = 'paid'` may be included in a stamped factura pública. This is enforced by two database-level safeguards: a BEFORE INSERT trigger on `factura_publica_invoice_items` rejects linking any invoice that is not yet paid, and a BEFORE UPDATE trigger on `factura_publica_invoices` blocks transitioning `status` to `'stamped'` if any linked invoice is not paid. Both raise SQLSTATE '45000' on violation. This prevents the ISP from paying taxes on revenue it has not yet collected.
 
 > **This feature only applies to MX-locale clients.** The existing locale enforcement triggers (migration 087) prevent CFDI documents from being created for non-MX clients. Non-MX clients are not affected by the `facturar` flag.
 
