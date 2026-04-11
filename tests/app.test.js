@@ -59,21 +59,29 @@ describe('Auth Routes', () => {
 });
 
 describe('CORS Configuration', () => {
-  test('responds with CORS headers in development', async () => {
+  test('responds with CORS headers for allowed localhost origin in development', async () => {
     const res = await request(app)
       .get('/health')
-      .set('Origin', 'http://some-random-origin.com');
-    expect(res.headers['access-control-allow-origin']).toBeDefined();
+      .set('Origin', 'http://localhost:3000');
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:3000');
     expect(res.headers['access-control-allow-credentials']).toBe('true');
   });
 
-  test('OPTIONS preflight returns CORS headers', async () => {
+  test('does not reflect arbitrary origins in development', async () => {
+    const res = await request(app)
+      .get('/health')
+      .set('Origin', 'http://evil-site.com');
+    // cors will not set access-control-allow-origin for disallowed origins
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  test('OPTIONS preflight returns CORS headers for allowed origin', async () => {
     const res = await request(app)
       .options('/health')
       .set('Origin', 'http://localhost:3000')
       .set('Access-Control-Request-Method', 'GET');
     expect(res.status).toBe(204);
-    expect(res.headers['access-control-allow-origin']).toBeDefined();
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:3000');
   });
 });
 

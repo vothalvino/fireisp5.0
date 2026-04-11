@@ -21,15 +21,9 @@ async function runMigrations() {
   // dedicated connection with multipleStatements enabled (the main pool
   // intentionally disables this for security).
   const migrationPool = mysql.createPool({
-    host: process.env.DB_HOST || '127.0.0.1',
-    port: parseInt(process.env.DB_PORT || '3306', 10),
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'fireisp',
+    ...db.baseConnectionConfig,
     waitForConnections: true,
     connectionLimit: 1,
-    charset: 'utf8mb4',
-    timezone: '+00:00',
     multipleStatements: true,
   });
 
