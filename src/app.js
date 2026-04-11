@@ -9,6 +9,8 @@ const config = require('./config');
 const { AppError } = require('./utils/errors');
 const { apiLimiter, authLimiter } = require('./middleware/rateLimit');
 const { requestLogger } = require('./middleware/requestLogger');
+const { sanitize } = require('./middleware/sanitize');
+const { requestId } = require('./middleware/requestId');
 const logger = require('./utils/logger');
 
 // Route imports
@@ -77,6 +79,7 @@ const app = express();
 // Global middleware
 // ---------------------------------------------------------------------------
 app.use(helmet());
+app.use(requestId);
 
 // CORS — restrict origins in production to the configured APP_URL;
 // in development allow common localhost origins only.
@@ -92,6 +95,7 @@ app.use(cors({ origin: corsOrigin, credentials: true }));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(sanitize);
 app.use(requestLogger);
 app.use('/api/', apiLimiter);
 app.use('/api/auth', authLimiter);

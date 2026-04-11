@@ -19,6 +19,7 @@ function requestLogger(req, res, next) {
         : 'info';
 
     logger[level]({
+      requestId: req.id || null,
       method: req.method,
       url: req.originalUrl,
       status: res.statusCode,
