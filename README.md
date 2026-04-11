@@ -169,6 +169,12 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 
 > **Migration 084 — CFDI XML/PDF storage ALTER:** `084_add_xml_pdf_storage_to_cfdi_documents.sql` adds `signed_xml LONGTEXT NULL` (complete timbrado XML from PAC — SAT requires 5-year retention), `xml_file_id BIGINT UNSIGNED NULL` (FK to `files` for archival/object-storage), and `pdf_file_id BIGINT UNSIGNED NULL` (FK to `files` for generated PDF) to `cfdi_documents`.
 
+> **Migration 086 — MX locale backfill for company clients:** `086_backfill_mx_locale_for_company_clients.sql` fixes an incomplete backfill from migration 065 — sets `locale = 'MX'` for clients that have a `client_mx_profiles` row but were left on `locale = 'global'` (company clients without a CURP). Also back-fills organizations with an `organization_mx_profiles` row.
+
+> **Migration 087 — MX locale enforcement triggers:** `087_create_mx_locale_enforcement_triggers.sql` adds BEFORE INSERT / BEFORE UPDATE triggers on all MX-specific tables (`client_mx_profiles`, `organization_mx_profiles`, `cfdi_documents`, `concession_titles`, `contract_templates_mx`, `regulatory_filings`, `ift_statistical_reports`) to enforce that the referenced client or organization has `locale = 'MX'`. Also guards `contracts.contract_template_mx_id` — a non-NULL value requires the contract's client to have `locale = 'MX'`. Raises SQLSTATE '45000' on violation.
+
+> **Migration 088 — Locale downgrade guard triggers:** `088_create_locale_downgrade_guard_triggers.sql` adds BEFORE UPDATE triggers on `clients` and `organizations` to prevent changing `locale` from `'MX'` to `'global'` when MX-dependent records exist (MX profiles, CFDI documents, concession titles, contract templates, regulatory filings, IFT statistical reports). Raises SQLSTATE '45000' on violation.
+
 ### Storage Folders
 
 The `storage/` directory holds user-uploaded and system-generated files organized by entity type. The `files` database table stores metadata and paths for every stored file.

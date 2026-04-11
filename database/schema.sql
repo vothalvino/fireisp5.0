@@ -3494,4 +3494,346 @@ CREATE TABLE IF NOT EXISTS ift_statistical_reports (
     CONSTRAINT chk_ift_statistical_reports_period CHECK (period_end >= period_start)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- =============================================================================
+-- MX Locale Enforcement Triggers (migration 087)
+-- =============================================================================
+-- Purpose: Prevent MX-specific records from being created for clients or
+--          organizations whose locale is not 'MX'. These triggers enforce at
+--          the database level what was previously only documented as app-layer
+--          conventions, closing data-integrity gaps where global entities could
+--          leak into Mexican regulatory reports and e-invoicing workflows.
+
+DELIMITER $$
+
+-- ---------------------------------------------------------------------------
+-- 1. client_mx_profiles — require clients.locale = 'MX'
+-- ---------------------------------------------------------------------------
+CREATE TRIGGER trg_client_mx_profiles_bi
+BEFORE INSERT ON client_mx_profiles
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    SELECT locale INTO v_locale FROM clients WHERE id = NEW.client_id;
+    IF v_locale IS NULL OR v_locale != 'MX' THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'client_mx_profiles requires the referenced client to have locale = ''MX''';
+    END IF;
+END$$
+
+CREATE TRIGGER trg_client_mx_profiles_bu
+BEFORE UPDATE ON client_mx_profiles
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    IF NEW.client_id != OLD.client_id THEN
+        SELECT locale INTO v_locale FROM clients WHERE id = NEW.client_id;
+        IF v_locale IS NULL OR v_locale != 'MX' THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'client_mx_profiles requires the referenced client to have locale = ''MX''';
+        END IF;
+    END IF;
+END$$
+
+-- ---------------------------------------------------------------------------
+-- 2. organization_mx_profiles — require organizations.locale = 'MX'
+-- ---------------------------------------------------------------------------
+CREATE TRIGGER trg_organization_mx_profiles_bi
+BEFORE INSERT ON organization_mx_profiles
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    SELECT locale INTO v_locale FROM organizations WHERE id = NEW.organization_id;
+    IF v_locale IS NULL OR v_locale != 'MX' THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'organization_mx_profiles requires the referenced organization to have locale = ''MX''';
+    END IF;
+END$$
+
+CREATE TRIGGER trg_organization_mx_profiles_bu
+BEFORE UPDATE ON organization_mx_profiles
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    IF NEW.organization_id != OLD.organization_id THEN
+        SELECT locale INTO v_locale FROM organizations WHERE id = NEW.organization_id;
+        IF v_locale IS NULL OR v_locale != 'MX' THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'organization_mx_profiles requires the referenced organization to have locale = ''MX''';
+        END IF;
+    END IF;
+END$$
+
+-- ---------------------------------------------------------------------------
+-- 3. cfdi_documents — require clients.locale = 'MX'
+-- ---------------------------------------------------------------------------
+CREATE TRIGGER trg_cfdi_documents_bi
+BEFORE INSERT ON cfdi_documents
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    SELECT locale INTO v_locale FROM clients WHERE id = NEW.client_id;
+    IF v_locale IS NULL OR v_locale != 'MX' THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'cfdi_documents requires the referenced client to have locale = ''MX''';
+    END IF;
+END$$
+
+CREATE TRIGGER trg_cfdi_documents_bu
+BEFORE UPDATE ON cfdi_documents
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    IF NEW.client_id != OLD.client_id THEN
+        SELECT locale INTO v_locale FROM clients WHERE id = NEW.client_id;
+        IF v_locale IS NULL OR v_locale != 'MX' THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'cfdi_documents requires the referenced client to have locale = ''MX''';
+        END IF;
+    END IF;
+END$$
+
+-- ---------------------------------------------------------------------------
+-- 4. concession_titles — require organizations.locale = 'MX'
+-- ---------------------------------------------------------------------------
+CREATE TRIGGER trg_concession_titles_bi
+BEFORE INSERT ON concession_titles
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    SELECT locale INTO v_locale FROM organizations WHERE id = NEW.organization_id;
+    IF v_locale IS NULL OR v_locale != 'MX' THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'concession_titles requires the referenced organization to have locale = ''MX''';
+    END IF;
+END$$
+
+CREATE TRIGGER trg_concession_titles_bu
+BEFORE UPDATE ON concession_titles
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    IF NEW.organization_id != OLD.organization_id THEN
+        SELECT locale INTO v_locale FROM organizations WHERE id = NEW.organization_id;
+        IF v_locale IS NULL OR v_locale != 'MX' THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'concession_titles requires the referenced organization to have locale = ''MX''';
+        END IF;
+    END IF;
+END$$
+
+-- ---------------------------------------------------------------------------
+-- 5. contract_templates_mx — require organizations.locale = 'MX'
+-- ---------------------------------------------------------------------------
+CREATE TRIGGER trg_contract_templates_mx_bi
+BEFORE INSERT ON contract_templates_mx
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    SELECT locale INTO v_locale FROM organizations WHERE id = NEW.organization_id;
+    IF v_locale IS NULL OR v_locale != 'MX' THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'contract_templates_mx requires the referenced organization to have locale = ''MX''';
+    END IF;
+END$$
+
+CREATE TRIGGER trg_contract_templates_mx_bu
+BEFORE UPDATE ON contract_templates_mx
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    IF NEW.organization_id != OLD.organization_id THEN
+        SELECT locale INTO v_locale FROM organizations WHERE id = NEW.organization_id;
+        IF v_locale IS NULL OR v_locale != 'MX' THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'contract_templates_mx requires the referenced organization to have locale = ''MX''';
+        END IF;
+    END IF;
+END$$
+
+-- ---------------------------------------------------------------------------
+-- 6. regulatory_filings — require organizations.locale = 'MX'
+-- ---------------------------------------------------------------------------
+CREATE TRIGGER trg_regulatory_filings_bi
+BEFORE INSERT ON regulatory_filings
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    SELECT locale INTO v_locale FROM organizations WHERE id = NEW.organization_id;
+    IF v_locale IS NULL OR v_locale != 'MX' THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'regulatory_filings requires the referenced organization to have locale = ''MX''';
+    END IF;
+END$$
+
+CREATE TRIGGER trg_regulatory_filings_bu
+BEFORE UPDATE ON regulatory_filings
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    IF NEW.organization_id != OLD.organization_id THEN
+        SELECT locale INTO v_locale FROM organizations WHERE id = NEW.organization_id;
+        IF v_locale IS NULL OR v_locale != 'MX' THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'regulatory_filings requires the referenced organization to have locale = ''MX''';
+        END IF;
+    END IF;
+END$$
+
+-- ---------------------------------------------------------------------------
+-- 7. ift_statistical_reports — require organizations.locale = 'MX'
+-- ---------------------------------------------------------------------------
+CREATE TRIGGER trg_ift_statistical_reports_bi
+BEFORE INSERT ON ift_statistical_reports
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    SELECT locale INTO v_locale FROM organizations WHERE id = NEW.organization_id;
+    IF v_locale IS NULL OR v_locale != 'MX' THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'ift_statistical_reports requires the referenced organization to have locale = ''MX''';
+    END IF;
+END$$
+
+CREATE TRIGGER trg_ift_statistical_reports_bu
+BEFORE UPDATE ON ift_statistical_reports
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    IF NEW.organization_id != OLD.organization_id THEN
+        SELECT locale INTO v_locale FROM organizations WHERE id = NEW.organization_id;
+        IF v_locale IS NULL OR v_locale != 'MX' THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'ift_statistical_reports requires the referenced organization to have locale = ''MX''';
+        END IF;
+    END IF;
+END$$
+
+-- ---------------------------------------------------------------------------
+-- 8. contracts — require clients.locale = 'MX' when
+--               contract_template_mx_id IS NOT NULL
+-- ---------------------------------------------------------------------------
+CREATE TRIGGER trg_contracts_mx_template_bi
+BEFORE INSERT ON contracts
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    IF NEW.contract_template_mx_id IS NOT NULL THEN
+        SELECT locale INTO v_locale FROM clients WHERE id = NEW.client_id;
+        IF v_locale IS NULL OR v_locale != 'MX' THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'contracts.contract_template_mx_id requires the referenced client to have locale = ''MX''';
+        END IF;
+    END IF;
+END$$
+
+CREATE TRIGGER trg_contracts_mx_template_bu
+BEFORE UPDATE ON contracts
+FOR EACH ROW
+BEGIN
+    DECLARE v_locale VARCHAR(10);
+    IF NEW.contract_template_mx_id IS NOT NULL THEN
+        SELECT locale INTO v_locale FROM clients WHERE id = NEW.client_id;
+        IF v_locale IS NULL OR v_locale != 'MX' THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'contracts.contract_template_mx_id requires the referenced client to have locale = ''MX''';
+        END IF;
+    END IF;
+END$$
+
+-- =============================================================================
+-- Locale Downgrade Guard Triggers (migration 088)
+-- =============================================================================
+-- Purpose: Prevent changing clients.locale or organizations.locale from 'MX'
+--          to 'global' when MX-dependent records still exist. Without these
+--          guards, an operator could accidentally break the integrity guarantees
+--          established by the enforcement triggers above.
+
+-- ---------------------------------------------------------------------------
+-- clients — prevent locale downgrade from 'MX' to 'global'
+-- ---------------------------------------------------------------------------
+CREATE TRIGGER trg_clients_locale_downgrade_bu
+BEFORE UPDATE ON clients
+FOR EACH ROW
+BEGIN
+    DECLARE v_has_mx_profile BOOLEAN DEFAULT FALSE;
+    DECLARE v_has_cfdi       BOOLEAN DEFAULT FALSE;
+
+    IF OLD.locale = 'MX' AND NEW.locale != 'MX' THEN
+        SELECT EXISTS(SELECT 1 FROM client_mx_profiles WHERE client_id = OLD.id)
+        INTO v_has_mx_profile;
+
+        IF v_has_mx_profile THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Cannot change client locale from ''MX'': client_mx_profiles record exists. Delete the MX profile first.';
+        END IF;
+
+        SELECT EXISTS(SELECT 1 FROM cfdi_documents WHERE client_id = OLD.id)
+        INTO v_has_cfdi;
+
+        IF v_has_cfdi THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Cannot change client locale from ''MX'': cfdi_documents records exist for this client.';
+        END IF;
+    END IF;
+END$$
+
+-- ---------------------------------------------------------------------------
+-- organizations — prevent locale downgrade from 'MX' to 'global'
+-- ---------------------------------------------------------------------------
+CREATE TRIGGER trg_organizations_locale_downgrade_bu
+BEFORE UPDATE ON organizations
+FOR EACH ROW
+BEGIN
+    DECLARE v_has_records BOOLEAN DEFAULT FALSE;
+
+    IF OLD.locale = 'MX' AND NEW.locale != 'MX' THEN
+        -- Check organization_mx_profiles
+        SELECT EXISTS(SELECT 1 FROM organization_mx_profiles WHERE organization_id = OLD.id)
+        INTO v_has_records;
+
+        IF v_has_records THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Cannot change organization locale from ''MX'': organization_mx_profiles record exists.';
+        END IF;
+
+        -- Check concession_titles
+        SELECT EXISTS(SELECT 1 FROM concession_titles WHERE organization_id = OLD.id)
+        INTO v_has_records;
+
+        IF v_has_records THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Cannot change organization locale from ''MX'': concession_titles records exist.';
+        END IF;
+
+        -- Check contract_templates_mx
+        SELECT EXISTS(SELECT 1 FROM contract_templates_mx WHERE organization_id = OLD.id)
+        INTO v_has_records;
+
+        IF v_has_records THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Cannot change organization locale from ''MX'': contract_templates_mx records exist.';
+        END IF;
+
+        -- Check regulatory_filings
+        SELECT EXISTS(SELECT 1 FROM regulatory_filings WHERE organization_id = OLD.id)
+        INTO v_has_records;
+
+        IF v_has_records THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Cannot change organization locale from ''MX'': regulatory_filings records exist.';
+        END IF;
+
+        -- Check ift_statistical_reports
+        SELECT EXISTS(SELECT 1 FROM ift_statistical_reports WHERE organization_id = OLD.id)
+        INTO v_has_records;
+
+        IF v_has_records THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Cannot change organization locale from ''MX'': ift_statistical_reports records exist.';
+        END IF;
+    END IF;
+END$$
+
+DELIMITER ;
+
 SET FOREIGN_KEY_CHECKS = 1;
