@@ -8,6 +8,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createUser, updateUser } = require('../middleware/schemas/users');
 
 const router = Router();
 const ctrl = crudController(User);
@@ -17,8 +19,8 @@ router.use(orgScope);
 
 router.get('/', requirePermission('users.view'), ctrl.list);
 router.get('/:id', requirePermission('users.view'), ctrl.get);
-router.post('/', requirePermission('users.create'), ctrl.create);
-router.put('/:id', requirePermission('users.update'), ctrl.update);
+router.post('/', requirePermission('users.create'), validate(createUser), ctrl.create);
+router.put('/:id', requirePermission('users.update'), validate(updateUser), ctrl.update);
 router.delete('/:id', requirePermission('users.delete'), ctrl.destroy);
 
 // Get user's permissions

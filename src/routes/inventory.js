@@ -8,6 +8,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createInventoryItem, updateInventoryItem, createInventoryTransaction } = require('../middleware/schemas/inventory');
 const db = require('../config/database');
 
 const router = Router();
@@ -19,8 +21,8 @@ router.use(orgScope);
 // Inventory items
 router.get('/items', requirePermission('inventory.view'), ctrl.list);
 router.get('/items/:id', requirePermission('inventory.view'), ctrl.get);
-router.post('/items', requirePermission('inventory.create'), ctrl.create);
-router.put('/items/:id', requirePermission('inventory.update'), ctrl.update);
+router.post('/items', requirePermission('inventory.create'), validate(createInventoryItem), ctrl.create);
+router.put('/items/:id', requirePermission('inventory.update'), validate(updateInventoryItem), ctrl.update);
 router.delete('/items/:id', requirePermission('inventory.delete'), ctrl.destroy);
 
 // Stock levels for an item
@@ -34,7 +36,7 @@ router.get('/items/:id/stock', requirePermission('inventory.view'), async (req, 
 });
 
 // Record inventory transaction (receive, assign, transfer, etc.)
-router.post('/transactions', requirePermission('inventory.create'), async (req, res, next) => {
+router.post('/transactions', requirePermission('inventory.create'), validate(createInventoryTransaction), async (req, res, next) => {
   try {
     const { stock_id, transaction_type, quantity, unit_price, job_id, client_id, invoice_id, notes } = req.body;
 

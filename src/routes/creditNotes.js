@@ -8,6 +8,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createCreditNote, updateCreditNote, createCreditNoteItem } = require('../middleware/schemas/creditNotes');
 const db = require('../config/database');
 
 const router = Router();
@@ -18,7 +20,7 @@ router.use(orgScope);
 
 router.get('/', requirePermission('credit_notes.view'), ctrl.list);
 router.get('/:id', requirePermission('credit_notes.view'), ctrl.get);
-router.post('/', requirePermission('credit_notes.create'), async (req, res, next) => {
+router.post('/', requirePermission('credit_notes.create'), validate(createCreditNote), async (req, res, next) => {
   try {
     req.body.organization_id = req.orgId;
     const creditNote = await CreditNote.create(req.body);
@@ -38,7 +40,7 @@ router.post('/', requirePermission('credit_notes.create'), async (req, res, next
     next(err);
   }
 });
-router.put('/:id', requirePermission('credit_notes.update'), ctrl.update);
+router.put('/:id', requirePermission('credit_notes.update'), validate(updateCreditNote), ctrl.update);
 router.delete('/:id', requirePermission('credit_notes.delete'), ctrl.destroy);
 
 // Credit note line items
@@ -51,7 +53,7 @@ router.get('/:id/items', requirePermission('credit_notes.view'), async (req, res
   }
 });
 
-router.post('/:id/items', requirePermission('credit_notes.update'), async (req, res, next) => {
+router.post('/:id/items', requirePermission('credit_notes.update'), validate(createCreditNoteItem), async (req, res, next) => {
   try {
     const item = await CreditNote.addItem({ credit_note_id: req.params.id, ...req.body });
     res.status(201).json({ data: item });

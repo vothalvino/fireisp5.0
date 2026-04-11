@@ -6,6 +6,7 @@ require('dotenv').config();
 const config = require('./config');
 const app = require('./app');
 const db = require('./config/database');
+const scheduler = require('./services/scheduler');
 
 async function start() {
   // Verify database connectivity
@@ -19,6 +20,13 @@ async function start() {
     process.exit(1);
   }
 
+  // Start the cron scheduler
+  try {
+    await scheduler.start();
+  } catch (err) {
+    console.error('  ⚠ Scheduler failed to start:', err.message);
+  }
+
   app.listen(config.port, () => {
     console.log(`  ✓ FireISP 5.0 listening on port ${config.port} (${config.env})`);
   });
@@ -27,12 +35,14 @@ async function start() {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down...');
+  scheduler.stop();
   await db.close();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down...');
+  scheduler.stop();
   await db.close();
   process.exit(0);
 });

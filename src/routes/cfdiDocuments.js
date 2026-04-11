@@ -8,6 +8,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createCfdiDocument, updateCfdiDocument, cancelCfdiDocument } = require('../middleware/schemas/cfdiDocuments');
 const db = require('../config/database');
 
 const router = Router();
@@ -18,8 +20,8 @@ router.use(orgScope);
 
 router.get('/', requirePermission('cfdi_documents.view'), ctrl.list);
 router.get('/:id', requirePermission('cfdi_documents.view'), ctrl.get);
-router.post('/', requirePermission('cfdi_documents.create'), ctrl.create);
-router.put('/:id', requirePermission('cfdi_documents.update'), ctrl.update);
+router.post('/', requirePermission('cfdi_documents.create'), validate(createCfdiDocument), ctrl.create);
+router.put('/:id', requirePermission('cfdi_documents.update'), validate(updateCfdiDocument), ctrl.update);
 
 // Get CFDI conceptos
 router.get('/:id/conceptos', requirePermission('cfdi_documents.view'), async (req, res, next) => {
@@ -42,7 +44,7 @@ router.get('/:id/related', requirePermission('cfdi_documents.view'), async (req,
 });
 
 // Cancel a CFDI document
-router.post('/:id/cancel', requirePermission('cfdi_documents.update'), async (req, res, next) => {
+router.post('/:id/cancel', requirePermission('cfdi_documents.update'), validate(cancelCfdiDocument), async (req, res, next) => {
   try {
     const { motivo, folio_sustitucion } = req.body;
     const [result] = await db.query(

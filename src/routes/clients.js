@@ -84,4 +84,37 @@ router.put('/:id/mx-profile', requirePermission('clients.update'), validate(upda
   }
 });
 
+// Client contracts
+router.get('/:id/contracts', requirePermission('contracts.view'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT * FROM contracts WHERE client_id = ? AND organization_id = ?',
+      [req.params.id, req.orgId],
+    );
+    res.json({ data: rows });
+  } catch (err) { next(err); }
+});
+
+// Client invoices
+router.get('/:id/invoices', requirePermission('invoices.view'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT * FROM invoices WHERE client_id = ? AND organization_id = ?',
+      [req.params.id, req.orgId],
+    );
+    res.json({ data: rows });
+  } catch (err) { next(err); }
+});
+
+// Client balance ledger
+router.get('/:id/balance-ledger', requirePermission('clients.view'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT * FROM client_balance_ledger WHERE client_id = ? AND organization_id = ? ORDER BY created_at DESC',
+      [req.params.id, req.orgId],
+    );
+    res.json({ data: rows });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

@@ -8,6 +8,9 @@
 const db = require('../config/database');
 const billingService = require('./billingService');
 const suspensionService = require('./suspensionService');
+const snmpPoller = require('./snmpPoller');
+const emailTransport = require('./emailTransport');
+const webhookService = require('./webhookService');
 
 /**
  * Get all scheduled tasks, optionally filtered by organization.
@@ -35,6 +38,12 @@ async function runTask(taskName, organizationId = null) {
       return runAutoInvoice(organizationId);
     case 'auto_suspend_overdue':
       return runAutoSuspend(organizationId);
+    case 'snmp_poll':
+      return snmpPoller.poll();
+    case 'email_send':
+      return emailTransport.processQueue();
+    case 'webhook_delivery':
+      return webhookService.retryPending();
     case 'radius_sync':
       return { message: 'RADIUS sync is handled by FreeRADIUS SQL module — no app-level action' };
     case 'populate_revenue_summary':

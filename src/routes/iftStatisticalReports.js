@@ -8,6 +8,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createIftStatisticalReport, updateIftStatisticalReport } = require('../middleware/schemas/iftStatisticalReports');
 
 const router = Router();
 const ctrl = crudController(IftStatisticalReport);
@@ -17,8 +19,8 @@ router.use(orgScope);
 
 router.get('/', requirePermission('ift_statistical_reports.view'), ctrl.list);
 router.get('/:id', requirePermission('ift_statistical_reports.view'), ctrl.get);
-router.post('/', requirePermission('ift_statistical_reports.create'), ctrl.create);
-router.put('/:id', requirePermission('ift_statistical_reports.update'), ctrl.update);
+router.post('/', requirePermission('ift_statistical_reports.create'), validate(createIftStatisticalReport), ctrl.create);
+router.put('/:id', requirePermission('ift_statistical_reports.update'), validate(updateIftStatisticalReport), ctrl.update);
 router.delete('/:id', requirePermission('ift_statistical_reports.delete'), ctrl.destroy);
 
 module.exports = router;
