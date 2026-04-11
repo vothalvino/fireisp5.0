@@ -11,6 +11,7 @@ const { apiLimiter, authLimiter } = require('./middleware/rateLimit');
 const { requestLogger } = require('./middleware/requestLogger');
 const { sanitize } = require('./middleware/sanitize');
 const { requestId } = require('./middleware/requestId');
+const { firerelay } = require('./middleware/firerelay');
 const logger = require('./utils/logger');
 
 // Route imports
@@ -72,6 +73,7 @@ const suspensionRoutes = require('./routes/suspension');
 const dashboardRoutes = require('./routes/dashboard');
 const exportRoutes = require('./routes/export');
 const importRoutes = require('./routes/import');
+const firerelayRoutes = require('./routes/firerelay');
 
 const app = express();
 
@@ -96,6 +98,7 @@ app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(sanitize);
+app.use(firerelay);
 app.use(requestLogger);
 app.use('/api/', apiLimiter);
 app.use('/api/auth', authLimiter);
@@ -103,8 +106,40 @@ app.use('/api/auth', authLimiter);
 // ---------------------------------------------------------------------------
 // Health check
 // ---------------------------------------------------------------------------
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', version: '5.0.0' });
+const relayConfig = require('./config/firerelay');
+const startedAt = new Date();
+
+app.get('/health', async (req, res) => {
+  const health = {
+    status: 'ok',
+    version: '5.0.0',
+    uptime: Math.floor((Date.now() - startedAt.getTime()) / 1000),
+    relay: relayConfig.mode,
+    timestamp: new Date().toISOString(),
+  };
+
+  // Detailed mode: ?detail=true adds memory + DB latency
+  if (req.query.detail === 'true') {
+    const mem = process.memoryUsage();
+    health.memory = {
+      rss: Math.round(mem.rss / 1048576),
+      heapUsed: Math.round(mem.heapUsed / 1048576),
+      heapTotal: Math.round(mem.heapTotal / 1048576),
+    };
+
+    try {
+      const db = require('./config/database');
+      const t0 = Date.now();
+      await db.query('SELECT 1');
+      health.db = { connected: true, latencyMs: Date.now() - t0 };
+    } catch (_err) {
+      health.status = 'degraded';
+      health.db = { connected: false };
+    }
+  }
+
+  const statusCode = health.status === 'ok' ? 200 : 503;
+  res.status(statusCode).json(health);
 });
 
 // ---------------------------------------------------------------------------
@@ -168,6 +203,7 @@ app.use('/api/suspension', suspensionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/export', exportRoutes);
 app.use('/api/import', importRoutes);
+app.use('/api/firerelay', firerelayRoutes);
 
 // ---------------------------------------------------------------------------
 // API documentation (Swagger UI)
@@ -178,63 +214,66 @@ mountApiDocs(app);
 // ---------------------------------------------------------------------------
 // 404 handler
 // ---------------------------------------------------------------------------
-app.use((_req, res) => {
-  res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
+app.use((req, res) => {
+  res.status(404).json({
+    error: {
+      code: 'NOT_FOUND',
+      message: 'Route not found',
+      ...(req.id && { requestId: req.id }),
+    },
+  });
 });
 
 // ---------------------------------------------------------------------------
 // Global error handler
 // ---------------------------------------------------------------------------
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, _next) => {
+  // Helper — include requestId in every error response for traceability
+  const errorBody = (code, message, extras) => ({
+    error: {
+      code,
+      message,
+      ...extras,
+      ...(req.id && { requestId: req.id }),
+    },
+  });
+
   // Handle MySQL trigger errors (SQLSTATE 45000)
   if (err.code === 'ER_SIGNAL_EXCEPTION' || err.errno === 1644) {
-    return res.status(422).json({
-      error: {
-        code: 'DB_RULE_VIOLATION',
-        message: err.sqlMessage || err.message,
-      },
-    });
+    return res.status(422).json(
+      errorBody('DB_RULE_VIOLATION', err.sqlMessage || err.message),
+    );
   }
 
   // Handle MySQL duplicate key errors
   if (err.code === 'ER_DUP_ENTRY' || err.errno === 1062) {
-    return res.status(409).json({
-      error: {
-        code: 'CONFLICT',
-        message: 'A record with that value already exists',
-      },
-    });
+    return res.status(409).json(
+      errorBody('CONFLICT', 'A record with that value already exists'),
+    );
   }
 
   // Handle MySQL FK constraint errors
   if (err.code === 'ER_NO_REFERENCED_ROW_2' || err.errno === 1452) {
-    return res.status(422).json({
-      error: {
-        code: 'FK_VIOLATION',
-        message: 'Referenced record does not exist',
-      },
-    });
+    return res.status(422).json(
+      errorBody('FK_VIOLATION', 'Referenced record does not exist'),
+    );
   }
 
   if (err instanceof AppError) {
-    return res.status(err.statusCode).json({
-      error: {
-        code: err.code,
-        message: err.message,
-        ...(err.details && { details: err.details }),
-      },
-    });
+    return res.status(err.statusCode).json(
+      errorBody(err.code, err.message, err.details ? { details: err.details } : undefined),
+    );
   }
 
   // Unexpected errors
-  logger.error({ err }, 'Unhandled error');
+  logger.error({ err, requestId: req.id }, 'Unhandled error');
   const statusCode = err.statusCode || 500;
-  res.status(statusCode).json({
-    error: {
-      code: 'INTERNAL_ERROR',
-      message: config.env === 'production' ? 'Internal server error' : err.message,
-    },
-  });
+  res.status(statusCode).json(
+    errorBody(
+      'INTERNAL_ERROR',
+      config.env === 'production' ? 'Internal server error' : err.message,
+    ),
+  );
 });
 
 module.exports = app;
