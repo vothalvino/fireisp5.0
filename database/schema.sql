@@ -4184,3 +4184,595 @@ BEGIN
 END$$
 
 DELIMITER ;
+
+-- ---------------------------------------------------------------------------
+-- Table: payment_gateways
+-- Purpose: Configuration table for payment gateway providers (Stripe, Conekta,
+--          OpenPay, MercadoPago, PayPal, manual, etc.) per organization.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS payment_gateways (
+    id                       BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id          BIGINT UNSIGNED  NOT NULL                    COMMENT 'Tenant organization that owns this gateway config',
+    name                     VARCHAR(100)     NOT NULL                    COMMENT 'Friendly label, e.g. "Conekta Producción"',
+    provider                 ENUM('stripe','conekta','openpay','mercadopago','paypal','manual','other')
+                                              NOT NULL                    COMMENT 'Payment provider identifier',
+    environment              ENUM('sandbox','production')
+                                              NOT NULL DEFAULT 'sandbox'  COMMENT 'Gateway environment',
+    public_key               VARCHAR(500)     NULL                        COMMENT 'Provider public/publishable key (not secret)',
+    secret_key_encrypted     TEXT             NOT NULL                    COMMENT 'Encrypted secret/private API key',
+    webhook_secret_encrypted TEXT             NULL                        COMMENT 'Encrypted webhook signing secret',
+    is_default               TINYINT(1)       NOT NULL DEFAULT 0          COMMENT 'TRUE = default gateway for this organization',
+    status                   ENUM('active','inactive')
+                                              NOT NULL DEFAULT 'active'   COMMENT 'Gateway status',
+    config_json              JSON             NULL                        COMMENT 'Provider-specific extra settings (e.g. merchant IDs, endpoint overrides)',
+    created_at               TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at               TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_payment_gateways_organization_id (organization_id),
+    KEY idx_payment_gateways_provider (provider),
+    KEY idx_payment_gateways_status (status),
+    CONSTRAINT fk_payment_gateways_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: payment_transactions
+-- Purpose: Raw gateway transaction log for every payment attempt. Records the
+--          provider's reference ID, status, raw request/response payloads, and
+--          webhook data for auditing and reconciliation.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS payment_transactions (
+    id                        BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    payment_id                BIGINT UNSIGNED  NULL                        COMMENT 'Link to internal payment record; NULL while the gateway attempt is pending',
+    payment_gateway_id        BIGINT UNSIGNED  NOT NULL                    COMMENT 'Gateway used for this transaction',
+    client_id                 BIGINT UNSIGNED  NOT NULL                    COMMENT 'Client being charged',
+    organization_id           BIGINT UNSIGNED  NOT NULL                    COMMENT 'Tenant organization',
+    gateway_reference_id      VARCHAR(255)     NOT NULL                    COMMENT 'Provider-assigned transaction / charge ID',
+    amount                    DECIMAL(12, 2)   NOT NULL                    COMMENT 'Attempted charge amount',
+    currency                  VARCHAR(3)       NOT NULL DEFAULT 'MXN'      COMMENT 'ISO 4217 currency code',
+    gateway_status            ENUM('pending','succeeded','failed','refunded','disputed','cancelled')
+                                               NOT NULL DEFAULT 'pending'  COMMENT 'Status as reported by the gateway',
+    gateway_response_code     VARCHAR(50)      NULL                        COMMENT 'Provider-specific result/error code',
+    gateway_response_message  TEXT             NULL                        COMMENT 'Human-readable message from the provider',
+    raw_request               JSON             NULL                        COMMENT 'Outbound API request body (PII/card data must be scrubbed before storage)',
+    raw_response              JSON             NULL                        COMMENT 'Full response body received from the provider',
+    webhook_payload           JSON             NULL                        COMMENT 'Incoming webhook payload that triggered a status update',
+    idempotency_key           VARCHAR(255)     NULL                        COMMENT 'Client-supplied idempotency key to prevent duplicate charges',
+    created_at                TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at                TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_payment_transactions_idempotency_key (idempotency_key),
+    KEY idx_payment_transactions_payment_id (payment_id),
+    KEY idx_payment_transactions_gateway_id (payment_gateway_id),
+    KEY idx_payment_transactions_client_id (client_id),
+    KEY idx_payment_transactions_organization_id (organization_id),
+    KEY idx_payment_transactions_gateway_reference_id (gateway_reference_id),
+    KEY idx_payment_transactions_gateway_status (gateway_status),
+    CONSTRAINT fk_payment_transactions_payment FOREIGN KEY (payment_id)
+        REFERENCES payments (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_payment_transactions_gateway FOREIGN KEY (payment_gateway_id)
+        REFERENCES payment_gateways (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_payment_transactions_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_payment_transactions_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: recurring_payment_profiles
+-- Purpose: Stored card / token per client for autopay (recurring charges).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS recurring_payment_profiles (
+    id                  BIGINT UNSIGNED     NOT NULL AUTO_INCREMENT,
+    client_id           BIGINT UNSIGNED     NOT NULL                   COMMENT 'Client this autopay profile belongs to',
+    payment_gateway_id  BIGINT UNSIGNED     NOT NULL                   COMMENT 'Gateway that issued the stored token',
+    token_reference     VARCHAR(500)        NOT NULL                   COMMENT 'Gateway customer ID or card token',
+    card_brand          VARCHAR(20)         NULL                       COMMENT 'Card network: visa, mastercard, amex, etc.',
+    card_last_four      CHAR(4)             NULL                       COMMENT 'Last four digits of the card number',
+    card_exp_month      TINYINT UNSIGNED    NULL                       COMMENT 'Card expiry month (1–12)',
+    card_exp_year       SMALLINT UNSIGNED   NULL                       COMMENT 'Card expiry year (4-digit)',
+    is_default          TINYINT(1)          NOT NULL DEFAULT 0         COMMENT 'TRUE = preferred profile for autopay',
+    status              ENUM('active','expired','revoked')
+                                            NOT NULL DEFAULT 'active'  COMMENT 'Profile lifecycle status',
+    created_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_recurring_profiles_client_id (client_id),
+    KEY idx_recurring_profiles_gateway_id (payment_gateway_id),
+    KEY idx_recurring_profiles_status (status),
+    CONSTRAINT fk_recurring_profiles_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_recurring_profiles_gateway FOREIGN KEY (payment_gateway_id)
+        REFERENCES payment_gateways (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: suspension_rules
+-- Purpose: Configurable suspension rules per organization — defines when and
+--          how overdue clients should be notified, suspended, or disconnected.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS suspension_rules (
+    id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED  NOT NULL                         COMMENT 'Tenant organization that owns this rule',
+    name                VARCHAR(150)     NOT NULL                         COMMENT 'Descriptive rule name, e.g. "Suspensión 30 días"',
+    days_past_due       INT UNSIGNED     NOT NULL                         COMMENT 'Number of days overdue before this rule triggers',
+    grace_period_days   INT UNSIGNED     NOT NULL DEFAULT 0               COMMENT 'Additional grace days after trigger before action is executed',
+    action              ENUM('auto_suspend','notify_only','auto_disconnect')
+                                         NOT NULL                         COMMENT 'Action to perform when rule fires',
+    notify_before_days  INT UNSIGNED     NULL                             COMMENT 'Send a warning notification this many days before suspension; NULL = no advance notice',
+    apply_to_plan_ids   JSON             NULL                             COMMENT 'JSON array of plan IDs this rule applies to; NULL = applies to all plans',
+    is_active           TINYINT(1)       NOT NULL DEFAULT 1               COMMENT 'FALSE = rule is disabled and will not be evaluated',
+    created_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_suspension_rules_organization_id (organization_id),
+    KEY idx_suspension_rules_is_active (is_active),
+    CONSTRAINT fk_suspension_rules_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: suspension_logs
+-- Purpose: History of suspend / unsuspend / disconnect / reconnect events per
+--          contract. Captures the triggering rule, performer, RADIUS CoA
+--          outcome, and linked invoice.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS suspension_logs (
+    id                   BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    contract_id          BIGINT UNSIGNED  NOT NULL                   COMMENT 'Contract affected by this suspension event',
+    client_id            BIGINT UNSIGNED  NOT NULL                   COMMENT 'Client that owns the contract',
+    suspension_rule_id   BIGINT UNSIGNED  NULL                       COMMENT 'Rule that triggered the action; NULL = manual action',
+    action               ENUM('suspended','unsuspended','disconnected','reconnected')
+                                          NOT NULL                   COMMENT 'Lifecycle action performed',
+    reason               TEXT             NULL                       COMMENT 'Free-text explanation of why the action was taken',
+    triggered_by         ENUM('system','manual')
+                                          NOT NULL                   COMMENT 'Whether the action was triggered automatically or by a user',
+    performed_by_user_id BIGINT UNSIGNED  NULL                       COMMENT 'User who performed the action; NULL = system-triggered',
+    radius_coa_sent      TINYINT(1)       NOT NULL DEFAULT 0         COMMENT 'TRUE if a RADIUS Change-of-Authorization packet was dispatched',
+    radius_coa_response  TEXT             NULL                       COMMENT 'Raw RADIUS CoA response or error message',
+    related_invoice_id   BIGINT UNSIGNED  NULL                       COMMENT 'Invoice that caused the suspension (most overdue invoice)',
+    suspended_at         TIMESTAMP        NOT NULL                   COMMENT 'Timestamp when the suspend/disconnect action was applied',
+    restored_at          TIMESTAMP        NULL                       COMMENT 'Timestamp when service was restored; NULL if still suspended',
+    created_at           TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_suspension_logs_contract_id (contract_id),
+    KEY idx_suspension_logs_client_id (client_id),
+    KEY idx_suspension_logs_rule_id (suspension_rule_id),
+    KEY idx_suspension_logs_performed_by (performed_by_user_id),
+    KEY idx_suspension_logs_related_invoice (related_invoice_id),
+    KEY idx_suspension_logs_action (action),
+    CONSTRAINT fk_suspension_logs_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_suspension_logs_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_suspension_logs_rule FOREIGN KEY (suspension_rule_id)
+        REFERENCES suspension_rules (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_suspension_logs_user FOREIGN KEY (performed_by_user_id)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_suspension_logs_invoice FOREIGN KEY (related_invoice_id)
+        REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: csd_certificates
+-- Purpose: CSD (Certificado de Sello Digital) storage per organization for SAT
+--          CFDI 4.0 stamping (timbrado). Holds PEM-encoded public certificate
+--          and encrypted private key.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS csd_certificates (
+    id                    BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id       BIGINT UNSIGNED  NOT NULL                   COMMENT 'Organization this CSD belongs to',
+    certificate_number    VARCHAR(20)      NOT NULL                   COMMENT 'NoCertificado value from the .cer file (20-digit SAT serial)',
+    rfc                   VARCHAR(13)      NOT NULL                   COMMENT 'RFC of the certificate holder (must match organization_mx_profiles.rfc)',
+    issuer_name           VARCHAR(300)     NULL                       COMMENT 'Certificate issuer DN as stored in the .cer',
+    serial_number         VARCHAR(100)     NULL                       COMMENT 'X.509 serial number in hex',
+    valid_from            DATETIME         NOT NULL                   COMMENT 'Certificate notBefore date/time',
+    valid_to              DATETIME         NOT NULL                   COMMENT 'Certificate notAfter date/time — used for expiry monitoring',
+    cer_pem               TEXT             NOT NULL                   COMMENT 'PEM-encoded public certificate (.cer converted to PEM)',
+    key_pem_encrypted     TEXT             NOT NULL                   COMMENT 'Application-encrypted PEM-encoded private key (.key)',
+    passphrase_encrypted  TEXT             NULL                       COMMENT 'Application-encrypted passphrase for the private key, if applicable',
+    fingerprint_sha256    VARCHAR(64)      NOT NULL                   COMMENT 'SHA-256 fingerprint of the public certificate for deduplication',
+    is_active             TINYINT(1)       NOT NULL DEFAULT 1         COMMENT 'TRUE = this certificate is in use for stamping',
+    status                ENUM('active','expired','revoked')
+                                           NOT NULL DEFAULT 'active'  COMMENT 'Certificate lifecycle status',
+    created_at            TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at            TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_csd_certificate_number (certificate_number),
+    UNIQUE KEY uq_csd_fingerprint (fingerprint_sha256),
+    KEY idx_csd_organization_active (organization_id, is_active),
+    KEY idx_csd_valid_to (valid_to),
+    CONSTRAINT fk_csd_certificates_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: pac_providers
+-- Purpose: PAC (Proveedor Autorizado de Certificación) provider credentials and
+--          endpoint configuration per organization. Supports multiple PAC vendors
+--          with sandbox/production environments.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pac_providers (
+    id                    BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id       BIGINT UNSIGNED  NOT NULL                     COMMENT 'Tenant organization that owns this PAC config',
+    provider_name         ENUM('finkok','sw_sapien','digicel','comercio_digital','facturapi','other')
+                                           NOT NULL                     COMMENT 'PAC vendor identifier',
+    label                 VARCHAR(100)     NOT NULL                     COMMENT 'Friendly name, e.g. "Finkok Producción"',
+    environment           ENUM('sandbox','production')
+                                           NOT NULL DEFAULT 'sandbox'   COMMENT 'PAC environment',
+    api_url               VARCHAR(500)     NOT NULL                     COMMENT 'Base URL for the PAC API endpoint',
+    username_encrypted    VARCHAR(500)     NULL                         COMMENT 'Encrypted PAC account username (if applicable)',
+    password_encrypted    VARCHAR(500)     NULL                         COMMENT 'Encrypted PAC account password (if applicable)',
+    api_key_encrypted     VARCHAR(500)     NULL                         COMMENT 'Encrypted API key (if applicable)',
+    token_encrypted       TEXT             NULL                         COMMENT 'Encrypted bearer token or JWT (if applicable)',
+    is_default            TINYINT(1)       NOT NULL DEFAULT 0           COMMENT 'TRUE = default PAC for this organization',
+    status                ENUM('active','inactive')
+                                           NOT NULL DEFAULT 'active'    COMMENT 'PAC config status',
+    last_stamp_at         TIMESTAMP        NULL                         COMMENT 'Timestamp of the most recent successful stamp via this PAC',
+    last_error            TEXT             NULL                         COMMENT 'Last error message received from the PAC',
+    config_json           JSON             NULL                         COMMENT 'Provider-specific extra settings (timeouts, wsdl overrides, etc.)',
+    created_at            TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at            TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_pac_providers_org_provider_env (organization_id, provider_name, environment),
+    KEY idx_pac_providers_organization_id (organization_id),
+    KEY idx_pac_providers_status (status),
+    CONSTRAINT fk_pac_providers_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: webhooks
+-- Purpose: Outbound webhook registrations per organization. Defines target URL,
+--          HMAC signing secret, event subscriptions, and delivery parameters.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS webhooks (
+    id                BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id   BIGINT UNSIGNED  NOT NULL                     COMMENT 'Tenant organization that owns this webhook',
+    url               VARCHAR(2048)    NOT NULL                     COMMENT 'Target URL to POST events to',
+    secret_encrypted  VARCHAR(500)     NULL                         COMMENT 'Encrypted HMAC signing secret for payload verification',
+    events            JSON             NOT NULL                     COMMENT 'JSON array of event names to subscribe to, e.g. ["invoice.created","payment.received"]',
+    is_active         TINYINT(1)       NOT NULL DEFAULT 1           COMMENT 'FALSE = webhook is paused and deliveries will not be attempted',
+    description       TEXT             NULL                         COMMENT 'Optional human-readable description of this webhook',
+    max_retries       TINYINT UNSIGNED NOT NULL DEFAULT 5           COMMENT 'Maximum number of delivery retry attempts on failure',
+    timeout_seconds   TINYINT UNSIGNED NOT NULL DEFAULT 30          COMMENT 'HTTP request timeout in seconds per attempt',
+    created_at        TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_webhooks_organization_id (organization_id),
+    KEY idx_webhooks_is_active (is_active),
+    CONSTRAINT fk_webhooks_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: webhook_deliveries
+-- Purpose: Delivery log for outbound webhooks. Records each attempt with HTTP
+--          status, response body, response time, retry count, and outcome.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id                BIGINT UNSIGNED     NOT NULL AUTO_INCREMENT,
+    webhook_id        BIGINT UNSIGNED     NOT NULL                    COMMENT 'Webhook registration this delivery belongs to',
+    event_name        VARCHAR(100)        NOT NULL                    COMMENT 'Event type that triggered this delivery, e.g. "invoice.created"',
+    payload           JSON                NOT NULL                    COMMENT 'Full event payload sent in the request body',
+    http_status_code  SMALLINT UNSIGNED   NULL                        COMMENT 'HTTP status code returned by the target endpoint',
+    response_body     TEXT                NULL                        COMMENT 'Response body from the target endpoint (truncated if large)',
+    response_time_ms  INT UNSIGNED        NULL                        COMMENT 'Round-trip HTTP request time in milliseconds',
+    attempt_number    TINYINT UNSIGNED    NOT NULL DEFAULT 1          COMMENT 'Which attempt this row represents (1 = first try)',
+    status            ENUM('pending','success','failed','retrying')
+                                          NOT NULL DEFAULT 'pending'  COMMENT 'Delivery outcome status',
+    next_retry_at     TIMESTAMP           NULL                        COMMENT 'Scheduled time for the next retry attempt; NULL = no retry pending',
+    delivered_at      TIMESTAMP           NULL                        COMMENT 'Timestamp of a successful delivery; NULL if not yet succeeded',
+    created_at        TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_webhook_deliveries_webhook_id (webhook_id),
+    KEY idx_webhook_deliveries_event_name (event_name),
+    KEY idx_webhook_deliveries_status (status),
+    KEY idx_webhook_deliveries_next_retry_at (next_retry_at),
+    CONSTRAINT fk_webhook_deliveries_webhook FOREIGN KEY (webhook_id)
+        REFERENCES webhooks (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: organization_users
+-- Purpose: Pivot table linking users to organizations with per-organization
+--          roles. Allows a single user to belong to multiple tenant organizations.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS organization_users (
+    id               BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id  BIGINT UNSIGNED  NOT NULL                                    COMMENT 'Organization this membership record belongs to',
+    user_id          BIGINT UNSIGNED  NOT NULL                                    COMMENT 'User who is a member of this organization',
+    role             ENUM('owner','admin','manager','technician','billing','readonly')
+                                      NOT NULL DEFAULT 'readonly'                 COMMENT 'User role within this specific organization',
+    is_primary_org   TINYINT(1)       NOT NULL DEFAULT 0                          COMMENT 'TRUE = this is the user''s primary/home organization',
+    joined_at        TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP          COMMENT 'When the user was added to the organization',
+    created_at       TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_organization_users_org_user (organization_id, user_id),
+    KEY idx_organization_users_user_id (user_id),
+    KEY idx_organization_users_role (role),
+    CONSTRAINT fk_organization_users_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_organization_users_user FOREIGN KEY (user_id)
+        REFERENCES users (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: plan_addons
+-- Purpose: Catalog of plan add-ons available for sale per organization (static
+--          IP, extra bandwidth, equipment rental, etc.).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS plan_addons (
+    id               BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id  BIGINT UNSIGNED  NOT NULL                     COMMENT 'Tenant organization that offers this add-on',
+    name             VARCHAR(150)     NOT NULL                     COMMENT 'Display name, e.g. "IP Estática", "Renta de Router"',
+    description      TEXT             NULL                         COMMENT 'Detailed description shown to billing agents or on the client portal',
+    addon_type       ENUM('static_ip','extra_ip_block','extra_bandwidth','equipment_rental','other')
+                                      NOT NULL                     COMMENT 'Category of add-on for reporting and processing logic',
+    price            DECIMAL(10, 2)   NOT NULL                     COMMENT 'Base price per billing cycle',
+    billing_cycle    ENUM('monthly','one_time','yearly')
+                                      NOT NULL DEFAULT 'monthly'   COMMENT 'How often this add-on is charged',
+    is_taxable       TINYINT(1)       NOT NULL DEFAULT 1           COMMENT 'TRUE = tax rules apply to this add-on''s price',
+    status           ENUM('active','inactive')
+                                      NOT NULL DEFAULT 'active'    COMMENT 'Availability status',
+    created_at       TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_plan_addons_organization_id (organization_id),
+    KEY idx_plan_addons_addon_type (addon_type),
+    KEY idx_plan_addons_status (status),
+    CONSTRAINT fk_plan_addons_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: contract_addons
+-- Purpose: Add-ons attached to a specific client contract. References the
+--          plan_addons catalog and stores quantity, price, and validity window.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS contract_addons (
+    id             BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    contract_id    BIGINT UNSIGNED  NOT NULL                    COMMENT 'Contract this add-on is assigned to',
+    plan_addon_id  BIGINT UNSIGNED  NOT NULL                    COMMENT 'Add-on catalog entry being assigned',
+    quantity       INT UNSIGNED     NOT NULL DEFAULT 1          COMMENT 'Number of units contracted',
+    unit_price     DECIMAL(10, 2)   NOT NULL                    COMMENT 'Agreed per-unit price (may differ from catalog price)',
+    start_date     DATE             NOT NULL                    COMMENT 'Date from which the add-on is active on this contract',
+    end_date       DATE             NULL                        COMMENT 'Date the add-on expires; NULL = no fixed end date',
+    notes          TEXT             NULL                        COMMENT 'Free-text notes about this add-on assignment',
+    status         ENUM('active','cancelled','expired')
+                                    NOT NULL DEFAULT 'active'   COMMENT 'Lifecycle status of the add-on on this contract',
+    created_at     TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_contract_addons_contract_id (contract_id),
+    KEY idx_contract_addons_plan_addon_id (plan_addon_id),
+    KEY idx_contract_addons_status (status),
+    CONSTRAINT fk_contract_addons_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_contract_addons_plan_addon FOREIGN KEY (plan_addon_id)
+        REFERENCES plan_addons (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: speed_tests
+-- Purpose: Speed test results (client portal, technician, automated probe, or
+--          external). Records download/upload throughput, latency, jitter,
+--          and packet loss for SLA correlation.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS speed_tests (
+    id               BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+    client_id        BIGINT UNSIGNED   NULL                      COMMENT 'Client who initiated or is associated with this test; NULL = probe-only',
+    contract_id      BIGINT UNSIGNED   NULL                      COMMENT 'Contract (service) under test; NULL = not contract-specific',
+    device_id        BIGINT UNSIGNED   NULL                      COMMENT 'CPE or probe device that ran the test; NULL = client browser test',
+    test_source      ENUM('client_portal','technician','automated_probe','external')
+                                        NOT NULL                  COMMENT 'How the test was initiated',
+    server_location  VARCHAR(150)       NULL                      COMMENT 'Test server geographic location or identifier',
+    download_mbps    DECIMAL(10, 3)     NOT NULL                  COMMENT 'Measured download speed in Mbps',
+    upload_mbps      DECIMAL(10, 3)     NOT NULL                  COMMENT 'Measured upload speed in Mbps',
+    latency_ms       DECIMAL(8, 2)      NULL                      COMMENT 'Round-trip latency in milliseconds',
+    jitter_ms        DECIMAL(8, 2)      NULL                      COMMENT 'Latency jitter in milliseconds',
+    packet_loss_pct  DECIMAL(5, 2)      NULL                      COMMENT 'Packet loss percentage (0.00–100.00)',
+    ip_address       VARCHAR(45)        NULL                      COMMENT 'Public IP address observed during the test (IPv4 or IPv6)',
+    notes            TEXT               NULL                      COMMENT 'Free-text observations or technician comments',
+    tested_at        TIMESTAMP          NOT NULL                  COMMENT 'When the test measurement was taken',
+    created_at       TIMESTAMP          NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_speed_tests_client_id (client_id),
+    KEY idx_speed_tests_contract_id (contract_id),
+    KEY idx_speed_tests_device_id (device_id),
+    KEY idx_speed_tests_tested_at (tested_at),
+    KEY idx_speed_tests_test_source (test_source),
+    CONSTRAINT fk_speed_tests_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_speed_tests_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_speed_tests_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: ticket_sla_events
+-- Purpose: SLA tracking events per support ticket. Records first-response time,
+--          resolution time, escalations, and breach events. Pairs with
+--          sla_definitions for contracted SLA target comparison.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ticket_sla_events (
+    id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    ticket_id           BIGINT UNSIGNED  NOT NULL                   COMMENT 'Ticket this SLA event belongs to',
+    sla_definition_id   BIGINT UNSIGNED  NULL                       COMMENT 'SLA definition that set the target; NULL = no formal SLA',
+    event_type          ENUM('first_response','resolution','escalation','breach_warning','breach')
+                                          NOT NULL                   COMMENT 'Type of SLA milestone or event',
+    target_deadline     TIMESTAMP         NULL                       COMMENT 'Calculated deadline for this SLA target; NULL = informational event',
+    actual_at           TIMESTAMP         NULL                       COMMENT 'Actual timestamp when the event occurred; NULL = not yet achieved',
+    is_breached         TINYINT(1)        NOT NULL DEFAULT 0         COMMENT 'TRUE = the SLA target was missed',
+    breached_by_minutes INT               NULL                       COMMENT 'Minutes by which the deadline was exceeded (positive = late); NULL = not breached',
+    notes               TEXT              NULL                       COMMENT 'Optional context or explanation for the event',
+    created_at          TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_ticket_sla_events_ticket_id (ticket_id),
+    KEY idx_ticket_sla_events_sla_definition_id (sla_definition_id),
+    KEY idx_ticket_sla_events_event_type (event_type),
+    KEY idx_ticket_sla_events_is_breached (is_breached),
+    CONSTRAINT fk_ticket_sla_events_ticket FOREIGN KEY (ticket_id)
+        REFERENCES tickets (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_ticket_sla_events_sla_definition FOREIGN KEY (sla_definition_id)
+        REFERENCES sla_definitions (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: sms_logs
+-- Purpose: SMS and WhatsApp notification logging per organization. Complements
+--          email_logs for non-email channels.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sms_logs (
+    id                   BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id      BIGINT UNSIGNED  NOT NULL                    COMMENT 'Tenant organization that sent/received this message',
+    client_id            BIGINT UNSIGNED  NULL                        COMMENT 'Client associated with this message; NULL = non-client recipient',
+    phone_number         VARCHAR(20)      NOT NULL                    COMMENT 'Destination or source phone number in E.164 format',
+    channel              ENUM('sms','whatsapp')
+                                          NOT NULL                    COMMENT 'Delivery channel',
+    direction            ENUM('outbound','inbound')
+                                          NOT NULL DEFAULT 'outbound' COMMENT 'Message direction relative to the platform',
+    template_id          BIGINT UNSIGNED  NULL                        COMMENT 'Message template used; NULL = ad-hoc message',
+    message_body         TEXT             NOT NULL                    COMMENT 'Full text content of the message',
+    provider             VARCHAR(50)      NULL                        COMMENT 'SMS/WhatsApp provider name (e.g. twilio, infobip, messagebird)',
+    provider_message_id  VARCHAR(100)     NULL                        COMMENT 'Provider-assigned message identifier for status lookups',
+    status               ENUM('queued','sent','delivered','failed','undelivered')
+                                          NOT NULL DEFAULT 'queued'   COMMENT 'Delivery status',
+    error_code           VARCHAR(20)      NULL                        COMMENT 'Provider-specific error code on failure',
+    error_message        TEXT             NULL                        COMMENT 'Human-readable error description from the provider',
+    cost                 DECIMAL(8, 5)    NULL                        COMMENT 'Per-message cost charged by the provider',
+    sent_at              TIMESTAMP        NULL                        COMMENT 'Timestamp when the message was submitted to the provider',
+    delivered_at         TIMESTAMP        NULL                        COMMENT 'Timestamp of confirmed delivery to the handset',
+    created_at           TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_sms_logs_organization_id (organization_id),
+    KEY idx_sms_logs_client_id (client_id),
+    KEY idx_sms_logs_status (status),
+    KEY idx_sms_logs_provider_message_id (provider_message_id),
+    KEY idx_sms_logs_phone_number (phone_number),
+    CONSTRAINT fk_sms_logs_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_sms_logs_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_sms_logs_template FOREIGN KEY (template_id)
+        REFERENCES message_templates (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: revenue_summary
+-- Purpose: Materialized revenue summary for MRR / churn / ARPU reporting.
+--          Populated by a scheduled task, not a SQL VIEW. One row per
+--          organization per calendar month per currency.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS revenue_summary (
+    id                       BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+    organization_id          BIGINT UNSIGNED   NOT NULL                    COMMENT 'Tenant organization this summary row belongs to',
+    period_date              DATE              NOT NULL                    COMMENT 'First day of the calendar month this row summarizes',
+    total_mrr                DECIMAL(14, 2)    NOT NULL DEFAULT 0.00       COMMENT 'Monthly Recurring Revenue at end of period',
+    total_clients_active     INT UNSIGNED      NOT NULL DEFAULT 0          COMMENT 'Number of clients with at least one active contract',
+    total_contracts_active   INT UNSIGNED      NOT NULL DEFAULT 0          COMMENT 'Total active contracts at end of period',
+    new_contracts            INT UNSIGNED      NOT NULL DEFAULT 0          COMMENT 'Contracts that started during this period',
+    churned_contracts        INT UNSIGNED      NOT NULL DEFAULT 0          COMMENT 'Contracts that were cancelled or expired during this period',
+    arpu                     DECIMAL(10, 2)    NOT NULL DEFAULT 0.00       COMMENT 'Average Revenue Per User = total_mrr / total_clients_active',
+    total_revenue            DECIMAL(14, 2)    NOT NULL DEFAULT 0.00       COMMENT 'Total amount invoiced during this period',
+    total_collected          DECIMAL(14, 2)    NOT NULL DEFAULT 0.00       COMMENT 'Total payments received during this period',
+    total_outstanding        DECIMAL(14, 2)    NOT NULL DEFAULT 0.00       COMMENT 'Total unpaid invoice balance at end of period',
+    currency                 VARCHAR(3)        NOT NULL DEFAULT 'MXN'      COMMENT 'ISO 4217 currency code for all amounts in this row',
+    calculated_at            TIMESTAMP         NOT NULL                    COMMENT 'When the scheduled task last recalculated this row',
+    created_at               TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_revenue_summary_org_period_currency (organization_id, period_date, currency),
+    KEY idx_revenue_summary_period_date (period_date),
+    CONSTRAINT fk_revenue_summary_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: network_health_snapshots
+-- Purpose: Aggregated daily device uptime and link utilization snapshots.
+--          Populated by the monitoring subsystem for trending, SLA compliance,
+--          and capacity planning dashboards.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS network_health_snapshots (
+    id                        BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+    device_id                 BIGINT UNSIGNED   NULL                    COMMENT 'Device this snapshot is for; NULL if link-only snapshot',
+    network_link_id           BIGINT UNSIGNED   NULL                    COMMENT 'Network link this snapshot is for; NULL if device-only snapshot',
+    snapshot_date             DATE              NOT NULL                COMMENT 'Calendar date this snapshot covers (one row per day)',
+    uptime_pct                DECIMAL(5, 2)     NULL                    COMMENT 'Device/link uptime percentage for the day (0.00–100.00)',
+    avg_latency_ms            DECIMAL(8, 2)     NULL                    COMMENT 'Average round-trip latency in milliseconds over the day',
+    max_latency_ms            DECIMAL(8, 2)     NULL                    COMMENT 'Peak round-trip latency in milliseconds over the day',
+    avg_throughput_in_mbps    DECIMAL(10, 3)    NULL                    COMMENT 'Average inbound throughput in Mbps over the day',
+    avg_throughput_out_mbps   DECIMAL(10, 3)    NULL                    COMMENT 'Average outbound throughput in Mbps over the day',
+    peak_throughput_in_mbps   DECIMAL(10, 3)    NULL                    COMMENT 'Peak inbound throughput in Mbps observed during the day',
+    peak_throughput_out_mbps  DECIMAL(10, 3)    NULL                    COMMENT 'Peak outbound throughput in Mbps observed during the day',
+    packet_loss_pct           DECIMAL(5, 2)     NULL                    COMMENT 'Average packet loss percentage for the day (0.00–100.00)',
+    total_downtime_minutes    INT UNSIGNED      NOT NULL DEFAULT 0      COMMENT 'Total minutes of detected downtime during the day',
+    created_at                TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_network_health_device_date (device_id, snapshot_date),
+    KEY idx_network_health_link_date (network_link_id, snapshot_date),
+    KEY idx_network_health_snapshot_date (snapshot_date),
+    CONSTRAINT fk_network_health_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_network_health_link FOREIGN KEY (network_link_id)
+        REFERENCES network_links (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: cfdi_cancellations
+-- Purpose: SAT CFDI cancellation audit trail. Records every cancellation request
+--          including reason code, replacement UUID, PAC response, and acuse XML.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cfdi_cancellations (
+    id                    BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    cfdi_document_id      BIGINT UNSIGNED  NOT NULL                    COMMENT 'The CFDI document being cancelled',
+    organization_id       BIGINT UNSIGNED  NOT NULL                    COMMENT 'Tenant organization that issued the CFDI',
+    uuid                  CHAR(36)         NOT NULL                    COMMENT 'UUID (folio fiscal) of the CFDI being cancelled',
+    motivo                ENUM('01','02','03','04')
+                                           NOT NULL                    COMMENT 'SAT cancellation reason: 01=CFDI con errores con relación, 02=CFDI con errores sin relación, 03=No se llevó a cabo la operación, 04=Operación nominativa relacionada en CFDI global',
+    folio_sustitucion     CHAR(36)         NULL                        COMMENT 'UUID of the replacement CFDI; required when motivo=''01''',
+    cancellation_status   ENUM('pending','accepted','rejected','cancelled_by_timeout')
+                                           NOT NULL DEFAULT 'pending'  COMMENT 'SAT/PAC cancellation processing status',
+    requested_at          TIMESTAMP        NOT NULL                    COMMENT 'Timestamp when the cancellation was submitted to the PAC/SAT',
+    responded_at          TIMESTAMP        NULL                        COMMENT 'Timestamp when the SAT/PAC returned a final status',
+    acuse_xml             LONGTEXT         NULL                        COMMENT 'Raw acuse (acknowledgement) XML returned by the SAT — required for fiscal records',
+    acuse_fecha           DATETIME         NULL                        COMMENT 'FechaCancelacion from the SAT acuse XML',
+    pac_provider_id       BIGINT UNSIGNED  NULL                        COMMENT 'PAC provider used to submit the cancellation; NULL if submitted directly',
+    error_message         TEXT             NULL                        COMMENT 'Error description if the cancellation was rejected or failed',
+    requested_by_user_id  BIGINT UNSIGNED  NULL                        COMMENT 'User who requested the cancellation; NULL = system-initiated',
+    created_at            TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at            TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_cfdi_cancellations_uuid (uuid),
+    KEY idx_cfdi_cancellations_cfdi_document_id (cfdi_document_id),
+    KEY idx_cfdi_cancellations_organization_id (organization_id),
+    KEY idx_cfdi_cancellations_status (cancellation_status),
+    CONSTRAINT fk_cfdi_cancellations_cfdi_document FOREIGN KEY (cfdi_document_id)
+        REFERENCES cfdi_documents (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_cfdi_cancellations_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_cfdi_cancellations_pac_provider FOREIGN KEY (pac_provider_id)
+        REFERENCES pac_providers (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cfdi_cancellations_user FOREIGN KEY (requested_by_user_id)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
