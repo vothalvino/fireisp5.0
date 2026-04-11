@@ -42,9 +42,9 @@ async function start() {
     } else {
       logger.info({ migrations: appliedCount }, 'All migrations applied');
     }
-  } catch (_err) {
+  } catch (migrationErr) {
     // schema_migrations table may not exist yet on fresh installs
-    logger.warn('Could not check migration status — run `npm run migrate` first');
+    logger.warn({ err: migrationErr }, 'Could not check migration status — run `npm run migrate` first');
   }
 
   // Start the cron scheduler

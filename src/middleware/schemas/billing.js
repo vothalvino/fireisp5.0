@@ -12,6 +12,7 @@ const generateInvoice = {
 
 const allocatePayment = {
   payment_id: { type: 'number', required: true, min: 1 },
+  allocations: { type: 'array', required: true },
 };
 
 module.exports = { generatePeriod, generateInvoice, allocatePayment };
