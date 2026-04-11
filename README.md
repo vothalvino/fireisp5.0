@@ -150,6 +150,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 80 | `cfdi_concepto_impuestos` | Per-line tax breakdown for CFDI 4.0 — one row per `<Traslado>` or `<Retencion>` inside a concept; stores tax type, SAT tax code (ISR/IVA/IEPS), rate type, rate, taxable base, and calculated tax amount |
 | 81 | `factura_publica_invoices` | Factura pública (venta al público en general) periodic aggregation documents — when MX contracts have `facturar = FALSE`, their invoices are aggregated into a periodic factura pública per SAT InformacionGlobal (Periodicidad, Meses, Año); one row per organization per period |
 | 82 | `factura_publica_invoice_items` | Junction table linking individual invoices from contracts with `facturar = FALSE` to their parent factura pública — each invoice belongs to at most one factura pública document |
+| 83 | `cfdi_payment_complement_item_taxes` | Per-DoctoRelacionado tax breakdown (ImpuestosP) for Complemento de Pago 2.0 — one row per `<Traslado>` or `<Retencion>` inside a payment complement item; stores tax type, SAT tax code, rate type, rate, taxable base, and calculated tax amount |
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 
@@ -181,6 +182,24 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > - **`fn_predominant_forma_pago(p_factura_publica_invoice_id)`** — stored function that calculates the predominant SAT `FormaPago` code for a factura pública by summing `payments.amount` grouped by `sat_forma_pago` across all linked invoices and returning the code with the highest total. Defaults to `'99'` (Por definir) when no payments exist or when two or more codes tie for the highest total. Call this function at stamp time to populate `cfdi_documents.forma_pago`. Business rule (SAT Anexo 20 CFDI 4.0): *"En caso de que el pago se realice utilizando más de una forma de pago, se debe indicar la que represente el monto mayor."*
 > - **`trg_factura_publica_invoices_bu`** — BEFORE UPDATE trigger on `factura_publica_invoices` that prevents `status` from being set to `'stamped'` if any invoice linked via `factura_publica_invoice_items` does not have `status = 'paid'`. Raises SQLSTATE '45000'. Business rule: including unpaid invoices in a stamped CFDI forces the ISP to pay taxes on revenue it has not yet collected; if the client cancels or never pays, those taxes cannot be recovered.
 > - **`trg_factura_publica_invoice_items_bi`** — BEFORE INSERT trigger on `factura_publica_invoice_items` that rejects linking an invoice whose `status` is not `'paid'`. Raises SQLSTATE '45000'. Enforces the same unpaid-invoice exclusion incrementally at insert time.
+
+> **Migration 092 — Exportacion field ALTER:** `092_add_exportacion_to_cfdi_documents.sql` adds `exportacion ENUM('01','02','03') NOT NULL DEFAULT '01'` to `cfdi_documents`. This is a mandatory SAT CFDI 4.0 attribute on the `<Comprobante>` node: `01` = no export (domestic, most common for ISPs), `02` = definitive export, `03` = temporary export. Omitting it causes PAC rejection.
+
+> **Migration 093 — Complemento de Pago 2.0 tax support:** `093_add_complemento_pago_2_tax_support.sql` adds `objeto_imp_dr ENUM('01','02','03') NOT NULL DEFAULT '02'` to `cfdi_payment_complement_items` (ObjetoImpDR on each DoctoRelacionado) and creates the `cfdi_payment_complement_item_taxes` table for per-document-related tax breakdown (`ImpuestosP`). Required by SAT Complemento de Pago 2.0 when `objeto_imp_dr = '02'`.
+
+> **Migration 094 — CFDI document FK constraints:** `094_add_fks_cfdi_documents_to_sat_catalogs.sql` adds foreign key constraints from `cfdi_documents` to SAT catalog tables: `tipo_comprobante` → `sat_tipo_comprobante`, `uso_cfdi` → `sat_uso_cfdi`, `metodo_pago` → `sat_metodo_pago`, `forma_pago` → `sat_forma_pago`, `moneda` → `sat_moneda`. Prevents invalid SAT codes from being stored.
+
+> **Migration 095 — CFDI conceptos FK constraints:** `095_add_fks_cfdi_conceptos_to_sat_catalogs.sql` adds foreign key constraints from `cfdi_conceptos` to SAT catalog tables: `clave_prod_serv` → `sat_clave_prod_serv`, `clave_unidad` → `sat_clave_unidad`. Prevents invalid SAT product/service and unit codes on CFDI line items.
+
+> **Migration 096 — SAT catalog seed expansion:** `096_seed_missing_sat_catalog_entries.sql` adds missing `sat_regimen_fiscal` codes (`607` Enajenación o Adquisición de Bienes, `609` Consolidación, `611` Ingresos por Dividendos, `615` Ingresos por obtención de premios) and `sat_uso_cfdi` codes (`D05`–`D10`: medical insurance premiums, school transportation, savings plan deposits, tuition, voluntary SAR contributions, major medical insurance premiums). Uses `INSERT IGNORE` for idempotent re-runs.
+
+> **Migration 097 — Facturar guard triggers:** `097_add_facturar_guard_triggers.sql` adds BEFORE INSERT / BEFORE UPDATE triggers on `contracts` that raise SQLSTATE '45000' when `facturar = TRUE` and the client's `locale != 'MX'`. Prevents non-MX clients from being assigned to the Mexican e-invoicing workflow.
+
+> **Migration 098 — Country default NULL:** `098_set_country_default_null.sql` changes the DEFAULT for `clients.country` and `organizations.country` from `'US'` to `NULL`. Existing rows are not modified — only future inserts without an explicit country value will receive `NULL` instead of `'US'`.
+
+> **Migration 099 — Fix XXX currency description:** `099_fix_xxx_currency_description.sql` updates `sat_moneda` to set the `XXX` currency description to the official SAT text: *"Los códigos asignados para las transacciones en que no intervenga ninguna moneda"* (previously incorrectly set to *"Los derechos en esta divisa"*).
+
+> **Migration 100 — CSD expiry monitoring task:** `100_seed_csd_expiry_scheduled_task.sql` inserts a system-level scheduled task (`csd_expiry_monitor`, cron `0 8 * * *`) that checks `organization_mx_profiles.csd_valid_to` for certificates expiring within 30 days and generates email + in-app notifications. Uses `INSERT IGNORE` for idempotent re-runs. If a CSD expires, the ISP cannot stamp any new CFDIs.
 
 ### Venta al Público en General (Factura Pública)
 
