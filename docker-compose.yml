@@ -5,8 +5,8 @@ services:
     image: mysql:8.0
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: fireisp_root
-      MYSQL_DATABASE: fireisp
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-fireisp_root}
+      MYSQL_DATABASE: ${DB_NAME:-fireisp}
     ports:
       - '3306:3306'
     volumes:
@@ -30,15 +30,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
-      NODE_ENV: development
-      PORT: 3000
       DB_HOST: db
       DB_PORT: 3306
-      DB_USER: root
-      DB_PASSWORD: fireisp_root
-      DB_NAME: fireisp
-      JWT_SECRET: dev-jwt-secret-change-in-production
     volumes:
       - ./src:/app/src
       - ./storage:/app/storage

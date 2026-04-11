@@ -11,14 +11,25 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
+const mysql = require('mysql2/promise');
 const db = require('../config/database');
 
 const MIGRATIONS_DIR = path.resolve(__dirname, '../../database/migrations');
 
 async function runMigrations() {
+  // Migrations may contain multiple SQL statements per file, so we use a
+  // dedicated connection with multipleStatements enabled (the main pool
+  // intentionally disables this for security).
+  const migrationPool = mysql.createPool({
+    ...db.baseConnectionConfig,
+    waitForConnections: true,
+    connectionLimit: 1,
+    multipleStatements: true,
+  });
+
   let conn;
   try {
-    conn = await db.getConnection();
+    conn = await migrationPool.getConnection();
 
     // Ensure schema_migrations table exists (migration 052 creates it, but
     // we need it before running any migrations on a fresh DB).
@@ -69,6 +80,7 @@ async function runMigrations() {
     }
   } finally {
     if (conn) conn.release();
+    await migrationPool.end();
     await db.close();
   }
 }

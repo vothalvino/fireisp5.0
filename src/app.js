@@ -77,7 +77,19 @@ const app = express();
 // Global middleware
 // ---------------------------------------------------------------------------
 app.use(helmet());
-app.use(cors());
+
+// CORS — restrict origins in production to the configured APP_URL;
+// in development allow common localhost origins only.
+const corsOrigin = config.env === 'production'
+  ? config.appUrl
+  : [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
+  ];
+app.use(cors({ origin: corsOrigin, credentials: true }));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(requestLogger);

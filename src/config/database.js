@@ -7,18 +7,25 @@
 
 const mysql = require('mysql2/promise');
 
-const pool = mysql.createPool({
+/**
+ * Shared connection parameters derived from environment variables.
+ * Used by both the main application pool and the migration runner.
+ */
+const baseConnectionConfig = {
   host: process.env.DB_HOST || '127.0.0.1',
   port: parseInt(process.env.DB_PORT || '3306', 10),
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'fireisp',
+  charset: 'utf8mb4',
+  timezone: '+00:00',
+};
+
+const pool = mysql.createPool({
+  ...baseConnectionConfig,
   waitForConnections: true,
   connectionLimit: 20,
   queueLimit: 0,
-  charset: 'utf8mb4',
-  timezone: '+00:00',
-  multipleStatements: true,
 });
 
 /**
@@ -42,4 +49,4 @@ async function close() {
   return pool.end();
 }
 
-module.exports = { pool, query, getConnection, close };
+module.exports = { pool, query, getConnection, close, baseConnectionConfig };
