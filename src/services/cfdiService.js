@@ -57,7 +57,7 @@ function buildCfdi40Xml(doc, conceptos, impuestos) {
       <cfdi:Impuestos>
         <cfdi:Traslados>
           ${taxes.filter(t => t.tax_type === 'traslado').map(t =>
-    `<cfdi:Traslado Base="${t.base}" Impuesto="${t.impuesto}" TipoFactor="${t.tipo_factor}" TasaOCuota="${t.tasa_o_cuota}" Importe="${t.importe}" />`
+    `<cfdi:Traslado Base="${t.base}" Impuesto="${t.impuesto}" TipoFactor="${t.tipo_factor}" TasaOCuota="${t.tasa_o_cuota}" Importe="${t.importe}" />`,
   ).join('\n          ')}
         </cfdi:Traslados>
       </cfdi:Impuestos>` : '';

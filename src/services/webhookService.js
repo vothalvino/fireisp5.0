@@ -5,6 +5,9 @@
 // =============================================================================
 
 const crypto = require('crypto');
+const http = require('http');
+const https = require('https');
+const { URL } = require('url');
 const db = require('../config/database');
 
 /**
@@ -50,36 +53,28 @@ async function deliver(webhook, event, payload) {
     const startTime = Date.now();
 
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeout);
+      const response = await httpPost(webhook.url, body, {
+        'Content-Type': 'application/json',
+        'X-FireISP-Event': event,
+        ...(signature && { 'X-FireISP-Signature': `sha256=${signature}` }),
+      }, timeout);
 
-      const response = await fetch(webhook.url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-FireISP-Event': event,
-          ...(signature && { 'X-FireISP-Signature': `sha256=${signature}` }),
-        },
-        body,
-        signal: controller.signal,
-      });
-
-      clearTimeout(timer);
       const responseTime = Date.now() - startTime;
+      const ok = response.statusCode >= 200 && response.statusCode < 300;
 
       await db.query(
         `INSERT INTO webhook_deliveries
          (webhook_id, event, request_body, response_status, response_body, response_time_ms, attempt, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [webhook.id, event, body, response.status, await response.text().catch(() => ''), responseTime, attempt,
-         response.ok ? 'success' : 'failed'],
+        [webhook.id, event, body, response.statusCode, response.body, responseTime, attempt,
+          ok ? 'success' : 'failed'],
       );
 
-      if (response.ok) {
+      if (ok) {
         return { webhook_id: webhook.id, status: 'success', attempts: attempt };
       }
 
-      lastError = `HTTP ${response.status}`;
+      lastError = `HTTP ${response.statusCode}`;
     } catch (err) {
       lastError = err.message;
       const responseTime = Date.now() - startTime;
@@ -99,6 +94,34 @@ async function deliver(webhook, event, payload) {
   }
 
   return { webhook_id: webhook.id, status: 'failed', attempts: attempt, error: lastError };
+}
+
+/**
+ * Simple HTTP/HTTPS POST using built-in Node modules.
+ */
+function httpPost(url, body, headers, timeout) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const transport = parsed.protocol === 'https:' ? https : http;
+
+    const req = transport.request({
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname + parsed.search,
+      method: 'POST',
+      headers: { ...headers, 'Content-Length': Buffer.byteLength(body) },
+      timeout,
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => resolve({ statusCode: res.statusCode, body: data }));
+    });
+
+    req.on('timeout', () => { req.destroy(new Error('Request timed out')); });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
 }
 
 /**
