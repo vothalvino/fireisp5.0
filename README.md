@@ -151,6 +151,24 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 81 | `factura_publica_invoices` | Factura pública (venta al público en general) periodic aggregation documents — when MX contracts have `facturar = FALSE`, their invoices are aggregated into a periodic factura pública per SAT InformacionGlobal (Periodicidad, Meses, Año); one row per organization per period |
 | 82 | `factura_publica_invoice_items` | Junction table linking individual invoices from contracts with `facturar = FALSE` to their parent factura pública — each invoice belongs to at most one factura pública document |
 | 83 | `cfdi_payment_complement_item_taxes` | Per-DoctoRelacionado tax breakdown (ImpuestosP) for Complemento de Pago 2.0 — one row per `<Traslado>` or `<Retencion>` inside a payment complement item; stores tax type, SAT tax code, rate type, rate, taxable base, and calculated tax amount |
+| 84 | `payment_gateways` | Payment gateway provider configuration per organization (Stripe, Conekta, OpenPay, MercadoPago, PayPal, manual) — stores environment, encrypted credentials, webhook secrets, and provider-specific JSON config |
+| 85 | `payment_transactions` | Raw gateway transaction log for every payment attempt — provider reference ID, gateway status, raw request/response payloads, webhook data, and idempotency key for auditing and reconciliation |
+| 86 | `recurring_payment_profiles` | Stored card / token per client for autopay (recurring charges) — gateway customer ID or card token, card brand, last four digits, expiry, and lifecycle status |
+| 87 | `suspension_rules` | Configurable suspension rules per organization — days-past-due threshold, grace period, action (auto_suspend / notify_only / auto_disconnect), optional plan-ID scoping |
+| 88 | `suspension_logs` | History of suspend / unsuspend / disconnect / reconnect events per contract — triggering rule, performer, RADIUS CoA sent/response, and linked invoice |
+| 89 | `csd_certificates` | CSD (Certificado de Sello Digital) storage per organization for SAT CFDI 4.0 stamping — PEM-encoded public certificate, encrypted private key, SHA-256 fingerprint, and expiry monitoring |
+| 90 | `pac_providers` | PAC (Proveedor Autorizado de Certificación) provider credentials and endpoint configuration per organization — supports Finkok, SW Sapien, Digicel, Comercio Digital, FacturAPI with sandbox/production environments |
+| 91 | `webhooks` | Outbound webhook registrations per organization — target URL, HMAC signing secret, JSON event subscriptions, max retries, and timeout configuration |
+| 92 | `webhook_deliveries` | Delivery log for outbound webhooks — HTTP status, response body, response time, attempt number, retry scheduling, and delivery outcome |
+| 93 | `organization_users` | Pivot table linking users to organizations with per-organization roles (owner, admin, manager, technician, billing, readonly) — enables multi-tenant user membership |
+| 94 | `plan_addons` | Catalog of plan add-ons available for sale per organization — static IP, extra IP block, extra bandwidth, equipment rental; price and billing cycle (monthly / one-time / yearly) |
+| 95 | `contract_addons` | Add-ons attached to a specific client contract — references plan_addons catalog, stores contracted quantity, negotiated unit price, validity window, and lifecycle status |
+| 96 | `speed_tests` | Speed test results from client portal, technician tools, automated probes, or external services — download/upload Mbps, latency, jitter, packet loss for SLA correlation |
+| 97 | `ticket_sla_events` | SLA tracking events per support ticket — first-response time, resolution time, escalation, breach warnings, and breaches; pairs with sla_definitions for target comparison |
+| 98 | `sms_logs` | SMS and WhatsApp notification logging per organization — complements email_logs for non-email channels; captures direction, provider, delivery status, cost, and timestamps |
+| 99 | `revenue_summary` | Materialized revenue summary for MRR / churn / ARPU reporting — populated by a scheduled task (not a view); one row per organization per calendar month per currency |
+| 100 | `network_health_snapshots` | Aggregated daily device uptime and link utilization snapshots — uptime %, avg/peak latency, avg/peak throughput in/out, packet loss, total downtime minutes |
+| 101 | `cfdi_cancellations` | SAT CFDI cancellation audit trail — cancellation reason code (motivo 01–04), optional replacement UUID (folio_sustitucion), PAC response status, and raw acuse XML acknowledgement |
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 
@@ -200,6 +218,42 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 099 — Fix XXX currency description:** `099_fix_xxx_currency_description.sql` updates `sat_moneda` to set the `XXX` currency description to the official SAT text: *"Los códigos asignados para las transacciones en que no intervenga ninguna moneda"* (previously incorrectly set to *"Los derechos en esta divisa"*).
 
 > **Migration 100 — CSD expiry monitoring task:** `100_seed_csd_expiry_scheduled_task.sql` inserts a system-level scheduled task (`csd_expiry_monitor`, cron `0 8 * * *`) that checks `organization_mx_profiles.csd_valid_to` for certificates expiring within 30 days and generates email + in-app notifications. Uses `INSERT IGNORE` for idempotent re-runs. If a CSD expires, the ISP cannot stamp any new CFDIs.
+
+> **Migration 101 — Payment gateways:** `101_create_payment_gateways_table.sql` creates the `payment_gateways` table for per-organization payment provider configuration (Stripe, Conekta, OpenPay, MercadoPago, PayPal, manual, other). Stores environment (sandbox/production), encrypted secret key, optional public key, webhook signing secret, default flag, and a JSON column for provider-specific settings.
+
+> **Migration 102 — Payment transactions:** `102_create_payment_transactions_table.sql` creates the `payment_transactions` table — a raw gateway transaction log for every payment attempt. Records the provider's reference ID, gateway status (pending/succeeded/failed/refunded/disputed/cancelled), raw request/response JSON, webhook payload, and a unique idempotency key to prevent duplicate charges.
+
+> **Migration 103 — Recurring payment profiles:** `103_create_recurring_payment_profiles_table.sql` creates the `recurring_payment_profiles` table for stored card tokens per client (autopay). Holds the gateway's customer or card token, card brand, last four digits, expiry month/year, default flag, and lifecycle status (active/expired/revoked).
+
+> **Migration 104 — Suspension rules:** `104_create_suspension_rules_table.sql` creates the `suspension_rules` table for configurable auto-suspend/disconnect rules per organization. Each rule specifies a days-past-due threshold, grace period, action (auto_suspend/notify_only/auto_disconnect), optional advance notification window, and optional plan-ID scoping via JSON.
+
+> **Migration 105 — Suspension logs:** `105_create_suspension_logs_table.sql` creates the `suspension_logs` table — a full audit trail of suspend/unsuspend/disconnect/reconnect events per contract. Records the triggering rule (NULL for manual actions), performer, RADIUS CoA sent/response, linked invoice, and suspend/restore timestamps.
+
+> **Migration 106 — CSD certificates:** `106_create_csd_certificates_table.sql` creates the `csd_certificates` table for storing CSD `.cer`/`.key` files per organization. Holds PEM-encoded public certificate, application-encrypted private key, optional encrypted passphrase, SHA-256 fingerprint (unique), certificate number (NoCertificado, unique), RFC, validity window, and active/expired/revoked status. The `valid_to` column is used by the CSD expiry monitor task (migration 100).
+
+> **Migration 107 — PAC providers:** `107_create_pac_providers_table.sql` creates the `pac_providers` table for PAC (Proveedor Autorizado de Certificación) credentials and endpoint configuration. Supports Finkok, SW Sapien, Digicel, Comercio Digital, FacturAPI with sandbox/production environments. Unique constraint on `(organization_id, provider_name, environment)`.
+
+> **Migration 108 — Webhooks:** `108_create_webhooks_table.sql` creates the `webhooks` table for outbound webhook registrations per organization. Each record defines a target URL, encrypted HMAC signing secret, JSON array of subscribed event names, max retries (default 5), and timeout (default 30s).
+
+> **Migration 109 — Webhook deliveries:** `109_create_webhook_deliveries_table.sql` creates the `webhook_deliveries` table — a per-attempt delivery log for outbound webhooks. Records HTTP status code, response body, response time, attempt number, delivery status (pending/success/failed/retrying), and next retry timestamp.
+
+> **Migration 110 — Organization users:** `110_create_organization_users_table.sql` creates the `organization_users` pivot table linking users to organizations with per-organization roles (owner/admin/manager/technician/billing/readonly). Unique on `(organization_id, user_id)`. Enables multi-tenant user membership where one user account can belong to multiple organizations.
+
+> **Migration 111 — Plan add-ons:** `111_create_plan_addons_table.sql` creates the `plan_addons` catalog table for upsellable add-ons per organization — static IP, extra IP block, extra bandwidth, equipment rental, or other. Stores price, billing cycle (monthly/one-time/yearly), taxability flag, and availability status.
+
+> **Migration 112 — Contract add-ons:** `112_create_contract_addons_table.sql` creates the `contract_addons` table for add-ons attached to a specific client contract. References the plan_addons catalog and stores contracted quantity, negotiated unit price, start/end dates, and lifecycle status (active/cancelled/expired).
+
+> **Migration 113 — Speed tests:** `113_create_speed_tests_table.sql` creates the `speed_tests` table for recording speed test results from multiple sources (client_portal/technician/automated_probe/external). Stores download/upload Mbps, latency, jitter, packet loss, observed IP address, and tested-at timestamp. Optional FKs to clients, contracts, and devices.
+
+> **Migration 114 — Ticket SLA events:** `114_create_ticket_sla_events_table.sql` creates the `ticket_sla_events` table for SLA tracking per support ticket. Records milestones (first_response/resolution/escalation/breach_warning/breach), target deadline, actual timestamp, breach flag, and minutes past deadline. FK to `sla_definitions` (migration 063).
+
+> **Migration 115 — SMS logs:** `115_create_sms_logs_table.sql` creates the `sms_logs` table for SMS and WhatsApp notification logging per organization. Complements `email_logs` for non-email channels. Captures direction (outbound/inbound), provider name, provider message ID, delivery status, error details, per-message cost, and send/delivery timestamps. FK to `message_templates`.
+
+> **Migration 116 — Revenue summary:** `116_create_revenue_summary_table.sql` creates the `revenue_summary` materialized table for MRR/churn/ARPU reporting — populated by a scheduled task, not a SQL VIEW. One row per organization per calendar month per currency. Stores MRR, active clients/contracts, new/churned contracts, ARPU, total revenue/collected/outstanding.
+
+> **Migration 117 — Network health snapshots:** `117_create_network_health_snapshots_table.sql` creates the `network_health_snapshots` table for aggregated daily device and link health data. Stores uptime %, avg/max latency, avg/peak throughput in/out, packet loss, and total downtime minutes. Composite indexes on `(device_id, snapshot_date)` and `(network_link_id, snapshot_date)`.
+
+> **Migration 118 — CFDI cancellations:** `118_create_cfdi_cancellations_table.sql` creates the `cfdi_cancellations` table — a SAT CFDI cancellation audit trail. Records the cancellation reason code (motivo: 01=con relación, 02=sin relación, 03=no se llevó a cabo, 04=nominativa en CFDI global), optional replacement UUID (folio_sustitucion, required for motivo 01), PAC response status, raw acuse XML, and requesting user. FK to `cfdi_documents`, `pac_providers`, and `users`.
 
 ### Venta al Público en General (Factura Pública)
 
