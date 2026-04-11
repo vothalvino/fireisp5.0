@@ -19,7 +19,7 @@ const firerelayNodeUpdate = {
   disk_percent: { type: 'number', min: 0, max: 100 },
   db_size_mb: { type: 'number', min: 0 },
   uptime_seconds: { type: 'number', min: 0 },
-  last_seen_at: { type: 'string', max: 30 },
+  last_seen_at: { type: 'string', max: 30, pattern: /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?/ },
 };
 
 module.exports = { firerelayNode, firerelayNodeUpdate };

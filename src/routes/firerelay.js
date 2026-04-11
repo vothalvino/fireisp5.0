@@ -121,17 +121,25 @@ router.put(
       if (relayConfig.mode !== 'master') {
         throw new ValidationError('Node management is only available on the master node');
       }
-      const allowed = [
-        'name', 'api_url', 'status',
-        'client_count', 'device_count',
-        'cpu_percent', 'memory_percent', 'disk_percent',
-        'db_size_mb', 'uptime_seconds', 'last_seen_at',
-      ];
+      // Hardcoded column→placeholder mapping — no dynamic SQL interpolation
+      const COLUMN_MAP = {
+        name: '`name` = ?',
+        api_url: '`api_url` = ?',
+        status: '`status` = ?',
+        client_count: '`client_count` = ?',
+        device_count: '`device_count` = ?',
+        cpu_percent: '`cpu_percent` = ?',
+        memory_percent: '`memory_percent` = ?',
+        disk_percent: '`disk_percent` = ?',
+        db_size_mb: '`db_size_mb` = ?',
+        uptime_seconds: '`uptime_seconds` = ?',
+        last_seen_at: '`last_seen_at` = ?',
+      };
       const sets = [];
       const params = [];
-      for (const key of allowed) {
+      for (const [key, clause] of Object.entries(COLUMN_MAP)) {
         if (req.body[key] !== undefined) {
-          sets.push(`\`${key}\` = ?`);
+          sets.push(clause);
           params.push(req.body[key]);
         }
       }
