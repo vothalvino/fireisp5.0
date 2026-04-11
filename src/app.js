@@ -7,6 +7,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const config = require('./config');
 const { AppError } = require('./utils/errors');
+const { apiLimiter, authLimiter } = require('./middleware/rateLimit');
 
 // Route imports
 const authRoutes = require('./routes/auth');
@@ -36,6 +37,8 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use('/api/', apiLimiter);
+app.use('/api/auth', authLimiter);
 
 // ---------------------------------------------------------------------------
 // Health check

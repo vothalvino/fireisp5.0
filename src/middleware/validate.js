@@ -35,7 +35,8 @@ function validate(schema) {
       } else if (rules.type === 'boolean' && typeof value !== 'boolean') {
         errors.push({ field, message: `${field} must be a boolean` });
       } else if (rules.type === 'email' && typeof value === 'string') {
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+        // Simple, ReDoS-safe email validation: local@domain.tld
+        if (!/^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(value)) {
           errors.push({ field, message: `${field} must be a valid email` });
         }
       }
