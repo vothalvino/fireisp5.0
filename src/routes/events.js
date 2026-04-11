@@ -75,6 +75,31 @@ function initSseResponse(res) {
   res.write(':ok\n\n'); // Initial comment to establish connection
 }
 
+/**
+ * Start a keepalive timer and register cleanup on client disconnect.
+ * @param {import('http').IncomingMessage} req
+ * @param {import('http').ServerResponse} res
+ * @param {string} channel
+ * @param {Set} clients
+ */
+function registerSseClient(req, res, channel, clients) {
+  clients.add(res);
+
+  const keepalive = setInterval(() => {
+    try {
+      res.write(':keepalive\n\n');
+    } catch (_err) {
+      clearInterval(keepalive);
+    }
+  }, 30000);
+
+  req.on('close', () => {
+    clearInterval(keepalive);
+    clients.delete(res);
+    if (clients.size === 0) channels.delete(channel);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
@@ -88,28 +113,13 @@ router.get('/stream', authenticate, orgScope, (req, res) => {
 
   const channel = `org:${req.orgId}:notifications`;
   const clients = getChannel(channel);
-  clients.add(res);
 
   logger.debug({ channel, userId: req.user.id }, 'SSE client connected');
 
   // Send initial connection confirmation
   sendEvent(res, 'connected', { channel, timestamp: new Date().toISOString() });
 
-  // Keepalive every 30s to prevent proxy/LB timeout
-  const keepalive = setInterval(() => {
-    try {
-      res.write(':keepalive\n\n');
-    } catch (_err) {
-      clearInterval(keepalive);
-    }
-  }, 30000);
-
-  req.on('close', () => {
-    clearInterval(keepalive);
-    clients.delete(res);
-    if (clients.size === 0) channels.delete(channel);
-    logger.debug({ channel, userId: req.user.id }, 'SSE client disconnected');
-  });
+  registerSseClient(req, res, channel, clients);
 });
 
 /**
@@ -122,43 +132,30 @@ router.get('/metrics', authenticate, orgScope, (req, res) => {
 
   const channel = `org:${req.orgId}:metrics`;
   const clients = getChannel(channel);
-  clients.add(res);
 
   sendEvent(res, 'connected', { channel, timestamp: new Date().toISOString() });
-
-  const keepalive = setInterval(() => {
-    try { res.write(':keepalive\n\n'); } catch (_err) { clearInterval(keepalive); }
-  }, 30000);
-
-  req.on('close', () => {
-    clearInterval(keepalive);
-    clients.delete(res);
-    if (clients.size === 0) channels.delete(channel);
-  });
+  registerSseClient(req, res, channel, clients);
 });
 
 /**
  * GET /api/events/tickets/:id
  * Real-time updates for a specific ticket (comments, status changes).
+ * The ticket ID is validated as a numeric integer to prevent injection.
  */
 router.get('/tickets/:id', authenticate, orgScope, (req, res) => {
+  // Validate and sanitize the ticket ID (integer only)
+  const ticketId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(ticketId) || ticketId <= 0) {
+    return res.status(400).json({ error: { code: 'INVALID_ID', message: 'Ticket ID must be a positive integer' } });
+  }
+
   initSseResponse(res);
 
-  const channel = `org:${req.orgId}:ticket:${req.params.id}`;
+  const channel = `org:${req.orgId}:ticket:${ticketId}`;
   const clients = getChannel(channel);
-  clients.add(res);
 
-  sendEvent(res, 'connected', { channel, ticketId: req.params.id, timestamp: new Date().toISOString() });
-
-  const keepalive = setInterval(() => {
-    try { res.write(':keepalive\n\n'); } catch (_err) { clearInterval(keepalive); }
-  }, 30000);
-
-  req.on('close', () => {
-    clearInterval(keepalive);
-    clients.delete(res);
-    if (clients.size === 0) channels.delete(channel);
-  });
+  sendEvent(res, 'connected', { channel, ticketId, timestamp: new Date().toISOString() });
+  registerSseClient(req, res, channel, clients);
 });
 
 /**
@@ -170,19 +167,9 @@ router.get('/outages', authenticate, orgScope, (req, res) => {
 
   const channel = `org:${req.orgId}:outages`;
   const clients = getChannel(channel);
-  clients.add(res);
 
   sendEvent(res, 'connected', { channel, timestamp: new Date().toISOString() });
-
-  const keepalive = setInterval(() => {
-    try { res.write(':keepalive\n\n'); } catch (_err) { clearInterval(keepalive); }
-  }, 30000);
-
-  req.on('close', () => {
-    clearInterval(keepalive);
-    clients.delete(res);
-    if (clients.size === 0) channels.delete(channel);
-  });
+  registerSseClient(req, res, channel, clients);
 });
 
 // ---------------------------------------------------------------------------

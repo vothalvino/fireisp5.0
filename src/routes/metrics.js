@@ -106,11 +106,11 @@ router.get('/', (_req, res) => {
 
   lines.push('# HELP nodejs_active_handles_total Number of active libuv handles');
   lines.push('# TYPE nodejs_active_handles_total gauge');
-  lines.push(`nodejs_active_handles_total ${process._getActiveHandles ? process._getActiveHandles().length : 0}`);
+  lines.push(`nodejs_active_handles_total ${typeof process._getActiveHandles === 'function' ? process._getActiveHandles().length : -1}`);
 
   lines.push('# HELP nodejs_active_requests_total Number of active libuv requests');
   lines.push('# TYPE nodejs_active_requests_total gauge');
-  lines.push(`nodejs_active_requests_total ${process._getActiveRequests ? process._getActiveRequests().length : 0}`);
+  lines.push(`nodejs_active_requests_total ${typeof process._getActiveRequests === 'function' ? process._getActiveRequests().length : -1}`);
 
   // ---- HTTP metrics ----
   lines.push('# HELP http_requests_total Total number of HTTP requests');

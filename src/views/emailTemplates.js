@@ -59,11 +59,11 @@ function welcomeEmail(vars) {
   const { clientName, orgName, portalUrl } = vars;
   const content = `
     <div class="header">
-      <h1>Welcome to ${orgName || 'Our Service'}</h1>
+      <h1>Welcome to ${orgName || 'FireISP'}</h1>
       <div class="subtitle">Your internet service account is ready</div>
     </div>
     <p>Hello <strong>${clientName || 'Valued Customer'}</strong>,</p>
-    <p>Thank you for choosing ${orgName || 'our service'}! Your account has been created and is ready to use.</p>
+    <p>Thank you for choosing ${orgName || 'FireISP'}! Your account has been created and is ready to use.</p>
     <p>You can access your account portal to view invoices, make payments, and manage your service:</p>
     <p style="text-align: center; margin: 24px 0;">
       <a href="${portalUrl || '#'}" class="btn">Access Your Account</a>
