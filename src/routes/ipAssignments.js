@@ -8,6 +8,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createIpAssignment, updateIpAssignment } = require('../middleware/schemas/ipAssignments');
 
 const router = Router();
 const ctrl = crudController(IpAssignment);
@@ -17,8 +19,8 @@ router.use(orgScope);
 
 router.get('/', requirePermission('ip_assignments.view'), ctrl.list);
 router.get('/:id', requirePermission('ip_assignments.view'), ctrl.get);
-router.post('/', requirePermission('ip_assignments.create'), ctrl.create);
-router.put('/:id', requirePermission('ip_assignments.update'), ctrl.update);
+router.post('/', requirePermission('ip_assignments.create'), validate(createIpAssignment), ctrl.create);
+router.put('/:id', requirePermission('ip_assignments.update'), validate(updateIpAssignment), ctrl.update);
 router.delete('/:id', requirePermission('ip_assignments.delete'), ctrl.destroy);
 
 module.exports = router;

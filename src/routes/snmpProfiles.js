@@ -8,6 +8,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createSnmpProfile, updateSnmpProfile, createSnmpProfileOid } = require('../middleware/schemas/snmpProfiles');
 const db = require('../config/database');
 
 const router = Router();
@@ -18,8 +20,8 @@ router.use(orgScope);
 
 router.get('/', requirePermission('snmp_profiles.view'), ctrl.list);
 router.get('/:id', requirePermission('snmp_profiles.view'), ctrl.get);
-router.post('/', requirePermission('snmp_profiles.create'), ctrl.create);
-router.put('/:id', requirePermission('snmp_profiles.update'), ctrl.update);
+router.post('/', requirePermission('snmp_profiles.create'), validate(createSnmpProfile), ctrl.create);
+router.put('/:id', requirePermission('snmp_profiles.update'), validate(updateSnmpProfile), ctrl.update);
 router.delete('/:id', requirePermission('snmp_profiles.delete'), ctrl.destroy);
 
 // Get OIDs for an SNMP profile
@@ -33,7 +35,7 @@ router.get('/:id/oids', requirePermission('snmp_profiles.view'), async (req, res
 });
 
 // Add an OID to an SNMP profile
-router.post('/:id/oids', requirePermission('snmp_profiles.update'), async (req, res, next) => {
+router.post('/:id/oids', requirePermission('snmp_profiles.update'), validate(createSnmpProfileOid), async (req, res, next) => {
   try {
     const oid = await SnmpProfile.addOid({ profile_id: req.params.id, ...req.body });
     res.status(201).json({ data: oid });
