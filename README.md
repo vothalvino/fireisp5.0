@@ -10,12 +10,15 @@ An open source ISP (Internet Service Provider) management software designed to h
 - Network device monitoring with SNMP metrics collection
 - Connection logging for regulatory compliance and per-contract data usage (RADIUS accounting)
 - Inventory and warehouse management — track spare equipment across multiple storage locations
-- User and role management with RBAC (roles, permissions, role_permissions)
+- User and role management with RBAC (roles, permissions, role_permissions) — default roles and permissions seeded on install
 - IP address management (IPAM) with IPv4, IPv6, and dual-stack support
 - Audit logging and notifications
 - Email / SMS / WhatsApp send log for auditing and billing disputes
 - Service outage tracking with SLA reporting hooks
-- Scheduled task observability and active session management
+- Scheduled task observability and active session management — five core automation tasks seeded on install (auto-invoice, auto-suspend, RADIUS sync, revenue summary, network health snapshots)
+- Default application settings seeded on install (currency, SMTP, SNMP, security, automation flags)
+- Default tax rates seeded on install (Tax Exempt, Standard 8 %, IVA 16 % MX, GST 5 % CA)
+- Payment allocation, inventory stock, and PPPoE RADIUS consistency enforced at the database level via guard triggers
 
 ## Project Structure
 
@@ -254,6 +257,28 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 117 — Network health snapshots:** `117_create_network_health_snapshots_table.sql` creates the `network_health_snapshots` table for aggregated daily device and link health data. Stores uptime %, avg/max latency, avg/peak throughput in/out, packet loss, and total downtime minutes. Composite indexes on `(device_id, snapshot_date)` and `(network_link_id, snapshot_date)`.
 
 > **Migration 118 — CFDI cancellations:** `118_create_cfdi_cancellations_table.sql` creates the `cfdi_cancellations` table — a SAT CFDI cancellation audit trail. Records the cancellation reason code (motivo: 01=con relación, 02=sin relación, 03=no se llevó a cabo, 04=nominativa en CFDI global), optional replacement UUID (folio_sustitucion, required for motivo 01), PAC response status, raw acuse XML, and requesting user. FK to `cfdi_documents`, `pac_providers`, and `users`.
+
+> **Migration 119 — Seed default roles and permissions:** `119_seed_default_roles_and_permissions.sql` inserts the five built-in system roles (`admin`, `billing`, `support`, `technician`, `readonly`) with `is_system = TRUE` so they cannot be deleted. Also inserts all granular permission slugs (e.g. `clients.view`, `invoices.create`, `devices.delete`, `audit_logs.view`) grouped by module, and the `role_permissions` mappings: `admin` gets all permissions; `billing` gets billing/financial access; `support` gets client/ticket access; `technician` gets device/job/inventory access; `readonly` gets all `*.view` and `*.export` permissions. Uses `INSERT IGNORE` for idempotent re-runs.
+
+> **Migration 120 — Seed default settings:** `120_seed_default_settings.sql` populates the `settings` key-value table with 25 default values covering currency (`default_currency = USD`), invoice/quote/credit-note prefixes, SMTP configuration, SNMP polling interval and community, company profile fields, locale/date-format/pagination preferences, session and login security parameters, and automation flags (`auto_suspend_enabled`, `auto_invoice_enabled`). Uses `INSERT IGNORE` — administrator-customised values are never overwritten on re-runs.
+
+> **Migration 121 — Seed default tax rates:** `121_seed_default_tax_rates.sql` inserts four globally applicable default tax rates (`organization_id = NULL`): Tax Exempt (0 %), Standard Tax 8 %, IVA 16 % (Mexico), and GST 5 % (Canada). Uses `WHERE NOT EXISTS` guards for full idempotency since the `tax_rates` table does not carry a `UNIQUE` constraint on `name` alone.
+
+> **Migration 122 — Seed default suspension rule:** `122_seed_default_suspension_rule.sql` inserts a default auto-suspend rule into `suspension_rules` for the first organization (id = 1): 30 days past due, 5-day grace period, action `auto_suspend`. Uses `WHERE NOT EXISTS` to be idempotent. Because `suspension_rules.organization_id` is `NOT NULL`, this seed targets org id = 1; administrators should add per-organization rules as part of tenant onboarding.
+
+> **Migration 123 — Seed scheduled tasks for core automation:** `123_seed_scheduled_tasks_core_automation.sql` inserts the five system-level automation tasks that drive FireISP's main operational loops: `auto_generate_invoices` (daily at 01:00), `auto_suspend_overdue` (daily at 06:00), `radius_sync` (every 5 min), `populate_revenue_summary` (monthly on the 1st at 02:00), and `populate_network_health_snapshots` (daily at 04:00). All tasks use `organization_id = NULL` (global) and `is_enabled = TRUE`. Uses `INSERT IGNORE` on the `UNIQUE KEY (organization_id, task_name)`.
+
+> **Migration 124 — Add currency to expenses (idempotent guard):** `124_add_currency_to_expenses.sql` adds `expenses.currency CHAR(3) NOT NULL DEFAULT 'USD'` after the `amount` column for multi-currency expense tracking. The migration is wrapped in a stored-procedure guard that checks `INFORMATION_SCHEMA.COLUMNS` before issuing the `ALTER TABLE`, making it a safe no-op on installations where migration 051 already applied the same column.
+
+> **Migration 125 — Add tax_rate_id to line-item tables:** `125_add_tax_rate_id_to_line_item_tables.sql` adds a `tax_rate_id BIGINT UNSIGNED NULL` foreign-key column to `invoice_items`, `quote_items`, and `credit_note_items`. `NULL` means "inherit the rate from the parent document". This enables per-line-item tax rates for mixed-rate invoices common in multi-tax-rate jurisdictions (e.g. different rates for hardware vs. services). `ON DELETE SET NULL` prevents cascading deletes when a `tax_rates` row is removed.
+
+> **Migration 126 — Payment allocation balance guard triggers:** `126_payment_allocation_balance_guard_triggers.sql` adds four `BEFORE INSERT / BEFORE UPDATE` triggers on `payment_allocations` that enforce two financial integrity rules at the database level: (1) the total allocated amount for a payment cannot exceed `payments.amount`, and (2) the total allocated amount for an invoice cannot exceed `invoices.total`. Both violations raise `SQLSTATE '45000'` with descriptive messages. Uses `DROP TRIGGER IF EXISTS` before each `CREATE TRIGGER` for safe re-runs.
+
+> **Migration 127 — Inventory stock negative guard trigger:** `127_inventory_stock_negative_guard_trigger.sql` adds a `BEFORE UPDATE` trigger on `inventory_stock` that raises `SQLSTATE '45000'` when a stock update would set `quantity < 0`. This prevents physically impossible inventory state from silently corrupting reports and downstream job fulfillment. Uses `DROP TRIGGER IF EXISTS` for safe re-runs.
+
+> **Migration 128 — PPPoE contract RADIUS consistency trigger:** `128_connection_type_radius_consistency_trigger.sql` adds a `BEFORE UPDATE` trigger on `contracts` that raises `SQLSTATE '45000'` when a contract with `connection_type IN ('pppoe', 'pppoe_dual')` is activated (`status` changed to `'active'`) without at least one corresponding `radius` row. Contracts start in `pending` status so RADIUS accounts can be provisioned before activation; the guard fires only at activation time. Uses `DROP TRIGGER IF EXISTS` for safe re-runs.
+
+> **Migration 129 — Composite indexes for query performance:** `129_add_composite_indexes_for_query_performance.sql` adds five composite indexes for common multi-column query patterns: `idx_invoices_currency_status ON invoices(currency, status)`, `idx_payment_transactions_gateway_id_status ON payment_transactions(payment_gateway_id, gateway_status)`, `idx_expenses_currency ON expenses(currency)`, `idx_contracts_client_facturar ON contracts(client_id, facturar)`, and `idx_suspension_logs_contract_created ON suspension_logs(contract_id, created_at)`. Each index is guarded via `INFORMATION_SCHEMA.STATISTICS` in a stored procedure for safe re-runs. Note: `webhook_deliveries.next_retry_at` already has a single-column index from migration 109.
 
 ### Venta al Público en General (Factura Pública)
 

@@ -4776,3 +4776,483 @@ CREATE TABLE IF NOT EXISTS cfdi_cancellations (
     CONSTRAINT fk_cfdi_cancellations_user FOREIGN KEY (requested_by_user_id)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Seed: default roles and permissions (migration 119)
+-- Purpose: Inserts the five built-in system roles (admin, billing, support,
+--          technician, readonly) and all granular permission slugs required
+--          for a functioning RBAC installation.  role_permissions rows map
+--          each role to the permissions appropriate for its scope.
+--          Uses INSERT IGNORE — safe to re-run.
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO roles (name, description, is_system) VALUES
+    ('admin',      'Full system access — can manage all resources and settings', TRUE),
+    ('billing',    'Billing module access — invoices, payments, plans, and subscriptions', TRUE),
+    ('support',    'Support access — clients, tickets, and related communications', TRUE),
+    ('technician', 'Field / NOC technician — devices, jobs, network, and inventory', TRUE),
+    ('readonly',   'Read-only observer — can view all resources but cannot modify anything', TRUE);
+
+INSERT IGNORE INTO permissions (name, description, module) VALUES
+    ('clients.view',         'View client list and profiles',          'clients'),
+    ('clients.create',       'Create new clients',                     'clients'),
+    ('clients.update',       'Edit existing client records',           'clients'),
+    ('clients.delete',       'Delete or deactivate clients',           'clients'),
+    ('contracts.view',       'View service contracts',                 'contracts'),
+    ('contracts.create',     'Create new service contracts',           'contracts'),
+    ('contracts.update',     'Modify existing contracts',              'contracts'),
+    ('contracts.delete',     'Cancel or delete contracts',             'contracts'),
+    ('invoices.view',        'View invoices',                          'billing'),
+    ('invoices.create',      'Generate new invoices',                  'billing'),
+    ('invoices.update',      'Edit draft invoices',                    'billing'),
+    ('invoices.delete',      'Void or delete invoices',                'billing'),
+    ('payments.view',        'View payment records',                   'billing'),
+    ('payments.create',      'Record new payments',                    'billing'),
+    ('payments.update',      'Edit payment records',                   'billing'),
+    ('payments.delete',      'Delete payment records',                 'billing'),
+    ('tickets.view',         'View support tickets',                   'support'),
+    ('tickets.create',       'Open new support tickets',               'support'),
+    ('tickets.update',       'Update and respond to tickets',          'support'),
+    ('tickets.delete',       'Delete tickets',                         'support'),
+    ('devices.view',         'View network devices',                   'network'),
+    ('devices.create',       'Add new devices',                        'network'),
+    ('devices.update',       'Edit device configuration',              'network'),
+    ('devices.delete',       'Remove devices',                         'network'),
+    ('plans.view',           'View service plans',                     'billing'),
+    ('plans.create',         'Create new service plans',               'billing'),
+    ('plans.update',         'Edit existing plans',                    'billing'),
+    ('plans.delete',         'Delete plans',                           'billing'),
+    ('jobs.view',            'View work orders',                       'jobs'),
+    ('jobs.create',          'Create new work orders',                 'jobs'),
+    ('jobs.update',          'Update work orders',                     'jobs'),
+    ('jobs.delete',          'Delete work orders',                     'jobs'),
+    ('expenses.view',        'View expense records',                   'expenses'),
+    ('expenses.create',      'Submit new expenses',                    'expenses'),
+    ('expenses.update',      'Edit expense records',                   'expenses'),
+    ('expenses.approve',     'Approve or reject submitted expenses',   'expenses'),
+    ('reports.view',         'Access reports and dashboards',          'reports'),
+    ('reports.export',       'Export report data',                     'reports'),
+    ('settings.view',        'View application settings',              'settings'),
+    ('settings.update',      'Modify application settings',            'settings'),
+    ('users.view',           'View user accounts',                     'users'),
+    ('users.create',         'Create new user accounts',               'users'),
+    ('users.update',         'Edit user accounts',                     'users'),
+    ('users.delete',         'Delete or deactivate user accounts',     'users'),
+    ('inventory.view',       'View inventory items and stock',         'inventory'),
+    ('inventory.create',     'Add inventory items',                    'inventory'),
+    ('inventory.update',     'Edit inventory items',                   'inventory'),
+    ('inventory.transfer',   'Transfer stock between warehouses',      'inventory'),
+    ('network.view',         'View network topology and resources',    'network'),
+    ('network.create',       'Add network resources (NAS, IP pools)',  'network'),
+    ('network.update',       'Edit network resources',                 'network'),
+    ('network.delete',       'Remove network resources',               'network'),
+    ('audit_logs.view',      'View the audit log',                     'audit'),
+    ('organizations.view',   'View organization profile',              'organizations'),
+    ('organizations.update', 'Edit organization settings',             'organizations');
+
+-- admin gets every permission
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r JOIN permissions p ON TRUE WHERE r.name = 'admin';
+
+-- billing role
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r JOIN permissions p
+ON p.name IN (
+    'invoices.view','invoices.create','invoices.update','invoices.delete',
+    'payments.view','payments.create','payments.update','payments.delete',
+    'plans.view','plans.create','plans.update','plans.delete',
+    'clients.view','contracts.view',
+    'reports.view','reports.export',
+    'settings.view','expenses.view','expenses.approve'
+) WHERE r.name = 'billing';
+
+-- support role
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r JOIN permissions p
+ON p.name IN (
+    'clients.view','clients.create','clients.update',
+    'contracts.view',
+    'tickets.view','tickets.create','tickets.update','tickets.delete',
+    'reports.view'
+) WHERE r.name = 'support';
+
+-- technician role
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r JOIN permissions p
+ON p.name IN (
+    'devices.view','devices.create','devices.update','devices.delete',
+    'jobs.view','jobs.create','jobs.update','jobs.delete',
+    'network.view','network.create','network.update','network.delete',
+    'inventory.view','inventory.create','inventory.update','inventory.transfer',
+    'clients.view','contracts.view',
+    'expenses.view','expenses.create'
+) WHERE r.name = 'technician';
+
+-- readonly gets every *.view and *.export permission
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r JOIN permissions p
+ON (p.name LIKE '%.view' OR p.name LIKE '%.export')
+WHERE r.name = 'readonly';
+
+-- ---------------------------------------------------------------------------
+-- Seed: default application settings (migration 120)
+-- Purpose: Populates the settings key-value store with sensible defaults for
+--          a new installation.  Uses INSERT IGNORE — safe to re-run; existing
+--          administrator-configured values are never overwritten.
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO settings (setting_key, setting_value, description) VALUES
+    ('default_currency',             'USD',        'ISO 4217 currency code used as system default for new documents'),
+    ('default_tax_rate',             '0.00',       'Default tax rate percentage applied to new invoices when no tax_rate_id is selected'),
+    ('invoice_prefix',               'INV-',       'Prefix prepended to auto-generated invoice numbers'),
+    ('quote_prefix',                 'QUT-',       'Prefix prepended to auto-generated quote numbers'),
+    ('credit_note_prefix',           'CN-',        'Prefix prepended to auto-generated credit note numbers'),
+    ('smtp_host',                    '',           'SMTP server hostname for outbound email'),
+    ('smtp_port',                    '587',        'SMTP server port (25, 465, or 587)'),
+    ('smtp_encryption',              'tls',        'SMTP encryption method: tls, ssl, or none'),
+    ('smtp_username',                '',           'SMTP authentication username'),
+    ('smtp_password',                '',           'SMTP authentication password (stored encrypted at app layer)'),
+    ('snmp_default_poll_interval',   '300',        'Default SNMP polling interval in seconds'),
+    ('snmp_default_community',       'public',     'Default SNMP community string for read-only access'),
+    ('company_name',                 '',           'ISP company name shown on invoices and reports'),
+    ('company_email',                '',           'Primary contact email address for the ISP'),
+    ('company_phone',                '',           'Primary contact phone number for the ISP'),
+    ('timezone',                     'UTC',        'Default timezone for date/time display (IANA timezone name)'),
+    ('date_format',                  'YYYY-MM-DD', 'Display format for dates throughout the UI'),
+    ('pagination_per_page',          '25',         'Default number of rows per page in list views'),
+    ('session_timeout_minutes',      '60',         'Idle session timeout in minutes before the user is logged out'),
+    ('max_login_attempts',           '5',          'Maximum consecutive failed login attempts before account lockout'),
+    ('password_min_length',          '8',          'Minimum required password length for user accounts'),
+    ('auto_suspend_enabled',         'false',      'Enable automatic contract suspension for overdue invoices'),
+    ('auto_suspend_days_overdue',    '30',         'Number of days past due before a contract is automatically suspended'),
+    ('auto_invoice_enabled',         'false',      'Enable automatic invoice generation from billing periods'),
+    ('auto_invoice_days_before_due', '7',          'Generate invoices this many days before the billing period end date');
+
+-- ---------------------------------------------------------------------------
+-- Seed: default tax rates (migration 121)
+-- Purpose: Inserts globally applicable default rates (organization_id = NULL)
+--          covering the most common tax scenarios for a multi-country ISP.
+--          Uses WHERE NOT EXISTS because tax_rates has no UNIQUE constraint
+--          on name — fully idempotent on re-runs.
+-- ---------------------------------------------------------------------------
+INSERT INTO tax_rates (organization_id, name, rate, description, is_default, status)
+SELECT NULL, 'Tax Exempt', 0.0000,
+       'Zero-rate — applies to tax-exempt services or clients', FALSE, 'active'
+WHERE NOT EXISTS (SELECT 1 FROM tax_rates WHERE name = 'Tax Exempt' AND organization_id IS NULL);
+
+INSERT INTO tax_rates (organization_id, name, rate, description, is_default, status)
+SELECT NULL, 'Standard Tax 8%', 0.0800,
+       'Generic 8% sales / service tax for regions without a specific rate configured', FALSE, 'active'
+WHERE NOT EXISTS (SELECT 1 FROM tax_rates WHERE name = 'Standard Tax 8%' AND organization_id IS NULL);
+
+INSERT INTO tax_rates (organization_id, name, rate, description, is_default, status)
+SELECT NULL, 'IVA 16% (Mexico)', 0.1600,
+       'Mexican IVA (Impuesto al Valor Agregado) 16% — standard rate for most ISP services in Mexico', FALSE, 'active'
+WHERE NOT EXISTS (SELECT 1 FROM tax_rates WHERE name = 'IVA 16% (Mexico)' AND organization_id IS NULL);
+
+INSERT INTO tax_rates (organization_id, name, rate, description, is_default, status)
+SELECT NULL, 'GST 5%', 0.0500,
+       'Canadian GST (Goods and Services Tax) 5%', FALSE, 'active'
+WHERE NOT EXISTS (SELECT 1 FROM tax_rates WHERE name = 'GST 5%' AND organization_id IS NULL);
+
+-- ---------------------------------------------------------------------------
+-- Seed: default suspension rule (migration 122)
+-- Purpose: Seeds a default auto-suspend rule for the first organization.
+--          organization_id IS NOT NULL so this seed targets org id = 1.
+--          Uses WHERE NOT EXISTS for full idempotency.
+-- ---------------------------------------------------------------------------
+INSERT INTO suspension_rules
+    (organization_id, name, days_past_due, grace_period_days, action, is_active)
+SELECT 1,
+       'Default: auto-suspend contracts 30 days past due with 5-day grace period',
+       30, 5, 'auto_suspend', TRUE
+WHERE EXISTS (SELECT 1 FROM organizations WHERE id = 1)
+  AND NOT EXISTS (
+      SELECT 1 FROM suspension_rules
+      WHERE  organization_id = 1
+        AND  name = 'Default: auto-suspend contracts 30 days past due with 5-day grace period'
+  );
+
+-- ---------------------------------------------------------------------------
+-- Seed: core automation scheduled tasks (migration 123)
+-- Purpose: Inserts the five system-level automation jobs.  Uses INSERT IGNORE
+--          — safe to re-run via the UNIQUE KEY on (organization_id, task_name).
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO scheduled_tasks
+    (organization_id, task_name, task_type, handler, description,
+     cron_expression, priority, max_retries, timeout_seconds, is_enabled)
+VALUES
+    (NULL, 'auto_generate_invoices', 'generate_invoice',
+     'App\\Tasks\\Billing\\AutoGenerateInvoicesTask',
+     'Auto-generates invoices from billing_periods for contracts approaching their next billing date.',
+     '0 1 * * *', 'high', 3, 300, TRUE),
+
+    (NULL, 'auto_suspend_overdue', 'auto_suspend',
+     'App\\Tasks\\Billing\\AutoSuspendOverdueTask',
+     'Suspends contracts that exceed the days-past-due threshold defined in suspension_rules.',
+     '0 6 * * *', 'high', 3, 300, TRUE),
+
+    (NULL, 'radius_sync', 'radius_sync',
+     'App\\Tasks\\Network\\RadiusSyncTask',
+     'Synchronises RADIUS subscriber accounts with the current state of active contracts.',
+     '*/5 * * * *', 'normal', 3, 120, TRUE),
+
+    (NULL, 'populate_revenue_summary', 'usage_rollup',
+     'App\\Tasks\\Reporting\\PopulateRevenueSummaryTask',
+     'Recalculates MRR, churn rate, and ARPU and writes the results into the revenue_summary materialized table.',
+     '0 2 1 * *', 'normal', 3, 600, TRUE),
+
+    (NULL, 'populate_network_health_snapshots', 'other',
+     'App\\Tasks\\Network\\PopulateNetworkHealthSnapshotsTask',
+     'Aggregates daily device uptime, latency, and link utilization into the network_health_snapshots table.',
+     '0 4 * * *', 'normal', 3, 600, TRUE);
+
+-- ---------------------------------------------------------------------------
+-- ALTER: add currency to expenses (migration 124)
+-- Purpose: Idempotent guard — adds expenses.currency only if migration 051
+--          has not already applied it.
+-- ---------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS _schema_add_expenses_currency;
+
+DELIMITER $$
+CREATE PROCEDURE _schema_add_expenses_currency()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE  TABLE_SCHEMA = DATABASE()
+          AND  TABLE_NAME   = 'expenses'
+          AND  COLUMN_NAME  = 'currency'
+    ) THEN
+        ALTER TABLE expenses
+            ADD COLUMN currency CHAR(3) NOT NULL DEFAULT 'USD'
+            COMMENT 'ISO 4217 currency code' AFTER amount;
+    END IF;
+END$$
+DELIMITER ;
+CALL _schema_add_expenses_currency();
+DROP PROCEDURE IF EXISTS _schema_add_expenses_currency;
+
+-- ---------------------------------------------------------------------------
+-- ALTER: add tax_rate_id to line-item tables (migration 125)
+-- Purpose: Adds a per-line-item tax rate override FK column to invoice_items,
+--          quote_items, and credit_note_items.  NULL = inherit from parent
+--          document.  Wrapped in a procedure for safe re-runs.
+-- ---------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS _schema_add_tax_rate_id_line_items;
+
+DELIMITER $$
+CREATE PROCEDURE _schema_add_tax_rate_id_line_items()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE  TABLE_SCHEMA = DATABASE()
+          AND  TABLE_NAME   = 'invoice_items'
+          AND  COLUMN_NAME  = 'tax_rate_id'
+    ) THEN
+        ALTER TABLE invoice_items
+            ADD COLUMN tax_rate_id BIGINT UNSIGNED NULL
+            COMMENT 'Per-line-item tax rate override; NULL = inherit from parent invoice'
+            AFTER unit_price,
+            ADD KEY idx_invoice_items_tax_rate_id (tax_rate_id),
+            ADD CONSTRAINT fk_invoice_items_tax_rate FOREIGN KEY (tax_rate_id)
+                REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE  TABLE_SCHEMA = DATABASE()
+          AND  TABLE_NAME   = 'quote_items'
+          AND  COLUMN_NAME  = 'tax_rate_id'
+    ) THEN
+        ALTER TABLE quote_items
+            ADD COLUMN tax_rate_id BIGINT UNSIGNED NULL
+            COMMENT 'Per-line-item tax rate override; NULL = inherit from parent quote'
+            AFTER unit_price,
+            ADD KEY idx_quote_items_tax_rate_id (tax_rate_id),
+            ADD CONSTRAINT fk_quote_items_tax_rate FOREIGN KEY (tax_rate_id)
+                REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE  TABLE_SCHEMA = DATABASE()
+          AND  TABLE_NAME   = 'credit_note_items'
+          AND  COLUMN_NAME  = 'tax_rate_id'
+    ) THEN
+        ALTER TABLE credit_note_items
+            ADD COLUMN tax_rate_id BIGINT UNSIGNED NULL
+            COMMENT 'Per-line-item tax rate override; NULL = inherit from parent credit note'
+            AFTER unit_price,
+            ADD KEY idx_credit_note_items_tax_rate_id (tax_rate_id),
+            ADD CONSTRAINT fk_credit_note_items_tax_rate FOREIGN KEY (tax_rate_id)
+                REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END$$
+DELIMITER ;
+CALL _schema_add_tax_rate_id_line_items();
+DROP PROCEDURE IF EXISTS _schema_add_tax_rate_id_line_items;
+
+-- ---------------------------------------------------------------------------
+-- Triggers: payment allocation balance guards (migration 126)
+-- Purpose: Prevent over-allocation of a payment and over-application to an
+--          invoice at the database level.
+-- ---------------------------------------------------------------------------
+DELIMITER $$
+
+DROP TRIGGER IF EXISTS trg_payment_alloc_payment_bi$$
+CREATE TRIGGER trg_payment_alloc_payment_bi
+BEFORE INSERT ON payment_allocations
+FOR EACH ROW
+BEGIN
+    DECLARE v_payment_total DECIMAL(10,2);
+    DECLARE v_already_alloc DECIMAL(10,2);
+    SELECT amount INTO v_payment_total FROM payments WHERE id = NEW.payment_id;
+    SELECT COALESCE(SUM(amount),0) INTO v_already_alloc
+    FROM payment_allocations WHERE payment_id = NEW.payment_id;
+    IF v_already_alloc + NEW.amount > v_payment_total THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Payment allocation would exceed total payment amount';
+    END IF;
+END$$
+
+DROP TRIGGER IF EXISTS trg_payment_alloc_payment_bu$$
+CREATE TRIGGER trg_payment_alloc_payment_bu
+BEFORE UPDATE ON payment_allocations
+FOR EACH ROW
+BEGIN
+    DECLARE v_payment_total DECIMAL(10,2);
+    DECLARE v_already_alloc DECIMAL(10,2);
+    SELECT amount INTO v_payment_total FROM payments WHERE id = NEW.payment_id;
+    SELECT COALESCE(SUM(amount),0) INTO v_already_alloc
+    FROM payment_allocations WHERE payment_id = NEW.payment_id AND id != OLD.id;
+    IF v_already_alloc + NEW.amount > v_payment_total THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Payment allocation would exceed total payment amount';
+    END IF;
+END$$
+
+DROP TRIGGER IF EXISTS trg_payment_alloc_invoice_bi$$
+CREATE TRIGGER trg_payment_alloc_invoice_bi
+BEFORE INSERT ON payment_allocations
+FOR EACH ROW
+BEGIN
+    DECLARE v_invoice_total DECIMAL(10,2);
+    DECLARE v_already_alloc DECIMAL(10,2);
+    SELECT total INTO v_invoice_total FROM invoices WHERE id = NEW.invoice_id;
+    SELECT COALESCE(SUM(amount),0) INTO v_already_alloc
+    FROM payment_allocations WHERE invoice_id = NEW.invoice_id;
+    IF v_already_alloc + NEW.amount > v_invoice_total THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Payment allocation would exceed invoice total';
+    END IF;
+END$$
+
+DROP TRIGGER IF EXISTS trg_payment_alloc_invoice_bu$$
+CREATE TRIGGER trg_payment_alloc_invoice_bu
+BEFORE UPDATE ON payment_allocations
+FOR EACH ROW
+BEGIN
+    DECLARE v_invoice_total DECIMAL(10,2);
+    DECLARE v_already_alloc DECIMAL(10,2);
+    SELECT total INTO v_invoice_total FROM invoices WHERE id = NEW.invoice_id;
+    SELECT COALESCE(SUM(amount),0) INTO v_already_alloc
+    FROM payment_allocations WHERE invoice_id = NEW.invoice_id AND id != OLD.id;
+    IF v_already_alloc + NEW.amount > v_invoice_total THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Payment allocation would exceed invoice total';
+    END IF;
+END$$
+
+-- ---------------------------------------------------------------------------
+-- Trigger: inventory stock negative guard (migration 127)
+-- Purpose: Prevent inventory_stock.quantity from going below zero.
+-- ---------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_inventory_stock_negative_bu$$
+CREATE TRIGGER trg_inventory_stock_negative_bu
+BEFORE UPDATE ON inventory_stock
+FOR EACH ROW
+BEGIN
+    IF NEW.quantity < 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Inventory stock quantity cannot be negative';
+    END IF;
+END$$
+
+-- ---------------------------------------------------------------------------
+-- Trigger: PPPoE contract RADIUS consistency (migration 128)
+-- Purpose: Require at least one RADIUS account before activating a PPPoE
+--          or PPPoE-dual contract.
+-- ---------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_contracts_radius_consistency_bu$$
+CREATE TRIGGER trg_contracts_radius_consistency_bu
+BEFORE UPDATE ON contracts
+FOR EACH ROW
+BEGIN
+    DECLARE v_radius_count INT;
+    IF NEW.status = 'active'
+       AND OLD.status != 'active'
+       AND NEW.connection_type IN ('pppoe', 'pppoe_dual')
+    THEN
+        SELECT COUNT(*) INTO v_radius_count FROM radius WHERE contract_id = NEW.id;
+        IF v_radius_count = 0 THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'PPPoE/PPPoE-dual contracts require at least one RADIUS account before activation';
+        END IF;
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- ---------------------------------------------------------------------------
+-- Indexes: composite indexes for common query patterns (migration 129)
+-- Purpose: Performance indexes for billing, network, and reporting queries.
+--          Each index is guarded via a stored procedure for safe re-runs.
+-- ---------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS _schema_add_composite_indexes;
+
+DELIMITER $$
+CREATE PROCEDURE _schema_add_composite_indexes()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='invoices'
+          AND INDEX_NAME='idx_invoices_currency_status'
+    ) THEN
+        CREATE INDEX idx_invoices_currency_status ON invoices (currency, status);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_transactions'
+          AND INDEX_NAME='idx_payment_transactions_gateway_id_status'
+    ) THEN
+        CREATE INDEX idx_payment_transactions_gateway_id_status
+            ON payment_transactions (payment_gateway_id, gateway_status);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='expenses'
+          AND INDEX_NAME='idx_expenses_currency'
+    ) THEN
+        CREATE INDEX idx_expenses_currency ON expenses (currency);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='contracts'
+          AND INDEX_NAME='idx_contracts_client_facturar'
+    ) THEN
+        CREATE INDEX idx_contracts_client_facturar ON contracts (client_id, facturar);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='suspension_logs'
+          AND INDEX_NAME='idx_suspension_logs_contract_created'
+    ) THEN
+        CREATE INDEX idx_suspension_logs_contract_created
+            ON suspension_logs (contract_id, created_at);
+    END IF;
+END$$
+DELIMITER ;
+CALL _schema_add_composite_indexes();
+DROP PROCEDURE IF EXISTS _schema_add_composite_indexes;
