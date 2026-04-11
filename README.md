@@ -17,7 +17,7 @@ An open source ISP (Internet Service Provider) management software designed to h
 - Service outage tracking with SLA reporting hooks
 - Scheduled task observability and active session management — five core automation tasks seeded on install (auto-invoice, auto-suspend, RADIUS sync, revenue summary, network health snapshots)
 - Default application settings seeded on install (currency, SMTP, SNMP, security, automation flags)
-- Default tax rates seeded on install (Tax Exempt, Standard 8 %, IVA 16 % MX, GST 5 % CA)
+- Default tax rates seeded on install (Tax Exempt, Standard 8%, IVA 16% MX, GST 5% CA)
 - Payment allocation, inventory stock, and PPPoE RADIUS consistency enforced at the database level via guard triggers
 
 ## Project Structure
@@ -262,7 +262,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 
 > **Migration 120 — Seed default settings:** `120_seed_default_settings.sql` populates the `settings` key-value table with 25 default values covering currency (`default_currency = USD`), invoice/quote/credit-note prefixes, SMTP configuration, SNMP polling interval and community, company profile fields, locale/date-format/pagination preferences, session and login security parameters, and automation flags (`auto_suspend_enabled`, `auto_invoice_enabled`). Uses `INSERT IGNORE` — administrator-customised values are never overwritten on re-runs.
 
-> **Migration 121 — Seed default tax rates:** `121_seed_default_tax_rates.sql` inserts four globally applicable default tax rates (`organization_id = NULL`): Tax Exempt (0 %), Standard Tax 8 %, IVA 16 % (Mexico), and GST 5 % (Canada). Uses `WHERE NOT EXISTS` guards for full idempotency since the `tax_rates` table does not carry a `UNIQUE` constraint on `name` alone.
+> **Migration 121 — Seed default tax rates:** `121_seed_default_tax_rates.sql` inserts four globally applicable default tax rates (`organization_id = NULL`): Tax Exempt (0%), Standard Tax 8%, IVA 16% (Mexico), and GST 5% (Canada). Uses `WHERE NOT EXISTS` guards for full idempotency since the `tax_rates` table does not carry a `UNIQUE` constraint on `name` alone.
 
 > **Migration 122 — Seed default suspension rule:** `122_seed_default_suspension_rule.sql` inserts a default auto-suspend rule into `suspension_rules` for the first organization (id = 1): 30 days past due, 5-day grace period, action `auto_suspend`. Uses `WHERE NOT EXISTS` to be idempotent. Because `suspension_rules.organization_id` is `NOT NULL`, this seed targets org id = 1; administrators should add per-organization rules as part of tenant onboarding.
 
