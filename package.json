@@ -7,8 +7,8 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "migrate": "node src/scripts/migrate.js",
-    "lint": "eslint src/ --ext .js",
-    "lint:fix": "eslint src/ --ext .js --fix",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
     "test": "jest --detectOpenHandles --forceExit",
     "test:watch": "jest --watch",
     "test:db": "./tests/run_tests.sh"
