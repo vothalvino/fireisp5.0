@@ -21,21 +21,21 @@ router.get('/', requirePermission('connection_logs.view'), async (req, res, next
       date_from, date_to, page = 1, limit = 50,
     } = req.query;
 
-    const conditions = ['organization_id = ?'];
-    const params = [req.orgId];
+    const conditions = [];
+    const params = [];
 
     if (contract_id) { conditions.push('contract_id = ?'); params.push(contract_id); }
     if (client_id) { conditions.push('client_id = ?'); params.push(client_id); }
     if (ip_address) { conditions.push('ip_address = ?'); params.push(ip_address); }
     if (event_type) { conditions.push('event_type = ?'); params.push(event_type); }
-    if (date_from) { conditions.push('created_at >= ?'); params.push(date_from); }
-    if (date_to) { conditions.push('created_at <= ?'); params.push(date_to); }
+    if (date_from) { conditions.push('event_at >= ?'); params.push(date_from); }
+    if (date_to) { conditions.push('event_at <= ?'); params.push(date_to); }
 
-    const where = conditions.join(' AND ');
+    const where = conditions.length ? conditions.join(' AND ') : '1=1';
     const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
 
     const [rows] = await db.query(
-      `SELECT * FROM connection_logs WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      `SELECT * FROM connection_logs WHERE ${where} ORDER BY event_at DESC LIMIT ? OFFSET ?`,
       [...params, parseInt(limit, 10), offset],
     );
     const [countResult] = await db.query(

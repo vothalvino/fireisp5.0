@@ -11,13 +11,12 @@ const db = require('../config/database');
 const router = Router();
 
 const ALLOWED_COLUMNS = [
-  'client_id', 'rfc', 'razon_social', 'uso_cfdi', 'metodo_pago',
-  'forma_pago', 'moneda', 'subtotal', 'tax_amount', 'total',
-  'status', 'notes',
+  'cfdi_document_id', 'periodicidad', 'meses', 'anio',
+  'subtotal', 'total_impuestos', 'total', 'status',
 ];
 
 const ALLOWED_ITEM_COLUMNS = [
-  'invoice_id', 'amount',
+  'invoice_id',
 ];
 
 router.use(authenticate);

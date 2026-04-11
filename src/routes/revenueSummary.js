@@ -17,21 +17,20 @@ router.use(orgScope);
 router.get('/', requirePermission('revenue_summary.view'), async (req, res, next) => {
   try {
     const {
-      year, month, currency, page = 1, limit = 50,
+      period_date, currency, page = 1, limit = 50,
     } = req.query;
 
     const conditions = ['organization_id = ?'];
     const params = [req.orgId];
 
-    if (year) { conditions.push('year = ?'); params.push(year); }
-    if (month) { conditions.push('month = ?'); params.push(month); }
+    if (period_date) { conditions.push('period_date = ?'); params.push(period_date); }
     if (currency) { conditions.push('currency = ?'); params.push(currency); }
 
     const where = conditions.join(' AND ');
     const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
 
     const [rows] = await db.query(
-      `SELECT * FROM revenue_summary WHERE ${where} ORDER BY year DESC, month DESC LIMIT ? OFFSET ?`,
+      `SELECT * FROM revenue_summary WHERE ${where} ORDER BY period_date DESC LIMIT ? OFFSET ?`,
       [...params, parseInt(limit, 10), offset],
     );
     const [countResult] = await db.query(

@@ -21,23 +21,23 @@ router.get('/', requirePermission('network_health.view'), async (req, res, next)
       page = 1, limit = 50,
     } = req.query;
 
-    const conditions = ['organization_id = ?'];
-    const params = [req.orgId];
+    const conditions = [];
+    const params = [];
 
     if (device_id) { conditions.push('device_id = ?'); params.push(device_id); }
     if (network_link_id) { conditions.push('network_link_id = ?'); params.push(network_link_id); }
-    if (date_from) { conditions.push('created_at >= ?'); params.push(date_from); }
-    if (date_to) { conditions.push('created_at <= ?'); params.push(date_to); }
+    if (date_from) { conditions.push('snapshot_date >= ?'); params.push(date_from); }
+    if (date_to) { conditions.push('snapshot_date <= ?'); params.push(date_to); }
 
-    const where = conditions.join(' AND ');
+    const where = conditions.length ? conditions.join(' AND ') : '1=1';
     const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
 
     const [rows] = await db.query(
-      `SELECT * FROM network_health WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      `SELECT * FROM network_health_snapshots WHERE ${where} ORDER BY snapshot_date DESC LIMIT ? OFFSET ?`,
       [...params, parseInt(limit, 10), offset],
     );
     const [countResult] = await db.query(
-      `SELECT COUNT(*) AS total FROM network_health WHERE ${where}`,
+      `SELECT COUNT(*) AS total FROM network_health_snapshots WHERE ${where}`,
       params,
     );
 
