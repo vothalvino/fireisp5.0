@@ -84,13 +84,15 @@ async function runAutoInvoice(organizationId) {
  * Auto-suspend overdue contracts per organization rules.
  */
 async function runAutoSuspend(organizationId) {
-  const orgFilter = organizationId ? 'WHERE id = ?' : '';
-  const params = organizationId ? [organizationId] : [];
+  let sql = 'SELECT id FROM organizations WHERE status = \'active\'';
+  const params = [];
 
-  const [orgs] = await db.query(
-    `SELECT id FROM organizations WHERE status = 'active' ${orgFilter ? 'AND id = ?' : ''}`,
-    params,
-  );
+  if (organizationId) {
+    sql += ' AND id = ?';
+    params.push(organizationId);
+  }
+
+  const [orgs] = await db.query(sql, params);
 
   let suspended = 0;
   for (const org of orgs) {
