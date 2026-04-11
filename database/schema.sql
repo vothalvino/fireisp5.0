@@ -3755,26 +3755,22 @@ CREATE TRIGGER trg_clients_locale_downgrade_bu
 BEFORE UPDATE ON clients
 FOR EACH ROW
 BEGIN
-    DECLARE v_mx_profile_count INT DEFAULT 0;
-    DECLARE v_cfdi_count       INT DEFAULT 0;
+    DECLARE v_has_mx_profile BOOLEAN DEFAULT FALSE;
+    DECLARE v_has_cfdi       BOOLEAN DEFAULT FALSE;
 
     IF OLD.locale = 'MX' AND NEW.locale != 'MX' THEN
-        SELECT COUNT(*) INTO v_mx_profile_count
-        FROM client_mx_profiles
-        WHERE client_id = OLD.id
-        LIMIT 1;
+        SELECT EXISTS(SELECT 1 FROM client_mx_profiles WHERE client_id = OLD.id)
+        INTO v_has_mx_profile;
 
-        IF v_mx_profile_count > 0 THEN
+        IF v_has_mx_profile THEN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'Cannot change client locale from ''MX'': client_mx_profiles record exists. Delete the MX profile first.';
         END IF;
 
-        SELECT COUNT(*) INTO v_cfdi_count
-        FROM cfdi_documents
-        WHERE client_id = OLD.id
-        LIMIT 1;
+        SELECT EXISTS(SELECT 1 FROM cfdi_documents WHERE client_id = OLD.id)
+        INTO v_has_cfdi;
 
-        IF v_cfdi_count > 0 THEN
+        IF v_has_cfdi THEN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'Cannot change client locale from ''MX'': cfdi_documents records exist for this client.';
         END IF;
@@ -3788,60 +3784,50 @@ CREATE TRIGGER trg_organizations_locale_downgrade_bu
 BEFORE UPDATE ON organizations
 FOR EACH ROW
 BEGIN
-    DECLARE v_count INT DEFAULT 0;
+    DECLARE v_has_records BOOLEAN DEFAULT FALSE;
 
     IF OLD.locale = 'MX' AND NEW.locale != 'MX' THEN
         -- Check organization_mx_profiles
-        SELECT COUNT(*) INTO v_count
-        FROM organization_mx_profiles
-        WHERE organization_id = OLD.id
-        LIMIT 1;
+        SELECT EXISTS(SELECT 1 FROM organization_mx_profiles WHERE organization_id = OLD.id)
+        INTO v_has_records;
 
-        IF v_count > 0 THEN
+        IF v_has_records THEN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'Cannot change organization locale from ''MX'': organization_mx_profiles record exists.';
         END IF;
 
         -- Check concession_titles
-        SELECT COUNT(*) INTO v_count
-        FROM concession_titles
-        WHERE organization_id = OLD.id
-        LIMIT 1;
+        SELECT EXISTS(SELECT 1 FROM concession_titles WHERE organization_id = OLD.id)
+        INTO v_has_records;
 
-        IF v_count > 0 THEN
+        IF v_has_records THEN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'Cannot change organization locale from ''MX'': concession_titles records exist.';
         END IF;
 
         -- Check contract_templates_mx
-        SELECT COUNT(*) INTO v_count
-        FROM contract_templates_mx
-        WHERE organization_id = OLD.id
-        LIMIT 1;
+        SELECT EXISTS(SELECT 1 FROM contract_templates_mx WHERE organization_id = OLD.id)
+        INTO v_has_records;
 
-        IF v_count > 0 THEN
+        IF v_has_records THEN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'Cannot change organization locale from ''MX'': contract_templates_mx records exist.';
         END IF;
 
         -- Check regulatory_filings
-        SELECT COUNT(*) INTO v_count
-        FROM regulatory_filings
-        WHERE organization_id = OLD.id
-        LIMIT 1;
+        SELECT EXISTS(SELECT 1 FROM regulatory_filings WHERE organization_id = OLD.id)
+        INTO v_has_records;
 
-        IF v_count > 0 THEN
+        IF v_has_records THEN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'Cannot change organization locale from ''MX'': regulatory_filings records exist.';
         END IF;
 
         -- Check ift_statistical_reports
-        SELECT COUNT(*) INTO v_count
-        FROM ift_statistical_reports
-        WHERE organization_id = OLD.id
-        LIMIT 1;
+        SELECT EXISTS(SELECT 1 FROM ift_statistical_reports WHERE organization_id = OLD.id)
+        INTO v_has_records;
 
-        IF v_count > 0 THEN
+        IF v_has_records THEN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'Cannot change organization locale from ''MX'': ift_statistical_reports records exist.';
         END IF;
