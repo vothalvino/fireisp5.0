@@ -69,6 +69,7 @@ const cfdiRoutes = require('./routes/cfdi');
 const suspensionRoutes = require('./routes/suspension');
 const dashboardRoutes = require('./routes/dashboard');
 const exportRoutes = require('./routes/export');
+const importRoutes = require('./routes/import');
 
 const app = express();
 
@@ -150,6 +151,13 @@ app.use('/api/cfdi', cfdiRoutes);
 app.use('/api/suspension', suspensionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/export', exportRoutes);
+app.use('/api/import', importRoutes);
+
+// ---------------------------------------------------------------------------
+// API documentation (Swagger UI)
+// ---------------------------------------------------------------------------
+const { mountApiDocs } = require('./utils/openapi');
+mountApiDocs(app);
 
 // ---------------------------------------------------------------------------
 // 404 handler
