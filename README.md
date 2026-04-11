@@ -128,7 +128,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 58 | `coverage_zones` | Coverage zones within a service area — finer-grained polygons describing network reach, access technology (fiber, fixed wireless, DSL, cable, satellite, LTE, 5G), maximum speeds, and build-out status |
 | 59 | `sla_definitions` | SLA terms per plan — uptime guarantees (e.g. 99.95%), maximum response and resolution times, compensation rules for SLA breaches, measurement periods, and maintenance-window exclusions |
 | 60 | `device_config_backups` | Versioned configuration snapshots per device — stores MikroTik exports, RouterOS backups, Cisco running-config, and similar captures with SHA-256 checksums for change detection, version tracking, and capture method (manual, scheduled, pre/post change) |
-| 61 | `client_mx_profiles` | Mexico extension for clients (1:1) — required when `clients.locale = 'MX'`; stores RFC, CURP, razon_social, regimen_fiscal, codigo_postal_fiscal, and Mexican address fields for CFDI 4.0 compliance |
+| 61 | `client_mx_profiles` | Mexico extension for clients (1:1) — required when `clients.locale = 'MX'`; stores RFC, CURP, razon_social, regimen_fiscal, codigo_postal_fiscal, and Mexican address fields for CFDI 4.0 compliance; supports "venta al público en general" (`requires_cfdi = FALSE`, RFC `XAXX010101000`) for clients who do not request individual CFDIs |
 | 62 | `organization_mx_profiles` | Mexico extension for organizations (1:1) — required when `organizations.locale = 'MX'`; stores RFC, razon_social, CSD digital-seal certificate, PAC stamping credentials, CFDI series/folio numbering, and Mexican address fields |
 | 63 | `sat_regimen_fiscal` | SAT catalog c_RegimenFiscal — fiscal regime codes (601–626) used on CFDI 4.0 issuer and receptor nodes |
 | 64 | `sat_uso_cfdi` | SAT catalog c_UsoCFDI — permitted use codes for the CFDI receptor (G01, G03, S01, CP01, etc.) |
@@ -148,6 +148,8 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 78 | `sat_clave_unidad` | SAT catalog c_ClaveUnidad — unit-of-measure codes (e.g. `E48` for service unit, `H87` for piece) required on every CFDI 4.0 line item |
 | 79 | `cfdi_conceptos` | CFDI 4.0 concept (line item) rows — one per `<Concepto>` node; stores SAT product/service key, unit key, quantity, description, unit price, line total, optional discount, and ObjetoImp indicator |
 | 80 | `cfdi_concepto_impuestos` | Per-line tax breakdown for CFDI 4.0 — one row per `<Traslado>` or `<Retencion>` inside a concept; stores tax type, SAT tax code (ISR/IVA/IEPS), rate type, rate, taxable base, and calculated tax amount |
+| 81 | `cfdi_global_invoices` | CFDI Global (Factura Global) periodic aggregation documents — when MX clients opt out of individual CFDIs (`requires_cfdi = FALSE`), their invoices are aggregated into a periodic Factura Global per SAT InformacionGlobal (Periodicidad, Meses, Año); one row per organization per period |
+| 82 | `cfdi_global_invoice_items` | Junction table linking individual invoices from público en general clients to their parent CFDI Global (Factura Global) — each invoice belongs to at most one CFDI Global document |
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 
@@ -174,6 +176,27 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 087 — MX locale enforcement triggers:** `087_create_mx_locale_enforcement_triggers.sql` adds BEFORE INSERT / BEFORE UPDATE triggers on all MX-specific tables (`client_mx_profiles`, `organization_mx_profiles`, `cfdi_documents`, `concession_titles`, `contract_templates_mx`, `regulatory_filings`, `ift_statistical_reports`) to enforce that the referenced client or organization has `locale = 'MX'`. Also guards `contracts.contract_template_mx_id` — a non-NULL value requires the contract's client to have `locale = 'MX'`. Raises SQLSTATE '45000' on violation.
 
 > **Migration 088 — Locale downgrade guard triggers:** `088_create_locale_downgrade_guard_triggers.sql` adds BEFORE UPDATE triggers on `clients` and `organizations` to prevent changing `locale` from `'MX'` to `'global'` when MX-dependent records exist (MX profiles, CFDI documents, concession titles, contract templates, regulatory filings, IFT statistical reports). Raises SQLSTATE '45000' on violation.
+
+### Venta al Público en General (CFDI Global)
+
+Mexican tax law (SAT CFDI 4.0) requires every sale to be fiscally documented, even when the client does not request an individual factura. For MX-locale clients who opt out of individual CFDIs, the ISP uses the **"venta al público en general"** mechanism:
+
+1. **Client MX profile setup:** Set `client_mx_profiles.requires_cfdi = FALSE` — this automatically requires `rfc = 'XAXX010101000'` (the SAT-defined generic RFC for the general public). Two CHECK constraints enforce bidirectional consistency between these fields.
+
+2. **RFC uniqueness:** A stored generated column (`rfc_unique_check`) evaluates to `NULL` for `XAXX010101000` and to the actual RFC otherwise. The UNIQUE constraint on this column allows multiple público-en-general clients while still enforcing uniqueness for real RFCs.
+
+3. **Normal invoicing continues:** Invoices are still created for these clients (for internal billing, collection, and payment tracking), but no individual CFDI is stamped for them.
+
+4. **Periodic CFDI Global aggregation:** All invoices from `requires_cfdi = FALSE` clients are aggregated into a periodic CFDI Global document (`cfdi_global_invoices`) per the SAT `InformacionGlobal` node requirements:
+   - **Periodicidad** (`c_Periodicidad`): `01`=Diario, `02`=Semanal, `03`=Quincenal, `04`=Mensual, `05`=Bimestral
+   - **Meses** (`c_Meses`): `01`–`12` individual months; `13`–`18` bimonthly periods
+   - **Año**: Fiscal year
+
+5. **Invoice-to-global linking:** The `cfdi_global_invoice_items` junction table links each invoice to its parent CFDI Global. Each invoice can belong to at most one Factura Global (enforced by UNIQUE constraint on `invoice_id`).
+
+6. **CFDI Global receptor data:** When the Factura Global is stamped, the `cfdi_documents` receptor snapshot uses: RFC `XAXX010101000`, Nombre `PUBLICO EN GENERAL`, RegimenFiscal `616` (Sin obligaciones fiscales), UsoCFDI `S01` (Sin efectos fiscales).
+
+> **This feature does NOT apply to global-locale clients.** Only organizations and clients with `locale = 'MX'` participate in CFDI Global — the existing locale enforcement triggers (migration 087) prevent CFDI documents from being created for non-MX clients.
 
 ### Storage Folders
 
