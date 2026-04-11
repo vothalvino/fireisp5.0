@@ -18,7 +18,6 @@ const pool = mysql.createPool({
   queueLimit: 0,
   charset: 'utf8mb4',
   timezone: '+00:00',
-  multipleStatements: true,
 });
 
 /**

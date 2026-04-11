@@ -58,6 +58,25 @@ describe('Auth Routes', () => {
   });
 });
 
+describe('CORS Configuration', () => {
+  test('responds with CORS headers in development', async () => {
+    const res = await request(app)
+      .get('/health')
+      .set('Origin', 'http://some-random-origin.com');
+    expect(res.headers['access-control-allow-origin']).toBeDefined();
+    expect(res.headers['access-control-allow-credentials']).toBe('true');
+  });
+
+  test('OPTIONS preflight returns CORS headers', async () => {
+    const res = await request(app)
+      .options('/health')
+      .set('Origin', 'http://localhost:3000')
+      .set('Access-Control-Request-Method', 'GET');
+    expect(res.status).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBeDefined();
+  });
+});
+
 describe('Protected Routes', () => {
   test('GET /api/clients without auth returns 401', async () => {
     const res = await request(app).get('/api/clients');
