@@ -25,14 +25,12 @@ router.post('/', requirePermission('invoices.create'), validate(createInvoice), 
 router.put('/:id', requirePermission('invoices.update'), validate(updateInvoice), ctrl.update);
 router.delete('/:id', requirePermission('invoices.delete'), ctrl.destroy);
 
-// Get invoice line items
+// Invoice line items
 router.get('/:id/items', requirePermission('invoices.view'), async (req, res, next) => {
   try {
-    const items = await Invoice.getItems(req.params.id);
-    res.json({ data: items });
-  } catch (err) {
-    next(err);
-  }
+    const [rows] = await db.query('SELECT * FROM invoice_items WHERE invoice_id = ?', [req.params.id]);
+    res.json({ data: rows });
+  } catch (err) { next(err); }
 });
 
 // Add invoice line item
@@ -72,6 +70,20 @@ router.post('/generate', requirePermission('invoices.create'), validate(generate
   } catch (err) {
     next(err);
   }
+});
+
+// Invoice payments
+router.get('/:id/payments', requirePermission('payments.view'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT pa.*, p.amount AS payment_amount, p.payment_method, p.payment_date
+       FROM payment_allocations pa
+       JOIN payments p ON p.id = pa.payment_id
+       WHERE pa.invoice_id = ?`,
+      [req.params.id],
+    );
+    res.json({ data: rows });
+  } catch (err) { next(err); }
 });
 
 module.exports = router;
