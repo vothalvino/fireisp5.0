@@ -82,7 +82,12 @@ app.use(helmet());
 // in development allow common localhost origins only.
 const corsOrigin = config.env === 'production'
   ? config.appUrl
-  : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000'];
+  : [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
+  ];
 app.use(cors({ origin: corsOrigin, credentials: true }));
 
 app.use(express.json({ limit: '10mb' }));
