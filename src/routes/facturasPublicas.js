@@ -1,0 +1,113 @@
+// =============================================================================
+// FireISP 5.0 — Factura Pública Routes
+// =============================================================================
+
+const { Router } = require('express');
+const { authenticate } = require('../middleware/auth');
+const { orgScope } = require('../middleware/orgScope');
+const { requirePermission } = require('../middleware/rbac');
+const db = require('../config/database');
+
+const router = Router();
+
+router.use(authenticate);
+router.use(orgScope);
+
+// List facturas públicas
+router.get('/', requirePermission('facturas_publicas.view'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT * FROM factura_publica_invoices WHERE organization_id = ? ORDER BY created_at DESC',
+      [req.orgId],
+    );
+    res.json({ data: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get a single factura pública
+router.get('/:id', requirePermission('facturas_publicas.view'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT * FROM factura_publica_invoices WHERE id = ? AND organization_id = ?',
+      [req.params.id, req.orgId],
+    );
+    if (!rows[0]) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Factura pública not found' } });
+    }
+    res.json({ data: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Create a factura pública
+router.post('/', requirePermission('facturas_publicas.create'), async (req, res, next) => {
+  try {
+    const data = { ...req.body, organization_id: req.orgId };
+    const columns = Object.keys(data);
+    const placeholders = columns.map(() => '?').join(', ');
+    const [result] = await db.query(
+      `INSERT INTO factura_publica_invoices (${columns.join(', ')}) VALUES (${placeholders})`,
+      Object.values(data),
+    );
+    const [rows] = await db.query('SELECT * FROM factura_publica_invoices WHERE id = ?', [result.insertId]);
+    res.status(201).json({ data: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Update a factura pública
+router.put('/:id', requirePermission('facturas_publicas.update'), async (req, res, next) => {
+  try {
+    const columns = Object.keys(req.body).map((col) => `${col} = ?`).join(', ');
+    await db.query(
+      `UPDATE factura_publica_invoices SET ${columns} WHERE id = ? AND organization_id = ?`,
+      [...Object.values(req.body), req.params.id, req.orgId],
+    );
+    const [rows] = await db.query(
+      'SELECT * FROM factura_publica_invoices WHERE id = ? AND organization_id = ?',
+      [req.params.id, req.orgId],
+    );
+    if (!rows[0]) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Factura pública not found' } });
+    }
+    res.json({ data: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// List linked invoices for a factura pública
+router.get('/:id/items', requirePermission('facturas_publicas.view'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT * FROM factura_publica_invoice_items WHERE factura_publica_invoice_id = ? ORDER BY id',
+      [req.params.id],
+    );
+    res.json({ data: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Link an invoice to a factura pública
+router.post('/:id/items', requirePermission('facturas_publicas.update'), async (req, res, next) => {
+  try {
+    const data = { factura_publica_invoice_id: req.params.id, ...req.body };
+    const columns = Object.keys(data);
+    const placeholders = columns.map(() => '?').join(', ');
+    const [result] = await db.query(
+      `INSERT INTO factura_publica_invoice_items (${columns.join(', ')}) VALUES (${placeholders})`,
+      Object.values(data),
+    );
+    const [rows] = await db.query('SELECT * FROM factura_publica_invoice_items WHERE id = ?', [result.insertId]);
+    res.status(201).json({ data: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+module.exports = router;
