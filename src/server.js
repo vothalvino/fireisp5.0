@@ -54,25 +54,37 @@ async function start() {
     logger.warn({ err }, 'Scheduler failed to start');
   }
 
-  app.listen(config.port, () => {
+  const server = app.listen(config.port, () => {
     logger.info({ port: config.port, env: config.env }, 'FireISP 5.0 listening');
   });
+
+  // ---------------------------------------------------------------------------
+  // Graceful shutdown — drain HTTP connections before exiting
+  // ---------------------------------------------------------------------------
+  const SHUTDOWN_TIMEOUT_MS = 15000;
+
+  function gracefulShutdown(signal) {
+    logger.info({ signal }, `${signal} received, starting graceful shutdown…`);
+
+    // Stop accepting new connections; let in-flight requests finish
+    server.close(async () => {
+      logger.info('HTTP server closed');
+      scheduler.stop();
+      await db.close();
+      logger.info('All resources released — exiting');
+      process.exit(0);
+    });
+
+    // Safety net: force-exit if draining takes too long
+    setTimeout(() => {
+      logger.warn({ timeoutMs: SHUTDOWN_TIMEOUT_MS }, 'Shutdown timeout reached — forcing exit');
+      process.exit(1);
+    }, SHUTDOWN_TIMEOUT_MS).unref();
+  }
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 }
-
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received, shutting down...');
-  scheduler.stop();
-  await db.close();
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  logger.info('SIGINT received, shutting down...');
-  scheduler.stop();
-  await db.close();
-  process.exit(0);
-});
 
 start().catch(err => {
   logger.fatal({ err }, 'Failed to start');
