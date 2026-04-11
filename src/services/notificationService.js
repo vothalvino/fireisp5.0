@@ -2,9 +2,12 @@
 // FireISP 5.0 — Notification Service
 // =============================================================================
 // Sends notifications (email, SMS, WhatsApp) and logs them.
+// Email delivery is attempted immediately when SMTP is configured; otherwise
+// messages are queued in email_logs for later processing.
 // =============================================================================
 
 const db = require('../config/database');
+const emailTransport = require('./emailTransport');
 
 /**
  * Send a notification using a message template.
@@ -32,14 +35,24 @@ async function sendNotification({ organizationId, clientId, channel, templateId,
   }
 
   if (channel === 'email') {
-    // Log to email_logs (actual sending would use SMTP transport)
-    await db.query(
+    // Log to email_logs
+    const [logResult] = await db.query(
       `INSERT INTO email_logs (organization_id, client_id, template_id, recipient, subject, body, channel, status)
        VALUES (?, ?, ?, ?, ?, ?, 'email', 'queued')`,
       [organizationId, clientId, templateId, recipientEmail, subject, body],
     );
+
+    // Attempt immediate delivery when SMTP is configured
+    if (recipientEmail && emailTransport.getTransporter()) {
+      await emailTransport.sendEmail({
+        to: recipientEmail,
+        subject,
+        body,
+        emailLogId: logResult.insertId,
+      });
+    }
   } else if (channel === 'sms' || channel === 'whatsapp') {
-    // Log to sms_logs
+    // Log to sms_logs (delivery handled by external SMS provider integration)
     await db.query(
       `INSERT INTO sms_logs (organization_id, client_id, template_id, recipient, channel, body, direction, status)
        VALUES (?, ?, ?, ?, ?, ?, 'outbound', 'queued')`,
