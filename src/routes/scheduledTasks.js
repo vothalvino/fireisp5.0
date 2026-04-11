@@ -8,6 +8,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createScheduledTask, updateScheduledTask } = require('../middleware/schemas/scheduledTasks');
 const taskRunner = require('../services/taskRunner');
 
 const router = Router();
@@ -18,8 +20,8 @@ router.use(orgScope);
 
 router.get('/', requirePermission('scheduled_tasks.view'), ctrl.list);
 router.get('/:id', requirePermission('scheduled_tasks.view'), ctrl.get);
-router.post('/', requirePermission('scheduled_tasks.create'), ctrl.create);
-router.put('/:id', requirePermission('scheduled_tasks.update'), ctrl.update);
+router.post('/', requirePermission('scheduled_tasks.create'), validate(createScheduledTask), ctrl.create);
+router.put('/:id', requirePermission('scheduled_tasks.update'), validate(updateScheduledTask), ctrl.update);
 router.delete('/:id', requirePermission('scheduled_tasks.delete'), ctrl.destroy);
 
 // Manually trigger a task
