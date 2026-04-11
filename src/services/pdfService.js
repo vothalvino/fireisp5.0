@@ -40,17 +40,17 @@ function fmtDate(date) {
 
 function statusColor(status) {
   switch (status) {
-  case 'paid':
-  case 'active':
-  case 'vigente':
-    return COLORS.success;
-  case 'overdue':
-  case 'cancelled':
-  case 'cancelado':
-  case 'suspended':
-    return COLORS.danger;
-  default:
-    return COLORS.muted;
+    case 'paid':
+    case 'active':
+    case 'vigente':
+      return COLORS.success;
+    case 'overdue':
+    case 'cancelled':
+    case 'cancelado':
+    case 'suspended':
+      return COLORS.danger;
+    default:
+      return COLORS.muted;
   }
 }
 
