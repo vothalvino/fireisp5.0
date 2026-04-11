@@ -1,0 +1,52 @@
+{
+  "errors": {
+    "not_found": "Recurso no encontrado",
+    "unauthorized": "Autenticación requerida",
+    "forbidden": "No tiene permisos para realizar esta acción",
+    "validation": "Error de validación",
+    "conflict": "Ya existe un registro con ese valor",
+    "rate_limited": "Demasiadas solicitudes, intente de nuevo más tarde",
+    "internal": "Error interno del servidor",
+    "db_rule_violation": "Violación de regla de base de datos",
+    "fk_violation": "El registro referenciado no existe"
+  },
+  "auth": {
+    "login_success": "Inicio de sesión exitoso",
+    "logout_success": "Sesión cerrada correctamente",
+    "register_success": "Registro exitoso",
+    "password_reset_sent": "Correo de restablecimiento de contraseña enviado",
+    "password_reset_success": "La contraseña se restableció correctamente",
+    "password_changed": "Contraseña cambiada correctamente",
+    "email_verified": "Correo electrónico verificado correctamente",
+    "invalid_credentials": "Correo o contraseña incorrectos",
+    "token_expired": "El token ha expirado",
+    "token_invalid": "Token inválido"
+  },
+  "billing": {
+    "invoice_generated": "Factura {{invoiceNumber}} generada exitosamente",
+    "payment_received": "Pago de {{amount}} recibido",
+    "invoice_overdue": "La factura {{invoiceNumber}} está vencida",
+    "credit_note_issued": "Nota de crédito emitida por {{amount}}"
+  },
+  "suspension": {
+    "warning": "Su servicio puede ser suspendido por saldo vencido",
+    "suspended": "Su servicio ha sido suspendido",
+    "restored": "Su servicio ha sido restablecido",
+    "disconnected": "Su servicio ha sido desconectado"
+  },
+  "notifications": {
+    "new_ticket": "Nuevo ticket de soporte #{{ticketId}} creado",
+    "ticket_updated": "El ticket #{{ticketId}} ha sido actualizado",
+    "outage_reported": "Interrupción de servicio reportada: {{title}}",
+    "outage_resolved": "Interrupción de servicio resuelta: {{title}}",
+    "payment_confirmed": "Pago de {{amount}} confirmado",
+    "invoice_ready": "Nueva factura {{invoiceNumber}} lista"
+  },
+  "common": {
+    "created": "Creado exitosamente",
+    "updated": "Actualizado exitosamente",
+    "deleted": "Eliminado exitosamente",
+    "exported": "Exportación completada",
+    "imported": "Importación completada"
+  }
+}

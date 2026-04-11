@@ -7,7 +7,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const config = require('./config');
 const { AppError } = require('./utils/errors');
-const { apiLimiter, authLimiter } = require('./middleware/rateLimit');
+const { apiLimiter, authLimiter, exportLimiter } = require('./middleware/rateLimit');
 const { requestLogger } = require('./middleware/requestLogger');
 const { sanitize } = require('./middleware/sanitize');
 const { requestId } = require('./middleware/requestId');
@@ -74,6 +74,9 @@ const dashboardRoutes = require('./routes/dashboard');
 const exportRoutes = require('./routes/export');
 const importRoutes = require('./routes/import');
 const firerelayRoutes = require('./routes/firerelay');
+const pdfRoutes = require('./routes/pdf');
+const { router: eventsRoutes } = require('./routes/events');
+const { router: metricsRoutes, metricsMiddleware } = require('./routes/metrics');
 
 const app = express();
 
@@ -100,8 +103,11 @@ app.use(express.urlencoded({ extended: true }));
 app.use(sanitize);
 app.use(firerelay);
 app.use(requestLogger);
+app.use(metricsMiddleware);
 app.use('/api/', apiLimiter);
 app.use('/api/auth', authLimiter);
+app.use('/api/export', exportLimiter);
+app.use('/api/pdf', exportLimiter);
 
 // ---------------------------------------------------------------------------
 // Health check
@@ -204,6 +210,9 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/export', exportRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/firerelay', firerelayRoutes);
+app.use('/api/pdf', pdfRoutes);
+app.use('/api/events', eventsRoutes);
+app.use('/metrics', metricsRoutes);
 
 // ---------------------------------------------------------------------------
 // API documentation (Swagger UI)

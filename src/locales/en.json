@@ -1,0 +1,52 @@
+{
+  "errors": {
+    "not_found": "Resource not found",
+    "unauthorized": "Authentication required",
+    "forbidden": "You do not have permission to perform this action",
+    "validation": "Validation failed",
+    "conflict": "A record with that value already exists",
+    "rate_limited": "Too many requests, please try again later",
+    "internal": "Internal server error",
+    "db_rule_violation": "Database rule violation",
+    "fk_violation": "Referenced record does not exist"
+  },
+  "auth": {
+    "login_success": "Login successful",
+    "logout_success": "Logout successful",
+    "register_success": "Registration successful",
+    "password_reset_sent": "Password reset email sent",
+    "password_reset_success": "Password has been reset successfully",
+    "password_changed": "Password changed successfully",
+    "email_verified": "Email verified successfully",
+    "invalid_credentials": "Invalid email or password",
+    "token_expired": "Token has expired",
+    "token_invalid": "Invalid token"
+  },
+  "billing": {
+    "invoice_generated": "Invoice {{invoiceNumber}} generated successfully",
+    "payment_received": "Payment of {{amount}} received",
+    "invoice_overdue": "Invoice {{invoiceNumber}} is overdue",
+    "credit_note_issued": "Credit note issued for {{amount}}"
+  },
+  "suspension": {
+    "warning": "Your service may be suspended due to overdue balance",
+    "suspended": "Your service has been suspended",
+    "restored": "Your service has been restored",
+    "disconnected": "Your service has been disconnected"
+  },
+  "notifications": {
+    "new_ticket": "New support ticket #{{ticketId}} created",
+    "ticket_updated": "Ticket #{{ticketId}} has been updated",
+    "outage_reported": "Service outage reported: {{title}}",
+    "outage_resolved": "Service outage resolved: {{title}}",
+    "payment_confirmed": "Payment of {{amount}} confirmed",
+    "invoice_ready": "New invoice {{invoiceNumber}} is ready"
+  },
+  "common": {
+    "created": "Created successfully",
+    "updated": "Updated successfully",
+    "deleted": "Deleted successfully",
+    "exported": "Export completed",
+    "imported": "Import completed"
+  }
+}
