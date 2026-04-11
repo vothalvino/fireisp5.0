@@ -10,6 +10,16 @@ const db = require('../config/database');
 
 const router = Router();
 
+const ALLOWED_COLUMNS = [
+  'client_id', 'rfc', 'razon_social', 'uso_cfdi', 'metodo_pago',
+  'forma_pago', 'moneda', 'subtotal', 'tax_amount', 'total',
+  'status', 'notes',
+];
+
+const ALLOWED_ITEM_COLUMNS = [
+  'invoice_id', 'amount',
+];
+
 router.use(authenticate);
 router.use(orgScope);
 
@@ -45,12 +55,15 @@ router.get('/:id', requirePermission('facturas_publicas.view'), async (req, res,
 // Create a factura pública
 router.post('/', requirePermission('facturas_publicas.create'), async (req, res, next) => {
   try {
-    const data = { ...req.body, organization_id: req.orgId };
-    const columns = Object.keys(data);
+    const safe = Object.fromEntries(
+      Object.entries(req.body).filter(([k]) => ALLOWED_COLUMNS.includes(k)),
+    );
+    safe.organization_id = req.orgId;
+    const columns = Object.keys(safe);
     const placeholders = columns.map(() => '?').join(', ');
     const [result] = await db.query(
       `INSERT INTO factura_publica_invoices (${columns.join(', ')}) VALUES (${placeholders})`,
-      Object.values(data),
+      Object.values(safe),
     );
     const [rows] = await db.query('SELECT * FROM factura_publica_invoices WHERE id = ?', [result.insertId]);
     res.status(201).json({ data: rows[0] });
@@ -62,10 +75,13 @@ router.post('/', requirePermission('facturas_publicas.create'), async (req, res,
 // Update a factura pública
 router.put('/:id', requirePermission('facturas_publicas.update'), async (req, res, next) => {
   try {
-    const columns = Object.keys(req.body).map((col) => `${col} = ?`).join(', ');
+    const safe = Object.fromEntries(
+      Object.entries(req.body).filter(([k]) => ALLOWED_COLUMNS.includes(k)),
+    );
+    const columns = Object.keys(safe).map((col) => `${col} = ?`).join(', ');
     await db.query(
       `UPDATE factura_publica_invoices SET ${columns} WHERE id = ? AND organization_id = ?`,
-      [...Object.values(req.body), req.params.id, req.orgId],
+      [...Object.values(safe), req.params.id, req.orgId],
     );
     const [rows] = await db.query(
       'SELECT * FROM factura_publica_invoices WHERE id = ? AND organization_id = ?',
@@ -96,12 +112,15 @@ router.get('/:id/items', requirePermission('facturas_publicas.view'), async (req
 // Link an invoice to a factura pública
 router.post('/:id/items', requirePermission('facturas_publicas.update'), async (req, res, next) => {
   try {
-    const data = { factura_publica_invoice_id: req.params.id, ...req.body };
-    const columns = Object.keys(data);
+    const safe = Object.fromEntries(
+      Object.entries(req.body).filter(([k]) => ALLOWED_ITEM_COLUMNS.includes(k)),
+    );
+    safe.factura_publica_invoice_id = req.params.id;
+    const columns = Object.keys(safe);
     const placeholders = columns.map(() => '?').join(', ');
     const [result] = await db.query(
       `INSERT INTO factura_publica_invoice_items (${columns.join(', ')}) VALUES (${placeholders})`,
-      Object.values(data),
+      Object.values(safe),
     );
     const [rows] = await db.query('SELECT * FROM factura_publica_invoice_items WHERE id = ?', [result.insertId]);
     res.status(201).json({ data: rows[0] });
