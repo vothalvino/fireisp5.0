@@ -11,12 +11,6 @@ const config = require('../config');
 
 const logger = pino({
   level: config.log.level,
-  ...(config.env !== 'production' && {
-    transport: {
-      target: 'pino/file',
-      options: { destination: 1 },  // stdout
-    },
-  }),
 });
 
 module.exports = logger;

@@ -9,15 +9,18 @@ const db = require('../config/database');
 /**
  * Parse CSV string into rows of objects.
  * Handles quoted fields and escaped quotes.
+ * Limits to 10,000 rows to prevent memory exhaustion from untrusted input.
  */
 function parseCsv(csvString) {
+  const MAX_ROWS = 10000;
   const lines = csvString.trim().split('\n');
   if (lines.length < 2) return [];
 
   const headers = parseCsvLine(lines[0]);
   const rows = [];
+  const limit = Math.min(lines.length, MAX_ROWS + 1);
 
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = 1; i < limit; i++) {
     const values = parseCsvLine(lines[i]);
     if (values.length === 0) continue;
     const row = {};
@@ -32,8 +35,10 @@ function parseCsv(csvString) {
 
 /**
  * Parse a single CSV line respecting quoted fields.
+ * Limits to 200 columns to prevent abuse from malformed input.
  */
 function parseCsvLine(line) {
+  const MAX_COLS = 200;
   const result = [];
   let current = '';
   let inQuotes = false;
@@ -55,12 +60,15 @@ function parseCsvLine(line) {
       } else if (ch === ',') {
         result.push(current);
         current = '';
+        if (result.length >= MAX_COLS) break;
       } else {
         current += ch;
       }
     }
   }
-  result.push(current);
+  if (result.length < MAX_COLS) {
+    result.push(current);
+  }
   return result;
 }
 

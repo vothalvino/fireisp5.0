@@ -5,6 +5,7 @@
 // Sends RADIUS Disconnect-Request / CoA-Request to NAS devices.
 // =============================================================================
 
+const crypto = require('crypto');
 const dgram = require('dgram');
 const db = require('../config/database');
 
@@ -186,7 +187,6 @@ async function sendRadiusCoA(contractId, _action) {
  */
 function sendRadiusPacket(nasIp, port, secret, code, username) {
   return new Promise((resolve) => {
-    const crypto = require('crypto');
     const socket = dgram.createSocket('udp4');
     const identifier = crypto.randomInt(0, 256);
     const timeout = setTimeout(() => {
@@ -212,7 +212,9 @@ function sendRadiusPacket(nasIp, port, secret, code, username) {
     authenticatorRandom.copy(packet, 4);
     usernameAttr.copy(packet, 20);
 
-    // Compute Request Authenticator = MD5(Code + ID + Length + 16 zero bytes + Attributes + Secret)
+    // Compute Request Authenticator per RFC 2865 §3:
+    // MD5(Code + ID + Length + 16 zero bytes + Attributes + Secret)
+    // Note: MD5 is mandated by the RADIUS protocol spec — not a free choice.
     const authBuf = Buffer.alloc(20 + attrLen);
     packet.copy(authBuf, 0, 0, 20 + attrLen);
     authBuf.fill(0, 4, 20); // Zero out authenticator
