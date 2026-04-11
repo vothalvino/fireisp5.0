@@ -1,0 +1,75 @@
+// =============================================================================
+// FireISP 5.0 — Invoice Routes
+// =============================================================================
+
+const { Router } = require('express');
+const Invoice = require('../models/Invoice');
+const { crudController } = require('../controllers/crudController');
+const { authenticate } = require('../middleware/auth');
+const { orgScope } = require('../middleware/orgScope');
+const { requirePermission } = require('../middleware/rbac');
+const billingService = require('../services/billingService');
+const db = require('../config/database');
+
+const router = Router();
+const ctrl = crudController(Invoice);
+
+router.use(authenticate);
+router.use(orgScope);
+
+router.get('/', requirePermission('invoices.view'), ctrl.list);
+router.get('/:id', requirePermission('invoices.view'), ctrl.get);
+router.post('/', requirePermission('invoices.create'), ctrl.create);
+router.put('/:id', requirePermission('invoices.update'), ctrl.update);
+router.delete('/:id', requirePermission('invoices.delete'), ctrl.destroy);
+
+// Get invoice line items
+router.get('/:id/items', requirePermission('invoices.view'), async (req, res, next) => {
+  try {
+    const items = await Invoice.getItems(req.params.id);
+    res.json({ data: items });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Add invoice line item
+router.post('/:id/items', requirePermission('invoices.update'), async (req, res, next) => {
+  try {
+    const item = await Invoice.addItem({ invoice_id: req.params.id, ...req.body });
+    res.status(201).json({ data: item });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Generate invoice for a contract billing period
+router.post('/generate', requirePermission('invoices.create'), async (req, res, next) => {
+  try {
+    const { contract_id } = req.body;
+
+    // Fetch contract and plan
+    const [contracts] = await db.query(
+      'SELECT * FROM contracts WHERE id = ? AND organization_id = ?',
+      [contract_id, req.orgId],
+    );
+    if (!contracts[0]) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Contract not found' } });
+    }
+    const contract = contracts[0];
+
+    const [plans] = await db.query('SELECT * FROM plans WHERE id = ?', [contract.plan_id]);
+    if (!plans[0]) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Plan not found' } });
+    }
+
+    // Generate billing period then invoice
+    const period = await billingService.generateBillingPeriod(contract);
+    const invoice = await billingService.generateInvoice(period, contract, plans[0], req.orgId);
+    res.status(201).json({ data: invoice });
+  } catch (err) {
+    next(err);
+  }
+});
+
+module.exports = router;
