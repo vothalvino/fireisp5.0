@@ -169,6 +169,70 @@ INSERT INTO contracts (id, client_id, plan_id, start_date, connection_type, stat
 VALUES (9002, 9000, 9000, '2024-01-01', 'pppoe', 'pending');
 CALL assert_true(ROW_COUNT() = 1, 'A17: contracts INSERT without MX template succeeds for global client');
 
+-- A18. client_mx_profiles — UPDATE client_id to global client should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE client_mx_profiles SET client_id = 9000 WHERE id = 9000;
+END;
+CALL assert_true(@trg_err = 1, 'A18: client_mx_profiles UPDATE to global client rejected');
+
+-- A19. organization_mx_profiles — UPDATE organization_id to global org should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE organization_mx_profiles SET organization_id = 9000 WHERE id = 9000;
+END;
+CALL assert_true(@trg_err = 1, 'A19: organization_mx_profiles UPDATE to global org rejected');
+
+-- A20. cfdi_documents — UPDATE client_id to global client should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE cfdi_documents SET client_id = 9000 WHERE id = 9000;
+END;
+CALL assert_true(@trg_err = 1, 'A20: cfdi_documents UPDATE to global client rejected');
+
+-- A21. concession_titles — UPDATE organization_id to global org should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE concession_titles SET organization_id = 9000 WHERE id = 9000;
+END;
+CALL assert_true(@trg_err = 1, 'A21: concession_titles UPDATE to global org rejected');
+
+-- A22. contract_templates_mx — UPDATE organization_id to global org should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE contract_templates_mx SET organization_id = 9000 WHERE id = 9000;
+END;
+CALL assert_true(@trg_err = 1, 'A22: contract_templates_mx UPDATE to global org rejected');
+
+-- A23. regulatory_filings — UPDATE organization_id to global org should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE regulatory_filings SET organization_id = 9000 WHERE id = 9000;
+END;
+CALL assert_true(@trg_err = 1, 'A23: regulatory_filings UPDATE to global org rejected');
+
+-- A24. ift_statistical_reports — UPDATE organization_id to global org should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE ift_statistical_reports SET organization_id = 9000 WHERE id = 9000;
+END;
+CALL assert_true(@trg_err = 1, 'A24: ift_statistical_reports UPDATE to global org rejected');
+
+-- A25. contracts — UPDATE to set MX template on global client contract should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE contracts SET contract_template_mx_id = 9000 WHERE id = 9002;
+END;
+CALL assert_true(@trg_err = 1, 'A25: contracts UPDATE with MX template rejected for global client');
+
 -- =========================================================================
 -- B. LOCALE DOWNGRADE GUARD TRIGGERS (migration 088)
 -- =========================================================================
@@ -331,6 +395,16 @@ BEGIN
 END;
 CALL assert_true(@trg_err = 1, 'E5: UPDATE allocation exceeding payment total rejected');
 
+-- E6. UPDATE allocation to exceed invoice total specifically (payment cap OK)
+INSERT INTO payment_allocations (id, payment_id, invoice_id, amount)
+VALUES (9003, 9001, 9003, 100.00);
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE payment_allocations SET amount = 101.00 WHERE id = 9003;
+END;
+CALL assert_true(@trg_err = 1, 'E6: UPDATE allocation exceeding invoice total rejected');
+
 -- =========================================================================
 -- F. INVENTORY STOCK NEGATIVE GUARD (migration 127)
 -- =========================================================================
@@ -396,10 +470,204 @@ UPDATE contracts SET notes = 'Updated notes' WHERE id = 9002;
 CALL assert_true(ROW_COUNT() = 1, 'G5: Update non-status field on active PPPoE contract succeeds');
 
 -- =========================================================================
+-- H. CREDIT NOTE INVOICE TOTAL GUARD (migration 146)
+-- =========================================================================
+
+-- H1. Credit note within invoice total — should succeed (invoice 9002 total = $300)
+INSERT INTO credit_notes (id, client_id, invoice_id, credit_note_number, issue_date, reason, subtotal, total, status)
+VALUES (9000, 9001, 9002, 'CN-T9000', '2024-03-01', 'billing_error', 200.00, 200.00, 'draft');
+CALL assert_true(ROW_COUNT() = 1, 'H1: Credit note $200 on $300 invoice succeeds');
+
+-- H2. Second credit note that would exceed total — should fail ($200 + $101 > $300)
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    INSERT INTO credit_notes (id, client_id, invoice_id, credit_note_number, issue_date, reason, subtotal, total, status)
+    VALUES (9001, 9001, 9002, 'CN-T9001', '2024-03-01', 'billing_error', 101.00, 101.00, 'draft');
+END;
+CALL assert_true(@trg_err = 1, 'H2: Credit note exceeding invoice total rejected ($200+$101 > $300)');
+
+-- H3. Credit note exactly at boundary — should succeed ($200 + $100 = $300)
+INSERT INTO credit_notes (id, client_id, invoice_id, credit_note_number, issue_date, reason, subtotal, total, status)
+VALUES (9001, 9001, 9002, 'CN-T9001', '2024-03-01', 'billing_error', 100.00, 100.00, 'draft');
+CALL assert_true(ROW_COUNT() = 1, 'H3: Credit note at exact boundary succeeds ($200+$100 = $300)');
+
+-- H4. UPDATE credit note total to exceed — should fail ($100 other + $201 > $300)
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE credit_notes SET total = 201.00 WHERE id = 9000;
+END;
+CALL assert_true(@trg_err = 1, 'H4: UPDATE credit note total exceeding invoice total rejected');
+
+-- H5. Credit note without invoice_id — no cap enforced
+INSERT INTO credit_notes (id, client_id, credit_note_number, issue_date, reason, subtotal, total, status)
+VALUES (9002, 9001, 'CN-T9002', '2024-03-01', 'courtesy', 9999.00, 9999.00, 'draft');
+CALL assert_true(ROW_COUNT() = 1, 'H5: Credit note without invoice_id succeeds regardless of amount');
+
+-- =========================================================================
+-- I. AUDIT LOG IMMUTABILITY (migration 147)
+-- =========================================================================
+
+-- I1. INSERT audit log — should succeed
+INSERT INTO audit_logs (id, action, entity_type, entity_id, summary)
+VALUES (9000, 'create', 'test', 9000, 'Test audit entry');
+CALL assert_true(ROW_COUNT() = 1, 'I1: Audit log INSERT succeeds');
+
+-- I2. UPDATE audit log — should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE audit_logs SET summary = 'Tampered' WHERE id = 9000;
+END;
+CALL assert_true(@trg_err = 1, 'I2: Audit log UPDATE rejected (immutable)');
+
+-- I3. DELETE audit log — should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    DELETE FROM audit_logs WHERE id = 9000;
+END;
+CALL assert_true(@trg_err = 1, 'I3: Audit log DELETE rejected (immutable)');
+
+-- =========================================================================
+-- J. CFDI DOCUMENT IMMUTABILITY (migration 148)
+-- =========================================================================
+
+-- J1. Stamp CFDI (set sat_status to vigente) — should succeed (draft → vigente)
+UPDATE cfdi_documents SET sat_status = 'vigente' WHERE id = 9000;
+CALL assert_true(ROW_COUNT() = 1, 'J1: CFDI status update to vigente succeeds');
+
+-- J2. Modify subtotal on vigente CFDI — should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE cfdi_documents SET subtotal = 999.00 WHERE id = 9000;
+END;
+CALL assert_true(@trg_err = 1, 'J2: Vigente CFDI subtotal modification rejected');
+
+-- J3. Modify total on vigente CFDI — should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE cfdi_documents SET total = 999.00 WHERE id = 9000;
+END;
+CALL assert_true(@trg_err = 1, 'J3: Vigente CFDI total modification rejected');
+
+-- J4. Change sat_status to cancel_pending (cancellation flow) — should succeed
+UPDATE cfdi_documents SET sat_status = 'cancel_pending', cancellation_reason = '02' WHERE id = 9000;
+CALL assert_true(ROW_COUNT() = 1, 'J4: Vigente CFDI cancellation flow status change succeeds');
+
+-- =========================================================================
+-- K. CONTRACT STATUS FSM (migration 149)
+-- =========================================================================
+
+-- K1. pending → active (valid) — should succeed
+INSERT INTO contracts (id, client_id, plan_id, start_date, connection_type, status)
+VALUES (9006, 9000, 9000, '2024-04-01', 'static', 'pending');
+UPDATE contracts SET status = 'active' WHERE id = 9006;
+CALL assert_true(ROW_COUNT() = 1, 'K1: Contract pending -> active succeeds');
+
+-- K2. pending → cancelled (valid) — should succeed
+INSERT INTO contracts (id, client_id, plan_id, start_date, connection_type, status)
+VALUES (9007, 9000, 9000, '2024-04-01', 'static', 'pending');
+UPDATE contracts SET status = 'cancelled' WHERE id = 9007;
+CALL assert_true(ROW_COUNT() = 1, 'K2: Contract pending -> cancelled succeeds');
+
+-- K3. active → expired (valid) — should succeed
+UPDATE contracts SET status = 'expired' WHERE id = 9006;
+CALL assert_true(ROW_COUNT() = 1, 'K3: Contract active -> expired succeeds');
+
+-- K4. active → cancelled (valid) — should succeed
+INSERT INTO contracts (id, client_id, plan_id, start_date, connection_type, status)
+VALUES (9008, 9000, 9000, '2024-04-01', 'static', 'pending');
+UPDATE contracts SET status = 'active' WHERE id = 9008;
+UPDATE contracts SET status = 'cancelled' WHERE id = 9008;
+CALL assert_true(ROW_COUNT() = 1, 'K4: Contract active -> cancelled succeeds');
+
+-- K5. cancelled → active (invalid) — should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE contracts SET status = 'active' WHERE id = 9007;
+END;
+CALL assert_true(@trg_err = 1, 'K5: Contract cancelled -> active rejected');
+
+-- K6. expired → pending (invalid) — should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE contracts SET status = 'pending' WHERE id = 9006;
+END;
+CALL assert_true(@trg_err = 1, 'K6: Contract expired -> pending rejected');
+
+-- K7. pending → expired (invalid) — should fail
+INSERT INTO contracts (id, client_id, plan_id, start_date, connection_type, status)
+VALUES (9009, 9000, 9000, '2024-04-01', 'static', 'pending');
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE contracts SET status = 'expired' WHERE id = 9009;
+END;
+CALL assert_true(@trg_err = 1, 'K7: Contract pending -> expired rejected');
+
+-- =========================================================================
+-- L. OUTAGE TEMPORAL LOGIC (migration 150)
+-- =========================================================================
+
+-- L1. INSERT outage with resolved_at after started_at — should succeed
+INSERT INTO outages (id, site_id, title, started_at, resolved_at, status)
+VALUES (9000, 9000, 'Test Outage Resolved', '2024-01-01 00:00:00', '2024-01-01 01:00:00', 'resolved');
+CALL assert_true(ROW_COUNT() = 1, 'L1: Outage with resolved_at after started_at succeeds');
+
+-- L2. INSERT outage with resolved_at before started_at — should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    INSERT INTO outages (id, site_id, title, started_at, resolved_at, status)
+    VALUES (9001, 9000, 'Bad Outage', '2024-01-01 12:00:00', '2024-01-01 11:00:00', 'resolved');
+END;
+CALL assert_true(@trg_err = 1, 'L2: Outage with resolved_at before started_at rejected');
+
+-- L3. INSERT outage with resolved_at equal to started_at — should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    INSERT INTO outages (id, site_id, title, started_at, resolved_at, status)
+    VALUES (9001, 9000, 'Equal Times', '2024-01-01 12:00:00', '2024-01-01 12:00:00', 'resolved');
+END;
+CALL assert_true(@trg_err = 1, 'L3: Outage with resolved_at equal to started_at rejected');
+
+-- L4. INSERT outage without resolved_at — should succeed
+INSERT INTO outages (id, site_id, title, started_at, status)
+VALUES (9001, 9000, 'Ongoing Outage', '2024-01-01 00:00:00', 'ongoing');
+CALL assert_true(ROW_COUNT() = 1, 'L4: Outage without resolved_at succeeds');
+
+-- L5. UPDATE outage to set resolved_at before started_at — should fail
+SET @trg_err = 0;
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET @trg_err = 1;
+    UPDATE outages SET resolved_at = '2023-12-31 23:00:00' WHERE id = 9000;
+END;
+CALL assert_true(@trg_err = 1, 'L5: UPDATE outage resolved_at before started_at rejected');
+
+-- L6. UPDATE outage to set valid resolved_at — should succeed
+UPDATE outages SET resolved_at = '2024-01-02 00:00:00', status = 'resolved' WHERE id = 9001;
+CALL assert_true(ROW_COUNT() = 1, 'L6: UPDATE outage with valid resolved_at succeeds');
+
+-- =========================================================================
 -- CLEANUP — remove all test data in reverse dependency order
 -- =========================================================================
+
+-- Temporarily drop audit log immutability triggers for test cleanup
+DROP TRIGGER IF EXISTS trg_audit_logs_immutable_bu;
+DROP TRIGGER IF EXISTS trg_audit_logs_immutable_bd;
+
 SET FOREIGN_KEY_CHECKS = 0;
 
+DELETE FROM outages WHERE id IN (9000, 9001);
+DELETE FROM audit_logs WHERE id = 9000;
+DELETE FROM credit_notes WHERE id IN (9000, 9001, 9002);
 DELETE FROM radius WHERE id = 9000;
 DELETE FROM nas WHERE id = 9000;
 DELETE FROM factura_publica_invoice_items WHERE id IN (9000, 9001);
@@ -407,7 +675,7 @@ DELETE FROM factura_publica_invoices WHERE id IN (9000, 9001);
 DELETE FROM payment_allocations WHERE id IN (9000, 9001, 9002, 9003);
 DELETE FROM payments WHERE id IN (9000, 9001);
 DELETE FROM invoices WHERE id IN (9000, 9001, 9002, 9003, 9004);
-DELETE FROM contracts WHERE id IN (9000, 9001, 9002, 9003, 9004, 9005);
+DELETE FROM contracts WHERE id IN (9000, 9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009);
 DELETE FROM inventory_stock WHERE id = 9000;
 DELETE FROM inventory_items WHERE id = 9000;
 DELETE FROM inventory_transactions WHERE stock_id = 9000;
@@ -425,5 +693,26 @@ DELETE FROM sites WHERE id = 9000;
 DELETE FROM plans WHERE id = 9000;
 
 SET FOREIGN_KEY_CHECKS = @OLD_FK_CHECKS;
+
+-- Recreate audit log immutability triggers after cleanup
+DELIMITER $$
+
+CREATE TRIGGER trg_audit_logs_immutable_bu
+BEFORE UPDATE ON audit_logs
+FOR EACH ROW
+BEGIN
+    SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Audit logs are immutable and cannot be updated';
+END$$
+
+CREATE TRIGGER trg_audit_logs_immutable_bd
+BEFORE DELETE ON audit_logs
+FOR EACH ROW
+BEGIN
+    SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Audit logs are immutable and cannot be deleted';
+END$$
+
+DELIMITER ;
 
 CALL test_summary();
