@@ -4505,19 +4505,20 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
 -- Purpose: Registry of nodes in a FireRelay cluster (migration 130)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS firerelay_nodes (
-    id              VARCHAR(64)   NOT NULL,
-    name            VARCHAR(255)  NOT NULL DEFAULT '',
-    api_url         VARCHAR(512)  NOT NULL,
+    id              VARCHAR(64)   NOT NULL COMMENT 'Unique node identifier (e.g. node2)',
+    name            VARCHAR(255)  NOT NULL DEFAULT '' COMMENT 'Human-readable name',
+    api_url         VARCHAR(512)  NOT NULL COMMENT 'Base URL of the node API',
     status          ENUM('active', 'draining', 'maintenance', 'offline')
-                                NOT NULL DEFAULT 'active',
-    client_count    INT UNSIGNED  NOT NULL DEFAULT 0,
-    device_count    INT UNSIGNED  NOT NULL DEFAULT 0,
-    cpu_percent     DECIMAL(5, 2) NULL,
-    memory_percent  DECIMAL(5, 2) NULL,
-    disk_percent    DECIMAL(5, 2) NULL,
-    db_size_mb      INT UNSIGNED  NULL,
-    uptime_seconds  BIGINT UNSIGNED NULL,
-    last_seen_at    DATETIME      NULL,
+                                NOT NULL DEFAULT 'active'
+                                COMMENT 'Current lifecycle state',
+    client_count    INT UNSIGNED  NOT NULL DEFAULT 0 COMMENT 'Last reported client count',
+    device_count    INT UNSIGNED  NOT NULL DEFAULT 0 COMMENT 'Last reported device count',
+    cpu_percent     DECIMAL(5, 2) NULL COMMENT 'Last reported CPU usage %',
+    memory_percent  DECIMAL(5, 2) NULL COMMENT 'Last reported memory usage %',
+    disk_percent    DECIMAL(5, 2) NULL COMMENT 'Last reported disk usage %',
+    db_size_mb      INT UNSIGNED  NULL COMMENT 'Last reported database size in MB',
+    uptime_seconds  BIGINT UNSIGNED NULL COMMENT 'Last reported uptime in seconds',
+    last_seen_at    DATETIME      NULL COMMENT 'Timestamp of last successful health check',
     created_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
@@ -4531,8 +4532,8 @@ CREATE TABLE IF NOT EXISTS firerelay_nodes (
 -- Purpose: Maps each client_id to owning FireRelay node (migration 131)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS firerelay_client_routing (
-    client_id   BIGINT UNSIGNED NOT NULL,
-    node_id     VARCHAR(64)     NOT NULL,
+    client_id   BIGINT UNSIGNED NOT NULL COMMENT 'The client ID',
+    node_id     VARCHAR(64)     NOT NULL COMMENT 'Which node owns this client',
     created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (client_id),
@@ -5590,50 +5591,6 @@ BEGIN
 END$$
 
 DELIMITER ;
-
--- ---------------------------------------------------------------------------
--- Table: firerelay_nodes (migration 151)
--- Purpose: Master-side registry of all worker nodes in the FireRelay cluster.
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS firerelay_nodes (
-    id              VARCHAR(64)  NOT NULL COMMENT 'Unique node identifier (e.g. node2)',
-    name            VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'Human-readable name',
-    api_url         VARCHAR(512) NOT NULL COMMENT 'Base URL of the node API',
-    status          ENUM('active','draining','maintenance','offline')
-                    NOT NULL DEFAULT 'active'
-                    COMMENT 'Current lifecycle state',
-    client_count    INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Last reported client count',
-    device_count    INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Last reported device count',
-    cpu_percent     DECIMAL(5,2) DEFAULT NULL COMMENT 'Last reported CPU usage %',
-    memory_percent  DECIMAL(5,2) DEFAULT NULL COMMENT 'Last reported memory usage %',
-    disk_percent    DECIMAL(5,2) DEFAULT NULL COMMENT 'Last reported disk usage %',
-    db_size_mb      INT UNSIGNED DEFAULT NULL COMMENT 'Last reported database size in MB',
-    uptime_seconds  INT UNSIGNED DEFAULT NULL COMMENT 'Last reported uptime in seconds',
-    last_seen_at    DATETIME     DEFAULT NULL COMMENT 'Timestamp of last successful health check',
-    created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-    PRIMARY KEY (id),
-    INDEX idx_firerelay_nodes_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ---------------------------------------------------------------------------
--- Table: firerelay_client_routing (migration 152)
--- Purpose: Maps each client_id to the node that owns it so the master can
---          route single-entity requests to the correct worker.
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS firerelay_client_routing (
-    client_id   BIGINT UNSIGNED NOT NULL COMMENT 'The client ID',
-    node_id     VARCHAR(64)     NOT NULL COMMENT 'Which node owns this client',
-    created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    PRIMARY KEY (client_id),
-    INDEX idx_firerelay_client_routing_node (node_id),
-
-    CONSTRAINT fk_firerelay_client_routing_node
-        FOREIGN KEY (node_id) REFERENCES firerelay_nodes (id)
-        ON UPDATE CASCADE ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
 -- Indexes: composite indexes for common query patterns (migration 129)

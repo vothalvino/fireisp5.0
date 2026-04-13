@@ -6,19 +6,20 @@
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS firerelay_nodes (
-  id              VARCHAR(64)   NOT NULL,
-  name            VARCHAR(255)  NOT NULL DEFAULT '',
-  api_url         VARCHAR(512)  NOT NULL,
+  id              VARCHAR(64)   NOT NULL COMMENT 'Unique node identifier (e.g. node2)',
+  name            VARCHAR(255)  NOT NULL DEFAULT '' COMMENT 'Human-readable name',
+  api_url         VARCHAR(512)  NOT NULL COMMENT 'Base URL of the node API',
   status          ENUM('active','draining','maintenance','offline')
-                                NOT NULL DEFAULT 'active',
-  client_count    INT UNSIGNED  NOT NULL DEFAULT 0,
-  device_count    INT UNSIGNED  NOT NULL DEFAULT 0,
-  cpu_percent     DECIMAL(5,2)  NULL,
-  memory_percent  DECIMAL(5,2)  NULL,
-  disk_percent    DECIMAL(5,2)  NULL,
-  db_size_mb      INT UNSIGNED  NULL,
-  uptime_seconds  BIGINT UNSIGNED NULL,
-  last_seen_at    DATETIME      NULL,
+                                NOT NULL DEFAULT 'active'
+                                COMMENT 'Current lifecycle state',
+  client_count    INT UNSIGNED  NOT NULL DEFAULT 0 COMMENT 'Last reported client count',
+  device_count    INT UNSIGNED  NOT NULL DEFAULT 0 COMMENT 'Last reported device count',
+  cpu_percent     DECIMAL(5,2)  NULL COMMENT 'Last reported CPU usage %',
+  memory_percent  DECIMAL(5,2)  NULL COMMENT 'Last reported memory usage %',
+  disk_percent    DECIMAL(5,2)  NULL COMMENT 'Last reported disk usage %',
+  db_size_mb      INT UNSIGNED  NULL COMMENT 'Last reported database size in MB',
+  uptime_seconds  BIGINT UNSIGNED NULL COMMENT 'Last reported uptime in seconds',
+  last_seen_at    DATETIME      NULL COMMENT 'Timestamp of last successful health check',
   created_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
