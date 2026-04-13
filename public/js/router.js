@@ -57,7 +57,19 @@ const Router = (() => {
     document.getElementById('page-title').textContent = titles[basePage] || basePage;
 
     currentPage = basePage;
-    renderFn(document.getElementById('content-area'), ...params);
+
+    // Error boundary: catch unhandled errors in page render functions
+    try {
+      const result = renderFn(document.getElementById('content-area'), ...params);
+      // Handle async render functions
+      if (result && typeof result.catch === 'function') {
+        result.catch(function (err) {
+          showPageError(basePage, err);
+        });
+      }
+    } catch (err) {
+      showPageError(basePage, err);
+    }
   }
 
   function onHashChange() {
@@ -81,6 +93,19 @@ const Router = (() => {
 
   function init() {
     window.addEventListener('hashchange', onHashChange);
+  }
+
+  function showPageError(pageName, err) {
+    var content = document.getElementById('content-area');
+    var msg = (err && err.message) ? err.message : 'An unexpected error occurred';
+    content.innerHTML =
+      '<div class="card" style="text-align:center;padding:2rem">' +
+        '<h3 style="color:var(--danger,#e74c3c)">⚠ Something went wrong</h3>' +
+        '<p style="color:#666">Failed to load the <strong>' + (pageName || 'page') + '</strong> page.</p>' +
+        '<p style="font-size:0.85rem;color:#999">' + msg + '</p>' +
+        '<button class="btn btn-primary" onclick="Router.navigate(\'' + (pageName || 'dashboard') + '\')">Try Again</button>' +
+        ' <button class="btn btn-secondary" onclick="Router.navigate(\'dashboard\')">Go to Dashboard</button>' +
+      '</div>';
   }
 
   return { register, navigate, onHashChange, showLogin, showApp, init, current: () => currentPage };

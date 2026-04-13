@@ -38,6 +38,21 @@ function fmtDate(d) {
 
 function loading() { return '<div class="loading"><div class="spinner"></div><p>Loading…</p></div>'; }
 
+function errorState(message) {
+  return '<div class="card" style="text-align:center;padding:2rem">' +
+    '<h3 style="color:var(--danger,#e74c3c)">⚠ Error</h3>' +
+    '<p style="color:#666">' + esc(message || 'Failed to load data. Please try again.') + '</p>' +
+    '<button class="btn btn-primary" onclick="Router.navigate(Router.current() || \'dashboard\')">Retry</button>' +
+  '</div>';
+}
+
+function emptyState(message) {
+  return '<div class="card" style="text-align:center;padding:2rem;color:#999">' +
+    '<p style="font-size:1.2rem">📭</p>' +
+    '<p>' + esc(message || 'No records found.') + '</p>' +
+  '</div>';
+}
+
 function pagination(page, total, perPage, onPage) {
   const pages = Math.ceil(total / perPage) || 1;
   if (pages <= 1) return '';
@@ -226,7 +241,7 @@ function crudListPage(endpoint, columns, opts = {}) {
           if (btn) btn.addEventListener('click', () => showCreateModal(endpoint, createFields, name, load));
         }
       } catch (err) {
-        container.innerHTML = `<div class="card"><p class="error-text">Failed to load ${name}: ${esc(err.message)}</p></div>`;
+        container.innerHTML = errorState('Failed to load ' + name + ': ' + (err.message || 'Unknown error'));
       }
     }
 
@@ -318,7 +333,7 @@ function detailPage(endpoint, title, fieldGroups) {
 
       document.getElementById('back-btn').addEventListener('click', () => window.history.back());
     } catch (err) {
-      container.innerHTML = `<div class="card"><p class="error-text">Failed to load: ${esc(err.message)}</p></div>`;
+      container.innerHTML = errorState('Failed to load: ' + (err.message || 'Unknown error'));
     }
   };
 }
