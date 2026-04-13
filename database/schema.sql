@@ -5316,6 +5316,10 @@ BEGIN
         OR COALESCE(NEW.receptor_rfc, '')    != COALESCE(OLD.receptor_rfc, '')
         OR COALESCE(NEW.receptor_nombre, '') != COALESCE(OLD.receptor_nombre, '')
         OR COALESCE(NEW.uuid, '')            != COALESCE(OLD.uuid, '')
+        OR (NEW.xml_content IS NULL) != (OLD.xml_content IS NULL)
+        OR COALESCE(NEW.xml_content, '') != COALESCE(OLD.xml_content, '')
+        OR (NEW.signed_xml IS NULL) != (OLD.signed_xml IS NULL)
+        OR COALESCE(NEW.signed_xml, '') != COALESCE(OLD.signed_xml, '')
         THEN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'Stamped CFDI documents (vigente) cannot be modified; use the cancellation flow';
