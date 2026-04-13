@@ -12,6 +12,8 @@ const radiusService = require('./radiusService');
 const snmpPoller = require('./snmpPoller');
 const emailTransport = require('./emailTransport');
 const webhookService = require('./webhookService');
+const checkoutService = require('./checkoutService');
+const alertService = require('./alertService');
 
 /**
  * Get all scheduled tasks, optionally filtered by organization.
@@ -53,6 +55,10 @@ async function runTask(taskName, organizationId = null) {
       return { message: 'Network health snapshots are populated by MySQL scheduled event' };
     case 'csd_expiry_monitor':
       return runCsdExpiryCheck(organizationId);
+    case 'alert_evaluation':
+      return alertService.evaluateAlerts(organizationId);
+    case 'process_recurring_charges':
+      return checkoutService.processRecurringCharges(organizationId);
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }

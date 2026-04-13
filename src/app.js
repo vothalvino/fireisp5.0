@@ -78,6 +78,11 @@ const pdfRoutes = require('./routes/pdf');
 const { router: eventsRoutes } = require('./routes/events');
 const { router: metricsRoutes, metricsMiddleware } = require('./routes/metrics');
 const paymentWebhookRoutes = require('./routes/paymentWebhooks');
+const usageRoutes = require('./routes/usage');
+const reportRoutes = require('./routes/reports');
+const checkoutRoutes = require('./routes/checkout');
+const alertRoutes = require('./routes/alerts');
+const twoFactorRoutes = require('./routes/twoFactor');
 
 const app = express();
 
@@ -224,11 +229,19 @@ app.use('/api/import', importRoutes);
 app.use('/api/firerelay', firerelayRoutes);
 app.use('/api/pdf', pdfRoutes);
 app.use('/api/events', eventsRoutes);
+app.use('/api/usage', apiLimiter, usageRoutes);
+app.use('/api/reports', apiLimiter, reportRoutes);
+app.use('/api/checkout', apiLimiter, checkoutRoutes);
+app.use('/api/alerts', apiLimiter, alertRoutes);
+app.use('/api/2fa', authLimiter, twoFactorRoutes);
 app.use('/metrics', metricsRoutes);
 
 // ---------------------------------------------------------------------------
 // API documentation (Swagger UI)
 // ---------------------------------------------------------------------------
+const { registerHooks } = require('./services/notificationHooks');
+registerHooks();
+
 const { mountApiDocs } = require('./utils/openapi');
 mountApiDocs(app);
 
