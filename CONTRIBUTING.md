@@ -43,7 +43,7 @@ npm run lint
 ### Project Structure
 
 ```
-fireisp5.0/
+firebase/
 ├── database/           # SQL schema and migrations
 │   ├── schema.sql      # Full schema (for fresh installs)
 │   └── migrations/     # Numbered migration files (136+)
@@ -126,6 +126,7 @@ Rules:
 - Always add `IF NOT EXISTS` / `IF EXISTS` guards
 - Include both the forward migration in the file
 - Test with `docker compose -f docker-compose.test.yml up --build`
+- **Always update `database/schema.sql`** — every migration that changes the database structure (new table, altered column, new index, new trigger, etc.) **must** be reflected in `database/schema.sql`. This file is the combined full schema used for fresh installs and developer onboarding. If your migration adds a table, append the `CREATE TABLE` to `schema.sql`; if it alters a column, update the corresponding table definition in `schema.sql`. Alternatively, after applying all migrations on a fresh database you can regenerate it with: `mysqldump -u root -p --no-data fireisp > database/schema.sql`
 
 ### Commit Messages
 
