@@ -147,7 +147,12 @@ async function redeliverDeadLetter(deliveryId) {
   }
 
   const delivery = rows[0];
-  const payload = delivery.request_body ? JSON.parse(delivery.request_body) : {};
+  let payload;
+  try {
+    payload = delivery.request_body ? JSON.parse(delivery.request_body) : {};
+  } catch (_err) {
+    payload = {};
+  }
 
   // Reset status so it can be retried
   await db.query(

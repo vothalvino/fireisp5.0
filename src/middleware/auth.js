@@ -20,7 +20,11 @@ async function authenticateApiToken(req) {
   const apiKey = req.headers['x-api-key'];
   if (!apiKey) return false;
 
-  const tokenHash = crypto.createHash('sha256').update(apiKey).digest('hex');
+  // SHA-256 is appropriate for API token hashing (unlike passwords, tokens have
+  // sufficient entropy). This is the industry-standard approach used by GitHub,
+  // AWS, Stripe, etc.  Using bcrypt/scrypt here would add latency to every
+  // authenticated request without meaningful security benefit.
+  const tokenHash = crypto.createHash('sha256').update(apiKey).digest('hex'); // lgtm[js/insufficient-password-hash]
 
   const [rows] = await db.query(
     `SELECT at.*, u.email, u.role, u.status, u.organization_id
@@ -107,11 +111,8 @@ async function authenticate(req, _res, next) {
 async function optionalAuth(req, _res, next) {
   const header = req.headers.authorization;
   const apiKey = req.headers['x-api-key'];
-  if (!header && !apiKey) {
+  if (!apiKey && (!header || !header.startsWith('Bearer '))) {
     return next();
-  }
-  if (!header || !header.startsWith('Bearer ')) {
-    if (!apiKey) return next();
   }
   return authenticate(req, _res, next);
 }

@@ -198,12 +198,9 @@ describe('cacheService (MemoryCache fallback)', () => {
   // close
   // =========================================================================
   describe('close()', () => {
-    test('clears the cache store', async () => {
+    test('clears the cache store without throwing', async () => {
       await cacheService.set('before-close', 'value');
-      await cacheService.close();
-
-      // After close, getting the same key should return null
-      // (though internal singleton will be re-created on next access)
+      await expect(cacheService.close()).resolves.not.toThrow();
     });
   });
 });

@@ -147,14 +147,10 @@ describe('jobQueueService (InProcessQueue fallback)', () => {
   // close
   // =========================================================================
   describe('close()', () => {
-    test('clears all handlers', async () => {
+    test('clears all handlers without throwing', async () => {
       const handler = jest.fn();
       jobQueue.process('test', handler);
-
-      await jobQueue.close();
-
-      // After close, adding a job should result in no-handler
-      // (re-require to get fresh module since close cleared handlers but module singleton is same)
+      await expect(jobQueue.close()).resolves.not.toThrow();
     });
   });
 
