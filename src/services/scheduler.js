@@ -16,6 +16,11 @@ const jobs = new Map();
  * Attempt to acquire a distributed lock for a task using the cache service.
  * Returns true if this node acquired the lock, false otherwise.
  * Falls back to always returning true when Redis is not available (single-node).
+ *
+ * Note: This is not fully atomic without Redis SETNX. When using the in-memory
+ * fallback (single node), this is safe. With Redis, a small race window exists
+ * between get and set; for cron tasks running at most once per minute, this is
+ * acceptable. For sub-second scheduling, use Redis SET NX directly via ioredis.
  */
 async function acquireLock(taskName, ttlSeconds = 300) {
   const key = `scheduler:lock:${taskName}`;
