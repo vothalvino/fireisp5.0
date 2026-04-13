@@ -1,0 +1,49 @@
+---
+name: Support Question
+description: Ask a question about installing, configuring, or using FireISP 5.0
+title: "[Support]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening a support question, please check:
+        - [Deployment guide](../docs/deployment.md)
+        - [API guide](../docs/API_GUIDE.md)
+        - [RADIUS setup](../docs/radius-setup.md)
+        - [FireRelay docs](../docs/firerelay.md)
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: Describe what you need help with.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Topic area
+      options:
+        - Installation / Setup
+        - Database / Migrations
+        - Configuration
+        - RADIUS Integration
+        - SNMP / Network Monitoring
+        - CFDI / Fiscal Compliance
+        - Billing
+        - FireRelay / Clustering
+        - Docker / Deployment
+        - API Usage
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: FireISP version
+      placeholder: "5.0.0"
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Configuration details, logs, or screenshots that may help.

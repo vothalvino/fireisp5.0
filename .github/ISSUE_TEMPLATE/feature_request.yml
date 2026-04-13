@@ -1,0 +1,51 @@
+---
+name: Feature Request
+description: Suggest a new feature or improvement for FireISP 5.0
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a feature. Please describe what you would like to see.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What problem does this feature solve? Is it related to an existing frustration?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the solution you would like. Be as detailed as you can.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any alternative solutions or features you have considered.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Feature area
+      options:
+        - Billing & Invoicing
+        - CFDI / Fiscal Compliance
+        - Network (RADIUS, SNMP, Devices)
+        - Client Management
+        - API / Integrations
+        - Dashboard / UI
+        - FireRelay (Clustering)
+        - Authentication / Security
+        - Reporting / Export
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Any other context, mockups, or references for this feature.
