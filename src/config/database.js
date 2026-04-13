@@ -7,6 +7,13 @@
 
 const mysql = require('mysql2/promise');
 
+const parseIntEnv = (key, fallback) => {
+  const v = process.env[key];
+  if (v === undefined || v === '') return fallback;
+  const n = parseInt(v, 10);
+  return Number.isNaN(n) ? fallback : n;
+};
+
 /**
  * Shared connection parameters derived from environment variables.
  * Used by both the main application pool and the migration runner.
@@ -24,8 +31,10 @@ const baseConnectionConfig = {
 const pool = mysql.createPool({
   ...baseConnectionConfig,
   waitForConnections: true,
-  connectionLimit: 20,
-  queueLimit: 0,
+  connectionLimit: parseIntEnv('DB_POOL_SIZE', 20),
+  queueLimit: parseIntEnv('DB_QUEUE_LIMIT', 0),
+  enableKeepAlive: true,
+  keepAliveInitialDelay: parseIntEnv('DB_KEEP_ALIVE_MS', 30000),
 });
 
 /**
