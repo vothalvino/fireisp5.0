@@ -15,7 +15,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [18, 20]
+        node-version: [18, 20, 22]
 
     steps:
       - uses: actions/checkout@v4
@@ -33,13 +33,24 @@ jobs:
         run: npx eslint src/
 
       - name: Security audit
-        run: npm audit --audit-level=high || true
+        run: npm audit --audit-level=high
 
       - name: Run tests with coverage
         run: npx jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=text --coverageReporters=lcov
 
+      - name: Check coverage threshold
+        if: matrix.node-version == 22
+        run: |
+          COVERAGE=$(npx jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=json-summary 2>/dev/null && node -e "
+            const s = require('./coverage/coverage-summary.json');
+            const pct = s.total.lines.pct;
+            console.log(pct);
+          ")
+          echo "Line coverage: ${COVERAGE}%"
+          node -e "if (parseFloat('${COVERAGE}') < 70) { console.error('Coverage below 70% threshold'); process.exit(1); }"
+
       - name: Upload coverage report
-        if: matrix.node-version == 20
+        if: matrix.node-version == 22
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
@@ -54,6 +65,44 @@ jobs:
           MIGRATION_COUNT=$(ls database/migrations/*.sql | wc -l)
           echo "Found $MIGRATION_COUNT migrations"
           test "$MIGRATION_COUNT" -ge 100
+
+  database-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: fireisp_test
+          MYSQL_DATABASE: fireisp_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+          --default-authentication-plugin=mysql_native_password
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for MySQL
+        run: |
+          until mysqladmin ping -h 127.0.0.1 --silent; do
+            sleep 2
+          done
+
+      - name: Load schema
+        run: mysql -h 127.0.0.1 -u root -pfireisp_test fireisp_test < database/schema.sql
+
+      - name: Run SQL test suite
+        run: |
+          for f in tests/test_*.sql; do
+            echo "=== Running $f ==="
+            mysql -h 127.0.0.1 -u root -pfireisp_test fireisp_test < "$f"
+          done
+          echo "All SQL tests passed"
 
   docker-build:
     runs-on: ubuntu-latest
@@ -70,8 +119,9 @@ jobs:
         run: |
           docker run --rm -d --name fireisp-test \
             -e NODE_ENV=production \
-            -e JWT_SECRET=ci-test-secret-key-not-for-production \
+            -e JWT_SECRET=ci-test-secret-key-not-for-production-use-only \
             -e DB_HOST=localhost \
+            -e DB_NAME=fireisp \
             -p 3000:3000 \
             fireisp:${{ github.sha }} || true
           sleep 3

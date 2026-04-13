@@ -9,7 +9,13 @@ const parseIntEnv = (key, fallback) => {
   return Number.isNaN(n) ? fallback : n;
 };
 
-module.exports = {
+const parseBoolEnv = (key, fallback) => {
+  const v = process.env[key];
+  if (v === undefined || v === '') return fallback;
+  return v === 'true' || v === '1';
+};
+
+const config = {
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '3000', 10),
   appUrl: process.env.APP_URL || 'http://localhost:3000',
@@ -38,4 +44,63 @@ module.exports = {
     sse: parseIntEnv('RATE_LIMIT_SSE', 10),
     webhook: parseIntEnv('RATE_LIMIT_WEBHOOK', 100),
   },
+
+  // Request timeout in milliseconds (0 = disabled)
+  requestTimeoutMs: parseIntEnv('REQUEST_TIMEOUT_MS', 30000),
+
+  // Feature flags — set FEATURE_*=true to enable
+  features: {
+    cfdi: parseBoolEnv('FEATURE_CFDI', true),
+    radius: parseBoolEnv('FEATURE_RADIUS', true),
+    twoFactor: parseBoolEnv('FEATURE_2FA', true),
+    webhooks: parseBoolEnv('FEATURE_WEBHOOKS', true),
+    snmp: parseBoolEnv('FEATURE_SNMP', true),
+  },
 };
+
+/**
+ * Validate critical environment variables at startup.
+ * Called from server.js before the server begins listening.
+ * Throws on misconfiguration in production; logs warnings in development.
+ */
+function validateEnv(logger) {
+  const errors = [];
+  const warnings = [];
+  const isProduction = config.env === 'production';
+
+  // JWT secret: must not be the default and must be >= 32 chars in production
+  const DEFAULT_SECRET = 'change-me-to-a-random-64-char-string';
+  const secretLen = config.jwt.secret.length;
+  if (config.jwt.secret === DEFAULT_SECRET) {
+    const msg = 'JWT_SECRET is set to the insecure default — set a unique random string (>= 32 chars)';
+    if (isProduction) errors.push(msg); else warnings.push(msg);
+  }
+  if (secretLen < 32 && config.jwt.secret !== DEFAULT_SECRET) {
+    const msg = `JWT_SECRET is only ${secretLen} characters — use at least 32 characters`;
+    if (isProduction) errors.push(msg); else warnings.push(msg);
+  }
+
+  // Database config: required in production
+  const requiredDbVars = ['DB_HOST', 'DB_NAME'];
+  for (const key of requiredDbVars) {
+    if (!process.env[key]) {
+      const msg = `${key} environment variable is not set`;
+      if (isProduction) errors.push(msg); else warnings.push(msg);
+    }
+  }
+
+  // Emit warnings
+  for (const w of warnings) {
+    if (logger) logger.warn(w);
+  }
+
+  // In production, abort on errors
+  if (isProduction && errors.length > 0) {
+    const message = 'Fatal configuration errors:\n  • ' + errors.join('\n  • ');
+    throw new Error(message);
+  }
+}
+
+config.validateEnv = validateEnv;
+
+module.exports = config;

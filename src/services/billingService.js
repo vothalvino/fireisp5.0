@@ -7,12 +7,16 @@
 
 const db = require('../config/database');
 const Invoice = require('../models/Invoice');
+const logger = require('../utils/logger').child({ service: 'billing' });
+const { InvoiceGenerationError } = require('../utils/errors');
 
 /**
  * Generate billing periods for a contract.
  * Creates the next billing period if one doesn't already exist.
  */
 async function generateBillingPeriod(contract) {
+  logger.info({ contractId: contract.id }, 'Generating billing period');
+
   // Check if there's already a pending period
   const [existing] = await db.query(
     `SELECT * FROM billing_periods
@@ -22,6 +26,7 @@ async function generateBillingPeriod(contract) {
   );
 
   if (existing.length > 0) {
+    logger.debug({ contractId: contract.id, periodId: existing[0].id }, 'Pending period already exists');
     return existing[0]; // Already has a pending period
   }
 
@@ -55,6 +60,7 @@ async function generateBillingPeriod(contract) {
   );
 
   const [rows] = await db.query('SELECT * FROM billing_periods WHERE id = ?', [result.insertId]);
+  logger.info({ contractId: contract.id, periodId: result.insertId }, 'Billing period created');
   return rows[0];
 }
 
@@ -62,6 +68,8 @@ async function generateBillingPeriod(contract) {
  * Generate an invoice from a billing period.
  */
 async function generateInvoice(billingPeriod, contract, plan, orgId) {
+  logger.info({ contractId: contract.id, periodId: billingPeriod.id, orgId }, 'Generating invoice');
+
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -146,10 +154,14 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
 
     await conn.commit();
 
+    logger.info({ contractId: contract.id, invoiceId, invoiceNumber, total, currency }, 'Invoice generated');
     return Invoice.findById(invoiceId);
   } catch (err) {
     await conn.rollback();
-    throw err;
+    throw new InvoiceGenerationError(
+      `Failed to generate invoice for contract ${contract.id}: ${err.message}`,
+      { contractId: contract.id, periodId: billingPeriod.id, cause: err.message },
+    );
   } finally {
     conn.release();
   }
@@ -159,6 +171,7 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
  * Record a payment and update client balance.
  */
 async function recordPaymentCredit(payment, orgId) {
+  logger.info({ paymentId: payment.id, clientId: payment.client_id, amount: payment.amount }, 'Recording payment credit');
   await db.query(
     `INSERT INTO client_balance_ledger (client_id, organization_id, entry_type, amount, currency, reference_type, reference_id, description)
      VALUES (?, ?, 'credit', ?, ?, 'payment', ?, ?)`,

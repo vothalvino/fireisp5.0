@@ -10,6 +10,7 @@
     "seed": "node src/scripts/seed.js",
     "backup": "node src/scripts/backup.js",
     "admin": "node src/scripts/admin.js",
+    "openapi": "node src/scripts/openapi.js",
     "lint": "eslint src/ --ext .js",
     "lint:fix": "eslint src/ --ext .js --fix",
     "test": "jest --detectOpenHandles --forceExit",

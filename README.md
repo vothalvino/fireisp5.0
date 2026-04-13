@@ -607,6 +607,52 @@ GROUP BY ii.id;
 
 Documentation and setup instructions will be added as the project develops.
 
+## Getting Started (from Source)
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/your-org/fireisp5.0.git
+cd fireisp5.0
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env — set DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, and a strong JWT_SECRET
+
+# 3. Install dependencies
+npm ci
+
+# 4. Set up the database (MySQL 8.0+ required)
+npm run migrate
+npm run seed
+
+# 5. Start the development server
+npm run dev
+```
+
+The admin dashboard is available at `http://localhost:3000` and the API at `http://localhost:3000/api/v1/`. Interactive API docs are served at `http://localhost:3000/api/docs`.
+
+### Docker Quick Start
+
+```bash
+cp .env.example .env
+# Edit .env as above
+docker compose up -d
+```
+
+### Useful Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start with auto-reload (nodemon) |
+| `npm start` | Production start |
+| `npm test` | Run test suite (Jest) |
+| `npm run lint` | Lint source code (ESLint) |
+| `npm run migrate` | Apply pending database migrations |
+| `npm run seed` | Seed default data (roles, settings, tax rates) |
+| `npm run openapi` | Generate OpenAPI spec to `docs/openapi.json` |
+| `npm run admin -- create-user --email admin@example.com --password secret --role admin` | Create admin user |
+| `npm run backup` | Back up the database |
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

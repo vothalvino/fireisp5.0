@@ -8,6 +8,7 @@
 const crypto = require('crypto');
 const dgram = require('dgram');
 const db = require('../config/database');
+const logger = require('../utils/logger').child({ service: 'suspension' });
 
 /**
  * Evaluate suspension rules for an organization and return contracts to act on.
@@ -47,6 +48,7 @@ async function evaluateRules(organizationId) {
  * Suspend a contract. Changes status, logs the event, and sends RADIUS Disconnect-Request.
  */
 async function suspendContract(contractId, ruleId, userId, invoiceId) {
+  logger.info({ contractId, ruleId, invoiceId }, 'Suspending contract');
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -87,6 +89,7 @@ async function suspendContract(contractId, ruleId, userId, invoiceId) {
  * Reconnect a suspended contract. Changes status, logs the event, and sends RADIUS CoA.
  */
 async function reconnectContract(contractId, userId, invoiceId) {
+  logger.info({ contractId, invoiceId }, 'Reconnecting contract');
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();

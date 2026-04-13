@@ -7,6 +7,7 @@
 
 const db = require('../config/database');
 const { sendRadiusDisconnect, sendRadiusCoA } = require('./suspensionService');
+const logger = require('../utils/logger').child({ service: 'radius' });
 
 const BYTES_PER_GB = 1024 * 1024 * 1024;
 
@@ -15,6 +16,7 @@ const BYTES_PER_GB = 1024 * 1024 * 1024;
  * Ensures the radius row has the correct speed/policy settings.
  */
 async function syncAccount(contractId) {
+  logger.info({ contractId }, 'Syncing RADIUS account');
   const [rows] = await db.query(`
     SELECT c.id AS contract_id, c.status AS contract_status,
            p.download_speed, p.upload_speed, p.name AS plan_name,
