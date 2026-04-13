@@ -9,7 +9,7 @@
 //   node src/scripts/admin.js <command> [options]
 //
 // Commands:
-//   create-user    --email <email> --password <password> [--role admin|support|billing|technician]
+//   create-user    --email <email> --password <password> [--role admin|support|billing|technician|readonly]
 //   reset-password --email <email> --password <new-password>
 //   list-users     [--role <role>] [--status active|inactive]
 //   db-health      Check database connectivity and table counts
