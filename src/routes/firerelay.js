@@ -3,10 +3,11 @@
 // =============================================================================
 // /api/firerelay/* endpoints for cluster node management.
 //
-//   GET  /api/firerelay/health      — Worker: report node metrics
-//   GET  /api/firerelay/nodes       — Master: list all nodes
-//   POST /api/firerelay/nodes       — Master: register a node
-//   PUT  /api/firerelay/nodes/:id   — Master: update node status / metrics
+//   GET    /api/firerelay/health      — Worker: report node metrics
+//   GET    /api/firerelay/nodes       — Master: list all nodes
+//   POST   /api/firerelay/nodes       — Master: register a node
+//   PUT    /api/firerelay/nodes/:id   — Master: update node status / metrics
+//   DELETE /api/firerelay/nodes/:id   — Master: deregister a node
 // =============================================================================
 
 const { Router } = require('express');
@@ -16,7 +17,8 @@ const { validate } = require('../middleware/validate');
 const { firerelayNode, firerelayNodeUpdate } = require('../middleware/schemas/firerelay');
 const relayConfig = require('../config/firerelay');
 const db = require('../config/database');
-const { ValidationError, NotFoundError } = require('../utils/errors');
+const firerelayService = require('../services/firerelayService');
+const { ValidationError } = require('../utils/errors');
 
 const router = Router();
 
@@ -74,9 +76,7 @@ router.get('/nodes', requireRole('admin', 'owner'), async (_req, res, next) => {
     if (relayConfig.mode !== 'master') {
       throw new ValidationError('Node management is only available on the master node');
     }
-    const [rows] = await db.query(
-      'SELECT * FROM firerelay_nodes ORDER BY created_at ASC',
-    );
+    const rows = await firerelayService.listNodes();
     res.json({ data: rows, total: rows.length });
   } catch (err) {
     next(err);
@@ -95,14 +95,8 @@ router.post(
       if (relayConfig.mode !== 'master') {
         throw new ValidationError('Node management is only available on the master node');
       }
-      const { id, name, api_url } = req.body;
-      await db.query(
-        `INSERT INTO firerelay_nodes (id, name, api_url, status)
-         VALUES (?, ?, ?, 'active')`,
-        [id, name || '', api_url],
-      );
-      const [rows] = await db.query('SELECT * FROM firerelay_nodes WHERE id = ?', [id]);
-      res.status(201).json({ data: rows[0] });
+      const node = await firerelayService.registerNode(req.body);
+      res.status(201).json({ data: node });
     } catch (err) {
       next(err);
     }
@@ -121,41 +115,27 @@ router.put(
       if (relayConfig.mode !== 'master') {
         throw new ValidationError('Node management is only available on the master node');
       }
-      // Hardcoded column→placeholder mapping — no dynamic SQL interpolation
-      const COLUMN_MAP = {
-        name: '`name` = ?',
-        api_url: '`api_url` = ?',
-        status: '`status` = ?',
-        client_count: '`client_count` = ?',
-        device_count: '`device_count` = ?',
-        cpu_percent: '`cpu_percent` = ?',
-        memory_percent: '`memory_percent` = ?',
-        disk_percent: '`disk_percent` = ?',
-        db_size_mb: '`db_size_mb` = ?',
-        uptime_seconds: '`uptime_seconds` = ?',
-        last_seen_at: '`last_seen_at` = ?',
-      };
-      const sets = [];
-      const params = [];
-      for (const [key, clause] of Object.entries(COLUMN_MAP)) {
-        if (req.body[key] !== undefined) {
-          sets.push(clause);
-          params.push(req.body[key]);
-        }
+      const node = await firerelayService.updateNode(req.params.id, req.body);
+      res.json({ data: node });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// DELETE /api/firerelay/nodes/:id — deregister a node
+// ---------------------------------------------------------------------------
+router.delete(
+  '/nodes/:id',
+  requireRole('admin', 'owner'),
+  async (req, res, next) => {
+    try {
+      if (relayConfig.mode !== 'master') {
+        throw new ValidationError('Node management is only available on the master node');
       }
-      if (sets.length === 0) {
-        throw new ValidationError('No updatable fields provided');
-      }
-      params.push(req.params.id);
-      const [result] = await db.query(
-        `UPDATE firerelay_nodes SET ${sets.join(', ')} WHERE id = ?`,
-        params,
-      );
-      if (result.affectedRows === 0) {
-        throw new NotFoundError('firerelay_nodes');
-      }
-      const [rows] = await db.query('SELECT * FROM firerelay_nodes WHERE id = ?', [req.params.id]);
-      res.json({ data: rows[0] });
+      await firerelayService.deregisterNode(req.params.id);
+      res.status(204).end();
     } catch (err) {
       next(err);
     }
