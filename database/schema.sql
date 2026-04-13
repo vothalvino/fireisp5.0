@@ -5204,6 +5204,191 @@ END$$
 DELIMITER ;
 
 -- ---------------------------------------------------------------------------
+-- Triggers: credit note invoice total guard (migration 146)
+-- Purpose: Prevents credit note total from exceeding the linked invoice total.
+-- ---------------------------------------------------------------------------
+
+DELIMITER $$
+
+DROP TRIGGER IF EXISTS trg_credit_note_invoice_cap_bi$$
+CREATE TRIGGER trg_credit_note_invoice_cap_bi
+BEFORE INSERT ON credit_notes
+FOR EACH ROW
+BEGIN
+    DECLARE v_invoice_total   DECIMAL(10, 2);
+    DECLARE v_already_credited DECIMAL(10, 2);
+
+    IF NEW.invoice_id IS NOT NULL AND NEW.status != 'cancelled' THEN
+        SELECT total INTO v_invoice_total
+        FROM   invoices
+        WHERE  id = NEW.invoice_id;
+
+        SELECT COALESCE(SUM(total), 0) INTO v_already_credited
+        FROM   credit_notes
+        WHERE  invoice_id = NEW.invoice_id
+          AND  status     != 'cancelled';
+
+        IF v_already_credited + NEW.total > v_invoice_total THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Credit note total would exceed the linked invoice total';
+        END IF;
+    END IF;
+END$$
+
+DROP TRIGGER IF EXISTS trg_credit_note_invoice_cap_bu$$
+CREATE TRIGGER trg_credit_note_invoice_cap_bu
+BEFORE UPDATE ON credit_notes
+FOR EACH ROW
+BEGIN
+    DECLARE v_invoice_total   DECIMAL(10, 2);
+    DECLARE v_already_credited DECIMAL(10, 2);
+
+    IF NEW.invoice_id IS NOT NULL AND NEW.status != 'cancelled' THEN
+        SELECT total INTO v_invoice_total
+        FROM   invoices
+        WHERE  id = NEW.invoice_id;
+
+        SELECT COALESCE(SUM(total), 0) INTO v_already_credited
+        FROM   credit_notes
+        WHERE  invoice_id = NEW.invoice_id
+          AND  status     != 'cancelled'
+          AND  id         != OLD.id;
+
+        IF v_already_credited + NEW.total > v_invoice_total THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Credit note total would exceed the linked invoice total';
+        END IF;
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- ---------------------------------------------------------------------------
+-- Triggers: audit log immutability (migration 147)
+-- Purpose: Prevents modification or deletion of audit log records.
+-- ---------------------------------------------------------------------------
+
+DELIMITER $$
+
+DROP TRIGGER IF EXISTS trg_audit_logs_immutable_bu$$
+CREATE TRIGGER trg_audit_logs_immutable_bu
+BEFORE UPDATE ON audit_logs
+FOR EACH ROW
+BEGIN
+    SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Audit logs are immutable and cannot be updated';
+END$$
+
+DROP TRIGGER IF EXISTS trg_audit_logs_immutable_bd$$
+CREATE TRIGGER trg_audit_logs_immutable_bd
+BEFORE DELETE ON audit_logs
+FOR EACH ROW
+BEGIN
+    SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Audit logs are immutable and cannot be deleted';
+END$$
+
+DELIMITER ;
+
+-- ---------------------------------------------------------------------------
+-- Triggers: CFDI document immutability (migration 148)
+-- Purpose: Prevents modification of stamped (vigente) CFDI documents.
+-- ---------------------------------------------------------------------------
+
+DELIMITER $$
+
+DROP TRIGGER IF EXISTS trg_cfdi_documents_immutable_bu$$
+CREATE TRIGGER trg_cfdi_documents_immutable_bu
+BEFORE UPDATE ON cfdi_documents
+FOR EACH ROW
+BEGIN
+    IF OLD.sat_status = 'vigente' THEN
+        IF NEW.subtotal           != OLD.subtotal
+        OR NEW.total_impuestos    != OLD.total_impuestos
+        OR NEW.total              != OLD.total
+        OR NEW.tipo_comprobante   != OLD.tipo_comprobante
+        OR NEW.uso_cfdi           != OLD.uso_cfdi
+        OR (NEW.metodo_pago IS NULL) != (OLD.metodo_pago IS NULL)
+        OR COALESCE(NEW.metodo_pago, '') != COALESCE(OLD.metodo_pago, '')
+        OR (NEW.forma_pago IS NULL) != (OLD.forma_pago IS NULL)
+        OR COALESCE(NEW.forma_pago, '') != COALESCE(OLD.forma_pago, '')
+        OR NEW.moneda             != OLD.moneda
+        OR COALESCE(NEW.receptor_rfc, '')    != COALESCE(OLD.receptor_rfc, '')
+        OR COALESCE(NEW.receptor_nombre, '') != COALESCE(OLD.receptor_nombre, '')
+        OR COALESCE(NEW.uuid, '')            != COALESCE(OLD.uuid, '')
+        OR (NEW.xml_content IS NULL) != (OLD.xml_content IS NULL)
+        OR COALESCE(NEW.xml_content, '') != COALESCE(OLD.xml_content, '')
+        OR (NEW.signed_xml IS NULL) != (OLD.signed_xml IS NULL)
+        OR COALESCE(NEW.signed_xml, '') != COALESCE(OLD.signed_xml, '')
+        THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Stamped CFDI documents (vigente) cannot be modified; use the cancellation flow';
+        END IF;
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- ---------------------------------------------------------------------------
+-- Triggers: contract status FSM (migration 149)
+-- Purpose: Enforces valid contract status transitions.
+--          pending → active | cancelled
+--          active  → expired | cancelled
+--          expired, cancelled → (terminal)
+-- ---------------------------------------------------------------------------
+
+DELIMITER $$
+
+DROP TRIGGER IF EXISTS trg_contracts_status_fsm_bu$$
+CREATE TRIGGER trg_contracts_status_fsm_bu
+BEFORE UPDATE ON contracts
+FOR EACH ROW
+BEGIN
+    IF NEW.status != OLD.status THEN
+        IF NOT (
+               (OLD.status = 'pending'   AND NEW.status IN ('active', 'cancelled'))
+            OR (OLD.status = 'active'    AND NEW.status IN ('expired', 'cancelled'))
+        ) THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Invalid contract status transition';
+        END IF;
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- ---------------------------------------------------------------------------
+-- Triggers: outage temporal logic (migration 150)
+-- Purpose: Ensures outage resolved_at is always after started_at when set.
+-- ---------------------------------------------------------------------------
+
+DELIMITER $$
+
+DROP TRIGGER IF EXISTS trg_outages_temporal_bi$$
+CREATE TRIGGER trg_outages_temporal_bi
+BEFORE INSERT ON outages
+FOR EACH ROW
+BEGIN
+    IF NEW.resolved_at IS NOT NULL AND NEW.resolved_at <= NEW.started_at THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Outage resolved_at must be after started_at';
+    END IF;
+END$$
+
+DROP TRIGGER IF EXISTS trg_outages_temporal_bu$$
+CREATE TRIGGER trg_outages_temporal_bu
+BEFORE UPDATE ON outages
+FOR EACH ROW
+BEGIN
+    IF NEW.resolved_at IS NOT NULL AND NEW.resolved_at <= NEW.started_at THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Outage resolved_at must be after started_at';
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- ---------------------------------------------------------------------------
 -- Indexes: composite indexes for common query patterns (migration 129)
 -- Purpose: Performance indexes for billing, network, and reporting queries.
 --          Each index is guarded via a stored procedure for safe re-runs.
