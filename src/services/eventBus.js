@@ -55,7 +55,7 @@ function removeAllListeners() {
 function listenerCount(event) {
   if (event) return (listeners.get(event) || []).length;
   let total = 0;
-  for (const [, handlers] of listeners) total += handlers.length;
+  for (const handlers of listeners.values()) total += handlers.length;
   return total;
 }
 
