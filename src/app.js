@@ -7,7 +7,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const config = require('./config');
 const { AppError } = require('./utils/errors');
-const { apiLimiter, authLimiter, exportLimiter, sseLimiter } = require('./middleware/rateLimit');
+const { apiLimiter, authLimiter, exportLimiter, sseLimiter, webhookLimiter } = require('./middleware/rateLimit');
 const { requestLogger } = require('./middleware/requestLogger');
 const { sanitize } = require('./middleware/sanitize');
 const { requestId } = require('./middleware/requestId');
@@ -77,6 +77,7 @@ const firerelayRoutes = require('./routes/firerelay');
 const pdfRoutes = require('./routes/pdf');
 const { router: eventsRoutes } = require('./routes/events');
 const { router: metricsRoutes, metricsMiddleware } = require('./routes/metrics');
+const paymentWebhookRoutes = require('./routes/paymentWebhooks');
 
 const app = express();
 
@@ -98,7 +99,15 @@ const corsOrigin = config.env === 'production'
   ];
 app.use(cors({ origin: corsOrigin, credentials: true }));
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  // Preserve raw body for payment webhook signature verification
+  verify: (req, _res, buf) => {
+    if (req.originalUrl && req.originalUrl.startsWith('/api/payment-webhooks')) {
+      req.rawBody = buf.toString('utf8');
+    }
+  },
+}));
 app.use(express.urlencoded({ extended: true }));
 app.use(sanitize);
 app.use(firerelay);
@@ -109,6 +118,7 @@ app.use('/api/auth', authLimiter);
 app.use('/api/export', exportLimiter);
 app.use('/api/pdf', exportLimiter);
 app.use('/api/events', sseLimiter);
+app.use('/api/payment-webhooks', webhookLimiter);
 
 // ---------------------------------------------------------------------------
 // Health check
@@ -193,6 +203,7 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/device-config-backups', deviceConfigBackupRoutes);
 app.use('/api/payment-gateways', paymentGatewayRoutes);
 app.use('/api/payment-transactions', paymentTransactionRoutes);
+app.use('/api/payment-webhooks', paymentWebhookRoutes);
 app.use('/api/recurring-payment-profiles', recurringPaymentProfileRoutes);
 app.use('/api/suspension-rules', suspensionRuleRoutes);
 app.use('/api/csd-certificates', csdCertificateRoutes);
