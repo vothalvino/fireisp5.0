@@ -8,9 +8,12 @@
 const db = require('../config/database');
 const billingService = require('./billingService');
 const suspensionService = require('./suspensionService');
+const radiusService = require('./radiusService');
 const snmpPoller = require('./snmpPoller');
 const emailTransport = require('./emailTransport');
 const webhookService = require('./webhookService');
+const checkoutService = require('./checkoutService');
+const alertService = require('./alertService');
 
 /**
  * Get all scheduled tasks, optionally filtered by organization.
@@ -45,13 +48,17 @@ async function runTask(taskName, organizationId = null) {
     case 'webhook_delivery':
       return webhookService.retryPending();
     case 'radius_sync':
-      return { message: 'RADIUS sync is handled by FreeRADIUS SQL module — no app-level action' };
+      return radiusService.syncAllAccounts(organizationId);
     case 'populate_revenue_summary':
       return { message: 'Revenue summary is populated by MySQL scheduled event' };
     case 'populate_network_health_snapshots':
       return { message: 'Network health snapshots are populated by MySQL scheduled event' };
     case 'csd_expiry_monitor':
       return runCsdExpiryCheck(organizationId);
+    case 'alert_evaluation':
+      return alertService.evaluateAlerts(organizationId);
+    case 'process_recurring_charges':
+      return checkoutService.processRecurringCharges(organizationId);
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }
