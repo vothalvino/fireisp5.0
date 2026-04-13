@@ -102,6 +102,60 @@ async function login({ email, password }) {
 }
 
 /**
+ * Refresh an access token. Validates the current (potentially expired) token,
+ * issues a new one, and rotates the session hash.
+ */
+async function refreshToken(currentToken) {
+  // Decode without verifying expiration — we allow slightly expired tokens
+  let payload;
+  try {
+    payload = jwt.verify(currentToken, config.jwt.secret, { ignoreExpiration: true });
+  } catch (_err) {
+    throw new UnauthorizedError('Invalid token');
+  }
+
+  // The session must still exist (not logged out / revoked)
+  const oldHash = crypto.createHash('sha256').update(currentToken).digest('hex');
+  const [sessions] = await db.query(
+    'SELECT * FROM user_sessions WHERE token_hash = ? AND user_id = ?',
+    [oldHash, payload.sub],
+  );
+
+  if (sessions.length === 0) {
+    throw new UnauthorizedError('Session expired or revoked');
+  }
+
+  // User must still be active
+  const user = await User.findById(payload.sub);
+  if (!user || user.status !== 'active') {
+    throw new UnauthorizedError('User not found or inactive');
+  }
+
+  // Issue a new token
+  const newToken = jwt.sign(
+    {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      orgId: payload.orgId,
+    },
+    config.jwt.secret,
+    { expiresIn: config.jwt.expiresIn },
+  );
+
+  // Rotate: delete old session, insert new one
+  const newHash = crypto.createHash('sha256').update(newToken).digest('hex');
+  await db.query('DELETE FROM user_sessions WHERE token_hash = ?', [oldHash]);
+  await db.query(
+    `INSERT INTO user_sessions (user_id, token_hash, ip_address, user_agent, expires_at)
+     VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))`,
+    [user.id, newHash, null, null],
+  );
+
+  return { token: newToken };
+}
+
+/**
  * Invalidate a session (logout).
  */
 async function logout(token) {
@@ -234,7 +288,7 @@ async function generateEmailVerificationToken(userId) {
 }
 
 module.exports = {
-  register, login, logout,
+  register, login, logout, refreshToken,
   requestPasswordReset, resetPassword, changePassword,
   verifyEmail, generateEmailVerificationToken,
 };

@@ -72,4 +72,17 @@ const exportLimiter = rateLimit({
   message: RATE_LIMITED_BODY('Too many export requests, please try again later'),
 });
 
-module.exports = { apiLimiter, authLimiter, publicLimiter, uploadLimiter, exportLimiter };
+/**
+ * SSE endpoints — 10 concurrent connections per IP per 15-minute window.
+ * SSE streams are long-lived; this prevents a single IP from exhausting
+ * server resources by opening many parallel connections.
+ */
+const sseLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: RATE_LIMITED_BODY('Too many SSE connections, please try again later'),
+});
+
+module.exports = { apiLimiter, authLimiter, publicLimiter, uploadLimiter, exportLimiter, sseLimiter };

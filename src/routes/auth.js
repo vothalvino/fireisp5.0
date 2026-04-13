@@ -113,4 +113,17 @@ router.post('/verify-email',
   },
 );
 
+// POST /api/auth/refresh — rotate access token (refresh token rotation)
+router.post('/refresh',
+  validate(authSchemas.refreshToken),
+  async (req, res, next) => {
+    try {
+      const result = await authService.refreshToken(req.body.token);
+      res.json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 module.exports = router;

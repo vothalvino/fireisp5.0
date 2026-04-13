@@ -7,7 +7,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const config = require('./config');
 const { AppError } = require('./utils/errors');
-const { apiLimiter, authLimiter, exportLimiter } = require('./middleware/rateLimit');
+const { apiLimiter, authLimiter, exportLimiter, sseLimiter } = require('./middleware/rateLimit');
 const { requestLogger } = require('./middleware/requestLogger');
 const { sanitize } = require('./middleware/sanitize');
 const { requestId } = require('./middleware/requestId');
@@ -108,6 +108,7 @@ app.use('/api/', apiLimiter);
 app.use('/api/auth', authLimiter);
 app.use('/api/export', exportLimiter);
 app.use('/api/pdf', exportLimiter);
+app.use('/api/events', sseLimiter);
 
 // ---------------------------------------------------------------------------
 // Health check
