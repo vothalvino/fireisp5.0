@@ -32,4 +32,8 @@ const verifyEmail = {
   token: { type: 'string', required: true },
 };
 
-module.exports = { register, login, requestPasswordReset, resetPassword, changePassword, verifyEmail };
+const refreshToken = {
+  token: { type: 'string', required: true },
+};
+
+module.exports = { register, login, requestPasswordReset, resetPassword, changePassword, verifyEmail, refreshToken };
