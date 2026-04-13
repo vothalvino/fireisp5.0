@@ -14,6 +14,7 @@ const emailTransport = require('./emailTransport');
 const webhookService = require('./webhookService');
 const checkoutService = require('./checkoutService');
 const alertService = require('./alertService');
+const retentionService = require('./retentionService');
 
 /**
  * Get all scheduled tasks, optionally filtered by organization.
@@ -59,6 +60,8 @@ async function runTask(taskName, organizationId = null) {
       return alertService.evaluateAlerts(organizationId);
     case 'process_recurring_charges':
       return checkoutService.processRecurringCharges(organizationId);
+    case 'data_retention':
+      return retentionService.runAll();
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }

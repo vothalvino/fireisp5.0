@@ -179,6 +179,44 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
 }
 
 /**
+ * Calculate a prorated amount for a mid-cycle plan change.
+ *
+ * @param {object} params
+ * @param {number} params.oldPrice - Price of the old plan
+ * @param {number} params.newPrice - Price of the new plan
+ * @param {Date|string} params.changeDate - Date the plan change takes effect
+ * @param {Date|string} params.periodStart - Start of the current billing period
+ * @param {Date|string} params.periodEnd - End of the current billing period
+ * @returns {{ credit: number, charge: number, net: number, daysRemaining: number, totalDays: number }}
+ */
+function calculateProration({ oldPrice, newPrice, changeDate, periodStart, periodEnd }) {
+  const start = new Date(periodStart);
+  const end = new Date(periodEnd);
+  const change = new Date(changeDate);
+
+  // Total days in the billing period (inclusive)
+  const totalDays = Math.round((end - start) / (1000 * 60 * 60 * 24)) + 1;
+  // Days remaining from change date to period end (inclusive)
+  const daysRemaining = Math.max(0, Math.round((end - change) / (1000 * 60 * 60 * 24)) + 1);
+
+  if (totalDays <= 0 || daysRemaining <= 0) {
+    return { credit: 0, charge: 0, net: 0, daysRemaining: 0, totalDays };
+  }
+
+  const dailyOld = parseFloat(oldPrice) / totalDays;
+  const dailyNew = parseFloat(newPrice) / totalDays;
+
+  // Credit for unused days of old plan
+  const credit = Math.round(dailyOld * daysRemaining * 100) / 100;
+  // Charge for remaining days on new plan
+  const charge = Math.round(dailyNew * daysRemaining * 100) / 100;
+  // Net adjustment (positive = customer owes more, negative = credit)
+  const net = Math.round((charge - credit) * 100) / 100;
+
+  return { credit, charge, net, daysRemaining, totalDays };
+}
+
+/**
  * Record a payment and update client balance.
  */
 async function recordPaymentCredit(payment, orgId) {
@@ -190,4 +228,4 @@ async function recordPaymentCredit(payment, orgId) {
   );
 }
 
-module.exports = { generateBillingPeriod, generateInvoice, recordPaymentCredit };
+module.exports = { generateBillingPeriod, generateInvoice, calculateProration, recordPaymentCredit };

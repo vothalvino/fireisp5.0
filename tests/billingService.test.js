@@ -197,4 +197,80 @@ describe('billingService', () => {
       );
     });
   });
+
+  // =========================================================================
+  // calculateProration
+  // =========================================================================
+  describe('calculateProration', () => {
+    test('calculates proration for upgrade mid-cycle', () => {
+      const result = billingService.calculateProration({
+        oldPrice: 500,
+        newPrice: 800,
+        changeDate: '2026-01-16',
+        periodStart: '2026-01-01',
+        periodEnd: '2026-01-31',
+      });
+
+      expect(result.totalDays).toBe(31);
+      expect(result.daysRemaining).toBe(16);
+      expect(result.credit).toBeGreaterThan(0);
+      expect(result.charge).toBeGreaterThan(0);
+      expect(result.net).toBeGreaterThan(0);  // Upgrade → net positive
+    });
+
+    test('calculates proration for downgrade mid-cycle', () => {
+      const result = billingService.calculateProration({
+        oldPrice: 800,
+        newPrice: 500,
+        changeDate: '2026-01-16',
+        periodStart: '2026-01-01',
+        periodEnd: '2026-01-31',
+      });
+
+      expect(result.net).toBeLessThan(0);  // Downgrade → net negative (credit)
+    });
+
+    test('returns zero proration at end of period', () => {
+      const result = billingService.calculateProration({
+        oldPrice: 500,
+        newPrice: 800,
+        changeDate: '2026-02-01',
+        periodStart: '2026-01-01',
+        periodEnd: '2026-01-31',
+      });
+
+      expect(result.daysRemaining).toBe(0);
+      expect(result.credit).toBe(0);
+      expect(result.charge).toBe(0);
+      expect(result.net).toBe(0);
+    });
+
+    test('handles same price (no net change)', () => {
+      const result = billingService.calculateProration({
+        oldPrice: 500,
+        newPrice: 500,
+        changeDate: '2026-01-16',
+        periodStart: '2026-01-01',
+        periodEnd: '2026-01-31',
+      });
+
+      expect(result.net).toBe(0);
+    });
+
+    test('handles change on first day of period', () => {
+      const result = billingService.calculateProration({
+        oldPrice: 500,
+        newPrice: 800,
+        changeDate: '2026-01-01',
+        periodStart: '2026-01-01',
+        periodEnd: '2026-01-31',
+      });
+
+      expect(result.daysRemaining).toBe(31);
+      // Full month: credit=500, charge=800, net=300
+      expect(result.credit).toBeCloseTo(500, 0);
+      expect(result.charge).toBeCloseTo(800, 0);
+      expect(result.net).toBeCloseTo(300, 0);
+    });
+  });
 });

@@ -7,9 +7,17 @@
 
 const db = require('../config/database');
 const { sendRadiusDisconnect, sendRadiusCoA } = require('./suspensionService');
+const { createCircuitBreaker } = require('../utils/circuitBreaker');
 const logger = require('../utils/logger').child({ service: 'radius' });
 
 const BYTES_PER_GB = 1024 * 1024 * 1024;
+
+// Circuit breaker for RADIUS CoA/Disconnect calls
+const radiusCircuitBreaker = createCircuitBreaker({
+  name: 'RADIUS',
+  threshold: 5,
+  resetMs: 60000,
+});
 
 /**
  * Synchronize a RADIUS account with its contract's current plan attributes.
@@ -104,14 +112,14 @@ async function getActiveSession(contractId) {
  * Disconnect a subscriber's active session via RADIUS Disconnect-Request.
  */
 async function disconnectSession(contractId) {
-  return sendRadiusDisconnect(contractId);
+  return radiusCircuitBreaker.call(() => sendRadiusDisconnect(contractId));
 }
 
 /**
  * Send a RADIUS Change of Authorization for a live session.
  */
 async function changeOfAuth(contractId, action) {
-  return sendRadiusCoA(contractId, action || 'update');
+  return radiusCircuitBreaker.call(() => sendRadiusCoA(contractId, action || 'update'));
 }
 
 /**
@@ -190,4 +198,5 @@ module.exports = {
   changeOfAuth,
   getSessionHistory,
   getUsageSummary,
+  radiusCircuitBreaker,
 };

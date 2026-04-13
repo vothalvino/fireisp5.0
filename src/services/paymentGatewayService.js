@@ -9,6 +9,7 @@
 const crypto = require('crypto');
 const db = require('../config/database');
 const { URLSearchParams } = require('url');
+const { createCircuitBreaker } = require('../utils/circuitBreaker');
 const logger = require('../utils/logger');
 
 // Default idempotency key TTL: 24 hours
@@ -18,6 +19,13 @@ const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 // equal during auto-reconciliation. Accounts for floating-point arithmetic
 // when converting between cents and currency units.
 const RECONCILE_AMOUNT_TOLERANCE = 0.01;
+
+// Circuit breaker for external payment gateway calls (Stripe, Conekta)
+const paymentCircuitBreaker = createCircuitBreaker({
+  name: 'PaymentGateway',
+  threshold: 5,
+  resetMs: 60000,
+});
 
 /**
  * Get the active payment gateway for an organization.
@@ -97,10 +105,12 @@ async function charge({ organizationId, clientId, amount, currency, description,
 
     switch (gateway.provider) {
       case 'stripe':
-        result = await chargeStripe(gateway, amount, currency || 'MXN', description, paymentMethodToken);
+        result = await paymentCircuitBreaker.call(() =>
+          chargeStripe(gateway, amount, currency || 'MXN', description, paymentMethodToken));
         break;
       case 'conekta':
-        result = await chargeConekta(gateway, amount, currency || 'MXN', description, paymentMethodToken);
+        result = await paymentCircuitBreaker.call(() =>
+          chargeConekta(gateway, amount, currency || 'MXN', description, paymentMethodToken));
         break;
       default:
         // Generic / manual — mark as succeeded with placeholder reference
@@ -581,4 +591,5 @@ module.exports = {
   verifyConektaSignature,
   handleWebhookEvent,
   reconcilePayment,
+  paymentCircuitBreaker,
 };
