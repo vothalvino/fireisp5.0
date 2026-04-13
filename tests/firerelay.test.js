@@ -427,4 +427,65 @@ describe('FireRelay Route — /api/firerelay/nodes', () => {
       .send({ status: 'active' });
     expect(res.status).toBe(401);
   });
+
+  test('DELETE /api/firerelay/nodes/node2 without auth returns 401', async () => {
+    const res = await request(app)
+      .delete('/api/firerelay/nodes/node2');
+    expect(res.status).toBe(401);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FireRelay Middleware Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+describe('FireRelay Middleware Helpers', () => {
+  const { extractClientId, isFanOutRequest } = require('../src/middleware/firerelay');
+
+  describe('extractClientId()', () => {
+    test('extracts id from /api/clients/123', () => {
+      expect(extractClientId('/api/clients/123')).toBe(123);
+    });
+
+    test('extracts id from /api/v1/clients/456', () => {
+      expect(extractClientId('/api/v1/clients/456')).toBe(456);
+    });
+
+    test('returns null for collection path', () => {
+      expect(extractClientId('/api/clients')).toBeNull();
+    });
+
+    test('returns null for non-client paths', () => {
+      expect(extractClientId('/api/invoices/123')).toBeNull();
+    });
+
+    test('returns null for client path with trailing slash', () => {
+      expect(extractClientId('/api/clients/')).toBeNull();
+    });
+  });
+
+  describe('isFanOutRequest()', () => {
+    test('returns true for GET /api/clients', () => {
+      expect(isFanOutRequest('GET', '/api/clients')).toBe(true);
+    });
+
+    test('returns true for GET /api/v1/clients', () => {
+      expect(isFanOutRequest('GET', '/api/v1/clients')).toBe(true);
+    });
+
+    test('returns true for GET /api/clients?search=John', () => {
+      expect(isFanOutRequest('GET', '/api/clients?search=John')).toBe(true);
+    });
+
+    test('returns false for POST /api/clients', () => {
+      expect(isFanOutRequest('POST', '/api/clients')).toBe(false);
+    });
+
+    test('returns false for GET /api/clients/123', () => {
+      expect(isFanOutRequest('GET', '/api/clients/123')).toBe(false);
+    });
+
+    test('returns false for GET /api/invoices', () => {
+      expect(isFanOutRequest('GET', '/api/invoices')).toBe(false);
+    });
+  });
 });

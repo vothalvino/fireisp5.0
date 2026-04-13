@@ -19,6 +19,8 @@ module.exports = [
         setInterval: 'readonly',
         clearTimeout: 'readonly',
         clearInterval: 'readonly',
+        AbortController: 'readonly',
+        fetch: 'readonly',
         describe: 'readonly',
         it: 'readonly',
         test: 'readonly',

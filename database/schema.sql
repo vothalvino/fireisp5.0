@@ -1295,33 +1295,32 @@ proc: BEGIN
         device_id,
         COALESCE(interface_id, ''),
         DATE_FORMAT(polled_at, '%Y-%m-%d %H:00:00')
-    AS new_data
     ON DUPLICATE KEY UPDATE
-        avg_if_in_octets    = new_data.avg_if_in_octets,
-        min_if_in_octets    = new_data.min_if_in_octets,
-        max_if_in_octets    = new_data.max_if_in_octets,
-        avg_if_out_octets   = new_data.avg_if_out_octets,
-        min_if_out_octets   = new_data.min_if_out_octets,
-        max_if_out_octets   = new_data.max_if_out_octets,
-        avg_if_in_errors    = new_data.avg_if_in_errors,
-        min_if_in_errors    = new_data.min_if_in_errors,
-        max_if_in_errors    = new_data.max_if_in_errors,
-        avg_if_out_errors   = new_data.avg_if_out_errors,
-        min_if_out_errors   = new_data.min_if_out_errors,
-        max_if_out_errors   = new_data.max_if_out_errors,
-        avg_cpu_usage       = new_data.avg_cpu_usage,
-        min_cpu_usage       = new_data.min_cpu_usage,
-        max_cpu_usage       = new_data.max_cpu_usage,
-        avg_memory_usage    = new_data.avg_memory_usage,
-        min_memory_usage    = new_data.min_memory_usage,
-        max_memory_usage    = new_data.max_memory_usage,
-        avg_signal_strength = new_data.avg_signal_strength,
-        min_signal_strength = new_data.min_signal_strength,
-        max_signal_strength = new_data.max_signal_strength,
-        avg_latency_ms      = new_data.avg_latency_ms,
-        min_latency_ms      = new_data.min_latency_ms,
-        max_latency_ms      = new_data.max_latency_ms,
-        sample_count        = new_data.sample_count;
+        avg_if_in_octets    = VALUES(avg_if_in_octets),
+        min_if_in_octets    = VALUES(min_if_in_octets),
+        max_if_in_octets    = VALUES(max_if_in_octets),
+        avg_if_out_octets   = VALUES(avg_if_out_octets),
+        min_if_out_octets   = VALUES(min_if_out_octets),
+        max_if_out_octets   = VALUES(max_if_out_octets),
+        avg_if_in_errors    = VALUES(avg_if_in_errors),
+        min_if_in_errors    = VALUES(min_if_in_errors),
+        max_if_in_errors    = VALUES(max_if_in_errors),
+        avg_if_out_errors   = VALUES(avg_if_out_errors),
+        min_if_out_errors   = VALUES(min_if_out_errors),
+        max_if_out_errors   = VALUES(max_if_out_errors),
+        avg_cpu_usage       = VALUES(avg_cpu_usage),
+        min_cpu_usage       = VALUES(min_cpu_usage),
+        max_cpu_usage       = VALUES(max_cpu_usage),
+        avg_memory_usage    = VALUES(avg_memory_usage),
+        min_memory_usage    = VALUES(min_memory_usage),
+        max_memory_usage    = VALUES(max_memory_usage),
+        avg_signal_strength = VALUES(avg_signal_strength),
+        min_signal_strength = VALUES(min_signal_strength),
+        max_signal_strength = VALUES(max_signal_strength),
+        avg_latency_ms      = VALUES(avg_latency_ms),
+        min_latency_ms      = VALUES(min_latency_ms),
+        max_latency_ms      = VALUES(max_latency_ms),
+        sample_count        = VALUES(sample_count);
 
     UPDATE snmp_rollup_state
     SET last_processed = v_to_ts
@@ -1377,33 +1376,32 @@ proc: BEGIN
     WHERE period_start >= v_from_date
       AND period_start <  v_to_date
     GROUP BY device_id, interface_id, DATE(period_start)
-    AS new_data
     ON DUPLICATE KEY UPDATE
-        avg_if_in_octets    = new_data.avg_if_in_octets,
-        min_if_in_octets    = new_data.min_if_in_octets,
-        max_if_in_octets    = new_data.max_if_in_octets,
-        avg_if_out_octets   = new_data.avg_if_out_octets,
-        min_if_out_octets   = new_data.min_if_out_octets,
-        max_if_out_octets   = new_data.max_if_out_octets,
-        avg_if_in_errors    = new_data.avg_if_in_errors,
-        min_if_in_errors    = new_data.min_if_in_errors,
-        max_if_in_errors    = new_data.max_if_in_errors,
-        avg_if_out_errors   = new_data.avg_if_out_errors,
-        min_if_out_errors   = new_data.min_if_out_errors,
-        max_if_out_errors   = new_data.max_if_out_errors,
-        avg_cpu_usage       = new_data.avg_cpu_usage,
-        min_cpu_usage       = new_data.min_cpu_usage,
-        max_cpu_usage       = new_data.max_cpu_usage,
-        avg_memory_usage    = new_data.avg_memory_usage,
-        min_memory_usage    = new_data.min_memory_usage,
-        max_memory_usage    = new_data.max_memory_usage,
-        avg_signal_strength = new_data.avg_signal_strength,
-        min_signal_strength = new_data.min_signal_strength,
-        max_signal_strength = new_data.max_signal_strength,
-        avg_latency_ms      = new_data.avg_latency_ms,
-        min_latency_ms      = new_data.min_latency_ms,
-        max_latency_ms      = new_data.max_latency_ms,
-        sample_count        = new_data.sample_count;
+        avg_if_in_octets    = VALUES(avg_if_in_octets),
+        min_if_in_octets    = VALUES(min_if_in_octets),
+        max_if_in_octets    = VALUES(max_if_in_octets),
+        avg_if_out_octets   = VALUES(avg_if_out_octets),
+        min_if_out_octets   = VALUES(min_if_out_octets),
+        max_if_out_octets   = VALUES(max_if_out_octets),
+        avg_if_in_errors    = VALUES(avg_if_in_errors),
+        min_if_in_errors    = VALUES(min_if_in_errors),
+        max_if_in_errors    = VALUES(max_if_in_errors),
+        avg_if_out_errors   = VALUES(avg_if_out_errors),
+        min_if_out_errors   = VALUES(min_if_out_errors),
+        max_if_out_errors   = VALUES(max_if_out_errors),
+        avg_cpu_usage       = VALUES(avg_cpu_usage),
+        min_cpu_usage       = VALUES(min_cpu_usage),
+        max_cpu_usage       = VALUES(max_cpu_usage),
+        avg_memory_usage    = VALUES(avg_memory_usage),
+        min_memory_usage    = VALUES(min_memory_usage),
+        max_memory_usage    = VALUES(max_memory_usage),
+        avg_signal_strength = VALUES(avg_signal_strength),
+        min_signal_strength = VALUES(min_signal_strength),
+        max_signal_strength = VALUES(max_signal_strength),
+        avg_latency_ms      = VALUES(avg_latency_ms),
+        min_latency_ms      = VALUES(min_latency_ms),
+        max_latency_ms      = VALUES(max_latency_ms),
+        sample_count        = VALUES(sample_count);
 
     UPDATE snmp_rollup_state
     SET last_processed = TIMESTAMP(v_to_date)
@@ -5592,6 +5590,50 @@ BEGIN
 END$$
 
 DELIMITER ;
+
+-- ---------------------------------------------------------------------------
+-- Table: firerelay_nodes (migration 151)
+-- Purpose: Master-side registry of all worker nodes in the FireRelay cluster.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS firerelay_nodes (
+    id              VARCHAR(64)  NOT NULL COMMENT 'Unique node identifier (e.g. node2)',
+    name            VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'Human-readable name',
+    api_url         VARCHAR(512) NOT NULL COMMENT 'Base URL of the node API',
+    status          ENUM('active','draining','maintenance','offline')
+                    NOT NULL DEFAULT 'active'
+                    COMMENT 'Current lifecycle state',
+    client_count    INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Last reported client count',
+    device_count    INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Last reported device count',
+    cpu_percent     DECIMAL(5,2) DEFAULT NULL COMMENT 'Last reported CPU usage %',
+    memory_percent  DECIMAL(5,2) DEFAULT NULL COMMENT 'Last reported memory usage %',
+    disk_percent    DECIMAL(5,2) DEFAULT NULL COMMENT 'Last reported disk usage %',
+    db_size_mb      INT UNSIGNED DEFAULT NULL COMMENT 'Last reported database size in MB',
+    uptime_seconds  INT UNSIGNED DEFAULT NULL COMMENT 'Last reported uptime in seconds',
+    last_seen_at    DATETIME     DEFAULT NULL COMMENT 'Timestamp of last successful health check',
+    created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    INDEX idx_firerelay_nodes_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: firerelay_client_routing (migration 152)
+-- Purpose: Maps each client_id to the node that owns it so the master can
+--          route single-entity requests to the correct worker.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS firerelay_client_routing (
+    client_id   BIGINT UNSIGNED NOT NULL COMMENT 'The client ID',
+    node_id     VARCHAR(64)     NOT NULL COMMENT 'Which node owns this client',
+    created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (client_id),
+    INDEX idx_firerelay_client_routing_node (node_id),
+
+    CONSTRAINT fk_firerelay_client_routing_node
+        FOREIGN KEY (node_id) REFERENCES firerelay_nodes (id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
 -- Indexes: composite indexes for common query patterns (migration 129)

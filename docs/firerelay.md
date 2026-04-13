@@ -507,26 +507,27 @@ src/
 │
 ├── routes/
 │   └── firerelay.js           ← /api/firerelay/* endpoints:
-│                                   GET  /api/firerelay/health    (worker: reports metrics)
-│                                   GET  /api/firerelay/nodes     (master: lists all nodes)
-│                                   POST /api/firerelay/nodes     (master: register a node)
-│                                   PUT  /api/firerelay/nodes/:id (master: update node status)
-│                                 (~80 lines)
+│                                   GET    /api/firerelay/health    (worker: reports metrics)
+│                                   GET    /api/firerelay/nodes     (master: lists all nodes)
+│                                   POST   /api/firerelay/nodes     (master: register a node)
+│                                   PUT    /api/firerelay/nodes/:id (master: update node status)
+│                                   DELETE /api/firerelay/nodes/:id (master: deregister a node)
+│                                 (~140 lines)
 │
 ├── controllers/               ← Unchanged — no FireRelay awareness needed here
 ├── models/                    ← Unchanged
 └── ... (rest of app unchanged)
 ```
 
-The master's database will also receive two additional migration files when FireRelay is built:
+The master's database receives two additional migration files:
 
 ```
 database/migrations/
-├── NNN_create_firerelay_nodes_table.sql
+├── 151_create_firerelay_nodes_table.sql
 │     → nodes table (id, name, api_url, status, client_count,
-│                    device_count, last_seen_at)
-└── NNN_create_firerelay_client_routing_table.sql
-│     → client_routing table (client_id BIGINT, node_id VARCHAR)
+│                    device_count, last_seen_at, cpu/memory/disk metrics)
+└── 152_create_firerelay_client_routing_table.sql
+      → client_routing table (client_id BIGINT, node_id VARCHAR)
 ```
 
 These migrations run only on the master node. Worker nodes do not need them.
@@ -553,15 +554,15 @@ FireRelay is **Step 5** in the FireISP 5.0 development roadmap. It must not be b
 
 | Step | What | Status |
 |------|------|--------|
-| 1 | Database schema (migrations) | ✅ Complete — 118 migrations, 101 tables |
+| 1 | Database schema (migrations) | ✅ Complete — 152 migrations |
 | 2 | Node.js application scaffold (`package.json`, `server.js`, database connection) | ✅ Complete — Express 5, JWT, Helmet, CORS, rate limiting |
 | 3 | Authentication (login, logout, sessions) | ✅ Complete — register/login/logout, JWT, RBAC, org scoping |
-| 4 | Core CRUD modules (clients, plans, invoices, devices, tickets, etc.) | ✅ Complete — 43 models, 52 routes, 6 services |
-| **5** | **FireRelay** ← this document describes what will be built here | 🔲 Pending |
+| 4 | Core CRUD modules (clients, plans, invoices, devices, tickets, etc.) | ✅ Complete — 89 models, 69 routes, 24 services |
+| **5** | **FireRelay** — this document describes what was built here | ✅ Complete — firerelayService.js, migrations 151-152, middleware routing, health polling, fan-out, circuit breaker per node |
 
-> **Note:** FireRelay's `standalone` mode middleware should be included from the very beginning of Step 2 — it is a ~30-line pass-through that costs nothing and avoids a larger refactor later. Steps 3 and 4 proceed as if FireRelay does not exist. Only Step 5 implements the actual relay logic.
+> **Note:** FireRelay's `standalone` mode middleware is included from the very beginning of Step 2 — it is a ~30-line pass-through that costs nothing and avoids a larger refactor later. Steps 3 and 4 proceed as if FireRelay does not exist. Step 5 implements the actual relay logic.
 
 ---
 
 *Document created: 2025 — FireISP 5.0 project.*
-*Updated: 2026 — Steps 2–4 complete. FireRelay is next.*
+*Updated: 2026 — All steps complete. FireRelay implemented.*

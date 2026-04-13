@@ -10476,6 +10476,33 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "FireRelay"
+        ],
+        "summary": "Deregister a node",
+        "operationId": "deleteFirerelayNode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
       }
     },
     "/concession-titles": {
