@@ -555,6 +555,423 @@ const usersPage = crudListPage('/users', [
 ], { entityName: 'users' });
 
 // ---------------------------------------------------------------------------
+// Page: Credit Notes
+// ---------------------------------------------------------------------------
+const creditNotesPage = crudListPage('/credit-notes', [
+  { key: 'id', label: 'ID' },
+  { key: 'credit_note_number', label: 'Number' },
+  { key: 'client_id', label: 'Client' },
+  { key: 'total', label: 'Total', money: true },
+  { key: 'reason', label: 'Reason' },
+  { key: 'status', label: 'Status', badge: true },
+  { key: 'created_at', label: 'Created', date: true },
+], {
+  entityName: 'credit notes',
+  detailFn: detailPage('/credit-notes', 'Credit Note', [[
+    { key: 'credit_note_number', label: 'Number' },
+    { key: 'client_id', label: 'Client ID' },
+    { key: 'total', label: 'Total', money: true },
+    { key: 'reason', label: 'Reason' },
+    { key: 'status', label: 'Status', badge: true },
+    { key: 'currency', label: 'Currency' },
+    { key: 'created_at', label: 'Created', date: true },
+  ]]),
+});
+
+// ---------------------------------------------------------------------------
+// Page: Quotes
+// ---------------------------------------------------------------------------
+const quotesPage = crudListPage('/quotes', [
+  { key: 'id', label: 'ID' },
+  { key: 'quote_number', label: 'Number' },
+  { key: 'client_id', label: 'Client' },
+  { key: 'total', label: 'Total', money: true },
+  { key: 'status', label: 'Status', badge: true },
+  { key: 'valid_until', label: 'Valid Until', date: true },
+], {
+  entityName: 'quotes',
+  detailFn: detailPage('/quotes', 'Quote', [[
+    { key: 'quote_number', label: 'Number' },
+    { key: 'client_id', label: 'Client ID' },
+    { key: 'subtotal', label: 'Subtotal', money: true },
+    { key: 'tax', label: 'Tax', money: true },
+    { key: 'total', label: 'Total', money: true },
+    { key: 'status', label: 'Status', badge: true },
+    { key: 'valid_until', label: 'Valid Until', date: true },
+    { key: 'notes', label: 'Notes' },
+    { key: 'created_at', label: 'Created', date: true },
+  ]]),
+});
+
+// ---------------------------------------------------------------------------
+// Page: Sites
+// ---------------------------------------------------------------------------
+const sitesPage = crudListPage('/sites', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'address', label: 'Address' },
+  { key: 'city', label: 'City' },
+  { key: 'state', label: 'State' },
+  { key: 'status', label: 'Status', badge: true },
+], {
+  entityName: 'sites',
+  createFields: [
+    { key: 'name', label: 'Name', required: true },
+    { key: 'address', label: 'Address' },
+    { key: 'city', label: 'City' },
+    { key: 'state', label: 'State' },
+    { key: 'zip_code', label: 'ZIP Code' },
+  ],
+  detailFn: detailPage('/sites', 'Site', [[
+    { key: 'name', label: 'Name' },
+    { key: 'address', label: 'Address' },
+    { key: 'city', label: 'City' },
+    { key: 'state', label: 'State' },
+    { key: 'zip_code', label: 'ZIP Code' },
+    { key: 'country', label: 'Country' },
+    { key: 'latitude', label: 'Latitude' },
+    { key: 'longitude', label: 'Longitude' },
+    { key: 'status', label: 'Status', badge: true },
+    { key: 'created_at', label: 'Created', date: true },
+  ]]),
+});
+
+// ---------------------------------------------------------------------------
+// Page: Jobs
+// ---------------------------------------------------------------------------
+const jobsPage = crudListPage('/jobs', [
+  { key: 'id', label: 'ID' },
+  { key: 'title', label: 'Title' },
+  { key: 'client_id', label: 'Client' },
+  { key: 'assigned_to', label: 'Assigned To' },
+  { key: 'priority', label: 'Priority', badge: true },
+  { key: 'status', label: 'Status', badge: true },
+  { key: 'scheduled_date', label: 'Scheduled', date: true },
+], {
+  entityName: 'jobs',
+  createFields: [
+    { key: 'title', label: 'Title', required: true },
+    { key: 'client_id', label: 'Client ID', type: 'number', required: true },
+    { key: 'description', label: 'Description', type: 'textarea' },
+    { key: 'priority', label: 'Priority', type: 'select', options: [
+      { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High' }, { value: 'critical', label: 'Critical' },
+    ] },
+    { key: 'scheduled_date', label: 'Scheduled Date', type: 'date' },
+  ],
+  detailFn: detailPage('/jobs', 'Job', [[
+    { key: 'title', label: 'Title' },
+    { key: 'description', label: 'Description' },
+    { key: 'client_id', label: 'Client ID' },
+    { key: 'assigned_to', label: 'Assigned To' },
+    { key: 'priority', label: 'Priority', badge: true },
+    { key: 'status', label: 'Status', badge: true },
+    { key: 'scheduled_date', label: 'Scheduled', date: true },
+    { key: 'completed_date', label: 'Completed', date: true },
+    { key: 'notes', label: 'Notes' },
+    { key: 'created_at', label: 'Created', date: true },
+  ]]),
+});
+
+// ---------------------------------------------------------------------------
+// Page: Outages
+// ---------------------------------------------------------------------------
+const outagesPage = crudListPage('/outages', [
+  { key: 'id', label: 'ID' },
+  { key: 'title', label: 'Title' },
+  { key: 'site_id', label: 'Site' },
+  { key: 'severity', label: 'Severity', badge: true },
+  { key: 'status', label: 'Status', badge: true },
+  { key: 'started_at', label: 'Started', date: true },
+  { key: 'resolved_at', label: 'Resolved', date: true },
+], {
+  entityName: 'outages',
+  detailFn: detailPage('/outages', 'Outage', [[
+    { key: 'title', label: 'Title' },
+    { key: 'site_id', label: 'Site ID' },
+    { key: 'severity', label: 'Severity', badge: true },
+    { key: 'status', label: 'Status', badge: true },
+    { key: 'started_at', label: 'Started', date: true },
+    { key: 'resolved_at', label: 'Resolved', date: true },
+    { key: 'description', label: 'Description' },
+    { key: 'affected_clients', label: 'Affected Clients' },
+    { key: 'notes', label: 'Notes' },
+  ]]),
+});
+
+// ---------------------------------------------------------------------------
+// Page: Warehouses
+// ---------------------------------------------------------------------------
+const warehousesPage = crudListPage('/warehouses', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'location', label: 'Location' },
+  { key: 'city', label: 'City' },
+  { key: 'status', label: 'Status', badge: true },
+], {
+  entityName: 'warehouses',
+  createFields: [
+    { key: 'name', label: 'Name', required: true },
+    { key: 'location', label: 'Location' },
+    { key: 'city', label: 'City' },
+  ],
+});
+
+// ---------------------------------------------------------------------------
+// Page: Inventory
+// ---------------------------------------------------------------------------
+const inventoryPage = crudListPage('/inventory', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'sku', label: 'SKU' },
+  { key: 'warehouse_id', label: 'Warehouse' },
+  { key: 'quantity', label: 'Quantity' },
+  { key: 'status', label: 'Status', badge: true },
+], {
+  entityName: 'inventory',
+  detailFn: detailPage('/inventory', 'Inventory Item', [[
+    { key: 'name', label: 'Name' },
+    { key: 'sku', label: 'SKU' },
+    { key: 'description', label: 'Description' },
+    { key: 'category', label: 'Category' },
+    { key: 'warehouse_id', label: 'Warehouse ID' },
+    { key: 'quantity', label: 'Quantity' },
+    { key: 'min_stock', label: 'Min Stock' },
+    { key: 'unit_cost', label: 'Unit Cost', money: true },
+    { key: 'status', label: 'Status', badge: true },
+    { key: 'created_at', label: 'Created', date: true },
+  ]]),
+});
+
+// ---------------------------------------------------------------------------
+// Page: Roles
+// ---------------------------------------------------------------------------
+const rolesPage = crudListPage('/roles', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'description', label: 'Description' },
+  { key: 'is_system', label: 'Type', render: val => val ? 'System' : 'Custom' },
+], { entityName: 'roles' });
+
+// ---------------------------------------------------------------------------
+// Page: Organizations
+// ---------------------------------------------------------------------------
+const organizationsPage = crudListPage('/organizations', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'status', label: 'Status', badge: true },
+  { key: 'created_at', label: 'Created', date: true },
+], {
+  entityName: 'organizations',
+  createFields: [
+    { key: 'name', label: 'Name', required: true },
+    { key: 'email', label: 'Email', type: 'email', required: true },
+    { key: 'phone', label: 'Phone' },
+  ],
+  detailFn: detailPage('/organizations', 'Organization', [[
+    { key: 'name', label: 'Name' },
+    { key: 'email', label: 'Email' },
+    { key: 'phone', label: 'Phone' },
+    { key: 'address', label: 'Address' },
+    { key: 'city', label: 'City' },
+    { key: 'state', label: 'State' },
+    { key: 'country', label: 'Country' },
+    { key: 'rfc', label: 'RFC' },
+    { key: 'status', label: 'Status', badge: true },
+    { key: 'created_at', label: 'Created', date: true },
+  ]]),
+});
+
+// ---------------------------------------------------------------------------
+// Page: Settings
+// ---------------------------------------------------------------------------
+const settingsPage = crudListPage('/settings', [
+  { key: 'id', label: 'ID' },
+  { key: 'key', label: 'Key' },
+  { key: 'value', label: 'Value' },
+  { key: 'category', label: 'Category' },
+  { key: 'description', label: 'Description' },
+], { entityName: 'settings' });
+
+// ---------------------------------------------------------------------------
+// Page: Audit Logs
+// ---------------------------------------------------------------------------
+const auditLogsPage = crudListPage('/audit-logs', [
+  { key: 'id', label: 'ID' },
+  { key: 'user_id', label: 'User' },
+  { key: 'action', label: 'Action' },
+  { key: 'entity_type', label: 'Entity Type' },
+  { key: 'entity_id', label: 'Entity ID' },
+  { key: 'created_at', label: 'Created', date: true },
+], { entityName: 'audit logs', pageSize: 50 });
+
+// ---------------------------------------------------------------------------
+// Page: Expenses
+// ---------------------------------------------------------------------------
+const expensesPage = crudListPage('/expenses', [
+  { key: 'id', label: 'ID' },
+  { key: 'description', label: 'Description' },
+  { key: 'category', label: 'Category' },
+  { key: 'amount', label: 'Amount', money: true },
+  { key: 'expense_date', label: 'Date', date: true },
+  { key: 'status', label: 'Status', badge: true },
+], {
+  entityName: 'expenses',
+  createFields: [
+    { key: 'description', label: 'Description', required: true },
+    { key: 'category', label: 'Category', required: true },
+    { key: 'amount', label: 'Amount', type: 'number', required: true },
+    { key: 'vendor', label: 'Vendor' },
+    { key: 'expense_date', label: 'Date', type: 'date' },
+    { key: 'notes', label: 'Notes', type: 'textarea' },
+  ],
+  detailFn: detailPage('/expenses', 'Expense', [[
+    { key: 'description', label: 'Description' },
+    { key: 'category', label: 'Category' },
+    { key: 'amount', label: 'Amount', money: true },
+    { key: 'vendor', label: 'Vendor' },
+    { key: 'expense_date', label: 'Date', date: true },
+    { key: 'notes', label: 'Notes' },
+    { key: 'status', label: 'Status', badge: true },
+    { key: 'created_at', label: 'Created', date: true },
+  ]]),
+});
+
+// ---------------------------------------------------------------------------
+// Page: IP Pools
+// ---------------------------------------------------------------------------
+const ipPoolsPage = crudListPage('/ip-pools', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'network', label: 'Network' },
+  { key: 'prefix_length', label: 'Prefix' },
+  { key: 'pool_type', label: 'Type' },
+  { key: 'status', label: 'Status', badge: true },
+], {
+  entityName: 'IP pools',
+  detailFn: detailPage('/ip-pools', 'IP Pool', [[
+    { key: 'name', label: 'Name' },
+    { key: 'network', label: 'Network' },
+    { key: 'prefix_length', label: 'Prefix Length' },
+    { key: 'pool_type', label: 'Pool Type' },
+    { key: 'gateway', label: 'Gateway' },
+    { key: 'vlan_id', label: 'VLAN ID' },
+    { key: 'status', label: 'Status', badge: true },
+    { key: 'total_ips', label: 'Total IPs' },
+    { key: 'used_ips', label: 'Used IPs' },
+  ]]),
+});
+
+// ---------------------------------------------------------------------------
+// Page: SLA Definitions
+// ---------------------------------------------------------------------------
+const slaDefinitionsPage = crudListPage('/sla-definitions', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'uptime_target', label: 'Uptime Target' },
+  { key: 'response_time_hours', label: 'Response (hrs)' },
+  { key: 'resolution_time_hours', label: 'Resolution (hrs)' },
+  { key: 'status', label: 'Status', badge: true },
+], { entityName: 'SLA definitions' });
+
+// ---------------------------------------------------------------------------
+// Page: SNMP Profiles
+// ---------------------------------------------------------------------------
+const snmpProfilesPage = crudListPage('/snmp-profiles', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'community', label: 'Community' },
+  { key: 'version', label: 'Version' },
+  { key: 'port', label: 'Port' },
+  { key: 'status', label: 'Status', badge: true },
+], {
+  entityName: 'SNMP profiles',
+  createFields: [
+    { key: 'name', label: 'Name', required: true },
+    { key: 'community', label: 'Community', required: true },
+    { key: 'version', label: 'Version', type: 'select', options: [
+      { value: 'v1', label: 'v1' }, { value: 'v2c', label: 'v2c' },
+      { value: 'v3', label: 'v3' },
+    ] },
+    { key: 'port', label: 'Port', type: 'number' },
+  ],
+});
+
+// ---------------------------------------------------------------------------
+// Page: Webhooks
+// ---------------------------------------------------------------------------
+const webhooksPage = crudListPage('/webhooks', [
+  { key: 'id', label: 'ID' },
+  { key: 'url', label: 'URL' },
+  { key: 'events', label: 'Events' },
+  { key: 'status', label: 'Status', badge: true },
+  { key: 'created_at', label: 'Created', date: true },
+], {
+  entityName: 'webhooks',
+  createFields: [
+    { key: 'url', label: 'URL', required: true },
+    { key: 'events', label: 'Events', required: true },
+    { key: 'secret', label: 'Secret' },
+  ],
+});
+
+// ---------------------------------------------------------------------------
+// Page: Scheduled Tasks
+// ---------------------------------------------------------------------------
+const scheduledTasksPage = crudListPage('/scheduled-tasks', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'cron_expression', label: 'Cron' },
+  { key: 'status', label: 'Status', badge: true },
+  { key: 'last_run_at', label: 'Last Run', date: true },
+  { key: 'next_run_at', label: 'Next Run', date: true },
+], { entityName: 'scheduled tasks' });
+
+// ---------------------------------------------------------------------------
+// Page: Alert Rules
+// ---------------------------------------------------------------------------
+const alertRulesPage = crudListPage('/alerts/rules', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'metric', label: 'Metric' },
+  { key: 'operator', label: 'Operator' },
+  { key: 'threshold', label: 'Threshold' },
+  { key: 'severity', label: 'Severity', badge: true },
+  { key: 'enabled', label: 'Enabled', render: val => val ? '✅ Enabled' : '❌ Disabled' },
+], { entityName: 'alert rules' });
+
+// ---------------------------------------------------------------------------
+// Page: Coverage Zones
+// ---------------------------------------------------------------------------
+const coverageZonesPage = crudListPage('/coverage-zones', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'description', label: 'Description' },
+  { key: 'status', label: 'Status', badge: true },
+], {
+  entityName: 'coverage zones',
+  createFields: [
+    { key: 'name', label: 'Name', required: true },
+    { key: 'description', label: 'Description', type: 'textarea' },
+  ],
+});
+
+// ---------------------------------------------------------------------------
+// Page: Network Links
+// ---------------------------------------------------------------------------
+const networkLinksPage = crudListPage('/network-links', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'link_type', label: 'Type' },
+  { key: 'bandwidth_mbps', label: 'Bandwidth (Mbps)' },
+  { key: 'site_a_id', label: 'Site A' },
+  { key: 'site_b_id', label: 'Site B' },
+  { key: 'status', label: 'Status', badge: true },
+], { entityName: 'network links' });
+
+// ---------------------------------------------------------------------------
 // Register all pages
 // ---------------------------------------------------------------------------
 Router.register('dashboard', dashboardPage);
@@ -567,3 +984,23 @@ Router.register('tickets', ticketsPage);
 Router.register('devices', devicesPage);
 Router.register('network', networkPage);
 Router.register('users', usersPage);
+Router.register('credit-notes', creditNotesPage);
+Router.register('quotes', quotesPage);
+Router.register('sites', sitesPage);
+Router.register('jobs', jobsPage);
+Router.register('outages', outagesPage);
+Router.register('warehouses', warehousesPage);
+Router.register('inventory', inventoryPage);
+Router.register('roles', rolesPage);
+Router.register('organizations', organizationsPage);
+Router.register('settings', settingsPage);
+Router.register('audit-logs', auditLogsPage);
+Router.register('expenses', expensesPage);
+Router.register('ip-pools', ipPoolsPage);
+Router.register('sla-definitions', slaDefinitionsPage);
+Router.register('snmp-profiles', snmpProfilesPage);
+Router.register('webhooks', webhooksPage);
+Router.register('scheduled-tasks', scheduledTasksPage);
+Router.register('alerts/rules', alertRulesPage);
+Router.register('coverage-zones', coverageZonesPage);
+Router.register('network-links', networkLinksPage);
