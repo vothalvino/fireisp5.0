@@ -9,7 +9,6 @@ const eventBus = require('./eventBus');
 const emailTransport = require('./emailTransport');
 const templates = require('../views/emailTemplates');
 const webhookService = require('./webhookService');
-const db = require('../config/database');
 const logger = require('../utils/logger');
 
 // Lazy-load broadcast to avoid circular dependency
@@ -142,7 +141,7 @@ function registerHooks() {
   });
 
   // --- Contract Restored ---
-  eventBus.on('contract.restored', async ({ organizationId, contract, client }) => {
+  eventBus.on('contract.restored', async ({ organizationId, contract, _client }) => {
     try {
       getBroadcast()(`org:${organizationId}:notifications`, 'contract.restored', {
         contract_id: contract.id,
@@ -159,7 +158,7 @@ function registerHooks() {
   });
 
   // --- Suspension Warning ---
-  eventBus.on('suspension.warning', async ({ organizationId, contract, client, invoice, daysOverdue }) => {
+  eventBus.on('suspension.warning', async ({ organizationId, _contract, client, invoice, daysOverdue }) => {
     try {
       if (client?.email) {
         const template = templates.suspensionWarningEmail({

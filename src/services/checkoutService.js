@@ -65,8 +65,6 @@ async function generatePaymentLink({ organizationId, invoiceId }) {
   const invoice = invoices[0];
   if (invoice.status === 'paid') throw new Error('Invoice already paid');
 
-  const token = crypto.randomBytes(24).toString('hex');
-
   // Reuse checkout session creation
   const session = await createCheckoutSession({
     organizationId,
