@@ -30,6 +30,16 @@ const ALLOWED_TYPES = new Set([
   'application/octet-stream',  // CSD .cer / .key files
 ]);
 
+// Allowed file extensions (lowercase, with leading dot).
+// application/octet-stream is only accepted when the extension is whitelisted.
+const ALLOWED_EXTENSIONS = new Set([
+  '.pdf', '.xml', '.txt', '.csv',
+  '.jpg', '.jpeg', '.png', '.gif', '.webp',
+  '.zip', '.tar', '.gz', '.tgz',
+  '.xlsx', '.xls',
+  '.cer', '.key', '.pem',     // CSD certificate files
+]);
+
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 
 /**
@@ -60,11 +70,17 @@ const storage = multer.diskStorage({
 });
 
 function fileFilter(_req, file, cb) {
-  if (ALLOWED_TYPES.has(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'File type not allowed'));
+  const ext = path.extname(file.originalname).toLowerCase();
+
+  if (!ALLOWED_TYPES.has(file.mimetype)) {
+    return cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'File type not allowed'));
   }
+
+  if (!ALLOWED_EXTENSIONS.has(ext)) {
+    return cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'File extension not allowed'));
+  }
+
+  cb(null, true);
 }
 
 /**
@@ -85,4 +101,4 @@ const uploadMultiple = multer({
   limits: { fileSize: MAX_FILE_SIZE },
 }).array('files', 10);
 
-module.exports = { uploadSingle, uploadMultiple, STORAGE_ROOT, entityDir };
+module.exports = { uploadSingle, uploadMultiple, STORAGE_ROOT, entityDir, ALLOWED_EXTENSIONS };

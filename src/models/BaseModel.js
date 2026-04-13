@@ -42,6 +42,11 @@ class BaseModel {
     return record;
   }
 
+  /** @returns {string[]} Columns allowed for ORDER BY */
+  static get sortable() {
+    return [...this.fillable, 'id', 'created_at', 'updated_at'];
+  }
+
   /**
    * List records with optional filters, pagination, and org scoping.
    */
@@ -61,8 +66,11 @@ class BaseModel {
       }
     }
 
+    // Validate orderBy against allowed columns to prevent SQL injection
+    const safeOrderBy = this.sortable.includes(orderBy) ? orderBy : 'id';
+
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const sql = `SELECT * FROM \`${this.tableName}\` ${whereClause} ORDER BY \`${orderBy}\` ${order === 'DESC' ? 'DESC' : 'ASC'} LIMIT ? OFFSET ?`;
+    const sql = `SELECT * FROM \`${this.tableName}\` ${whereClause} ORDER BY \`${safeOrderBy}\` ${order === 'DESC' ? 'DESC' : 'ASC'} LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
     const [rows] = await db.query(sql, params);

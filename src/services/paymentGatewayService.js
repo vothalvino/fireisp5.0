@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const db = require('../config/database');
 const { URLSearchParams } = require('url');
 const { createCircuitBreaker } = require('../utils/circuitBreaker');
+const { decrypt } = require('../utils/encryption');
 const logger = require('../utils/logger');
 
 // Default idempotency key TTL: 24 hours
@@ -162,7 +163,7 @@ async function charge({ organizationId, clientId, amount, currency, description,
 async function chargeStripe(gateway, amount, currency, description, paymentMethodToken) {
   const https = require('https');
 
-  const secretKey = gateway.secret_key_encrypted; // Decrypted at app layer in production
+  const secretKey = decrypt(gateway.secret_key_encrypted);
   const body = new URLSearchParams({
     amount: Math.round(amount * 100).toString(), // Stripe uses cents
     currency: currency.toLowerCase(),
@@ -210,7 +211,7 @@ async function chargeStripe(gateway, amount, currency, description, paymentMetho
 async function chargeConekta(gateway, amount, currency, description, _paymentMethodToken) {
   const https = require('https');
 
-  const secretKey = gateway.secret_key_encrypted;
+  const secretKey = decrypt(gateway.secret_key_encrypted);
   const body = JSON.stringify({
     line_items: [{
       name: description || 'FireISP payment',
