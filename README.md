@@ -15,10 +15,15 @@ An open source ISP (Internet Service Provider) management software designed to h
 - Audit logging and notifications
 - Email / SMS / WhatsApp send log for auditing and billing disputes
 - Service outage tracking with SLA reporting hooks
-- Scheduled task observability and active session management — five core automation tasks seeded on install (auto-invoice, auto-suspend, RADIUS sync, revenue summary, network health snapshots)
+- Scheduled task observability and active session management — nine core automation tasks seeded on install (`auto_generate_invoices`, `auto_suspend_overdue`, `radius_sync`, `populate_revenue_summary`, `populate_network_health_snapshots`, `csd_expiry_monitor`, `alert_evaluation`, `process_recurring_charges`, `data_retention`)
+- Monitoring alert rules with configurable thresholds, severity levels, and multi-channel notifications (email, SMS, SSE, webhook)
+- Two-factor authentication (TOTP) with backup codes and brute-force account lockout
+- FireRelay cluster mode for multi-node deployments with client routing
+- Inbound webhook event deduplication and idempotent payment processing
+- Optimistic concurrency control on critical financial records (invoices, contracts, payments, clients)
 - Default application settings seeded on install (currency, SMTP, SNMP, security, automation flags)
 - Default tax rates seeded on install (Tax Exempt, Standard 8%, IVA 16% MX, GST 5% CA)
-- Payment allocation, inventory stock, and PPPoE RADIUS consistency enforced at the database level via guard triggers
+- Payment allocation, inventory stock, PPPoE RADIUS consistency, credit note over-credit cap, audit log immutability, CFDI document immutability, contract status FSM, and outage temporal logic enforced at the database level via guard triggers
 
 ## Project Structure
 
@@ -172,6 +177,12 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 99 | `revenue_summary` | Materialized revenue summary for MRR / churn / ARPU reporting — populated by a scheduled task (not a view); one row per organization per calendar month per currency |
 | 100 | `network_health_snapshots` | Aggregated daily device uptime and link utilization snapshots — uptime %, avg/peak latency, avg/peak throughput in/out, packet loss, total downtime minutes |
 | 101 | `cfdi_cancellations` | SAT CFDI cancellation audit trail — cancellation reason code (motivo 01–04), optional replacement UUID (folio_sustitucion), PAC response status, and raw acuse XML acknowledgement |
+| 102 | `firerelay_nodes` | FireRelay cluster node registry — tracks node ID, API URL, status (active/draining/maintenance/offline), resource metrics (CPU/memory/disk), client and device counts; only used when `FIRERELAY_MODE = master` |
+| 103 | `firerelay_client_routing` | Client-to-node routing map for FireRelay cluster — maps each `client_id` to the node that owns it; only used when `FIRERELAY_MODE = master` |
+| 104 | `webhook_events` | Inbound payment gateway webhook events — stores raw event payloads from Stripe, Conekta, and other providers with deduplication via unique `(provider, provider_event_id)` constraint, processing status, and linked `payment_transactions` record after reconciliation |
+| 105 | `idempotency_keys` | Idempotency key storage for payment charge requests — prevents duplicate charges when the same key is submitted more than once; keys expire after 24 hours; scoped per organization |
+| 106 | `alert_rules` | Configurable monitoring alert rules per organization — defines metric thresholds (CPU, memory, signal, latency, packet loss, uptime), evaluation windows, severity levels, optional auto-outage creation, and notification channel routing (email/SMS/SSE/webhook) |
+| 107 | `alert_events` | Triggered alert event log — records each time an alert rule fires with current vs threshold values, acknowledgement tracking, and resolution timestamps |
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 
@@ -279,6 +290,48 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 128 — PPPoE contract RADIUS consistency trigger:** `128_connection_type_radius_consistency_trigger.sql` adds a `BEFORE UPDATE` trigger on `contracts` that raises `SQLSTATE '45000'` when a contract with `connection_type IN ('pppoe', 'pppoe_dual')` is activated (`status` changed to `'active'`) without at least one corresponding `radius` row. Contracts start in `pending` status so RADIUS accounts can be provisioned before activation; the guard fires only at activation time. Uses `DROP TRIGGER IF EXISTS` for safe re-runs.
 
 > **Migration 129 — Composite indexes for query performance:** `129_add_composite_indexes_for_query_performance.sql` adds five composite indexes for common multi-column query patterns: `idx_invoices_currency_status ON invoices(currency, status)`, `idx_payment_transactions_gateway_id_status ON payment_transactions(payment_gateway_id, gateway_status)`, `idx_expenses_currency ON expenses(currency)`, `idx_contracts_client_facturar ON contracts(client_id, facturar)`, and `idx_suspension_logs_contract_created ON suspension_logs(contract_id, created_at)`. Each index is guarded via `INFORMATION_SCHEMA.STATISTICS` in a stored procedure for safe re-runs. Note: `webhook_deliveries.next_retry_at` already has a single-column index from migration 109.
+
+> **Migration 130 — FireRelay nodes:** `130_create_firerelay_nodes_table.sql` creates the `firerelay_nodes` table — a registry of all nodes in a FireRelay cluster. Only used when `FIRERELAY_MODE = master`. Tracks node ID, API URL, status (active/draining/maintenance/offline), resource metrics (CPU %, memory %, disk %, DB size), client and device counts, uptime, and last-seen heartbeat.
+
+> **Migration 131 — FireRelay client routing:** `131_create_firerelay_client_routing_table.sql` creates the `firerelay_client_routing` table — maps each `client_id` to the FireRelay node that owns it. Only used when `FIRERELAY_MODE = master`. Foreign key to `firerelay_nodes` with `ON DELETE RESTRICT`.
+
+> **Migration 132 — Webhook events:** `132_create_webhook_events_table.sql` creates the `webhook_events` table for inbound payment gateway webhook events. Stores raw JSON payloads from Stripe, Conekta, and other providers with deduplication via unique `(provider, provider_event_id)` constraint. Tracks processing status (received/processing/processed/failed/ignored) and links to `payment_transactions` after reconciliation.
+
+> **Migration 133 — Idempotency keys:** `133_create_idempotency_keys_table.sql` creates the `idempotency_keys` table for preventing duplicate payment charges. Stores client-supplied unique keys scoped per organization with cached HTTP response codes and bodies. Keys expire after 24 hours and are cleaned up by a scheduled task.
+
+> **Migration 134 — Alert rules:** `134_create_alert_rules_table.sql` creates the `alert_rules` table for configurable monitoring alert rules per organization. Each rule defines a metric (cpu_usage, memory_usage, signal_strength, latency_ms, packet_loss, uptime), comparison operator, threshold, evaluation window in minutes, severity (info/warning/major/critical), optional auto-outage creation flag, and notification channels (email/SMS/SSE/webhook as JSON array).
+
+> **Migration 135 — Alert events:** `135_create_alert_events_table.sql` creates the `alert_events` table — a log of triggered alert events. Records the firing alert rule, device, current vs threshold values, and lifecycle status (triggered/acknowledged/resolved) with acknowledgement and resolution timestamps.
+
+> **Migration 136 — 2FA / TOTP ALTER:** `136_add_totp_to_users.sql` adds `totp_secret VARCHAR(255) NULL`, `totp_enabled BOOLEAN NOT NULL DEFAULT FALSE`, and `totp_backup_codes JSON NULL` to `users` for two-factor authentication support. Uses an idempotent stored procedure guard to skip if columns already exist.
+
+> **Migration 137 — Data cap ALTER:** `137_add_data_cap_to_plans.sql` adds `data_cap_gb DECIMAL(10,2) NULL` to `plans` for monthly data cap in GB (NULL = unlimited). Uses an idempotent stored procedure guard.
+
+> **Migration 138 — Seed alert evaluation task:** `138_seed_alert_evaluation_task.sql` inserts the `alert_evaluation` scheduled task (cron `*/5 * * * *`) that evaluates monitoring alert rules against current SNMP metrics every 5 minutes.
+
+> **Migration 139 — Seed recurring charge task:** `139_seed_recurring_charge_task.sql` inserts the `process_recurring_charges` scheduled task (cron `0 7 * * *`) that auto-charges active recurring payment profiles with pending invoices daily at 07:00.
+
+> **Migration 140 — Login lockout ALTER:** `140_add_login_lockout_to_users.sql` adds `failed_login_attempts TINYINT UNSIGNED NOT NULL DEFAULT 0` and `locked_until TIMESTAMP NULL` to `users` for brute-force account lockout protection.
+
+> **Migration 141 — Composite indexes (batch 2):** `141_add_composite_indexes.sql` adds ten composite indexes for high-traffic query patterns: `idx_invoices_client_created`, `idx_invoices_status_due`, `idx_payments_contract_date`, `idx_payments_client_created`, `idx_connection_logs_contract_start`, `idx_tickets_client_status`, `idx_tickets_assigned_status`, `idx_webhook_deliveries_status_created`, `idx_audit_logs_entity_type_id`, and `idx_contracts_client_status`.
+
+> **Migration 142 — Webhook dead letter ALTER:** `142_add_webhook_dead_letter.sql` adds `dead_letter` to the `webhook_deliveries.status` ENUM for deliveries that have exhausted all retry attempts. Adds `idx_webhook_deliveries_dead_letter` index for dead-letter dashboard queries.
+
+> **Migration 143 — Optimistic locking ALTER:** `143_add_version_columns.sql` adds `version INT UNSIGNED NOT NULL DEFAULT 1` to `invoices`, `contracts`, `payments`, and `clients` for optimistic concurrency control.
+
+> **Migration 144 — Billing period uniqueness:** `144_add_billing_period_unique_constraint.sql` adds a unique composite index `uq_billing_period_contract_dates (contract_id, period_start, period_end)` to `billing_periods` to prevent duplicate invoices for the same contract and billing period.
+
+> **Migration 145 — Seed data retention task:** `145_seed_data_retention_task.sql` inserts the `data_retention` scheduled task (cron `0 3 * * *`) that purges old audit logs, alert events, webhook deliveries, and expired idempotency keys daily at 03:00.
+
+> **Migration 146 — Credit note invoice cap triggers:** `146_credit_note_invoice_total_guard_trigger.sql` adds BEFORE INSERT / BEFORE UPDATE triggers on `credit_notes` that prevent the sum of credit note totals (excluding cancelled) from exceeding the linked invoice total. Raises SQLSTATE '45000' on over-credit.
+
+> **Migration 147 — Audit log immutability triggers:** `147_audit_log_immutability_triggers.sql` adds BEFORE UPDATE / BEFORE DELETE triggers on `audit_logs` that block any modification or removal of audit records. Audit logs are append-only for compliance; the data-retention service uses administrative privileges to bypass when needed. Raises SQLSTATE '45000'.
+
+> **Migration 148 — CFDI document immutability trigger:** `148_cfdi_document_immutability_trigger.sql` adds a BEFORE UPDATE trigger on `cfdi_documents` that prevents modification of stamped (`sat_status = 'vigente'`) documents' financial fields (subtotal, total, UUID, XML, receptor data, etc.) per SAT Anexo 20. Only `sat_status` changes (for the cancellation flow) and non-financial metadata (pdf_url, updated_at) remain modifiable. Raises SQLSTATE '45000'.
+
+> **Migration 149 — Contract status FSM trigger:** `149_contract_status_fsm_trigger.sql` adds a BEFORE UPDATE trigger on `contracts` that enforces valid status transitions: `pending → active|cancelled`, `active → expired|cancelled`. Both `expired` and `cancelled` are terminal states. Raises SQLSTATE '45000' on invalid transitions.
+
+> **Migration 150 — Outage temporal logic triggers:** `150_outage_temporal_logic_trigger.sql` adds BEFORE INSERT / BEFORE UPDATE triggers on `outages` that ensure `resolved_at` is always after `started_at` when set. Prevents nonsensical duration calculations and corrupt SLA/uptime reporting. Raises SQLSTATE '45000'.
 
 ### Venta al Público en General (Factura Pública)
 
