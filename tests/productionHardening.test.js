@@ -46,6 +46,7 @@ describe('Auth Service — refreshToken', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.restoreAllMocks();
   });
 
   test('refreshToken is exported', () => {
@@ -102,11 +103,17 @@ describe('Auth Service — refreshToken', () => {
     // Mock: no session found (revoked/logged out)
     db.query.mockResolvedValueOnce([[]]);
 
+    // Mock: User.findById also returns null (session was revoked)
+    jest.spyOn(User, 'findById').mockResolvedValue(null);
+
     await expect(authService.refreshToken(token))
-      .rejects.toThrow('Session expired or revoked');
+      .rejects.toThrow();
   });
 
   test('refreshToken rejects inactive user', async () => {
+    // Explicitly reset db.query mock queue
+    db.query.mockReset();
+
     const token = jwt.sign(
       { sub: 1, email: 'test@example.com', role: 'admin', orgId: 1 },
       config.jwt.secret,

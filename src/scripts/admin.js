@@ -17,7 +17,6 @@
 // =============================================================================
 
 require('dotenv').config();
-const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const db = require('../config/database');
 const path = require('path');
@@ -75,7 +74,7 @@ async function createUser(args) {
     [args['first-name'] || 'Admin', args['last-name'] || 'User', args.email, passwordHash, role],
   );
 
-  console.log(`✓ User created successfully`);
+  console.log('✓ User created successfully');
   console.log(`  ID:    ${result.insertId}`);
   console.log(`  Email: ${args.email}`);
   console.log(`  Role:  ${role}`);
@@ -102,7 +101,6 @@ async function resetPassword(args) {
   await db.query('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, users[0].id]);
 
   // Invalidate all sessions
-  const sessionHash = crypto.createHash('sha256');
   await db.query('DELETE FROM user_sessions WHERE user_id = ?', [users[0].id]);
 
   console.log(`✓ Password reset for ${args.email} (id=${users[0].id})`);
