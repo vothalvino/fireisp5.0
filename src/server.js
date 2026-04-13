@@ -10,6 +10,9 @@ const scheduler = require('./services/scheduler');
 const logger = require('./utils/logger');
 
 async function start() {
+  // Validate critical environment variables before anything else
+  config.validateEnv(logger);
+
   // Verify database connectivity
   try {
     const [rows] = await db.query('SELECT 1 AS connected');

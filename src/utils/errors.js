@@ -45,6 +45,39 @@ class ConflictError extends AppError {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Domain-specific error subclasses for service-level context
+// ---------------------------------------------------------------------------
+
+class InvoiceGenerationError extends AppError {
+  constructor(message, details = null) {
+    super(message, 500, 'INVOICE_GENERATION_FAILED');
+    this.details = details;
+  }
+}
+
+class CfdiStampingError extends AppError {
+  constructor(message, details = null) {
+    super(message, 502, 'CFDI_STAMPING_FAILED');
+    this.details = details;
+  }
+}
+
+class PaymentGatewayError extends AppError {
+  constructor(message, details = null) {
+    super(message, 502, 'PAYMENT_GATEWAY_ERROR');
+    this.details = details;
+  }
+}
+
+class ExternalServiceError extends AppError {
+  constructor(service, message, details = null) {
+    super(`${service}: ${message}`, 502, 'EXTERNAL_SERVICE_ERROR');
+    this.service = service;
+    this.details = details;
+  }
+}
+
 module.exports = {
   AppError,
   NotFoundError,
@@ -52,4 +85,8 @@ module.exports = {
   UnauthorizedError,
   ForbiddenError,
   ConflictError,
+  InvoiceGenerationError,
+  CfdiStampingError,
+  PaymentGatewayError,
+  ExternalServiceError,
 };

@@ -94,6 +94,25 @@ const app = express();
 app.use(helmet());
 app.use(requestId);
 
+// Request timeout — prevent long-running requests from hanging the server
+if (config.requestTimeoutMs > 0) {
+  app.use((req, res, next) => {
+    req.setTimeout(config.requestTimeoutMs);
+    res.setTimeout(config.requestTimeoutMs, () => {
+      if (!res.headersSent) {
+        res.status(504).json({
+          error: {
+            code: 'GATEWAY_TIMEOUT',
+            message: 'Request timed out',
+            ...(req.id && { requestId: req.id }),
+          },
+        });
+      }
+    });
+    next();
+  });
+}
+
 // CORS — in production use CORS_ORIGINS env var (comma-separated allowlist)
 // or fall back to the single APP_URL. In development allow common localhost origins.
 const corsOrigin = (() => {

@@ -7,12 +7,38 @@
 
 const crypto = require('crypto');
 const db = require('../config/database');
+const logger = require('../utils/logger').child({ service: 'cfdi' });
+const { CfdiStampingError } = require('../utils/errors');
+
+// ---------------------------------------------------------------------------
+// Simple circuit breaker for PAC stamping calls
+// ---------------------------------------------------------------------------
+const circuitBreaker = {
+  failures: 0,
+  lastFailure: 0,
+  threshold: 5,       // Open after 5 consecutive failures
+  resetMs: 60000,     // Try again after 60 seconds
+  isOpen() {
+    if (this.failures < this.threshold) return false;
+    // Allow a probe after resetMs
+    if (Date.now() - this.lastFailure > this.resetMs) return false;
+    return true;
+  },
+  recordSuccess() {
+    this.failures = 0;
+  },
+  recordFailure() {
+    this.failures++;
+    this.lastFailure = Date.now();
+  },
+};
 
 /**
  * Generate CFDI XML for an invoice.
  * Builds the XML structure from cfdi_documents and cfdi_conceptos rows.
  */
 async function generateXml(cfdiDocumentId) {
+  logger.info({ cfdiDocumentId }, 'Generating CFDI XML');
   const [docs] = await db.query('SELECT * FROM cfdi_documents WHERE id = ?', [cfdiDocumentId]);
   const doc = docs[0];
   if (!doc) throw new Error('CFDI document not found');
@@ -107,10 +133,19 @@ function escapeXml(str) {
  * Falls back to placeholder UUID if no PAC integration module is configured.
  */
 async function stamp(cfdiDocumentId) {
+  logger.info({ cfdiDocumentId }, 'Stamping CFDI document');
+
+  if (circuitBreaker.isOpen()) {
+    throw new CfdiStampingError(
+      'PAC circuit breaker is open — too many consecutive failures',
+      { cfdiDocumentId },
+    );
+  }
+
   const [docs] = await db.query('SELECT * FROM cfdi_documents WHERE id = ?', [cfdiDocumentId]);
   const doc = docs[0];
-  if (!doc) throw new Error('CFDI document not found');
-  if (!doc.xml_content) throw new Error('XML not generated yet — call generateXml first');
+  if (!doc) throw new CfdiStampingError('CFDI document not found', { cfdiDocumentId });
+  if (!doc.xml_content) throw new CfdiStampingError('XML not generated yet — call generateXml first', { cfdiDocumentId });
 
   // Get PAC provider for the organization
   const [pacs] = await db.query(
@@ -119,25 +154,45 @@ async function stamp(cfdiDocumentId) {
   );
 
   if (pacs.length === 0) {
-    throw new Error('No active PAC provider configured for this organization');
+    throw new CfdiStampingError('No active PAC provider configured for this organization', { cfdiDocumentId, orgId: doc.organization_id });
   }
 
   const pac = pacs[0];
   let uuid, signedXml, selloSat, cadenaOriginal;
 
-  try {
-    const result = await callPacStamp(pac, doc.xml_content);
-    uuid = result.uuid;
-    signedXml = result.signedXml || doc.xml_content;
-    selloSat = result.selloSat || null;
-    cadenaOriginal = result.cadenaOriginal || null;
-  } catch (pacErr) {
+  // Retry with exponential backoff (up to 3 attempts)
+  const MAX_RETRIES = 3;
+  let lastErr;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const result = await callPacStamp(pac, doc.xml_content);
+      uuid = result.uuid;
+      signedXml = result.signedXml || doc.xml_content;
+      selloSat = result.selloSat || null;
+      cadenaOriginal = result.cadenaOriginal || null;
+      circuitBreaker.recordSuccess();
+      lastErr = null;
+      break;
+    } catch (pacErr) {
+      lastErr = pacErr;
+      logger.warn({ cfdiDocumentId, attempt, err: pacErr.message }, 'PAC stamping attempt failed');
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
+      }
+    }
+  }
+
+  if (lastErr) {
+    circuitBreaker.recordFailure();
     // Record the failure
     await db.query(
       'UPDATE cfdi_documents SET sat_status = ? WHERE id = ?',
       ['stamp_error', cfdiDocumentId],
     );
-    throw new Error(`PAC stamping failed: ${pacErr.message}`, { cause: pacErr });
+    throw new CfdiStampingError(
+      `PAC stamping failed after ${MAX_RETRIES} attempts: ${lastErr.message}`,
+      { cfdiDocumentId, provider: pac.provider_name, cause: lastErr.message },
+    );
   }
 
   await db.query(
@@ -148,6 +203,7 @@ async function stamp(cfdiDocumentId) {
     [uuid, 'vigente', signedXml, selloSat, cadenaOriginal, cfdiDocumentId],
   );
 
+  logger.info({ cfdiDocumentId, uuid }, 'CFDI document stamped successfully');
   return { cfdi_document_id: cfdiDocumentId, uuid, status: 'vigente' };
 }
 
@@ -266,6 +322,7 @@ function httpRequest(url, method, body, headers) {
  * Cancel a stamped CFDI document.
  */
 async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
+  logger.info({ cfdiDocumentId, reason }, 'Cancelling CFDI document');
   const [docs] = await db.query('SELECT * FROM cfdi_documents WHERE id = ?', [cfdiDocumentId]);
   const doc = docs[0];
   if (!doc) throw new Error('CFDI document not found');
@@ -287,4 +344,4 @@ async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
   return { cfdi_document_id: cfdiDocumentId, status: 'cancel_pending', reason };
 }
 
-module.exports = { generateXml, buildCfdi40Xml, escapeXml, stamp, cancel, callPacStamp, httpRequest };
+module.exports = { generateXml, buildCfdi40Xml, escapeXml, stamp, cancel, callPacStamp, httpRequest, circuitBreaker };
