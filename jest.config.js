@@ -2,7 +2,7 @@
 module.exports = {
   testEnvironment: 'node',
   testMatch: ['**/tests/**/*.test.js', '**/src/**/*.test.js'],
-  collectCoverageFrom: ['src/**/*.js', '!src/server.js'],
+  collectCoverageFrom: ['src/**/*.js', '!src/server.js', '!src/scripts/**'],
   coverageDirectory: 'coverage',
   testTimeout: 15000,
 };
