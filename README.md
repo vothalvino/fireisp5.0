@@ -7,6 +7,8 @@ An open source ISP (Internet Service Provider) management software designed to h
 - Customer management
 - Service plan management
 - Billing, invoicing, and credit notes with multi-currency support (ISO 4217)
+- SAT CFDI 4.0 Mexican e-invoicing — PAC stamping (Finkok, SW Sapien, FacturAPI, etc.), CSD certificate management with expiry monitoring, Complemento de Pago 2.0, cancellation workflow, factura pública aggregation (venta al público en general)
+- Payment gateway integrations (Stripe, Conekta, OpenPay, MercadoPago, PayPal) with recurring autopay profiles and stored card tokens
 - Network device monitoring with SNMP metrics collection
 - Connection logging for regulatory compliance and per-contract data usage (RADIUS accounting)
 - Inventory and warehouse management — track spare equipment across multiple storage locations
@@ -19,7 +21,16 @@ An open source ISP (Internet Service Provider) management software designed to h
 - Monitoring alert rules with configurable thresholds, severity levels, and multi-channel notifications (email, SMS, SSE, webhook)
 - Two-factor authentication (TOTP) with backup codes and brute-force account lockout
 - FireRelay cluster mode for multi-node deployments with client routing
+- Outbound webhooks with HMAC signing, configurable retries, and dead-letter queue for failed deliveries
 - Inbound webhook event deduplication and idempotent payment processing
+- Configurable suspension rules — auto-suspend, auto-disconnect, and notify-only actions with grace periods and plan-scoping
+- Data retention policies with configurable TTL purge (audit logs, alert events, webhook deliveries, email/SMS logs, idempotency keys)
+- Circuit breaker pattern for external service resilience (RADIUS, payment gateways, PAC stamping)
+- Geographic service areas and coverage zones with WGS 84 boundary polygons
+- Speed test recording from client portal, technician tools, automated probes, and external services
+- IFT/CRT regulatory compliance — concession titles, periodic filings, statistical reports, and registered contract templates (Carta de Adhesión)
+- Internationalization (i18n) — English and Spanish locale support
+- RESTful API with 184 endpoints, interactive Swagger UI documentation (`/api/docs`), and static OpenAPI spec (`docs/openapi.json`)
 - Optimistic concurrency control on critical financial records (invoices, contracts, payments, clients)
 - Default application settings seeded on install (currency, SMTP, SNMP, security, automation flags)
 - Default tax rates seeded on install (Tax Exempt, Standard 8%, IVA 16% MX, GST 5% CA)
@@ -30,26 +41,31 @@ An open source ISP (Internet Service Provider) management software designed to h
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all tables)
-│   └── migrations/          # Individual numbered migration files
+│   ├── schema.sql           # Combined schema (all 107 tables)
+│   └── migrations/          # Individual numbered migration files (001–152)
 ├── src/                     # Application source code
+│   ├── app.js               # Express app setup (middleware, routes, error handling)
+│   ├── server.js            # HTTP server entry point
 │   ├── config/              # App configuration and environment settings
 │   ├── controllers/         # Request handlers / route controllers
-│   ├── middleware/           # Authentication, logging, and request middleware
-│   ├── models/              # Data models / ORM entities
-│   ├── routes/              # Route definitions
-│   ├── services/            # Business logic layer
-│   ├── utils/               # Shared helper functions
-│   └── views/               # UI templates and frontend assets
+│   ├── locales/             # i18n translation files (en.json, es.json)
+│   ├── middleware/           # Authentication, logging, validation, and request middleware
+│   │   └── schemas/         # Joi / Zod validation schemas per route
+│   ├── models/              # Data models / ORM entities (89 models)
+│   ├── routes/              # Route definitions (69 route files)
+│   ├── scripts/             # CLI scripts (migrate, seed, backup, admin, openapi)
+│   ├── services/            # Business logic layer (25 services)
+│   ├── utils/               # Shared helpers (errors, logger, i18n, circuit breaker, OpenAPI)
+│   └── views/               # Email templates (HTML builders for transactional emails)
 ├── storage/                 # User-uploaded and system-generated files
 │   ├── devices/             # Per-device files (history, evidence)
 │   ├── clients/             # Per-client files (documents, notification logs)
 │   ├── tickets/             # Per-ticket files (chat history, attachments)
 │   ├── organizations/       # Organization-level files (logos, maps, SAT docs)
 │   └── backups/             # System database and config backups
-├── docs/                    # Project documentation
+├── docs/                    # Project documentation (API guide, architecture, deployment, etc.)
 ├── public/                  # Public web assets (CSS, JS, images)
-├── tests/                   # Automated tests
+├── tests/                   # Automated tests (60 test files, 1,162 Jest tests)
 ├── LICENSE
 └── README.md
 ```
@@ -332,6 +348,10 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 149 — Contract status FSM trigger:** `149_contract_status_fsm_trigger.sql` adds a BEFORE UPDATE trigger on `contracts` that enforces valid status transitions: `pending → active|cancelled`, `active → expired|cancelled`. Both `expired` and `cancelled` are terminal states. Raises SQLSTATE '45000' on invalid transitions.
 
 > **Migration 150 — Outage temporal logic triggers:** `150_outage_temporal_logic_trigger.sql` adds BEFORE INSERT / BEFORE UPDATE triggers on `outages` that ensure `resolved_at` is always after `started_at` when set. Prevents nonsensical duration calculations and corrupt SLA/uptime reporting. Raises SQLSTATE '45000'.
+
+> **Migration 151 — FireRelay nodes (refined):** `151_create_firerelay_nodes_table.sql` re-declares the `firerelay_nodes` table with column-level `COMMENT` annotations, `TIMESTAMP` columns (instead of `DATETIME`), and `INT UNSIGNED` uptime. Uses `CREATE TABLE IF NOT EXISTS` so it is a safe no-op on installations where migration 130 already created the table.
+
+> **Migration 152 — FireRelay client routing (refined):** `152_create_firerelay_client_routing_table.sql` re-declares the `firerelay_client_routing` table with column-level `COMMENT` annotations and `TIMESTAMP` columns. Uses `CREATE TABLE IF NOT EXISTS` so it is a safe no-op on installations where migration 131 already created the table.
 
 ### Venta al Público en General (Factura Pública)
 
@@ -658,13 +678,13 @@ WHERE it.transaction_type = 'sell_to_client'
 GROUP BY ii.id;
 ```
 
-Documentation and setup instructions will be added as the project develops.
+See the [`docs/`](docs/) directory for detailed guides on [API usage](docs/API_GUIDE.md), [architecture](docs/architecture.md), [deployment](docs/deployment.md), [RADIUS setup](docs/radius-setup.md), [backup & restore](docs/backup-restore.md), [RBAC permissions](docs/rbac-permissions.md), [webhook events](docs/webhook-events.md), [FireRelay clustering](docs/firerelay.md), and the [operational runbook](docs/runbook.md).
 
 ## Getting Started (from Source)
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/fireisp5.0.git
+git clone https://github.com/vothalvino/fireisp5.0.git
 cd fireisp5.0
 
 # 2. Configure environment
@@ -699,7 +719,10 @@ docker compose up -d
 | `npm run dev` | Start with auto-reload (nodemon) |
 | `npm start` | Production start |
 | `npm test` | Run test suite (Jest) |
+| `npm run test:watch` | Run tests in watch mode |
+| `npm run test:db` | Run database-level SQL tests (triggers, constraints, referential integrity) |
 | `npm run lint` | Lint source code (ESLint) |
+| `npm run lint:fix` | Lint and auto-fix source code |
 | `npm run migrate` | Apply pending database migrations |
 | `npm run seed` | Seed default data (roles, settings, tax rates) |
 | `npm run openapi` | Generate OpenAPI spec to `docs/openapi.json` |
@@ -708,7 +731,7 @@ docker compose up -d
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md) for coding standards, branch naming, commit message conventions, and the database migration checklist before submitting a Pull Request.
 
 ## License
 
