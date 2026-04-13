@@ -9,6 +9,7 @@
 const crypto = require('crypto');
 const db = require('../config/database');
 const { URLSearchParams } = require('url');
+const { createCircuitBreaker } = require('../utils/circuitBreaker');
 const logger = require('../utils/logger');
 
 // Default idempotency key TTL: 24 hours
@@ -18,6 +19,13 @@ const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 // equal during auto-reconciliation. Accounts for floating-point arithmetic
 // when converting between cents and currency units.
 const RECONCILE_AMOUNT_TOLERANCE = 0.01;
+
+// Circuit breaker for external payment gateway calls (Stripe, Conekta)
+const paymentCircuitBreaker = createCircuitBreaker({
+  name: 'PaymentGateway',
+  threshold: 5,
+  resetMs: 60000,
+});
 
 /**
  * Get the active payment gateway for an organization.
@@ -97,10 +105,12 @@ async function charge({ organizationId, clientId, amount, currency, description,
 
     switch (gateway.provider) {
       case 'stripe':
-        result = await chargeStripe(gateway, amount, currency || 'MXN', description, paymentMethodToken);
+        result = await paymentCircuitBreaker.call(() =>
+          chargeStripe(gateway, amount, currency || 'MXN', description, paymentMethodToken));
         break;
       case 'conekta':
-        result = await chargeConekta(gateway, amount, currency || 'MXN', description, paymentMethodToken);
+        result = await paymentCircuitBreaker.call(() =>
+          chargeConekta(gateway, amount, currency || 'MXN', description, paymentMethodToken));
         break;
       default:
         // Generic / manual — mark as succeeded with placeholder reference
@@ -508,35 +518,48 @@ function mapProviderEvent(provider, eventType, payload) {
  * webhook processing.
  */
 async function reconcilePayment(transactionId) {
+  const conn = await db.getConnection();
   try {
-    const [txRows] = await db.query('SELECT * FROM payment_transactions WHERE id = ?', [transactionId]);
+    await conn.beginTransaction();
+
+    const [txRows] = await conn.execute('SELECT * FROM payment_transactions WHERE id = ? FOR UPDATE', [transactionId]);
     const tx = txRows[0];
-    if (!tx) return;
+    if (!tx) {
+      await conn.rollback();
+      return;
+    }
 
     // Find the oldest unpaid invoice for this client whose total matches
-    const [invoices] = await db.query(
+    const [invoices] = await conn.execute(
       `SELECT * FROM invoices
        WHERE client_id = ? AND organization_id = ? AND status = 'issued'
-       ORDER BY due_date ASC LIMIT 1`,
+       ORDER BY due_date ASC LIMIT 1
+       FOR UPDATE`,
       [tx.client_id, tx.organization_id],
     );
 
-    if (invoices.length === 0) return;
+    if (invoices.length === 0) {
+      await conn.rollback();
+      return;
+    }
 
     const invoice = invoices[0];
     const txAmount = parseFloat(tx.amount);
     const invoiceTotal = parseFloat(invoice.total);
 
-    if (Math.abs(txAmount - invoiceTotal) > RECONCILE_AMOUNT_TOLERANCE) return;
+    if (Math.abs(txAmount - invoiceTotal) > RECONCILE_AMOUNT_TOLERANCE) {
+      await conn.rollback();
+      return;
+    }
 
     // Mark invoice as paid
-    await db.query(
+    await conn.execute(
       'UPDATE invoices SET status = \'paid\' WHERE id = ?',
       [invoice.id],
     );
 
     // Credit client balance ledger
-    await db.query(
+    await conn.execute(
       `INSERT INTO client_balance_ledger
        (client_id, organization_id, entry_type, amount, currency, reference_type, reference_id, description)
        VALUES (?, ?, 'credit', ?, ?, 'payment_transaction', ?, ?)`,
@@ -544,10 +567,14 @@ async function reconcilePayment(transactionId) {
         `Gateway payment ${tx.gateway_reference_id}`],
     );
 
+    await conn.commit();
     logger.info({ transactionId, invoiceId: invoice.id }, 'Payment auto-reconciled');
   } catch (err) {
+    await conn.rollback();
     // Reconciliation is best-effort; don't fail the webhook
     logger.error({ err, transactionId }, 'Auto-reconciliation failed');
+  } finally {
+    conn.release();
   }
 }
 
@@ -564,4 +591,5 @@ module.exports = {
   verifyConektaSignature,
   handleWebhookEvent,
   reconcilePayment,
+  paymentCircuitBreaker,
 };

@@ -22,6 +22,9 @@ const VALID_METRIC_COLUMNS = new Set([
   'latency_ms',
 ]);
 
+// Configurable concurrency for parallel polling (default: 10 devices at a time)
+const POLL_CONCURRENCY = parseInt(process.env.SNMP_POLL_CONCURRENCY || '10', 10);
+
 /**
  * Poll all SNMP-enabled devices.
  * Returns { polled, errors, total }.
@@ -40,16 +43,20 @@ async function poll() {
   let polled = 0;
   let errors = 0;
 
-  for (const device of devices) {
-    try {
-      await pollDevice(device);
-      polled++;
-    } catch (err) {
-      errors++;
-      console.error(
-        `SNMP poll failed for device ${device.id} (${device.ip_address}):`,
-        err.message,
-      );
+  // Poll devices in batches for parallel execution
+  for (let i = 0; i < devices.length; i += POLL_CONCURRENCY) {
+    const batch = devices.slice(i, i + POLL_CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map(device => pollDevice(device)),
+    );
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        polled++;
+      } else {
+        errors++;
+        console.error(`SNMP poll failed: ${result.reason.message}`);
+      }
     }
   }
 

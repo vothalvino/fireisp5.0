@@ -9,6 +9,17 @@ const db = require('../config/database');
 const eventBus = require('./eventBus');
 const logger = require('../utils/logger');
 
+// Whitelist of metric columns allowed in alert rules.
+// Any metric not in this set is rejected to prevent SQL injection.
+const ALLOWED_METRICS = new Set([
+  'cpu_usage',
+  'memory_usage',
+  'signal_strength',
+  'latency_ms',
+  'packet_loss',
+  'uptime',
+]);
+
 /**
  * Evaluate all active alert rules for an organization.
  * Checks the latest SNMP metrics and network health snapshots against thresholds.
@@ -53,6 +64,11 @@ async function evaluateAlerts(organizationId) {
  */
 async function checkRule(rule) {
   const { metric, operator, threshold, device_id, duration_minutes } = rule;
+
+  // Reject metrics not in the whitelist to prevent SQL injection
+  if (!ALLOWED_METRICS.has(metric)) {
+    return null;
+  }
 
   // Build query based on metric type
   let sql;

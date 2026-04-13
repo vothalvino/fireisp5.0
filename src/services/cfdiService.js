@@ -280,6 +280,14 @@ async function callPacStamp(pac, xmlContent) {
   }
 
   // Fallback for development / unknown providers — generate placeholder UUID
+  // In production, refuse to issue unsigned documents.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      `PAC provider "${pac.provider_name}" is not a supported stamping service — ` +
+      'configure a supported PAC (finkok, sw_sapien) for production use',
+    );
+  }
+  logger.warn({ provider: pac.provider_name }, 'Using placeholder UUID — not valid for production CFDI');
   return {
     uuid: crypto.randomUUID(),
     signedXml: null,
