@@ -99,7 +99,15 @@ const corsOrigin = config.env === 'production'
   ];
 app.use(cors({ origin: corsOrigin, credentials: true }));
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  // Preserve raw body for payment webhook signature verification
+  verify: (req, _res, buf) => {
+    if (req.originalUrl && req.originalUrl.startsWith('/api/payment-webhooks')) {
+      req.rawBody = buf.toString('utf8');
+    }
+  },
+}));
 app.use(express.urlencoded({ extended: true }));
 app.use(sanitize);
 app.use(firerelay);

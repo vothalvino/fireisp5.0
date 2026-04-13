@@ -22,9 +22,9 @@ router.post('/stripe', async (req, res) => {
   const sigHeader = req.headers['stripe-signature'];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-  // Verify signature
+  // Verify signature — use raw body to ensure byte-exact match with provider
   if (webhookSecret) {
-    const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+    const rawBody = req.rawBody || JSON.stringify(req.body);
     const valid = paymentGatewayService.verifyStripeSignature(rawBody, sigHeader, webhookSecret);
     if (!valid) {
       logger.warn({ sigHeader }, 'Invalid Stripe webhook signature');
@@ -34,7 +34,7 @@ router.post('/stripe', async (req, res) => {
     }
   }
 
-  const event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+  const event = req.body;
 
   try {
     const result = await paymentGatewayService.handleWebhookEvent({
@@ -60,9 +60,9 @@ router.post('/conekta', async (req, res) => {
   const digestHeader = req.headers['digest'];
   const webhookKey = process.env.CONEKTA_WEBHOOK_KEY;
 
-  // Verify signature
+  // Verify signature — use raw body to ensure byte-exact match with provider
   if (webhookKey) {
-    const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+    const rawBody = req.rawBody || JSON.stringify(req.body);
     const valid = paymentGatewayService.verifyConektaSignature(rawBody, digestHeader, webhookKey);
     if (!valid) {
       logger.warn({ digestHeader }, 'Invalid Conekta webhook signature');
@@ -72,7 +72,7 @@ router.post('/conekta', async (req, res) => {
     }
   }
 
-  const event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+  const event = req.body;
 
   try {
     const result = await paymentGatewayService.handleWebhookEvent({

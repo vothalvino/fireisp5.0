@@ -88,6 +88,20 @@ describe('Payment Webhooks & Idempotency', () => {
       expect(paymentGatewayService.verifyStripeSignature('body', 'v1=abc', secret)).toBe(false);
       expect(paymentGatewayService.verifyStripeSignature('body', 't=123', secret)).toBe(false);
     });
+
+    test('returns false for future timestamp (beyond clock-skew allowance)', () => {
+      const body = '{"id":"evt_future"}';
+      const futureTimestamp = Math.floor(Date.now() / 1000) + 60; // 60 seconds in the future
+      const { header } = buildSignature(body, secret, futureTimestamp);
+      expect(paymentGatewayService.verifyStripeSignature(body, header, secret)).toBe(false);
+    });
+
+    test('returns false for signature with mismatched hex length', () => {
+      const body = '{"id":"evt_123"}';
+      const ts = Math.floor(Date.now() / 1000);
+      const header = `t=${ts},v1=short`;
+      expect(paymentGatewayService.verifyStripeSignature(body, header, secret)).toBe(false);
+    });
   });
 
   // =========================================================================

@@ -14,6 +14,11 @@ const logger = require('../utils/logger');
 // Default idempotency key TTL: 24 hours
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 
+// Maximum rounding difference (in currency units) to consider two amounts
+// equal during auto-reconciliation. Accounts for floating-point arithmetic
+// when converting between cents and currency units.
+const RECONCILE_AMOUNT_TOLERANCE = 0.01;
+
 /**
  * Get the active payment gateway for an organization.
  */
@@ -304,9 +309,10 @@ function verifyStripeSignature(rawBody, sigHeader, secret, tolerance = 300) {
   const signatures = parts.v1 || [];
   if (!timestamp || signatures.length === 0) return false;
 
-  // Tolerance check: reject events older than `tolerance` seconds
+  // Tolerance check: reject events older than `tolerance` seconds or
+  // more than 5 seconds in the future (clock-skew allowance).
   const age = Math.floor(Date.now() / 1000) - parseInt(timestamp, 10);
-  if (isNaN(age) || age > tolerance) return false;
+  if (isNaN(age) || age > tolerance || age < -5) return false;
 
   const signedPayload = `${timestamp}.${rawBody}`;
   const expected = crypto
@@ -314,9 +320,14 @@ function verifyStripeSignature(rawBody, sigHeader, secret, tolerance = 300) {
     .update(signedPayload, 'utf8')
     .digest('hex');
 
-  return signatures.some(sig =>
-    crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex')),
-  );
+  try {
+    return signatures.some(sig =>
+      sig.length === expected.length &&
+      crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex')),
+    );
+  } catch (_err) {
+    return false;
+  }
 }
 
 /**
@@ -516,8 +527,7 @@ async function reconcilePayment(transactionId) {
     const txAmount = parseFloat(tx.amount);
     const invoiceTotal = parseFloat(invoice.total);
 
-    // Only auto-reconcile if amounts match (within rounding tolerance)
-    if (Math.abs(txAmount - invoiceTotal) > 0.01) return;
+    if (Math.abs(txAmount - invoiceTotal) > RECONCILE_AMOUNT_TOLERANCE) return;
 
     // Mark invoice as paid
     await db.query(
