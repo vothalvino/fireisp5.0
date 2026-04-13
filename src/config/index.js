@@ -68,15 +68,15 @@ function validateEnv(logger) {
   const warnings = [];
   const isProduction = config.env === 'production';
 
-  // JWT secret: must not be the default and must be >= 32 chars in production
+  // JWT secret: must not be the default and must be >= 64 chars in production
   const DEFAULT_SECRET = 'change-me-to-a-random-64-char-string';
   const secretLen = config.jwt.secret.length;
   if (config.jwt.secret === DEFAULT_SECRET) {
-    const msg = 'JWT_SECRET is set to the insecure default — set a unique random string (>= 32 chars)';
+    const msg = 'JWT_SECRET is set to the insecure default — set a unique random string (>= 64 chars)';
     if (isProduction) errors.push(msg); else warnings.push(msg);
   }
-  if (secretLen < 32 && config.jwt.secret !== DEFAULT_SECRET) {
-    const msg = `JWT_SECRET is only ${secretLen} characters — use at least 32 characters`;
+  if (secretLen < 64 && config.jwt.secret !== DEFAULT_SECRET) {
+    const msg = `JWT_SECRET is only ${secretLen} characters — use at least 64 characters for HS256`;
     if (isProduction) errors.push(msg); else warnings.push(msg);
   }
 
