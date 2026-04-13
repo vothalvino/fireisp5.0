@@ -16,10 +16,16 @@ const Router = (() => {
     if (!page || page === '/') page = 'dashboard';
     page = page.replace(/^\//, '');
 
-    // Handle sub-routes like "clients/123"
+    // Handle sub-routes like "clients/123" and compound routes like "alerts/rules"
     const parts = page.split('/');
-    const basePage = parts[0];
-    const params = parts.slice(1);
+    let basePage = parts[0];
+    let params = parts.slice(1);
+
+    // Check for compound route keys (e.g. "alerts/rules")
+    if (!routes[basePage] && parts.length >= 2 && routes[parts.slice(0, 2).join('/')]) {
+      basePage = parts.slice(0, 2).join('/');
+      params = parts.slice(2);
+    }
 
     const renderFn = routes[basePage];
     if (!renderFn) {
@@ -38,7 +44,15 @@ const Router = (() => {
       dashboard: 'Dashboard', clients: 'Clients', contracts: 'Contracts',
       plans: 'Plans', invoices: 'Invoices', payments: 'Payments',
       tickets: 'Tickets', devices: 'Devices', network: 'Network Health',
-      users: 'Users',
+      users: 'Users', 'credit-notes': 'Credit Notes', quotes: 'Quotes',
+      sites: 'Sites', jobs: 'Jobs', outages: 'Outages',
+      warehouses: 'Warehouses', inventory: 'Inventory', roles: 'Roles',
+      organizations: 'Organizations', settings: 'Settings',
+      'audit-logs': 'Audit Logs', expenses: 'Expenses',
+      'ip-pools': 'IP Pools', 'sla-definitions': 'SLA Definitions',
+      'snmp-profiles': 'SNMP Profiles', webhooks: 'Webhooks',
+      'scheduled-tasks': 'Scheduled Tasks', 'alerts/rules': 'Alert Rules',
+      'coverage-zones': 'Coverage Zones', 'network-links': 'Network Links',
     };
     document.getElementById('page-title').textContent = titles[basePage] || basePage;
 

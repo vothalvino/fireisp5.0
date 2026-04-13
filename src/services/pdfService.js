@@ -253,7 +253,8 @@ async function generateInvoicePdf(invoiceId, { locale = 'en' } = {}) {
 // Credit Note PDF
 // ---------------------------------------------------------------------------
 
-async function generateCreditNotePdf(creditNoteId) {
+async function generateCreditNotePdf(creditNoteId, { locale = 'en' } = {}) {
+  const L = pdfLabels(locale);
   const [notes] = await db.query(
     `SELECT cn.*, cl.first_name, cl.last_name, cl.email,
             o.name AS org_name
@@ -279,7 +280,7 @@ async function generateCreditNotePdf(creditNoteId) {
     doc.on('error', reject);
 
     doc.fontSize(20).font('Helvetica-Bold').fillColor(COLORS.danger)
-      .text('CREDIT NOTE', PAGE_MARGIN, PAGE_MARGIN);
+      .text(L.creditNote, PAGE_MARGIN, PAGE_MARGIN);
     doc.fontSize(10).font('Helvetica').fillColor(COLORS.muted)
       .text(`# ${note.credit_note_number || creditNoteId}`, PAGE_MARGIN, PAGE_MARGIN + 25);
 
@@ -297,16 +298,16 @@ async function generateCreditNotePdf(creditNoteId) {
     y += 35;
 
     doc.fontSize(9).font('Helvetica').fillColor(COLORS.text);
-    doc.text(`Date: ${fmtDate(note.created_at)}`, PAGE_MARGIN, y);
-    doc.text(`Reason: ${note.reason || 'N/A'}`, 250, y);
+    doc.text(`${L.issueDate}: ${fmtDate(note.created_at)}`, PAGE_MARGIN, y);
+    doc.text(`${L.creditReason}: ${note.reason || 'N/A'}`, 250, y);
     y += 20;
 
     // Items
     y = drawHR(doc, y);
     y = drawTableRow(doc, y, [
-      { x: PAGE_MARGIN, width: 300, text: 'Description', align: 'left' },
-      { x: 360, width: 60, text: 'Qty', align: 'center' },
-      { x: 430, width: 80, text: 'Amount', align: 'right' },
+      { x: PAGE_MARGIN, width: 300, text: L.description, align: 'left' },
+      { x: 360, width: 60, text: L.qty, align: 'center' },
+      { x: 430, width: 80, text: L.amount, align: 'right' },
     ], { bold: true, color: COLORS.primary, fontSize: 8 });
     y = drawHR(doc, y);
 
@@ -320,7 +321,7 @@ async function generateCreditNotePdf(creditNoteId) {
 
     y = drawHR(doc, y);
     doc.fontSize(11).font('Helvetica-Bold').fillColor(COLORS.danger);
-    doc.text('Total Credit:', 350, y, { width: 80, align: 'right' });
+    doc.text(`${L.total}:`, 350, y, { width: 80, align: 'right' });
     doc.text(fmt(note.total, note.currency), 435, y, { width: 80, align: 'right' });
 
     doc.fontSize(7).font('Helvetica').fillColor(COLORS.muted)
@@ -334,7 +335,8 @@ async function generateCreditNotePdf(creditNoteId) {
 // Quote PDF
 // ---------------------------------------------------------------------------
 
-async function generateQuotePdf(quoteId) {
+async function generateQuotePdf(quoteId, { locale = 'en' } = {}) {
+  const L = pdfLabels(locale);
   const [quotes] = await db.query(
     `SELECT q.*, cl.first_name, cl.last_name, cl.email,
             o.name AS org_name
@@ -360,7 +362,7 @@ async function generateQuotePdf(quoteId) {
     doc.on('error', reject);
 
     doc.fontSize(20).font('Helvetica-Bold').fillColor(COLORS.secondary)
-      .text('QUOTE', PAGE_MARGIN, PAGE_MARGIN);
+      .text(L.quote, PAGE_MARGIN, PAGE_MARGIN);
     doc.fontSize(10).font('Helvetica').fillColor(COLORS.muted)
       .text(`# ${quote.quote_number || quoteId}`, PAGE_MARGIN, PAGE_MARGIN + 25);
 
@@ -377,17 +379,17 @@ async function generateQuotePdf(quoteId) {
     y += 5;
 
     doc.fontSize(9).font('Helvetica').fillColor(COLORS.text);
-    doc.text(`Date: ${fmtDate(quote.created_at)}`, PAGE_MARGIN, y);
-    doc.text(`Valid Until: ${fmtDate(quote.valid_until)}`, 250, y);
+    doc.text(`${L.issueDate}: ${fmtDate(quote.created_at)}`, PAGE_MARGIN, y);
+    doc.text(`${L.validUntil}: ${fmtDate(quote.valid_until)}`, 250, y);
     doc.text(`Status: ${(quote.status || 'draft').toUpperCase()}`, 420, y);
     y += 20;
 
     y = drawHR(doc, y);
     y = drawTableRow(doc, y, [
-      { x: PAGE_MARGIN, width: 260, text: 'Description', align: 'left' },
-      { x: 320, width: 60, text: 'Qty', align: 'center' },
-      { x: 385, width: 80, text: 'Unit Price', align: 'right' },
-      { x: 470, width: 80, text: 'Amount', align: 'right' },
+      { x: PAGE_MARGIN, width: 260, text: L.description, align: 'left' },
+      { x: 320, width: 60, text: L.qty, align: 'center' },
+      { x: 385, width: 80, text: L.unitPrice, align: 'right' },
+      { x: 470, width: 80, text: L.amount, align: 'right' },
     ], { bold: true, color: COLORS.primary, fontSize: 8 });
     y = drawHR(doc, y);
 
@@ -402,20 +404,20 @@ async function generateQuotePdf(quoteId) {
 
     y = drawHR(doc, y);
     doc.fontSize(9).font('Helvetica').fillColor(COLORS.text);
-    doc.text('Subtotal:', 385, y, { width: 80, align: 'right' });
+    doc.text(`${L.subtotal}:`, 385, y, { width: 80, align: 'right' });
     doc.text(fmt(quote.subtotal, quote.currency), 470, y, { width: 80, align: 'right' });
     y += 16;
-    doc.text('Tax:', 385, y, { width: 80, align: 'right' });
+    doc.text(`${L.tax}:`, 385, y, { width: 80, align: 'right' });
     doc.text(fmt(quote.tax_amount, quote.currency), 470, y, { width: 80, align: 'right' });
     y += 16;
     y = drawHR(doc, y);
     doc.fontSize(11).font('Helvetica-Bold').fillColor(COLORS.secondary);
-    doc.text('Total:', 385, y, { width: 80, align: 'right' });
+    doc.text(`${L.total}:`, 385, y, { width: 80, align: 'right' });
     doc.text(fmt(quote.total, quote.currency), 470, y, { width: 80, align: 'right' });
 
     if (quote.notes) {
       y += 30;
-      doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.muted).text('Notes:', PAGE_MARGIN, y);
+      doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.muted).text(`${L.notes}:`, PAGE_MARGIN, y);
       y += 12;
       doc.fontSize(8).font('Helvetica').fillColor(COLORS.text).text(quote.notes, PAGE_MARGIN, y, { width: 460 });
     }
@@ -431,7 +433,8 @@ async function generateQuotePdf(quoteId) {
 // CFDI Representation PDF
 // ---------------------------------------------------------------------------
 
-async function generateCfdiPdf(cfdiDocumentId) {
+async function generateCfdiPdf(cfdiDocumentId, { locale = 'en' } = {}) {
+  const L = pdfLabels(locale);
   const [docs] = await db.query(
     `SELECT cd.*, o.name AS org_name
      FROM cfdi_documents cd
@@ -456,35 +459,35 @@ async function generateCfdiPdf(cfdiDocumentId) {
 
     // Header
     doc.fontSize(16).font('Helvetica-Bold').fillColor(COLORS.primary)
-      .text('CFDI 4.0 — Comprobante Fiscal Digital', PAGE_MARGIN, PAGE_MARGIN);
+      .text(L.cfdi, PAGE_MARGIN, PAGE_MARGIN);
 
     doc.fontSize(9).font('Helvetica').fillColor(COLORS.muted);
-    doc.text(`UUID: ${cfdi.uuid || 'Pending'}`, PAGE_MARGIN, PAGE_MARGIN + 22);
+    doc.text(`${L.uuid}: ${cfdi.uuid || 'Pending'}`, PAGE_MARGIN, PAGE_MARGIN + 22);
     doc.text(`Serie: ${cfdi.serie || ''} Folio: ${cfdi.folio || ''}`, PAGE_MARGIN, PAGE_MARGIN + 34);
 
     let y = 95;
     y = drawHR(doc, y);
 
     // Emisor
-    doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.muted).text('EMISOR', PAGE_MARGIN, y);
+    doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.muted).text(L.issuedBy, PAGE_MARGIN, y);
     y += 12;
     doc.fontSize(10).font('Helvetica-Bold').fillColor(COLORS.text)
       .text(cfdi.emisor_nombre || cfdi.org_name || '', PAGE_MARGIN, y);
     y += 14;
     doc.fontSize(8).font('Helvetica').fillColor(COLORS.text);
-    doc.text(`RFC: ${cfdi.emisor_rfc || ''}`, PAGE_MARGIN, y);
+    doc.text(`${L.rfcEmitter}: ${cfdi.emisor_rfc || ''}`, PAGE_MARGIN, y);
     doc.text(`Régimen Fiscal: ${cfdi.emisor_regimen_fiscal || ''}`, 250, y);
     y += 18;
 
     // Receptor
-    doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.muted).text('RECEPTOR', PAGE_MARGIN, y);
+    doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.muted).text(L.client, PAGE_MARGIN, y);
     y += 12;
     doc.fontSize(10).font('Helvetica-Bold').fillColor(COLORS.text)
       .text(cfdi.receptor_nombre || '', PAGE_MARGIN, y);
     y += 14;
     doc.fontSize(8).font('Helvetica').fillColor(COLORS.text);
-    doc.text(`RFC: ${cfdi.receptor_rfc || ''}`, PAGE_MARGIN, y);
-    doc.text(`Uso CFDI: ${cfdi.uso_cfdi || ''}`, 200, y);
+    doc.text(`${L.rfcReceiver}: ${cfdi.receptor_rfc || ''}`, PAGE_MARGIN, y);
+    doc.text(`${L.usoCfdi}: ${cfdi.uso_cfdi || ''}`, 200, y);
     doc.text(`Régimen: ${cfdi.receptor_regimen_fiscal || ''}`, 350, y);
     y += 18;
 
@@ -492,8 +495,8 @@ async function generateCfdiPdf(cfdiDocumentId) {
     y = drawHR(doc, y);
     doc.fontSize(8).font('Helvetica').fillColor(COLORS.text);
     doc.text(`Tipo: ${cfdi.tipo_comprobante || 'I'}`, PAGE_MARGIN, y);
-    doc.text(`Método Pago: ${cfdi.metodo_pago || ''}`, 150, y);
-    doc.text(`Forma Pago: ${cfdi.forma_pago || ''}`, 280, y);
+    doc.text(`${L.paymentMethod}: ${cfdi.metodo_pago || ''}`, 150, y);
+    doc.text(`${L.paymentForm}: ${cfdi.forma_pago || ''}`, 280, y);
     doc.text(`Moneda: ${cfdi.moneda || 'MXN'}`, 410, y);
     y += 14;
     doc.text(`Fecha: ${fmtDate(cfdi.fecha_emision)}`, PAGE_MARGIN, y);
@@ -527,18 +530,18 @@ async function generateCfdiPdf(cfdiDocumentId) {
     // Totals
     y = drawHR(doc, y);
     doc.fontSize(9).font('Helvetica').fillColor(COLORS.text);
-    doc.text('SubTotal:', 365, y, { width: 80, align: 'right' });
+    doc.text(`${L.subtotal}:`, 365, y, { width: 80, align: 'right' });
     doc.text(String(parseFloat(cfdi.subtotal || 0).toFixed(2)), 450, y, { width: 80, align: 'right' });
     y += 16;
     doc.fontSize(11).font('Helvetica-Bold').fillColor(COLORS.primary);
-    doc.text('Total:', 365, y, { width: 80, align: 'right' });
+    doc.text(`${L.total}:`, 365, y, { width: 80, align: 'right' });
     doc.text(`${cfdi.moneda || 'MXN'} ${parseFloat(cfdi.total || 0).toFixed(2)}`, 450, y, { width: 80, align: 'right' });
 
     // Sello / Cadena
     y += 30;
     if (cfdi.sello_sat) {
       doc.fontSize(6).font('Helvetica').fillColor(COLORS.muted);
-      doc.text('Sello SAT:', PAGE_MARGIN, y);
+      doc.text(`${L.satSeal}:`, PAGE_MARGIN, y);
       y += 8;
       doc.text(cfdi.sello_sat.slice(0, 120) + '…', PAGE_MARGIN, y, { width: 500 });
       y += 10;
