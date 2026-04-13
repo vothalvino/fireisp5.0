@@ -32,6 +32,9 @@ jobs:
       - name: Lint
         run: npx eslint src/
 
+      - name: Security audit
+        run: npm audit --audit-level=high || true
+
       - name: Run tests
         run: npx jest --detectOpenHandles --forceExit --ci
 

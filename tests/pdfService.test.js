@@ -1,0 +1,220 @@
+// =============================================================================
+// FireISP 5.0 — PDF Service Tests
+// =============================================================================
+
+jest.mock('../src/config/database');
+const db = require('../src/config/database');
+const pdfService = require('../src/services/pdfService');
+
+describe('PDF Service', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  // ---- Helper function tests ----
+
+  describe('fmt()', () => {
+    it('formats amounts with 2 decimal places', () => {
+      expect(pdfService.fmt(100, 'USD')).toBe('USD 100.00');
+      expect(pdfService.fmt(99.9, 'MXN')).toBe('MXN 99.90');
+      expect(pdfService.fmt(0, 'EUR')).toBe('EUR 0.00');
+    });
+
+    it('handles null/undefined amounts', () => {
+      expect(pdfService.fmt(null)).toBe('USD 0.00');
+      expect(pdfService.fmt(undefined)).toBe('USD 0.00');
+    });
+
+    it('handles string amounts', () => {
+      expect(pdfService.fmt('250.50', 'MXN')).toBe('MXN 250.50');
+    });
+  });
+
+  describe('fmtDate()', () => {
+    it('formats dates as YYYY-MM-DD', () => {
+      expect(pdfService.fmtDate('2026-04-01T12:00:00Z')).toBe('2026-04-01');
+    });
+
+    it('returns empty string for null', () => {
+      expect(pdfService.fmtDate(null)).toBe('');
+      expect(pdfService.fmtDate(undefined)).toBe('');
+    });
+  });
+
+  describe('statusColor()', () => {
+    it('returns success color for paid/active/vigente', () => {
+      const green = pdfService.statusColor('paid');
+      expect(green).toBe('#27ae60');
+      expect(pdfService.statusColor('active')).toBe('#27ae60');
+      expect(pdfService.statusColor('vigente')).toBe('#27ae60');
+    });
+
+    it('returns danger color for overdue/cancelled/suspended', () => {
+      expect(pdfService.statusColor('overdue')).toBe('#c0392b');
+      expect(pdfService.statusColor('cancelled')).toBe('#c0392b');
+      expect(pdfService.statusColor('suspended')).toBe('#c0392b');
+    });
+
+    it('returns muted color for unknown status', () => {
+      expect(pdfService.statusColor('draft')).toBe('#7f8c8d');
+    });
+  });
+
+  // ---- PDF Generation tests ----
+
+  describe('generateInvoicePdf()', () => {
+    it('generates a valid PDF buffer for an invoice', async () => {
+      db.query
+        .mockResolvedValueOnce([[{
+          id: 1,
+          invoice_number: 'INV-000001',
+          subtotal: 500,
+          tax_amount: 80,
+          total: 580,
+          currency: 'MXN',
+          status: 'issued',
+          due_date: '2026-05-01',
+          created_at: '2026-04-01',
+          first_name: 'Juan',
+          last_name: 'García',
+          email: 'juan@example.com',
+          phone: '+52 555 123 4567',
+          address: 'Av. Reforma 123',
+          city: 'CDMX',
+          state: 'CDMX',
+          country: 'MX',
+          org_name: 'Test ISP',
+          org_email: 'admin@testisp.com',
+          org_phone: '+52 555 999 0000',
+          org_address: 'Insurgentes 456',
+          org_city: 'CDMX',
+          org_state: 'CDMX',
+          org_country: 'MX',
+          client_id: 1,
+          organization_id: 1,
+        }]])
+        .mockResolvedValueOnce([[
+          { id: 1, description: 'Internet 100 Mbps — Apr 2026', quantity: 1, unit_price: 500, amount: 500 },
+        ]]);
+
+      const buffer = await pdfService.generateInvoicePdf(1);
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer.length).toBeGreaterThan(100);
+      // PDF magic bytes
+      expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
+    });
+
+    it('throws for non-existent invoice', async () => {
+      db.query.mockResolvedValueOnce([[]]);
+      await expect(pdfService.generateInvoicePdf(999)).rejects.toThrow('Invoice not found');
+    });
+  });
+
+  describe('generateCreditNotePdf()', () => {
+    it('generates a valid PDF buffer for a credit note', async () => {
+      db.query
+        .mockResolvedValueOnce([[{
+          id: 1,
+          credit_note_number: 'CN-000001',
+          total: 200,
+          currency: 'USD',
+          reason: 'Service outage',
+          created_at: '2026-04-01',
+          first_name: 'John',
+          last_name: 'Doe',
+          email: 'john@example.com',
+          org_name: 'Test ISP',
+        }]])
+        .mockResolvedValueOnce([[
+          { id: 1, description: 'Partial refund', quantity: 1, amount: 200 },
+        ]]);
+
+      const buffer = await pdfService.generateCreditNotePdf(1);
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
+    });
+
+    it('throws for non-existent credit note', async () => {
+      db.query.mockResolvedValueOnce([[]]);
+      await expect(pdfService.generateCreditNotePdf(999)).rejects.toThrow('Credit note not found');
+    });
+  });
+
+  describe('generateQuotePdf()', () => {
+    it('generates a valid PDF buffer for a quote', async () => {
+      db.query
+        .mockResolvedValueOnce([[{
+          id: 1,
+          quote_number: 'QT-000001',
+          subtotal: 1000,
+          tax_amount: 160,
+          total: 1160,
+          currency: 'MXN',
+          status: 'draft',
+          valid_until: '2026-05-01',
+          notes: 'Includes installation',
+          created_at: '2026-04-01',
+          first_name: 'María',
+          last_name: 'López',
+          email: 'maria@example.com',
+          org_name: 'Test ISP',
+        }]])
+        .mockResolvedValueOnce([[
+          { id: 1, description: 'Internet 200 Mbps — Monthly', quantity: 12, unit_price: 83.33, amount: 1000 },
+        ]]);
+
+      const buffer = await pdfService.generateQuotePdf(1);
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
+    });
+
+    it('throws for non-existent quote', async () => {
+      db.query.mockResolvedValueOnce([[]]);
+      await expect(pdfService.generateQuotePdf(999)).rejects.toThrow('Quote not found');
+    });
+  });
+
+  describe('generateCfdiPdf()', () => {
+    it('generates a valid PDF buffer for a CFDI document', async () => {
+      db.query
+        .mockResolvedValueOnce([[{
+          id: 1,
+          uuid: 'abc123-def456-ghi789',
+          serie: 'A',
+          folio: '001',
+          emisor_rfc: 'TEST010101AAA',
+          emisor_nombre: 'Test ISP S.A.',
+          emisor_regimen_fiscal: '601',
+          receptor_rfc: 'XAXX010101000',
+          receptor_nombre: 'PUBLICO EN GENERAL',
+          receptor_regimen_fiscal: '616',
+          uso_cfdi: 'S01',
+          tipo_comprobante: 'I',
+          metodo_pago: 'PUE',
+          forma_pago: '03',
+          moneda: 'MXN',
+          exportacion: '01',
+          lugar_expedicion: '06600',
+          fecha_emision: '2026-04-01',
+          subtotal: 500,
+          total: 580,
+          sat_status: 'vigente',
+          sello_sat: 'ABCDEF1234567890',
+          org_name: 'Test ISP',
+          organization_id: 1,
+        }]])
+        .mockResolvedValueOnce([[
+          { id: 1, clave_prod_serv: '81161700', descripcion: 'Servicio de internet', cantidad: 1, valor_unitario: 500, importe: 500, objeto_imp: '02' },
+        ]]);
+
+      const buffer = await pdfService.generateCfdiPdf(1);
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
+    });
+
+    it('throws for non-existent CFDI document', async () => {
+      db.query.mockResolvedValueOnce([[]]);
+      await expect(pdfService.generateCfdiPdf(999)).rejects.toThrow('CFDI document not found');
+    });
+  });
+});

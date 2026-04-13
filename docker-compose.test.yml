@@ -1,0 +1,66 @@
+# =============================================================================
+# FireISP 5.0 — Integration Testing with MySQL
+# =============================================================================
+# Spins up a MySQL 8.0 instance, applies migrations, seeds test data,
+# and runs integration tests against a real database.
+#
+# Usage:
+#   docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
+#   docker compose -f docker-compose.test.yml down -v
+# =============================================================================
+
+version: '3.8'
+
+services:
+  test-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: testpassword
+      MYSQL_DATABASE: fireisp_test
+    ports:
+      - '3307:3306'
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --event-scheduler=ON
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    tmpfs:
+      - /var/lib/mysql  # RAM disk for faster tests
+
+  test-runner:
+    build: .
+    depends_on:
+      test-db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: test
+      DB_HOST: test-db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: testpassword
+      DB_NAME: fireisp_test
+      JWT_SECRET: test-secret-key-for-integration-tests-only
+      LOG_LEVEL: warn
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - ./database:/app/database
+    command: >
+      sh -c "
+        echo '=== Applying migrations ===' &&
+        node src/scripts/migrate.js &&
+        echo '=== Running SQL test suite ===' &&
+        mysql -h test-db -u root -ptestpassword fireisp_test < tests/test_schema_integrity.sql &&
+        mysql -h test-db -u root -ptestpassword fireisp_test < tests/test_referential_integrity.sql &&
+        mysql -h test-db -u root -ptestpassword fireisp_test < tests/test_unique_constraints.sql &&
+        echo '=== Running Jest tests ===' &&
+        npx jest --detectOpenHandles --forceExit --ci &&
+        echo '=== All tests passed ==='
+      "
+
+volumes: {}
