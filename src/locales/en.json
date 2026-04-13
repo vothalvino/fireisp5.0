@@ -42,6 +42,17 @@
     "payment_confirmed": "Payment of {{amount}} confirmed",
     "invoice_ready": "New invoice {{invoiceNumber}} is ready"
   },
+  "webhooks": {
+    "signature_invalid": "Invalid webhook signature",
+    "event_duplicate": "Duplicate event {{eventId}} — already processed",
+    "event_processed": "Webhook event {{eventId}} processed successfully",
+    "provider_unknown": "Unknown webhook provider",
+    "gateway_not_found": "No matching payment gateway found for this webhook"
+  },
+  "payments": {
+    "idempotency_conflict": "A request with this idempotency key is already being processed",
+    "idempotency_replayed": "Replayed cached response for idempotency key"
+  },
   "common": {
     "created": "Created successfully",
     "updated": "Updated successfully",

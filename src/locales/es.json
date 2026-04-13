@@ -42,6 +42,17 @@
     "payment_confirmed": "Pago de {{amount}} confirmado",
     "invoice_ready": "Nueva factura {{invoiceNumber}} lista"
   },
+  "webhooks": {
+    "signature_invalid": "Firma de webhook inválida",
+    "event_duplicate": "Evento duplicado {{eventId}} — ya fue procesado",
+    "event_processed": "Evento de webhook {{eventId}} procesado exitosamente",
+    "provider_unknown": "Proveedor de webhook desconocido",
+    "gateway_not_found": "No se encontró pasarela de pago para este webhook"
+  },
+  "payments": {
+    "idempotency_conflict": "Una solicitud con esta clave de idempotencia ya está siendo procesada",
+    "idempotency_replayed": "Respuesta en caché reproducida para clave de idempotencia"
+  },
   "common": {
     "created": "Creado exitosamente",
     "updated": "Actualizado exitosamente",

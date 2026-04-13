@@ -85,4 +85,17 @@ const sseLimiter = rateLimit({
   message: RATE_LIMITED_BODY('Too many SSE connections, please try again later'),
 });
 
-module.exports = { apiLimiter, authLimiter, publicLimiter, uploadLimiter, exportLimiter, sseLimiter };
+/**
+ * Payment webhook endpoints — 100 requests per 15-minute window per IP.
+ * Generous limit because payment providers may send bursts of events
+ * (e.g. during batch settlements) but still bounded to prevent abuse.
+ */
+const webhookLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: RATE_LIMITED_BODY('Too many webhook requests, please try again later'),
+});
+
+module.exports = { apiLimiter, authLimiter, publicLimiter, uploadLimiter, exportLimiter, sseLimiter, webhookLimiter };
