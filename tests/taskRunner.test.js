@@ -18,6 +18,8 @@ jest.mock('../src/services/billingService', () => ({
 jest.mock('../src/services/suspensionService', () => ({
   evaluateRules: jest.fn(),
   suspendContract: jest.fn(),
+  sendRadiusDisconnect: jest.fn(),
+  sendRadiusCoA: jest.fn(),
 }));
 
 const db = require('../src/config/database');
@@ -77,9 +79,11 @@ describe('taskRunner', () => {
       expect(result).toHaveProperty('contracts_suspended', 0);
     });
 
-    test('returns info message for radius_sync', async () => {
+    test('dispatches radius_sync task', async () => {
+      db.query.mockResolvedValueOnce([[]]); // no contracts with radius
       const result = await taskRunner.runTask('radius_sync');
-      expect(result.message).toContain('RADIUS');
+      expect(result).toHaveProperty('synced', 0);
+      expect(result).toHaveProperty('total', 0);
     });
 
     test('returns info message for populate_revenue_summary', async () => {
