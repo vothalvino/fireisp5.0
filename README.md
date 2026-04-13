@@ -42,7 +42,7 @@ An open source ISP (Internet Service Provider) management software designed to h
 fireisp5.0/
 ├── database/                # Database schema and migrations
 │   ├── schema.sql           # Combined schema (all 107 tables)
-│   └── migrations/          # Individual numbered migration files (001–152)
+│   └── migrations/          # Individual numbered migration files (001–150)
 ├── src/                     # Application source code
 │   ├── app.js               # Express app setup (middleware, routes, error handling)
 │   ├── server.js            # HTTP server entry point
@@ -348,10 +348,6 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 149 — Contract status FSM trigger:** `149_contract_status_fsm_trigger.sql` adds a BEFORE UPDATE trigger on `contracts` that enforces valid status transitions: `pending → active|cancelled`, `active → expired|cancelled`. Both `expired` and `cancelled` are terminal states. Raises SQLSTATE '45000' on invalid transitions.
 
 > **Migration 150 — Outage temporal logic triggers:** `150_outage_temporal_logic_trigger.sql` adds BEFORE INSERT / BEFORE UPDATE triggers on `outages` that ensure `resolved_at` is always after `started_at` when set. Prevents nonsensical duration calculations and corrupt SLA/uptime reporting. Raises SQLSTATE '45000'.
-
-> **Migration 151 — FireRelay nodes (refined):** `151_create_firerelay_nodes_table.sql` re-declares the `firerelay_nodes` table with column-level `COMMENT` annotations, `TIMESTAMP` columns (instead of `DATETIME`), and `INT UNSIGNED` uptime. Uses `CREATE TABLE IF NOT EXISTS` so it is a safe no-op on installations where migration 130 already created the table.
-
-> **Migration 152 — FireRelay client routing (refined):** `152_create_firerelay_client_routing_table.sql` re-declares the `firerelay_client_routing` table with column-level `COMMENT` annotations and `TIMESTAMP` columns. Uses `CREATE TABLE IF NOT EXISTS` so it is a safe no-op on installations where migration 131 already created the table.
 
 ### Venta al Público en General (Factura Pública)
 

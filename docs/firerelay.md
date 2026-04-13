@@ -523,10 +523,10 @@ The master's database receives two additional migration files:
 
 ```
 database/migrations/
-├── 151_create_firerelay_nodes_table.sql
+├── 130_create_firerelay_nodes_table.sql
 │     → nodes table (id, name, api_url, status, client_count,
 │                    device_count, last_seen_at, cpu/memory/disk metrics)
-└── 152_create_firerelay_client_routing_table.sql
+└── 131_create_firerelay_client_routing_table.sql
       → client_routing table (client_id BIGINT, node_id VARCHAR)
 ```
 
@@ -554,11 +554,11 @@ FireRelay is **Step 5** in the FireISP 5.0 development roadmap. It must not be b
 
 | Step | What | Status |
 |------|------|--------|
-| 1 | Database schema (migrations) | ✅ Complete — 152 migrations |
+| 1 | Database schema (migrations) | ✅ Complete — 150 migrations |
 | 2 | Node.js application scaffold (`package.json`, `server.js`, database connection) | ✅ Complete — Express 5, JWT, Helmet, CORS, rate limiting |
 | 3 | Authentication (login, logout, sessions) | ✅ Complete — register/login/logout, JWT, RBAC, org scoping |
 | 4 | Core CRUD modules (clients, plans, invoices, devices, tickets, etc.) | ✅ Complete — 89 models, 69 routes, 24 services |
-| **5** | **FireRelay** — this document describes what was built here | ✅ Complete — firerelayService.js, migrations 151-152, middleware routing, health polling, fan-out, circuit breaker per node |
+| **5** | **FireRelay** — this document describes what was built here | ✅ Complete — firerelayService.js, migrations 130-131, middleware routing, health polling, fan-out, circuit breaker per node |
 
 > **Note:** FireRelay's `standalone` mode middleware is included from the very beginning of Step 2 — it is a ~30-line pass-through that costs nothing and avoids a larger refactor later. Steps 3 and 4 proceed as if FireRelay does not exist. Step 5 implements the actual relay logic.
 

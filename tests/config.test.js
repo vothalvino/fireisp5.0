@@ -86,7 +86,7 @@ describe('validateEnv', () => {
 
   test('throws in production when DB_HOST is missing', () => {
     process.env.NODE_ENV = 'production';
-    process.env.JWT_SECRET = 'a-very-long-secret-that-is-at-least-32-characters-long';
+    process.env.JWT_SECRET = 'a-very-long-secret-that-is-at-least-64-characters-long-for-hs256-validation';
     delete process.env.DB_HOST;
     process.env.DB_NAME = 'fireisp';
     jest.resetModules();
@@ -96,7 +96,7 @@ describe('validateEnv', () => {
 
   test('does not throw in production with valid config', () => {
     process.env.NODE_ENV = 'production';
-    process.env.JWT_SECRET = 'a-very-long-secret-that-is-at-least-32-characters-long';
+    process.env.JWT_SECRET = 'a-very-long-secret-that-is-at-least-64-characters-long-for-hs256-validation';
     process.env.DB_HOST = 'localhost';
     process.env.DB_NAME = 'fireisp';
     jest.resetModules();
