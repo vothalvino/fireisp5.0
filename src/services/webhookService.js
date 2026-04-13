@@ -27,6 +27,11 @@ async function dispatch(organizationId, event, payload) {
   const results = [];
   for (const webhook of matching) {
     const result = await deliver(webhook, event, payload);
+    // Mark as dead letter if all retries were exhausted
+    if (result.status === 'failed') {
+      await markDeadLetter(webhook.id, event, result.error);
+      result.status = 'dead_letter';
+    }
     results.push(result);
   }
 
@@ -97,6 +102,64 @@ async function deliver(webhook, event, payload) {
 }
 
 /**
+ * Mark a delivery as dead-letter after exhausting all retries.
+ */
+async function markDeadLetter(webhookId, event, lastError) {
+  await db.query(
+    `UPDATE webhook_deliveries
+     SET status = 'dead_letter'
+     WHERE webhook_id = ? AND event = ? AND status = 'failed'
+     ORDER BY created_at DESC LIMIT 1`,
+    [webhookId, event],
+  );
+  return { webhook_id: webhookId, status: 'dead_letter', error: lastError };
+}
+
+/**
+ * List dead-letter deliveries for an organization (for manual review/re-delivery).
+ */
+async function listDeadLetters(organizationId, limit = 50) {
+  const [rows] = await db.query(
+    `SELECT wd.*, w.url, w.name
+     FROM webhook_deliveries wd
+     JOIN webhooks w ON w.id = wd.webhook_id
+     WHERE w.organization_id = ? AND wd.status = 'dead_letter'
+     ORDER BY wd.created_at DESC LIMIT ?`,
+    [organizationId, limit],
+  );
+  return rows;
+}
+
+/**
+ * Re-deliver a specific dead-letter delivery.
+ */
+async function redeliverDeadLetter(deliveryId) {
+  const [rows] = await db.query(
+    `SELECT wd.*, w.url, w.secret_encrypted, w.max_retries, w.timeout_seconds
+     FROM webhook_deliveries wd
+     JOIN webhooks w ON w.id = wd.webhook_id
+     WHERE wd.id = ? AND wd.status = 'dead_letter'`,
+    [deliveryId],
+  );
+
+  if (rows.length === 0) {
+    return { status: 'not_found' };
+  }
+
+  const delivery = rows[0];
+  const payload = delivery.request_body ? JSON.parse(delivery.request_body) : {};
+
+  // Reset status so it can be retried
+  await db.query(
+    "UPDATE webhook_deliveries SET status = 'retrying' WHERE id = ?",
+    [deliveryId],
+  );
+
+  const result = await deliver(delivery, delivery.event, payload.data || payload);
+  return result;
+}
+
+/**
  * Simple HTTP/HTTPS POST using built-in Node modules.
  */
 function httpPost(url, body, headers, timeout) {
@@ -148,4 +211,4 @@ async function retryPending() {
   return { succeeded, failed, total: pending.length };
 }
 
-module.exports = { dispatch, deliver, retryPending };
+module.exports = { dispatch, deliver, retryPending, markDeadLetter, listDeadLetters, redeliverDeadLetter };

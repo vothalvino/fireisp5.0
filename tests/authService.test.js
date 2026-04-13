@@ -122,6 +122,7 @@ describe('authService', () => {
       const user = {
         id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',
         status: 'active', role: 'admin', organization_id: 42,
+        failed_login_attempts: 0, locked_until: null,
       };
 
       db.query
@@ -162,13 +163,114 @@ describe('authService', () => {
       const user = {
         id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',
         status: 'active', role: 'admin',
+        failed_login_attempts: 0, locked_until: null,
       };
-      db.query.mockResolvedValueOnce([[user]]);
+      db.query
+        .mockResolvedValueOnce([[user]])  // findByEmail
+        .mockResolvedValueOnce([]);  // UPDATE failed_login_attempts
       bcrypt.compare.mockResolvedValueOnce(false);
 
       await expect(
         authService.login({ email: 'john@example.com', password: 'wrongpassword' }),
       ).rejects.toThrow('Invalid email or password');
+    });
+
+    test('increments failed_login_attempts on wrong password', async () => {
+      const user = {
+        id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',
+        status: 'active', role: 'admin',
+        failed_login_attempts: 2, locked_until: null,
+      };
+      db.query
+        .mockResolvedValueOnce([[user]])
+        .mockResolvedValueOnce([]);
+      bcrypt.compare.mockResolvedValueOnce(false);
+
+      await expect(authService.login({ email: 'john@example.com', password: 'wrong' })).rejects.toThrow();
+
+      expect(db.query).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE users SET failed_login_attempts'),
+        [3, 1],
+      );
+    });
+
+    test('locks account after MAX_LOGIN_ATTEMPTS failed attempts', async () => {
+      const user = {
+        id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',
+        status: 'active', role: 'admin',
+        failed_login_attempts: 4, locked_until: null,
+      };
+      db.query
+        .mockResolvedValueOnce([[user]])
+        .mockResolvedValueOnce([]);
+      bcrypt.compare.mockResolvedValueOnce(false);
+
+      await expect(authService.login({ email: 'john@example.com', password: 'wrong' })).rejects.toThrow();
+
+      // Should set locked_until (5th attempt = lock)
+      expect(db.query).toHaveBeenCalledWith(
+        expect.stringContaining('locked_until'),
+        expect.arrayContaining([5, 15, 1]),
+      );
+    });
+
+    test('throws when account is locked', async () => {
+      const futureDate = new Date(Date.now() + 600000).toISOString(); // 10 min in future
+      const user = {
+        id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',
+        status: 'active', role: 'admin',
+        failed_login_attempts: 5, locked_until: futureDate,
+      };
+      db.query.mockResolvedValueOnce([[user]]);
+
+      await expect(
+        authService.login({ email: 'john@example.com', password: 'anything' }),
+      ).rejects.toThrow('Account temporarily locked');
+    });
+
+    test('allows login after lockout expires', async () => {
+      const pastDate = new Date(Date.now() - 60000).toISOString(); // 1 min in past
+      const user = {
+        id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',
+        status: 'active', role: 'admin', organization_id: 42,
+        failed_login_attempts: 5, locked_until: pastDate,
+      };
+
+      db.query
+        .mockResolvedValueOnce([[user]])  // findByEmail
+        .mockResolvedValueOnce([])  // Reset failed attempts
+        .mockResolvedValueOnce([])  // UPDATE last_login_at
+        .mockResolvedValueOnce([[]])  // getOrganizations
+        .mockResolvedValueOnce([]);  // INSERT user_sessions
+
+      bcrypt.compare.mockResolvedValueOnce(true);
+
+      const result = await authService.login({ email: 'john@example.com', password: 'correct' });
+      expect(result.token).toBeDefined();
+    });
+
+    test('resets failed_login_attempts on successful login', async () => {
+      const user = {
+        id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',
+        status: 'active', role: 'admin', organization_id: 42,
+        failed_login_attempts: 3, locked_until: null,
+      };
+
+      db.query
+        .mockResolvedValueOnce([[user]])  // findByEmail
+        .mockResolvedValueOnce([])  // Reset failed attempts
+        .mockResolvedValueOnce([])  // UPDATE last_login_at
+        .mockResolvedValueOnce([[]])  // getOrganizations
+        .mockResolvedValueOnce([]);  // INSERT user_sessions
+
+      bcrypt.compare.mockResolvedValueOnce(true);
+
+      await authService.login({ email: 'john@example.com', password: 'correct' });
+
+      expect(db.query).toHaveBeenCalledWith(
+        expect.stringContaining('failed_login_attempts = 0'),
+        [1],
+      );
     });
   });
 
@@ -191,6 +293,53 @@ describe('authService', () => {
       db.query.mockResolvedValueOnce([{ affectedRows: 0 }]);
 
       await expect(authService.logout('expired-token')).resolves.not.toThrow();
+    });
+  });
+
+  // =========================================================================
+  // changePassword
+  // =========================================================================
+  describe('changePassword', () => {
+    test('invalidates all sessions after password change', async () => {
+      const user = {
+        id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',
+        status: 'active', role: 'admin',
+      };
+
+      db.query
+        .mockResolvedValueOnce([[user]])  // findById
+        .mockResolvedValueOnce([])  // UPDATE password_hash
+        .mockResolvedValueOnce([{ affectedRows: 3 }]);  // DELETE user_sessions
+
+      bcrypt.compare.mockResolvedValueOnce(true);
+
+      const result = await authService.changePassword(1, 'currentpass', 'newsecurepassword');
+      expect(result.message).toBe('Password changed successfully');
+
+      // Verify sessions were deleted
+      expect(db.query).toHaveBeenCalledWith(
+        expect.stringContaining('DELETE FROM user_sessions WHERE user_id'),
+        [1],
+      );
+    });
+
+    test('throws when current password is wrong', async () => {
+      const user = {
+        id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',
+        status: 'active',
+      };
+      db.query.mockResolvedValueOnce([[user]]);
+      bcrypt.compare.mockResolvedValueOnce(false);
+
+      await expect(
+        authService.changePassword(1, 'wrongpass', 'newsecurepassword'),
+      ).rejects.toThrow('Current password is incorrect');
+    });
+
+    test('throws when new password is too short', async () => {
+      await expect(
+        authService.changePassword(1, 'current', 'short'),
+      ).rejects.toThrow('New password must be at least 8 characters');
     });
   });
 });
