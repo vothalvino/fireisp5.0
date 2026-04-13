@@ -3,6 +3,7 @@
 // =============================================================================
 
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const helmet = require('helmet');
 const config = require('./config');
@@ -92,16 +93,22 @@ const app = express();
 app.use(helmet());
 app.use(requestId);
 
-// CORS — restrict origins in production to the configured APP_URL;
-// in development allow common localhost origins only.
-const corsOrigin = config.env === 'production'
-  ? config.appUrl
-  : [
+// CORS — in production use CORS_ORIGINS env var (comma-separated allowlist)
+// or fall back to the single APP_URL. In development allow common localhost origins.
+const corsOrigin = (() => {
+  if (config.corsOrigins) {
+    return config.corsOrigins.split(',').map(o => o.trim()).filter(Boolean);
+  }
+  if (config.env === 'production') {
+    return config.appUrl;
+  }
+  return [
     'http://localhost:3000',
     'http://localhost:5173',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:5173',
   ];
+})();
 app.use(cors({ origin: corsOrigin, credentials: true }));
 
 app.use(express.json({
@@ -244,6 +251,19 @@ registerHooks();
 
 const { mountApiDocs } = require('./utils/openapi');
 mountApiDocs(app);
+
+// ---------------------------------------------------------------------------
+// Static admin dashboard — served from public/
+// ---------------------------------------------------------------------------
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// SPA fallback: any non-API GET that doesn't match a file → serve index.html
+app.get(/^\/(?!api|metrics|health)/, (req, res, next) => {
+  const indexPath = path.join(__dirname, '..', 'public', 'index.html');
+  res.sendFile(indexPath, (err) => {
+    if (err) next(); // fall through to 404
+  });
+});
 
 // ---------------------------------------------------------------------------
 // 404 handler
