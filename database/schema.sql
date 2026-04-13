@@ -5598,7 +5598,7 @@ DELIMITER ;
 CREATE TABLE IF NOT EXISTS firerelay_nodes (
     id              VARCHAR(64)  NOT NULL COMMENT 'Unique node identifier (e.g. node2)',
     name            VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'Human-readable name',
-    api_url         VARCHAR(512) NOT NULL COMMENT 'Base URL of the nodes API',
+    api_url         VARCHAR(512) NOT NULL COMMENT 'Base URL of the node API',
     status          ENUM('active','draining','maintenance','offline')
                     NOT NULL DEFAULT 'active'
                     COMMENT 'Current lifecycle state',
@@ -5623,7 +5623,7 @@ CREATE TABLE IF NOT EXISTS firerelay_nodes (
 --          route single-entity requests to the correct worker.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS firerelay_client_routing (
-    client_id   BIGINT UNSIGNED NOT NULL COMMENT 'The clients ID',
+    client_id   BIGINT UNSIGNED NOT NULL COMMENT 'The client ID',
     node_id     VARCHAR(64)     NOT NULL COMMENT 'Which node owns this client',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

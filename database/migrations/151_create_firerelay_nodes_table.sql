@@ -8,7 +8,7 @@
 CREATE TABLE IF NOT EXISTS firerelay_nodes (
     id              VARCHAR(64)  NOT NULL COMMENT 'Unique node identifier (e.g. node2)',
     name            VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'Human-readable name',
-    api_url         VARCHAR(512) NOT NULL COMMENT 'Base URL of the nodes API',
+    api_url         VARCHAR(512) NOT NULL COMMENT 'Base URL of the node API',
     status          ENUM('active','draining','maintenance','offline')
                     NOT NULL DEFAULT 'active'
                     COMMENT 'Current lifecycle state',

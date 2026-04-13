@@ -6,7 +6,7 @@
 -- This table is only used when FIRERELAY_MODE=master.
 
 CREATE TABLE IF NOT EXISTS firerelay_client_routing (
-    client_id   BIGINT UNSIGNED NOT NULL COMMENT 'The clients ID',
+    client_id   BIGINT UNSIGNED NOT NULL COMMENT 'The client ID',
     node_id     VARCHAR(64)     NOT NULL COMMENT 'Which node owns this client',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
