@@ -147,6 +147,7 @@ describe('E2E Workflow: Billing → Invoice → Payment', () => {
 
     // Step 2: invoice (uses connection mock for conn.execute, then db.query for findById)
     mockConnection.execute
+      .mockResolvedValueOnce([[{ id: 100, status: 'pending' }]])  // FOR UPDATE lock
       .mockResolvedValueOnce([[{ id: 1, rate: '16.00', is_default: true }]])
       .mockResolvedValueOnce([[{ cnt: 0 }]])
       .mockResolvedValueOnce([{ insertId: 200 }])

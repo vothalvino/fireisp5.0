@@ -508,35 +508,48 @@ function mapProviderEvent(provider, eventType, payload) {
  * webhook processing.
  */
 async function reconcilePayment(transactionId) {
+  const conn = await db.getConnection();
   try {
-    const [txRows] = await db.query('SELECT * FROM payment_transactions WHERE id = ?', [transactionId]);
+    await conn.beginTransaction();
+
+    const [txRows] = await conn.execute('SELECT * FROM payment_transactions WHERE id = ? FOR UPDATE', [transactionId]);
     const tx = txRows[0];
-    if (!tx) return;
+    if (!tx) {
+      await conn.rollback();
+      return;
+    }
 
     // Find the oldest unpaid invoice for this client whose total matches
-    const [invoices] = await db.query(
+    const [invoices] = await conn.execute(
       `SELECT * FROM invoices
        WHERE client_id = ? AND organization_id = ? AND status = 'issued'
-       ORDER BY due_date ASC LIMIT 1`,
+       ORDER BY due_date ASC LIMIT 1
+       FOR UPDATE`,
       [tx.client_id, tx.organization_id],
     );
 
-    if (invoices.length === 0) return;
+    if (invoices.length === 0) {
+      await conn.rollback();
+      return;
+    }
 
     const invoice = invoices[0];
     const txAmount = parseFloat(tx.amount);
     const invoiceTotal = parseFloat(invoice.total);
 
-    if (Math.abs(txAmount - invoiceTotal) > RECONCILE_AMOUNT_TOLERANCE) return;
+    if (Math.abs(txAmount - invoiceTotal) > RECONCILE_AMOUNT_TOLERANCE) {
+      await conn.rollback();
+      return;
+    }
 
     // Mark invoice as paid
-    await db.query(
+    await conn.execute(
       'UPDATE invoices SET status = \'paid\' WHERE id = ?',
       [invoice.id],
     );
 
     // Credit client balance ledger
-    await db.query(
+    await conn.execute(
       `INSERT INTO client_balance_ledger
        (client_id, organization_id, entry_type, amount, currency, reference_type, reference_id, description)
        VALUES (?, ?, 'credit', ?, ?, 'payment_transaction', ?, ?)`,
@@ -544,10 +557,14 @@ async function reconcilePayment(transactionId) {
         `Gateway payment ${tx.gateway_reference_id}`],
     );
 
+    await conn.commit();
     logger.info({ transactionId, invoiceId: invoice.id }, 'Payment auto-reconciled');
   } catch (err) {
+    await conn.rollback();
     // Reconciliation is best-effort; don't fail the webhook
     logger.error({ err, transactionId }, 'Auto-reconciliation failed');
+  } finally {
+    conn.release();
   }
 }
 

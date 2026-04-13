@@ -7,6 +7,7 @@ const crypto = require('crypto');
 // Mock database module
 jest.mock('../src/config/database', () => ({
   query: jest.fn(),
+  getConnection: jest.fn(),
 }));
 
 // Mock logger to prevent output noise
@@ -25,7 +26,19 @@ const db = require('../src/config/database');
 const paymentGatewayService = require('../src/services/paymentGatewayService');
 
 describe('Payment Webhooks & Idempotency', () => {
-  beforeEach(() => jest.clearAllMocks());
+  let mockConnection;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockConnection = {
+      beginTransaction: jest.fn(),
+      execute: jest.fn(),
+      commit: jest.fn(),
+      rollback: jest.fn(),
+      release: jest.fn(),
+    };
+    db.getConnection.mockResolvedValue(mockConnection);
+  });
 
   // =========================================================================
   // Stripe Signature Verification
@@ -283,14 +296,16 @@ describe('Payment Webhooks & Idempotency', () => {
           gateway_reference_id: 'pi_abc123',
         }]])
         .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE payment_transactions
-        .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE webhook_events processed
-        // reconcilePayment calls
-        .mockResolvedValueOnce([[{                    // SELECT payment_transaction
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE webhook_events processed
+
+      // reconcilePayment uses mockConnection.execute (via getConnection)
+      mockConnection.execute
+        .mockResolvedValueOnce([[{                    // SELECT payment_transaction FOR UPDATE
           id: 100, client_id: 5, organization_id: 42,
           amount: '500.00', currency: 'MXN',
           gateway_reference_id: 'pi_abc123',
         }]])
-        .mockResolvedValueOnce([[{                    // SELECT oldest unpaid invoice
+        .mockResolvedValueOnce([[{                    // SELECT oldest unpaid invoice FOR UPDATE
           id: 50, total: '500.00',
         }]])
         .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE invoices SET status=paid
@@ -461,8 +476,10 @@ describe('Payment Webhooks & Idempotency', () => {
           gateway_reference_id: 'ord_conekta_123',
         }]])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
-        .mockResolvedValueOnce([{ affectedRows: 1 }])
-        // reconcilePayment
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      // reconcilePayment uses mockConnection.execute
+      mockConnection.execute
         .mockResolvedValueOnce([[{
           id: 200, client_id: 10, organization_id: 50,
           amount: '1000.00', currency: 'MXN',
@@ -532,7 +549,7 @@ describe('Payment Webhooks & Idempotency', () => {
   // =========================================================================
   describe('reconcilePayment()', () => {
     test('marks invoice as paid and credits balance when amounts match', async () => {
-      db.query
+      mockConnection.execute
         .mockResolvedValueOnce([[{
           id: 100, client_id: 5, organization_id: 42,
           amount: '500.00', currency: 'MXN',
@@ -545,20 +562,23 @@ describe('Payment Webhooks & Idempotency', () => {
       await paymentGatewayService.reconcilePayment(100);
 
       // Verify invoice was marked as paid
-      expect(db.query).toHaveBeenCalledWith(
+      expect(mockConnection.execute).toHaveBeenCalledWith(
         expect.stringContaining('UPDATE invoices SET status'),
         [50],
       );
 
       // Verify ledger credit was created
-      expect(db.query).toHaveBeenCalledWith(
+      expect(mockConnection.execute).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO client_balance_ledger'),
         expect.arrayContaining([5, 42, '500.00', 'MXN']),
       );
+
+      expect(mockConnection.commit).toHaveBeenCalled();
+      expect(mockConnection.release).toHaveBeenCalled();
     });
 
     test('skips reconciliation when no matching invoice found', async () => {
-      db.query
+      mockConnection.execute
         .mockResolvedValueOnce([[{
           id: 100, client_id: 5, organization_id: 42,
           amount: '500.00', currency: 'MXN',
@@ -567,12 +587,14 @@ describe('Payment Webhooks & Idempotency', () => {
 
       await paymentGatewayService.reconcilePayment(100);
 
-      // Should only have 2 queries (tx lookup + invoice lookup)
-      expect(db.query).toHaveBeenCalledTimes(2);
+      // Should have 2 execute calls (tx lookup + invoice lookup) then rollback
+      expect(mockConnection.execute).toHaveBeenCalledTimes(2);
+      expect(mockConnection.rollback).toHaveBeenCalled();
+      expect(mockConnection.release).toHaveBeenCalled();
     });
 
     test('skips reconciliation when amounts do not match', async () => {
-      db.query
+      mockConnection.execute
         .mockResolvedValueOnce([[{
           id: 100, client_id: 5, organization_id: 42,
           amount: '500.00', currency: 'MXN',
@@ -581,19 +603,23 @@ describe('Payment Webhooks & Idempotency', () => {
 
       await paymentGatewayService.reconcilePayment(100);
 
-      // Should only have 2 queries
-      expect(db.query).toHaveBeenCalledTimes(2);
+      // Should have 2 execute calls then rollback
+      expect(mockConnection.execute).toHaveBeenCalledTimes(2);
+      expect(mockConnection.rollback).toHaveBeenCalled();
+      expect(mockConnection.release).toHaveBeenCalled();
     });
 
     test('skips reconciliation when transaction not found', async () => {
-      db.query.mockResolvedValueOnce([[]]); // Transaction not found
+      mockConnection.execute.mockResolvedValueOnce([[]]); // Transaction not found
 
       await paymentGatewayService.reconcilePayment(999);
-      expect(db.query).toHaveBeenCalledTimes(1);
+      expect(mockConnection.execute).toHaveBeenCalledTimes(1);
+      expect(mockConnection.rollback).toHaveBeenCalled();
+      expect(mockConnection.release).toHaveBeenCalled();
     });
 
     test('does not throw on reconciliation error (best-effort)', async () => {
-      db.query
+      mockConnection.execute
         .mockResolvedValueOnce([[{
           id: 100, client_id: 5, organization_id: 42,
           amount: '500.00', currency: 'MXN',
@@ -603,6 +629,8 @@ describe('Payment Webhooks & Idempotency', () => {
 
       // Should not throw — reconciliation is best-effort
       await expect(paymentGatewayService.reconcilePayment(100)).resolves.toBeUndefined();
+      expect(mockConnection.rollback).toHaveBeenCalled();
+      expect(mockConnection.release).toHaveBeenCalled();
     });
   });
 

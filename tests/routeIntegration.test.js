@@ -368,6 +368,8 @@ describe('Billing Routes — /api/billing', () => {
 
       // billingService.generateInvoice uses conn.execute many times
       conn.execute
+        // FOR UPDATE lock on billing period
+        .mockResolvedValueOnce([[{ id: 101, status: 'pending' }]])
         // tax_rates query
         .mockResolvedValueOnce([[]])
         // count invoices
@@ -408,6 +410,7 @@ describe('Billing Routes — /api/billing', () => {
 
       const conn = mockConnection();
       conn.execute
+        .mockResolvedValueOnce([[{ id: 50, status: 'pending' }]])  // FOR UPDATE lock
         .mockResolvedValueOnce([[]])           // tax_rates
         .mockResolvedValueOnce([[{ cnt: 0 }]]) // count invoices
         .mockResolvedValueOnce([{ insertId: 1 }]) // insert invoice

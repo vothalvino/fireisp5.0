@@ -74,6 +74,17 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
   try {
     await conn.beginTransaction();
 
+    // Lock the billing period row to prevent duplicate invoice generation
+    const [lockedPeriods] = await conn.execute(
+      'SELECT * FROM billing_periods WHERE id = ? FOR UPDATE',
+      [billingPeriod.id],
+    );
+    if (lockedPeriods.length > 0 && lockedPeriods[0].status !== 'pending') {
+      await conn.rollback();
+      conn.release();
+      return Invoice.findById(lockedPeriods[0].invoice_id);
+    }
+
     // Get the effective price (override or plan price)
     const price = contract.price_override || plan.price;
     const currency = plan.currency || 'USD';

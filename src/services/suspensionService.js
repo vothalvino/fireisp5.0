@@ -154,7 +154,12 @@ async function sendRadiusDisconnect(contractId) {
   const { username, nas_ip, coa_port, secret } = radiusRows[0];
   const port = coa_port || 3799;
 
-  return sendRadiusPacket(nas_ip, port, secret || 'testing123', 40, username);
+  if (!secret) {
+    logger.error({ contractId }, 'NAS RADIUS secret is not configured — cannot send Disconnect-Request');
+    return { sent: false, response: 'NAS RADIUS secret not configured' };
+  }
+
+  return sendRadiusPacket(nas_ip, port, secret, 40, username);
 }
 
 /**
@@ -177,7 +182,12 @@ async function sendRadiusCoA(contractId, _action) {
   const { username, nas_ip, coa_port, secret } = radiusRows[0];
   const port = coa_port || 3799;
 
-  return sendRadiusPacket(nas_ip, port, secret || 'testing123', 43, username);
+  if (!secret) {
+    logger.error({ contractId }, 'NAS RADIUS secret is not configured — cannot send CoA-Request');
+    return { sent: false, response: 'NAS RADIUS secret not configured' };
+  }
+
+  return sendRadiusPacket(nas_ip, port, secret, 43, username);
 }
 
 /**

@@ -89,8 +89,9 @@ describe('billingService', () => {
     const orgId = 42;
 
     test('creates invoice with correct totals inside a transaction', async () => {
-      // Tax rate lookup
+      // Billing period lock (FOR UPDATE) + Tax rate lookup
       mockConnection.execute
+        .mockResolvedValueOnce([[{ id: 10, status: 'pending' }]])  // FOR UPDATE lock
         .mockResolvedValueOnce([[{ id: 1, rate: '16.00', is_default: true }]])  // tax rate
         .mockResolvedValueOnce([[{ cnt: 5 }]])  // invoice count
         .mockResolvedValueOnce([{ insertId: 50 }])  // INSERT invoice
@@ -110,7 +111,10 @@ describe('billingService', () => {
     });
 
     test('rolls back transaction on error', async () => {
-      mockConnection.execute.mockRejectedValueOnce(new Error('DB error'));
+      // FOR UPDATE lock succeeds, then next call fails
+      mockConnection.execute
+        .mockResolvedValueOnce([[{ id: 10, status: 'pending' }]])  // FOR UPDATE lock
+        .mockRejectedValueOnce(new Error('DB error'));
 
       await expect(
         billingService.generateInvoice(billingPeriod, contract, plan, orgId),
@@ -124,6 +128,7 @@ describe('billingService', () => {
       const overrideContract = { ...contract, price_override: '450.00' };
 
       mockConnection.execute
+        .mockResolvedValueOnce([[{ id: 10, status: 'pending' }]])  // FOR UPDATE lock
         .mockResolvedValueOnce([[]])  // no tax rate
         .mockResolvedValueOnce([[{ cnt: 0 }]])  // invoice count
         .mockResolvedValueOnce([{ insertId: 51 }])  // INSERT invoice
@@ -137,7 +142,7 @@ describe('billingService', () => {
       await billingService.generateInvoice(billingPeriod, overrideContract, plan, orgId);
 
       // Verify the invoice INSERT used the override price
-      const invoiceInsert = mockConnection.execute.mock.calls[2];
+      const invoiceInsert = mockConnection.execute.mock.calls[3];
       expect(invoiceInsert[1]).toContain(450);
     });
 
@@ -145,6 +150,7 @@ describe('billingService', () => {
       const addon = { plan_addon_id: 5, addon_name: 'Static IP', addon_price: '100.00', unit_price: null, quantity: 2 };
 
       mockConnection.execute
+        .mockResolvedValueOnce([[{ id: 10, status: 'pending' }]])  // FOR UPDATE lock
         .mockResolvedValueOnce([[]])  // no tax rate
         .mockResolvedValueOnce([[{ cnt: 0 }]])  // invoice count
         .mockResolvedValueOnce([{ insertId: 52 }])  // INSERT invoice
@@ -158,8 +164,8 @@ describe('billingService', () => {
 
       await billingService.generateInvoice(billingPeriod, contract, plan, orgId);
 
-      // Addon line item INSERT should be called
-      expect(mockConnection.execute).toHaveBeenCalledTimes(8);
+      // Addon line item INSERT should be called (1 extra for FOR UPDATE lock)
+      expect(mockConnection.execute).toHaveBeenCalledTimes(9);
     });
   });
 
