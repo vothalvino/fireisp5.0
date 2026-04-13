@@ -3,6 +3,7 @@
 // =============================================================================
 
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const helmet = require('helmet');
 const config = require('./config');
@@ -83,6 +84,7 @@ const reportRoutes = require('./routes/reports');
 const checkoutRoutes = require('./routes/checkout');
 const alertRoutes = require('./routes/alerts');
 const twoFactorRoutes = require('./routes/twoFactor');
+const bulkRoutes = require('./routes/bulk');
 
 const app = express();
 
@@ -92,23 +94,29 @@ const app = express();
 app.use(helmet());
 app.use(requestId);
 
-// CORS — restrict origins in production to the configured APP_URL;
-// in development allow common localhost origins only.
-const corsOrigin = config.env === 'production'
-  ? config.appUrl
-  : [
+// CORS — in production use CORS_ORIGINS env var (comma-separated allowlist)
+// or fall back to the single APP_URL. In development allow common localhost origins.
+const corsOrigin = (() => {
+  if (config.corsOrigins) {
+    return config.corsOrigins.split(',').map(o => o.trim()).filter(Boolean);
+  }
+  if (config.env === 'production') {
+    return config.appUrl;
+  }
+  return [
     'http://localhost:3000',
     'http://localhost:5173',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:5173',
   ];
+})();
 app.use(cors({ origin: corsOrigin, credentials: true }));
 
 app.use(express.json({
   limit: '10mb',
   // Preserve raw body for payment webhook signature verification
   verify: (req, _res, buf) => {
-    if (req.originalUrl && req.originalUrl.startsWith('/api/payment-webhooks')) {
+    if (req.originalUrl && (req.originalUrl.startsWith('/api/payment-webhooks') || req.originalUrl.startsWith('/api/v1/payment-webhooks'))) {
       req.rawBody = buf.toString('utf8');
     }
   },
@@ -120,10 +128,15 @@ app.use(requestLogger);
 app.use(metricsMiddleware);
 app.use('/api/', apiLimiter);
 app.use('/api/auth', authLimiter);
+app.use('/api/v1/auth', authLimiter);
 app.use('/api/export', exportLimiter);
+app.use('/api/v1/export', exportLimiter);
 app.use('/api/pdf', exportLimiter);
+app.use('/api/v1/pdf', exportLimiter);
 app.use('/api/events', sseLimiter);
+app.use('/api/v1/events', sseLimiter);
 app.use('/api/payment-webhooks', webhookLimiter);
+app.use('/api/v1/payment-webhooks', webhookLimiter);
 
 // ---------------------------------------------------------------------------
 // Health check
@@ -165,75 +178,82 @@ app.get('/health', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// API routes
+// API routes — build a single v1 router, mount at /api and /api/v1
 // ---------------------------------------------------------------------------
-app.use('/api/auth', authRoutes);
-app.use('/api/organizations', organizationRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/sites', siteRoutes);
-app.use('/api/clients', clientRoutes);
-app.use('/api/plans', planRoutes);
-app.use('/api/contracts', contractRoutes);
-app.use('/api/devices', deviceRoutes);
-app.use('/api/nas', nasRoutes);
-app.use('/api/radius', radiusRoutes);
-app.use('/api/invoices', invoiceRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/credit-notes', creditNoteRoutes);
-app.use('/api/tickets', ticketRoutes);
-app.use('/api/jobs', jobRoutes);
-app.use('/api/warehouses', warehouseRoutes);
-app.use('/api/inventory', inventoryRoutes);
-app.use('/api/quotes', quoteRoutes);
-app.use('/api/expenses', expenseRoutes);
-app.use('/api/outages', outageRoutes);
-app.use('/api/roles', roleRoutes);
-app.use('/api/api-tokens', apiTokenRoutes);
-app.use('/api/sla-definitions', slaDefinitionRoutes);
-app.use('/api/ip-pools', ipPoolRoutes);
-app.use('/api/ip-assignments', ipAssignmentRoutes);
-app.use('/api/network-links', networkLinkRoutes);
-app.use('/api/vlans', vlanRoutes);
-app.use('/api/speed-tests', speedTestRoutes);
-app.use('/api/snmp-profiles', snmpProfileRoutes);
-app.use('/api/connection-logs', connectionLogRoutes);
-app.use('/api/network-health', networkHealthRoutes);
-app.use('/api/settings', settingsRoutes);
-app.use('/api/audit-logs', auditLogRoutes);
-app.use('/api/files', fileRoutes);
-app.use('/api/service-areas', serviceAreaRoutes);
-app.use('/api/coverage-zones', coverageZoneRoutes);
-app.use('/api/revenue-summary', revenueSummaryRoutes);
-app.use('/api/webhooks', webhookRoutes);
-app.use('/api/device-config-backups', deviceConfigBackupRoutes);
-app.use('/api/payment-gateways', paymentGatewayRoutes);
-app.use('/api/payment-transactions', paymentTransactionRoutes);
-app.use('/api/payment-webhooks', paymentWebhookRoutes);
-app.use('/api/recurring-payment-profiles', recurringPaymentProfileRoutes);
-app.use('/api/suspension-rules', suspensionRuleRoutes);
-app.use('/api/csd-certificates', csdCertificateRoutes);
-app.use('/api/pac-providers', pacProviderRoutes);
-app.use('/api/cfdi-documents', cfdiDocumentRoutes);
-app.use('/api/scheduled-tasks', scheduledTaskRoutes);
-app.use('/api/concession-titles', concessionTitleRoutes);
-app.use('/api/regulatory-filings', regulatoryFilingRoutes);
-app.use('/api/ift-statistical-reports', iftStatisticalReportRoutes);
-app.use('/api/sat-catalogs', satCatalogRoutes);
-app.use('/api/facturas-publicas', facturaPublicaRoutes);
-app.use('/api/billing', billingRoutes);
-app.use('/api/cfdi', cfdiRoutes);
-app.use('/api/suspension', suspensionRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/export', exportRoutes);
-app.use('/api/import', importRoutes);
-app.use('/api/firerelay', firerelayRoutes);
-app.use('/api/pdf', pdfRoutes);
-app.use('/api/events', eventsRoutes);
-app.use('/api/usage', apiLimiter, usageRoutes);
-app.use('/api/reports', apiLimiter, reportRoutes);
-app.use('/api/checkout', apiLimiter, checkoutRoutes);
-app.use('/api/alerts', apiLimiter, alertRoutes);
-app.use('/api/2fa', authLimiter, twoFactorRoutes);
+const v1 = express.Router();
+
+v1.use('/auth', authRoutes);
+v1.use('/organizations', organizationRoutes);
+v1.use('/users', userRoutes);
+v1.use('/sites', siteRoutes);
+v1.use('/clients', clientRoutes);
+v1.use('/plans', planRoutes);
+v1.use('/contracts', contractRoutes);
+v1.use('/devices', deviceRoutes);
+v1.use('/nas', nasRoutes);
+v1.use('/radius', radiusRoutes);
+v1.use('/invoices', invoiceRoutes);
+v1.use('/payments', paymentRoutes);
+v1.use('/credit-notes', creditNoteRoutes);
+v1.use('/tickets', ticketRoutes);
+v1.use('/jobs', jobRoutes);
+v1.use('/warehouses', warehouseRoutes);
+v1.use('/inventory', inventoryRoutes);
+v1.use('/quotes', quoteRoutes);
+v1.use('/expenses', expenseRoutes);
+v1.use('/outages', outageRoutes);
+v1.use('/roles', roleRoutes);
+v1.use('/api-tokens', apiTokenRoutes);
+v1.use('/sla-definitions', slaDefinitionRoutes);
+v1.use('/ip-pools', ipPoolRoutes);
+v1.use('/ip-assignments', ipAssignmentRoutes);
+v1.use('/network-links', networkLinkRoutes);
+v1.use('/vlans', vlanRoutes);
+v1.use('/speed-tests', speedTestRoutes);
+v1.use('/snmp-profiles', snmpProfileRoutes);
+v1.use('/connection-logs', connectionLogRoutes);
+v1.use('/network-health', networkHealthRoutes);
+v1.use('/settings', settingsRoutes);
+v1.use('/audit-logs', auditLogRoutes);
+v1.use('/files', fileRoutes);
+v1.use('/service-areas', serviceAreaRoutes);
+v1.use('/coverage-zones', coverageZoneRoutes);
+v1.use('/revenue-summary', revenueSummaryRoutes);
+v1.use('/webhooks', webhookRoutes);
+v1.use('/device-config-backups', deviceConfigBackupRoutes);
+v1.use('/payment-gateways', paymentGatewayRoutes);
+v1.use('/payment-transactions', paymentTransactionRoutes);
+v1.use('/payment-webhooks', paymentWebhookRoutes);
+v1.use('/recurring-payment-profiles', recurringPaymentProfileRoutes);
+v1.use('/suspension-rules', suspensionRuleRoutes);
+v1.use('/csd-certificates', csdCertificateRoutes);
+v1.use('/pac-providers', pacProviderRoutes);
+v1.use('/cfdi-documents', cfdiDocumentRoutes);
+v1.use('/scheduled-tasks', scheduledTaskRoutes);
+v1.use('/concession-titles', concessionTitleRoutes);
+v1.use('/regulatory-filings', regulatoryFilingRoutes);
+v1.use('/ift-statistical-reports', iftStatisticalReportRoutes);
+v1.use('/sat-catalogs', satCatalogRoutes);
+v1.use('/facturas-publicas', facturaPublicaRoutes);
+v1.use('/billing', billingRoutes);
+v1.use('/cfdi', cfdiRoutes);
+v1.use('/suspension', suspensionRoutes);
+v1.use('/dashboard', dashboardRoutes);
+v1.use('/export', exportRoutes);
+v1.use('/import', importRoutes);
+v1.use('/firerelay', firerelayRoutes);
+v1.use('/pdf', pdfRoutes);
+v1.use('/events', eventsRoutes);
+v1.use('/usage', apiLimiter, usageRoutes);
+v1.use('/reports', apiLimiter, reportRoutes);
+v1.use('/checkout', apiLimiter, checkoutRoutes);
+v1.use('/alerts', apiLimiter, alertRoutes);
+v1.use('/2fa', authLimiter, twoFactorRoutes);
+v1.use('/bulk', apiLimiter, bulkRoutes);
+
+// Mount v1 at both /api (backward compat) and /api/v1 (versioned)
+app.use('/api/v1', v1);
+app.use('/api', v1);
 app.use('/metrics', metricsRoutes);
 
 // ---------------------------------------------------------------------------
@@ -244,6 +264,19 @@ registerHooks();
 
 const { mountApiDocs } = require('./utils/openapi');
 mountApiDocs(app);
+
+// ---------------------------------------------------------------------------
+// Static admin dashboard — served from public/
+// ---------------------------------------------------------------------------
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// SPA fallback: any non-API GET that doesn't match a file → serve index.html
+app.get(/^\/(?!api|metrics|health)/, (req, res, next) => {
+  const indexPath = path.join(__dirname, '..', 'public', 'index.html');
+  res.sendFile(indexPath, (err) => {
+    if (err) next(); // fall through to 404
+  });
+});
 
 // ---------------------------------------------------------------------------
 // 404 handler

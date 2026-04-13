@@ -24,6 +24,47 @@ const COLORS = {
 };
 
 // ---------------------------------------------------------------------------
+// PDF label translations for multi-language support
+// ---------------------------------------------------------------------------
+const PDF_LABELS = {
+  en: {
+    invoice: 'INVOICE', creditNote: 'CREDIT NOTE', quote: 'QUOTE',
+    cfdi: 'CFDI 4.0 — Electronic Invoice',
+    issueDate: 'Issue Date', dueDate: 'Due Date', validUntil: 'Valid Until',
+    billTo: 'BILL TO', issuedBy: 'ISSUED BY', client: 'CLIENT',
+    description: 'Description', qty: 'Qty', unitPrice: 'Unit Price',
+    amount: 'Amount', subtotal: 'Subtotal', tax: 'Tax', total: 'Total',
+    notes: 'Notes', terms: 'Terms & Conditions',
+    creditReason: 'Reason', originalInvoice: 'Original Invoice',
+    uuid: 'Fiscal UUID', rfcEmitter: 'RFC Emitter', rfcReceiver: 'RFC Receiver',
+    usoCfdi: 'CFDI Use', paymentMethod: 'Payment Method', paymentForm: 'Payment Form',
+    certSerial: 'Certificate Serial', satSeal: 'SAT Digital Seal',
+  },
+  es: {
+    invoice: 'FACTURA', creditNote: 'NOTA DE CRÉDITO', quote: 'COTIZACIÓN',
+    cfdi: 'CFDI 4.0 — Comprobante Fiscal Digital',
+    issueDate: 'Fecha de Emisión', dueDate: 'Fecha de Vencimiento', validUntil: 'Válida Hasta',
+    billTo: 'FACTURAR A', issuedBy: 'EMITIDO POR', client: 'CLIENTE',
+    description: 'Descripción', qty: 'Cant.', unitPrice: 'Precio Unitario',
+    amount: 'Importe', subtotal: 'Subtotal', tax: 'IVA', total: 'Total',
+    notes: 'Notas', terms: 'Términos y Condiciones',
+    creditReason: 'Motivo', originalInvoice: 'Factura Original',
+    uuid: 'UUID Fiscal', rfcEmitter: 'RFC Emisor', rfcReceiver: 'RFC Receptor',
+    usoCfdi: 'Uso CFDI', paymentMethod: 'Método de Pago', paymentForm: 'Forma de Pago',
+    certSerial: 'No. Certificado', satSeal: 'Sello Digital SAT',
+  },
+};
+
+/**
+ * Get PDF labels for a given locale.
+ * @param {string} [locale='en'] - 'en' or 'es'
+ * @returns {object} Label dictionary
+ */
+function pdfLabels(locale) {
+  return PDF_LABELS[locale] || PDF_LABELS.en;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -92,7 +133,8 @@ function drawTableRow(doc, y, columns, opts = {}) {
  * @param {number} invoiceId
  * @returns {Promise<Buffer>}
  */
-async function generateInvoicePdf(invoiceId) {
+async function generateInvoicePdf(invoiceId, { locale = 'en' } = {}) {
+  const L = pdfLabels(locale);
   const [invoices] = await db.query(
     `SELECT i.*, cl.first_name, cl.last_name, cl.email, cl.phone, cl.address, cl.city, cl.state, cl.country,
             o.name AS org_name, o.email AS org_email, o.phone AS org_phone,
@@ -120,7 +162,7 @@ async function generateInvoicePdf(invoiceId) {
 
     // ---- Header ----
     doc.fontSize(20).font('Helvetica-Bold').fillColor(COLORS.primary)
-      .text('INVOICE', PAGE_MARGIN, PAGE_MARGIN);
+      .text(L.invoice, PAGE_MARGIN, PAGE_MARGIN);
 
     doc.fontSize(10).font('Helvetica').fillColor(COLORS.muted)
       .text(`# ${invoice.invoice_number || invoiceId}`, PAGE_MARGIN, PAGE_MARGIN + 25);
@@ -145,13 +187,13 @@ async function generateInvoicePdf(invoiceId) {
       .text((invoice.status || 'issued').toUpperCase(), PAGE_MARGIN, y);
 
     doc.fontSize(9).font('Helvetica').fillColor(COLORS.text);
-    doc.text(`Issue Date: ${fmtDate(invoice.created_at)}`, 200, y);
-    doc.text(`Due Date: ${fmtDate(invoice.due_date)}`, 380, y);
+    doc.text(`${L.issueDate}: ${fmtDate(invoice.created_at)}`, 200, y);
+    doc.text(`${L.dueDate}: ${fmtDate(invoice.due_date)}`, 380, y);
     y += 20;
 
     // ---- Bill To ----
     y = drawHR(doc, y);
-    doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.muted).text('BILL TO', PAGE_MARGIN, y);
+    doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.muted).text(L.billTo, PAGE_MARGIN, y);
     y += 14;
     doc.fontSize(10).font('Helvetica-Bold').fillColor(COLORS.text)
       .text(`${invoice.first_name || ''} ${invoice.last_name || ''}`.trim() || 'Client', PAGE_MARGIN, y);
@@ -165,10 +207,10 @@ async function generateInvoicePdf(invoiceId) {
     // ---- Line Items Table ----
     y = drawHR(doc, y);
     const cols = [
-      { x: PAGE_MARGIN, width: 260, text: 'Description', align: 'left' },
-      { x: 320, width: 60, text: 'Qty', align: 'center' },
-      { x: 385, width: 80, text: 'Unit Price', align: 'right' },
-      { x: 470, width: 80, text: 'Amount', align: 'right' },
+      { x: PAGE_MARGIN, width: 260, text: L.description, align: 'left' },
+      { x: 320, width: 60, text: L.qty, align: 'center' },
+      { x: 385, width: 80, text: L.unitPrice, align: 'right' },
+      { x: 470, width: 80, text: L.amount, align: 'right' },
     ];
     y = drawTableRow(doc, y, cols, { bold: true, color: COLORS.primary, fontSize: 8 });
     y = drawHR(doc, y);
@@ -188,15 +230,15 @@ async function generateInvoicePdf(invoiceId) {
     y = drawHR(doc, y);
     const totalsX = 385;
     doc.fontSize(9).font('Helvetica').fillColor(COLORS.text);
-    doc.text('Subtotal:', totalsX, y, { width: 80, align: 'right' });
+    doc.text(`${L.subtotal}:`, totalsX, y, { width: 80, align: 'right' });
     doc.text(fmt(invoice.subtotal, invoice.currency), 470, y, { width: 80, align: 'right' });
     y += 16;
-    doc.text('Tax:', totalsX, y, { width: 80, align: 'right' });
+    doc.text(`${L.tax}:`, totalsX, y, { width: 80, align: 'right' });
     doc.text(fmt(invoice.tax_amount, invoice.currency), 470, y, { width: 80, align: 'right' });
     y += 16;
     y = drawHR(doc, y);
     doc.fontSize(11).font('Helvetica-Bold').fillColor(COLORS.primary);
-    doc.text('Total:', totalsX, y, { width: 80, align: 'right' });
+    doc.text(`${L.total}:`, totalsX, y, { width: 80, align: 'right' });
     doc.text(fmt(invoice.total, invoice.currency), 470, y, { width: 80, align: 'right' });
 
     // ---- Footer ----
@@ -523,4 +565,5 @@ module.exports = {
   fmt,
   fmtDate,
   statusColor,
+  pdfLabels,
 };

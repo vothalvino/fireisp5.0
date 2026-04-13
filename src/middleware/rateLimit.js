@@ -3,9 +3,13 @@
 // =============================================================================
 // Tiered rate limits: public < general < authenticated < admin.
 // Each tier has a different request quota.
+// All thresholds are configurable via environment variables — see config/index.js.
 // =============================================================================
 
 const rateLimit = require('express-rate-limit');
+const config = require('../config');
+
+const rl = config.rateLimit;
 
 const RATE_LIMITED_BODY = (msg) => ({
   error: {
@@ -14,88 +18,33 @@ const RATE_LIMITED_BODY = (msg) => ({
   },
 });
 
-/**
- * General API rate limiter — 200 requests per 15-minute window per IP.
- */
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200,
+const makeLimiter = (max, msg) => rateLimit({
+  windowMs: rl.windowMs,
+  max,
   standardHeaders: true,
   legacyHeaders: false,
-  message: RATE_LIMITED_BODY(),
+  message: RATE_LIMITED_BODY(msg),
 });
 
-/**
- * Stricter limiter for auth endpoints — 20 requests per 15-minute window per IP.
- */
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: RATE_LIMITED_BODY('Too many authentication attempts, please try again later'),
-});
+/** General API rate limiter — configurable via RATE_LIMIT_API (default 200). */
+const apiLimiter = makeLimiter(rl.api);
 
-/**
- * Public endpoints (unauthenticated) — 60 requests per 15-minute window per IP.
- * Use for: health, public docs, events.
- */
-const publicLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: RATE_LIMITED_BODY(),
-});
+/** Auth endpoints — configurable via RATE_LIMIT_AUTH (default 20). */
+const authLimiter = makeLimiter(rl.auth, 'Too many authentication attempts, please try again later');
 
-/**
- * Upload endpoints — 30 requests per 15-minute window per IP.
- * Use for: file uploads, import endpoints.
- */
-const uploadLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: RATE_LIMITED_BODY('Too many upload requests, please try again later'),
-});
+/** Public endpoints — configurable via RATE_LIMIT_PUBLIC (default 60). */
+const publicLimiter = makeLimiter(rl.public);
 
-/**
- * Export endpoints — 20 requests per 15-minute window per IP.
- * PDF and CSV generation is CPU-intensive.
- */
-const exportLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: RATE_LIMITED_BODY('Too many export requests, please try again later'),
-});
+/** Upload endpoints — configurable via RATE_LIMIT_UPLOAD (default 30). */
+const uploadLimiter = makeLimiter(rl.upload, 'Too many upload requests, please try again later');
 
-/**
- * SSE endpoints — 10 concurrent connections per IP per 15-minute window.
- * SSE streams are long-lived; this prevents a single IP from exhausting
- * server resources by opening many parallel connections.
- */
-const sseLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: RATE_LIMITED_BODY('Too many SSE connections, please try again later'),
-});
+/** Export endpoints — configurable via RATE_LIMIT_EXPORT (default 20). */
+const exportLimiter = makeLimiter(rl.export, 'Too many export requests, please try again later');
 
-/**
- * Payment webhook endpoints — 100 requests per 15-minute window per IP.
- * Generous limit because payment providers may send bursts of events
- * (e.g. during batch settlements) but still bounded to prevent abuse.
- */
-const webhookLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: RATE_LIMITED_BODY('Too many webhook requests, please try again later'),
-});
+/** SSE endpoints — configurable via RATE_LIMIT_SSE (default 10). */
+const sseLimiter = makeLimiter(rl.sse, 'Too many SSE connections, please try again later');
+
+/** Payment webhook endpoints — configurable via RATE_LIMIT_WEBHOOK (default 100). */
+const webhookLimiter = makeLimiter(rl.webhook, 'Too many webhook requests, please try again later');
 
 module.exports = { apiLimiter, authLimiter, publicLimiter, uploadLimiter, exportLimiter, sseLimiter, webhookLimiter };
