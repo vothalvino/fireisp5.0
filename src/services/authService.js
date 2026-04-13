@@ -11,6 +11,8 @@ const db = require('../config/database');
 const { UnauthorizedError, ConflictError, ValidationError, NotFoundError } = require('../utils/errors');
 
 const SALT_ROUNDS = 12;
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_MINUTES = 15;
 
 /**
  * Register a new user.
@@ -62,9 +64,35 @@ async function login({ email, password }) {
     throw new UnauthorizedError('Account is inactive');
   }
 
+  // Check brute-force lockout
+  if (user.locked_until && new Date(user.locked_until) > new Date()) {
+    throw new UnauthorizedError('Account temporarily locked due to too many failed login attempts');
+  }
+
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) {
+    // Increment failed attempts and potentially lock the account
+    const attempts = (user.failed_login_attempts || 0) + 1;
+    if (attempts >= MAX_LOGIN_ATTEMPTS) {
+      await db.query(
+        'UPDATE users SET failed_login_attempts = ?, locked_until = DATE_ADD(NOW(), INTERVAL ? MINUTE) WHERE id = ?',
+        [attempts, LOCKOUT_MINUTES, user.id],
+      );
+    } else {
+      await db.query(
+        'UPDATE users SET failed_login_attempts = ? WHERE id = ?',
+        [attempts, user.id],
+      );
+    }
     throw new UnauthorizedError('Invalid email or password');
+  }
+
+  // Reset failed attempts on successful login
+  if (user.failed_login_attempts > 0 || user.locked_until) {
+    await db.query(
+      'UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?',
+      [user.id],
+    );
   }
 
   // Update last_login_at
@@ -245,6 +273,9 @@ async function changePassword(userId, currentPassword, newPassword) {
     'UPDATE users SET password_hash = ? WHERE id = ?',
     [passwordHash, user.id],
   );
+
+  // Invalidate all existing sessions for this user (force re-login)
+  await db.query('DELETE FROM user_sessions WHERE user_id = ?', [user.id]);
 
   return { message: 'Password changed successfully' };
 }
