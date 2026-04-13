@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS users (
     role            ENUM('admin', 'billing', 'support', 'technician') NOT NULL DEFAULT 'support',
     phone           VARCHAR(30)     NULL,
     status          ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    totp_secret     VARCHAR(255)    NULL     COMMENT 'TOTP shared secret (encrypted/base32 at app layer)',
+    totp_enabled    BOOLEAN         NOT NULL DEFAULT FALSE COMMENT 'TRUE when 2FA/TOTP is enabled for this user',
+    totp_backup_codes JSON          NULL     COMMENT 'JSON array of one-time backup recovery codes for TOTP',
     last_login_at          TIMESTAMP       NULL,
     failed_login_attempts  TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Consecutive failed login attempts since last successful login',
     locked_until           TIMESTAMP       NULL DEFAULT NULL   COMMENT 'Account locked until this timestamp; NULL = not locked',
@@ -59,6 +62,7 @@ CREATE TABLE IF NOT EXISTS clients (
     zip_code        VARCHAR(20)     NULL,
     notes           TEXT            NULL,
     status          ENUM('active', 'inactive', 'suspended') NOT NULL DEFAULT 'active',
+    version         INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
@@ -135,6 +139,7 @@ CREATE TABLE IF NOT EXISTS plans (
     description     TEXT            NULL,
     download_speed  INT UNSIGNED    NOT NULL COMMENT 'Speed in Mbps',
     upload_speed    INT UNSIGNED    NOT NULL COMMENT 'Speed in Mbps',
+    data_cap_gb     DECIMAL(10, 2)  NULL COMMENT 'Monthly data cap in GB, NULL = unlimited',
     price           DECIMAL(10, 2)  NOT NULL,
     billing_cycle   ENUM('monthly', 'quarterly', 'semi_annual', 'annual') NOT NULL DEFAULT 'monthly',
     burst_download  INT UNSIGNED    NULL COMMENT 'Burst download speed in Mbps',
@@ -172,6 +177,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     facturar       BOOLEAN         NOT NULL DEFAULT FALSE
                        COMMENT 'MX only: TRUE = generate individual CFDI for this contract invoices; FALSE = invoices go to factura pública (venta al público en general). When TRUE the client must have a client_mx_profiles row with valid SAT data. Ignored when client locale is not MX',
     status         ENUM('active', 'expired', 'cancelled', 'pending') NOT NULL DEFAULT 'pending',
+    version        INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
     created_by     BIGINT UNSIGNED NULL,
     created_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -184,6 +190,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     KEY idx_contracts_contract_template_mx_id (contract_template_mx_id),
     KEY idx_contracts_facturar (facturar),
     KEY idx_contracts_status (status),
+    KEY idx_contracts_client_status (client_id, status),
     CONSTRAINT fk_contracts_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_contracts_plan FOREIGN KEY (plan_id)
@@ -347,6 +354,8 @@ CREATE TABLE IF NOT EXISTS tickets (
     KEY idx_tickets_assigned_to (assigned_to),
     KEY idx_tickets_status (status),
     KEY idx_tickets_priority (priority),
+    KEY idx_tickets_client_status (client_id, status, created_at DESC),
+    KEY idx_tickets_assigned_status (assigned_to, status),
     CONSTRAINT fk_tickets_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_tickets_contract FOREIGN KEY (contract_id)
@@ -373,6 +382,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     notes          TEXT            NULL,
     status         ENUM('draft', 'sent', 'paid', 'overdue', 'cancelled') NOT NULL DEFAULT 'draft',
     paid_at        TIMESTAMP       NULL,
+    version        INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
     created_by     BIGINT UNSIGNED NULL,
     created_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -383,6 +393,8 @@ CREATE TABLE IF NOT EXISTS invoices (
     KEY idx_invoices_contract_id (contract_id),
     KEY idx_invoices_status (status),
     KEY idx_invoices_due_date (due_date),
+    KEY idx_invoices_client_created (client_id, created_at DESC),
+    KEY idx_invoices_status_due (status, due_date),
     CONSTRAINT fk_invoices_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_invoices_contract FOREIGN KEY (contract_id)
@@ -411,6 +423,7 @@ CREATE TABLE IF NOT EXISTS payments (
     clabe            VARCHAR(18)     NULL COMMENT '18-digit CLABE interbank key — required for SPEI and CoDi transactions',
     bank_name        VARCHAR(100)    NULL COMMENT 'Bank name for SPEI / CoDi transactions',
     notes            TEXT            NULL,
+    version          INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
     recorded_by      BIGINT UNSIGNED NULL,
     created_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -419,6 +432,7 @@ CREATE TABLE IF NOT EXISTS payments (
     KEY idx_payments_client_id (client_id),
     KEY idx_payments_invoice_id (invoice_id),
     KEY idx_payments_payment_date (payment_date),
+    KEY idx_payments_client_created (client_id, created_at DESC),
     CONSTRAINT fk_payments_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_payments_invoice FOREIGN KEY (invoice_id)
@@ -677,6 +691,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     PRIMARY KEY (id),
     KEY idx_audit_logs_user_id (user_id),
     KEY idx_audit_logs_entity (entity_type, entity_id),
+    KEY idx_audit_logs_entity_type_id (entity_type, entity_id, created_at DESC),
     KEY idx_audit_logs_action (action),
     KEY idx_audit_logs_created_at (created_at),
     CONSTRAINT fk_audit_logs_user FOREIGN KEY (user_id)
@@ -1874,6 +1889,7 @@ CREATE TABLE IF NOT EXISTS billing_periods (
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_billing_periods_contract_period (contract_id, period_start),
+    UNIQUE KEY uq_billing_period_contract_dates (contract_id, period_start, period_end),
     KEY idx_billing_periods_contract_id (contract_id),
     KEY idx_billing_periods_invoice_id (invoice_id),
     KEY idx_billing_periods_status (status),
@@ -4469,7 +4485,7 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
     response_body     TEXT                NULL                        COMMENT 'Response body from the target endpoint (truncated if large)',
     response_time_ms  INT UNSIGNED        NULL                        COMMENT 'Round-trip HTTP request time in milliseconds',
     attempt_number    TINYINT UNSIGNED    NOT NULL DEFAULT 1          COMMENT 'Which attempt this row represents (1 = first try)',
-    status            ENUM('pending','success','failed','retrying')
+    status            ENUM('pending','success','failed','retrying','dead_letter')
                                           NOT NULL DEFAULT 'pending'  COMMENT 'Delivery outcome status',
     next_retry_at     TIMESTAMP           NULL                        COMMENT 'Scheduled time for the next retry attempt; NULL = no retry pending',
     delivered_at      TIMESTAMP           NULL                        COMMENT 'Timestamp of a successful delivery; NULL if not yet succeeded',
@@ -4480,8 +4496,159 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
     KEY idx_webhook_deliveries_event_name (event_name),
     KEY idx_webhook_deliveries_status (status),
     KEY idx_webhook_deliveries_next_retry_at (next_retry_at),
+    KEY idx_webhook_deliveries_status_created (status, created_at),
+    KEY idx_webhook_deliveries_dead_letter (status, webhook_id),
     CONSTRAINT fk_webhook_deliveries_webhook FOREIGN KEY (webhook_id)
         REFERENCES webhooks (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: firerelay_nodes
+-- Purpose: Registry of nodes in a FireRelay cluster (migration 130)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS firerelay_nodes (
+    id              VARCHAR(64)   NOT NULL,
+    name            VARCHAR(255)  NOT NULL DEFAULT '',
+    api_url         VARCHAR(512)  NOT NULL,
+    status          ENUM('active', 'draining', 'maintenance', 'offline')
+                                NOT NULL DEFAULT 'active',
+    client_count    INT UNSIGNED  NOT NULL DEFAULT 0,
+    device_count    INT UNSIGNED  NOT NULL DEFAULT 0,
+    cpu_percent     DECIMAL(5, 2) NULL,
+    memory_percent  DECIMAL(5, 2) NULL,
+    disk_percent    DECIMAL(5, 2) NULL,
+    db_size_mb      INT UNSIGNED  NULL,
+    uptime_seconds  BIGINT UNSIGNED NULL,
+    last_seen_at    DATETIME      NULL,
+    created_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY idx_firerelay_nodes_api_url (api_url),
+    KEY idx_firerelay_nodes_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: firerelay_client_routing
+-- Purpose: Maps each client_id to owning FireRelay node (migration 131)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS firerelay_client_routing (
+    client_id   BIGINT UNSIGNED NOT NULL,
+    node_id     VARCHAR(64)     NOT NULL,
+    created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (client_id),
+    KEY idx_firerelay_client_routing_node (node_id),
+    CONSTRAINT fk_firerelay_routing_node FOREIGN KEY (node_id)
+        REFERENCES firerelay_nodes (id) ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: webhook_events
+-- Purpose: Inbound payment gateway webhook event log (migration 132)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS webhook_events (
+    id                  BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED   NULL                        COMMENT 'Resolved tenant org (NULL if not yet matched)',
+    provider            VARCHAR(50)       NOT NULL                    COMMENT 'Gateway provider name: stripe, conekta, etc.',
+    provider_event_id   VARCHAR(255)      NOT NULL                    COMMENT 'Unique event ID assigned by the provider',
+    event_type          VARCHAR(100)      NOT NULL                    COMMENT 'Provider event type, e.g. payment_intent.succeeded',
+    payload             JSON              NOT NULL                    COMMENT 'Full raw event payload from the provider',
+    status              ENUM('received', 'processing', 'processed', 'failed', 'ignored')
+                                          NOT NULL DEFAULT 'received' COMMENT 'Processing status',
+    error_message       TEXT              NULL                        COMMENT 'Error details if processing failed',
+    transaction_id      BIGINT UNSIGNED   NULL                        COMMENT 'Linked payment_transactions record after reconciliation',
+    processed_at        TIMESTAMP         NULL                        COMMENT 'When the event was fully processed',
+    created_at          TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_webhook_events_provider_event (provider, provider_event_id),
+    KEY idx_webhook_events_organization_id (organization_id),
+    KEY idx_webhook_events_status (status),
+    KEY idx_webhook_events_event_type (event_type),
+    KEY idx_webhook_events_transaction_id (transaction_id),
+    KEY idx_webhook_events_created_at (created_at),
+    CONSTRAINT fk_webhook_events_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_webhook_events_transaction FOREIGN KEY (transaction_id)
+        REFERENCES payment_transactions (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: idempotency_keys
+-- Purpose: Idempotency key cache for charge requests (migration 133)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    id                  BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+    idempotency_key     VARCHAR(255)      NOT NULL                    COMMENT 'Client-supplied unique key for the charge request',
+    organization_id     BIGINT UNSIGNED   NOT NULL                    COMMENT 'Tenant organization',
+    status              ENUM('pending', 'completed', 'failed')
+                                          NOT NULL DEFAULT 'pending'  COMMENT 'Processing status of the original request',
+    response_code       SMALLINT UNSIGNED NOT NULL DEFAULT 200        COMMENT 'HTTP status code of the cached response',
+    response_body       JSON              NOT NULL                    COMMENT 'Cached response body to return on replay',
+    expires_at          TIMESTAMP         NOT NULL                    COMMENT 'Key expiry; after this time the key may be reused',
+    created_at          TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_idempotency_keys_org_key (organization_id, idempotency_key),
+    KEY idx_idempotency_keys_expires_at (expires_at),
+    CONSTRAINT fk_idempotency_keys_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: alert_rules
+-- Purpose: Configurable monitoring alert rules per organization (migration 134)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS alert_rules (
+    id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    organization_id   BIGINT UNSIGNED NOT NULL,
+    name              VARCHAR(200)    NOT NULL,
+    description       TEXT            NULL,
+    metric            VARCHAR(50)     NOT NULL COMMENT 'cpu_usage, memory_usage, signal_strength, latency_ms, packet_loss, uptime',
+    operator          VARCHAR(5)      NOT NULL DEFAULT '>' COMMENT '>, >=, <, <=, ==',
+    threshold         DECIMAL(10, 2)  NOT NULL,
+    device_id         BIGINT UNSIGNED NULL COMMENT 'NULL = all devices',
+    duration_minutes  INT UNSIGNED    NOT NULL DEFAULT 5 COMMENT 'Evaluation window in minutes',
+    severity          ENUM('info', 'warning', 'major', 'critical') NOT NULL DEFAULT 'major',
+    auto_create_outage BOOLEAN        NOT NULL DEFAULT FALSE,
+    notification_channels JSON        NULL COMMENT '["email","sms","sse","webhook"]',
+    is_enabled        BOOLEAN         NOT NULL DEFAULT TRUE,
+    created_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    INDEX idx_alert_rules_org (organization_id),
+    INDEX idx_alert_rules_enabled (organization_id, is_enabled),
+    CONSTRAINT fk_alert_rules_org FOREIGN KEY (organization_id)
+        REFERENCES organizations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: alert_events
+-- Purpose: Triggered alert event history (migration 135)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS alert_events (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    alert_rule_id   BIGINT UNSIGNED NOT NULL,
+    organization_id BIGINT UNSIGNED NOT NULL,
+    device_id       BIGINT UNSIGNED NULL,
+    metric          VARCHAR(50)     NOT NULL,
+    current_value   DECIMAL(12, 4)  NULL,
+    threshold_value DECIMAL(12, 4)  NULL,
+    status          ENUM('triggered', 'acknowledged', 'resolved') NOT NULL DEFAULT 'triggered',
+    acknowledged_by BIGINT UNSIGNED NULL,
+    acknowledged_at TIMESTAMP       NULL,
+    resolved_at     TIMESTAMP       NULL,
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    INDEX idx_alert_events_org (organization_id, created_at),
+    INDEX idx_alert_events_rule (alert_rule_id),
+    INDEX idx_alert_events_status (organization_id, status),
+    CONSTRAINT fk_alert_events_rule FOREIGN KEY (alert_rule_id)
+        REFERENCES alert_rules(id) ON DELETE CASCADE,
+    CONSTRAINT fk_alert_events_org FOREIGN KEY (organization_id)
+        REFERENCES organizations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -5006,6 +5173,44 @@ VALUES
      'App\\Tasks\\Network\\PopulateNetworkHealthSnapshotsTask',
      'Aggregates daily device uptime, latency, and link utilization into the network_health_snapshots table.',
      '0 4 * * *', 'normal', 3, 600, TRUE);
+
+-- ---------------------------------------------------------------------------
+-- Seed: alert evaluation scheduled task (migration 138)
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO scheduled_tasks
+    (organization_id, task_name, description, cron_expression, is_enabled, priority)
+VALUES
+    (NULL,
+     'alert_evaluation',
+     'Evaluate monitoring alert rules against current SNMP metrics',
+     '*/5 * * * *',
+     TRUE,
+     'critical');
+
+-- ---------------------------------------------------------------------------
+-- Seed: recurring charge scheduled task (migration 139)
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO scheduled_tasks
+    (organization_id, task_name, description, cron_expression, is_enabled, priority)
+VALUES
+    (NULL,
+     'process_recurring_charges',
+     'Auto-charge active recurring payment profiles with pending invoices',
+     '0 7 * * *',
+     TRUE,
+     'high');
+
+-- ---------------------------------------------------------------------------
+-- Seed: data retention scheduled task (migration 145)
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO scheduled_tasks
+    (task_name, cron_expression, description, is_enabled, priority)
+VALUES
+    ('data_retention',
+     '0 3 * * *',
+     'Purge old audit logs, alert events, webhook deliveries, and expired idempotency keys',
+     TRUE,
+     'critical');
 
 -- ---------------------------------------------------------------------------
 -- ALTER: add currency to expenses (migration 124)
