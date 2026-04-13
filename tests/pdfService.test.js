@@ -138,6 +138,29 @@ describe('PDF Service', () => {
       db.query.mockResolvedValueOnce([[]]);
       await expect(pdfService.generateCreditNotePdf(999)).rejects.toThrow('Credit note not found');
     });
+
+    it('generates a credit note PDF with Spanish locale', async () => {
+      db.query
+        .mockResolvedValueOnce([[{
+          id: 2,
+          credit_note_number: 'CN-000002',
+          total: 150,
+          currency: 'MXN',
+          reason: 'Interrupción de servicio',
+          created_at: '2026-04-01',
+          first_name: 'Juan',
+          last_name: 'García',
+          email: 'juan@example.com',
+          org_name: 'Test ISP',
+        }]])
+        .mockResolvedValueOnce([[
+          { id: 1, description: 'Reembolso parcial', quantity: 1, amount: 150 },
+        ]]);
+
+      const buffer = await pdfService.generateCreditNotePdf(2, { locale: 'es' });
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
+    });
   });
 
   describe('generateQuotePdf()', () => {
@@ -171,6 +194,33 @@ describe('PDF Service', () => {
     it('throws for non-existent quote', async () => {
       db.query.mockResolvedValueOnce([[]]);
       await expect(pdfService.generateQuotePdf(999)).rejects.toThrow('Quote not found');
+    });
+
+    it('generates a quote PDF with Spanish locale', async () => {
+      db.query
+        .mockResolvedValueOnce([[{
+          id: 2,
+          quote_number: 'QT-000002',
+          subtotal: 2000,
+          tax_amount: 320,
+          total: 2320,
+          currency: 'MXN',
+          status: 'sent',
+          valid_until: '2026-06-01',
+          notes: 'Incluye instalación',
+          created_at: '2026-04-01',
+          first_name: 'Carlos',
+          last_name: 'Rodríguez',
+          email: 'carlos@example.com',
+          org_name: 'Test ISP',
+        }]])
+        .mockResolvedValueOnce([[
+          { id: 1, description: 'Internet 500 Mbps — Mensual', quantity: 12, unit_price: 166.67, amount: 2000 },
+        ]]);
+
+      const buffer = await pdfService.generateQuotePdf(2, { locale: 'es' });
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
     });
   });
 
@@ -215,6 +265,43 @@ describe('PDF Service', () => {
     it('throws for non-existent CFDI document', async () => {
       db.query.mockResolvedValueOnce([[]]);
       await expect(pdfService.generateCfdiPdf(999)).rejects.toThrow('CFDI document not found');
+    });
+
+    it('generates a CFDI PDF with Spanish locale', async () => {
+      db.query
+        .mockResolvedValueOnce([[{
+          id: 2,
+          uuid: 'xyz789-abc123-def456',
+          serie: 'B',
+          folio: '002',
+          emisor_rfc: 'TEST010101AAA',
+          emisor_nombre: 'Test ISP S.A.',
+          emisor_regimen_fiscal: '601',
+          receptor_rfc: 'GARC901010AAA',
+          receptor_nombre: 'Juan García',
+          receptor_regimen_fiscal: '612',
+          uso_cfdi: 'G03',
+          tipo_comprobante: 'I',
+          metodo_pago: 'PUE',
+          forma_pago: '03',
+          moneda: 'MXN',
+          exportacion: '01',
+          lugar_expedicion: '06600',
+          fecha_emision: '2026-04-01',
+          subtotal: 1000,
+          total: 1160,
+          sat_status: 'vigente',
+          sello_sat: 'ABCDEF1234567890ABCDEF',
+          org_name: 'Test ISP',
+          organization_id: 1,
+        }]])
+        .mockResolvedValueOnce([[
+          { id: 1, clave_prod_serv: '81161700', descripcion: 'Servicio de internet', cantidad: 1, valor_unitario: 1000, importe: 1000, objeto_imp: '02' },
+        ]]);
+
+      const buffer = await pdfService.generateCfdiPdf(2, { locale: 'es' });
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
     });
   });
 });

@@ -92,6 +92,11 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 }
 .nav-link:hover { background: rgba(255,255,255,0.05); color: #fff; }
 .nav-link.active { color: #fff; border-left-color: var(--sidebar-active); background: rgba(232,93,38,0.1); }
+.nav-section {
+  padding: 0.5rem 1.2rem 0.2rem; font-size: 0.7rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.35);
+  margin-top: 0.5rem;
+}
 .sidebar-footer {
   padding: 0.75rem 1rem; border-top: 1px solid rgba(255,255,255,0.08);
   display: flex; align-items: center; justify-content: space-between;

@@ -19,7 +19,8 @@ router.use(authenticate, orgScope);
  */
 router.get('/invoices/:id', async (req, res, next) => {
   try {
-    const buffer = await pdfService.generateInvoicePdf(parseInt(req.params.id, 10));
+    const locale = req.query.locale || 'en';
+    const buffer = await pdfService.generateInvoicePdf(parseInt(req.params.id, 10), { locale });
     res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', `attachment; filename="invoice-${req.params.id}.pdf"`);
     res.send(buffer);
@@ -34,7 +35,8 @@ router.get('/invoices/:id', async (req, res, next) => {
  */
 router.get('/credit-notes/:id', async (req, res, next) => {
   try {
-    const buffer = await pdfService.generateCreditNotePdf(parseInt(req.params.id, 10));
+    const locale = req.query.locale || 'en';
+    const buffer = await pdfService.generateCreditNotePdf(parseInt(req.params.id, 10), { locale });
     res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', `attachment; filename="credit-note-${req.params.id}.pdf"`);
     res.send(buffer);
@@ -49,7 +51,8 @@ router.get('/credit-notes/:id', async (req, res, next) => {
  */
 router.get('/quotes/:id', async (req, res, next) => {
   try {
-    const buffer = await pdfService.generateQuotePdf(parseInt(req.params.id, 10));
+    const locale = req.query.locale || 'en';
+    const buffer = await pdfService.generateQuotePdf(parseInt(req.params.id, 10), { locale });
     res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', `attachment; filename="quote-${req.params.id}.pdf"`);
     res.send(buffer);
@@ -64,7 +67,8 @@ router.get('/quotes/:id', async (req, res, next) => {
  */
 router.get('/cfdi/:id', async (req, res, next) => {
   try {
-    const buffer = await pdfService.generateCfdiPdf(parseInt(req.params.id, 10));
+    const locale = req.query.locale || 'en';
+    const buffer = await pdfService.generateCfdiPdf(parseInt(req.params.id, 10), { locale });
     res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', `attachment; filename="cfdi-${req.params.id}.pdf"`);
     res.send(buffer);
