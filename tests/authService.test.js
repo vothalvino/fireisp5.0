@@ -15,6 +15,7 @@ jest.mock('bcryptjs', () => ({
   compare: jest.fn(),
 }));
 
+const crypto = require('crypto');
 const db = require('../src/config/database');
 const bcrypt = require('bcryptjs');
 const authService = require('../src/services/authService');
@@ -110,6 +111,62 @@ describe('authService', () => {
       expect(db.query).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO organization_users'),
         [42, 5, 'admin'],
+      );
+    });
+
+    test('uses default role "support" when no role provided', async () => {
+      const newUser = { id: 6, first_name: 'Bob', last_name: 'Brown', email: 'bob@example.com', role: 'support', status: 'active' };
+
+      db.query
+        .mockResolvedValueOnce([[]])   // findByEmail
+        .mockResolvedValueOnce([{ insertId: 6 }])  // INSERT
+        .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]]);
+
+      await authService.register({
+        firstName: 'Bob', lastName: 'Brown',
+        email: 'bob@example.com', password: 'password123',
+      });
+
+      // Verify the INSERT was called with 'support' as default role
+      const insertCall = db.query.mock.calls[1];
+      expect(insertCall[1]).toContain('support');
+    });
+
+    test('does not create organization_users when no organizationId', async () => {
+      const newUser = { id: 7, first_name: 'No', last_name: 'Org', email: 'no@org.com', role: 'support', status: 'active' };
+
+      db.query
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([{ insertId: 7 }])
+        .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]]);
+
+      await authService.register({
+        firstName: 'No', lastName: 'Org',
+        email: 'no@org.com', password: 'password123',
+      });
+
+      // Should only be 3 db.query calls (findByEmail, INSERT user, findById)
+      expect(db.query).toHaveBeenCalledTimes(3);
+    });
+
+    test('uses "readonly" role for org membership when role not provided', async () => {
+      const newUser = { id: 8, first_name: 'Def', last_name: 'Role', email: 'def@role.com', role: 'support', status: 'active' };
+
+      db.query
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([{ insertId: 8 }])
+        .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]])
+        .mockResolvedValueOnce([{ insertId: 1 }]);  // org_users INSERT
+
+      await authService.register({
+        firstName: 'Def', lastName: 'Role',
+        email: 'def@role.com', password: 'password123',
+        organizationId: 10,
+      });
+
+      expect(db.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO organization_users'),
+        [10, 8, 'readonly'],
       );
     });
   });
@@ -272,6 +329,210 @@ describe('authService', () => {
         [1],
       );
     });
+
+    test('token contains expected claims', async () => {
+      const jwt = require('jsonwebtoken');
+      const user = {
+        id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',
+        status: 'active', role: 'admin', organization_id: 42,
+        failed_login_attempts: 0, locked_until: null,
+      };
+
+      db.query
+        .mockResolvedValueOnce([[user]])  // findByEmail
+        .mockResolvedValueOnce([])  // UPDATE last_login_at
+        .mockResolvedValueOnce([[{ id: 42 }]])  // getOrganizations
+        .mockResolvedValueOnce([]);  // INSERT user_sessions
+
+      bcrypt.compare.mockResolvedValueOnce(true);
+
+      const result = await authService.login({ email: 'john@example.com', password: 'correct' });
+      const decoded = jwt.decode(result.token);
+
+      expect(decoded.sub).toBe(1);
+      expect(decoded.email).toBe('john@example.com');
+      expect(decoded.role).toBe('admin');
+      expect(decoded.orgId).toBe(42);
+      expect(decoded.exp).toBeDefined();
+    });
+
+    test('session is recorded with token hash', async () => {
+      const user = {
+        id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',
+        status: 'active', role: 'admin', organization_id: 42,
+        failed_login_attempts: 0, locked_until: null,
+      };
+
+      db.query
+        .mockResolvedValueOnce([[user]])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([]);
+
+      bcrypt.compare.mockResolvedValueOnce(true);
+
+      const result = await authService.login({ email: 'john@example.com', password: 'correct' });
+
+      // Verify INSERT user_sessions was called
+      const sessionInsert = db.query.mock.calls.find(c => c[0].includes('INSERT INTO user_sessions'));
+      expect(sessionInsert).toBeDefined();
+
+      // Verify the token hash matches
+      const expectedHash = crypto.createHash('sha256').update(result.token).digest('hex');
+      expect(sessionInsert[1][1]).toBe(expectedHash);
+    });
+
+    test('returns organizations list from login', async () => {
+      const user = {
+        id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',
+        status: 'active', role: 'admin', organization_id: 42,
+        failed_login_attempts: 0, locked_until: null,
+      };
+      const orgs = [{ id: 42, name: 'ISP Corp' }, { id: 43, name: 'Second Org' }];
+
+      db.query
+        .mockResolvedValueOnce([[user]])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([orgs])  // getOrganizations
+        .mockResolvedValueOnce([]);
+
+      bcrypt.compare.mockResolvedValueOnce(true);
+
+      const result = await authService.login({ email: 'john@example.com', password: 'correct' });
+      expect(result.organizations).toBeDefined();
+    });
+
+    test('does not skip reset when failed_login_attempts is 0', async () => {
+      const user = {
+        id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',
+        status: 'active', role: 'admin', organization_id: 42,
+        failed_login_attempts: 0, locked_until: null,
+      };
+
+      db.query
+        .mockResolvedValueOnce([[user]])  // findByEmail
+        .mockResolvedValueOnce([])  // UPDATE last_login_at
+        .mockResolvedValueOnce([[]])  // getOrganizations
+        .mockResolvedValueOnce([]);  // INSERT user_sessions
+
+      bcrypt.compare.mockResolvedValueOnce(true);
+
+      await authService.login({ email: 'john@example.com', password: 'correct' });
+
+      // Should NOT have called the reset query since failed_login_attempts is 0
+      const resetCall = db.query.mock.calls.find(c =>
+        typeof c[0] === 'string' && c[0].includes('failed_login_attempts = 0'),
+      );
+      expect(resetCall).toBeUndefined();
+    });
+  });
+
+  // =========================================================================
+  // refreshToken
+  // =========================================================================
+  describe('refreshToken', () => {
+    test('issues a new token for valid session', async () => {
+      const jwt = require('jsonwebtoken');
+      const config = require('../src/config');
+
+      // Create a real token for testing
+      const originalToken = jwt.sign(
+        { sub: 1, email: 'john@example.com', role: 'admin', orgId: 42 },
+        config.jwt.secret,
+        { expiresIn: '1h' },
+      );
+
+      const oldHash = crypto.createHash('sha256').update(originalToken).digest('hex');
+
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, token_hash: oldHash, user_id: 1 }]])  // session exists
+        .mockResolvedValueOnce([[{ id: 1, email: 'john@example.com', role: 'admin', status: 'active' }]])  // findById
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // DELETE old session
+        .mockResolvedValueOnce([{ insertId: 1 }]);  // INSERT new session
+
+      const result = await authService.refreshToken(originalToken);
+
+      expect(result.token).toBeDefined();
+      expect(result.token).not.toBe(originalToken); // new token
+    });
+
+    test('throws for invalid token', async () => {
+      await expect(
+        authService.refreshToken('invalid.jwt.token'),
+      ).rejects.toThrow('Invalid token');
+    });
+
+    test('throws when session no longer exists', async () => {
+      const jwt = require('jsonwebtoken');
+      const config = require('../src/config');
+
+      const token = jwt.sign(
+        { sub: 1, email: 'john@example.com', role: 'admin', orgId: 42 },
+        config.jwt.secret,
+        { expiresIn: '1h' },
+      );
+
+      db.query.mockResolvedValueOnce([[]]);  // session lookup returns empty
+
+      await expect(
+        authService.refreshToken(token),
+      ).rejects.toThrow('Session expired or revoked');
+    });
+
+    test('throws when user is inactive', async () => {
+      const jwt = require('jsonwebtoken');
+      const config = require('../src/config');
+
+      const token = jwt.sign(
+        { sub: 1, email: 'john@example.com', role: 'admin', orgId: 42 },
+        config.jwt.secret,
+        { expiresIn: '1h' },
+      );
+
+      const oldHash = crypto.createHash('sha256').update(token).digest('hex');
+
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, token_hash: oldHash, user_id: 1 }]])  // session found
+        .mockResolvedValueOnce([[{ id: 1, email: 'john@example.com', status: 'inactive' }]]);  // findById — inactive
+
+      await expect(
+        authService.refreshToken(token),
+      ).rejects.toThrow('User not found or inactive');
+    });
+
+    test('rotates session: deletes old hash, creates new hash', async () => {
+      const jwt = require('jsonwebtoken');
+      const config = require('../src/config');
+
+      const token = jwt.sign(
+        { sub: 1, email: 'john@example.com', role: 'admin', orgId: 42 },
+        config.jwt.secret,
+        { expiresIn: '1h' },
+      );
+
+      const oldHash = crypto.createHash('sha256').update(token).digest('hex');
+
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, token_hash: oldHash, user_id: 1 }]])
+        .mockResolvedValueOnce([[{ id: 1, email: 'john@example.com', role: 'admin', status: 'active' }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])   // DELETE old
+        .mockResolvedValueOnce([{ insertId: 2 }]);       // INSERT new
+
+      await authService.refreshToken(token);
+
+      // Verify DELETE was called with old hash
+      const deleteCall = db.query.mock.calls.find(c =>
+        typeof c[0] === 'string' && c[0].includes('DELETE FROM user_sessions WHERE token_hash'),
+      );
+      expect(deleteCall).toBeDefined();
+      expect(deleteCall[1]).toContain(oldHash);
+
+      // Verify INSERT was called for new session
+      const insertCall = db.query.mock.calls.find(c =>
+        typeof c[0] === 'string' && c[0].includes('INSERT INTO user_sessions'),
+      );
+      expect(insertCall).toBeDefined();
+    });
   });
 
   // =========================================================================
@@ -293,6 +554,19 @@ describe('authService', () => {
       db.query.mockResolvedValueOnce([{ affectedRows: 0 }]);
 
       await expect(authService.logout('expired-token')).resolves.not.toThrow();
+    });
+
+    test('uses SHA-256 hash of token for lookup', async () => {
+      db.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+      const token = 'test-jwt-token-123';
+      const expectedHash = crypto.createHash('sha256').update(token).digest('hex');
+
+      await authService.logout(token);
+
+      expect(db.query).toHaveBeenCalledWith(
+        expect.stringContaining('DELETE FROM user_sessions'),
+        [expectedHash],
+      );
     });
   });
 
@@ -340,6 +614,32 @@ describe('authService', () => {
       await expect(
         authService.changePassword(1, 'current', 'short'),
       ).rejects.toThrow('New password must be at least 8 characters');
+    });
+
+    test('throws when user not found', async () => {
+      db.query.mockResolvedValueOnce([[]]);
+
+      await expect(
+        authService.changePassword(999, 'current', 'newsecurepass'),
+      ).rejects.toThrow('User not found');
+    });
+
+    test('hashes new password with bcrypt', async () => {
+      const user = {
+        id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',
+        status: 'active',
+      };
+
+      db.query
+        .mockResolvedValueOnce([[user]])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      bcrypt.compare.mockResolvedValueOnce(true);
+
+      await authService.changePassword(1, 'currentpass', 'newpassword123');
+
+      expect(bcrypt.hash).toHaveBeenCalledWith('newpassword123', 12);
     });
   });
 });
