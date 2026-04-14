@@ -12,6 +12,7 @@ require('dotenv').config();
 const bcrypt = require('bcryptjs');
 const mysql = require('mysql2/promise');
 const db = require('../config/database');
+const logger = require('../utils/logger').child({ script: 'seed' });
 
 async function seed() {
   const pool = mysql.createPool({
@@ -26,14 +27,14 @@ async function seed() {
     conn = await pool.getConnection();
 
     // 1. Organization
-    console.log('  Seeding organization...');
+    logger.info('Seeding organization...');
     await conn.execute(`
       INSERT IGNORE INTO organizations (id, name, slug, locale, country, currency, status)
       VALUES (1, 'Demo ISP', 'demo-isp', 'global', 'US', 'USD', 'active')
     `);
 
     // 2. Admin user (password: admin123!)
-    console.log('  Seeding admin user...');
+    logger.info('Seeding admin user...');
     const passwordHash = await bcrypt.hash('admin123!', 12);
     await conn.execute(`
       INSERT IGNORE INTO users (id, first_name, last_name, email, password_hash, role, organization_id, status)
@@ -47,7 +48,7 @@ async function seed() {
     `);
 
     // 3. Sites
-    console.log('  Seeding sites...');
+    logger.info('Seeding sites...');
     await conn.execute(`
       INSERT IGNORE INTO sites (id, organization_id, name, address, city, state, zip_code, country, status)
       VALUES
@@ -56,7 +57,7 @@ async function seed() {
     `);
 
     // 4. Plans
-    console.log('  Seeding plans...');
+    logger.info('Seeding plans...');
     await conn.execute(`
       INSERT IGNORE INTO plans (id, organization_id, name, download_speed, upload_speed, price, currency, billing_cycle, status)
       VALUES
@@ -67,7 +68,7 @@ async function seed() {
     `);
 
     // 5. Clients
-    console.log('  Seeding clients...');
+    logger.info('Seeding clients...');
     await conn.execute(`
       INSERT IGNORE INTO clients (id, organization_id, first_name, last_name, email, phone, client_type, status, city, state, country)
       VALUES
@@ -79,7 +80,7 @@ async function seed() {
     `);
 
     // 6. Contracts
-    console.log('  Seeding contracts...');
+    logger.info('Seeding contracts...');
     await conn.execute(`
       INSERT IGNORE INTO contracts (id, organization_id, client_id, plan_id, site_id, start_date, status, connection_type)
       VALUES
@@ -91,7 +92,7 @@ async function seed() {
     `);
 
     // 7. Devices
-    console.log('  Seeding devices...');
+    logger.info('Seeding devices...');
     await conn.execute(`
       INSERT IGNORE INTO devices (id, organization_id, site_id, name, ip_address, type, status, snmp_enabled)
       VALUES
@@ -102,7 +103,7 @@ async function seed() {
     `);
 
     // 8. NAS (RADIUS)
-    console.log('  Seeding NAS...');
+    logger.info('Seeding NAS...');
     await conn.execute(`
       INSERT IGNORE INTO nas (id, organization_id, name, ip_address, secret, type, coa_port, status)
       VALUES
@@ -110,7 +111,7 @@ async function seed() {
     `);
 
     // 9. A couple of tickets
-    console.log('  Seeding tickets...');
+    logger.info('Seeding tickets...');
     await conn.execute(`
       INSERT IGNORE INTO tickets (id, organization_id, client_id, subject, description, status, priority)
       VALUES
@@ -118,11 +119,8 @@ async function seed() {
         (2, 1, 3, 'New office connection', 'Need to set up a second connection at the new Acme Corp office', 'open', 'medium')
     `);
 
-    console.log('  ✓ Seed data inserted successfully.');
-    console.log('');
-    console.log('  Demo credentials:');
-    console.log('    Email:    admin@demo-isp.com');
-    console.log('    Password: admin123!');
+    logger.info('Seed data inserted successfully.');
+    logger.info({ email: 'admin@demo-isp.com', password: 'admin123!' }, 'Demo credentials');
   } finally {
     if (conn) conn.release();
     await pool.end();
@@ -132,14 +130,14 @@ async function seed() {
 
 // Run when invoked directly
 if (require.main === module) {
-  console.log('FireISP 5.0 — Seeding development data...');
+  logger.info('FireISP 5.0 — Seeding development data...');
   seed()
     .then(() => {
-      console.log('Done.');
+      logger.info('Done.');
       process.exit(0);
     })
     .catch(err => {
-      console.error('Seed failed:', err.message);
+      logger.error({ err }, 'Seed failed');
       process.exit(1);
     });
 }

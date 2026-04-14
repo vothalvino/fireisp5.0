@@ -8,6 +8,8 @@ const { Router } = require('express');
 const db = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const bulkSchemas = require('../middleware/schemas/bulk');
 const logger = require('../utils/logger');
 const eventBus = require('../services/eventBus');
 
@@ -19,7 +21,7 @@ router.use(authenticate);
 // ---------------------------------------------------------------------------
 // POST /bulk/invoices/generate — Mass-generate invoices
 // ---------------------------------------------------------------------------
-router.post('/invoices/generate', requirePermission('invoices.create'), async (req, res, next) => {
+router.post('/invoices/generate', requirePermission('invoices.create'), validate(bulkSchemas.generateInvoices), async (req, res, next) => {
   try {
     const orgId = req.orgId;
     const { contract_ids } = req.body;
@@ -61,7 +63,7 @@ router.post('/invoices/generate', requirePermission('invoices.create'), async (r
 // ---------------------------------------------------------------------------
 // POST /bulk/suspend — Mass-suspend contracts
 // ---------------------------------------------------------------------------
-router.post('/suspend', requirePermission('contracts.update'), async (req, res, next) => {
+router.post('/suspend', requirePermission('contracts.update'), validate(bulkSchemas.suspend), async (req, res, next) => {
   try {
     const orgId = req.orgId;
     const { contract_ids, reason } = req.body;
@@ -103,17 +105,13 @@ router.post('/suspend', requirePermission('contracts.update'), async (req, res, 
 // ---------------------------------------------------------------------------
 // POST /bulk/email — Mass-send emails to clients
 // ---------------------------------------------------------------------------
-router.post('/email', requirePermission('clients.view'), async (req, res, next) => {
+router.post('/email', requirePermission('clients.view'), validate(bulkSchemas.email), async (req, res, next) => {
   try {
     const orgId = req.orgId;
     const { client_ids, subject, body } = req.body;
 
     if (!Array.isArray(client_ids) || client_ids.length === 0) {
       return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'client_ids array is required' } });
-    }
-
-    if (!subject || !body) {
-      return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'subject and body are required' } });
     }
 
     if (client_ids.length > 1000) {
@@ -136,6 +134,7 @@ router.post('/email', requirePermission('clients.view'), async (req, res, next) 
         clientId: client.id,
         email: client.email,
         subject,
+        body,
       });
     }
 

@@ -8,13 +8,14 @@
 
 const fs = require('fs');
 const path = require('path');
+const logger = require('../utils/logger').child({ script: 'postman' });
 
 const OPENAPI_PATH = path.resolve(__dirname, '../../docs/openapi.json');
 const OUTPUT_PATH = path.resolve(__dirname, '../../docs/postman-collection.json');
 
 function main() {
   if (!fs.existsSync(OPENAPI_PATH)) {
-    console.error('Error: docs/openapi.json not found. Run `npm run openapi` first.');
+    logger.error('Error: docs/openapi.json not found. Run `npm run openapi` first.');
     process.exit(1);
   }
 
@@ -22,8 +23,7 @@ function main() {
   const collection = convertToPostman(spec);
 
   fs.writeFileSync(OUTPUT_PATH, JSON.stringify(collection, null, 2));
-  console.log(`Postman collection written to ${OUTPUT_PATH}`);
-  console.log(`  ${collection.item.length} folders, ${countRequests(collection)} requests`);
+  logger.info({ outputPath: OUTPUT_PATH, folders: collection.item.length, requests: countRequests(collection) }, 'Postman collection written');
 }
 
 function convertToPostman(spec) {

@@ -14,6 +14,7 @@ require('dotenv').config();
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const logger = require('../utils/logger').child({ script: 'backup' });
 
 const BACKUP_DIR = path.resolve(__dirname, '../../storage/backups');
 const MAX_BACKUPS = parseInt(process.env.BACKUP_RETENTION || '7', 10);
@@ -34,7 +35,7 @@ function backup() {
   const filename = `${database}_${timestamp}.sql.gz`;
   const filepath = path.join(BACKUP_DIR, filename);
 
-  console.log(`  Creating backup: ${filename}`);
+  logger.info({ filename }, 'Creating backup');
 
   // Build mysqldump command — pipe through gzip for compression
   const dumpCmd = [
@@ -54,9 +55,9 @@ function backup() {
   try {
     execSync(dumpCmd, { stdio: 'pipe', shell: true });
     const stats = fs.statSync(filepath);
-    console.log(`  ✓ Backup created: ${filename} (${(stats.size / 1024).toFixed(1)} KB)`);
+    logger.info({ filename, sizeKB: (stats.size / 1024).toFixed(1) }, 'Backup created');
   } catch (err) {
-    console.error(`  ✗ Backup failed: ${err.message}`);
+    logger.error({ err }, 'Backup failed');
     // Clean up partial file
     if (fs.existsSync(filepath)) {
       fs.unlinkSync(filepath);
@@ -83,17 +84,17 @@ function rotate() {
     for (const file of toRemove) {
       const fp = path.join(BACKUP_DIR, file);
       fs.unlinkSync(fp);
-      console.log(`  Rotated: ${file}`);
+      logger.info({ file }, 'Rotated backup');
     }
   }
 }
 
 // Run when invoked directly
 if (require.main === module) {
-  console.log('FireISP 5.0 — Creating database backup...');
+  logger.info('FireISP 5.0 — Creating database backup...');
   try {
     backup();
-    console.log('Done.');
+    logger.info('Done.');
     process.exit(0);
   } catch (_err) {
     process.exit(1);

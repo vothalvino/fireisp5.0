@@ -5,6 +5,7 @@
 // =============================================================================
 
 const db = require('../config/database');
+const logger = require('../utils/logger');
 
 /**
  * Log an audit event.
@@ -35,7 +36,7 @@ async function log({ userId, organizationId, action, tableName, recordId, oldVal
     );
   } catch (err) {
     // Audit logging should never crash the request
-    console.error('Audit log error:', err.message);
+    logger.error({ err }, 'Audit log error');
   }
 }
 

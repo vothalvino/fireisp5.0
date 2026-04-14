@@ -9,6 +9,7 @@ const cron = require('node-cron');
 const db = require('../config/database');
 const taskRunner = require('./taskRunner');
 const cacheService = require('./cacheService');
+const logger = require('../utils/logger').child({ service: 'scheduler' });
 
 const jobs = new Map();
 
@@ -63,7 +64,7 @@ async function start() {
     schedule(task);
   }
 
-  console.log(`  ✓ Scheduler started (${tasks.length} tasks loaded)`);
+  logger.info({ taskCount: tasks.length }, 'Scheduler started');
 }
 
 /**
@@ -71,7 +72,7 @@ async function start() {
  */
 function schedule(task) {
   if (!cron.validate(task.cron_expression)) {
-    console.warn(`  ⚠ Invalid cron expression for task "${task.task_name}": ${task.cron_expression}`);
+    logger.warn({ taskName: task.task_name, cronExpression: task.cron_expression }, 'Invalid cron expression for task');
     return;
   }
 
@@ -91,7 +92,7 @@ function schedule(task) {
       await taskRunner.runTask(task.task_name, task.organization_id);
       await taskRunner.markTaskRun(task.task_name);
     } catch (err) {
-      console.error(`  ✗ Scheduler error on task "${task.task_name}":`, err.message);
+      logger.error({ err, taskName: task.task_name }, 'Scheduler error on task');
       await db.query(
         'UPDATE scheduled_tasks SET last_status = ? WHERE id = ?',
         ['failed', task.id],
@@ -112,7 +113,7 @@ function stop() {
     job.stop();
   }
   jobs.clear();
-  console.log('  ✓ Scheduler stopped');
+  logger.info('Scheduler stopped');
 }
 
 /**
