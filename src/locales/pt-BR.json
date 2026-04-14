@@ -1,0 +1,63 @@
+{
+  "errors": {
+    "not_found": "Recurso não encontrado",
+    "unauthorized": "Autenticação necessária",
+    "forbidden": "Você não tem permissão para realizar esta ação",
+    "validation": "Falha na validação",
+    "conflict": "Já existe um registro com esse valor",
+    "rate_limited": "Muitas solicitações, tente novamente mais tarde",
+    "internal": "Erro interno do servidor",
+    "db_rule_violation": "Violação de regra do banco de dados",
+    "fk_violation": "O registro referenciado não existe"
+  },
+  "auth": {
+    "login_success": "Login realizado com sucesso",
+    "logout_success": "Sessão encerrada com sucesso",
+    "register_success": "Registro realizado com sucesso",
+    "password_reset_sent": "E-mail de redefinição de senha enviado",
+    "password_reset_success": "Senha redefinida com sucesso",
+    "password_changed": "Senha alterada com sucesso",
+    "email_verified": "E-mail verificado com sucesso",
+    "invalid_credentials": "E-mail ou senha inválidos",
+    "token_expired": "O token expirou",
+    "token_invalid": "Token inválido"
+  },
+  "billing": {
+    "invoice_generated": "Fatura {{invoiceNumber}} gerada com sucesso",
+    "payment_received": "Pagamento de {{amount}} recebido",
+    "invoice_overdue": "A fatura {{invoiceNumber}} está vencida",
+    "credit_note_issued": "Nota de crédito emitida no valor de {{amount}}"
+  },
+  "suspension": {
+    "warning": "Seu serviço pode ser suspenso devido a saldo em atraso",
+    "suspended": "Seu serviço foi suspenso",
+    "restored": "Seu serviço foi restabelecido",
+    "disconnected": "Seu serviço foi desconectado"
+  },
+  "notifications": {
+    "new_ticket": "Novo chamado de suporte #{{ticketId}} criado",
+    "ticket_updated": "O chamado #{{ticketId}} foi atualizado",
+    "outage_reported": "Interrupção de serviço reportada: {{title}}",
+    "outage_resolved": "Interrupção de serviço resolvida: {{title}}",
+    "payment_confirmed": "Pagamento de {{amount}} confirmado",
+    "invoice_ready": "Nova fatura {{invoiceNumber}} está pronta"
+  },
+  "webhooks": {
+    "signature_invalid": "Assinatura de webhook inválida",
+    "event_duplicate": "Evento duplicado {{eventId}} — já foi processado",
+    "event_processed": "Evento de webhook {{eventId}} processado com sucesso",
+    "provider_unknown": "Provedor de webhook desconhecido",
+    "gateway_not_found": "Nenhum gateway de pagamento encontrado para este webhook"
+  },
+  "payments": {
+    "idempotency_conflict": "Uma solicitação com esta chave de idempotência já está sendo processada",
+    "idempotency_replayed": "Resposta em cache reproduzida para chave de idempotência"
+  },
+  "common": {
+    "created": "Criado com sucesso",
+    "updated": "Atualizado com sucesso",
+    "deleted": "Excluído com sucesso",
+    "exported": "Exportação concluída",
+    "imported": "Importação concluída"
+  }
+}
