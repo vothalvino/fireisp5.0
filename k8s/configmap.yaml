@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fireisp-config
+  namespace: fireisp
+  labels:
+    app.kubernetes.io/name: fireisp
+    app.kubernetes.io/component: config
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  LOG_LEVEL: "info"
+
+  # Rate limiting
+  RATE_LIMIT_API: "200"
+  RATE_LIMIT_AUTH: "20"
+  RATE_LIMIT_EXPORT: "20"
+  RATE_LIMIT_SSE: "10"
+  RATE_LIMIT_WEBHOOK: "100"
+
+  # Request timeout (ms)
+  REQUEST_TIMEOUT_MS: "30000"
+
+  # Feature flags — set to "true" or "false"
+  FEATURE_CFDI: "true"
+  FEATURE_RADIUS: "true"
+  FEATURE_2FA: "true"
+  FEATURE_WEBHOOKS: "true"
+  FEATURE_SNMP: "true"
+
+  # FireRelay — standalone for single-node deployments
+  FIRERELAY_MODE: "standalone"

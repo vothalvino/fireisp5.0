@@ -4,7 +4,7 @@
 // Each page is a function: (container, ...params) => void
 // =============================================================================
 
-/* global document, API, Router */
+/* global document, alert, confirm, API, Router */
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -987,6 +987,374 @@ const networkLinksPage = crudListPage('/network-links', [
 ], { entityName: 'network links' });
 
 // ---------------------------------------------------------------------------
+// Suspension Management
+// ---------------------------------------------------------------------------
+const suspensionRulesPage = crudListPage('/suspension/rules', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'grace_period_days', label: 'Grace Period (days)' },
+  { key: 'auto_suspend', label: 'Auto Suspend', render: val => val ? '✅ Yes' : '❌ No' },
+  { key: 'auto_reconnect', label: 'Auto Reconnect', render: val => val ? '✅ Yes' : '❌ No' },
+  { key: 'enabled', label: 'Enabled', render: val => val ? '✅ Enabled' : '❌ Disabled' },
+], { entityName: 'suspension rules' });
+
+const suspensionLogsPage = crudListPage('/suspension/logs', [
+  { key: 'id', label: 'ID' },
+  { key: 'contract_id', label: 'Contract' },
+  { key: 'action', label: 'Action', badge: true },
+  { key: 'reason', label: 'Reason' },
+  { key: 'created_at', label: 'Date', date: true },
+], { entityName: 'suspension logs', searchable: true });
+
+// ---------------------------------------------------------------------------
+// Billing & Reports
+// ---------------------------------------------------------------------------
+const billingPage = crudListPage('/billing/periods', [
+  { key: 'id', label: 'ID' },
+  { key: 'start_date', label: 'Start', date: true },
+  { key: 'end_date', label: 'End', date: true },
+  { key: 'status', label: 'Status', badge: true },
+  { key: 'invoice_count', label: 'Invoices' },
+  { key: 'total', label: 'Total', money: true },
+], { entityName: 'billing periods' });
+
+const revenueSummaryPage = crudListPage('/revenue-summary', [
+  { key: 'id', label: 'ID' },
+  { key: 'period', label: 'Period' },
+  { key: 'total_revenue', label: 'Revenue', money: true },
+  { key: 'total_collected', label: 'Collected', money: true },
+  { key: 'outstanding', label: 'Outstanding', money: true },
+  { key: 'currency', label: 'Currency' },
+], { entityName: 'revenue summaries' });
+
+async function reportsPage(container) {
+  container.innerHTML = loading();
+  try {
+    const [aging, summary] = await Promise.all([
+      API.get('/reports/aging').catch(() => ({ data: [] })),
+      API.get('/reports/financial-summary').catch(() => ({ data: {} })),
+    ]);
+    const ar = Array.isArray(aging.data) ? aging.data : [];
+    const fs = summary.data || {};
+    container.innerHTML = `
+      <div class="detail-grid">
+        <div class="card">
+          <div class="card-header"><h3>Financial Summary</h3></div>
+          <div class="detail-group">
+            <div class="detail-label">Total Revenue</div>
+            <div class="detail-value">${money(fs.total_revenue)}</div>
+          </div>
+          <div class="detail-group">
+            <div class="detail-label">Total Collected</div>
+            <div class="detail-value">${money(fs.total_collected)}</div>
+          </div>
+          <div class="detail-group">
+            <div class="detail-label">Outstanding</div>
+            <div class="detail-value">${money(fs.outstanding)}</div>
+          </div>
+          <div class="detail-group">
+            <div class="detail-label">Active Clients</div>
+            <div class="detail-value">${esc(fs.active_clients ?? '—')}</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Accounts Receivable Aging</h3></div>
+          ${ar.length === 0 ? emptyState('No aging data available')
+    : '<div class="table-wrap"><table><thead><tr><th>Client</th><th>Current</th><th>30 Days</th><th>60 Days</th><th>90+ Days</th></tr></thead><tbody>'
+      + ar.slice(0, 20).map(r => '<tr><td>' + esc(r.client_name || r.client_id) + '</td><td>' + money(r.current) + '</td><td>' + money(r.days_30) + '</td><td>' + money(r.days_60) + '</td><td>' + money(r.days_90_plus) + '</td></tr>').join('')
+      + '</tbody></table></div>'}
+        </div>
+      </div>`;
+  } catch (err) {
+    container.innerHTML = errorState(err.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CFDI / Mexican Compliance
+// ---------------------------------------------------------------------------
+const cfdiDocumentsPage = crudListPage('/cfdi-documents', [
+  { key: 'id', label: 'ID' },
+  { key: 'uuid', label: 'UUID' },
+  { key: 'invoice_id', label: 'Invoice' },
+  { key: 'receptor_rfc', label: 'Receptor RFC' },
+  { key: 'total', label: 'Total', money: true },
+  { key: 'status', label: 'Status', badge: true },
+  { key: 'created_at', label: 'Created', date: true },
+], { entityName: 'CFDI documents' });
+
+const facturasPublicasPage = crudListPage('/facturas-publicas', [
+  { key: 'id', label: 'ID' },
+  { key: 'invoice_number', label: 'Invoice Number' },
+  { key: 'receptor_name', label: 'Receptor' },
+  { key: 'total', label: 'Total', money: true },
+  { key: 'status', label: 'Status', badge: true },
+  { key: 'created_at', label: 'Created', date: true },
+], { entityName: 'facturas públicas' });
+
+const satCatalogsPage = crudListPage('/sat-catalogs', [
+  { key: 'id', label: 'ID' },
+  { key: 'catalog_type', label: 'Type' },
+  { key: 'code', label: 'Code' },
+  { key: 'description', label: 'Description' },
+], { entityName: 'SAT catalogs', searchable: true });
+
+const csdCertificatesPage = crudListPage('/csd-certificates', [
+  { key: 'id', label: 'ID' },
+  { key: 'certificate_number', label: 'Certificate No.' },
+  { key: 'rfc', label: 'RFC' },
+  { key: 'valid_from', label: 'Valid From', date: true },
+  { key: 'valid_to', label: 'Valid To', date: true },
+  { key: 'status', label: 'Status', badge: true },
+], { entityName: 'CSD certificates' });
+
+const pacProvidersPage = crudListPage('/pac-providers', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'provider_type', label: 'Type' },
+  { key: 'environment', label: 'Environment', badge: true },
+  { key: 'status', label: 'Status', badge: true },
+], { entityName: 'PAC providers' });
+
+// ---------------------------------------------------------------------------
+// Network / RADIUS
+// ---------------------------------------------------------------------------
+const nasPage = crudListPage('/nas', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'ip_address', label: 'IP Address' },
+  { key: 'type', label: 'Type' },
+  { key: 'coa_port', label: 'CoA Port' },
+  { key: 'status', label: 'Status', badge: true },
+], {
+  entityName: 'NAS devices',
+  createFields: [
+    { key: 'name', label: 'Name', required: true },
+    { key: 'ip_address', label: 'IP Address', required: true },
+    { key: 'secret', label: 'Secret', required: true },
+    { key: 'type', label: 'Type' },
+  ],
+});
+
+const radiusPage = crudListPage('/radius', [
+  { key: 'id', label: 'ID' },
+  { key: 'username', label: 'Username' },
+  { key: 'contract_id', label: 'Contract' },
+  { key: 'nas_id', label: 'NAS' },
+  { key: 'ip_address', label: 'IP Address' },
+  { key: 'status', label: 'Status', badge: true },
+], { entityName: 'RADIUS accounts' });
+
+const connectionLogsPage = crudListPage('/connection-logs', [
+  { key: 'id', label: 'ID' },
+  { key: 'username', label: 'Username' },
+  { key: 'ip_address', label: 'IP Address' },
+  { key: 'nas_ip', label: 'NAS IP' },
+  { key: 'bytes_in', label: 'Bytes In' },
+  { key: 'bytes_out', label: 'Bytes Out' },
+  { key: 'session_time', label: 'Session Time' },
+  { key: 'created_at', label: 'Date', date: true },
+], { entityName: 'connection logs', searchable: true });
+
+const speedTestsPage = crudListPage('/speed-tests', [
+  { key: 'id', label: 'ID' },
+  { key: 'contract_id', label: 'Contract' },
+  { key: 'download_mbps', label: 'Download (Mbps)' },
+  { key: 'upload_mbps', label: 'Upload (Mbps)' },
+  { key: 'latency_ms', label: 'Latency (ms)' },
+  { key: 'created_at', label: 'Date', date: true },
+], { entityName: 'speed tests' });
+
+const vlansPage = crudListPage('/vlans', [
+  { key: 'id', label: 'ID' },
+  { key: 'vlan_id', label: 'VLAN ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'description', label: 'Description' },
+  { key: 'status', label: 'Status', badge: true },
+], {
+  entityName: 'VLANs',
+  createFields: [
+    { key: 'vlan_id', label: 'VLAN ID', required: true, type: 'number' },
+    { key: 'name', label: 'Name', required: true },
+    { key: 'description', label: 'Description' },
+  ],
+});
+
+const ipAssignmentsPage = crudListPage('/ip-assignments', [
+  { key: 'id', label: 'ID' },
+  { key: 'ip_address', label: 'IP Address' },
+  { key: 'pool_id', label: 'Pool' },
+  { key: 'contract_id', label: 'Contract' },
+  { key: 'status', label: 'Status', badge: true },
+  { key: 'assigned_at', label: 'Assigned', date: true },
+], { entityName: 'IP assignments' });
+
+// ---------------------------------------------------------------------------
+// Payment Gateways & Recurring
+// ---------------------------------------------------------------------------
+const paymentGatewaysPage = crudListPage('/payment-gateways', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'provider', label: 'Provider' },
+  { key: 'environment', label: 'Environment', badge: true },
+  { key: 'status', label: 'Status', badge: true },
+], { entityName: 'payment gateways' });
+
+const paymentTransactionsPage = crudListPage('/payment-transactions', [
+  { key: 'id', label: 'ID' },
+  { key: 'gateway_id', label: 'Gateway' },
+  { key: 'amount', label: 'Amount', money: true },
+  { key: 'currency', label: 'Currency' },
+  { key: 'gateway_status', label: 'Status', badge: true },
+  { key: 'created_at', label: 'Date', date: true },
+], { entityName: 'payment transactions' });
+
+const recurringPaymentProfilesPage = crudListPage('/recurring-payment-profiles', [
+  { key: 'id', label: 'ID' },
+  { key: 'client_id', label: 'Client' },
+  { key: 'gateway_id', label: 'Gateway' },
+  { key: 'amount', label: 'Amount', money: true },
+  { key: 'frequency', label: 'Frequency' },
+  { key: 'next_charge_date', label: 'Next Charge', date: true },
+  { key: 'status', label: 'Status', badge: true },
+], { entityName: 'recurring payment profiles' });
+
+// ---------------------------------------------------------------------------
+// Admin / API Tokens / 2FA / Service Areas
+// ---------------------------------------------------------------------------
+const apiTokensPage = crudListPage('/api-tokens', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'scopes', label: 'Scopes' },
+  { key: 'last_used_at', label: 'Last Used', date: true },
+  { key: 'expires_at', label: 'Expires', date: true },
+], {
+  entityName: 'API tokens',
+  createFields: [
+    { key: 'name', label: 'Name', required: true },
+    { key: 'scopes', label: 'Scopes' },
+  ],
+});
+
+async function twoFactorPage(container) {
+  container.innerHTML = loading();
+  try {
+    const res = await API.get('/2fa/status');
+    const status = res.data || {};
+    container.innerHTML = `
+      <div class="card" style="max-width:600px">
+        <div class="card-header"><h3>Two-Factor Authentication</h3></div>
+        <div class="detail-group">
+          <div class="detail-label">Status</div>
+          <div class="detail-value">${status.enabled ? '<span class="badge badge-success">Enabled</span>' : '<span class="badge badge-warning">Disabled</span>'}</div>
+        </div>
+        ${!status.enabled ? `
+          <p style="margin:1rem 0;color:var(--text-muted)">Enable 2FA to add an extra layer of security to your account.</p>
+          <button class="btn btn-primary" id="enable-2fa-btn">Enable 2FA</button>
+        ` : `
+          <p style="margin:1rem 0;color:var(--text-muted)">Two-factor authentication is active on your account.</p>
+          <button class="btn btn-danger" id="disable-2fa-btn">Disable 2FA</button>
+        `}
+      </div>`;
+    const enableBtn = document.getElementById('enable-2fa-btn');
+    if (enableBtn) {
+      enableBtn.addEventListener('click', async () => {
+        try {
+          const setupRes = await API.post('/2fa/setup');
+          const d = setupRes.data || {};
+          container.innerHTML = '<div class="card" style="max-width:600px">' +
+            '<div class="card-header"><h3>Set Up 2FA</h3></div>' +
+            '<p>Scan this QR code with your authenticator app, then enter the verification code below.</p>' +
+            '<p style="word-break:break-all;font-family:monospace;font-size:0.85rem;background:var(--bg-secondary);padding:0.5rem;border-radius:4px">' + esc(d.otpauth_url || d.secret) + '</p>' +
+            '<form id="verify-2fa-form" style="margin-top:1rem">' +
+            '<div class="form-group"><label>Verification Code</label><input type="text" id="totp-code" required maxlength="6" pattern="[0-9]{6}" placeholder="000000"></div>' +
+            '<p id="verify-error" class="error-text"></p>' +
+            '<button type="submit" class="btn btn-primary">Verify & Enable</button>' +
+            '</form></div>';
+          document.getElementById('verify-2fa-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const code = document.getElementById('totp-code').value;
+            try {
+              await API.post('/2fa/verify', { token: code });
+              twoFactorPage(container);
+            } catch (err) {
+              document.getElementById('verify-error').textContent = err.message || 'Invalid code';
+            }
+          });
+        } catch (err) {
+          container.innerHTML = errorState(err.message);
+        }
+      });
+    }
+    const disableBtn = document.getElementById('disable-2fa-btn');
+    if (disableBtn) {
+      disableBtn.addEventListener('click', async () => {
+        if (confirm('Are you sure you want to disable 2FA?')) {
+          try {
+            await API.delete('/2fa');
+            twoFactorPage(container);
+          } catch (err) {
+            alert('Failed to disable 2FA: ' + (err.message || 'Unknown error'));
+          }
+        }
+      });
+    }
+  } catch (err) {
+    container.innerHTML = errorState(err.message);
+  }
+}
+
+const serviceAreasPage = crudListPage('/service-areas', [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'description', label: 'Description' },
+  { key: 'status', label: 'Status', badge: true },
+], {
+  entityName: 'service areas',
+  createFields: [
+    { key: 'name', label: 'Name', required: true },
+    { key: 'description', label: 'Description', type: 'textarea' },
+  ],
+});
+
+// ---------------------------------------------------------------------------
+// Regulatory / IFT
+// ---------------------------------------------------------------------------
+const concessionTitlesPage = crudListPage('/concession-titles', [
+  { key: 'id', label: 'ID' },
+  { key: 'title_number', label: 'Title Number' },
+  { key: 'title_type', label: 'Type' },
+  { key: 'issued_date', label: 'Issued', date: true },
+  { key: 'expiry_date', label: 'Expires', date: true },
+  { key: 'status', label: 'Status', badge: true },
+], { entityName: 'concession titles' });
+
+const regulatoryFilingsPage = crudListPage('/regulatory-filings', [
+  { key: 'id', label: 'ID' },
+  { key: 'filing_type', label: 'Type' },
+  { key: 'period', label: 'Period' },
+  { key: 'submitted_at', label: 'Submitted', date: true },
+  { key: 'status', label: 'Status', badge: true },
+], { entityName: 'regulatory filings' });
+
+const iftReportsPage = crudListPage('/ift-statistical-reports', [
+  { key: 'id', label: 'ID' },
+  { key: 'report_type', label: 'Type' },
+  { key: 'period', label: 'Period' },
+  { key: 'subscriber_count', label: 'Subscribers' },
+  { key: 'status', label: 'Status', badge: true },
+  { key: 'created_at', label: 'Created', date: true },
+], { entityName: 'IFT reports' });
+
+const deviceConfigBackupsPage = crudListPage('/device-config-backups', [
+  { key: 'id', label: 'ID' },
+  { key: 'device_id', label: 'Device' },
+  { key: 'backup_type', label: 'Type' },
+  { key: 'file_size', label: 'Size' },
+  { key: 'created_at', label: 'Created', date: true },
+], { entityName: 'device config backups' });
+
+// ---------------------------------------------------------------------------
 // Register all pages
 // ---------------------------------------------------------------------------
 Router.register('dashboard', dashboardPage);
@@ -1019,3 +1387,29 @@ Router.register('scheduled-tasks', scheduledTasksPage);
 Router.register('alerts/rules', alertRulesPage);
 Router.register('coverage-zones', coverageZonesPage);
 Router.register('network-links', networkLinksPage);
+Router.register('suspension/rules', suspensionRulesPage);
+Router.register('suspension/logs', suspensionLogsPage);
+Router.register('billing', billingPage);
+Router.register('revenue-summary', revenueSummaryPage);
+Router.register('reports', reportsPage);
+Router.register('cfdi-documents', cfdiDocumentsPage);
+Router.register('facturas-publicas', facturasPublicasPage);
+Router.register('sat-catalogs', satCatalogsPage);
+Router.register('csd-certificates', csdCertificatesPage);
+Router.register('pac-providers', pacProvidersPage);
+Router.register('nas', nasPage);
+Router.register('radius', radiusPage);
+Router.register('connection-logs', connectionLogsPage);
+Router.register('speed-tests', speedTestsPage);
+Router.register('vlans', vlansPage);
+Router.register('ip-assignments', ipAssignmentsPage);
+Router.register('payment-gateways', paymentGatewaysPage);
+Router.register('payment-transactions', paymentTransactionsPage);
+Router.register('recurring-profiles', recurringPaymentProfilesPage);
+Router.register('api-tokens', apiTokensPage);
+Router.register('two-factor', twoFactorPage);
+Router.register('service-areas', serviceAreasPage);
+Router.register('concession-titles', concessionTitlesPage);
+Router.register('regulatory-filings', regulatoryFilingsPage);
+Router.register('ift-reports', iftReportsPage);
+Router.register('device-config-backups', deviceConfigBackupsPage);
