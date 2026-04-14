@@ -23,7 +23,7 @@
 │  │  JWT + Refresh Rotation │ TOTP 2FA │ RBAC Permissions       │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                     │
-│  ┌──────────────────── API Routes (68 files) ──────────────────┐   │
+│  ┌──────────────────── API Routes (69 files) ──────────────────┐   │
 │  │ /api/v1/auth      /api/v1/clients     /api/v1/invoices      │   │
 │  │ /api/v1/contracts  /api/v1/payments    /api/v1/tickets       │   │
 │  │ /api/v1/devices    /api/v1/billing     /api/v1/cfdi          │   │
@@ -61,9 +61,9 @@
 │                       Data Layer                                    │
 │                                                                     │
 │  ┌────────────────┐  ┌──────────────┐  ┌───────────────────────┐   │
-│  │  MySQL 8.0     │  │   Models     │  │  Migrations (136+)    │   │
+│  │  MySQL 8.0     │  │   Models     │  │  Migrations (150)     │   │
 │  │  (mysql2 pool) │  │  BaseModel   │  │  Triggers & Events    │   │
-│  │                │  │  50+ entities│  │  Stored Procedures    │   │
+│  │                │  │  89 entities │  │  Stored Procedures    │   │
 │  └────────────────┘  └──────────────┘  └───────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -155,6 +155,52 @@ Record alert_event
             ▼
         Emit "outage.reported"
 ```
+
+## Circuit Breaker Pattern
+
+External service calls (RADIUS, payment gateways, PAC stamping) are wrapped in
+a reusable circuit breaker (`src/utils/circuitBreaker.js`) that prevents
+cascading failures when a downstream service is unavailable.
+
+```
+                 ┌──────────┐
+        success  │  CLOSED  │  request passes through
+        ◄────────│ (normal) │────────►  external call
+                 └────┬─────┘
+                      │ failure count ≥ threshold (5)
+                      ▼
+                 ┌──────────┐
+        fail     │   OPEN   │  requests fail instantly
+        fast ◄───│ (tripped)│  (no external call made)
+                 └────┬─────┘
+                      │ cooldown expires (60 s)
+                      ▼
+                 ┌──────────────┐
+                 │  HALF-OPEN   │  one probe request allowed
+                 │  (testing)   │──► success → CLOSED
+                 └──────┬───────┘──► failure → OPEN
+                        │
+```
+
+**Configuration** (per-breaker, set at creation time):
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `threshold` | 5 | Consecutive failures before tripping |
+| `cooldownMs` | 60 000 | Milliseconds to wait before probing |
+
+**Usage in services:**
+
+| Service | Breaker Instance | Protects |
+|---------|-----------------|----------|
+| `radiusService` | `radiusCircuitBreaker` | RADIUS CoA / Disconnect-Request |
+| `paymentGatewayService` | `paymentCircuitBreaker` | Stripe / Conekta / OpenPay calls |
+| `cfdiService` | `cfdiCircuitBreaker` | PAC stamping (Finkok, SW Sapien) |
+| `firerelayService` | per-node breaker | Fan-out requests to relay nodes |
+
+When a breaker trips, the service logs a warning and returns a structured error
+(`CIRCUIT_OPEN`) so callers can handle the outage gracefully (e.g., retry later,
+queue for background processing).
 
 ## Key Design Decisions
 

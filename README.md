@@ -65,7 +65,7 @@ fireisp5.0/
 │   └── backups/             # System database and config backups
 ├── docs/                    # Project documentation (API guide, architecture, deployment, etc.)
 ├── public/                  # Public web assets (CSS, JS, images)
-├── tests/                   # Automated tests (60 test files, 1,162 Jest tests)
+├── tests/                   # Automated tests (65 test files, 1,361 Jest tests)
 ├── LICENSE
 └── README.md
 ```
