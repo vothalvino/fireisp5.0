@@ -29,8 +29,12 @@ An open source ISP (Internet Service Provider) management software designed to h
 - Geographic service areas and coverage zones with WGS 84 boundary polygons
 - Speed test recording from client portal, technician tools, automated probes, and external services
 - IFT/CRT regulatory compliance — concession titles, periodic filings, statistical reports, and registered contract templates (Carta de Adhesión)
-- Internationalization (i18n) — English and Spanish locale support
+- Internationalization (i18n) — English, Spanish, and Brazilian Portuguese locale support
 - RESTful API with 184 endpoints, interactive Swagger UI documentation (`/api/docs`), and static OpenAPI spec (`docs/openapi.json`)
+- Kubernetes-ready health probes — `/health/live` (liveness), `/health/ready` (readiness with DB + Redis checks), `/health?detail=true` (detailed)
+- CSP nonce-based inline style protection (per-request nonce replaces `unsafe-inline`)
+- API versioning with deprecation headers (`Deprecation`, `Sunset`, `Link`) on unversioned `/api/` routes
+- IETF draft-7 `RateLimit-*` response headers for API consumers
 - Optimistic concurrency control on critical financial records (invoices, contracts, payments, clients)
 - Default application settings seeded on install (currency, SMTP, SNMP, security, automation flags)
 - Default tax rates seeded on install (Tax Exempt, Standard 8%, IVA 16% MX, GST 5% CA)
@@ -48,12 +52,12 @@ fireisp5.0/
 │   ├── server.js            # HTTP server entry point
 │   ├── config/              # App configuration and environment settings
 │   ├── controllers/         # Request handlers / route controllers
-│   ├── locales/             # i18n translation files (en.json, es.json)
+│   ├── locales/             # i18n translation files (en.json, es.json, pt-BR.json)
 │   ├── middleware/           # Authentication, logging, validation, and request middleware
 │   │   └── schemas/         # Joi / Zod validation schemas per route
 │   ├── models/              # Data models / ORM entities (89 models)
 │   ├── routes/              # Route definitions (69 route files)
-│   ├── scripts/             # CLI scripts (migrate, seed, backup, admin, openapi)
+│   ├── scripts/             # CLI scripts (migrate, seed, backup, admin, openapi, postman)
 │   ├── services/            # Business logic layer (25 services)
 │   ├── utils/               # Shared helpers (errors, logger, i18n, circuit breaker, OpenAPI)
 │   └── views/               # Email templates (HTML builders for transactional emails)
@@ -65,7 +69,7 @@ fireisp5.0/
 │   └── backups/             # System database and config backups
 ├── docs/                    # Project documentation (API guide, architecture, deployment, etc.)
 ├── public/                  # Public web assets (CSS, JS, images)
-├── tests/                   # Automated tests (65 test files, 1,361 Jest tests)
+├── tests/                   # Automated tests (65 test files, 1,363 Jest tests)
 ├── LICENSE
 └── README.md
 ```

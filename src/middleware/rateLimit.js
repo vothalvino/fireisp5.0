@@ -21,7 +21,7 @@ const RATE_LIMITED_BODY = (msg) => ({
 const makeLimiter = (max, msg) => rateLimit({
   windowMs: rl.windowMs,
   max,
-  standardHeaders: true,
+  standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: RATE_LIMITED_BODY(msg),
 });

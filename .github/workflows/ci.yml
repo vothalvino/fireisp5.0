@@ -66,6 +66,21 @@ jobs:
           echo "Found $MIGRATION_COUNT migrations"
           test "$MIGRATION_COUNT" -ge 100
 
+      - name: Check migration numbering integrity
+        if: matrix.node-version == 22
+        run: |
+          # Verify migrations are sequentially numbered with no gaps
+          EXPECTED=1
+          for f in $(ls database/migrations/*.sql | sort); do
+            NUM=$(basename "$f" | sed 's/^0*//' | sed 's/_.*//')
+            if [ "$NUM" != "$EXPECTED" ]; then
+              echo "ERROR: Expected migration $EXPECTED but found $NUM ($f)"
+              exit 1
+            fi
+            EXPECTED=$((EXPECTED + 1))
+          done
+          echo "All $((EXPECTED - 1)) migrations are sequentially numbered — no gaps"
+
   database-tests:
     runs-on: ubuntu-latest
 
@@ -104,10 +119,29 @@ jobs:
           done
           echo "All SQL tests passed"
 
+      - name: Verify migrations produce expected table count
+        run: |
+          # Create a fresh database and apply all migrations sequentially
+          mysql -h 127.0.0.1 -u root -pfireisp_test -e "CREATE DATABASE IF NOT EXISTS fireisp_migrate_test;"
+          for f in $(ls database/migrations/*.sql | sort); do
+            mysql -h 127.0.0.1 -u root -pfireisp_test fireisp_migrate_test < "$f"
+          done
+          # Count tables and compare to schema.sql
+          SCHEMA_TABLES=$(grep -c "CREATE TABLE" database/schema.sql)
+          MIGRATED_TABLES=$(mysql -h 127.0.0.1 -u root -pfireisp_test -N -e \
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='fireisp_migrate_test' AND table_type='BASE TABLE';")
+          echo "schema.sql declares $SCHEMA_TABLES tables, migrations created $MIGRATED_TABLES tables"
+          if [ "$MIGRATED_TABLES" -lt "$SCHEMA_TABLES" ]; then
+            echo "WARNING: Migration table count ($MIGRATED_TABLES) is less than schema.sql ($SCHEMA_TABLES)"
+          fi
+
   docker-build:
     runs-on: ubuntu-latest
     needs: lint-and-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - uses: actions/checkout@v4
@@ -126,3 +160,19 @@ jobs:
             fireisp:${{ github.sha }} || true
           sleep 3
           docker stop fireisp-test 2>/dev/null || true
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push to GHCR
+        run: |
+          IMAGE=ghcr.io/${{ github.repository }}
+          IMAGE_LOWER=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          docker tag fireisp:${{ github.sha }} "$IMAGE_LOWER:${{ github.sha }}"
+          docker tag fireisp:${{ github.sha }} "$IMAGE_LOWER:latest"
+          docker push "$IMAGE_LOWER:${{ github.sha }}"
+          docker push "$IMAGE_LOWER:latest"

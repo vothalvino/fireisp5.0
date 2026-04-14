@@ -99,8 +99,31 @@ describe('validateEnv', () => {
     process.env.JWT_SECRET = 'a-very-long-secret-that-is-at-least-64-characters-long-for-hs256-validation';
     process.env.DB_HOST = 'localhost';
     process.env.DB_NAME = 'fireisp';
+    process.env.ENCRYPTION_KEY = 'a'.repeat(64);
     jest.resetModules();
     const config = require('../src/config');
     expect(() => config.validateEnv(null)).not.toThrow();
+  });
+
+  test('throws in production when ENCRYPTION_KEY is missing', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.JWT_SECRET = 'a-very-long-secret-that-is-at-least-64-characters-long-for-hs256-validation';
+    process.env.DB_HOST = 'localhost';
+    process.env.DB_NAME = 'fireisp';
+    delete process.env.ENCRYPTION_KEY;
+    jest.resetModules();
+    const config = require('../src/config');
+    expect(() => config.validateEnv(null)).toThrow('ENCRYPTION_KEY');
+  });
+
+  test('warns in development when ENCRYPTION_KEY is missing', () => {
+    process.env.NODE_ENV = 'development';
+    delete process.env.ENCRYPTION_KEY;
+    jest.resetModules();
+    const config = require('../src/config');
+    const mockLogger = { warn: jest.fn() };
+    config.validateEnv(mockLogger);
+    const warnMsgs = mockLogger.warn.mock.calls.map(c => c[0]).join(' ');
+    expect(warnMsgs).toContain('ENCRYPTION_KEY');
   });
 });
