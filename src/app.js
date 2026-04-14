@@ -103,23 +103,26 @@ app.use((_req, res, next) => {
 
 app.use((req, res, next) => {
   const nonce = res.locals.cspNonce;
-  helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", `'nonce-${nonce}'`],
-        imgSrc: ["'self'", 'data:'],
-        connectSrc: ["'self'"],
-        fontSrc: ["'self'"],
-        objectSrc: ["'none'"],
-        frameAncestors: ["'none'"],
-        baseUri: ["'self'"],
-        formAction: ["'self'"],
-      },
+  helmet.contentSecurityPolicy({
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", `'nonce-${nonce}'`],
+      imgSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
     },
   })(req, res, next);
 });
+
+// Apply all other Helmet protections once (not per-request)
+app.use(helmet({
+  contentSecurityPolicy: false, // handled above with per-request nonce
+}));
 app.use(requestId);
 
 // Request timeout — prevent long-running requests from hanging the server

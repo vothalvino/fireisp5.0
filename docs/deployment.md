@@ -955,7 +955,9 @@ server {
     listen 443 ssl http2;
     server_name isp.example.com;
 
-    # Switch traffic by changing this line
+    # Switch traffic: edit this line to point to the desired upstream group
+    # (fireisp_blue or fireisp_green), then reload Nginx with:
+    #   sudo nginx -t && sudo systemctl reload nginx
     set $backend fireisp_green;
 
     location / {

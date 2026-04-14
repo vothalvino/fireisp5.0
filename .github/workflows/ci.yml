@@ -72,7 +72,7 @@ jobs:
           # Verify migrations are sequentially numbered with no gaps
           EXPECTED=1
           for f in $(ls database/migrations/*.sql | sort); do
-            NUM=$(basename "$f" | grep -oP '^\d+' | sed 's/^0*//')
+            NUM=$(basename "$f" | sed 's/^0*//' | sed 's/_.*//')
             if [ "$NUM" != "$EXPECTED" ]; then
               echo "ERROR: Expected migration $EXPECTED but found $NUM ($f)"
               exit 1
