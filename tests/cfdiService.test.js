@@ -10,7 +10,12 @@ const db = require('../src/config/database');
 const cfdiService = require('../src/services/cfdiService');
 
 describe('cfdiService', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // Reset circuit breaker state
+    cfdiService.circuitBreaker.failures = 0;
+    cfdiService.circuitBreaker.lastFailure = 0;
+  });
 
   // =========================================================================
   // escapeXml
@@ -34,6 +39,89 @@ describe('cfdiService', () => {
 
     test('converts numbers to string', () => {
       expect(cfdiService.escapeXml(123)).toBe('123');
+    });
+
+    test('handles null/undefined by converting to string', () => {
+      expect(cfdiService.escapeXml(null)).toBe('null');
+      expect(cfdiService.escapeXml(undefined)).toBe('undefined');
+    });
+
+    test('escapes multiple special characters in one string', () => {
+      expect(cfdiService.escapeXml('A & B < C > D "E" \'F\''))
+        .toBe('A &amp; B &lt; C &gt; D &quot;E&quot; &apos;F&apos;');
+    });
+
+    test('leaves plain text unchanged', () => {
+      expect(cfdiService.escapeXml('No special chars here')).toBe('No special chars here');
+    });
+  });
+
+  // =========================================================================
+  // buildCfdi40Xml
+  // =========================================================================
+  describe('buildCfdi40Xml()', () => {
+    test('builds valid CFDI 4.0 XML structure', () => {
+      const doc = {
+        serie: 'A', folio: '001', fecha_emision: '2026-01-15T12:00:00Z',
+        forma_pago: '01', metodo_pago: 'PUE', tipo_comprobante: 'I',
+        exportacion: '01', lugar_expedicion: '64000', moneda: 'MXN',
+        subtotal: '500.00', total: '580.00',
+        emisor_rfc: 'XAXX010101000', emisor_nombre: 'Test SA', emisor_regimen_fiscal: '601',
+        receptor_rfc: 'XBXX020202000', receptor_nombre: 'Client', receptor_domicilio_fiscal: '64000',
+        receptor_regimen_fiscal: '616', uso_cfdi: 'G03',
+      };
+
+      const xml = cfdiService.buildCfdi40Xml(doc, [], []);
+      expect(xml).toContain('Version="4.0"');
+      expect(xml).toContain('Serie="A"');
+      expect(xml).toContain('Folio="001"');
+      expect(xml).toContain('Rfc="XAXX010101000"');
+      expect(xml).toContain('Rfc="XBXX020202000"');
+      expect(xml).toContain('<cfdi:Conceptos>');
+    });
+
+    test('includes concepto elements with taxes', () => {
+      const doc = { serie: 'B', moneda: 'MXN', subtotal: '500', total: '580',
+        emisor_rfc: 'X', emisor_nombre: 'E', receptor_rfc: 'Y', receptor_nombre: 'R' };
+      const concepto = { id: 10, clave_prod_serv: '81161700', cantidad: 1,
+        clave_unidad: 'E48', descripcion: 'Internet', valor_unitario: '500', importe: '500', objeto_imp: '02' };
+      const impuesto = { cfdi_concepto_id: 10, tax_type: 'traslado', base: '500',
+        impuesto: '002', tipo_factor: 'Tasa', tasa_o_cuota: '0.16', importe: '80' };
+
+      const xml = cfdiService.buildCfdi40Xml(doc, [concepto], [impuesto]);
+      expect(xml).toContain('<cfdi:Concepto');
+      expect(xml).toContain('Descripcion="Internet"');
+      expect(xml).toContain('<cfdi:Traslado');
+    });
+
+    test('handles concepto without taxes', () => {
+      const doc = { serie: 'C', moneda: 'MXN', subtotal: '100', total: '100',
+        emisor_rfc: 'X', emisor_nombre: 'E', receptor_rfc: 'Y', receptor_nombre: 'R' };
+      const concepto = { id: 20, clave_prod_serv: '43231500', cantidad: 1,
+        clave_unidad: 'E48', descripcion: 'Service', valor_unitario: '100', importe: '100', objeto_imp: '01' };
+
+      const xml = cfdiService.buildCfdi40Xml(doc, [concepto], []);
+      expect(xml).toContain('Descripcion="Service"');
+      expect(xml).not.toContain('<cfdi:Traslado');
+    });
+
+    test('handles empty fields with defaults', () => {
+      const doc = {};  // All fields undefined
+
+      const xml = cfdiService.buildCfdi40Xml(doc, [], []);
+      expect(xml).toContain('Version="4.0"');
+      expect(xml).toContain('TipoDeComprobante="I"');  // default
+      expect(xml).toContain('Moneda="MXN"');  // default
+    });
+
+    test('escapes special XML characters in doc fields', () => {
+      const doc = { serie: 'A&B', folio: '<1>', emisor_rfc: 'RFC', emisor_nombre: 'Corp "Test"',
+        receptor_rfc: 'R', receptor_nombre: 'R' };
+
+      const xml = cfdiService.buildCfdi40Xml(doc, [], []);
+      expect(xml).toContain('Serie="A&amp;B"');
+      expect(xml).toContain('Folio="&lt;1&gt;"');
+      expect(xml).toContain('Nombre="Corp &quot;Test&quot;"');
     });
   });
 
@@ -93,6 +181,49 @@ describe('cfdiService', () => {
       const result = await cfdiService.generateXml(2);
       expect(result.xml).toContain('<cfdi:Conceptos>');
     });
+
+    test('stores generated XML in database with draft status', async () => {
+      const doc = { id: 3, serie: 'C', moneda: 'MXN', subtotal: '100', total: '100',
+        emisor_rfc: 'X', emisor_nombre: 'E', receptor_rfc: 'Y', receptor_nombre: 'R' };
+
+      db.query
+        .mockResolvedValueOnce([[doc]])
+        .mockResolvedValueOnce([[]])     // no conceptos
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE
+
+      await cfdiService.generateXml(3);
+
+      const updateCall = db.query.mock.calls[2];
+      expect(updateCall[0]).toContain('UPDATE cfdi_documents SET xml_content');
+      expect(updateCall[1][1]).toBe('draft');  // sat_status = draft
+      expect(updateCall[1][2]).toBe(3);        // cfdiDocumentId
+    });
+
+    test('generates XML with multiple conceptos', async () => {
+      const doc = { id: 4, serie: 'D', moneda: 'MXN', subtotal: '800', total: '928',
+        emisor_rfc: 'X', emisor_nombre: 'E', receptor_rfc: 'Y', receptor_nombre: 'R' };
+      const c1 = { id: 10, clave_prod_serv: '81161700', cantidad: 1, clave_unidad: 'E48',
+        descripcion: 'Internet', valor_unitario: '500', importe: '500', objeto_imp: '02' };
+      const c2 = { id: 11, clave_prod_serv: '43231500', cantidad: 1, clave_unidad: 'E48',
+        descripcion: 'Installation', valor_unitario: '300', importe: '300', objeto_imp: '02' };
+      const tax1 = { cfdi_concepto_id: 10, tax_type: 'traslado', base: '500', impuesto: '002',
+        tipo_factor: 'Tasa', tasa_o_cuota: '0.16', importe: '80' };
+      const tax2 = { cfdi_concepto_id: 11, tax_type: 'traslado', base: '300', impuesto: '002',
+        tipo_factor: 'Tasa', tasa_o_cuota: '0.16', importe: '48' };
+
+      db.query
+        .mockResolvedValueOnce([[doc]])
+        .mockResolvedValueOnce([[c1, c2]])
+        .mockResolvedValueOnce([[tax1, tax2]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      const result = await cfdiService.generateXml(4);
+      expect(result.xml).toContain('Internet');
+      expect(result.xml).toContain('Installation');
+      // Two Concepto elements
+      const conceptoMatches = result.xml.match(/<cfdi:Concepto /g);
+      expect(conceptoMatches).toHaveLength(2);
+    });
   });
 
   // =========================================================================
@@ -101,7 +232,7 @@ describe('cfdiService', () => {
   describe('stamp()', () => {
     test('stamps a document with generated UUID', async () => {
       const doc = { id: 1, organization_id: 42, xml_content: '<cfdi>...</cfdi>' };
-      const pac = { id: 1, provider: 'finkok', status: 'active' };
+      const pac = { id: 1, provider_name: 'dev_placeholder', status: 'active', environment: 'sandbox' };
 
       db.query
         .mockResolvedValueOnce([[doc]])   // SELECT document
@@ -131,6 +262,68 @@ describe('cfdiService', () => {
         .mockResolvedValueOnce([[doc]])
         .mockResolvedValueOnce([[]]);
       await expect(cfdiService.stamp(1)).rejects.toThrow('No active PAC provider');
+    });
+
+    test('records stamp_error status on failure', async () => {
+      const doc = { id: 1, organization_id: 42, xml_content: '<cfdi/>' };
+      const pac = { id: 1, provider_name: 'finkok', status: 'active', environment: 'sandbox' };
+
+      // Mock callPacStamp to fail (httpRequest will throw since there's no network)
+      // We'll mock the internal behavior by making all three retry attempts fail
+      db.query
+        .mockResolvedValueOnce([[doc]])   // SELECT document
+        .mockResolvedValueOnce([[pac]])   // SELECT pac_providers
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);  // UPDATE stamp_error
+
+      // The stamp function will try callPacStamp which calls httpRequest
+      // which will fail because there's no actual network. This tests the retry path.
+      const result = cfdiService.stamp(1);
+      await expect(result).rejects.toThrow(/PAC stamping failed/);
+
+      // Verify stamp_error was recorded
+      const lastQueryCall = db.query.mock.calls[db.query.mock.calls.length - 1];
+      expect(lastQueryCall[1]).toContain('stamp_error');
+    }, 30000);
+
+    test('rejects when circuit breaker is open', async () => {
+      // Open the circuit breaker
+      for (let i = 0; i < cfdiService.circuitBreaker.threshold; i++) {
+        cfdiService.circuitBreaker.recordFailure();
+      }
+
+      await expect(cfdiService.stamp(1)).rejects.toThrow('circuit breaker is open');
+    });
+  });
+
+  // =========================================================================
+  // callPacStamp
+  // =========================================================================
+  describe('callPacStamp()', () => {
+    test('uses placeholder UUID for unknown provider in non-production', () => {
+      const origEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'test';
+
+      const pac = { provider_name: 'unknown_pac', environment: 'sandbox' };
+      const promise = cfdiService.callPacStamp(pac, '<cfdi/>');
+
+      return promise.then(result => {
+        expect(result.uuid).toBeDefined();
+        expect(result.uuid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/); // UUID format
+        expect(result.signedXml).toBeNull();
+        process.env.NODE_ENV = origEnv;
+      });
+    });
+
+    test('throws for unknown provider in production', async () => {
+      const origEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+
+      const pac = { provider_name: 'unknown_pac', environment: 'production' };
+
+      await expect(cfdiService.callPacStamp(pac, '<cfdi/>'))
+        .rejects.toThrow('not a supported stamping service');
+
+      process.env.NODE_ENV = origEnv;
     });
   });
 
@@ -172,6 +365,76 @@ describe('cfdiService', () => {
 
       const insertCall = db.query.mock.calls[1];
       expect(insertCall[1]).toContain('REPLACE-UUID-123');
+    });
+
+    test('stores cancellation with null replacement when not provided', async () => {
+      const doc = { id: 1, organization_id: 42, sat_status: 'vigente' };
+      db.query
+        .mockResolvedValueOnce([[doc]])
+        .mockResolvedValueOnce([{ insertId: 3 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      await cfdiService.cancel(1, '02');
+
+      const insertCall = db.query.mock.calls[1];
+      expect(insertCall[1]).toContain(null); // replacementUuid default
+    });
+
+    test('returns correct cfdi_document_id in result', async () => {
+      const doc = { id: 77, organization_id: 42, sat_status: 'vigente' };
+      db.query
+        .mockResolvedValueOnce([[doc]])
+        .mockResolvedValueOnce([{ insertId: 4 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      const result = await cfdiService.cancel(77, '03');
+      expect(result.cfdi_document_id).toBe(77);
+    });
+
+    test('throws for draft documents', async () => {
+      const doc = { id: 1, sat_status: 'draft' };
+      db.query.mockResolvedValueOnce([[doc]]);
+      await expect(cfdiService.cancel(1, '01')).rejects.toThrow('Can only cancel vigente documents');
+    });
+
+    test('throws for stamp_error documents', async () => {
+      const doc = { id: 1, sat_status: 'stamp_error' };
+      db.query.mockResolvedValueOnce([[doc]]);
+      await expect(cfdiService.cancel(1, '01')).rejects.toThrow('Can only cancel vigente documents');
+    });
+  });
+
+  // =========================================================================
+  // httpRequest
+  // =========================================================================
+  describe('httpRequest()', () => {
+    test('is exported and callable', () => {
+      expect(typeof cfdiService.httpRequest).toBe('function');
+    });
+  });
+
+  // =========================================================================
+  // Circuit Breaker state
+  // =========================================================================
+  describe('circuitBreaker state', () => {
+    test('starts with 0 failures', () => {
+      expect(cfdiService.circuitBreaker.failures).toBe(0);
+    });
+
+    test('isOpen returns false initially', () => {
+      expect(cfdiService.circuitBreaker.isOpen()).toBe(false);
+    });
+
+    test('recordFailure increments failure count', () => {
+      cfdiService.circuitBreaker.recordFailure();
+      expect(cfdiService.circuitBreaker.failures).toBe(1);
+    });
+
+    test('recordSuccess resets failure count', () => {
+      cfdiService.circuitBreaker.recordFailure();
+      cfdiService.circuitBreaker.recordFailure();
+      cfdiService.circuitBreaker.recordSuccess();
+      expect(cfdiService.circuitBreaker.failures).toBe(0);
     });
   });
 });
