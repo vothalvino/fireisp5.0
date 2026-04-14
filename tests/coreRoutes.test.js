@@ -525,17 +525,24 @@ describe('Payment Routes — /api/payments', () => {
       const allocation = { id: 1, payment_id: 1, invoice_id: 5, amount: 578.84 };
       const invoice = { id: 5, total: 578.84, contract_id: 3, organization_id: 1 };
 
-      // Payment.allocate: INSERT → SELECT
+      // Payment.allocate uses the pool (db.query)
       db.query
         .mockResolvedValueOnce([{ insertId: 1, affectedRows: 1 }])   // INSERT allocation
-        .mockResolvedValueOnce([[allocation]])                         // SELECT allocation
-        // check if invoice is fully paid
-        .mockResolvedValueOnce([[invoice]])                            // SELECT invoice
-        .mockResolvedValueOnce([[{ total_allocated: '578.84' }]])      // SUM allocations
-        // update invoice status to 'paid'
-        .mockResolvedValueOnce([{ affectedRows: 1 }])
-        // check if contract was suspended
-        .mockResolvedValueOnce([[]]);                                  // no suspended contract
+        .mockResolvedValueOnce([[allocation]]);                        // SELECT allocation
+
+      // Transaction queries use conn.query via getConnection
+      const conn = {
+        query: jest.fn()
+          .mockResolvedValueOnce([[invoice]])                            // SELECT invoice
+          .mockResolvedValueOnce([[{ total_allocated: '578.84' }]])      // SUM allocations
+          .mockResolvedValueOnce([{ affectedRows: 1 }])                  // update invoice status
+          .mockResolvedValueOnce([[]]),                                   // no suspended contract
+        beginTransaction: jest.fn().mockResolvedValue(undefined),
+        commit: jest.fn().mockResolvedValue(undefined),
+        rollback: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn(),
+      };
+      db.getConnection.mockResolvedValue(conn);
 
       const res = await request(app)
         .post('/api/payments/1/allocate')
@@ -544,6 +551,7 @@ describe('Payment Routes — /api/payments', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.data.payment_id).toBe(1);
+      expect(conn.commit).toHaveBeenCalled();
     });
 
     test('allocates payment partially (invoice not fully paid)', async () => {
@@ -553,9 +561,18 @@ describe('Payment Routes — /api/payments', () => {
 
       db.query
         .mockResolvedValueOnce([{ insertId: 2, affectedRows: 1 }])
-        .mockResolvedValueOnce([[allocation]])
-        .mockResolvedValueOnce([[invoice]])
-        .mockResolvedValueOnce([[{ total_allocated: '200' }]]);  // partial — not enough
+        .mockResolvedValueOnce([[allocation]]);
+
+      const conn = {
+        query: jest.fn()
+          .mockResolvedValueOnce([[invoice]])
+          .mockResolvedValueOnce([[{ total_allocated: '200' }]]),  // partial — not enough
+        beginTransaction: jest.fn().mockResolvedValue(undefined),
+        commit: jest.fn().mockResolvedValue(undefined),
+        rollback: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn(),
+      };
+      db.getConnection.mockResolvedValue(conn);
 
       const res = await request(app)
         .post('/api/payments/1/allocate')
@@ -564,6 +581,7 @@ describe('Payment Routes — /api/payments', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.data.amount).toBe(200);
+      expect(conn.commit).toHaveBeenCalled();
     });
   });
 

@@ -113,7 +113,7 @@ class RedisCache {
   async close() {
     try {
       await this.client.quit();
-    } catch (_err) { /* ignore */ }
+    } catch (err) { logger.debug({ err }, 'Redis close error'); }
   }
 }
 

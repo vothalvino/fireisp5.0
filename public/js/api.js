@@ -15,12 +15,21 @@ const API = (() => {
   function orgId() { return localStorage.getItem('fireisp_org'); }
   function setOrgId(id) { localStorage.setItem('fireisp_org', id); }
 
+  function getCsrfToken() {
+    const match = document.cookie.match(/(?:^|;\s*)_csrf=([^;]*)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
   async function request(method, path, body, opts = {}) {
     const headers = { 'Content-Type': 'application/json' };
     const t = token();
     if (t) headers.Authorization = `Bearer ${t}`;
     const o = orgId();
     if (o) headers['X-Org-Id'] = o;
+    if (method !== 'GET' && method !== 'HEAD') {
+      const csrf = getCsrfToken();
+      if (csrf) headers['X-CSRF-Token'] = csrf;
+    }
     const cfg = { method, headers, ...opts };
     if (body && method !== 'GET') cfg.body = JSON.stringify(body);
 

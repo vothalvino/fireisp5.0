@@ -43,28 +43,31 @@ router.delete('/:id', requirePermission('payments.delete'), ctrl.destroy);
 
 // Allocate payment to invoice
 router.post('/:id/allocate', requirePermission('payments.create'), validate(allocatePayment), async (req, res, next) => {
+  const conn = await db.getConnection();
   try {
     const { invoice_id, amount } = req.body;
     const allocation = await Payment.allocate(req.params.id, invoice_id, amount);
 
+    await conn.beginTransaction();
+
     // Check if invoice is now fully paid
-    const [invoiceRows] = await db.query('SELECT * FROM invoices WHERE id = ?', [invoice_id]);
+    const [invoiceRows] = await conn.query('SELECT * FROM invoices WHERE id = ?', [invoice_id]);
     const invoice = invoiceRows[0];
     if (invoice) {
-      const [allocRows] = await db.query(
+      const [allocRows] = await conn.query(
         'SELECT SUM(amount) AS total_allocated FROM payment_allocations WHERE invoice_id = ?',
         [invoice_id],
       );
       const totalAllocated = parseFloat(allocRows[0].total_allocated || 0);
       if (totalAllocated >= parseFloat(invoice.total)) {
-        await db.query(
+        await conn.query(
           'UPDATE invoices SET status = ?, paid_at = NOW() WHERE id = ?',
           ['paid', invoice_id],
         );
 
         // Check if contract was suspended → reconnect
         if (invoice.contract_id) {
-          const [contractRows] = await db.query(
+          const [contractRows] = await conn.query(
             'SELECT * FROM contracts WHERE id = ? AND status = ?',
             [invoice.contract_id, 'suspended'],
           );
@@ -77,9 +80,13 @@ router.post('/:id/allocate', requirePermission('payments.create'), validate(allo
       }
     }
 
+    await conn.commit();
     res.status(201).json({ data: allocation });
   } catch (err) {
+    await conn.rollback();
     next(err);
+  } finally {
+    conn.release();
   }
 });
 

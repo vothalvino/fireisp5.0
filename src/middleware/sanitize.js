@@ -54,7 +54,28 @@ function sanitize(req, _res, next) {
   if (req.body && typeof req.body === 'object') {
     req.body = sanitizeObject(req.body);
   }
+  if (req.query && typeof req.query === 'object') {
+    req.query = sanitizeObject(req.query);
+  }
+  if (req.params && typeof req.params === 'object') {
+    req.params = sanitizeObject(req.params);
+  }
   next();
 }
 
-module.exports = { sanitize, escapeHtml, sanitizeValue, sanitizeObject };
+/**
+ * Validate that :id route parameters are positive integers.
+ */
+function validateIdParam(req, res, next) {
+  if (req.params.id !== undefined) {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        error: { code: 'INVALID_PARAMETER', message: 'ID must be a positive integer' },
+      });
+    }
+  }
+  next();
+}
+
+module.exports = { sanitize, escapeHtml, sanitizeValue, sanitizeObject, validateIdParam };

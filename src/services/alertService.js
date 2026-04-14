@@ -177,8 +177,8 @@ async function autoCreateOutage(organizationId, rule, breach) {
         `Alert: ${rule.name} — ${breach.metric} ${breach.operator} ${breach.threshold}`,
         rule.severity || 'major'],
     );
-  } catch (_err) {
-    // Best effort — don't block alert processing
+  } catch (err) {
+    logger.warn({ err, ruleId: rule.id, deviceId: breach.device_id }, 'Auto-create outage failed');
   }
 }
 

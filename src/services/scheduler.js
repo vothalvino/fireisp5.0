@@ -34,8 +34,8 @@ async function acquireLock(taskName, ttlSeconds = 300) {
     // but is sufficient for reducing duplicate runs
     await cacheService.set(key, { node: process.pid, lockedAt: Date.now() }, ttlSeconds);
     return true;
-  } catch (_err) {
-    // If cache fails, allow execution (single-node fallback)
+  } catch (err) {
+    logger.warn({ err, taskName }, 'Cache lock acquisition failed — falling back to single-node');
     return true;
   }
 }
@@ -47,8 +47,8 @@ async function releaseLock(taskName) {
   const key = `scheduler:lock:${taskName}`;
   try {
     await cacheService.del(key);
-  } catch (_err) {
-    // Best effort
+  } catch (err) {
+    logger.warn({ err, taskName }, 'Cache lock release failed');
   }
 }
 

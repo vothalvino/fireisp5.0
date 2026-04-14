@@ -35,6 +35,12 @@ spec:
             - name: http
               containerPort: 3000
               protocol: TCP
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           envFrom:
             - configMapRef:
                 name: fireisp-config
@@ -73,7 +79,12 @@ spec:
           volumeMounts:
             - name: storage
               mountPath: /app/storage
+            - name: tmp
+              mountPath: /tmp
+      serviceAccountName: fireisp
       volumes:
         - name: storage
           persistentVolumeClaim:
             claimName: fireisp-storage
+        - name: tmp
+          emptyDir: {}

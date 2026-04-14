@@ -997,8 +997,9 @@ describe('Payment Routes — /api/payments', () => {
   describe('POST /api/payments/:id/allocate', () => {
     test('success — allocates payment to invoice', async () => {
       mockAuthUser();
+      const conn = mockConnection();
       Payment.allocate.mockResolvedValue({ id: 1, payment_id: 1, invoice_id: 5, amount: '200.00' });
-      db.query
+      conn.query
         .mockResolvedValueOnce([[{ id: 5, total: '200.00', contract_id: 10 }]])
         .mockResolvedValueOnce([[{ total_allocated: '200.00' }]])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -1012,12 +1013,14 @@ describe('Payment Routes — /api/payments', () => {
 
       expect(res.status).toBe(201);
       expect(suspensionService.reconnectContract).toHaveBeenCalled();
+      expect(conn.commit).toHaveBeenCalled();
     });
 
     test('allocates without reconnect when contract is not suspended', async () => {
       mockAuthUser();
+      const conn = mockConnection();
       Payment.allocate.mockResolvedValue({ id: 1, payment_id: 1, invoice_id: 5, amount: '200.00' });
-      db.query
+      conn.query
         .mockResolvedValueOnce([[{ id: 5, total: '200.00', contract_id: 10 }]])
         .mockResolvedValueOnce([[{ total_allocated: '200.00' }]])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -1030,12 +1033,14 @@ describe('Payment Routes — /api/payments', () => {
 
       expect(res.status).toBe(201);
       expect(suspensionService.reconnectContract).not.toHaveBeenCalled();
+      expect(conn.commit).toHaveBeenCalled();
     });
 
     test('partial allocation does not mark invoice as paid', async () => {
       mockAuthUser();
+      const conn = mockConnection();
       Payment.allocate.mockResolvedValue({ id: 1, payment_id: 1, invoice_id: 5, amount: '100.00' });
-      db.query
+      conn.query
         .mockResolvedValueOnce([[{ id: 5, total: '500.00', contract_id: 10 }]])
         .mockResolvedValueOnce([[{ total_allocated: '100.00' }]]);
 
@@ -1045,6 +1050,7 @@ describe('Payment Routes — /api/payments', () => {
         .send({ invoice_id: 5, amount: 100 });
 
       expect(res.status).toBe(201);
+      expect(conn.commit).toHaveBeenCalled();
     });
   });
 

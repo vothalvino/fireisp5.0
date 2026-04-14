@@ -82,7 +82,8 @@ async function syncAllAccounts(organizationId) {
     try {
       await syncAccount(contract.id);
       synced++;
-    } catch (_err) {
+    } catch (err) {
+      logger.warn({ err, contractId: contract.id }, 'RADIUS sync failed for contract');
       errors++;
     }
   }

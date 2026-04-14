@@ -65,8 +65,8 @@ async function suspendContract(contractId, ruleId, userId, invoiceId) {
       const coaResult = await sendRadiusDisconnect(contractId);
       coaSent = coaResult.sent;
       coaResponse = coaResult.response;
-    } catch (_coaErr) {
-      // CoA failure should not block the suspension
+    } catch (coaErr) {
+      logger.warn({ err: coaErr, contractId }, 'RADIUS Disconnect-Request failed during suspension');
       coaResponse = 'CoA send failed';
     }
 
@@ -106,7 +106,8 @@ async function reconnectContract(contractId, userId, invoiceId) {
       const coaResult = await sendRadiusCoA(contractId, 'reconnect');
       coaSent = coaResult.sent;
       coaResponse = coaResult.response;
-    } catch (_coaErr) {
+    } catch (coaErr) {
+      logger.warn({ err: coaErr, contractId }, 'RADIUS CoA-Request failed during reconnection');
       coaResponse = 'CoA send failed';
     }
 

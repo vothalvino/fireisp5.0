@@ -173,6 +173,9 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: true }));
 app.use(sanitize);
+const { csrfProtection, csrfCookie } = require('./middleware/csrf');
+app.use(csrfCookie);
+app.use(csrfProtection);
 app.use(firerelay);
 app.use(requestLogger);
 app.use(metricsMiddleware);
@@ -279,6 +282,9 @@ app.get('/health/ready', async (_req, res) => {
 // API routes — build a single v1 router, mount at /api and /api/v1
 // ---------------------------------------------------------------------------
 const v1 = express.Router();
+
+const { validateIdParam } = require('./middleware/sanitize');
+v1.param('id', (req, res, next) => validateIdParam(req, res, next));
 
 v1.use('/auth', authRoutes);
 v1.use('/organizations', organizationRoutes);

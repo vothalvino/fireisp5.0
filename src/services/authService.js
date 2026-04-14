@@ -139,6 +139,7 @@ async function refreshToken(currentToken) {
   try {
     payload = jwt.verify(currentToken, config.jwt.secret, { ignoreExpiration: true });
   } catch (_err) {
+    // Intentionally generic for security
     throw new UnauthorizedError('Invalid token');
   }
 

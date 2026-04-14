@@ -6,6 +6,7 @@
 // =============================================================================
 
 const db = require('../config/database');
+const logger = require('../utils/logger').child({ service: 'taskRunner' });
 const billingService = require('./billingService');
 const suspensionService = require('./suspensionService');
 const radiusService = require('./radiusService');
@@ -91,8 +92,8 @@ async function runAutoInvoice(organizationId) {
         await billingService.generateInvoice(period, contract, plan, contract.organization_id);
         generated++;
       }
-    } catch (_err) {
-      // Skip contracts that fail (already invoiced, etc.)
+    } catch (err) {
+      logger.warn({ err, contractId: contract.id }, 'Auto-invoice generation failed for contract');
     }
   }
 
