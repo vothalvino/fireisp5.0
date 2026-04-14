@@ -80,6 +80,12 @@ function validateEnv(logger) {
     if (isProduction) errors.push(msg); else warnings.push(msg);
   }
 
+  // Encryption key: required in production for at-rest encryption of secrets
+  if (!process.env.ENCRYPTION_KEY) {
+    const msg = 'ENCRYPTION_KEY is not set — payment gateway secrets, PAC passwords, and webhook secrets will be stored in plaintext';
+    if (isProduction) errors.push(msg); else warnings.push(msg);
+  }
+
   // Database config: required in production
   const requiredDbVars = ['DB_HOST', 'DB_NAME'];
   for (const key of requiredDbVars) {

@@ -87,27 +87,39 @@ const alertRoutes = require('./routes/alerts');
 const twoFactorRoutes = require('./routes/twoFactor');
 const bulkRoutes = require('./routes/bulk');
 
+const crypto = require('crypto');
+
 const app = express();
 
 // ---------------------------------------------------------------------------
 // Global middleware
 // ---------------------------------------------------------------------------
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", 'data:'],
-      connectSrc: ["'self'"],
-      fontSrc: ["'self'"],
-      objectSrc: ["'none'"],
-      frameAncestors: ["'none'"],
-      baseUri: ["'self'"],
-      formAction: ["'self'"],
+
+// CSP nonce — generate a unique nonce per request for inline styles
+app.use((_req, res, next) => {
+  res.locals.cspNonce = crypto.randomBytes(16).toString('base64');
+  next();
+});
+
+app.use((req, res, next) => {
+  const nonce = res.locals.cspNonce;
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", `'nonce-${nonce}'`],
+        imgSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+      },
     },
-  },
-}));
+  })(req, res, next);
+});
 app.use(requestId);
 
 // Request timeout — prevent long-running requests from hanging the server
@@ -212,6 +224,54 @@ app.get('/health', async (req, res) => {
   res.status(statusCode).json(health);
 });
 
+// Liveness probe — lightweight check that the process is running
+app.get('/health/live', (_req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Readiness probe — checks that the app can serve traffic (DB + optional Redis)
+app.get('/health/ready', async (_req, res) => {
+  const checks = { db: false };
+  let ready = true;
+
+  // Database check
+  try {
+    const db = require('./config/database');
+    const t0 = Date.now();
+    await db.query('SELECT 1');
+    checks.db = { connected: true, latencyMs: Date.now() - t0 };
+  } catch (_err) {
+    checks.db = { connected: false };
+    ready = false;
+  }
+
+  // Redis check (optional — only when REDIS_URL is configured)
+  if (process.env.REDIS_URL) {
+    try {
+      const cacheService = require('./services/cacheService');
+      if (cacheService.isReady && cacheService.isReady()) {
+        checks.redis = { connected: true };
+      } else {
+        checks.redis = { connected: false };
+        ready = false;
+      }
+    } catch (_err) {
+      checks.redis = { connected: false };
+      ready = false;
+    }
+  }
+
+  const statusCode = ready ? 200 : 503;
+  res.status(statusCode).json({
+    status: ready ? 'ready' : 'not_ready',
+    checks,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // ---------------------------------------------------------------------------
 // API routes — build a single v1 router, mount at /api and /api/v1
 // ---------------------------------------------------------------------------
@@ -288,7 +348,15 @@ v1.use('/bulk', apiLimiter, bulkRoutes);
 
 // Mount v1 at both /api (backward compat) and /api/v1 (versioned)
 app.use('/api/v1', v1);
-app.use('/api', v1);
+
+// Backward-compat mount: /api routes emit a Deprecation header to nudge
+// clients toward the versioned /api/v1 prefix.
+app.use('/api', (req, res, next) => {
+  res.set('Deprecation', 'true');
+  res.set('Sunset', '2027-06-01');
+  res.set('Link', `</api/v1${req.path}>; rel="successor-version"`);
+  next();
+}, v1);
 app.use('/metrics', metricsRoutes);
 
 // ---------------------------------------------------------------------------
