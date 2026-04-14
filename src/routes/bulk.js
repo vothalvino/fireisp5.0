@@ -134,6 +134,7 @@ router.post('/email', requirePermission('clients.view'), validate(bulkSchemas.em
         clientId: client.id,
         email: client.email,
         subject,
+        body,
       });
     }
 
