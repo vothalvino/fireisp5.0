@@ -796,11 +796,21 @@ sentinel parallel-syncs fireisp-redis 1
 sentinel auth-pass fireisp-redis <redis-password>
 ```
 
-Configure the application to use Sentinel:
+Configure the application to use Sentinel. With `ioredis` (used by BullMQ), provide Sentinel configuration via environment variables:
+
+```env
+REDIS_SENTINELS=sentinel1:26379,sentinel2:26379,sentinel3:26379
+REDIS_SENTINEL_NAME=fireisp-redis
+REDIS_DB=0
+```
+
+If your Redis client library supports a Sentinel URL scheme, the format is:
 
 ```env
 REDIS_URL=redis+sentinel://sentinel1:26379,sentinel2:26379,sentinel3:26379/fireisp-redis/0
 ```
+
+> **Note:** The `redis+sentinel://` URL scheme is not universally supported. Check your client library's documentation. `ioredis` uses a structured `sentinels` option rather than a URL string.
 
 ### Redis Cluster
 
