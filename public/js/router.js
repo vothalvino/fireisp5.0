@@ -53,6 +53,21 @@ const Router = (() => {
       'snmp-profiles': 'SNMP Profiles', webhooks: 'Webhooks',
       'scheduled-tasks': 'Scheduled Tasks', 'alerts/rules': 'Alert Rules',
       'coverage-zones': 'Coverage Zones', 'network-links': 'Network Links',
+      'suspension/rules': 'Suspension Rules', 'suspension/logs': 'Suspension Logs',
+      'billing': 'Billing Periods', 'revenue-summary': 'Revenue Summary',
+      'reports': 'Reports',
+      'cfdi-documents': 'CFDI Documents', 'facturas-publicas': 'Facturas Públicas',
+      'sat-catalogs': 'SAT Catalogs', 'csd-certificates': 'CSD Certificates',
+      'pac-providers': 'PAC Providers',
+      'nas': 'NAS Devices', 'radius': 'RADIUS Accounts',
+      'connection-logs': 'Connection Logs', 'speed-tests': 'Speed Tests',
+      'vlans': 'VLANs', 'ip-assignments': 'IP Assignments',
+      'payment-gateways': 'Payment Gateways', 'payment-transactions': 'Payment Transactions',
+      'recurring-profiles': 'Recurring Profiles',
+      'api-tokens': 'API Tokens', 'two-factor': 'Two-Factor Auth',
+      'service-areas': 'Service Areas',
+      'concession-titles': 'Concession Titles', 'regulatory-filings': 'Regulatory Filings',
+      'ift-reports': 'IFT Reports', 'device-config-backups': 'Device Config Backups',
     };
     document.getElementById('page-title').textContent = titles[basePage] || basePage;
 
