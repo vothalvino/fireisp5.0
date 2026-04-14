@@ -165,8 +165,10 @@ jobs:
         run: npm ci
 
       - name: Wait for MySQL
+        env:
+          MYSQL_PWD: fireisp_smoke
         run: |
-          until mysqladmin ping -h 127.0.0.1 -u root -pfireisp_smoke --silent; do
+          until mysqladmin ping -h 127.0.0.1 -u root --silent; do
             sleep 2
           done
 

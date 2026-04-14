@@ -117,7 +117,8 @@ async function runSmokeTest() {
 if (require.main === module) {
   logger.info('FireISP 5.0 — Migration smoke test');
   runSmokeTest()
-    .then(passed => {
+    .then(async passed => {
+      await db.close();
       if (passed) {
         logger.info('Migration smoke test PASSED');
         process.exit(0);
@@ -126,11 +127,11 @@ if (require.main === module) {
         process.exit(1);
       }
     })
-    .catch(err => {
+    .catch(async err => {
       logger.error({ err }, 'Migration smoke test error');
+      await db.close().catch(() => {});
       process.exit(1);
-    })
-    .finally(() => db.close());
+    });
 }
 
 module.exports = { runSmokeTest, extractTableNames };
