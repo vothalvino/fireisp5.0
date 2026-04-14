@@ -2,10 +2,11 @@
 // FireISP 5.0 — App Bootstrap
 // =============================================================================
 
-/* global document, API, Router */
+/* global document, API, Router, Toast */
 
 document.addEventListener('DOMContentLoaded', async () => {
   Router.init();
+  Toast.init();
 
   // ---- Login form ---------------------------------------------------------
   document.getElementById('login-form').addEventListener('submit', async (e) => {
@@ -31,6 +32,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // ---- Logout -------------------------------------------------------------
   document.getElementById('logout-btn').addEventListener('click', async () => {
+    Toast.disconnectSSE();
     await API.logout();
     Router.showLogin();
   });
@@ -71,4 +73,5 @@ async function bootstrapApp() {
 
   Router.showApp();
   Router.onHashChange();
+  Toast.connectSSE();
 }

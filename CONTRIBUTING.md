@@ -43,30 +43,31 @@ npm run lint
 ### Project Structure
 
 ```
-firebase/
+fireisp5.0/
 ├── database/           # SQL schema and migrations
 │   ├── schema.sql      # Full schema (for fresh installs)
-│   └── migrations/     # Numbered migration files (136+)
+│   └── migrations/     # Numbered migration files (150+)
 ├── docs/               # Deployment, RADIUS, API, and Grafana docs
-├── public/             # Admin dashboard (vanilla HTML/CSS/JS)
+├── k8s/                # Kubernetes manifests (deployment, HPA, ingress…)
+├── public/             # Admin dashboard (vanilla HTML/CSS/JS SPA)
 │   ├── index.html      # SPA entry point
 │   ├── css/            # Stylesheets
-│   └── js/             # Client-side JavaScript
+│   └── js/             # Client-side JavaScript (56 pages)
 ├── src/
 │   ├── app.js          # Express application setup
 │   ├── server.js       # HTTP server entry point
 │   ├── config/         # App config, database pool, FireRelay
-│   ├── controllers/    # Route handler logic
+│   ├── controllers/    # Route handler logic (7 controllers)
 │   ├── middleware/      # Auth, RBAC, rate limiting, validation, schemas
-│   ├── models/         # Database models (BaseModel + 50+ entities)
-│   ├── routes/         # Express routers (68 route files)
-│   ├── services/       # Business logic (billing, CFDI, RADIUS, alerts…)
+│   ├── models/         # Database models (BaseModel + 89 entities)
+│   ├── routes/         # Express routers (69 route files)
+│   ├── services/       # Business logic (25 services)
 │   ├── scripts/        # CLI tools (migrate, seed, backup, admin)
-│   ├── utils/          # Logger, i18n, errors, OpenAPI generator
+│   ├── utils/          # Logger, i18n, errors, encryption, OpenAPI
 │   ├── views/          # Email templates
-│   └── locales/        # i18n translation files (en, es)
+│   └── locales/        # i18n translation files (en, es, pt-BR)
 ├── storage/            # File uploads and backups
-└── tests/              # Jest tests (51+ files, 930+ tests)
+└── tests/              # Jest tests (71+ files, 1,440+ tests)
 ```
 
 ### API Architecture
