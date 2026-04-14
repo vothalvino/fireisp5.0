@@ -218,7 +218,7 @@ describe('Bulk Routes — /api/bulk', () => {
         .set('Authorization', `Bearer ${authToken}`)
         .send({ client_ids: [1], body: 'Hello' });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(422);
     });
 
     test('validation — rejects missing body', async () => {
@@ -228,7 +228,7 @@ describe('Bulk Routes — /api/bulk', () => {
         .set('Authorization', `Bearer ${authToken}`)
         .send({ client_ids: [1], subject: 'Test' });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(422);
     });
 
     test('validation — rejects empty client_ids', async () => {
