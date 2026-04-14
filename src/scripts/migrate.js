@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const mysql = require('mysql2/promise');
 const db = require('../config/database');
+const logger = require('../utils/logger').child({ script: 'migrate' });
 
 const MIGRATIONS_DIR = path.resolve(__dirname, '../../database/migrations');
 
@@ -57,7 +58,7 @@ async function runMigrations() {
       if (appliedSet.has(file)) continue;
 
       const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
-      console.log(`  Applying: ${file}`);
+      logger.info({ file }, 'Applying migration');
 
       try {
         await conn.query(sql);
@@ -67,16 +68,15 @@ async function runMigrations() {
         );
         count++;
       } catch (err) {
-        console.error(`  ✗ Failed: ${file}`);
-        console.error(`    ${err.message}`);
+        logger.error({ err, file }, 'Migration failed');
         throw err;
       }
     }
 
     if (count === 0) {
-      console.log('  All migrations are up to date.');
+      logger.info('All migrations are up to date.');
     } else {
-      console.log(`  ✓ Applied ${count} migration(s).`);
+      logger.info({ count }, 'Migrations applied');
     }
   } finally {
     if (conn) conn.release();
@@ -87,14 +87,14 @@ async function runMigrations() {
 
 // Run when invoked directly
 if (require.main === module) {
-  console.log('FireISP 5.0 — Running migrations...');
+  logger.info('FireISP 5.0 — Running migrations...');
   runMigrations()
     .then(() => {
-      console.log('Done.');
+      logger.info('Done.');
       process.exit(0);
     })
     .catch(err => {
-      console.error('Migration failed:', err.message);
+      logger.error({ err }, 'Migration failed');
       process.exit(1);
     });
 }

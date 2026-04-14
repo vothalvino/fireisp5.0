@@ -8,6 +8,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const logger = require('../utils/logger').child({ script: 'openapi' });
 
 // Load dotenv so config module works without a running server
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
@@ -19,6 +20,4 @@ const outputPath = path.resolve(__dirname, '../../docs/openapi.json');
 
 fs.writeFileSync(outputPath, JSON.stringify(spec, null, 2) + '\n');
 
-console.log(`OpenAPI spec written to ${outputPath}`);
-console.log(`  Paths:   ${Object.keys(spec.paths).length}`);
-console.log(`  Schemas: ${Object.keys(spec.components.schemas).length}`);
+logger.info({ outputPath, paths: Object.keys(spec.paths).length, schemas: Object.keys(spec.components.schemas).length }, 'OpenAPI spec written');

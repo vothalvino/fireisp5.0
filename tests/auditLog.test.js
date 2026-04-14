@@ -10,17 +10,24 @@ jest.mock('../src/config/database', () => ({
   pool: { end: jest.fn() },
 }));
 
+jest.mock('../src/utils/logger', () => {
+  const logger = {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+    child: jest.fn(() => logger),
+  };
+  return logger;
+});
+
 const db = require('../src/config/database');
 const auditLog = require('../src/services/auditLog');
+const logger = require('../src/utils/logger');
 
 describe('auditLog', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.spyOn(console, 'error').mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    console.error.mockRestore();
   });
 
   test('inserts audit log entry with all fields', async () => {
@@ -87,6 +94,6 @@ describe('auditLog', () => {
       }),
     ).resolves.not.toThrow();
 
-    expect(console.error).toHaveBeenCalledWith('Audit log error:', 'Connection lost');
+    expect(logger.error).toHaveBeenCalledWith({ err: expect.any(Error) }, 'Audit log error');
   });
 });

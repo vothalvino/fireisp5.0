@@ -9,6 +9,7 @@
 
 const snmp = require('net-snmp');
 const db = require('../config/database');
+const logger = require('../utils/logger').child({ service: 'snmpPoller' });
 
 // Columns in snmp_metrics that a profile OID may target.
 const VALID_METRIC_COLUMNS = new Set([
@@ -55,7 +56,7 @@ async function poll() {
         polled++;
       } else {
         errors++;
-        console.error(`SNMP poll failed: ${result.reason.message}`);
+        logger.error({ err: result.reason }, 'SNMP poll failed');
       }
     }
   }
