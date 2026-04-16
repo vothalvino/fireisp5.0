@@ -40,7 +40,7 @@
 - ✅ Guard triggers for critical business rules
 - ✅ schema.sql reconciled with all migrations
 - ✅ Add migration smoke test in CI (run all migrations against empty MySQL 8 in Docker)
-- ⬜ Add rollback scripts for migrations 130–150
+- ✅ Add rollback scripts for migrations 130–150
 
 ### 1.2 — API Completeness
 - ✅ CRUD routes for all 101 tables
@@ -196,5 +196,6 @@
 |---|---|---|---|
 | 2026-04-14 | — | Roadmap created | #TBD |
 | 2026-04-14 | 1.1 | Migration smoke test in CI | #TBD |
+| 2026-04-15 | 1.1 | Rollback scripts for migrations 130–150 | #TBD |
 
 <!-- Add a row here every time you complete a roadmap item -->

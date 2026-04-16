@@ -8,6 +8,7 @@
     "dev": "nodemon src/server.js",
     "migrate": "node src/scripts/migrate.js",
     "migrate:smoke-test": "node src/scripts/migrate.js && node src/scripts/migration-smoke-test.js",
+    "rollback": "node src/scripts/rollback.js",
     "seed": "node src/scripts/seed.js",
     "backup": "node src/scripts/backup.js",
     "admin": "node src/scripts/admin.js",
