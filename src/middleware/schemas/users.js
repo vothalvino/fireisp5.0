@@ -22,4 +22,6 @@ const updateUser = {
   status: { type: 'string', enum: ['active', 'inactive'] },
 };
 
-module.exports = { createUser, updateUser };
+const patchUser = { ...updateUser };
+
+module.exports = { createUser, updateUser, patchUser };

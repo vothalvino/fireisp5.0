@@ -47,4 +47,6 @@ const updateMxProfile = {
   curp: { type: 'string', min: 18, max: 18 },
 };
 
-module.exports = { createClient, updateClient, createContact, updateMxProfile };
+const patchClient = { ...updateClient };
+
+module.exports = { createClient, updateClient, patchClient, createContact, updateMxProfile };

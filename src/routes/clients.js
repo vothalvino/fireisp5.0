@@ -9,7 +9,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createClient, updateClient, createContact, updateMxProfile } = require('../middleware/schemas/clients');
+const { createClient, updateClient, patchClient, createContact, updateMxProfile } = require('../middleware/schemas/clients');
 const db = require('../config/database');
 
 const router = Router();
@@ -22,6 +22,7 @@ router.get('/', requirePermission('clients.view'), ctrl.list);
 router.get('/:id', requirePermission('clients.view'), ctrl.get);
 router.post('/', requirePermission('clients.create'), validate(createClient), ctrl.create);
 router.put('/:id', requirePermission('clients.update'), validate(updateClient), ctrl.update);
+router.patch('/:id', requirePermission('clients.update'), validate(patchClient), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('clients.delete'), ctrl.destroy);
 
 // Contacts sub-routes

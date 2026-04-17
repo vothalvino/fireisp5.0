@@ -9,7 +9,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createPlan, updatePlan, createPlanAddon } = require('../middleware/schemas/plans');
+const { createPlan, updatePlan, patchPlan, createPlanAddon } = require('../middleware/schemas/plans');
 const db = require('../config/database');
 
 const router = Router();
@@ -22,6 +22,7 @@ router.get('/', requirePermission('plans.view'), ctrl.list);
 router.get('/:id', requirePermission('plans.view'), ctrl.get);
 router.post('/', requirePermission('plans.create'), validate(createPlan), ctrl.create);
 router.put('/:id', requirePermission('plans.update'), validate(updatePlan), ctrl.update);
+router.patch('/:id', requirePermission('plans.update'), validate(patchPlan), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('plans.delete'), ctrl.destroy);
 
 // Plan add-ons

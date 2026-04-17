@@ -9,7 +9,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createInvoice, updateInvoice, addInvoiceItem, generateInvoice } = require('../middleware/schemas/invoices');
+const { createInvoice, updateInvoice, patchInvoice, addInvoiceItem, generateInvoice } = require('../middleware/schemas/invoices');
 const billingService = require('../services/billingService');
 const db = require('../config/database');
 
@@ -23,6 +23,7 @@ router.get('/', requirePermission('invoices.view'), ctrl.list);
 router.get('/:id', requirePermission('invoices.view'), ctrl.get);
 router.post('/', requirePermission('invoices.create'), validate(createInvoice), ctrl.create);
 router.put('/:id', requirePermission('invoices.update'), validate(updateInvoice), ctrl.update);
+router.patch('/:id', requirePermission('invoices.update'), validate(patchInvoice), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('invoices.delete'), ctrl.destroy);
 
 // Invoice line items

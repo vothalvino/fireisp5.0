@@ -214,6 +214,54 @@ describe('crudController', () => {
   });
 
   // =========================================================================
+  // partialUpdate
+  // =========================================================================
+  describe('partialUpdate', () => {
+    test('partially updates record and returns it', async () => {
+      const old = { id: 1, name: 'Old', status: 'active', organization_id: 42 };
+      const updated = { id: 1, name: 'Old', status: 'inactive', organization_id: 42 };
+
+      db.query
+        .mockResolvedValueOnce([[old]])  // findByIdOrFail (old)
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE
+        .mockResolvedValueOnce([[updated]]);  // findById (updated)
+
+      const { req, res, next } = mockReqRes({ body: { status: 'inactive' } });
+      await ctrl.partialUpdate(req, res, next);
+
+      expect(res.json).toHaveBeenCalledWith({ data: updated });
+      expect(auditLog.log).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'partial_update',
+        oldValues: old,
+        newValues: { status: 'inactive' },
+      }));
+    });
+
+    test('returns 404 when record not found', async () => {
+      db.query.mockResolvedValueOnce([[]]);
+
+      const { req, res, next } = mockReqRes({
+        params: { id: '999' },
+        body: { status: 'inactive' },
+      });
+      await ctrl.partialUpdate(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(expect.objectContaining({
+        statusCode: 404,
+      }));
+    });
+
+    test('calls next on error', async () => {
+      db.query.mockRejectedValueOnce(new Error('DB error'));
+
+      const { req, res, next } = mockReqRes({ body: { name: 'Test' } });
+      await ctrl.partialUpdate(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(expect.any(Error));
+    });
+  });
+
+  // =========================================================================
   // destroy
   // =========================================================================
   describe('destroy', () => {

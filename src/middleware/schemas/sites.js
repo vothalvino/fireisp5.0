@@ -30,4 +30,6 @@ const updateSite = {
   notes: { type: 'string', max: 5000 },
 };
 
-module.exports = { createSite, updateSite };
+const patchSite = { ...updateSite };
+
+module.exports = { createSite, updateSite, patchSite };

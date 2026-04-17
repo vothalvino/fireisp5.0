@@ -9,7 +9,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createContract, updateContract, createContractAddon } = require('../middleware/schemas/contracts');
+const { createContract, updateContract, patchContract, createContractAddon } = require('../middleware/schemas/contracts');
 const db = require('../config/database');
 
 const router = Router();
@@ -22,6 +22,7 @@ router.get('/', requirePermission('contracts.view'), ctrl.list);
 router.get('/:id', requirePermission('contracts.view'), ctrl.get);
 router.post('/', requirePermission('contracts.create'), validate(createContract), ctrl.create);
 router.put('/:id', requirePermission('contracts.update'), validate(updateContract), ctrl.update);
+router.patch('/:id', requirePermission('contracts.update'), validate(patchContract), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('contracts.delete'), ctrl.destroy);
 
 // Contract add-ons

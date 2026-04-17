@@ -40,4 +40,6 @@ const updateSetting = {
   value: { type: 'string', required: true, max: 5000 },
 };
 
-module.exports = { createOrganization, updateOrganization, updateSetting };
+const patchOrganization = { ...updateOrganization };
+
+module.exports = { createOrganization, updateOrganization, patchOrganization, updateSetting };

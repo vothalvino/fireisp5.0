@@ -27,4 +27,6 @@ const allocatePayment = {
   amount: { type: 'number', required: true, min: 0 },
 };
 
-module.exports = { createPayment, updatePayment, allocatePayment };
+const patchPayment = { ...updatePayment };
+
+module.exports = { createPayment, updatePayment, patchPayment, allocatePayment };

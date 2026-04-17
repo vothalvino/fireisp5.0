@@ -41,4 +41,6 @@ const createPlanAddon = {
   status: { type: 'string', enum: ['active', 'inactive'] },
 };
 
-module.exports = { createPlan, updatePlan, createPlanAddon };
+const patchPlan = { ...updatePlan };
+
+module.exports = { createPlan, updatePlan, patchPlan, createPlanAddon };

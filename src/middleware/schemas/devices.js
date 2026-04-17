@@ -42,4 +42,6 @@ const updateDevice = {
   status: { type: 'string', enum: ['active', 'inactive', 'maintenance', 'decommissioned'] },
 };
 
-module.exports = { createDevice, updateDevice };
+const patchDevice = { ...updateDevice };
+
+module.exports = { createDevice, updateDevice, patchDevice };

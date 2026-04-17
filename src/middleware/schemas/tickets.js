@@ -29,4 +29,6 @@ const createComment = {
   is_internal: { type: 'boolean' },
 };
 
-module.exports = { createTicket, updateTicket, createComment };
+const patchTicket = { ...updateTicket };
+
+module.exports = { createTicket, updateTicket, patchTicket, createComment };

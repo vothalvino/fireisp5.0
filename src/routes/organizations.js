@@ -8,7 +8,7 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createOrganization, updateOrganization, updateSetting } = require('../middleware/schemas/organizations');
+const { createOrganization, updateOrganization, patchOrganization, updateSetting } = require('../middleware/schemas/organizations');
 
 const router = Router();
 const ctrl = crudController(Organization);
@@ -19,6 +19,7 @@ router.get('/', requirePermission('organizations.view'), ctrl.list);
 router.get('/:id', requirePermission('organizations.view'), ctrl.get);
 router.post('/', requirePermission('organizations.create'), validate(createOrganization), ctrl.create);
 router.put('/:id', requirePermission('organizations.update'), validate(updateOrganization), ctrl.update);
+router.patch('/:id', requirePermission('organizations.update'), validate(patchOrganization), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('organizations.delete'), ctrl.destroy);
 
 // Settings sub-routes

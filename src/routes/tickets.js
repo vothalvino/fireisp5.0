@@ -9,7 +9,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createTicket, updateTicket, createComment } = require('../middleware/schemas/tickets');
+const { createTicket, updateTicket, patchTicket, createComment } = require('../middleware/schemas/tickets');
 const db = require('../config/database');
 
 const router = Router();
@@ -22,6 +22,7 @@ router.get('/', requirePermission('tickets.view'), ctrl.list);
 router.get('/:id', requirePermission('tickets.view'), ctrl.get);
 router.post('/', requirePermission('tickets.create'), validate(createTicket), ctrl.create);
 router.put('/:id', requirePermission('tickets.update'), validate(updateTicket), ctrl.update);
+router.patch('/:id', requirePermission('tickets.update'), validate(patchTicket), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('tickets.delete'), ctrl.destroy);
 
 // Ticket comments

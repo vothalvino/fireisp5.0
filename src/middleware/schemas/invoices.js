@@ -40,4 +40,6 @@ const generateInvoice = {
   contract_id: { type: 'number', required: true, min: 1 },
 };
 
-module.exports = { createInvoice, updateInvoice, addInvoiceItem, generateInvoice };
+const patchInvoice = { ...updateInvoice };
+
+module.exports = { createInvoice, updateInvoice, patchInvoice, addInvoiceItem, generateInvoice };

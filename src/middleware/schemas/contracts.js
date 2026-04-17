@@ -35,4 +35,6 @@ const createContractAddon = {
   end_date: { type: 'string' },
 };
 
-module.exports = { createContract, updateContract, createContractAddon };
+const patchContract = { ...updateContract };
+
+module.exports = { createContract, updateContract, patchContract, createContractAddon };
