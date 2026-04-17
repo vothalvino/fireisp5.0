@@ -22,6 +22,8 @@ const updateUser = {
   status: { type: 'string', enum: ['active', 'inactive'] },
 };
 
-const patchUser = { ...updateUser };
+const patchUser = Object.fromEntries(
+  Object.entries(updateUser).map(([k, v]) => [k, { ...v, required: false }]),
+);
 
 module.exports = { createUser, updateUser, patchUser };

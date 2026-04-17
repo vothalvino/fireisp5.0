@@ -29,6 +29,8 @@ const createComment = {
   is_internal: { type: 'boolean' },
 };
 
-const patchTicket = { ...updateTicket };
+const patchTicket = Object.fromEntries(
+  Object.entries(updateTicket).map(([k, v]) => [k, { ...v, required: false }]),
+);
 
 module.exports = { createTicket, updateTicket, patchTicket, createComment };

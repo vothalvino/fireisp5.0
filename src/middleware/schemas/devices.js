@@ -42,6 +42,8 @@ const updateDevice = {
   status: { type: 'string', enum: ['active', 'inactive', 'maintenance', 'decommissioned'] },
 };
 
-const patchDevice = { ...updateDevice };
+const patchDevice = Object.fromEntries(
+  Object.entries(updateDevice).map(([k, v]) => [k, { ...v, required: false }]),
+);
 
 module.exports = { createDevice, updateDevice, patchDevice };

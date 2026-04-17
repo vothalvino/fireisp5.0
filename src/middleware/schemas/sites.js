@@ -30,6 +30,8 @@ const updateSite = {
   notes: { type: 'string', max: 5000 },
 };
 
-const patchSite = { ...updateSite };
+const patchSite = Object.fromEntries(
+  Object.entries(updateSite).map(([k, v]) => [k, { ...v, required: false }]),
+);
 
 module.exports = { createSite, updateSite, patchSite };

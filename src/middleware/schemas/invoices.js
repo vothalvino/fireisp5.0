@@ -40,6 +40,8 @@ const generateInvoice = {
   contract_id: { type: 'number', required: true, min: 1 },
 };
 
-const patchInvoice = { ...updateInvoice };
+const patchInvoice = Object.fromEntries(
+  Object.entries(updateInvoice).map(([k, v]) => [k, { ...v, required: false }]),
+);
 
 module.exports = { createInvoice, updateInvoice, patchInvoice, addInvoiceItem, generateInvoice };

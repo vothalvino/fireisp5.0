@@ -35,6 +35,8 @@ const createContractAddon = {
   end_date: { type: 'string' },
 };
 
-const patchContract = { ...updateContract };
+const patchContract = Object.fromEntries(
+  Object.entries(updateContract).map(([k, v]) => [k, { ...v, required: false }]),
+);
 
 module.exports = { createContract, updateContract, patchContract, createContractAddon };

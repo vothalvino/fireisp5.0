@@ -47,6 +47,8 @@ const updateMxProfile = {
   curp: { type: 'string', min: 18, max: 18 },
 };
 
-const patchClient = { ...updateClient };
+const patchClient = Object.fromEntries(
+  Object.entries(updateClient).map(([k, v]) => [k, { ...v, required: false }]),
+);
 
 module.exports = { createClient, updateClient, patchClient, createContact, updateMxProfile };
