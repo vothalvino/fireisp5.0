@@ -173,11 +173,11 @@ describe('firerelayService', () => {
       const result = await firerelayService.deregisterNode('node2');
       expect(result).toEqual({ deleted: true, id: 'node2' });
       expect(db.query).toHaveBeenCalledWith(
-        'DELETE FROM firerelay_client_routing WHERE node_id = ?',
+        'UPDATE firerelay_client_routing SET deleted_at = NOW() WHERE node_id = ? AND deleted_at IS NULL',
         ['node2'],
       );
       expect(db.query).toHaveBeenCalledWith(
-        'DELETE FROM firerelay_nodes WHERE id = ?',
+        'UPDATE firerelay_nodes SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL',
         ['node2'],
       );
     });
@@ -242,7 +242,7 @@ describe('firerelayService', () => {
 
       await firerelayService.unassignClient(12345);
       expect(db.query).toHaveBeenCalledWith(
-        'DELETE FROM firerelay_client_routing WHERE client_id = ?',
+        'UPDATE firerelay_client_routing SET deleted_at = NOW() WHERE client_id = ? AND deleted_at IS NULL',
         [12345],
       );
     });

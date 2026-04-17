@@ -32,10 +32,12 @@ CREATE TABLE IF NOT EXISTS users (
     locked_until           TIMESTAMP       NULL DEFAULT NULL   COMMENT 'Account locked until this timestamp; NULL = not locked',
     created_at             TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_users_email (email),
     KEY idx_users_organization_id (organization_id),
+    KEY idx_users_deleted_at (deleted_at),
     CONSTRAINT fk_users_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -65,12 +67,14 @@ CREATE TABLE IF NOT EXISTS clients (
     version         INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_clients_organization_id (organization_id),
     KEY idx_clients_locale (locale),
     KEY idx_clients_status (status),
     KEY idx_clients_email (email),
+    KEY idx_clients_deleted_at (deleted_at),
     CONSTRAINT fk_clients_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -91,9 +95,11 @@ CREATE TABLE IF NOT EXISTS contacts (
     notes       TEXT            NULL,
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_contacts_client_id (client_id),
+    KEY idx_contacts_deleted_at (deleted_at),
     CONSTRAINT fk_contacts_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -120,10 +126,12 @@ CREATE TABLE IF NOT EXISTS sites (
     status          ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_sites_organization_id (organization_id),
     KEY idx_sites_site_type (site_type),
+    KEY idx_sites_deleted_at (deleted_at),
     CONSTRAINT fk_sites_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -148,10 +156,12 @@ CREATE TABLE IF NOT EXISTS plans (
     status          ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_plans_organization_id (organization_id),
     KEY idx_plans_status (status),
+    KEY idx_plans_deleted_at (deleted_at),
     CONSTRAINT fk_plans_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -181,6 +191,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     created_by     BIGINT UNSIGNED NULL,
     created_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_contracts_client_id (client_id),
@@ -191,6 +202,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     KEY idx_contracts_facturar (facturar),
     KEY idx_contracts_status (status),
     KEY idx_contracts_client_status (client_id, status),
+    KEY idx_contracts_deleted_at (deleted_at),
     CONSTRAINT fk_contracts_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_contracts_plan FOREIGN KEY (plan_id)
@@ -219,10 +231,12 @@ CREATE TABLE IF NOT EXISTS nas (
     status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_nas_ip_address (ip_address),
-    KEY idx_nas_status (status)
+    KEY idx_nas_status (status),
+    KEY idx_nas_deleted_at (deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -247,6 +261,7 @@ CREATE TABLE IF NOT EXISTS radius (
     status        ENUM('active', 'inactive', 'suspended') NOT NULL DEFAULT 'active',
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_radius_username (username),
@@ -256,6 +271,7 @@ CREATE TABLE IF NOT EXISTS radius (
     KEY idx_radius_ipv4_pool_id (ipv4_pool_id),
     KEY idx_radius_ipv6_pool_id (ipv6_pool_id),
     KEY idx_radius_status (status),
+    KEY idx_radius_deleted_at (deleted_at),
     CONSTRAINT fk_radius_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_radius_contract FOREIGN KEY (contract_id)
@@ -310,6 +326,7 @@ CREATE TABLE IF NOT EXISTS devices (
     notes         TEXT            NULL,
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_devices_serial_number (serial_number),
@@ -320,6 +337,7 @@ CREATE TABLE IF NOT EXISTS devices (
     KEY idx_devices_status (status),
     KEY idx_devices_snmp_enabled (snmp_enabled),
     KEY idx_devices_snmp_profile_id (snmp_profile_id),
+    KEY idx_devices_deleted_at (deleted_at),
     CONSTRAINT fk_devices_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_devices_client FOREIGN KEY (client_id)
@@ -347,6 +365,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     resolved_at  TIMESTAMP       NULL,
     created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_tickets_client_id (client_id),
@@ -356,6 +375,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     KEY idx_tickets_priority (priority),
     KEY idx_tickets_client_status (client_id, status, created_at DESC),
     KEY idx_tickets_assigned_status (assigned_to, status),
+    KEY idx_tickets_deleted_at (deleted_at),
     CONSTRAINT fk_tickets_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_tickets_contract FOREIGN KEY (contract_id)
@@ -386,6 +406,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     created_by     BIGINT UNSIGNED NULL,
     created_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_invoices_number (invoice_number),
@@ -395,6 +416,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     KEY idx_invoices_due_date (due_date),
     KEY idx_invoices_client_created (client_id, created_at DESC),
     KEY idx_invoices_status_due (status, due_date),
+    KEY idx_invoices_deleted_at (deleted_at),
     CONSTRAINT fk_invoices_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_invoices_contract FOREIGN KEY (contract_id)
@@ -427,12 +449,14 @@ CREATE TABLE IF NOT EXISTS payments (
     recorded_by      BIGINT UNSIGNED NULL,
     created_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_payments_client_id (client_id),
     KEY idx_payments_invoice_id (invoice_id),
     KEY idx_payments_payment_date (payment_date),
     KEY idx_payments_client_created (client_id, created_at DESC),
+    KEY idx_payments_deleted_at (deleted_at),
     CONSTRAINT fk_payments_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_payments_invoice FOREIGN KEY (invoice_id)
@@ -455,10 +479,12 @@ CREATE TABLE IF NOT EXISTS payment_allocations (
     amount      DECIMAL(10, 2)  NOT NULL  COMMENT 'Portion of the payment applied to this invoice',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_payment_allocations_payment_invoice (payment_id, invoice_id),
     KEY idx_payment_allocations_invoice_id (invoice_id),
+    KEY idx_payment_allocations_deleted_at (deleted_at),
     CONSTRAINT fk_payment_allocations_payment FOREIGN KEY (payment_id)
         REFERENCES payments (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_payment_allocations_invoice FOREIGN KEY (invoice_id)
@@ -484,11 +510,13 @@ CREATE TABLE IF NOT EXISTS quotes (
     created_by   BIGINT UNSIGNED NULL,
     created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_quotes_number (quote_number),
     KEY idx_quotes_client_id (client_id),
     KEY idx_quotes_status (status),
+    KEY idx_quotes_deleted_at (deleted_at),
     CONSTRAINT fk_quotes_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_quotes_created_by FOREIGN KEY (created_by)
@@ -559,12 +587,14 @@ CREATE TABLE IF NOT EXISTS expenses (
     notes        TEXT            NULL,
     created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_expenses_job_id (job_id),
     KEY idx_expenses_user_id (user_id),
     KEY idx_expenses_status (status),
     KEY idx_expenses_expense_date (expense_date),
+    KEY idx_expenses_deleted_at (deleted_at),
     CONSTRAINT fk_expenses_job FOREIGN KEY (job_id)
         REFERENCES jobs (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_expenses_user FOREIGN KEY (user_id)
@@ -598,10 +628,12 @@ CREATE TABLE IF NOT EXISTS organizations (
     status              ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_organizations_locale (locale),
-    KEY idx_organizations_status (status)
+    KEY idx_organizations_status (status),
+    KEY idx_organizations_deleted_at (deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -622,12 +654,14 @@ CREATE TABLE IF NOT EXISTS ip_pools (
     status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_ip_pools_network_cidr_ver (network, cidr, ip_version),
     KEY idx_ip_pools_ip_version (ip_version),
     KEY idx_ip_pools_site_id (site_id),
     KEY idx_ip_pools_status (status),
+    KEY idx_ip_pools_deleted_at (deleted_at),
     CONSTRAINT fk_ip_pools_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -653,6 +687,7 @@ CREATE TABLE IF NOT EXISTS ip_assignments (
     expires_at  TIMESTAMP       NULL,
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_ip_assignments_ip (ip_address),
@@ -661,6 +696,7 @@ CREATE TABLE IF NOT EXISTS ip_assignments (
     KEY idx_ip_assignments_client_id (client_id),
     KEY idx_ip_assignments_device_id (device_id),
     KEY idx_ip_assignments_status (status),
+    KEY idx_ip_assignments_deleted_at (deleted_at),
     CONSTRAINT fk_ip_assignments_pool FOREIGN KEY (pool_id)
         REFERENCES ip_pools (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_ip_assignments_contract FOREIGN KEY (contract_id)
@@ -714,12 +750,14 @@ CREATE TABLE IF NOT EXISTS notifications (
     is_read     TINYINT(1)      NOT NULL DEFAULT 0,
     read_at     TIMESTAMP       NULL,
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_notifications_user_id (user_id),
     KEY idx_notifications_is_read (is_read),
     KEY idx_notifications_type (type),
     KEY idx_notifications_created_at (created_at),
+    KEY idx_notifications_deleted_at (deleted_at),
     CONSTRAINT fk_notifications_user FOREIGN KEY (user_id)
         REFERENCES users (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -737,9 +775,11 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     total       DECIMAL(10, 2)  GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT 'quantity * unit_price',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_invoice_items_invoice_id (invoice_id),
+    KEY idx_invoice_items_deleted_at (deleted_at),
     CONSTRAINT fk_invoice_items_invoice FOREIGN KEY (invoice_id)
         REFERENCES invoices (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -757,9 +797,11 @@ CREATE TABLE IF NOT EXISTS quote_items (
     total       DECIMAL(10, 2)  GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT 'quantity * unit_price',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_quote_items_quote_id (quote_id),
+    KEY idx_quote_items_deleted_at (deleted_at),
     CONSTRAINT fk_quote_items_quote FOREIGN KEY (quote_id)
         REFERENCES quotes (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -776,10 +818,12 @@ CREATE TABLE IF NOT EXISTS ticket_comments (
     is_internal TINYINT(1)     NOT NULL DEFAULT 0 COMMENT '1 = internal note visible only to staff',
     created_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_ticket_comments_ticket_id (ticket_id),
     KEY idx_ticket_comments_user_id (user_id),
+    KEY idx_ticket_comments_deleted_at (deleted_at),
     CONSTRAINT fk_ticket_comments_ticket FOREIGN KEY (ticket_id)
         REFERENCES tickets (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_ticket_comments_user FOREIGN KEY (user_id)
@@ -823,11 +867,13 @@ CREATE TABLE IF NOT EXISTS files (
     notes        TEXT            NULL,
     created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_files_entity      (entity_type, entity_id),
     KEY idx_files_category    (category),
     KEY idx_files_uploaded_by (uploaded_by),
+    KEY idx_files_deleted_at (deleted_at),
     CONSTRAINT fk_files_uploaded_by FOREIGN KEY (uploaded_by)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT chk_files_entity_id CHECK (
@@ -1007,11 +1053,13 @@ CREATE TABLE IF NOT EXISTS snmp_profiles (
     status        ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_snmp_profiles_name (name),
     KEY idx_snmp_profiles_manufacturer (manufacturer),
-    KEY idx_snmp_profiles_status (status)
+    KEY idx_snmp_profiles_status (status),
+    KEY idx_snmp_profiles_deleted_at (deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -1035,11 +1083,13 @@ CREATE TABLE IF NOT EXISTS snmp_profile_oids (
     status          ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_profile_oid (profile_id, oid),
     KEY idx_snmp_profile_oids_metric (metric_column),
     KEY idx_snmp_profile_oids_status (status),
+    KEY idx_snmp_profile_oids_deleted_at (deleted_at),
     CONSTRAINT fk_snmp_profile_oids_profile FOREIGN KEY (profile_id)
         REFERENCES snmp_profiles (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1652,10 +1702,12 @@ CREATE TABLE IF NOT EXISTS warehouses (
     status          ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_warehouses_organization_id (organization_id),
     KEY idx_warehouses_status (status),
+    KEY idx_warehouses_deleted_at (deleted_at),
     CONSTRAINT fk_warehouses_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1696,11 +1748,13 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     status          ENUM('active', 'discontinued') NOT NULL DEFAULT 'active',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_inventory_items_sku (sku),
     KEY idx_inventory_items_category (category),
-    KEY idx_inventory_items_status (status)
+    KEY idx_inventory_items_status (status),
+    KEY idx_inventory_items_deleted_at (deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -1719,11 +1773,13 @@ CREATE TABLE IF NOT EXISTS inventory_stock (
     quantity      INT             NOT NULL DEFAULT 0 COMMENT 'Current quantity on hand',
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_inventory_stock_location (item_id, warehouse_id, aisle, col, shelf),
     KEY idx_inventory_stock_warehouse_id (warehouse_id),
     KEY idx_inventory_stock_item_id (item_id),
+    KEY idx_inventory_stock_deleted_at (deleted_at),
     CONSTRAINT fk_inventory_stock_item FOREIGN KEY (item_id)
         REFERENCES inventory_items (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_inventory_stock_warehouse FOREIGN KEY (warehouse_id)
@@ -1822,6 +1878,7 @@ CREATE TABLE IF NOT EXISTS credit_notes (
     created_by         BIGINT UNSIGNED NULL,
     created_at         TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at         TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_credit_notes_number (credit_note_number),
@@ -1832,6 +1889,7 @@ CREATE TABLE IF NOT EXISTS credit_notes (
     KEY idx_credit_notes_status (status),
     KEY idx_credit_notes_reason (reason),
     KEY idx_credit_notes_issue_date (issue_date),
+    KEY idx_credit_notes_deleted_at (deleted_at),
     CONSTRAINT fk_credit_notes_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_credit_notes_contract FOREIGN KEY (contract_id)
@@ -1858,9 +1916,11 @@ CREATE TABLE IF NOT EXISTS credit_note_items (
     total           DECIMAL(10, 2)  GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT 'quantity * unit_price',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_credit_note_items_credit_note_id (credit_note_id),
+    KEY idx_credit_note_items_deleted_at (deleted_at),
     CONSTRAINT fk_credit_note_items_credit_note FOREIGN KEY (credit_note_id)
         REFERENCES credit_notes (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1922,12 +1982,14 @@ CREATE TABLE IF NOT EXISTS network_links (
     notes           TEXT            NULL,
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_network_links_device_a_id (device_a_id),
     KEY idx_network_links_device_b_id (device_b_id),
     KEY idx_network_links_link_type (link_type),
     KEY idx_network_links_status (status),
+    KEY idx_network_links_deleted_at (deleted_at),
     CONSTRAINT fk_network_links_device_a FOREIGN KEY (device_a_id)
         REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_network_links_device_b FOREIGN KEY (device_b_id)
@@ -1969,11 +2031,13 @@ CREATE TABLE IF NOT EXISTS tax_rules (
     status          ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_tax_rules_organization_id (organization_id),
     KEY idx_tax_rules_region (region),
     KEY idx_tax_rules_status (status),
+    KEY idx_tax_rules_deleted_at (deleted_at),
     CONSTRAINT fk_tax_rules_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -2143,9 +2207,11 @@ CREATE TABLE IF NOT EXISTS roles (
     is_system   BOOLEAN          NOT NULL DEFAULT FALSE COMMENT 'System roles cannot be deleted',
     created_at  TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_roles_name (name)
+    UNIQUE KEY uq_roles_name (name),
+    KEY idx_roles_deleted_at (deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS permissions (
@@ -2197,12 +2263,14 @@ CREATE TABLE IF NOT EXISTS outages (
     created_by              BIGINT UNSIGNED  NULL     COMMENT 'User who logged the outage; NULL = system',
     created_at              TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_outages_site_id (site_id),
     KEY idx_outages_device_id (device_id),
     KEY idx_outages_status (status),
     KEY idx_outages_started_at (started_at),
+    KEY idx_outages_deleted_at (deleted_at),
     CONSTRAINT fk_outages_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_outages_device FOREIGN KEY (device_id)
@@ -2249,11 +2317,13 @@ CREATE TABLE IF NOT EXISTS vlans (
                         COMMENT 'active = in use; reserved = allocated but not yet deployed; deprecated = phasing out',
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_vlans_site_vlan (site_id, vlan_id) COMMENT 'A VLAN ID must be unique within a site',
     KEY idx_vlans_site_id (site_id),
     KEY idx_vlans_status (status),
+    KEY idx_vlans_deleted_at (deleted_at),
     CONSTRAINT fk_vlans_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT chk_vlans_vlan_id CHECK (vlan_id BETWEEN 1 AND 4094)
@@ -2275,11 +2345,13 @@ CREATE TABLE IF NOT EXISTS tax_rates (
     status          ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_tax_rates_organization_id (organization_id),
     KEY idx_tax_rates_status (status),
     KEY idx_tax_rates_is_default (is_default),
+    KEY idx_tax_rates_deleted_at (deleted_at),
     CONSTRAINT fk_tax_rates_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -2328,11 +2400,13 @@ CREATE TABLE IF NOT EXISTS message_templates (
     is_active       TINYINT(1)       NOT NULL DEFAULT 1,
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_message_templates_org_name_channel (organization_id, name, channel),
     KEY idx_message_templates_channel (channel),
     KEY idx_message_templates_is_active (is_active),
+    KEY idx_message_templates_deleted_at (deleted_at),
     CONSTRAINT fk_message_templates_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -2371,6 +2445,7 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     revoked_at      TIMESTAMP        NULL     COMMENT 'Set when token is revoked; non-NULL = inactive',
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_api_tokens_hash (token_hash),
@@ -2378,6 +2453,7 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     KEY idx_api_tokens_organization_id (organization_id),
     KEY idx_api_tokens_expires_at (expires_at),
     KEY idx_api_tokens_valid (revoked_at, expires_at) COMMENT 'Optimises WHERE revoked_at IS NULL AND expires_at > NOW()',
+    KEY idx_api_tokens_deleted_at (deleted_at),
     CONSTRAINT fk_api_tokens_user FOREIGN KEY (user_id)
         REFERENCES users (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_api_tokens_organization FOREIGN KEY (organization_id)
@@ -2418,6 +2494,7 @@ CREATE TABLE IF NOT EXISTS promotions (
     created_by      BIGINT UNSIGNED  NULL     COMMENT 'Staff member who created this promotion',
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_promotions_org_code (organization_id, code),
@@ -2426,6 +2503,7 @@ CREATE TABLE IF NOT EXISTS promotions (
     KEY idx_promotions_is_active (is_active),
     KEY idx_promotions_dates (starts_at, ends_at) COMMENT 'Optimises WHERE starts_at <= NOW() AND (ends_at IS NULL OR ends_at >= NOW())',
     KEY idx_promotions_code (code),
+    KEY idx_promotions_deleted_at (deleted_at),
     CONSTRAINT fk_promotions_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_promotions_created_by FOREIGN KEY (created_by)
@@ -2456,12 +2534,14 @@ CREATE TABLE IF NOT EXISTS service_areas (
                                      COMMENT 'planned = future build-out; active = currently served; retired = decommissioned',
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     SPATIAL KEY spx_service_areas_boundary (boundary),
     KEY idx_service_areas_organization_id (organization_id),
     KEY idx_service_areas_site_id (site_id),
     KEY idx_service_areas_status (status),
+    KEY idx_service_areas_deleted_at (deleted_at),
     CONSTRAINT fk_service_areas_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_service_areas_site FOREIGN KEY (site_id)
@@ -2493,12 +2573,14 @@ CREATE TABLE IF NOT EXISTS coverage_zones (
                                      COMMENT 'planned = design phase; under_construction = build in progress; active = live; degraded = reduced capacity; retired = decommissioned',
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     SPATIAL KEY spx_coverage_zones_boundary (boundary),
     KEY idx_coverage_zones_service_area_id (service_area_id),
     KEY idx_coverage_zones_zone_type (zone_type),
     KEY idx_coverage_zones_status (status),
+    KEY idx_coverage_zones_deleted_at (deleted_at),
     CONSTRAINT fk_coverage_zones_service_area FOREIGN KEY (service_area_id)
         REFERENCES service_areas (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -2534,10 +2616,12 @@ CREATE TABLE IF NOT EXISTS sla_definitions (
                                              NOT NULL DEFAULT 'active',
     created_at              TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_sla_definitions_plan_id (plan_id),
     KEY idx_sla_definitions_status (status),
+    KEY idx_sla_definitions_deleted_at (deleted_at),
     CONSTRAINT fk_sla_definitions_plan FOREIGN KEY (plan_id)
         REFERENCES plans (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -2568,6 +2652,7 @@ CREATE TABLE IF NOT EXISTS device_config_backups (
     captured_by_user_id BIGINT UNSIGNED NULL  COMMENT 'User who initiated the capture; NULL = system / automated',
     notes           TEXT             NULL     COMMENT 'Free-form operator notes',
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_device_config_backups_device_version (device_id, version),
@@ -2576,6 +2661,7 @@ CREATE TABLE IF NOT EXISTS device_config_backups (
     KEY idx_device_config_backups_capture_method (capture_method),
     KEY idx_device_config_backups_checksum (checksum),
     KEY idx_device_config_backups_created_at (created_at),
+    KEY idx_device_config_backups_deleted_at (deleted_at),
     CONSTRAINT fk_device_config_backups_device FOREIGN KEY (device_id)
         REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_device_config_backups_user FOREIGN KEY (captured_by_user_id)
@@ -2621,12 +2707,14 @@ CREATE TABLE IF NOT EXISTS client_mx_profiles (
                                 COMMENT 'Suite / interior number',
     created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_client_mx_profiles_client_id (client_id),
     UNIQUE KEY uq_client_mx_profiles_rfc (rfc_unique_check),
     KEY idx_client_mx_profiles_rfc (rfc),
     KEY idx_client_mx_profiles_regimen_fiscal (regimen_fiscal),
+    KEY idx_client_mx_profiles_deleted_at (deleted_at),
     CONSTRAINT fk_client_mx_profiles_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -2697,11 +2785,13 @@ CREATE TABLE IF NOT EXISTS organization_mx_profiles (
 
     created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_organization_mx_profiles_org_id (organization_id),
     UNIQUE KEY uq_organization_mx_profiles_rfc (rfc),
     KEY idx_organization_mx_profiles_pac_environment (pac_environment),
+    KEY idx_organization_mx_profiles_deleted_at (deleted_at),
     CONSTRAINT fk_organization_mx_profiles_org FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -3412,6 +3502,7 @@ CREATE TABLE IF NOT EXISTS concession_titles (
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_concession_titles_title_number (title_number),
@@ -3419,6 +3510,7 @@ CREATE TABLE IF NOT EXISTS concession_titles (
     KEY idx_concession_titles_status (status),
     KEY idx_concession_titles_regulatory_body (regulatory_body),
     KEY idx_concession_titles_expiration_date (expiration_date),
+    KEY idx_concession_titles_deleted_at (deleted_at),
     CONSTRAINT fk_concession_titles_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_concession_titles_document FOREIGN KEY (document_file_id)
@@ -3452,11 +3544,13 @@ CREATE TABLE IF NOT EXISTS contract_templates_mx (
                                 COMMENT 'draft=being prepared; submitted=sent to IFT/CRT; registered=officially approved; expired=superseded; revoked=withdrawn',
     created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_contract_templates_mx_organization_id (organization_id),
     KEY idx_contract_templates_mx_status (status),
     KEY idx_contract_templates_mx_registered_at (registered_at),
+    KEY idx_contract_templates_mx_deleted_at (deleted_at),
     CONSTRAINT fk_contract_templates_mx_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_contract_templates_mx_document FOREIGN KEY (document_file_id)
@@ -3501,6 +3595,7 @@ CREATE TABLE IF NOT EXISTS regulatory_filings (
     notes                   TEXT            NULL,
     created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_regulatory_filings_organization_id (organization_id),
@@ -3509,6 +3604,7 @@ CREATE TABLE IF NOT EXISTS regulatory_filings (
     KEY idx_regulatory_filings_status (status),
     KEY idx_regulatory_filings_filed_at (filed_at),
     KEY idx_regulatory_filings_period_start (period_start),
+    KEY idx_regulatory_filings_deleted_at (deleted_at),
     CONSTRAINT fk_regulatory_filings_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_regulatory_filings_concession_title FOREIGN KEY (concession_title_id)
@@ -3575,6 +3671,7 @@ CREATE TABLE IF NOT EXISTS ift_statistical_reports (
 
     created_at                  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_ift_statistical_reports_org_period (organization_id, report_period),
@@ -3582,6 +3679,7 @@ CREATE TABLE IF NOT EXISTS ift_statistical_reports (
     KEY idx_ift_statistical_reports_status (status),
     KEY idx_ift_statistical_reports_period_start (period_start),
     KEY idx_ift_statistical_reports_filing_id (filing_id),
+    KEY idx_ift_statistical_reports_deleted_at (deleted_at),
     CONSTRAINT fk_ift_statistical_reports_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_ift_statistical_reports_filing FOREIGN KEY (filing_id)
@@ -4223,11 +4321,13 @@ CREATE TABLE IF NOT EXISTS payment_gateways (
     config_json              JSON             NULL                        COMMENT 'Provider-specific extra settings (e.g. merchant IDs, endpoint overrides)',
     created_at               TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at               TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_payment_gateways_organization_id (organization_id),
     KEY idx_payment_gateways_provider (provider),
     KEY idx_payment_gateways_status (status),
+    KEY idx_payment_gateways_deleted_at (deleted_at),
     CONSTRAINT fk_payment_gateways_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -4294,11 +4394,13 @@ CREATE TABLE IF NOT EXISTS recurring_payment_profiles (
                                             NOT NULL DEFAULT 'active'  COMMENT 'Profile lifecycle status',
     created_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_recurring_profiles_client_id (client_id),
     KEY idx_recurring_profiles_gateway_id (payment_gateway_id),
     KEY idx_recurring_profiles_status (status),
+    KEY idx_recurring_payment_profiles_deleted_at (deleted_at),
     CONSTRAINT fk_recurring_profiles_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_recurring_profiles_gateway FOREIGN KEY (payment_gateway_id)
@@ -4323,10 +4425,12 @@ CREATE TABLE IF NOT EXISTS suspension_rules (
     is_active           TINYINT(1)       NOT NULL DEFAULT 1               COMMENT 'FALSE = rule is disabled and will not be evaluated',
     created_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_suspension_rules_organization_id (organization_id),
     KEY idx_suspension_rules_is_active (is_active),
+    KEY idx_suspension_rules_deleted_at (deleted_at),
     CONSTRAINT fk_suspension_rules_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -4398,12 +4502,14 @@ CREATE TABLE IF NOT EXISTS csd_certificates (
                                            NOT NULL DEFAULT 'active'  COMMENT 'Certificate lifecycle status',
     created_at            TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at            TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_csd_certificate_number (certificate_number),
     UNIQUE KEY uq_csd_fingerprint (fingerprint_sha256),
     KEY idx_csd_organization_active (organization_id, is_active),
     KEY idx_csd_valid_to (valid_to),
+    KEY idx_csd_certificates_deleted_at (deleted_at),
     CONSTRAINT fk_csd_certificates_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -4435,11 +4541,13 @@ CREATE TABLE IF NOT EXISTS pac_providers (
     config_json           JSON             NULL                         COMMENT 'Provider-specific extra settings (timeouts, wsdl overrides, etc.)',
     created_at            TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at            TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_pac_providers_org_provider_env (organization_id, provider_name, environment),
     KEY idx_pac_providers_organization_id (organization_id),
     KEY idx_pac_providers_status (status),
+    KEY idx_pac_providers_deleted_at (deleted_at),
     CONSTRAINT fk_pac_providers_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -4461,10 +4569,12 @@ CREATE TABLE IF NOT EXISTS webhooks (
     timeout_seconds   TINYINT UNSIGNED NOT NULL DEFAULT 30          COMMENT 'HTTP request timeout in seconds per attempt',
     created_at        TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at        TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_webhooks_organization_id (organization_id),
     KEY idx_webhooks_is_active (is_active),
+    KEY idx_webhooks_deleted_at (deleted_at),
     CONSTRAINT fk_webhooks_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -4521,10 +4631,12 @@ CREATE TABLE IF NOT EXISTS firerelay_nodes (
     last_seen_at    DATETIME      NULL COMMENT 'Timestamp of last successful health check',
     created_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY idx_firerelay_nodes_api_url (api_url),
-    KEY idx_firerelay_nodes_status (status)
+    KEY idx_firerelay_nodes_status (status),
+    KEY idx_firerelay_nodes_deleted_at (deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -4535,9 +4647,11 @@ CREATE TABLE IF NOT EXISTS firerelay_client_routing (
     client_id   BIGINT UNSIGNED NOT NULL COMMENT 'The client ID',
     node_id     VARCHAR(64)     NOT NULL COMMENT 'Which node owns this client',
     created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (client_id),
     KEY idx_firerelay_client_routing_node (node_id),
+    KEY idx_firerelay_client_routing_deleted_at (deleted_at),
     CONSTRAINT fk_firerelay_routing_node FOREIGN KEY (node_id)
         REFERENCES firerelay_nodes (id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -4616,9 +4730,11 @@ CREATE TABLE IF NOT EXISTS alert_rules (
     is_enabled        BOOLEAN         NOT NULL DEFAULT TRUE,
     created_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     INDEX idx_alert_rules_org (organization_id),
     INDEX idx_alert_rules_enabled (organization_id, is_enabled),
+    KEY idx_alert_rules_deleted_at (deleted_at),
     CONSTRAINT fk_alert_rules_org FOREIGN KEY (organization_id)
         REFERENCES organizations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -4665,11 +4781,13 @@ CREATE TABLE IF NOT EXISTS organization_users (
     joined_at        TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP          COMMENT 'When the user was added to the organization',
     created_at       TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at       TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_organization_users_org_user (organization_id, user_id),
     KEY idx_organization_users_user_id (user_id),
     KEY idx_organization_users_role (role),
+    KEY idx_organization_users_deleted_at (deleted_at),
     CONSTRAINT fk_organization_users_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_organization_users_user FOREIGN KEY (user_id)
@@ -4696,11 +4814,13 @@ CREATE TABLE IF NOT EXISTS plan_addons (
                                       NOT NULL DEFAULT 'active'    COMMENT 'Availability status',
     created_at       TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at       TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_plan_addons_organization_id (organization_id),
     KEY idx_plan_addons_addon_type (addon_type),
     KEY idx_plan_addons_status (status),
+    KEY idx_plan_addons_deleted_at (deleted_at),
     CONSTRAINT fk_plan_addons_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -4723,11 +4843,13 @@ CREATE TABLE IF NOT EXISTS contract_addons (
                                     NOT NULL DEFAULT 'active'   COMMENT 'Lifecycle status of the add-on on this contract',
     created_at     TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_contract_addons_contract_id (contract_id),
     KEY idx_contract_addons_plan_addon_id (plan_addon_id),
     KEY idx_contract_addons_status (status),
+    KEY idx_contract_addons_deleted_at (deleted_at),
     CONSTRAINT fk_contract_addons_contract FOREIGN KEY (contract_id)
         REFERENCES contracts (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_contract_addons_plan_addon FOREIGN KEY (plan_addon_id)
@@ -4757,6 +4879,7 @@ CREATE TABLE IF NOT EXISTS speed_tests (
     notes            TEXT               NULL                      COMMENT 'Free-text observations or technician comments',
     tested_at        TIMESTAMP          NOT NULL                  COMMENT 'When the test measurement was taken',
     created_at       TIMESTAMP          NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_speed_tests_client_id (client_id),
@@ -4764,6 +4887,7 @@ CREATE TABLE IF NOT EXISTS speed_tests (
     KEY idx_speed_tests_device_id (device_id),
     KEY idx_speed_tests_tested_at (tested_at),
     KEY idx_speed_tests_test_source (test_source),
+    KEY idx_speed_tests_deleted_at (deleted_at),
     CONSTRAINT fk_speed_tests_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_speed_tests_contract FOREIGN KEY (contract_id)
