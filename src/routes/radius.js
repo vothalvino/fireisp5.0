@@ -22,6 +22,7 @@ router.get('/:id', requirePermission('devices.view'), ctrl.get);
 router.post('/', requirePermission('devices.create'), validate(createRadius), ctrl.create);
 router.put('/:id', requirePermission('devices.update'), validate(updateRadius), ctrl.update);
 router.delete('/:id', requirePermission('devices.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('devices.update'), ctrl.restore);
 
 // Get RADIUS accounts for a specific contract
 router.get('/contract/:contractId', requirePermission('devices.view'), async (req, res, next) => {

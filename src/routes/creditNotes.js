@@ -42,6 +42,7 @@ router.post('/', requirePermission('credit_notes.create'), validate(createCredit
 });
 router.put('/:id', requirePermission('credit_notes.update'), validate(updateCreditNote), ctrl.update);
 router.delete('/:id', requirePermission('credit_notes.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('credit_notes.update'), ctrl.restore);
 
 // Credit note line items
 router.get('/:id/items', requirePermission('credit_notes.view'), async (req, res, next) => {

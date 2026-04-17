@@ -23,6 +23,7 @@ router.get('/:id', requirePermission('service_areas.view'), ctrl.get);
 router.post('/', requirePermission('service_areas.create'), validate(createServiceArea), ctrl.create);
 router.put('/:id', requirePermission('service_areas.update'), validate(updateServiceArea), ctrl.update);
 router.delete('/:id', requirePermission('service_areas.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('service_areas.update'), ctrl.restore);
 
 // List coverage zones for a service area
 router.get('/:id/coverage-zones', requirePermission('service_areas.view'), async (req, res, next) => {

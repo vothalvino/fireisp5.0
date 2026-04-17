@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('pac_providers.view'), ctrl.get);
 router.post('/', requirePermission('pac_providers.create'), validate(createPacProvider), ctrl.create);
 router.put('/:id', requirePermission('pac_providers.update'), validate(updatePacProvider), ctrl.update);
 router.delete('/:id', requirePermission('pac_providers.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('pac_providers.update'), ctrl.restore);
 
 module.exports = router;

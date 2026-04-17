@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('expenses.view'), ctrl.get);
 router.post('/', requirePermission('expenses.create'), validate(createExpense), ctrl.create);
 router.put('/:id', requirePermission('expenses.update'), validate(updateExpense), ctrl.update);
 router.delete('/:id', requirePermission('expenses.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('expenses.update'), ctrl.restore);
 
 module.exports = router;

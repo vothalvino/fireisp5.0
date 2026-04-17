@@ -25,6 +25,7 @@ router.post('/', requirePermission('invoices.create'), validate(createInvoice), 
 router.put('/:id', requirePermission('invoices.update'), validate(updateInvoice), ctrl.update);
 router.patch('/:id', requirePermission('invoices.update'), validate(patchInvoice), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('invoices.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('invoices.update'), ctrl.restore);
 
 // Invoice line items
 router.get('/:id/items', requirePermission('invoices.view'), async (req, res, next) => {
@@ -52,6 +53,7 @@ router.post('/generate', requirePermission('invoices.create'), validate(generate
     // Fetch contract and plan
     const [contracts] = await db.query(
       'SELECT * FROM contracts WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [contract_id, req.orgId],
     );
     if (!contracts[0]) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Contract not found' } });

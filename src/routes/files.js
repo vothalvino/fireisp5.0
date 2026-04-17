@@ -71,5 +71,6 @@ router.get('/:id/download', requirePermission('files.view'), async (req, res, ne
 router.post('/', requirePermission('files.create'), validate(createFile), ctrl.create);
 router.put('/:id', requirePermission('files.update'), validate(updateFile), ctrl.update);
 router.delete('/:id', requirePermission('files.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('files.update'), ctrl.restore);
 
 module.exports = router;

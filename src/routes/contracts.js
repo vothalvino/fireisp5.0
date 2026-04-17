@@ -24,6 +24,7 @@ router.post('/', requirePermission('contracts.create'), validate(createContract)
 router.put('/:id', requirePermission('contracts.update'), validate(updateContract), ctrl.update);
 router.patch('/:id', requirePermission('contracts.update'), validate(patchContract), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('contracts.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('contracts.update'), ctrl.restore);
 
 // Contract add-ons
 router.get('/:id/addons', requirePermission('contracts.view'), async (req, res, next) => {

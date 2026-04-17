@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('csd_certificates.view'), ctrl.get);
 router.post('/', requirePermission('csd_certificates.create'), validate(createCsdCertificate), ctrl.create);
 router.put('/:id', requirePermission('csd_certificates.update'), validate(updateCsdCertificate), ctrl.update);
 router.delete('/:id', requirePermission('csd_certificates.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('csd_certificates.update'), ctrl.restore);
 
 module.exports = router;

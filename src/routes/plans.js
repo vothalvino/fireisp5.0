@@ -24,6 +24,7 @@ router.post('/', requirePermission('plans.create'), validate(createPlan), ctrl.c
 router.put('/:id', requirePermission('plans.update'), validate(updatePlan), ctrl.update);
 router.patch('/:id', requirePermission('plans.update'), validate(patchPlan), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('plans.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('plans.update'), ctrl.restore);
 
 // Plan add-ons
 router.get('/addons/catalog', requirePermission('plans.view'), async (req, res, next) => {

@@ -39,5 +39,6 @@ router.post('/', requirePermission('api_tokens.create'), validate(createApiToken
 
 router.put('/:id', requirePermission('api_tokens.update'), validate(updateApiToken), ctrl.update);
 router.delete('/:id', requirePermission('api_tokens.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('api_tokens.update'), ctrl.restore);
 
 module.exports = router;

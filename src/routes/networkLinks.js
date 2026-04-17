@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('network_links.view'), ctrl.get);
 router.post('/', requirePermission('network_links.create'), validate(createNetworkLink), ctrl.create);
 router.put('/:id', requirePermission('network_links.update'), validate(updateNetworkLink), ctrl.update);
 router.delete('/:id', requirePermission('network_links.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('network_links.update'), ctrl.restore);
 
 module.exports = router;

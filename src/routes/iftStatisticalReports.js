@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('ift_statistical_reports.view'), ctrl.get);
 router.post('/', requirePermission('ift_statistical_reports.create'), validate(createIftStatisticalReport), ctrl.create);
 router.put('/:id', requirePermission('ift_statistical_reports.update'), validate(updateIftStatisticalReport), ctrl.update);
 router.delete('/:id', requirePermission('ift_statistical_reports.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('ift_statistical_reports.update'), ctrl.restore);
 
 module.exports = router;

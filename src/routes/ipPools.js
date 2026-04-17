@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('ip_pools.view'), ctrl.get);
 router.post('/', requirePermission('ip_pools.create'), validate(createIpPool), ctrl.create);
 router.put('/:id', requirePermission('ip_pools.update'), validate(updateIpPool), ctrl.update);
 router.delete('/:id', requirePermission('ip_pools.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('ip_pools.update'), ctrl.restore);
 
 module.exports = router;

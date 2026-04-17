@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('ip_assignments.view'), ctrl.get);
 router.post('/', requirePermission('ip_assignments.create'), validate(createIpAssignment), ctrl.create);
 router.put('/:id', requirePermission('ip_assignments.update'), validate(updateIpAssignment), ctrl.update);
 router.delete('/:id', requirePermission('ip_assignments.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('ip_assignments.update'), ctrl.restore);
 
 module.exports = router;

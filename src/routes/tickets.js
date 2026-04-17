@@ -24,6 +24,7 @@ router.post('/', requirePermission('tickets.create'), validate(createTicket), ct
 router.put('/:id', requirePermission('tickets.update'), validate(updateTicket), ctrl.update);
 router.patch('/:id', requirePermission('tickets.update'), validate(patchTicket), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('tickets.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('tickets.update'), ctrl.restore);
 
 // Ticket comments
 router.get('/:id/comments', requirePermission('tickets.view'), async (req, res, next) => {

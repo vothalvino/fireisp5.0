@@ -21,6 +21,7 @@ router.post('/', requirePermission('organizations.create'), validate(createOrgan
 router.put('/:id', requirePermission('organizations.update'), validate(updateOrganization), ctrl.update);
 router.patch('/:id', requirePermission('organizations.update'), validate(patchOrganization), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('organizations.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('organizations.update'), ctrl.restore);
 
 // Settings sub-routes
 router.get('/:id/settings', requirePermission('settings.view'), async (req, res, next) => {

@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('devices.view'), ctrl.get);
 router.post('/', requirePermission('devices.create'), validate(createNas), ctrl.create);
 router.put('/:id', requirePermission('devices.update'), validate(updateNas), ctrl.update);
 router.delete('/:id', requirePermission('devices.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('devices.update'), ctrl.restore);
 
 module.exports = router;

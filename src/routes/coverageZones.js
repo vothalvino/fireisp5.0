@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('coverage_zones.view'), ctrl.get);
 router.post('/', requirePermission('coverage_zones.create'), validate(createCoverageZone), ctrl.create);
 router.put('/:id', requirePermission('coverage_zones.update'), validate(updateCoverageZone), ctrl.update);
 router.delete('/:id', requirePermission('coverage_zones.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('coverage_zones.update'), ctrl.restore);
 
 module.exports = router;

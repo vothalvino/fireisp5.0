@@ -23,6 +23,7 @@ router.get('/:id', requirePermission('inventory.view'), ctrl.get);
 router.post('/', requirePermission('inventory.create'), validate(createWarehouse), ctrl.create);
 router.put('/:id', requirePermission('inventory.update'), validate(updateWarehouse), ctrl.update);
 router.delete('/:id', requirePermission('inventory.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('inventory.update'), ctrl.restore);
 
 // Warehouse stock
 router.get('/:id/stock', requirePermission('inventory.view'), async (req, res, next) => {

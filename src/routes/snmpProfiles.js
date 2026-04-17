@@ -23,6 +23,7 @@ router.get('/:id', requirePermission('snmp_profiles.view'), ctrl.get);
 router.post('/', requirePermission('snmp_profiles.create'), validate(createSnmpProfile), ctrl.create);
 router.put('/:id', requirePermission('snmp_profiles.update'), validate(updateSnmpProfile), ctrl.update);
 router.delete('/:id', requirePermission('snmp_profiles.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('snmp_profiles.update'), ctrl.restore);
 
 // Get OIDs for an SNMP profile
 router.get('/:id/oids', requirePermission('snmp_profiles.view'), async (req, res, next) => {

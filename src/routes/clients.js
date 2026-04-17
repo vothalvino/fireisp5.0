@@ -24,6 +24,7 @@ router.post('/', requirePermission('clients.create'), validate(createClient), ct
 router.put('/:id', requirePermission('clients.update'), validate(updateClient), ctrl.update);
 router.patch('/:id', requirePermission('clients.update'), validate(patchClient), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('clients.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('clients.update'), ctrl.restore);
 
 // Contacts sub-routes
 router.get('/:id/contacts', requirePermission('clients.view'), async (req, res, next) => {

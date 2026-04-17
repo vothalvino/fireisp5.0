@@ -48,7 +48,7 @@
 - ✅ Bulk operations endpoints
 - ✅ Pagination consistency audit (ensure every list endpoint supports `?page=&limit=`)
 - ✅ Add `PATCH` partial-update support to top 10 most-used resources (clients, contracts, invoices, devices, payments, tickets, plans, users, organizations, sites)
-- ⬜ Implement soft-delete across all resources (archive instead of `DELETE`)
+- ✅ Implement soft-delete across all resources (archive instead of `DELETE`)
 
 ### 1.3 — Authentication & Security
 - ✅ JWT auth + 2FA (TOTP)

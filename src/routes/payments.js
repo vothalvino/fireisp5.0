@@ -41,6 +41,7 @@ router.post('/', requirePermission('payments.create'), validate(createPayment), 
 router.put('/:id', requirePermission('payments.update'), validate(updatePayment), ctrl.update);
 router.patch('/:id', requirePermission('payments.update'), validate(patchPayment), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('payments.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('payments.update'), ctrl.restore);
 
 // Allocate payment to invoice
 router.post('/:id/allocate', requirePermission('payments.create'), validate(allocatePayment), async (req, res, next) => {

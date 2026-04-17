@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('sla_definitions.view'), ctrl.get);
 router.post('/', requirePermission('sla_definitions.create'), validate(createSlaDefinition), ctrl.create);
 router.put('/:id', requirePermission('sla_definitions.update'), validate(updateSlaDefinition), ctrl.update);
 router.delete('/:id', requirePermission('sla_definitions.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('sla_definitions.update'), ctrl.restore);
 
 module.exports = router;

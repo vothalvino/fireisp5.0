@@ -24,6 +24,7 @@ router.get('/:id', requirePermission('quotes.view'), ctrl.get);
 router.post('/', requirePermission('quotes.create'), validate(createQuote), ctrl.create);
 router.put('/:id', requirePermission('quotes.update'), validate(updateQuote), ctrl.update);
 router.delete('/:id', requirePermission('quotes.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('quotes.update'), ctrl.restore);
 
 // Get quote line items
 router.get('/:id/items', requirePermission('quotes.view'), async (req, res, next) => {

@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('device_config_backups.view'), ctrl.get);
 router.post('/', requirePermission('device_config_backups.create'), validate(createDeviceConfigBackup), ctrl.create);
 router.put('/:id', requirePermission('device_config_backups.update'), validate(updateDeviceConfigBackup), ctrl.update);
 router.delete('/:id', requirePermission('device_config_backups.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('device_config_backups.update'), ctrl.restore);
 
 module.exports = router;
