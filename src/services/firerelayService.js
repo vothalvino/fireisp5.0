@@ -92,9 +92,26 @@ async function httpWithRetry(baseUrl, opts, maxRetries) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * List all registered nodes.
+ * List registered nodes with pagination (for API use).
  */
-async function listNodes() {
+async function listNodes({ page = 1, limit = 50 } = {}) {
+  const offset = (page - 1) * limit;
+  const [rows] = await db.query(
+    'SELECT * FROM firerelay_nodes ORDER BY created_at ASC LIMIT ? OFFSET ?',
+    [limit, offset],
+  );
+  const [countResult] = await db.query('SELECT COUNT(*) AS total FROM firerelay_nodes');
+  const total = countResult[0].total;
+  return {
+    data: rows,
+    meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+  };
+}
+
+/**
+ * List ALL registered nodes (internal use by health loop and fan-out).
+ */
+async function listAllNodes() {
   const [rows] = await db.query('SELECT * FROM firerelay_nodes ORDER BY created_at ASC');
   return rows;
 }
@@ -222,7 +239,7 @@ function startHealthLoop() {
 
   healthInterval = setInterval(async () => {
     try {
-      const nodes = await listNodes();
+      const nodes = await listAllNodes();
       await Promise.allSettled(nodes.map(n => pollNodeHealth(n)));
     } catch (err) {
       logger.error({ err }, 'Health loop error');
@@ -308,7 +325,7 @@ async function selectLeastLoadedNode() {
  * @returns {Promise<{results: Array, warnings: string[]}>}
  */
 async function fanOut({ method = 'GET', path, body, headers } = {}) {
-  const nodes = await listNodes();
+  const nodes = await listAllNodes();
   const healthyNodes = nodes.filter(n => n.status !== 'offline');
   const warnings = [];
 
@@ -361,6 +378,7 @@ module.exports = {
   httpWithRetry,
   // Node registry
   listNodes,
+  listAllNodes,
   getNode,
   registerNode,
   updateNode,

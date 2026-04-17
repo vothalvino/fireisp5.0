@@ -18,8 +18,22 @@ router.use(orgScope);
 // List all roles
 router.get('/', requirePermission('roles.view'), async (req, res, next) => {
   try {
-    const [rows] = await db.query('SELECT * FROM roles ORDER BY name');
-    res.json({ data: rows });
+    const { page = 1, limit = 50 } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(Math.max(1, parseInt(limit, 10)), 100);
+    const offset = (pageNum - 1) * limitNum;
+
+    const [rows] = await db.query(
+      'SELECT * FROM roles ORDER BY name LIMIT ? OFFSET ?',
+      [limitNum, offset],
+    );
+    const [countResult] = await db.query('SELECT COUNT(*) AS total FROM roles');
+    const total = countResult[0].total;
+
+    res.json({
+      data: rows,
+      meta: { total, page: pageNum, limit: limitNum, totalPages: Math.ceil(total / limitNum) },
+    });
   } catch (err) {
     next(err);
   }

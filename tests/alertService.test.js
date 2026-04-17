@@ -146,14 +146,17 @@ describe('alertService', () => {
   });
 
   describe('getAlertHistory()', () => {
-    test('returns alert event history', async () => {
-      db.query.mockResolvedValueOnce([[
-        { id: 1, rule_name: 'High CPU', metric: 'cpu_usage', current_value: 95, status: 'triggered' },
-        { id: 2, rule_name: 'Low Uptime', metric: 'uptime', current_value: 88, status: 'acknowledged' },
-      ]]);
+    test('returns paginated alert event history', async () => {
+      db.query
+        .mockResolvedValueOnce([[
+          { id: 1, rule_name: 'High CPU', metric: 'cpu_usage', current_value: 95, status: 'triggered' },
+          { id: 2, rule_name: 'Low Uptime', metric: 'uptime', current_value: 88, status: 'acknowledged' },
+        ]])
+        .mockResolvedValueOnce([[{ total: 2 }]]);
 
       const result = await alertService.getAlertHistory(1);
-      expect(result).toHaveLength(2);
+      expect(result.data).toHaveLength(2);
+      expect(result.meta).toEqual({ total: 2, page: 1, limit: 50, totalPages: 1 });
     });
   });
 

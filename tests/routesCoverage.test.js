@@ -275,7 +275,9 @@ describe('Alert Routes — /api/alerts', () => {
   describe('GET /api/alerts/rules', () => {
     test('success — lists alert rules', async () => {
       mockAuthUser();
-      db.query.mockResolvedValue([[{ id: 1, name: 'High CPU' }]]);
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, name: 'High CPU' }]])
+        .mockResolvedValueOnce([[{ total: 1 }]]);
 
       const res = await request(app)
         .get('/api/alerts/rules')
@@ -283,6 +285,10 @@ describe('Alert Routes — /api/alerts', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveLength(1);
+      expect(res.body.meta).toBeDefined();
+      expect(res.body.meta.total).toBe(1);
+      expect(res.body.meta.page).toBe(1);
+      expect(res.body.meta.limit).toBe(50);
     });
   });
 
@@ -356,7 +362,10 @@ describe('Alert Routes — /api/alerts', () => {
   describe('GET /api/alerts/events', () => {
     test('success — returns alert history', async () => {
       mockAuthUser();
-      alertService.getAlertHistory.mockResolvedValue([{ id: 1, severity: 'critical' }]);
+      alertService.getAlertHistory.mockResolvedValue({
+        data: [{ id: 1, severity: 'critical' }],
+        meta: { total: 1, page: 1, limit: 50, totalPages: 1 },
+      });
 
       const res = await request(app)
         .get('/api/alerts/events')
@@ -364,6 +373,8 @@ describe('Alert Routes — /api/alerts', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveLength(1);
+      expect(res.body.meta).toBeDefined();
+      expect(res.body.meta.total).toBe(1);
     });
   });
 
@@ -403,7 +414,9 @@ describe('Role Routes — /api/roles', () => {
   describe('GET /api/roles', () => {
     test('success — lists roles', async () => {
       mockAuthUser();
-      db.query.mockResolvedValue([[{ id: 1, name: 'admin' }, { id: 2, name: 'support' }]]);
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, name: 'admin' }, { id: 2, name: 'support' }]])
+        .mockResolvedValueOnce([[{ total: 2 }]]);
 
       const res = await request(app)
         .get('/api/roles')
@@ -411,6 +424,9 @@ describe('Role Routes — /api/roles', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveLength(2);
+      expect(res.body.meta).toBeDefined();
+      expect(res.body.meta.total).toBe(2);
+      expect(res.body.meta.page).toBe(1);
     });
   });
 
@@ -553,7 +569,9 @@ describe('Facturas Públicas Routes — /api/facturas-publicas', () => {
   describe('GET /api/facturas-publicas', () => {
     test('success — lists facturas', async () => {
       mockAuthUser();
-      db.query.mockResolvedValue([[{ id: 1, total: '100.00' }]]);
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, total: '100.00' }]])
+        .mockResolvedValueOnce([[{ total: 1 }]]);
 
       const res = await request(app)
         .get('/api/facturas-publicas')
@@ -561,6 +579,9 @@ describe('Facturas Públicas Routes — /api/facturas-publicas', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveLength(1);
+      expect(res.body.meta).toBeDefined();
+      expect(res.body.meta.total).toBe(1);
+      expect(res.body.meta.page).toBe(1);
     });
   });
 
@@ -638,7 +659,9 @@ describe('Facturas Públicas Routes — /api/facturas-publicas', () => {
   describe('GET /api/facturas-publicas/:id/items', () => {
     test('success — lists items', async () => {
       mockAuthUser();
-      db.query.mockResolvedValue([[{ id: 1, invoice_id: 5 }]]);
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, invoice_id: 5 }]])
+        .mockResolvedValueOnce([[{ total: 1 }]]);
 
       const res = await request(app)
         .get('/api/facturas-publicas/1/items')
@@ -646,6 +669,8 @@ describe('Facturas Públicas Routes — /api/facturas-publicas', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveLength(1);
+      expect(res.body.meta).toBeDefined();
+      expect(res.body.meta.total).toBe(1);
     });
   });
 

@@ -18,11 +18,25 @@ router.use(orgScope);
 // GET /api/alerts/rules — List alert rules
 router.get('/rules', requirePermission('devices.view'), async (req, res, next) => {
   try {
+    const { page = 1, limit = 50 } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(Math.max(1, parseInt(limit, 10)), 100);
+    const offset = (pageNum - 1) * limitNum;
+
     const [rows] = await db.query(
-      'SELECT * FROM alert_rules WHERE organization_id = ? ORDER BY name',
+      'SELECT * FROM alert_rules WHERE organization_id = ? ORDER BY name LIMIT ? OFFSET ?',
+      [req.orgId, limitNum, offset],
+    );
+    const [countResult] = await db.query(
+      'SELECT COUNT(*) AS total FROM alert_rules WHERE organization_id = ?',
       [req.orgId],
     );
-    res.json({ data: rows });
+    const total = countResult[0].total;
+
+    res.json({
+      data: rows,
+      meta: { total, page: pageNum, limit: limitNum, totalPages: Math.ceil(total / limitNum) },
+    });
   } catch (err) { next(err); }
 });
 
@@ -94,10 +108,11 @@ router.delete('/rules/:id', requirePermission('devices.delete'), async (req, res
 // GET /api/alerts/events — Alert event history
 router.get('/events', requirePermission('devices.view'), async (req, res, next) => {
   try {
-    const data = await alertService.getAlertHistory(req.orgId, {
-      limit: parseInt(req.query.limit, 10) || 50,
-    });
-    res.json({ data });
+    const { page = 1, limit = 50 } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(Math.max(1, parseInt(limit, 10)), 100);
+    const result = await alertService.getAlertHistory(req.orgId, { page: pageNum, limit: limitNum });
+    res.json(result);
   } catch (err) { next(err); }
 });
 

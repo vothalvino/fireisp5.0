@@ -71,13 +71,16 @@ router.use(authenticate);
 // ---------------------------------------------------------------------------
 // GET /api/firerelay/nodes — list all registered nodes
 // ---------------------------------------------------------------------------
-router.get('/nodes', requireRole('admin', 'owner'), async (_req, res, next) => {
+router.get('/nodes', requireRole('admin', 'owner'), async (req, res, next) => {
   try {
     if (relayConfig.mode !== 'master') {
       throw new ValidationError('Node management is only available on the master node');
     }
-    const rows = await firerelayService.listNodes();
-    res.json({ data: rows, total: rows.length });
+    const { page = 1, limit = 50 } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(Math.max(1, parseInt(limit, 10)), 100);
+    const result = await firerelayService.listNodes({ page: pageNum, limit: limitNum });
+    res.json(result);
   } catch (err) {
     next(err);
   }
