@@ -114,6 +114,30 @@ function crudController(Model, _options = {}) {
     },
 
     /**
+     * PATCH /:id — Partial update
+     */
+    async partialUpdate(req, res, next) {
+      try {
+        const old = await Model.findByIdOrFail(req.params.id, req.orgId);
+        const record = await Model.update(req.params.id, req.body, req.orgId);
+
+        await auditLog.log({
+          userId: req.user?.id,
+          organizationId: req.orgId,
+          action: 'partial_update',
+          tableName: Model.tableName,
+          recordId: record.id,
+          oldValues: old,
+          newValues: req.body,
+        });
+
+        res.json({ data: record });
+      } catch (err) {
+        next(err);
+      }
+    },
+
+    /**
      * DELETE /:id — Delete
      */
     async destroy(req, res, next) {

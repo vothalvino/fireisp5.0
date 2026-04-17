@@ -41,4 +41,8 @@ const createPlanAddon = {
   status: { type: 'string', enum: ['active', 'inactive'] },
 };
 
-module.exports = { createPlan, updatePlan, createPlanAddon };
+const patchPlan = Object.fromEntries(
+  Object.entries(updatePlan).map(([k, v]) => [k, { ...v, required: false }]),
+);
+
+module.exports = { createPlan, updatePlan, patchPlan, createPlanAddon };

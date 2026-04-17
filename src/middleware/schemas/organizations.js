@@ -40,4 +40,8 @@ const updateSetting = {
   value: { type: 'string', required: true, max: 5000 },
 };
 
-module.exports = { createOrganization, updateOrganization, updateSetting };
+const patchOrganization = Object.fromEntries(
+  Object.entries(updateOrganization).map(([k, v]) => [k, { ...v, required: false }]),
+);
+
+module.exports = { createOrganization, updateOrganization, patchOrganization, updateSetting };

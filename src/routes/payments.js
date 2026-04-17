@@ -9,7 +9,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createPayment, updatePayment, allocatePayment } = require('../middleware/schemas/payments');
+const { createPayment, updatePayment, patchPayment, allocatePayment } = require('../middleware/schemas/payments');
 const billingService = require('../services/billingService');
 const suspensionService = require('../services/suspensionService');
 const db = require('../config/database');
@@ -39,6 +39,7 @@ router.post('/', requirePermission('payments.create'), validate(createPayment), 
 });
 
 router.put('/:id', requirePermission('payments.update'), validate(updatePayment), ctrl.update);
+router.patch('/:id', requirePermission('payments.update'), validate(patchPayment), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('payments.delete'), ctrl.destroy);
 
 // Allocate payment to invoice

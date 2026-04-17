@@ -27,4 +27,8 @@ const allocatePayment = {
   amount: { type: 'number', required: true, min: 0 },
 };
 
-module.exports = { createPayment, updatePayment, allocatePayment };
+const patchPayment = Object.fromEntries(
+  Object.entries(updatePayment).map(([k, v]) => [k, { ...v, required: false }]),
+);
+
+module.exports = { createPayment, updatePayment, patchPayment, allocatePayment };
