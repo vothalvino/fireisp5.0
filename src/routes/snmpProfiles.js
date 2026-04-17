@@ -48,7 +48,7 @@ router.post('/:id/oids', requirePermission('snmp_profiles.update'), validate(cre
 router.delete('/:id/oids/:oidId', requirePermission('snmp_profiles.update'), async (req, res, next) => {
   try {
     await db.query(
-      'DELETE FROM snmp_profile_oids WHERE id = ? AND profile_id = ?',
+      'UPDATE snmp_profile_oids SET deleted_at = NOW() WHERE id = ? AND profile_id = ? AND deleted_at IS NULL',
       [req.params.oidId, req.params.id],
     );
     res.status(204).end();

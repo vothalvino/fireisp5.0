@@ -17,6 +17,8 @@ class Organization extends BaseModel {
 
   static get hasOrgScope() { return false; }
 
+  static get softDelete() { return true; }
+
   /**
    * Get settings for this organization from the settings table.
    */

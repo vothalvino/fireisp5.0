@@ -17,10 +17,12 @@ class SnmpProfile extends BaseModel {
 
   static get hasOrgScope() { return true; }
 
+  static get softDelete() { return true; }
+
   static async getOids(profileId) {
     const db = require('../config/database');
     const [rows] = await db.query(
-      'SELECT * FROM snmp_profile_oids WHERE profile_id = ? ORDER BY sort_order',
+      'SELECT * FROM snmp_profile_oids WHERE profile_id = ? AND deleted_at IS NULL ORDER BY sort_order',
       [profileId],
     );
     return rows;

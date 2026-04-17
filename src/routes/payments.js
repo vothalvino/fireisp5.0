@@ -49,11 +49,11 @@ router.post('/:id/allocate', requirePermission('payments.create'), validate(allo
     const allocation = await Payment.allocate(req.params.id, invoice_id, amount);
 
     // Check if invoice is now fully paid
-    const [invoiceRows] = await db.query('SELECT * FROM invoices WHERE id = ?', [invoice_id]);
+    const [invoiceRows] = await db.query('SELECT * FROM invoices WHERE id = ? AND deleted_at IS NULL', [invoice_id]);
     const invoice = invoiceRows[0];
     if (invoice) {
       const [allocRows] = await db.query(
-        'SELECT SUM(amount) AS total_allocated FROM payment_allocations WHERE invoice_id = ?',
+        'SELECT SUM(amount) AS total_allocated FROM payment_allocations WHERE invoice_id = ? AND deleted_at IS NULL',
         [invoice_id],
       );
       const totalAllocated = parseFloat(allocRows[0].total_allocated || 0);
@@ -66,7 +66,7 @@ router.post('/:id/allocate', requirePermission('payments.create'), validate(allo
         // Check if contract was suspended → reconnect
         if (invoice.contract_id) {
           const [contractRows] = await db.query(
-            'SELECT * FROM contracts WHERE id = ? AND status = ?',
+            'SELECT * FROM contracts WHERE id = ? AND status = ? AND deleted_at IS NULL',
             [invoice.contract_id, 'suspended'],
           );
           if (contractRows[0]) {

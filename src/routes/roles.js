@@ -24,10 +24,10 @@ router.get('/', requirePermission('roles.view'), async (req, res, next) => {
     const offset = (pageNum - 1) * limitNum;
 
     const [rows] = await db.query(
-      'SELECT * FROM roles ORDER BY name LIMIT ? OFFSET ?',
+      'SELECT * FROM roles WHERE deleted_at IS NULL ORDER BY name LIMIT ? OFFSET ?',
       [limitNum, offset],
     );
-    const [countResult] = await db.query('SELECT COUNT(*) AS total FROM roles');
+    const [countResult] = await db.query('SELECT COUNT(*) AS total FROM roles WHERE deleted_at IS NULL');
     const total = countResult[0].total;
 
     res.json({
@@ -42,7 +42,7 @@ router.get('/', requirePermission('roles.view'), async (req, res, next) => {
 // Get a single role with its permissions
 router.get('/:id', requirePermission('roles.view'), async (req, res, next) => {
   try {
-    const [roles] = await db.query('SELECT * FROM roles WHERE id = ?', [req.params.id]);
+    const [roles] = await db.query('SELECT * FROM roles WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
     if (!roles[0]) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Role not found' } });
     }
@@ -82,10 +82,10 @@ router.put('/:id', requirePermission('roles.manage'), validate(updateRole), asyn
   try {
     const { name, description } = req.body;
     await db.query(
-      'UPDATE roles SET name = ?, description = ? WHERE id = ?',
+      'UPDATE roles SET name = ?, description = ? WHERE id = ? AND deleted_at IS NULL',
       [name, description, req.params.id],
     );
-    const [rows] = await db.query('SELECT * FROM roles WHERE id = ?', [req.params.id]);
+    const [rows] = await db.query('SELECT * FROM roles WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
     if (!rows[0]) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Role not found' } });
     }
@@ -98,11 +98,11 @@ router.put('/:id', requirePermission('roles.manage'), validate(updateRole), asyn
 // Delete a role
 router.delete('/:id', requirePermission('roles.manage'), async (req, res, next) => {
   try {
-    const [rows] = await db.query('SELECT * FROM roles WHERE id = ?', [req.params.id]);
+    const [rows] = await db.query('SELECT * FROM roles WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
     if (!rows[0]) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Role not found' } });
     }
-    await db.query('DELETE FROM roles WHERE id = ?', [req.params.id]);
+    await db.query('UPDATE roles SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
     res.status(204).end();
   } catch (err) {
     next(err);

@@ -17,10 +17,12 @@ class CreditNote extends BaseModel {
 
   static get hasOrgScope() { return true; }
 
+  static get softDelete() { return true; }
+
   static async getItems(creditNoteId) {
     const db = require('../config/database');
     const [rows] = await db.query(
-      'SELECT * FROM credit_note_items WHERE credit_note_id = ? ORDER BY id',
+      'SELECT * FROM credit_note_items WHERE credit_note_id = ? AND deleted_at IS NULL ORDER BY id',
       [creditNoteId],
     );
     return rows;

@@ -21,8 +21,9 @@ function crudController(Model, _options = {}) {
      */
     async list(req, res, next) {
       try {
-        const { page = 1, limit = 50, order_by, order, ...filters } = req.query;
+        const { page = 1, limit = 50, order_by, order, include_deleted, ...filters } = req.query;
         const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
+        const withDeleted = include_deleted === 'true';
 
         const [rows, total] = await Promise.all([
           Model.findAll({
@@ -32,8 +33,9 @@ function crudController(Model, _options = {}) {
             limit: Math.min(parseInt(limit), 100),
             offset,
             orgId: req.orgId,
+            withDeleted,
           }),
-          Model.count({ where: filters, orgId: req.orgId }),
+          Model.count({ where: filters, orgId: req.orgId, withDeleted }),
         ]);
 
         res.json({
@@ -138,7 +140,7 @@ function crudController(Model, _options = {}) {
     },
 
     /**
-     * DELETE /:id — Delete
+     * DELETE /:id — Soft-delete (archive) or hard-delete depending on model
      */
     async destroy(req, res, next) {
       try {
@@ -148,13 +150,34 @@ function crudController(Model, _options = {}) {
         await auditLog.log({
           userId: req.user?.id,
           organizationId: req.orgId,
-          action: 'delete',
+          action: Model.softDelete ? 'soft_delete' : 'delete',
           tableName: Model.tableName,
           recordId: parseInt(req.params.id),
           oldValues: old,
         });
 
         res.status(204).send();
+      } catch (err) {
+        next(err);
+      }
+    },
+
+    /**
+     * POST /:id/restore — Restore a soft-deleted record
+     */
+    async restore(req, res, next) {
+      try {
+        const record = await Model.restore(req.params.id, req.orgId);
+
+        await auditLog.log({
+          userId: req.user?.id,
+          organizationId: req.orgId,
+          action: 'restore',
+          tableName: Model.tableName,
+          recordId: record.id,
+        });
+
+        res.json({ data: record });
       } catch (err) {
         next(err);
       }

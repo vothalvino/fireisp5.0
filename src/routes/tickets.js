@@ -29,7 +29,7 @@ router.delete('/:id', requirePermission('tickets.delete'), ctrl.destroy);
 router.get('/:id/comments', requirePermission('tickets.view'), async (req, res, next) => {
   try {
     const [rows] = await db.query(
-      'SELECT tc.*, u.first_name, u.last_name FROM ticket_comments tc LEFT JOIN users u ON u.id = tc.user_id WHERE tc.ticket_id = ? ORDER BY tc.created_at ASC',
+      'SELECT tc.*, u.first_name, u.last_name FROM ticket_comments tc LEFT JOIN users u ON u.id = tc.user_id WHERE tc.ticket_id = ? AND tc.deleted_at IS NULL ORDER BY tc.created_at ASC',
       [req.params.id],
     );
     res.json({ data: rows });

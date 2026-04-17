@@ -24,11 +24,11 @@ router.get('/rules', requirePermission('devices.view'), async (req, res, next) =
     const offset = (pageNum - 1) * limitNum;
 
     const [rows] = await db.query(
-      'SELECT * FROM alert_rules WHERE organization_id = ? ORDER BY name LIMIT ? OFFSET ?',
+      'SELECT * FROM alert_rules WHERE organization_id = ? AND deleted_at IS NULL ORDER BY name LIMIT ? OFFSET ?',
       [req.orgId, limitNum, offset],
     );
     const [countResult] = await db.query(
-      'SELECT COUNT(*) AS total FROM alert_rules WHERE organization_id = ?',
+      'SELECT COUNT(*) AS total FROM alert_rules WHERE organization_id = ? AND deleted_at IS NULL',
       [req.orgId],
     );
     const total = countResult[0].total;
@@ -83,10 +83,10 @@ router.put('/rules/:id', requirePermission('devices.update'), validate(alertSche
 
     params.push(req.params.id, req.orgId);
     await db.query(
-      `UPDATE alert_rules SET ${fields.join(', ')} WHERE id = ? AND organization_id = ?`,
+      `UPDATE alert_rules SET ${fields.join(', ')} WHERE id = ? AND organization_id = ? AND deleted_at IS NULL`,
       params,
     );
-    const [rows] = await db.query('SELECT * FROM alert_rules WHERE id = ?', [req.params.id]);
+    const [rows] = await db.query('SELECT * FROM alert_rules WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
     res.json({ data: rows[0] });
   } catch (err) { next(err); }
 });
@@ -95,7 +95,7 @@ router.put('/rules/:id', requirePermission('devices.update'), validate(alertSche
 router.delete('/rules/:id', requirePermission('devices.delete'), async (req, res, next) => {
   try {
     const [result] = await db.query(
-      'DELETE FROM alert_rules WHERE id = ? AND organization_id = ?',
+      'UPDATE alert_rules SET deleted_at = NOW() WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
       [req.params.id, req.orgId],
     );
     if (result.affectedRows === 0) {

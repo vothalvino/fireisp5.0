@@ -49,7 +49,7 @@ router.post('/:id/items', requirePermission('quotes.update'), validate(createQuo
 router.post('/:id/convert-to-invoice', requirePermission('quotes.create'), requirePermission('invoices.create'), async (req, res, next) => {
   try {
     const [quotes] = await db.query(
-      'SELECT * FROM quotes WHERE id = ? AND organization_id = ?',
+      'SELECT * FROM quotes WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
       [req.params.id, req.orgId],
     );
     if (!quotes[0]) {

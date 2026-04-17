@@ -18,13 +18,15 @@ class Plan extends BaseModel {
 
   static get hasOrgScope() { return true; }
 
+  static get softDelete() { return true; }
+
   /**
    * Get add-ons available for this plan's organization.
    */
   static async getAddons(organizationId) {
     const db = require('../config/database');
     const [rows] = await db.query(
-      'SELECT * FROM plan_addons WHERE organization_id = ? AND status = ? ORDER BY name',
+      'SELECT * FROM plan_addons WHERE organization_id = ? AND status = ? AND deleted_at IS NULL ORDER BY name',
       [organizationId, 'active'],
     );
     return rows;

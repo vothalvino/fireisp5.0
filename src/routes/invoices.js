@@ -29,7 +29,7 @@ router.delete('/:id', requirePermission('invoices.delete'), ctrl.destroy);
 // Invoice line items
 router.get('/:id/items', requirePermission('invoices.view'), async (req, res, next) => {
   try {
-    const [rows] = await db.query('SELECT * FROM invoice_items WHERE invoice_id = ?', [req.params.id]);
+    const [rows] = await db.query('SELECT * FROM invoice_items WHERE invoice_id = ? AND deleted_at IS NULL', [req.params.id]);
     res.json({ data: rows });
   } catch (err) { next(err); }
 });
@@ -51,15 +51,14 @@ router.post('/generate', requirePermission('invoices.create'), validate(generate
 
     // Fetch contract and plan
     const [contracts] = await db.query(
-      'SELECT * FROM contracts WHERE id = ? AND organization_id = ?',
-      [contract_id, req.orgId],
+      'SELECT * FROM contracts WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
     );
     if (!contracts[0]) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Contract not found' } });
     }
     const contract = contracts[0];
 
-    const [plans] = await db.query('SELECT * FROM plans WHERE id = ?', [contract.plan_id]);
+    const [plans] = await db.query('SELECT * FROM plans WHERE id = ? AND deleted_at IS NULL', [contract.plan_id]);
     if (!plans[0]) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Plan not found' } });
     }

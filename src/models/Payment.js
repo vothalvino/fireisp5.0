@@ -17,13 +17,15 @@ class Payment extends BaseModel {
 
   static get hasOrgScope() { return true; }
 
+  static get softDelete() { return true; }
+
   /**
    * Get payment allocations for this payment.
    */
   static async getAllocations(paymentId) {
     const db = require('../config/database');
     const [rows] = await db.query(
-      'SELECT * FROM payment_allocations WHERE payment_id = ?',
+      'SELECT * FROM payment_allocations WHERE payment_id = ? AND deleted_at IS NULL',
       [paymentId],
     );
     return rows;

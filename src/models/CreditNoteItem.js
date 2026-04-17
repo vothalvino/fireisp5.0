@@ -14,6 +14,8 @@ class CreditNoteItem extends BaseModel {
   }
 
   static get hasOrgScope() { return false; }
+
+  static get softDelete() { return true; }
 }
 
 module.exports = CreditNoteItem;
