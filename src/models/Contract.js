@@ -25,7 +25,7 @@ class Contract extends BaseModel {
   static async getAddons(contractId) {
     const db = require('../config/database');
     const [rows] = await db.query(
-      'SELECT ca.*, pa.name AS addon_name, pa.addon_type FROM contract_addons ca JOIN plan_addons pa ON pa.id = ca.plan_addon_id WHERE ca.contract_id = ? AND ca.deleted_at IS NULL ORDER BY ca.id',
+      'SELECT ca.*, pa.name AS addon_name, pa.addon_type FROM contract_addons ca JOIN plan_addons pa ON pa.id = ca.plan_addon_id WHERE ca.contract_id = ? AND ca.deleted_at IS NULL AND pa.deleted_at IS NULL ORDER BY ca.id',
       [contractId],
     );
     return rows;
