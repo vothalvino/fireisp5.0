@@ -27,11 +27,25 @@ router.use(orgScope);
 // List facturas públicas
 router.get('/', requirePermission('facturas_publicas.view'), async (req, res, next) => {
   try {
+    const { page = 1, limit = 50 } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(Math.max(1, parseInt(limit, 10)), 100);
+    const offset = (pageNum - 1) * limitNum;
+
     const [rows] = await db.query(
-      'SELECT * FROM factura_publica_invoices WHERE organization_id = ? ORDER BY created_at DESC',
+      'SELECT * FROM factura_publica_invoices WHERE organization_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+      [req.orgId, limitNum, offset],
+    );
+    const [countResult] = await db.query(
+      'SELECT COUNT(*) AS total FROM factura_publica_invoices WHERE organization_id = ?',
       [req.orgId],
     );
-    res.json({ data: rows });
+    const total = countResult[0].total;
+
+    res.json({
+      data: rows,
+      meta: { total, page: pageNum, limit: limitNum, totalPages: Math.ceil(total / limitNum) },
+    });
   } catch (err) {
     next(err);
   }
@@ -100,11 +114,25 @@ router.put('/:id', requirePermission('facturas_publicas.update'), validate(updat
 // List linked invoices for a factura pública
 router.get('/:id/items', requirePermission('facturas_publicas.view'), async (req, res, next) => {
   try {
+    const { page = 1, limit = 50 } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(Math.max(1, parseInt(limit, 10)), 100);
+    const offset = (pageNum - 1) * limitNum;
+
     const [rows] = await db.query(
-      'SELECT * FROM factura_publica_invoice_items WHERE factura_publica_invoice_id = ? ORDER BY id',
+      'SELECT * FROM factura_publica_invoice_items WHERE factura_publica_invoice_id = ? ORDER BY id LIMIT ? OFFSET ?',
+      [req.params.id, limitNum, offset],
+    );
+    const [countResult] = await db.query(
+      'SELECT COUNT(*) AS total FROM factura_publica_invoice_items WHERE factura_publica_invoice_id = ?',
       [req.params.id],
     );
-    res.json({ data: rows });
+    const total = countResult[0].total;
+
+    res.json({
+      data: rows,
+      meta: { total, page: pageNum, limit: limitNum, totalPages: Math.ceil(total / limitNum) },
+    });
   } catch (err) {
     next(err);
   }

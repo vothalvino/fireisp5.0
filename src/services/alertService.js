@@ -185,16 +185,25 @@ async function autoCreateOutage(organizationId, rule, breach) {
 /**
  * Get alert history for an organization.
  */
-async function getAlertHistory(organizationId, { limit = 50 } = {}) {
+async function getAlertHistory(organizationId, { page = 1, limit = 50 } = {}) {
+  const offset = (page - 1) * limit;
   const [rows] = await db.query(
     `SELECT ae.*, ar.name AS rule_name
      FROM alert_events ae
      JOIN alert_rules ar ON ar.id = ae.alert_rule_id
      WHERE ae.organization_id = ?
-     ORDER BY ae.created_at DESC LIMIT ?`,
-    [organizationId, limit],
+     ORDER BY ae.created_at DESC LIMIT ? OFFSET ?`,
+    [organizationId, limit, offset],
   );
-  return rows;
+  const [countResult] = await db.query(
+    'SELECT COUNT(*) AS total FROM alert_events WHERE organization_id = ?',
+    [organizationId],
+  );
+  const total = countResult[0].total;
+  return {
+    data: rows,
+    meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+  };
 }
 
 /**

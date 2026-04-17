@@ -46,7 +46,7 @@
 - ✅ CRUD routes for all 101 tables
 - ✅ Validation schemas wired into routes
 - ✅ Bulk operations endpoints
-- ⬜ Pagination consistency audit (ensure every list endpoint supports `?page=&limit=`)
+- ✅ Pagination consistency audit (ensure every list endpoint supports `?page=&limit=`)
 - ⬜ Add `PATCH` partial-update support to top 10 most-used resources (clients, contracts, invoices, devices, payments, tickets, plans, users, organizations, sites)
 - ⬜ Implement soft-delete across all resources (archive instead of `DELETE`)
 
@@ -198,4 +198,5 @@
 | 2026-04-14 | 1.1 | Migration smoke test in CI | #TBD |
 | 2026-04-15 | 1.1 | Rollback scripts for migrations 130–150 | #TBD |
 
+| 2026-04-16 | 1.2 | Pagination consistency audit | #TBD |
 <!-- Add a row here every time you complete a roadmap item -->

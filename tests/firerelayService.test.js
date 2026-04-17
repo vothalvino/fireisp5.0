@@ -40,13 +40,46 @@ describe('firerelayService', () => {
   // Node Registry
   // ─────────────────────────────────────────────────────────────────────────
   describe('listNodes()', () => {
-    test('returns all registered nodes', async () => {
+    test('returns paginated nodes with meta', async () => {
       const nodes = [
         { id: 'node2', name: 'Worker 2', api_url: 'https://node2.fireisp.com', status: 'active' },
       ];
-      db.query.mockResolvedValueOnce([nodes]);
+      db.query
+        .mockResolvedValueOnce([nodes])
+        .mockResolvedValueOnce([[{ total: 1 }]]);
 
       const result = await firerelayService.listNodes();
+      expect(result.data).toEqual(nodes);
+      expect(result.meta).toEqual({ total: 1, page: 1, limit: 50, totalPages: 1 });
+      expect(db.query).toHaveBeenCalledWith(
+        'SELECT * FROM firerelay_nodes ORDER BY created_at ASC LIMIT ? OFFSET ?',
+        [50, 0],
+      );
+    });
+
+    test('supports custom page and limit', async () => {
+      db.query
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[{ total: 0 }]]);
+
+      const result = await firerelayService.listNodes({ page: 2, limit: 10 });
+      expect(result.meta.page).toBe(2);
+      expect(result.meta.limit).toBe(10);
+      expect(db.query).toHaveBeenCalledWith(
+        'SELECT * FROM firerelay_nodes ORDER BY created_at ASC LIMIT ? OFFSET ?',
+        [10, 10],
+      );
+    });
+  });
+
+  describe('listAllNodes()', () => {
+    test('returns all nodes without pagination', async () => {
+      const nodes = [
+        { id: 'node1', name: 'Worker 1', api_url: 'https://node1.fireisp.com', status: 'active' },
+      ];
+      db.query.mockResolvedValueOnce([nodes]);
+
+      const result = await firerelayService.listAllNodes();
       expect(result).toEqual(nodes);
       expect(db.query).toHaveBeenCalledWith(
         'SELECT * FROM firerelay_nodes ORDER BY created_at ASC',

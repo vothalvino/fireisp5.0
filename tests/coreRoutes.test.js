@@ -1435,7 +1435,9 @@ describe('Role Routes — /api/roles', () => {
   describe('GET /api/roles', () => {
     test('returns list of roles', async () => {
       mockAuthUser();
-      db.query.mockResolvedValueOnce([[mockRole, { id: 2, name: 'support', description: 'Support staff' }]]);
+      db.query
+        .mockResolvedValueOnce([[mockRole, { id: 2, name: 'support', description: 'Support staff' }]])
+        .mockResolvedValueOnce([[{ total: 2 }]]);
 
       const res = await request(app)
         .get('/api/roles')
@@ -1444,6 +1446,8 @@ describe('Role Routes — /api/roles', () => {
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveLength(2);
       expect(res.body.data[0].name).toBe('admin');
+      expect(res.body.meta).toBeDefined();
+      expect(res.body.meta.total).toBe(2);
     });
 
     test('returns 401 without auth header', async () => {
