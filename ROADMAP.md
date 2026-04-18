@@ -55,7 +55,7 @@
 - ✅ RBAC with role-permission matrix
 - ✅ CORS hardening, rate limiting, helmet
 - ✅ Add refresh token rotation (access token 15 min, refresh token 7 days)
-- ⬜ Add API token scoping (read-only vs read-write per resource)
+- ✅ Add API token scoping (read-only vs read-write per resource)
 - ⬜ Implement IP allowlist for admin endpoints
 - ⬜ Add brute-force lockout (5 failed login attempts → 15 min cooldown)
 
@@ -200,4 +200,5 @@
 
 | 2026-04-16 | 1.2 | Pagination consistency audit | #TBD |
 | 2026-04-18 | 1.3 | Refresh token rotation (access 15m, refresh 7d) | #TBD |
+| 2026-04-18 | 1.3 | API token scoping (read-only vs read-write per resource) | #TBD |
 <!-- Add a row here every time you complete a roadmap item -->

@@ -554,12 +554,12 @@ describe('ApiToken validation schemas', () => {
   });
 
   test('createApiToken accepts valid data', () => {
-    const next = run(createApiToken, { name: 'CI Token', scopes: 'read:clients write:clients' });
+    const next = run(createApiToken, { name: 'CI Token', scopes: ['clients:read', 'invoices:write'] });
     expectPass(next);
   });
 
-  test('createApiToken rejects scopes > 2000 chars', () => {
-    const next = run(createApiToken, { name: 'Token', scopes: 'x'.repeat(2001) });
+  test('createApiToken rejects scopes as non-array', () => {
+    const next = run(createApiToken, { name: 'Token', scopes: 'clients:read' });
     expectReject(next);
   });
 

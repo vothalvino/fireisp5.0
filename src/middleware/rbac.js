@@ -3,10 +3,48 @@
 // =============================================================================
 // Checks that the authenticated user has the required permission slug(s)
 // based on their role within the current organization.
+// When the request is authenticated via API token, also enforces token scopes.
 // =============================================================================
 
 const User = require('../models/User');
 const { ForbiddenError } = require('../utils/errors');
+const { scopeAllowsPermission } = require('../utils/scopes');
+
+/**
+ * If the request is authenticated via API token, check that the token's scopes
+ * allow at least one of the required permissions.
+ *
+ * @param {object} user — req.user (must have apiTokenId and scopes when token-based)
+ * @param {string[]} requiredPermissions — permission slugs to check against scopes
+ * @throws {ForbiddenError} when no scope grants the required permission
+ */
+function enforceTokenScopes(user, requiredPermissions) {
+  // Only applies to API token auth (JWT users don't have scopes)
+  if (!user.apiTokenId) return;
+
+  // null/undefined scopes = unrestricted token
+  if (user.scopes === null || user.scopes === undefined) return;
+
+  // Parse scopes — handle both JSON array (from DB) and already-parsed array
+  let scopes = user.scopes;
+  if (typeof scopes === 'string') {
+    try {
+      scopes = JSON.parse(scopes);
+    } catch (_e) {
+      // Legacy format or invalid JSON — deny for safety
+      throw new ForbiddenError('API token has invalid scopes');
+    }
+  }
+
+  if (!Array.isArray(scopes) || scopes.length === 0) return;
+
+  const allowed = requiredPermissions.some(p => scopeAllowsPermission(scopes, p));
+  if (!allowed) {
+    throw new ForbiddenError(
+      'API token scope insufficient. Required: ' + requiredPermissions.join(' or '),
+    );
+  }
+}
 
 /**
  * Returns middleware that checks for one or more permission slugs.
@@ -20,6 +58,9 @@ function requirePermission(...requiredPermissions) {
       if (!req.user || !req.user.organizationId) {
         throw new ForbiddenError('No organization context');
       }
+
+      // Enforce API token scopes first (applies to all users including admins)
+      enforceTokenScopes(req.user, requiredPermissions);
 
       // Admin users in the legacy `users.role` field bypass RBAC
       if (req.user.role === 'admin') {
