@@ -63,6 +63,13 @@ class CfdiStampingError extends AppError {
   }
 }
 
+class CfdiCancellationError extends AppError {
+  constructor(message, details = null) {
+    super(message, 502, 'CFDI_CANCELLATION_FAILED');
+    this.details = details;
+  }
+}
+
 class PaymentGatewayError extends AppError {
   constructor(message, details = null) {
     super(message, 502, 'PAYMENT_GATEWAY_ERROR');
@@ -87,6 +94,7 @@ module.exports = {
   ConflictError,
   InvoiceGenerationError,
   CfdiStampingError,
+  CfdiCancellationError,
   PaymentGatewayError,
   ExternalServiceError,
 };

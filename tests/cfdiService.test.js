@@ -11,7 +11,7 @@ const cfdiService = require('../src/services/cfdiService');
 
 describe('cfdiService', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     // Reset circuit breaker state
     cfdiService.circuitBreaker.failures = 0;
     cfdiService.circuitBreaker.lastFailure = 0;
@@ -331,60 +331,78 @@ describe('cfdiService', () => {
   // cancel
   // =========================================================================
   describe('cancel()', () => {
+    const vigentDoc = {
+      id: 1, organization_id: 42, sat_status: 'vigente',
+      uuid: 'TEST-UUID-001', emisor_rfc: 'XAXX010101000',
+    };
+    const activePac = {
+      id: 10, provider_name: 'dev_placeholder', status: 'active',
+      environment: 'sandbox',
+    };
+
     test('cancels a vigente document', async () => {
-      const doc = { id: 1, organization_id: 42, sat_status: 'vigente' };
       db.query
-        .mockResolvedValueOnce([[doc]])
+        .mockResolvedValueOnce([[vigentDoc]])
+        .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 1 }])   // INSERT cancellation
-        .mockResolvedValueOnce([{ affectedRows: 1 }]);  // UPDATE status
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE → cancel_pending
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE cancellation with PAC response
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE → cancelado
 
       const result = await cfdiService.cancel(1, '02');
-      expect(result.status).toBe('cancel_pending');
+      expect(result.status).toBe('cancelado');
       expect(result.reason).toBe('02');
     });
 
     test('throws when document not found', async () => {
       db.query.mockResolvedValueOnce([[]]);
-      await expect(cfdiService.cancel(999, '01')).rejects.toThrow('CFDI document not found');
+      await expect(cfdiService.cancel(999, '01', 'REPLACE')).rejects.toThrow('CFDI document not found');
     });
 
     test('throws when document is not vigente', async () => {
-      const doc = { id: 1, sat_status: 'cancelado' };
+      const doc = { id: 1, sat_status: 'cancelado', uuid: 'UUID' };
       db.query.mockResolvedValueOnce([[doc]]);
-      await expect(cfdiService.cancel(1, '01')).rejects.toThrow('Can only cancel vigente documents');
+      await expect(cfdiService.cancel(1, '01', 'REPLACE')).rejects.toThrow('Can only cancel vigente documents');
     });
 
     test('passes replacement UUID for reason 01', async () => {
-      const doc = { id: 1, organization_id: 42, sat_status: 'vigente' };
       db.query
-        .mockResolvedValueOnce([[doc]])
+        .mockResolvedValueOnce([[vigentDoc]])
+        .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 2 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }]);
 
       await cfdiService.cancel(1, '01', 'REPLACE-UUID-123');
 
-      const insertCall = db.query.mock.calls[1];
+      const insertCall = db.query.mock.calls[2];
       expect(insertCall[1]).toContain('REPLACE-UUID-123');
     });
 
     test('stores cancellation with null replacement when not provided', async () => {
-      const doc = { id: 1, organization_id: 42, sat_status: 'vigente' };
       db.query
-        .mockResolvedValueOnce([[doc]])
+        .mockResolvedValueOnce([[vigentDoc]])
+        .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 3 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }]);
 
       await cfdiService.cancel(1, '02');
 
-      const insertCall = db.query.mock.calls[1];
+      const insertCall = db.query.mock.calls[2];
       expect(insertCall[1]).toContain(null); // replacementUuid default
     });
 
     test('returns correct cfdi_document_id in result', async () => {
-      const doc = { id: 77, organization_id: 42, sat_status: 'vigente' };
+      const doc77 = { ...vigentDoc, id: 77 };
       db.query
-        .mockResolvedValueOnce([[doc]])
+        .mockResolvedValueOnce([[doc77]])
+        .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 4 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }]);
 
       const result = await cfdiService.cancel(77, '03');
@@ -392,15 +410,15 @@ describe('cfdiService', () => {
     });
 
     test('throws for draft documents', async () => {
-      const doc = { id: 1, sat_status: 'draft' };
+      const doc = { id: 1, sat_status: 'draft', uuid: 'UUID' };
       db.query.mockResolvedValueOnce([[doc]]);
-      await expect(cfdiService.cancel(1, '01')).rejects.toThrow('Can only cancel vigente documents');
+      await expect(cfdiService.cancel(1, '02')).rejects.toThrow('Can only cancel vigente documents');
     });
 
     test('throws for stamp_error documents', async () => {
-      const doc = { id: 1, sat_status: 'stamp_error' };
+      const doc = { id: 1, sat_status: 'stamp_error', uuid: 'UUID' };
       db.query.mockResolvedValueOnce([[doc]]);
-      await expect(cfdiService.cancel(1, '01')).rejects.toThrow('Can only cancel vigente documents');
+      await expect(cfdiService.cancel(1, '02')).rejects.toThrow('Can only cancel vigente documents');
     });
   });
 

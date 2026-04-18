@@ -70,7 +70,7 @@
 - ✅ CFDI 4.0 XML generation, line items, tax breakdown
 - ✅ PAC provider integration, CSD certificate management
 - ✅ Factura pública (venta al público en general)
-- ⬜ Add CFDI cancellation flow (submit to SAT, track acceptance/rejection)
+- ✅ Add CFDI cancellation flow (submit to SAT, track acceptance/rejection)
 - ⬜ Add complemento de pago generation for partial payments
 - ⬜ Add monthly CFDI reconciliation report (issued vs SAT acknowledgments)
 
@@ -207,4 +207,5 @@
 | 2026-04-18 | — | Roadmap reprioritization: mark 4 done items (lockout, proration, logging, request tracing), move billing cycle to M1.6, move data migration/backups to M1.7, demote IP allowlist to M4.1, demote coverage map/SNMP traps to M5 | #TBD |
 | 2026-04-18 | 1.4 | Payment receipt PDF generation (pdfService + route + send-receipt) | #TBD |
 | 2026-04-18 | 1.4 | E2E test: client → plan → invoice → payment → ledger (16 tests) | #TBD |
+| 2026-04-18 | 1.5 | CFDI cancellation flow (submit to SAT, track acceptance/rejection) | #TBD |
 <!-- Add a row here every time you complete a roadmap item -->

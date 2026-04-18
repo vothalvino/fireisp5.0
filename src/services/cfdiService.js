@@ -8,7 +8,7 @@
 const crypto = require('crypto');
 const db = require('../config/database');
 const logger = require('../utils/logger').child({ service: 'cfdi' });
-const { CfdiStampingError } = require('../utils/errors');
+const { CfdiStampingError, CfdiCancellationError } = require('../utils/errors');
 
 // ---------------------------------------------------------------------------
 // Simple circuit breaker for PAC stamping calls
@@ -327,29 +327,407 @@ function httpRequest(url, method, body, headers) {
 }
 
 /**
- * Cancel a stamped CFDI document.
+ * Cancel a stamped CFDI document via the PAC → SAT flow.
+ *
+ * SAT cancellation reasons (motivo):
+ *   01 = CFDI emitido con errores CON relación (requires folio_sustitucion)
+ *   02 = CFDI emitido con errores SIN relación
+ *   03 = No se llevó a cabo la operación
+ *   04 = Operación nominativa relacionada en CFDI global
  */
 async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
-  logger.info({ cfdiDocumentId, reason }, 'Cancelling CFDI document');
+  logger.info({ cfdiDocumentId, reason, replacementUuid }, 'Cancelling CFDI document');
+
   const [docs] = await db.query('SELECT * FROM cfdi_documents WHERE id = ?', [cfdiDocumentId]);
   const doc = docs[0];
-  if (!doc) throw new Error('CFDI document not found');
-  if (doc.sat_status !== 'vigente') throw new Error('Can only cancel vigente documents');
+  if (!doc) throw new CfdiCancellationError('CFDI document not found', { cfdiDocumentId });
+  if (doc.sat_status !== 'vigente') {
+    throw new CfdiCancellationError('Can only cancel vigente documents', { cfdiDocumentId, currentStatus: doc.sat_status });
+  }
+  if (!doc.uuid) {
+    throw new CfdiCancellationError('CFDI document has no UUID — it must be stamped before cancellation', { cfdiDocumentId });
+  }
+  if (reason === '01' && !replacementUuid) {
+    throw new CfdiCancellationError('Motivo 01 requires a replacement UUID (folio_sustitucion)', { cfdiDocumentId });
+  }
 
-  // Record cancellation
+  // Get PAC provider
+  const [pacs] = await db.query(
+    'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' LIMIT 1',
+    [doc.organization_id],
+  );
+  if (pacs.length === 0) {
+    throw new CfdiCancellationError('No active PAC provider configured for this organization', { cfdiDocumentId, orgId: doc.organization_id });
+  }
+  const pac = pacs[0];
+
+  // Record the cancellation request
+  const [insertResult] = await db.query(
+    `INSERT INTO cfdi_cancellations
+       (cfdi_document_id, organization_id, uuid, motivo, folio_sustitucion,
+        cancellation_status, requested_at, pac_provider_id)
+     VALUES (?, ?, ?, ?, ?, 'pending', NOW(), ?)`,
+    [cfdiDocumentId, doc.organization_id, doc.uuid, reason, replacementUuid, pac.id],
+  );
+  const cancellationId = insertResult.insertId;
+
+  // Update CFDI document status to cancel_pending
   await db.query(
-    `INSERT INTO cfdi_cancellations (cfdi_document_id, organization_id, motivo, folio_sustitucion, cancellation_status)
-     VALUES (?, ?, ?, ?, 'pending')`,
-    [cfdiDocumentId, doc.organization_id, reason, replacementUuid],
+    'UPDATE cfdi_documents SET sat_status = ?, cancellation_reason = ?, cancellation_uuid = ? WHERE id = ?',
+    ['cancel_pending', reason, replacementUuid, cfdiDocumentId],
   );
 
-  // PAC cancellation API call would happen here
+  // Submit cancellation to PAC with retry logic
+  const MAX_RETRIES = 3;
+  let lastErr;
+  let pacResult;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      pacResult = await callPacCancel(pac, doc.uuid, reason, replacementUuid, doc);
+      lastErr = null;
+      break;
+    } catch (pacErr) {
+      lastErr = pacErr;
+      logger.warn({ cfdiDocumentId, attempt, err: pacErr.message }, 'PAC cancellation attempt failed');
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
+      }
+    }
+  }
+
+  if (lastErr) {
+    // Record the failure in the cancellation record
+    await db.query(
+      'UPDATE cfdi_cancellations SET error_message = ? WHERE id = ?',
+      [lastErr.message, cancellationId],
+    );
+    logger.error({ cfdiDocumentId, err: lastErr.message }, 'PAC cancellation failed after retries');
+    throw new CfdiCancellationError(
+      `PAC cancellation failed after ${MAX_RETRIES} attempts: ${lastErr.message}`,
+      { cfdiDocumentId, provider: pac.provider_name, cause: lastErr.message },
+    );
+  }
+
+  // Process PAC response
+  const finalStatus = pacResult.status || 'pending';
+  const acuseXml = pacResult.acuseXml || null;
+  const acuseFecha = pacResult.acuseFecha || null;
+
+  // Update cancellation record with PAC response
   await db.query(
-    'UPDATE cfdi_documents SET sat_status = ?, cancellation_reason = ? WHERE id = ?',
-    ['cancel_pending', reason, cfdiDocumentId],
+    `UPDATE cfdi_cancellations
+     SET cancellation_status = ?, acuse_xml = ?, acuse_fecha = ?, responded_at = NOW()
+     WHERE id = ?`,
+    [finalStatus, acuseXml, acuseFecha, cancellationId],
   );
 
-  return { cfdi_document_id: cfdiDocumentId, status: 'cancel_pending', reason };
+  // Update CFDI document status based on PAC response
+  if (finalStatus === 'accepted') {
+    await db.query(
+      'UPDATE cfdi_documents SET sat_status = ?, cancelled_at = NOW() WHERE id = ?',
+      ['cancelado', cfdiDocumentId],
+    );
+  } else if (finalStatus === 'rejected') {
+    // Revert to vigente since SAT rejected the cancellation
+    await db.query(
+      'UPDATE cfdi_documents SET sat_status = ? WHERE id = ?',
+      ['vigente', cfdiDocumentId],
+    );
+  }
+  // If status is 'pending', it stays cancel_pending — will be resolved via getCancellationStatus
+
+  logger.info({ cfdiDocumentId, cancellationId, finalStatus }, 'CFDI cancellation processed');
+  return {
+    cfdi_document_id: cfdiDocumentId,
+    cancellation_id: cancellationId,
+    status: finalStatus === 'accepted' ? 'cancelado' : finalStatus === 'rejected' ? 'rejected' : 'cancel_pending',
+    reason,
+    acuse_xml: acuseXml,
+  };
 }
 
-module.exports = { generateXml, buildCfdi40Xml, escapeXml, stamp, cancel, callPacStamp, httpRequest, circuitBreaker };
+/**
+ * Call the PAC cancellation API based on the provider name.
+ * Returns { status: 'accepted'|'rejected'|'pending', acuseXml, acuseFecha }
+ */
+async function callPacCancel(pac, uuid, reason, replacementUuid, doc) {
+  if (pac.provider_name === 'finkok') {
+    const url = pac.environment === 'production'
+      ? 'https://facturacion.finkok.com/servicios/soap/cancel'
+      : 'https://demo-facturacion.finkok.com/servicios/soap/cancel';
+
+    const body = JSON.stringify({
+      username: pac.username,
+      password: pac.password_encrypted,
+      uuid,
+      rfc: doc.emisor_rfc,
+      motivo: reason,
+      folio_sustitucion: replacementUuid || '',
+    });
+
+    const response = await httpRequest(url, 'POST', body, {
+      'Content-Type': 'application/json',
+    });
+
+    const data = JSON.parse(response.body);
+    if (data.error) {
+      throw new Error(data.error);
+    }
+
+    return {
+      status: parseCancellationStatus(data.estatus || data.status),
+      acuseXml: data.acuse_xml || data.acuse || null,
+      acuseFecha: data.fecha_cancelacion || null,
+    };
+  }
+
+  if (pac.provider_name === 'sw_sapien') {
+    const baseUrl = pac.environment === 'production'
+      ? 'https://services.sw.com.mx'
+      : 'https://services.test.sw.com.mx';
+
+    // Authenticate
+    const authResponse = await httpRequest(`${baseUrl}/security/authenticate`, 'POST',
+      JSON.stringify({ user: pac.username, password: pac.password_encrypted }),
+      { 'Content-Type': 'application/json' },
+    );
+    const authData = JSON.parse(authResponse.body);
+    if (!authData.data?.token) {
+      throw new Error('SW Sapien authentication failed');
+    }
+
+    // Submit cancellation
+    const cancelBody = JSON.stringify({
+      uuid,
+      rfc: doc.emisor_rfc,
+      motivo: reason,
+      folioSustitucion: replacementUuid || '',
+    });
+
+    const cancelResponse = await httpRequest(`${baseUrl}/cfdi33/cancel`, 'POST',
+      cancelBody,
+      {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authData.data.token}`,
+      },
+    );
+    const cancelData = JSON.parse(cancelResponse.body);
+    if (cancelData.status === 'error') {
+      throw new Error(cancelData.message || 'SW Sapien cancellation failed');
+    }
+
+    return {
+      status: parseCancellationStatus(cancelData.data?.estatus || cancelData.data?.status),
+      acuseXml: cancelData.data?.acuse || null,
+      acuseFecha: cancelData.data?.fechaCancelacion || null,
+    };
+  }
+
+  // Fallback for development / unknown providers
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      `PAC provider "${pac.provider_name}" is not a supported cancellation service — ` +
+      'configure a supported PAC (finkok, sw_sapien) for production use',
+    );
+  }
+  logger.warn({ provider: pac.provider_name }, 'Using simulated cancellation — not valid for production');
+  return {
+    status: 'accepted',
+    acuseXml: `<Acuse><UUID>${uuid}</UUID><EstatusUUID>201</EstatusUUID><Fecha>${new Date().toISOString()}</Fecha></Acuse>`,
+    acuseFecha: new Date().toISOString(),
+  };
+}
+
+/**
+ * Normalize PAC cancellation status strings to internal enum values.
+ */
+function parseCancellationStatus(rawStatus) {
+  if (!rawStatus) return 'pending';
+  const s = String(rawStatus).toLowerCase().trim();
+  if (s === '201' || s === 'cancelado' || s === 'accepted' || s === 'cancelled') return 'accepted';
+  if (s === '202' || s === 'en proceso' || s === 'pending' || s === 'in_progress') return 'pending';
+  if (s === '203' || s === 'rechazado' || s === 'rejected') return 'rejected';
+  if (s === '205' || s === 'no cancelable') return 'rejected';
+  return 'pending';
+}
+
+/**
+ * Check cancellation status for a pending cancellation via the PAC.
+ * Used to poll for SAT responses that were not immediately available.
+ */
+async function getCancellationStatus(cancellationId) {
+  logger.info({ cancellationId }, 'Checking CFDI cancellation status');
+
+  const [rows] = await db.query('SELECT * FROM cfdi_cancellations WHERE id = ?', [cancellationId]);
+  const cancellation = rows[0];
+  if (!cancellation) throw new CfdiCancellationError('Cancellation record not found', { cancellationId });
+
+  // If already resolved, return immediately
+  if (cancellation.cancellation_status !== 'pending') {
+    return {
+      cancellation_id: cancellationId,
+      cfdi_document_id: cancellation.cfdi_document_id,
+      status: cancellation.cancellation_status,
+      acuse_xml: cancellation.acuse_xml,
+      acuse_fecha: cancellation.acuse_fecha,
+      responded_at: cancellation.responded_at,
+    };
+  }
+
+  // Get PAC provider to query for status
+  let pac = null;
+  if (cancellation.pac_provider_id) {
+    const [pacs] = await db.query('SELECT * FROM pac_providers WHERE id = ?', [cancellation.pac_provider_id]);
+    pac = pacs[0] || null;
+  }
+
+  if (!pac) {
+    return {
+      cancellation_id: cancellationId,
+      cfdi_document_id: cancellation.cfdi_document_id,
+      status: 'pending',
+      acuse_xml: null,
+      acuse_fecha: null,
+      responded_at: null,
+    };
+  }
+
+  // Poll PAC for current status
+  let pacResult;
+  try {
+    pacResult = await callPacCancelStatus(pac, cancellation.uuid, cancellation);
+  } catch (err) {
+    logger.warn({ cancellationId, err: err.message }, 'Failed to poll PAC for cancellation status');
+    return {
+      cancellation_id: cancellationId,
+      cfdi_document_id: cancellation.cfdi_document_id,
+      status: 'pending',
+      acuse_xml: null,
+      acuse_fecha: null,
+      responded_at: null,
+      error: err.message,
+    };
+  }
+
+  const finalStatus = pacResult.status || 'pending';
+
+  if (finalStatus !== 'pending') {
+    // Update cancellation record
+    await db.query(
+      `UPDATE cfdi_cancellations
+       SET cancellation_status = ?, acuse_xml = ?, acuse_fecha = ?, responded_at = NOW()
+       WHERE id = ?`,
+      [finalStatus, pacResult.acuseXml, pacResult.acuseFecha, cancellationId],
+    );
+
+    // Update CFDI document status
+    if (finalStatus === 'accepted') {
+      await db.query(
+        'UPDATE cfdi_documents SET sat_status = ?, cancelled_at = NOW() WHERE id = ?',
+        ['cancelado', cancellation.cfdi_document_id],
+      );
+    } else if (finalStatus === 'rejected') {
+      await db.query(
+        'UPDATE cfdi_documents SET sat_status = ? WHERE id = ?',
+        ['vigente', cancellation.cfdi_document_id],
+      );
+    }
+  }
+
+  return {
+    cancellation_id: cancellationId,
+    cfdi_document_id: cancellation.cfdi_document_id,
+    status: finalStatus,
+    acuse_xml: pacResult.acuseXml || cancellation.acuse_xml,
+    acuse_fecha: pacResult.acuseFecha || cancellation.acuse_fecha,
+    responded_at: finalStatus !== 'pending' ? new Date().toISOString() : null,
+  };
+}
+
+/**
+ * Poll the PAC for the current cancellation status of a UUID.
+ */
+async function callPacCancelStatus(pac, uuid, _cancellation) {
+  if (pac.provider_name === 'finkok') {
+    const url = pac.environment === 'production'
+      ? 'https://facturacion.finkok.com/servicios/soap/cancel'
+      : 'https://demo-facturacion.finkok.com/servicios/soap/cancel';
+
+    const body = JSON.stringify({
+      username: pac.username,
+      password: pac.password_encrypted,
+      uuid,
+      type: 'query',
+    });
+
+    const response = await httpRequest(url, 'POST', body, {
+      'Content-Type': 'application/json',
+    });
+
+    const data = JSON.parse(response.body);
+    return {
+      status: parseCancellationStatus(data.estatus || data.status),
+      acuseXml: data.acuse_xml || data.acuse || null,
+      acuseFecha: data.fecha_cancelacion || null,
+    };
+  }
+
+  if (pac.provider_name === 'sw_sapien') {
+    const baseUrl = pac.environment === 'production'
+      ? 'https://services.sw.com.mx'
+      : 'https://services.test.sw.com.mx';
+
+    const authResponse = await httpRequest(`${baseUrl}/security/authenticate`, 'POST',
+      JSON.stringify({ user: pac.username, password: pac.password_encrypted }),
+      { 'Content-Type': 'application/json' },
+    );
+    const authData = JSON.parse(authResponse.body);
+    if (!authData.data?.token) {
+      throw new Error('SW Sapien authentication failed');
+    }
+
+    const statusResponse = await httpRequest(
+      `${baseUrl}/cfdi33/cancel/${encodeURIComponent(uuid)}/status`,
+      'GET',
+      null,
+      { 'Authorization': `Bearer ${authData.data.token}` },
+    );
+    const statusData = JSON.parse(statusResponse.body);
+    return {
+      status: parseCancellationStatus(statusData.data?.estatus || statusData.data?.status),
+      acuseXml: statusData.data?.acuse || null,
+      acuseFecha: statusData.data?.fechaCancelacion || null,
+    };
+  }
+
+  // Fallback for development
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(`PAC provider "${pac.provider_name}" does not support status queries`);
+  }
+  return {
+    status: 'accepted',
+    acuseXml: `<Acuse><UUID>${uuid}</UUID><EstatusUUID>201</EstatusUUID></Acuse>`,
+    acuseFecha: new Date().toISOString(),
+  };
+}
+
+/**
+ * List cancellation records for a CFDI document.
+ */
+async function listCancellations(cfdiDocumentId, orgId) {
+  const [rows] = await db.query(
+    `SELECT * FROM cfdi_cancellations
+     WHERE cfdi_document_id = ? AND organization_id = ?
+     ORDER BY requested_at DESC`,
+    [cfdiDocumentId, orgId],
+  );
+  return rows;
+}
+
+module.exports = {
+  generateXml, buildCfdi40Xml, escapeXml, stamp, cancel,
+  callPacStamp, callPacCancel, callPacCancelStatus,
+  parseCancellationStatus, getCancellationStatus, listCancellations,
+  httpRequest, circuitBreaker,
+};

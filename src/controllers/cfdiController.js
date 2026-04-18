@@ -57,7 +57,7 @@ async function stamp(req, res, next) {
 
 /**
  * POST /api/cfdi/cancel
- * Cancel a stamped CFDI document with the SAT.
+ * Cancel a stamped CFDI document with the SAT via a PAC provider.
  */
 async function cancel(req, res, next) {
   try {
@@ -73,6 +73,60 @@ async function cancel(req, res, next) {
 
     const result = await cfdiService.cancel(cfdi_document_id, reason, replacement_uuid);
     res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/cfdi/:id/cancellation-status
+ * Check the cancellation status of a CFDI document.
+ * Polls the PAC if status is still pending.
+ */
+async function cancellationStatus(req, res, next) {
+  try {
+    const [docs] = await db.query(
+      'SELECT * FROM cfdi_documents WHERE id = ? AND organization_id = ?',
+      [req.params.id, req.orgId],
+    );
+    if (!docs[0]) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'CFDI document not found' } });
+    }
+
+    // Get the latest cancellation record
+    const [cancellations] = await db.query(
+      `SELECT * FROM cfdi_cancellations
+       WHERE cfdi_document_id = ? AND organization_id = ?
+       ORDER BY requested_at DESC LIMIT 1`,
+      [req.params.id, req.orgId],
+    );
+    if (!cancellations[0]) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'No cancellation request found for this document' } });
+    }
+
+    const result = await cfdiService.getCancellationStatus(cancellations[0].id);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/cfdi/:id/cancellations
+ * List all cancellation records for a CFDI document.
+ */
+async function listCancellations(req, res, next) {
+  try {
+    const [docs] = await db.query(
+      'SELECT * FROM cfdi_documents WHERE id = ? AND organization_id = ?',
+      [req.params.id, req.orgId],
+    );
+    if (!docs[0]) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'CFDI document not found' } });
+    }
+
+    const cancellations = await cfdiService.listCancellations(req.params.id, req.orgId);
+    res.json({ data: cancellations });
   } catch (err) {
     next(err);
   }
@@ -175,4 +229,4 @@ async function downloadPdf(req, res, next) {
   }
 }
 
-module.exports = { generateXml, stamp, cancel, downloadXml, downloadPdf };
+module.exports = { generateXml, stamp, cancel, cancellationStatus, listCancellations, downloadXml, downloadPdf };
