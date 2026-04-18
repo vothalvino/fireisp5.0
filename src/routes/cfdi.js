@@ -56,4 +56,9 @@ router.get('/payment-complement/:id',
   cfdiController.getPaymentComplement,
 );
 
+router.get('/reconciliation',
+  requirePermission('cfdi_documents.view'),
+  cfdiController.reconciliationReport,
+);
+
 module.exports = router;
