@@ -229,4 +229,40 @@ async function downloadPdf(req, res, next) {
   }
 }
 
-module.exports = { generateXml, stamp, cancel, cancellationStatus, listCancellations, downloadXml, downloadPdf };
+/**
+ * POST /api/cfdi/payment-complement
+ * Create a Complemento de Pago 2.0 CFDI (tipo P) for a payment event.
+ * Expects all required fields in req.body; organization_id comes from orgScope.
+ */
+async function createPaymentComplement(req, res, next) {
+  try {
+    const params = { ...req.body, organization_id: req.orgId };
+    const result = await cfdiService.generatePaymentComplement(params);
+    res.status(201).json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/cfdi/payment-complement/:id
+ * Retrieve a payment complement (cfdi_documents tipo P) with its items.
+ * :id is the cfdi_document_id.
+ */
+async function getPaymentComplement(req, res, next) {
+  try {
+    const result = await cfdiService.getPaymentComplement(req.params.id, req.orgId);
+    res.json({ data: result });
+  } catch (err) {
+    if (err.message === 'Payment complement document not found' ||
+        err.message === 'Payment complement record not found') {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: err.message } });
+    }
+    next(err);
+  }
+}
+
+module.exports = {
+  generateXml, stamp, cancel, cancellationStatus, listCancellations, downloadXml, downloadPdf,
+  createPaymentComplement, getPaymentComplement,
+};
