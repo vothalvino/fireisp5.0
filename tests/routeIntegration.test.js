@@ -107,7 +107,7 @@ describe('Auth Routes — /api/auth', () => {
   });
 
   describe('POST /api/auth/login', () => {
-    test('success — returns token and user', async () => {
+    test('success — returns accessToken, refreshToken and user', async () => {
       User.findByEmail.mockResolvedValue({
         id: 1,
         email: 'test@example.com',
@@ -127,7 +127,9 @@ describe('Auth Routes — /api/auth', () => {
         .send({ email: 'test@example.com', password: 'password123' });
 
       expect(res.status).toBe(200);
-      expect(res.body.data.token).toBeDefined();
+      expect(res.body.data.accessToken).toBeDefined();
+      expect(res.body.data.refreshToken).toBeDefined();
+      expect(res.body.data.expiresIn).toBe(900);
       expect(res.body.data.user.email).toBe('test@example.com');
       expect(res.body.data.organizations).toHaveLength(1);
     });

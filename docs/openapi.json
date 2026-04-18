@@ -11274,12 +11274,12 @@
       "auth_refreshToken": {
         "type": "object",
         "properties": {
-          "token": {
+          "refreshToken": {
             "type": "string"
           }
         },
         "required": [
-          "token"
+          "refreshToken"
         ]
       },
       "billing_generatePeriod": {

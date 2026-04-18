@@ -175,7 +175,7 @@ describe('authService', () => {
   // login
   // =========================================================================
   describe('login', () => {
-    test('returns token and user on successful login', async () => {
+    test('returns accessToken, refreshToken and user on successful login', async () => {
       const user = {
         id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',
         status: 'active', role: 'admin', organization_id: 42,
@@ -195,7 +195,9 @@ describe('authService', () => {
         password: 'correctpassword',
       });
 
-      expect(result.token).toBeDefined();
+      expect(result.accessToken).toBeDefined();
+      expect(result.refreshToken).toBeDefined();
+      expect(result.expiresIn).toBe(900);
       expect(result.user.email).toBe('john@example.com');
       expect(result.user.password_hash).toBeUndefined();
     });
@@ -303,7 +305,8 @@ describe('authService', () => {
       bcrypt.compare.mockResolvedValueOnce(true);
 
       const result = await authService.login({ email: 'john@example.com', password: 'correct' });
-      expect(result.token).toBeDefined();
+      expect(result.accessToken).toBeDefined();
+      expect(result.refreshToken).toBeDefined();
     });
 
     test('resets failed_login_attempts on successful login', async () => {
@@ -347,7 +350,7 @@ describe('authService', () => {
       bcrypt.compare.mockResolvedValueOnce(true);
 
       const result = await authService.login({ email: 'john@example.com', password: 'correct' });
-      const decoded = jwt.decode(result.token);
+      const decoded = jwt.decode(result.accessToken);
 
       expect(decoded.sub).toBe(1);
       expect(decoded.email).toBe('john@example.com');
@@ -356,7 +359,7 @@ describe('authService', () => {
       expect(decoded.exp).toBeDefined();
     });
 
-    test('session is recorded with token hash', async () => {
+    test('session is recorded with refresh token hash', async () => {
       const user = {
         id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',
         status: 'active', role: 'admin', organization_id: 42,
@@ -377,8 +380,8 @@ describe('authService', () => {
       const sessionInsert = db.query.mock.calls.find(c => c[0].includes('INSERT INTO user_sessions'));
       expect(sessionInsert).toBeDefined();
 
-      // Verify the token hash matches
-      const expectedHash = crypto.createHash('sha256').update(result.token).digest('hex');
+      // Verify the token hash matches the refresh token (not the access JWT)
+      const expectedHash = crypto.createHash('sha256').update(result.refreshToken).digest('hex');
       expect(sessionInsert[1][1]).toBe(expectedHash);
     });
 
@@ -431,107 +434,95 @@ describe('authService', () => {
   // refreshToken
   // =========================================================================
   describe('refreshToken', () => {
-    test('issues a new token for valid session', async () => {
-      const jwt = require('jsonwebtoken');
-      const config = require('../src/config');
-
-      // Create a real token for testing
-      const originalToken = jwt.sign(
-        { sub: 1, email: 'john@example.com', role: 'admin', orgId: 42 },
-        config.jwt.secret,
-        { expiresIn: '1h' },
-      );
-
-      const oldHash = crypto.createHash('sha256').update(originalToken).digest('hex');
+    test('issues a new token pair for valid refresh token', async () => {
+      const refreshTokenValue = crypto.randomBytes(32).toString('hex');
+      const refreshHash = crypto.createHash('sha256').update(refreshTokenValue).digest('hex');
+      const futureDate = new Date(Date.now() + 86400000).toISOString();
 
       db.query
-        .mockResolvedValueOnce([[{ id: 1, token_hash: oldHash, user_id: 1 }]])  // session exists
-        .mockResolvedValueOnce([[{ id: 1, email: 'john@example.com', role: 'admin', status: 'active' }]])  // findById
+        .mockResolvedValueOnce([[{ id: 1, token_hash: refreshHash, user_id: 1, token_family: 'fam-1', expires_at: futureDate }]])  // session exists
+        .mockResolvedValueOnce([[{ id: 1, email: 'john@example.com', role: 'admin', status: 'active', organization_id: 42 }]])  // findById
+        .mockResolvedValueOnce([[{ id: 42 }]])  // getOrganizations
         .mockResolvedValueOnce([{ affectedRows: 1 }])  // DELETE old session
-        .mockResolvedValueOnce([{ insertId: 1 }]);  // INSERT new session
+        .mockResolvedValueOnce([{ insertId: 2 }]);  // INSERT new session
 
-      const result = await authService.refreshToken(originalToken);
+      const result = await authService.refreshToken(refreshTokenValue);
 
-      expect(result.token).toBeDefined();
-      expect(result.token).not.toBe(originalToken); // new token
+      expect(result.accessToken).toBeDefined();
+      expect(result.refreshToken).toBeDefined();
+      expect(result.refreshToken).not.toBe(refreshTokenValue); // new refresh token
+      expect(result.expiresIn).toBe(900);
     });
 
-    test('throws for invalid token', async () => {
-      await expect(
-        authService.refreshToken('invalid.jwt.token'),
-      ).rejects.toThrow('Invalid token');
-    });
-
-    test('throws when session no longer exists', async () => {
-      const jwt = require('jsonwebtoken');
-      const config = require('../src/config');
-
-      const token = jwt.sign(
-        { sub: 1, email: 'john@example.com', role: 'admin', orgId: 42 },
-        config.jwt.secret,
-        { expiresIn: '1h' },
-      );
+    test('throws for invalid refresh token (no session found)', async () => {
+      const refreshTokenValue = crypto.randomBytes(32).toString('hex');
 
       db.query.mockResolvedValueOnce([[]]);  // session lookup returns empty
 
       await expect(
-        authService.refreshToken(token),
-      ).rejects.toThrow('Session expired or revoked');
+        authService.refreshToken(refreshTokenValue),
+      ).rejects.toThrow('Invalid or expired refresh token');
+    });
+
+    test('throws when refresh token is expired', async () => {
+      const refreshTokenValue = crypto.randomBytes(32).toString('hex');
+      const refreshHash = crypto.createHash('sha256').update(refreshTokenValue).digest('hex');
+      const pastDate = new Date(Date.now() - 60000).toISOString();
+
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, token_hash: refreshHash, user_id: 1, token_family: 'fam-1', expires_at: pastDate }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);  // DELETE expired session
+
+      await expect(
+        authService.refreshToken(refreshTokenValue),
+      ).rejects.toThrow('Refresh token expired');
     });
 
     test('throws when user is inactive', async () => {
-      const jwt = require('jsonwebtoken');
-      const config = require('../src/config');
-
-      const token = jwt.sign(
-        { sub: 1, email: 'john@example.com', role: 'admin', orgId: 42 },
-        config.jwt.secret,
-        { expiresIn: '1h' },
-      );
-
-      const oldHash = crypto.createHash('sha256').update(token).digest('hex');
+      const refreshTokenValue = crypto.randomBytes(32).toString('hex');
+      const refreshHash = crypto.createHash('sha256').update(refreshTokenValue).digest('hex');
+      const futureDate = new Date(Date.now() + 86400000).toISOString();
 
       db.query
-        .mockResolvedValueOnce([[{ id: 1, token_hash: oldHash, user_id: 1 }]])  // session found
+        .mockResolvedValueOnce([[{ id: 1, token_hash: refreshHash, user_id: 1, token_family: 'fam-1', expires_at: futureDate }]])
         .mockResolvedValueOnce([[{ id: 1, email: 'john@example.com', status: 'inactive' }]]);  // findById — inactive
 
       await expect(
-        authService.refreshToken(token),
+        authService.refreshToken(refreshTokenValue),
       ).rejects.toThrow('User not found or inactive');
     });
 
-    test('rotates session: deletes old hash, creates new hash', async () => {
-      const jwt = require('jsonwebtoken');
-      const config = require('../src/config');
-
-      const token = jwt.sign(
-        { sub: 1, email: 'john@example.com', role: 'admin', orgId: 42 },
-        config.jwt.secret,
-        { expiresIn: '1h' },
-      );
-
-      const oldHash = crypto.createHash('sha256').update(token).digest('hex');
+    test('rotates session: deletes old, creates new with same family', async () => {
+      const refreshTokenValue = crypto.randomBytes(32).toString('hex');
+      const refreshHash = crypto.createHash('sha256').update(refreshTokenValue).digest('hex');
+      const futureDate = new Date(Date.now() + 86400000).toISOString();
 
       db.query
-        .mockResolvedValueOnce([[{ id: 1, token_hash: oldHash, user_id: 1 }]])
-        .mockResolvedValueOnce([[{ id: 1, email: 'john@example.com', role: 'admin', status: 'active' }]])
+        .mockResolvedValueOnce([[{ id: 10, token_hash: refreshHash, user_id: 1, token_family: 'fam-abc', expires_at: futureDate }]])
+        .mockResolvedValueOnce([[{ id: 1, email: 'john@example.com', role: 'admin', status: 'active', organization_id: 42 }]])
+        .mockResolvedValueOnce([[{ id: 42 }]])  // getOrganizations
         .mockResolvedValueOnce([{ affectedRows: 1 }])   // DELETE old
-        .mockResolvedValueOnce([{ insertId: 2 }]);       // INSERT new
+        .mockResolvedValueOnce([{ insertId: 11 }]);      // INSERT new
 
-      await authService.refreshToken(token);
+      const result = await authService.refreshToken(refreshTokenValue);
 
-      // Verify DELETE was called with old hash
+      // Verify DELETE was called with old session id
       const deleteCall = db.query.mock.calls.find(c =>
-        typeof c[0] === 'string' && c[0].includes('DELETE FROM user_sessions WHERE token_hash'),
+        typeof c[0] === 'string' && c[0].includes('DELETE FROM user_sessions WHERE id'),
       );
       expect(deleteCall).toBeDefined();
-      expect(deleteCall[1]).toContain(oldHash);
+      expect(deleteCall[1]).toContain(10);
 
-      // Verify INSERT was called for new session
+      // Verify INSERT carries the same token_family
       const insertCall = db.query.mock.calls.find(c =>
         typeof c[0] === 'string' && c[0].includes('INSERT INTO user_sessions'),
       );
       expect(insertCall).toBeDefined();
+      expect(insertCall[1]).toContain('fam-abc');
+
+      // New refresh token hash should be stored
+      const newHash = crypto.createHash('sha256').update(result.refreshToken).digest('hex');
+      expect(insertCall[1]).toContain(newHash);
     });
   });
 
@@ -539,10 +530,10 @@ describe('authService', () => {
   // logout
   // =========================================================================
   describe('logout', () => {
-    test('deletes session by token hash', async () => {
+    test('deletes session by refresh token hash', async () => {
       db.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
 
-      await authService.logout('some-jwt-token');
+      await authService.logout('some-refresh-token');
 
       expect(db.query).toHaveBeenCalledWith(
         expect.stringContaining('DELETE FROM user_sessions'),
@@ -556,9 +547,9 @@ describe('authService', () => {
       await expect(authService.logout('expired-token')).resolves.not.toThrow();
     });
 
-    test('uses SHA-256 hash of token for lookup', async () => {
+    test('uses SHA-256 hash of refresh token for lookup', async () => {
       db.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
-      const token = 'test-jwt-token-123';
+      const token = 'test-refresh-token-123';
       const expectedHash = crypto.createHash('sha256').update(token).digest('hex');
 
       await authService.logout(token);

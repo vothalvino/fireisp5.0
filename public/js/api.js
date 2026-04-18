@@ -2,6 +2,8 @@
 // FireISP 5.0 — API Client
 // =============================================================================
 // Thin wrapper around fetch() with JWT auth, error handling, and pagination.
+// Supports refresh token rotation: short-lived access token + long-lived
+// refresh token. Automatically refreshes the access token on 401 responses.
 // =============================================================================
 
 /* global window, localStorage, fetch */
@@ -9,15 +11,63 @@
 const API = (() => {
   const BASE = '/api';
 
-  function token() { return localStorage.getItem('fireisp_token'); }
-  function setToken(t) { localStorage.setItem('fireisp_token', t); }
-  function clearToken() { localStorage.removeItem('fireisp_token'); }
+  let refreshPromise = null; // singleton to avoid concurrent refresh calls
+
+  function accessToken() { return localStorage.getItem('fireisp_token'); }
+  function setAccessToken(t) { localStorage.setItem('fireisp_token', t); }
+  function refreshTokenVal() { return localStorage.getItem('fireisp_refresh'); }
+  function setRefreshToken(t) { localStorage.setItem('fireisp_refresh', t); }
+  function clearTokens() {
+    localStorage.removeItem('fireisp_token');
+    localStorage.removeItem('fireisp_refresh');
+  }
   function orgId() { return localStorage.getItem('fireisp_org'); }
   function setOrgId(id) { localStorage.setItem('fireisp_org', id); }
 
+  // Backward compat: token() returns the access token
+  function token() { return accessToken(); }
+  function setToken(t) { setAccessToken(t); }
+  function clearToken() { clearTokens(); }
+
+  /**
+   * Attempt to refresh the access token using the stored refresh token.
+   * Returns true on success, false on failure.
+   */
+  async function tryRefresh() {
+    const rt = refreshTokenVal();
+    if (!rt) return false;
+
+    // Deduplicate concurrent refresh attempts
+    if (refreshPromise) return refreshPromise;
+
+    refreshPromise = (async () => {
+      try {
+        const res = await fetch(`${BASE}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: rt }),
+        });
+        if (!res.ok) return false;
+        const json = await res.json();
+        if (json.data?.accessToken) {
+          setAccessToken(json.data.accessToken);
+          setRefreshToken(json.data.refreshToken);
+          return true;
+        }
+        return false;
+      } catch (_e) {
+        return false;
+      } finally {
+        refreshPromise = null;
+      }
+    })();
+
+    return refreshPromise;
+  }
+
   async function request(method, path, body, opts = {}) {
     const headers = { 'Content-Type': 'application/json' };
-    const t = token();
+    const t = accessToken();
     if (t) headers.Authorization = `Bearer ${t}`;
     const o = orgId();
     if (o) headers['X-Org-Id'] = o;
@@ -25,10 +75,20 @@ const API = (() => {
     if (body && method !== 'GET') cfg.body = JSON.stringify(body);
 
     const url = path.startsWith('http') ? path : `${BASE}${path}`;
-    const res = await fetch(url, cfg);
+    let res = await fetch(url, cfg);
+
+    // On 401, try to refresh the access token and retry once
+    if (res.status === 401 && !opts._retried) {
+      const refreshed = await tryRefresh();
+      if (refreshed) {
+        headers.Authorization = `Bearer ${accessToken()}`;
+        cfg.headers = headers;
+        res = await fetch(url, { ...cfg, _retried: true });
+      }
+    }
 
     if (res.status === 401) {
-      clearToken();
+      clearTokens();
       window.location.hash = '#/login';
       throw new Error('Session expired');
     }
@@ -57,7 +117,10 @@ const API = (() => {
     // Auth helpers
     async login(email, password) {
       const res = await request('POST', '/auth/login', { email, password });
-      if (res.data?.token) setToken(res.data.token);
+      if (res.data?.accessToken) {
+        setAccessToken(res.data.accessToken);
+        setRefreshToken(res.data.refreshToken);
+      }
       return res.data;
     },
 
@@ -67,8 +130,9 @@ const API = (() => {
     },
 
     async logout() {
-      try { await request('POST', '/auth/logout'); } catch (_e) { /* ignore */ }
-      clearToken();
+      const rt = refreshTokenVal();
+      try { await request('POST', '/auth/logout', { refreshToken: rt }); } catch (_e) { /* ignore */ }
+      clearTokens();
       localStorage.removeItem('fireisp_org');
     },
   };

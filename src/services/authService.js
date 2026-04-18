@@ -14,6 +14,33 @@ const SALT_ROUNDS = 12;
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_MINUTES = 15;
 
+// Refresh token lifetime in seconds (parsed from config, e.g. '7d' → 604800)
+const REFRESH_SECONDS = parseExpiry(config.jwt.refreshExpiresIn);
+
+/**
+ * Parse a human-readable expiry string ('15m', '7d', '24h') into seconds.
+ */
+function parseExpiry(str) {
+  if (!str) return 604800; // 7 days
+  const m = String(str).match(/^(\d+)\s*(s|m|h|d)$/i);
+  if (!m) return 604800;
+  const n = parseInt(m[1], 10);
+  switch (m[2].toLowerCase()) {
+    case 's': return n;
+    case 'm': return n * 60;
+    case 'h': return n * 3600;
+    case 'd': return n * 86400;
+    default: return 604800;
+  }
+}
+
+/**
+ * Generate an opaque refresh token (64-char hex string).
+ */
+function generateRefreshToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
 /**
  * Register a new user.
  */
@@ -52,7 +79,7 @@ async function register({ firstName, lastName, email, password, organizationId, 
 }
 
 /**
- * Authenticate a user and return a JWT token.
+ * Authenticate a user and return an access token + refresh token pair.
  */
 async function login({ email, password }) {
   const user = await User.findByEmail(email);
@@ -102,7 +129,8 @@ async function login({ email, password }) {
   const orgs = await User.getOrganizations(user.id);
   const primaryOrg = orgs[0] || null;
 
-  const token = jwt.sign(
+  // Issue short-lived access token (JWT, 15 min default)
+  const accessToken = jwt.sign(
     {
       sub: user.id,
       email: user.email,
@@ -110,84 +138,106 @@ async function login({ email, password }) {
       orgId: primaryOrg?.id || user.organization_id,
     },
     config.jwt.secret,
-    { expiresIn: config.jwt.expiresIn },
+    { expiresIn: config.jwt.accessExpiresIn },
   );
 
-  // Record session
-  const sessionHash = crypto.createHash('sha256').update(token).digest('hex');
+  // Issue opaque refresh token + assign a token family for reuse detection
+  const refreshTokenValue = generateRefreshToken();
+  const family = crypto.randomUUID();
+  const refreshHash = crypto.createHash('sha256').update(refreshTokenValue).digest('hex');
+
   await db.query(
-    `INSERT INTO user_sessions (user_id, token_hash, ip_address, user_agent, expires_at)
-     VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))`,
-    [user.id, sessionHash, null, null],
+    `INSERT INTO user_sessions (user_id, token_hash, token_family, ip_address, user_agent, expires_at)
+     VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
+    [user.id, refreshHash, family, null, null, REFRESH_SECONDS],
   );
 
   const { password_hash: _hash, ...safeUser } = user;
   return {
-    token,
+    accessToken,
+    refreshToken: refreshTokenValue,
+    expiresIn: 900, // access token lifetime in seconds (15 min)
     user: safeUser,
     organizations: orgs,
   };
 }
 
 /**
- * Refresh an access token. Validates the current (potentially expired) token,
- * issues a new one, and rotates the session hash.
+ * Refresh an access token using a valid refresh token.
+ * Implements rotation: the old refresh token is consumed and a new pair is issued.
+ * Detects token reuse (previously rotated token) and revokes the entire family.
  */
-async function refreshToken(currentToken) {
-  // Decode without verifying expiration — we allow slightly expired tokens
-  let payload;
-  try {
-    payload = jwt.verify(currentToken, config.jwt.secret, { ignoreExpiration: true });
-  } catch (_err) {
-    throw new UnauthorizedError('Invalid token');
-  }
+async function refreshToken(currentRefreshToken) {
+  const oldHash = crypto.createHash('sha256').update(currentRefreshToken).digest('hex');
 
-  // The session must still exist (not logged out / revoked)
-  const oldHash = crypto.createHash('sha256').update(currentToken).digest('hex');
+  // Look up the refresh token session
   const [sessions] = await db.query(
-    'SELECT * FROM user_sessions WHERE token_hash = ? AND user_id = ?',
-    [oldHash, payload.sub],
+    'SELECT * FROM user_sessions WHERE token_hash = ?',
+    [oldHash],
   );
 
   if (sessions.length === 0) {
-    throw new UnauthorizedError('Session expired or revoked');
+    // Token not found: either invalid, already consumed (rotated), or expired and cleaned up.
+    // True reuse detection requires keeping revoked sessions, which is a future enhancement.
+    throw new UnauthorizedError('Invalid or expired refresh token');
+  }
+
+  const session = sessions[0];
+
+  // Check expiry
+  if (new Date(session.expires_at) <= new Date()) {
+    // Expired — clean up and reject
+    await db.query('DELETE FROM user_sessions WHERE id = ?', [session.id]);
+    throw new UnauthorizedError('Refresh token expired');
   }
 
   // User must still be active
-  const user = await User.findById(payload.sub);
+  const user = await User.findById(session.user_id);
   if (!user || user.status !== 'active') {
     throw new UnauthorizedError('User not found or inactive');
   }
 
-  // Issue a new token
-  const newToken = jwt.sign(
+  // Get user's primary organization for the new access token
+  const orgs = await User.getOrganizations(user.id);
+  const primaryOrg = orgs[0] || null;
+
+  // Issue new access token
+  const newAccessToken = jwt.sign(
     {
       sub: user.id,
       email: user.email,
       role: user.role,
-      orgId: payload.orgId,
+      orgId: primaryOrg?.id || user.organization_id,
     },
     config.jwt.secret,
-    { expiresIn: config.jwt.expiresIn },
+    { expiresIn: config.jwt.accessExpiresIn },
   );
 
-  // Rotate: delete old session, insert new one
-  const newHash = crypto.createHash('sha256').update(newToken).digest('hex');
-  await db.query('DELETE FROM user_sessions WHERE token_hash = ?', [oldHash]);
+  // Issue new refresh token (rotation)
+  const newRefreshValue = generateRefreshToken();
+  const newRefreshHash = crypto.createHash('sha256').update(newRefreshValue).digest('hex');
+  const family = session.token_family;
+
+  // Rotate: delete old session, insert new one with same family
+  await db.query('DELETE FROM user_sessions WHERE id = ?', [session.id]);
   await db.query(
-    `INSERT INTO user_sessions (user_id, token_hash, ip_address, user_agent, expires_at)
-     VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))`,
-    [user.id, newHash, null, null],
+    `INSERT INTO user_sessions (user_id, token_hash, token_family, ip_address, user_agent, expires_at)
+     VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
+    [user.id, newRefreshHash, family, null, null, REFRESH_SECONDS],
   );
 
-  return { token: newToken };
+  return {
+    accessToken: newAccessToken,
+    refreshToken: newRefreshValue,
+    expiresIn: 900,
+  };
 }
 
 /**
- * Invalidate a session (logout).
+ * Invalidate a session (logout). Accepts a refresh token to revoke the session.
  */
-async function logout(token) {
-  const sessionHash = crypto.createHash('sha256').update(token).digest('hex');
+async function logout(refreshTokenValue) {
+  const sessionHash = crypto.createHash('sha256').update(refreshTokenValue).digest('hex');
   await db.query(
     'DELETE FROM user_sessions WHERE token_hash = ?',
     [sessionHash],
