@@ -15,6 +15,7 @@ const webhookService = require('./webhookService');
 const checkoutService = require('./checkoutService');
 const alertService = require('./alertService');
 const retentionService = require('./retentionService');
+const paymentRetryService = require('./paymentRetryService');
 
 /**
  * Get all scheduled tasks, optionally filtered by organization.
@@ -60,6 +61,8 @@ async function runTask(taskName, organizationId = null) {
       return alertService.evaluateAlerts(organizationId);
     case 'process_recurring_charges':
       return checkoutService.processRecurringCharges(organizationId);
+    case 'retry_failed_charges':
+      return paymentRetryService.processPendingRetries(organizationId);
     case 'data_retention':
       return retentionService.runAll();
     default:

@@ -450,6 +450,14 @@ async function handleWebhookEvent({ provider, providerEventId, eventType, payloa
     // Auto-reconciliation for successful payments
     if (newStatus === 'succeeded') {
       await reconcilePayment(tx.id);
+
+      // Cancel any pending retries for this transaction
+      try {
+        const paymentRetryService = require('./paymentRetryService');
+        await paymentRetryService.cancelRetries({ transactionId: tx.id });
+      } catch (cancelErr) {
+        logger.error({ cancelErr, transactionId: tx.id }, 'Failed to cancel payment retries after webhook success');
+      }
     }
 
     logger.info({ provider, eventType, transactionId: tx.id }, 'Webhook event processed');
