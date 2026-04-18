@@ -33,7 +33,7 @@ const verifyEmail = {
 };
 
 const refreshToken = {
-  token: { type: 'string', required: true },
+  refreshToken: { type: 'string', required: true },
 };
 
 module.exports = { register, login, requestPasswordReset, resetPassword, changePassword, verifyEmail, refreshToken };

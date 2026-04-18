@@ -40,8 +40,10 @@ router.post('/login',
 // POST /api/auth/logout
 router.post('/logout', authenticate, async (req, res, next) => {
   try {
-    const token = req.headers.authorization?.slice(7);
-    await authService.logout(token);
+    const { refreshToken } = req.body || {};
+    if (refreshToken) {
+      await authService.logout(refreshToken);
+    }
     res.json({ message: 'Logged out' });
   } catch (err) {
     next(err);
@@ -113,12 +115,12 @@ router.post('/verify-email',
   },
 );
 
-// POST /api/auth/refresh — rotate access token (refresh token rotation)
+// POST /api/auth/refresh — rotate access token using refresh token
 router.post('/refresh',
   validate(authSchemas.refreshToken),
   async (req, res, next) => {
     try {
-      const result = await authService.refreshToken(req.body.token);
+      const result = await authService.refreshToken(req.body.refreshToken);
       res.json({ data: result });
     } catch (err) {
       next(err);

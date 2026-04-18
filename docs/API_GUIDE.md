@@ -70,7 +70,9 @@ Content-Type: application/json
 ```json
 {
   "data": {
-    "token": "eyJhbGciOiJIUzI1NiIs...",
+    "accessToken": "eyJhbGciOiJIUzI1NiIs...",
+    "refreshToken": "a1b2c3d4e5f6...",
+    "expiresIn": 900,
     "user": {
       "id": 1,
       "first_name": "John",
@@ -87,7 +89,7 @@ Content-Type: application/json
 
 ### Using the Token
 
-Include the JWT in the `Authorization` header:
+Include the access token (JWT) in the `Authorization` header:
 
 ```http
 GET /api/clients
@@ -96,9 +98,16 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 
 ### Logout
 
+Send the refresh token in the request body to revoke the session:
+
 ```http
 POST /api/auth/logout
 Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+Content-Type: application/json
+
+{
+  "refreshToken": "a1b2c3d4e5f6..."
+}
 ```
 
 ### Get Current User
@@ -112,14 +121,14 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 
 ## Token Refresh
 
-Access tokens expire after 24 hours by default (configurable via `JWT_EXPIRES_IN`). Use the refresh endpoint to rotate your token without re-authenticating:
+Access tokens expire after 15 minutes by default (configurable via `JWT_ACCESS_EXPIRES_IN`). Refresh tokens last 7 days (configurable via `JWT_REFRESH_EXPIRES_IN`). Use the refresh endpoint to rotate your token pair without re-authenticating:
 
 ```http
 POST /api/auth/refresh
 Content-Type: application/json
 
 {
-  "token": "eyJhbGciOiJIUzI1NiIs..."
+  "refreshToken": "a1b2c3d4e5f6..."
 }
 ```
 
@@ -128,12 +137,14 @@ Content-Type: application/json
 ```json
 {
   "data": {
-    "token": "eyJhbGciOiJIUzI1NiIs...new..."
+    "accessToken": "eyJhbGciOiJIUzI1NiIs...new...",
+    "refreshToken": "f6e5d4c3b2a1...new...",
+    "expiresIn": 900
   }
 }
 ```
 
-The old token is immediately invalidated (rotation). The refresh endpoint accepts tokens that have recently expired.
+The old refresh token is immediately invalidated (rotation). Each refresh issues a new token pair. If a previously rotated refresh token is reused, the request is rejected — this helps detect token theft.
 
 ---
 

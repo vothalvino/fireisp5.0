@@ -45,7 +45,7 @@ describe('Auth Service — refreshToken', () => {
   const User = require('../src/models/User');
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     jest.restoreAllMocks();
   });
 
@@ -54,17 +54,17 @@ describe('Auth Service — refreshToken', () => {
   });
 
   test('refreshToken rotates a valid session', async () => {
-    // Create a real JWT token for testing
-    const token = jwt.sign(
-      { sub: 1, email: 'test@example.com', role: 'admin', orgId: 1 },
-      config.jwt.secret,
-      { expiresIn: '1h' },
-    );
+    // Create an opaque refresh token for testing
+    const crypto = require('crypto');
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const futureDate = new Date(Date.now() + 86400000).toISOString();
 
     // Mock: session exists
     db.query
-      .mockResolvedValueOnce([[{ id: 1, user_id: 1 }]])  // SELECT session
-      .mockResolvedValueOnce([[{ id: 1, email: 'test@example.com', role: 'admin', status: 'active' }]])  // User.findById
+      .mockResolvedValueOnce([[{ id: 1, user_id: 1, token_hash: tokenHash, token_family: 'fam-1', expires_at: futureDate }]])  // SELECT session
+      .mockResolvedValueOnce([[{ id: 1, email: 'test@example.com', role: 'admin', status: 'active', organization_id: 1 }]])  // User.findById
+      .mockResolvedValueOnce([[{ id: 1 }]])  // getOrganizations
       .mockResolvedValueOnce([{ affectedRows: 1 }])  // DELETE old session
       .mockResolvedValueOnce([{ insertId: 2 }]);  // INSERT new session
 
@@ -74,37 +74,39 @@ describe('Auth Service — refreshToken', () => {
       email: 'test@example.com',
       role: 'admin',
       status: 'active',
+      organization_id: 1,
     });
 
     const result = await authService.refreshToken(token);
-    expect(result).toHaveProperty('token');
-    expect(typeof result.token).toBe('string');
-    // The new token should be different from the old one
-    expect(result.token).not.toBe(token);
+    expect(result).toHaveProperty('accessToken');
+    expect(result).toHaveProperty('refreshToken');
+    expect(typeof result.accessToken).toBe('string');
+    expect(typeof result.refreshToken).toBe('string');
+    // The new refresh token should be different from the old one
+    expect(result.refreshToken).not.toBe(token);
 
-    // Verify the new token is valid
-    const decoded = jwt.verify(result.token, config.jwt.secret);
+    // Verify the new access token is a valid JWT
+    const decoded = jwt.verify(result.accessToken, config.jwt.secret);
     expect(decoded.sub).toBe(1);
     expect(decoded.email).toBe('test@example.com');
   });
 
-  test('refreshToken rejects invalid token', async () => {
-    await expect(authService.refreshToken('not-a-valid-token'))
-      .rejects.toThrow('Invalid token');
+  test('refreshToken rejects invalid token (no session found)', async () => {
+    const crypto = require('crypto');
+    const token = crypto.randomBytes(32).toString('hex');
+
+    db.query.mockResolvedValueOnce([[]]);  // no session found
+
+    await expect(authService.refreshToken(token))
+      .rejects.toThrow('Invalid or expired refresh token');
   });
 
   test('refreshToken rejects revoked session', async () => {
-    const token = jwt.sign(
-      { sub: 1, email: 'test@example.com', role: 'admin', orgId: 1 },
-      config.jwt.secret,
-      { expiresIn: '1h' },
-    );
+    const crypto = require('crypto');
+    const token = crypto.randomBytes(32).toString('hex');
 
     // Mock: no session found (revoked/logged out)
     db.query.mockResolvedValueOnce([[]]);
-
-    // Mock: User.findById also returns null (session was revoked)
-    jest.spyOn(User, 'findById').mockResolvedValue(null);
 
     await expect(authService.refreshToken(token))
       .rejects.toThrow();
@@ -114,14 +116,13 @@ describe('Auth Service — refreshToken', () => {
     // Explicitly reset db.query mock queue
     db.query.mockReset();
 
-    const token = jwt.sign(
-      { sub: 1, email: 'test@example.com', role: 'admin', orgId: 1 },
-      config.jwt.secret,
-      { expiresIn: '1h' },
-    );
+    const crypto = require('crypto');
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const futureDate = new Date(Date.now() + 86400000).toISOString();
 
     // Mock: session exists
-    db.query.mockResolvedValueOnce([[{ id: 1, user_id: 1 }]]);
+    db.query.mockResolvedValueOnce([[{ id: 1, user_id: 1, token_hash: tokenHash, token_family: 'fam-1', expires_at: futureDate }]]);
 
     // Mock: user is inactive
     jest.spyOn(User, 'findById').mockResolvedValue({
@@ -143,8 +144,8 @@ describe('Auth Schema — refreshToken', () => {
   test('auth schema exports refreshToken schema', () => {
     const authSchemas = require('../src/middleware/schemas/auth');
     expect(authSchemas.refreshToken).toBeDefined();
-    expect(authSchemas.refreshToken.token.required).toBe(true);
-    expect(authSchemas.refreshToken.token.type).toBe('string');
+    expect(authSchemas.refreshToken.refreshToken.required).toBe(true);
+    expect(authSchemas.refreshToken.refreshToken.type).toBe('string');
   });
 });
 
