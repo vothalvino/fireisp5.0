@@ -31,8 +31,8 @@ const importUpload = multer({
   fileFilter(_req, file, cb) {
     const ext = require('path').extname(file.originalname).toLowerCase();
     const allowedExts = new Set(['.csv', '.xlsx', '.xls']);
-    if (!allowedExts.has(ext) && !ALLOWED_IMPORT_MIMES.has(file.mimetype)) {
-      return cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'Only .csv, .xlsx, and .xls files are accepted'));
+    if (!allowedExts.has(ext) || !ALLOWED_IMPORT_MIMES.has(file.mimetype)) {
+      return cb(new Error('Only .csv, .xlsx, and .xls files are accepted'));
     }
     cb(null, true);
   },

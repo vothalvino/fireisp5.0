@@ -245,7 +245,7 @@ describe('importController', () => {
     });
 
     test('respects 10000 row limit', async () => {
-      const dataRows = Array.from({ length: 10200 }, (_, i) => [`c${i}`, `l${i}`, `e${i}@x.com`]);
+      const dataRows = Array.from({ length: 10050 }, (_, i) => [`c${i}`, `l${i}`, `e${i}@x.com`]);
       const buf = await buildXlsxBuffer(['first_name', 'last_name', 'email'], dataRows);
       const rows = await parseXlsx(buf);
       expect(rows.length).toBe(10000);
