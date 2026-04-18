@@ -81,9 +81,7 @@ const API = (() => {
     if (res.status === 401 && !opts._retried) {
       const refreshed = await tryRefresh();
       if (refreshed) {
-        headers.Authorization = `Bearer ${accessToken()}`;
-        cfg.headers = headers;
-        res = await fetch(url, { ...cfg, _retried: true });
+        return request(method, path, body, { ...opts, _retried: true });
       }
     }
 

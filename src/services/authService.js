@@ -17,6 +17,9 @@ const LOCKOUT_MINUTES = 15;
 // Refresh token lifetime in seconds (parsed from config, e.g. '7d' → 604800)
 const REFRESH_SECONDS = parseExpiry(config.jwt.refreshExpiresIn);
 
+// Access token lifetime in seconds (parsed from config, e.g. '15m' → 900)
+const ACCESS_SECONDS = parseExpiry(config.jwt.accessExpiresIn);
+
 /**
  * Parse a human-readable expiry string ('15m', '7d', '24h') into seconds.
  */
@@ -156,7 +159,7 @@ async function login({ email, password }) {
   return {
     accessToken,
     refreshToken: refreshTokenValue,
-    expiresIn: 900, // access token lifetime in seconds (15 min)
+    expiresIn: ACCESS_SECONDS,
     user: safeUser,
     organizations: orgs,
   };
@@ -229,7 +232,7 @@ async function refreshToken(currentRefreshToken) {
   return {
     accessToken: newAccessToken,
     refreshToken: newRefreshValue,
-    expiresIn: 900,
+    expiresIn: ACCESS_SECONDS,
   };
 }
 
