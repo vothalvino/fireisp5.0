@@ -46,7 +46,7 @@ An open source ISP (Internet Service Provider) management software designed to h
 fireisp5.0/
 ├── database/                # Database schema and migrations
 │   ├── schema.sql           # Combined schema (all 107 tables)
-│   └── migrations/          # Individual numbered migration files (001–155)
+│   └── migrations/          # Individual numbered migration files (001–156)
 ├── src/                     # Application source code
 │   ├── app.js               # Express app setup (middleware, routes, error handling)
 │   ├── server.js            # HTTP server entry point
@@ -362,6 +362,8 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 154 — Seed payment retry task:** `154_seed_payment_retry_task.sql` inserts the `retry_failed_charges` scheduled task (cron `0 * * * *` — hourly) that processes pending payment retries whose `next_retry_at` has passed. Uses `INSERT IGNORE` for idempotency.
 
 > **Migration 155 — Seed billing cycle task:** `155_seed_billing_cycle_task.sql` inserts the `billing_cycle` scheduled task (cron `0 2 * * *` — daily at 02:00, priority `high`, timeout 600 s) that orchestrates the full automated revenue engine: auto-generate invoices → email invoice to client → send suspension warning emails for overdue contracts approaching the rule threshold → suspend contracts past the `days_past_due` limit and email post-suspension confirmation. Dispatched by `taskRunner.runBillingCycle()`. Uses `INSERT IGNORE` for idempotency.
+
+> **Migration 156 — Seed database backup task:** `156_seed_database_backup_task.sql` inserts the `database_backup` scheduled task (cron `0 3 * * *` — daily at 03:00 UTC, priority `normal`, timeout 1800 s, 2 retries) that runs `mysqldump`, compresses the output with gzip, saves it locally in `storage/backups/` (retaining the last 7 copies), and uploads it to S3-compatible cloud storage (AWS S3 or Backblaze B2) when `BACKUP_S3_BUCKET`/`BACKUP_S3_REGION`/`BACKUP_S3_ACCESS_KEY`/`BACKUP_S3_SECRET_KEY` are configured. Cloud upload failure is non-fatal — the local copy is retained. Uses `INSERT IGNORE` for idempotency.
 
 ### Venta al Público en General (Factura Pública)
 

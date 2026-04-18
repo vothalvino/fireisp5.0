@@ -5412,6 +5412,23 @@ VALUES
      TRUE);
 
 -- ---------------------------------------------------------------------------
+-- Seed: database backup scheduled task (migration 156)
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO scheduled_tasks
+    (organization_id, task_name, task_type, description,
+     cron_expression, priority, max_retries, timeout_seconds, is_enabled)
+VALUES
+    (NULL,
+     'database_backup',
+     'maintenance',
+     'Daily database backup: mysqldump → gzip → local storage/backups/ + upload to S3/B2 cloud storage. Retains last 7 local copies.',
+     '0 3 * * *',
+     'normal',
+     2,
+     1800,
+     TRUE);
+
+-- ---------------------------------------------------------------------------
 -- ALTER: add currency to expenses (migration 124)
 -- Purpose: Idempotent guard — adds expenses.currency only if migration 051
 --          has not already applied it.

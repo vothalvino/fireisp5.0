@@ -17,6 +17,7 @@ const alertService = require('./alertService');
 const retentionService = require('./retentionService');
 const paymentRetryService = require('./paymentRetryService');
 const emailTemplates = require('../views/emailTemplates');
+const { backup: runBackup } = require('../scripts/backup');
 
 /**
  * Get all scheduled tasks, optionally filtered by organization.
@@ -68,6 +69,8 @@ async function runTask(taskName, organizationId = null) {
       return paymentRetryService.processPendingRetries(organizationId);
     case 'data_retention':
       return retentionService.runAll();
+    case 'database_backup':
+      return runBackup();
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }

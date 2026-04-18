@@ -4,6 +4,9 @@
 // Creates a gzipped mysqldump backup in storage/backups/ with rotation.
 // Keeps the last N backups (default 7) and removes older ones.
 //
+// When cloud storage is configured (BACKUP_S3_BUCKET + credentials), the
+// backup is also uploaded to S3 or a Backblaze B2 S3-compatible bucket.
+//
 // Usage:  node src/scripts/backup.js
 //         npm run backup
 //
@@ -15,11 +18,12 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const logger = require('../utils/logger').child({ script: 'backup' });
+const cloudStorage = require('../services/cloudStorageService');
 
 const BACKUP_DIR = path.resolve(__dirname, '../../storage/backups');
 const MAX_BACKUPS = parseInt(process.env.BACKUP_RETENTION || '7', 10);
 
-function backup() {
+async function backup() {
   // Ensure backup directory exists
   if (!fs.existsSync(BACKUP_DIR)) {
     fs.mkdirSync(BACKUP_DIR, { recursive: true });
@@ -65,10 +69,25 @@ function backup() {
     throw err;
   }
 
+  // Upload to cloud storage (S3/B2) if configured
+  let cloudUrl = null;
+  if (cloudStorage.isConfigured()) {
+    try {
+      cloudUrl = await cloudStorage.uploadBackup(filepath, filename);
+      logger.info({ filename, cloudUrl }, 'Backup uploaded to cloud storage');
+    } catch (uploadErr) {
+      // Cloud upload failure is logged but does not fail the backup — the local
+      // copy is already safe. An operator can manually re-upload if needed.
+      logger.error({ err: uploadErr, filename }, 'Cloud upload failed — local backup retained');
+    }
+  } else {
+    logger.warn('Cloud storage not configured — backup saved locally only');
+  }
+
   // Rotate old backups
   rotate();
 
-  return filepath;
+  return { filepath, cloudUrl };
 }
 
 /**
@@ -92,13 +111,12 @@ function rotate() {
 // Run when invoked directly
 if (require.main === module) {
   logger.info('FireISP 5.0 — Creating database backup...');
-  try {
-    backup();
+  backup().then(() => {
     logger.info('Done.');
     process.exit(0);
-  } catch (_err) {
+  }).catch((_err) => {
     process.exit(1);
-  }
+  });
 }
 
 module.exports = { backup, rotate };
