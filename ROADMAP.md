@@ -19,7 +19,7 @@
 
 | Layer | Status | Notes |
 |---|---|---|
-| Database schema | ✅ 150 migrations, 101 tables | schema.sql synced |
+| Database schema | ✅ 155 migrations, 101 tables | schema.sql synced |
 | API routes | ✅ 55+ route files | 184 OpenAPI paths |
 | Services | ✅ 24 service modules | billing, CFDI, RADIUS, payments, etc. |
 | Middleware | ✅ Auth, RBAC, validation, rate limiting | circuit breaker added |
@@ -75,7 +75,7 @@
 - ✅ Add monthly CFDI reconciliation report (issued vs SAT acknowledgments)
 
 ### 1.6 — Automated Billing Cycle _(moved from Milestone 5 — core revenue engine, not polish)_
-- ⬜ Automated billing cycle (cron: generate invoices → email → suspend overdue)
+- ✅ Automated billing cycle (cron: generate invoices → email → suspend overdue)
 
 ### 1.7 — Pre-deployment Safety _(moved up — needed before UAT/launch)_
 - ⬜ Add database backup cron job (mysqldump → S3/B2 daily)
@@ -210,3 +210,4 @@
 | 2026-04-18 | 1.5 | CFDI cancellation flow (submit to SAT, track acceptance/rejection) | #TBD |
 | 2026-04-18 | 1.5 | Complemento de pago 2.0 generation for partial/full PPD payments | #TBD |
 | 2026-04-18 | 1.5 | Monthly CFDI reconciliation report (issued vs SAT acknowledgments) | #TBD |
+| 2026-04-18 | 1.6 | Automated billing cycle: invoice emails, suspension warnings, post-suspension emails, billing_cycle orchestrator task | #TBD |
