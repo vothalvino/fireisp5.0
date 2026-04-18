@@ -77,4 +77,20 @@ router.get('/cfdi/:id', async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/pdf/payments/:id
+ * Download a payment receipt as PDF.
+ */
+router.get('/payments/:id', async (req, res, next) => {
+  try {
+    const locale = req.query.locale || 'en';
+    const buffer = await pdfService.generatePaymentReceiptPdf(parseInt(req.params.id, 10), { locale });
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `attachment; filename="receipt-${req.params.id}.pdf"`);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
