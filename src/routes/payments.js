@@ -95,4 +95,55 @@ router.get('/:id/allocations', requirePermission('payments.view'), async (req, r
   }
 });
 
+// Send payment receipt PDF via email
+router.post('/:id/send-receipt', requirePermission('payments.view'), async (req, res, next) => {
+  try {
+    const paymentId = parseInt(req.params.id, 10);
+    const pdfService = require('../services/pdfService');
+    const emailTransport = require('../services/emailTransport');
+
+    // Fetch payment with client info
+    const [rows] = await db.query(
+      `SELECT p.*, cl.first_name, cl.last_name, cl.email AS client_email,
+              o.name AS org_name
+       FROM payments p
+       LEFT JOIN clients cl ON cl.id = p.client_id
+       LEFT JOIN organizations o ON o.id = cl.organization_id
+       WHERE p.id = ? AND p.deleted_at IS NULL`,
+      [paymentId],
+    );
+    const payment = rows[0];
+    if (!payment) return res.status(404).json({ error: 'Payment not found' });
+    if (!payment.client_email) return res.status(422).json({ error: 'Client has no email address' });
+
+    const locale = req.query.locale || 'en';
+    const buffer = await pdfService.generatePaymentReceiptPdf(paymentId, { locale });
+
+    const templates = require('../views/emailTemplates');
+    const template = templates.paymentReceiptEmail({
+      clientName: `${payment.first_name || ''} ${payment.last_name || ''}`.trim(),
+      orgName: payment.org_name,
+      amount: payment.amount,
+      currency: payment.currency,
+      paymentMethod: payment.payment_method,
+      reference: payment.reference_number || payment.reference,
+      paymentDate: payment.payment_date
+        ? new Date(payment.payment_date).toISOString().slice(0, 10)
+        : undefined,
+    });
+
+    await emailTransport.sendEmail({
+      organizationId: req.orgId,
+      to: payment.client_email,
+      subject: template.subject,
+      html: template.html,
+      attachments: [{ filename: `receipt-${paymentId}.pdf`, content: buffer }],
+    });
+
+    res.json({ message: 'Receipt sent', to: payment.client_email });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

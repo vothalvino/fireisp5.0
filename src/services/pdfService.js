@@ -30,6 +30,11 @@ const PDF_LABELS = {
   en: {
     invoice: 'INVOICE', creditNote: 'CREDIT NOTE', quote: 'QUOTE',
     cfdi: 'CFDI 4.0 — Electronic Invoice',
+    receipt: 'PAYMENT RECEIPT', receiptId: 'Receipt',
+    paymentDate: 'Payment Date', receivedFrom: 'RECEIVED FROM',
+    paymentDetails: 'PAYMENT DETAILS', method: 'Method', reference: 'Reference',
+    bank: 'Bank', clabe: 'CLABE', allocatedInvoices: 'ALLOCATED INVOICES',
+    invoiceNumber: 'Invoice #', allocated: 'Allocated',
     issueDate: 'Issue Date', dueDate: 'Due Date', validUntil: 'Valid Until',
     billTo: 'BILL TO', issuedBy: 'ISSUED BY', client: 'CLIENT',
     description: 'Description', qty: 'Qty', unitPrice: 'Unit Price',
@@ -43,6 +48,11 @@ const PDF_LABELS = {
   es: {
     invoice: 'FACTURA', creditNote: 'NOTA DE CRÉDITO', quote: 'COTIZACIÓN',
     cfdi: 'CFDI 4.0 — Comprobante Fiscal Digital',
+    receipt: 'RECIBO DE PAGO', receiptId: 'Recibo',
+    paymentDate: 'Fecha de Pago', receivedFrom: 'RECIBIDO DE',
+    paymentDetails: 'DETALLES DEL PAGO', method: 'Método', reference: 'Referencia',
+    bank: 'Banco', clabe: 'CLABE', allocatedInvoices: 'FACTURAS ASIGNADAS',
+    invoiceNumber: 'Factura #', allocated: 'Asignado',
     issueDate: 'Fecha de Emisión', dueDate: 'Fecha de Vencimiento', validUntil: 'Válida Hasta',
     billTo: 'FACTURAR A', issuedBy: 'EMITIDO POR', client: 'CLIENTE',
     description: 'Descripción', qty: 'Cant.', unitPrice: 'Precio Unitario',
@@ -559,11 +569,175 @@ async function generateCfdiPdf(cfdiDocumentId, { locale = 'en' } = {}) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Payment Receipt PDF
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate a payment receipt PDF and return it as a Buffer.
+ * @param {number} paymentId
+ * @param {{ locale?: string }} options
+ * @returns {Promise<Buffer>}
+ */
+async function generatePaymentReceiptPdf(paymentId, { locale = 'en' } = {}) {
+  const L = pdfLabels(locale);
+
+  const [payments] = await db.query(
+    `SELECT p.*, cl.first_name, cl.last_name, cl.email, cl.phone, cl.address,
+            cl.city, cl.state, cl.country,
+            o.name AS org_name, o.email AS org_email, o.phone AS org_phone,
+            o.address AS org_address, o.city AS org_city, o.state AS org_state,
+            o.country AS org_country
+     FROM payments p
+     LEFT JOIN clients cl ON cl.id = p.client_id
+     LEFT JOIN organizations o ON o.id = cl.organization_id
+     WHERE p.id = ? AND p.deleted_at IS NULL`,
+    [paymentId],
+  );
+  const payment = payments[0];
+  if (!payment) throw new Error('Payment not found');
+
+  // Fetch allocations with invoice details
+  const [allocations] = await db.query(
+    `SELECT pa.amount AS allocated_amount, i.invoice_number, i.total AS invoice_total,
+            i.currency AS invoice_currency, i.status AS invoice_status
+     FROM payment_allocations pa
+     LEFT JOIN invoices i ON i.id = pa.invoice_id
+     WHERE pa.payment_id = ? AND pa.deleted_at IS NULL
+     ORDER BY pa.id`,
+    [paymentId],
+  );
+
+  const currency = payment.currency || 'MXN';
+
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'LETTER', margin: PAGE_MARGIN });
+    const chunks = [];
+    doc.on('data', chunk => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    // ---- Header ----
+    doc.fontSize(20).font('Helvetica-Bold').fillColor(COLORS.success)
+      .text(L.receipt, PAGE_MARGIN, PAGE_MARGIN);
+
+    doc.fontSize(10).font('Helvetica').fillColor(COLORS.muted)
+      .text(`# ${paymentId}`, PAGE_MARGIN, PAGE_MARGIN + 25);
+
+    // Organization info (top-right)
+    const rightX = 350;
+    doc.fontSize(11).font('Helvetica-Bold').fillColor(COLORS.text)
+      .text(payment.org_name || 'FireISP', rightX, PAGE_MARGIN, { width: 200, align: 'right' });
+    doc.fontSize(8).font('Helvetica').fillColor(COLORS.muted);
+    let orgY = PAGE_MARGIN + 16;
+    if (payment.org_address) { doc.text(payment.org_address, rightX, orgY, { width: 200, align: 'right' }); orgY += 11; }
+    if (payment.org_city || payment.org_state) { doc.text(`${payment.org_city || ''} ${payment.org_state || ''} ${payment.org_country || ''}`.trim(), rightX, orgY, { width: 200, align: 'right' }); orgY += 11; }
+    if (payment.org_email) { doc.text(payment.org_email, rightX, orgY, { width: 200, align: 'right' }); orgY += 11; }
+    if (payment.org_phone) { doc.text(payment.org_phone, rightX, orgY, { width: 200, align: 'right' }); }
+
+    // ---- Meta section ----
+    let y = 110;
+    y = drawHR(doc, y);
+
+    doc.fontSize(9).font('Helvetica').fillColor(COLORS.text);
+    doc.text(`${L.paymentDate}: ${fmtDate(payment.payment_date || payment.created_at)}`, PAGE_MARGIN, y);
+    doc.text(`${L.amount}: ${fmt(payment.amount, currency)}`, 300, y);
+    y += 20;
+
+    // ---- Received From ----
+    y = drawHR(doc, y);
+    doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.muted).text(L.receivedFrom, PAGE_MARGIN, y);
+    y += 14;
+    doc.fontSize(10).font('Helvetica-Bold').fillColor(COLORS.text)
+      .text(`${payment.first_name || ''} ${payment.last_name || ''}`.trim() || 'Client', PAGE_MARGIN, y);
+    y += 14;
+    doc.fontSize(8).font('Helvetica').fillColor(COLORS.muted);
+    if (payment.email) { doc.text(payment.email, PAGE_MARGIN, y); y += 11; }
+    if (payment.phone) { doc.text(payment.phone, PAGE_MARGIN, y); y += 11; }
+    if (payment.address) { doc.text(`${payment.address} ${payment.city || ''} ${payment.state || ''} ${payment.country || ''}`.trim(), PAGE_MARGIN, y); y += 11; }
+    y += 5;
+
+    // ---- Payment Details ----
+    y = drawHR(doc, y);
+    doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.muted).text(L.paymentDetails, PAGE_MARGIN, y);
+    y += 14;
+
+    doc.fontSize(9).font('Helvetica').fillColor(COLORS.text);
+    if (payment.payment_method) {
+      doc.text(`${L.method}: ${payment.payment_method.replace(/_/g, ' ')}`, PAGE_MARGIN, y);
+      y += 14;
+    }
+    if (payment.reference_number || payment.reference) {
+      doc.text(`${L.reference}: ${payment.reference_number || payment.reference}`, PAGE_MARGIN, y);
+      y += 14;
+    }
+    if (payment.bank_name) {
+      doc.text(`${L.bank}: ${payment.bank_name}`, PAGE_MARGIN, y);
+      y += 14;
+    }
+    if (payment.clabe) {
+      doc.text(`${L.clabe}: ${payment.clabe}`, PAGE_MARGIN, y);
+      y += 14;
+    }
+    y += 5;
+
+    // ---- Amount ----
+    y = drawHR(doc, y);
+    doc.fontSize(11).font('Helvetica-Bold').fillColor(COLORS.primary);
+    doc.text(`${L.total}:`, 385, y, { width: 80, align: 'right' });
+    doc.text(fmt(payment.amount, currency), 470, y, { width: 80, align: 'right' });
+    y += 25;
+
+    // ---- Allocations table (if any) ----
+    if (allocations.length > 0) {
+      y = drawHR(doc, y);
+      doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.muted).text(L.allocatedInvoices, PAGE_MARGIN, y);
+      y += 14;
+
+      const allocCols = [
+        { x: PAGE_MARGIN, width: 200, text: L.invoiceNumber, align: 'left' },
+        { x: 260, width: 100, text: L.total, align: 'right' },
+        { x: 370, width: 80, text: L.allocated, align: 'right' },
+        { x: 455, width: 95, text: 'Status', align: 'right' },
+      ];
+      y = drawTableRow(doc, y, allocCols, { bold: true, color: COLORS.primary, fontSize: 8 });
+      y = drawHR(doc, y);
+
+      for (const alloc of allocations) {
+        y = drawTableRow(doc, y, [
+          { x: PAGE_MARGIN, width: 200, text: alloc.invoice_number || 'N/A', align: 'left' },
+          { x: 260, width: 100, text: fmt(alloc.invoice_total, alloc.invoice_currency || currency), align: 'right' },
+          { x: 370, width: 80, text: fmt(alloc.allocated_amount, currency), align: 'right' },
+          { x: 455, width: 95, text: (alloc.invoice_status || '').toUpperCase(), align: 'right' },
+        ]);
+
+        if (y > 700) { doc.addPage(); y = PAGE_MARGIN; }
+      }
+    }
+
+    // ---- Notes ----
+    if (payment.notes) {
+      y += 10;
+      y = drawHR(doc, y);
+      doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.muted).text(`${L.notes}:`, PAGE_MARGIN, y);
+      y += 12;
+      doc.fontSize(8).font('Helvetica').fillColor(COLORS.text).text(payment.notes, PAGE_MARGIN, y, { width: 460 });
+    }
+
+    // ---- Footer ----
+    doc.fontSize(7).font('Helvetica').fillColor(COLORS.muted)
+      .text(`Generated by FireISP 5.0 — ${new Date().toISOString()}`, PAGE_MARGIN, 740, { align: 'center', width: doc.page.width - PAGE_MARGIN * 2 });
+
+    doc.end();
+  });
+}
+
 module.exports = {
   generateInvoicePdf,
   generateCreditNotePdf,
   generateQuotePdf,
   generateCfdiPdf,
+  generatePaymentReceiptPdf,
   // Exported for testing
   fmt,
   fmtDate,

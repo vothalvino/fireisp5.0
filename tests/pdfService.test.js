@@ -304,4 +304,167 @@ describe('PDF Service', () => {
       expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
     });
   });
+
+  // ---- Payment Receipt PDF ----
+
+  describe('generatePaymentReceiptPdf()', () => {
+    it('generates a valid PDF buffer for a payment receipt', async () => {
+      db.query
+        .mockResolvedValueOnce([[{
+          id: 1,
+          client_id: 1,
+          amount: 580,
+          currency: 'MXN',
+          payment_date: '2026-04-15',
+          payment_method: 'bank_transfer',
+          reference_number: 'TXN-12345',
+          bank_name: 'BBVA',
+          clabe: '012345678901234567',
+          notes: 'Monthly internet payment',
+          created_at: '2026-04-15T10:00:00Z',
+          first_name: 'Juan',
+          last_name: 'García',
+          email: 'juan@example.com',
+          phone: '+52 555 123 4567',
+          address: 'Av. Reforma 123',
+          city: 'CDMX',
+          state: 'CDMX',
+          country: 'MX',
+          org_name: 'Test ISP',
+          org_email: 'admin@testisp.com',
+          org_phone: '+52 555 999 0000',
+          org_address: 'Insurgentes 456',
+          org_city: 'CDMX',
+          org_state: 'CDMX',
+          org_country: 'MX',
+        }]])
+        .mockResolvedValueOnce([[
+          { allocated_amount: 580, invoice_number: 'INV-000001', invoice_total: 580, invoice_currency: 'MXN', invoice_status: 'paid' },
+        ]]);
+
+      const buffer = await pdfService.generatePaymentReceiptPdf(1);
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer.length).toBeGreaterThan(100);
+      expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
+    });
+
+    it('throws for non-existent payment', async () => {
+      db.query.mockResolvedValueOnce([[]]);
+      await expect(pdfService.generatePaymentReceiptPdf(999)).rejects.toThrow('Payment not found');
+    });
+
+    it('generates a receipt PDF with Spanish locale', async () => {
+      db.query
+        .mockResolvedValueOnce([[{
+          id: 2,
+          client_id: 2,
+          amount: 1160,
+          currency: 'MXN',
+          payment_date: '2026-04-15',
+          payment_method: 'spei',
+          reference_number: 'SPEI-99887',
+          bank_name: 'Banorte',
+          clabe: null,
+          notes: null,
+          created_at: '2026-04-15T14:00:00Z',
+          first_name: 'María',
+          last_name: 'López',
+          email: 'maria@example.com',
+          phone: null,
+          address: null,
+          city: null,
+          state: null,
+          country: null,
+          org_name: 'Test ISP',
+          org_email: null,
+          org_phone: null,
+          org_address: null,
+          org_city: null,
+          org_state: null,
+          org_country: null,
+        }]])
+        .mockResolvedValueOnce([[]]);
+
+      const buffer = await pdfService.generatePaymentReceiptPdf(2, { locale: 'es' });
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
+    });
+
+    it('generates a receipt PDF with no allocations', async () => {
+      db.query
+        .mockResolvedValueOnce([[{
+          id: 3,
+          client_id: 1,
+          amount: 250,
+          currency: 'USD',
+          payment_date: '2026-04-10',
+          payment_method: 'cash',
+          reference_number: null,
+          bank_name: null,
+          clabe: null,
+          notes: null,
+          created_at: '2026-04-10T08:00:00Z',
+          first_name: 'John',
+          last_name: 'Doe',
+          email: 'john@example.com',
+          phone: null,
+          address: null,
+          city: null,
+          state: null,
+          country: null,
+          org_name: 'Test ISP',
+          org_email: null,
+          org_phone: null,
+          org_address: null,
+          org_city: null,
+          org_state: null,
+          org_country: null,
+        }]])
+        .mockResolvedValueOnce([[]]);
+
+      const buffer = await pdfService.generatePaymentReceiptPdf(3);
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
+    });
+
+    it('generates a receipt with multiple allocations', async () => {
+      db.query
+        .mockResolvedValueOnce([[{
+          id: 4,
+          client_id: 1,
+          amount: 1500,
+          currency: 'MXN',
+          payment_date: '2026-04-15',
+          payment_method: 'credit_card',
+          reference_number: 'CC-ABC123',
+          bank_name: null,
+          clabe: null,
+          notes: 'Split across two invoices',
+          created_at: '2026-04-15T09:00:00Z',
+          first_name: 'Ana',
+          last_name: 'Martínez',
+          email: 'ana@example.com',
+          phone: '+52 555 111 2222',
+          address: 'Calle 5 de Mayo 100',
+          city: 'Puebla',
+          state: 'Puebla',
+          country: 'MX',
+          org_name: 'Test ISP',
+          org_email: 'info@testisp.com',
+          org_phone: '+52 555 888 0000',
+          org_address: 'Blvd Norte 789',
+          org_city: 'Puebla',
+          org_state: 'Puebla',
+          org_country: 'MX',
+        }]])
+        .mockResolvedValueOnce([[
+          { allocated_amount: 800, invoice_number: 'INV-000010', invoice_total: 800, invoice_currency: 'MXN', invoice_status: 'paid' },
+          { allocated_amount: 700, invoice_number: 'INV-000011', invoice_total: 700, invoice_currency: 'MXN', invoice_status: 'paid' },
+        ]]);
+
+      const buffer = await pdfService.generatePaymentReceiptPdf(4);
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
+    });
+  });
 });

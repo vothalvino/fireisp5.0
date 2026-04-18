@@ -24,6 +24,20 @@ jest.mock('../src/services/twoFactorService');
 jest.mock('../src/services/alertService');
 jest.mock('../src/services/billingService');
 jest.mock('../src/services/suspensionService');
+jest.mock('../src/services/emailTransport', () => ({
+  init: jest.fn(),
+  sendEmail: jest.fn().mockResolvedValue({ success: true }),
+  processQueue: jest.fn(),
+}));
+jest.mock('../src/views/emailTemplates', () => ({
+  paymentReceiptEmail: jest.fn().mockReturnValue({ subject: 'Payment Confirmed', html: '<p>receipt</p>' }),
+  invoiceEmail: jest.fn().mockReturnValue({ subject: 'Invoice', html: '<p>invoice</p>' }),
+  passwordResetEmail: jest.fn().mockReturnValue({ subject: 'Reset', html: '<p>reset</p>' }),
+  emailVerificationEmail: jest.fn().mockReturnValue({ subject: 'Verify', html: '<p>verify</p>' }),
+  suspensionWarningEmail: jest.fn().mockReturnValue({ subject: 'Warning', html: '<p>warning</p>' }),
+  serviceSuspendedEmail: jest.fn().mockReturnValue({ subject: 'Suspended', html: '<p>suspended</p>' }),
+  outageNotificationEmail: jest.fn().mockReturnValue({ subject: 'Outage', html: '<p>outage</p>' }),
+}));
 jest.mock('../src/services/eventBus', () => ({
   emit: jest.fn(),
   on: jest.fn(),
@@ -919,6 +933,42 @@ describe('PDF Routes — /api/pdf', () => {
       expect(res.headers['content-type']).toMatch(/pdf/);
     });
   });
+
+  describe('GET /api/pdf/payments/:id', () => {
+    test('success — returns PDF buffer', async () => {
+      mockAuthUser();
+      pdfService.generatePaymentReceiptPdf.mockResolvedValue(Buffer.from('PDF'));
+
+      const res = await request(app)
+        .get('/api/pdf/payments/1')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toMatch(/pdf/);
+    });
+
+    test('supports locale parameter', async () => {
+      mockAuthUser();
+      pdfService.generatePaymentReceiptPdf.mockResolvedValue(Buffer.from('PDF'));
+
+      await request(app)
+        .get('/api/pdf/payments/1?locale=es')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(pdfService.generatePaymentReceiptPdf).toHaveBeenCalledWith(1, { locale: 'es' });
+    });
+
+    test('handles errors', async () => {
+      mockAuthUser();
+      pdfService.generatePaymentReceiptPdf.mockRejectedValue(new Error('Not found'));
+
+      const res = await request(app)
+        .get('/api/pdf/payments/999')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(500);
+    });
+  });
 });
 
 // =============================================================================
@@ -1084,6 +1134,58 @@ describe('Payment Routes — /api/payments', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveLength(1);
+    });
+  });
+
+  describe('POST /api/payments/:id/send-receipt', () => {
+    test('success — sends receipt email', async () => {
+      mockAuthUser();
+      db.query.mockResolvedValueOnce([[{
+        id: 1, client_id: 1, amount: 500, currency: 'MXN',
+        payment_date: '2026-04-15', payment_method: 'bank_transfer',
+        reference_number: 'TXN-123', first_name: 'Juan', last_name: 'García',
+        client_email: 'juan@example.com', org_name: 'Test ISP',
+      }]]);
+      pdfService.generatePaymentReceiptPdf.mockResolvedValue(Buffer.from('PDF'));
+      const emailTransport = require('../src/services/emailTransport');
+      emailTransport.sendEmail.mockResolvedValue({ success: true });
+      const templates = require('../src/views/emailTemplates');
+      templates.paymentReceiptEmail.mockReturnValue({ subject: 'Payment Confirmed', html: '<p>receipt</p>' });
+
+      const res = await request(app)
+        .post('/api/payments/1/send-receipt')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.message).toBe('Receipt sent');
+      expect(res.body.to).toBe('juan@example.com');
+    });
+
+    test('404 — payment not found', async () => {
+      mockAuthUser();
+      db.query.mockResolvedValueOnce([[]]);
+
+      const res = await request(app)
+        .post('/api/payments/999/send-receipt')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(404);
+    });
+
+    test('422 — client has no email', async () => {
+      mockAuthUser();
+      db.query.mockResolvedValueOnce([[{
+        id: 1, client_id: 1, amount: 500, currency: 'MXN',
+        payment_date: '2026-04-15', payment_method: 'cash',
+        first_name: 'Juan', last_name: 'García',
+        client_email: null, org_name: 'Test ISP',
+      }]]);
+
+      const res = await request(app)
+        .post('/api/payments/1/send-receipt')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(422);
     });
   });
 });
