@@ -23,6 +23,9 @@ const RETRY_DELAYS_MS = [
 
 const MAX_ATTEMPTS = 3;
 
+// Fallback delay (1 hour) when the computed next_retry_at is already in the past
+const FALLBACK_RETRY_DELAY_MS = 60 * 60 * 1000;
+
 /**
  * Schedule a failed charge for automatic retries.
  *
@@ -210,14 +213,15 @@ async function handleRetryFailure(retry, attemptNumber, errorMessage) {
 
   // Schedule next retry with exponential backoff
   const nextDelayMs = RETRY_DELAYS_MS[attemptNumber] || RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1];
-  const nextRetryAt = new Date(retry.created_at.getTime
-    ? retry.created_at.getTime() + nextDelayMs
-    : new Date(retry.created_at).getTime() + nextDelayMs);
+  const createdAtMs = retry.created_at instanceof Date
+    ? retry.created_at.getTime()
+    : new Date(retry.created_at).getTime();
+  const nextRetryAt = new Date(createdAtMs + nextDelayMs);
 
   // Ensure next_retry_at is in the future (in case created_at + delay is already past)
   const now = new Date();
   if (nextRetryAt <= now) {
-    nextRetryAt.setTime(now.getTime() + 60 * 60 * 1000); // Fallback: 1 hour from now
+    nextRetryAt.setTime(now.getTime() + FALLBACK_RETRY_DELAY_MS);
   }
 
   await db.query(
