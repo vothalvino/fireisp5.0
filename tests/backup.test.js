@@ -3,8 +3,20 @@
 // =============================================================================
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const https = require('https');
 const { rotate } = require('../src/scripts/backup');
+const cloudStorage = require('../src/services/cloudStorageService');
+
+const S3_ENV_KEYS = [
+  'BACKUP_S3_BUCKET',
+  'BACKUP_S3_REGION',
+  'BACKUP_S3_ACCESS_KEY',
+  'BACKUP_S3_SECRET_KEY',
+  'BACKUP_S3_ENDPOINT',
+  'BACKUP_S3_PREFIX',
+];
 
 describe('backup rotate', () => {
   const backupDir = path.resolve(__dirname, '../storage/backups');
@@ -59,5 +71,146 @@ describe('backup rotate', () => {
 
     const after = fs.readdirSync(backupDir).filter(f => f.endsWith('.sql.gz'));
     expect(after.length).toBe(3);
+  });
+});
+
+describe('cloudStorageService', () => {
+  const originalEnv = { ...process.env };
+
+  /** Build a mock https request/response pair for S3 upload tests. */
+  function mockHttpsRequest(statusCode, responseBody = '') {
+    const mockReq = { write: jest.fn(), end: jest.fn(), on: jest.fn() };
+    const mockRes = {
+      statusCode,
+      on: jest.fn((event, cb) => {
+        if (event === 'data') cb(responseBody);
+        if (event === 'end') cb();
+      }),
+    };
+    const originalRequest = https.request;
+    https.request = jest.fn((opts, cb) => { cb(mockRes); return mockReq; });
+    return { originalRequest, mockReq };
+  }
+
+  afterEach(() => {
+    // Restore env vars
+    for (const key of S3_ENV_KEYS) {
+      if (originalEnv[key] !== undefined) {
+        process.env[key] = originalEnv[key];
+      } else {
+        delete process.env[key];
+      }
+    }
+  });
+
+  test('isConfigured returns false when env vars are missing', () => {
+    delete process.env.BACKUP_S3_BUCKET;
+    delete process.env.BACKUP_S3_REGION;
+    delete process.env.BACKUP_S3_ACCESS_KEY;
+    delete process.env.BACKUP_S3_SECRET_KEY;
+    expect(cloudStorage.isConfigured()).toBe(false);
+  });
+
+  test('isConfigured returns true when all required env vars are set', () => {
+    process.env.BACKUP_S3_BUCKET = 'my-bucket';
+    process.env.BACKUP_S3_REGION = 'us-east-1';
+    process.env.BACKUP_S3_ACCESS_KEY = 'AKIAIOSFODNN7EXAMPLE';
+    process.env.BACKUP_S3_SECRET_KEY = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+    expect(cloudStorage.isConfigured()).toBe(true);
+  });
+
+  test('uploadBackup throws when cloud storage is not configured', async () => {
+    delete process.env.BACKUP_S3_BUCKET;
+    delete process.env.BACKUP_S3_REGION;
+    delete process.env.BACKUP_S3_ACCESS_KEY;
+    delete process.env.BACKUP_S3_SECRET_KEY;
+    await expect(cloudStorage.uploadBackup('/tmp/test.sql.gz')).rejects.toThrow(
+      'Cloud storage is not configured',
+    );
+  });
+
+  test('uploadBackup uses default prefix db-backups/ when BACKUP_S3_PREFIX is not set', async () => {
+    const { originalRequest } = mockHttpsRequest(200);
+    const tmpFile = path.join(os.tmpdir(), 'test_backup.sql.gz');
+    fs.writeFileSync(tmpFile, 'fake backup content');
+
+    process.env.BACKUP_S3_BUCKET = 'my-bucket';
+    process.env.BACKUP_S3_REGION = 'us-east-1';
+    process.env.BACKUP_S3_ACCESS_KEY = 'AKIAIOSFODNN7EXAMPLE';
+    process.env.BACKUP_S3_SECRET_KEY = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+    delete process.env.BACKUP_S3_PREFIX;
+
+    try {
+      const url = await cloudStorage.uploadBackup(tmpFile, 'test_backup.sql.gz');
+      expect(url).toContain('db-backups/test_backup.sql.gz');
+      const callOpts = https.request.mock.calls[0][0];
+      expect(callOpts.path).toContain('db-backups');
+    } finally {
+      https.request = originalRequest;
+      fs.unlinkSync(tmpFile);
+    }
+  });
+
+  test('uploadBackup uses custom BACKUP_S3_PREFIX when set', async () => {
+    const { originalRequest } = mockHttpsRequest(200);
+    const tmpFile = path.join(os.tmpdir(), 'test_backup2.sql.gz');
+    fs.writeFileSync(tmpFile, 'fake backup content 2');
+
+    process.env.BACKUP_S3_BUCKET = 'my-bucket';
+    process.env.BACKUP_S3_REGION = 'us-east-1';
+    process.env.BACKUP_S3_ACCESS_KEY = 'AKIAIOSFODNN7EXAMPLE';
+    process.env.BACKUP_S3_SECRET_KEY = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+    process.env.BACKUP_S3_PREFIX = 'prod/backups/';
+
+    try {
+      const url = await cloudStorage.uploadBackup(tmpFile, 'test_backup2.sql.gz');
+      expect(url).toContain('prod/backups/test_backup2.sql.gz');
+    } finally {
+      https.request = originalRequest;
+      fs.unlinkSync(tmpFile);
+    }
+  });
+
+  test('uploadBackup uses custom endpoint for B2', async () => {
+    const { originalRequest } = mockHttpsRequest(200);
+    const tmpFile = path.join(os.tmpdir(), 'test_backup_b2.sql.gz');
+    fs.writeFileSync(tmpFile, 'fake b2 backup');
+
+    process.env.BACKUP_S3_BUCKET = 'my-b2-bucket';
+    process.env.BACKUP_S3_REGION = 'us-west-002';
+    process.env.BACKUP_S3_ACCESS_KEY = 'b2-key-id';
+    process.env.BACKUP_S3_SECRET_KEY = 'b2-app-key';
+    process.env.BACKUP_S3_ENDPOINT = 'https://s3.us-west-002.backblazeb2.com';
+
+    try {
+      const url = await cloudStorage.uploadBackup(tmpFile, 'test_backup_b2.sql.gz');
+      expect(url).toContain('backblazeb2.com');
+      const callOpts = https.request.mock.calls[0][0];
+      expect(callOpts.hostname).toBe('s3.us-west-002.backblazeb2.com');
+    } finally {
+      https.request = originalRequest;
+      fs.unlinkSync(tmpFile);
+    }
+  });
+
+  test('uploadBackup rejects on non-2xx HTTP response', async () => {
+    const { originalRequest } = mockHttpsRequest(403, 'AccessDenied');
+    const tmpFile = path.join(os.tmpdir(), 'test_403.sql.gz');
+    fs.writeFileSync(tmpFile, 'fake content');
+
+    process.env.BACKUP_S3_BUCKET = 'my-bucket';
+    process.env.BACKUP_S3_REGION = 'us-east-1';
+    process.env.BACKUP_S3_ACCESS_KEY = 'AKIAIOSFODNN7EXAMPLE';
+    process.env.BACKUP_S3_SECRET_KEY = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+    delete process.env.BACKUP_S3_ENDPOINT;
+
+    try {
+      await expect(cloudStorage.uploadBackup(tmpFile, 'test_403.sql.gz')).rejects.toThrow(
+        'Cloud upload failed: HTTP 403',
+      );
+    } finally {
+      https.request = originalRequest;
+      fs.unlinkSync(tmpFile);
+    }
   });
 });
