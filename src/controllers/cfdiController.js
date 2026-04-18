@@ -262,7 +262,35 @@ async function getPaymentComplement(req, res, next) {
   }
 }
 
+/**
+ * GET /api/cfdi/reconciliation?year=2026&month=4
+ * Monthly CFDI reconciliation report: issued vs SAT acknowledgments.
+ * year and month are required query parameters.
+ */
+async function reconciliationReport(req, res, next) {
+  try {
+    const year  = parseInt(req.query.year,  10);
+    const month = parseInt(req.query.month, 10);
+
+    if (!year || year < 2000 || year > 2100) {
+      return res.status(422).json({
+        error: { code: 'VALIDATION_ERROR', message: 'year must be a valid 4-digit calendar year (2000–2100)' },
+      });
+    }
+    if (!month || month < 1 || month > 12) {
+      return res.status(422).json({
+        error: { code: 'VALIDATION_ERROR', message: 'month must be a number between 1 and 12' },
+      });
+    }
+
+    const data = await cfdiService.getReconciliationReport(req.orgId, year, month);
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   generateXml, stamp, cancel, cancellationStatus, listCancellations, downloadXml, downloadPdf,
-  createPaymentComplement, getPaymentComplement,
+  createPaymentComplement, getPaymentComplement, reconciliationReport,
 };

@@ -981,10 +981,166 @@ async function getPaymentComplement(cfdiDocumentId, orgId) {
   return { document: doc, complement, items };
 }
 
+// =============================================================================
+// Monthly CFDI Reconciliation Report
+// =============================================================================
+
+/**
+ * Build a monthly CFDI reconciliation report comparing CFDIs issued in a
+ * given calendar month against their SAT acknowledgment status.
+ *
+ * "Issued" = stamp_date falls within the requested month (sat_status != 'draft').
+ * Drafts that were never stamped are excluded because they have no SAT UUID.
+ *
+ * @param {number} orgId   - Organization ID (tenant scope)
+ * @param {number} year    - Calendar year  (e.g. 2026)
+ * @param {number} month   - Calendar month (1–12)
+ * @returns {Promise<object>}
+ */
+async function getReconciliationReport(orgId, year, month) {
+  const paddedMonth = String(month).padStart(2, '0');
+  const periodStart = `${year}-${paddedMonth}-01`;
+  // First day of next month (exclusive upper bound)
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const nextYear  = month === 12 ? year + 1 : year;
+  const periodEnd = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+
+  logger.info({ orgId, year, month }, 'Building CFDI reconciliation report');
+
+  // ------------------------------------------------------------------
+  // 1. Aggregate totals by sat_status for stamped documents
+  // ------------------------------------------------------------------
+  const [statusRows] = await db.query(
+    `SELECT
+       sat_status,
+       COUNT(*)               AS count,
+       SUM(subtotal)          AS subtotal,
+       SUM(total_impuestos)   AS total_impuestos,
+       SUM(total)             AS total
+     FROM cfdi_documents
+     WHERE organization_id = ?
+       AND sat_status != 'draft'
+       AND stamp_date >= ? AND stamp_date < ?
+     GROUP BY sat_status`,
+    [orgId, periodStart, periodEnd],
+  );
+
+  // ------------------------------------------------------------------
+  // 2. Aggregate totals by tipo_comprobante
+  // ------------------------------------------------------------------
+  const [tipoRows] = await db.query(
+    `SELECT
+       tipo_comprobante,
+       COUNT(*)               AS count,
+       SUM(subtotal)          AS subtotal,
+       SUM(total_impuestos)   AS total_impuestos,
+       SUM(total)             AS total
+     FROM cfdi_documents
+     WHERE organization_id = ?
+       AND sat_status != 'draft'
+       AND stamp_date >= ? AND stamp_date < ?
+     GROUP BY tipo_comprobante`,
+    [orgId, periodStart, periodEnd],
+  );
+
+  // ------------------------------------------------------------------
+  // 3. Cancellation acknowledgment breakdown for this period's docs
+  // ------------------------------------------------------------------
+  const [cancellationRows] = await db.query(
+    `SELECT
+       cc.cancellation_status,
+       COUNT(*) AS count
+     FROM cfdi_cancellations cc
+     INNER JOIN cfdi_documents cd ON cd.id = cc.cfdi_document_id
+     WHERE cc.organization_id = ?
+       AND cd.sat_status != 'draft'
+       AND cd.stamp_date >= ? AND cd.stamp_date < ?
+     GROUP BY cc.cancellation_status`,
+    [orgId, periodStart, periodEnd],
+  );
+
+  // ------------------------------------------------------------------
+  // Assemble the report
+  // ------------------------------------------------------------------
+  const toNum = v => Number(v) || 0;
+
+  // Build by_status map
+  const statusMap = {};
+  let totalIssued = 0;
+  let totalSubtotal = 0;
+  let totalImpuestos = 0;
+  let totalTotal = 0;
+
+  for (const row of statusRows) {
+    statusMap[row.sat_status] = {
+      count:           toNum(row.count),
+      subtotal:        toNum(row.subtotal),
+      total_impuestos: toNum(row.total_impuestos),
+      total:           toNum(row.total),
+    };
+    totalIssued    += toNum(row.count);
+    totalSubtotal  += toNum(row.subtotal);
+    totalImpuestos += toNum(row.total_impuestos);
+    totalTotal     += toNum(row.total);
+  }
+
+  // Ensure all known statuses are present
+  for (const s of ['vigente', 'cancelado', 'cancel_pending']) {
+    if (!statusMap[s]) {
+      statusMap[s] = { count: 0, subtotal: 0, total_impuestos: 0, total: 0 };
+    }
+  }
+
+  // Build by_tipo map
+  const tipoMap = {};
+  for (const row of tipoRows) {
+    tipoMap[row.tipo_comprobante] = {
+      count:           toNum(row.count),
+      subtotal:        toNum(row.subtotal),
+      total_impuestos: toNum(row.total_impuestos),
+      total:           toNum(row.total),
+    };
+  }
+
+  // Build cancellations breakdown
+  const cancellationMap = { accepted: 0, rejected: 0, pending: 0, cancelled_by_timeout: 0 };
+  for (const row of cancellationRows) {
+    if (row.cancellation_status in cancellationMap) {
+      cancellationMap[row.cancellation_status] = toNum(row.count);
+    }
+  }
+
+  return {
+    period: { year, month },
+    period_start: periodStart,
+    period_end:   `${year}-${paddedMonth}-${lastDayOfMonth(year, month)}`,
+    issued: {
+      count:           totalIssued,
+      subtotal:        totalSubtotal,
+      total_impuestos: totalImpuestos,
+      total:           totalTotal,
+    },
+    by_status:      statusMap,
+    by_tipo:        tipoMap,
+    cancellations: {
+      accepted_by_sat:      cancellationMap.accepted,
+      rejected_by_sat:      cancellationMap.rejected,
+      pending_sat_response: cancellationMap.pending,
+      timed_out:            cancellationMap.cancelled_by_timeout,
+    },
+  };
+}
+
+/** Return the last calendar day (1-based) for a given year/month. */
+function lastDayOfMonth(year, month) {
+  return new Date(year, month, 0).getDate();
+}
+
 module.exports = {
   generateXml, buildCfdi40Xml, escapeXml, stamp, cancel,
   callPacStamp, callPacCancel, callPacCancelStatus,
   parseCancellationStatus, getCancellationStatus, listCancellations,
   generatePaymentComplement, buildPaymentComplementXml, getPaymentComplement,
+  getReconciliationReport,
   httpRequest, circuitBreaker,
 };
