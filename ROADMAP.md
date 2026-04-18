@@ -56,14 +56,13 @@
 - ✅ CORS hardening, rate limiting, helmet
 - ✅ Add refresh token rotation (access token 15 min, refresh token 7 days)
 - ✅ Add API token scoping (read-only vs read-write per resource)
-- ⬜ Implement IP allowlist for admin endpoints
-- ⬜ Add brute-force lockout (5 failed login attempts → 15 min cooldown)
+- ✅ Add brute-force lockout (5 failed login attempts → 15 min cooldown)
 
 ### 1.4 — Payment Processing
 - ✅ Stripe/Conekta/PayPal webhook receivers
 - ✅ Idempotency keys, auto-reconciliation
 - ⬜ Add payment retry logic (failed charge → retry 3x over 72 hours)
-- ⬜ Implement proration calculation for mid-cycle plan changes
+- ✅ Implement proration calculation for mid-cycle plan changes
 - ⬜ Add payment receipt PDF generation (integrate with existing pdfService)
 - ⬜ End-to-end test: create client → assign plan → generate invoice → process payment → verify ledger
 
@@ -74,6 +73,15 @@
 - ⬜ Add CFDI cancellation flow (submit to SAT, track acceptance/rejection)
 - ⬜ Add complemento de pago generation for partial payments
 - ⬜ Add monthly CFDI reconciliation report (issued vs SAT acknowledgments)
+
+### 1.6 — Automated Billing Cycle _(moved from Milestone 5 — core revenue engine, not polish)_
+- ⬜ Automated billing cycle (cron: generate invoices → email → suspend overdue)
+
+### 1.7 — Pre-deployment Safety _(moved up — needed before UAT/launch)_
+- ⬜ Add database backup cron job (mysqldump → S3/B2 daily)
+- ⬜ Build import tool for existing ISP data (clients, contracts, devices from CSV/Excel)
+- ⬜ Build import tool for legacy billing system (invoices, payments)
+- ⬜ Document data migration runbook in `/docs/data-migration.md`
 
 ---
 
@@ -103,7 +111,6 @@
 - ⬜ Inventory/warehouse management
 - ⬜ RADIUS session viewer (live PPPoE sessions)
 - ⬜ SNMP metrics charts (bandwidth, uptime, per-device)
-- ⬜ Coverage zone map editor (draw polygons on map)
 - ⬜ Reports page (revenue, churn, usage, IFT statistical)
 - ⬜ Settings (org config, email templates, alert rules, payment gateways)
 
@@ -124,8 +131,6 @@
 ### 3.2 — SNMP Monitoring
 - ✅ SNMP poller service, wide metrics table, monthly partitioning
 - ✅ OID profile system per vendor/model
-- ⬜ Add SNMP trap receiver (for unsolicited device alerts)
-- ⬜ Build Grafana dashboards using `/docs/grafana` templates
 - ⬜ Add threshold-based alerting (e.g., bandwidth > 90% → create ticket automatically)
 
 ### 3.3 — RADIUS / PPPoE
@@ -145,35 +150,32 @@
 - ✅ Dockerfile, docker-compose.yml, K8s manifests
 - ⬜ Add production docker-compose (with MySQL replication, Redis, Nginx reverse proxy)
 - ⬜ Add TLS termination config (Let's Encrypt / Cloudflare)
-- ⬜ Add database backup cron job (mysqldump → S3/B2 daily)
+- ⬜ Implement IP allowlist for admin endpoints _(moved from 1.3 — network-layer firewalls preferred; existing auth stack is strong)_
 - ⬜ Add health check endpoint for load balancer (`/healthz` already exists, validate it)
 - ⬜ Load test API with realistic ISP workload (500 clients, 5000 invoices, 100 devices)
 
 ### 4.2 — Observability
 - ✅ Prometheus metrics endpoint
-- ⬜ Add structured JSON logging across all services (replace console.log)
+- ✅ Add structured JSON logging across all services (Pino JSON logger adopted; 28+ services use it)
+- ✅ Add request tracing (requestId middleware already correlates across logs)
+- ⬜ Build Grafana dashboards using `/docs/grafana` templates _(moved from 3.2 — belongs with observability)_
 - ⬜ Set up Grafana dashboard for API latency, error rates, DB query times
 - ⬜ Add Sentry or equivalent error tracking
-- ⬜ Add request tracing (correlate requestId across logs)
-
-### 4.3 — Data Migration
-- ⬜ Build import tool for existing ISP data (clients, contracts, devices from CSV/Excel)
-- ⬜ Build import tool for legacy billing system (invoices, payments)
-- ⬜ Document data migration runbook in `/docs/data-migration.md`
 
 ---
 
 ## Milestone 5: Scale & Polish
 
-- ⬜ Multi-tenant support (multiple ISP organizations in one instance)
 - ⬜ Client self-service portal (view invoices, pay online, open tickets)
 - ⬜ Mobile-responsive frontend
 - ⬜ SMS notification integration (Twilio/local MX provider)
-- ⬜ Automated billing cycle (cron: generate invoices → email → suspend overdue)
 - ⬜ API rate limiting per tenant
 - ⬜ Webhook delivery retry with exponential backoff
 - ⬜ Performance: add Redis caching to top 10 most-queried endpoints
 - ⬜ Performance: add database read replica routing for reports
+- ⬜ Coverage zone map editor (draw polygons on map) _(moved from 2.3 — high effort, low MVP impact)_
+- ⬜ Add SNMP trap receiver (for unsolicited device alerts) _(moved from 3.2 — polling covers 90% of needs)_
+- ⬜ Multi-tenant support (multiple ISP organizations in one instance) _(prove single-tenant first)_
 
 ---
 
@@ -201,4 +203,5 @@
 | 2026-04-16 | 1.2 | Pagination consistency audit | #TBD |
 | 2026-04-18 | 1.3 | Refresh token rotation (access 15m, refresh 7d) | #TBD |
 | 2026-04-18 | 1.3 | API token scoping (read-only vs read-write per resource) | #TBD |
+| 2026-04-18 | — | Roadmap reprioritization: mark 4 done items (lockout, proration, logging, request tracing), move billing cycle to M1.6, move data migration/backups to M1.7, demote IP allowlist to M4.1, demote coverage map/SNMP traps to M5 | #TBD |
 <!-- Add a row here every time you complete a roadmap item -->
