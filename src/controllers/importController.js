@@ -1,9 +1,13 @@
 // =============================================================================
 // FireISP 5.0 — Bulk Import Controller
 // =============================================================================
-// CSV-based bulk import for clients, devices, and contracts.
+// CSV and Excel (XLSX/XLS) bulk import for clients, devices, and contracts.
+// Supports two modes:
+//   • JSON body:  POST with { csv: "..." }  (legacy, CSV only)
+//   • File upload: POST multipart/form-data with field "file" (.csv or .xlsx)
 // =============================================================================
 
+const path = require('path');
 const db = require('../config/database');
 
 /**
@@ -193,4 +197,196 @@ async function importContracts(req, res, next) {
   }
 }
 
-module.exports = { importClients, importDevices, importContracts, parseCsv, parseCsvLine };
+/**
+ * Parse an Excel workbook buffer (XLSX or XLS) into rows of objects.
+ * Uses the first sheet and the first row as column headers.
+ * Limits to 10,000 data rows.
+ */
+async function parseXlsx(buffer) {
+  const ExcelJS = require('exceljs');
+  const MAX_ROWS = 10000;
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) return [];
+
+  const rows = [];
+  let headers = null;
+
+  worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    const values = row.values.slice(1); // exceljs row.values is 1-indexed; index 0 is always undefined
+    const cells = values.map((v) => {
+      if (v === null || v === undefined) return '';
+      if (typeof v === 'object' && v.text !== undefined) return String(v.text); // rich-text
+      if (typeof v === 'object' && v instanceof Date) return v.toISOString().slice(0, 10);
+      return String(v).trim();
+    });
+
+    if (rowNumber === 1) {
+      headers = cells.map((h) => h.trim());
+      return;
+    }
+
+    if (rows.length >= MAX_ROWS) return;
+
+    if (!headers) return;
+    const obj = {};
+    for (let i = 0; i < headers.length; i++) {
+      obj[headers[i]] = cells[i] !== undefined ? cells[i] : '';
+    }
+    rows.push(obj);
+  });
+
+  return rows;
+}
+
+/**
+ * Parse the uploaded file (CSV or XLSX) and return rows as objects.
+ * @param {Buffer} buffer   Raw file buffer
+ * @param {string} filename Original file name (used to detect format)
+ */
+async function parseUploadedFile(buffer, filename) {
+  const ext = path.extname(filename).toLowerCase();
+  if (ext === '.xlsx' || ext === '.xls') {
+    return parseXlsx(buffer);
+  }
+  // Default to CSV
+  return parseCsv(buffer.toString('utf8'));
+}
+
+// ---------------------------------------------------------------------------
+// File-upload import handlers (multipart/form-data, field: "file")
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/import/clients/upload
+ * Import clients from an uploaded CSV or XLSX file.
+ */
+async function importClientsFile(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'file is required' } });
+    }
+
+    const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
+    let imported = 0;
+    const errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      try {
+        if (!row.first_name || !row.last_name) {
+          errors.push({ row: i + 2, error: 'first_name and last_name are required' });
+          continue;
+        }
+        await db.query(
+          `INSERT INTO clients (organization_id, first_name, last_name, email, phone, city, state, country, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+          [req.orgId, row.first_name, row.last_name, row.email || null,
+            row.phone || null, row.city || null, row.state || null, row.country || null],
+        );
+        imported++;
+      } catch (err) {
+        errors.push({ row: i + 2, error: err.message });
+      }
+    }
+
+    res.json({ data: { imported, total: rows.length, errors } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/import/devices/upload
+ * Import devices from an uploaded CSV or XLSX file.
+ */
+async function importDevicesFile(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'file is required' } });
+    }
+
+    const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
+    let imported = 0;
+    const errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      try {
+        if (!row.name || !row.ip_address) {
+          errors.push({ row: i + 2, error: 'name and ip_address are required' });
+          continue;
+        }
+        await db.query(
+          `INSERT INTO devices (organization_id, name, ip_address, type, site_id, mac_address, snmp_community, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'active')`,
+          [req.orgId, row.name, row.ip_address, row.type || 'router',
+            row.site_id || null, row.mac_address || null, row.snmp_community || null],
+        );
+        imported++;
+      } catch (err) {
+        errors.push({ row: i + 2, error: err.message });
+      }
+    }
+
+    res.json({ data: { imported, total: rows.length, errors } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/import/contracts/upload
+ * Import contracts from an uploaded CSV or XLSX file.
+ */
+async function importContractsFile(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'file is required' } });
+    }
+
+    const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
+    let imported = 0;
+    const errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      try {
+        if (!row.client_id || !row.plan_id) {
+          errors.push({ row: i + 2, error: 'client_id and plan_id are required' });
+          continue;
+        }
+        await db.query(
+          `INSERT INTO contracts (organization_id, client_id, plan_id, start_date, connection_type, status)
+           VALUES (?, ?, ?, ?, ?, 'active')`,
+          [req.orgId, row.client_id, row.plan_id,
+            row.start_date || new Date().toISOString().slice(0, 10),
+            row.connection_type || 'fiber'],
+        );
+        imported++;
+      } catch (err) {
+        errors.push({ row: i + 2, error: err.message });
+      }
+    }
+
+    res.json({ data: { imported, total: rows.length, errors } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = {
+  importClients,
+  importDevices,
+  importContracts,
+  importClientsFile,
+  importDevicesFile,
+  importContractsFile,
+  parseCsv,
+  parseCsvLine,
+  parseXlsx,
+  parseUploadedFile,
+};
