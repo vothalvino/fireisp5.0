@@ -22,6 +22,7 @@ router.get('/:id', requirePermission('webhooks.view'), ctrl.get);
 router.post('/', requirePermission('webhooks.create'), validate(createWebhook), ctrl.create);
 router.put('/:id', requirePermission('webhooks.update'), validate(updateWebhook), ctrl.update);
 router.delete('/:id', requirePermission('webhooks.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('webhooks.update'), ctrl.restore);
 
 // List recent webhook deliveries
 router.get('/:id/deliveries', requirePermission('webhooks.view'), async (req, res, next) => {

@@ -14,6 +14,8 @@ class MessageTemplate extends BaseModel {
   }
 
   static get hasOrgScope() { return true; }
+
+  static get softDelete() { return true; }
 }
 
 module.exports = MessageTemplate;

@@ -24,6 +24,7 @@ router.post('/', requirePermission('clients.create'), validate(createClient), ct
 router.put('/:id', requirePermission('clients.update'), validate(updateClient), ctrl.update);
 router.patch('/:id', requirePermission('clients.update'), validate(patchClient), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('clients.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('clients.update'), ctrl.restore);
 
 // Contacts sub-routes
 router.get('/:id/contacts', requirePermission('clients.view'), async (req, res, next) => {
@@ -89,7 +90,7 @@ router.put('/:id/mx-profile', requirePermission('clients.update'), validate(upda
 router.get('/:id/contracts', requirePermission('contracts.view'), async (req, res, next) => {
   try {
     const [rows] = await db.query(
-      'SELECT * FROM contracts WHERE client_id = ? AND organization_id = ?',
+      'SELECT * FROM contracts WHERE client_id = ? AND organization_id = ? AND deleted_at IS NULL',
       [req.params.id, req.orgId],
     );
     res.json({ data: rows });
@@ -100,7 +101,7 @@ router.get('/:id/contracts', requirePermission('contracts.view'), async (req, re
 router.get('/:id/invoices', requirePermission('invoices.view'), async (req, res, next) => {
   try {
     const [rows] = await db.query(
-      'SELECT * FROM invoices WHERE client_id = ? AND organization_id = ?',
+      'SELECT * FROM invoices WHERE client_id = ? AND organization_id = ? AND deleted_at IS NULL',
       [req.params.id, req.orgId],
     );
     res.json({ data: rows });

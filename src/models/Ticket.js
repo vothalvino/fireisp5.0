@@ -16,10 +16,12 @@ class Ticket extends BaseModel {
 
   static get hasOrgScope() { return true; }
 
+  static get softDelete() { return true; }
+
   static async getComments(ticketId) {
     const db = require('../config/database');
     const [rows] = await db.query(
-      'SELECT * FROM ticket_comments WHERE ticket_id = ? ORDER BY created_at ASC',
+      'SELECT * FROM ticket_comments WHERE ticket_id = ? AND deleted_at IS NULL ORDER BY created_at ASC',
       [ticketId],
     );
     return rows;

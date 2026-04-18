@@ -17,10 +17,12 @@ class Invoice extends BaseModel {
 
   static get hasOrgScope() { return true; }
 
+  static get softDelete() { return true; }
+
   static async getItems(invoiceId) {
     const db = require('../config/database');
     const [rows] = await db.query(
-      'SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id',
+      'SELECT * FROM invoice_items WHERE invoice_id = ? AND deleted_at IS NULL ORDER BY id',
       [invoiceId],
     );
     return rows;

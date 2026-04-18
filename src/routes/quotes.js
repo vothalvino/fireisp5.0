@@ -24,6 +24,7 @@ router.get('/:id', requirePermission('quotes.view'), ctrl.get);
 router.post('/', requirePermission('quotes.create'), validate(createQuote), ctrl.create);
 router.put('/:id', requirePermission('quotes.update'), validate(updateQuote), ctrl.update);
 router.delete('/:id', requirePermission('quotes.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('quotes.update'), ctrl.restore);
 
 // Get quote line items
 router.get('/:id/items', requirePermission('quotes.view'), async (req, res, next) => {
@@ -49,7 +50,7 @@ router.post('/:id/items', requirePermission('quotes.update'), validate(createQuo
 router.post('/:id/convert-to-invoice', requirePermission('quotes.create'), requirePermission('invoices.create'), async (req, res, next) => {
   try {
     const [quotes] = await db.query(
-      'SELECT * FROM quotes WHERE id = ? AND organization_id = ?',
+      'SELECT * FROM quotes WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
       [req.params.id, req.orgId],
     );
     if (!quotes[0]) {

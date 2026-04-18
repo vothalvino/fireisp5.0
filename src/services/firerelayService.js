@@ -176,9 +176,9 @@ async function updateNode(nodeId, fields) {
  * Also removes its client routing entries.
  */
 async function deregisterNode(nodeId) {
-  // Remove routing entries first (FK constraint)
-  await db.query('DELETE FROM firerelay_client_routing WHERE node_id = ?', [nodeId]);
-  const [result] = await db.query('DELETE FROM firerelay_nodes WHERE id = ?', [nodeId]);
+  // Soft-delete routing entries first
+  await db.query('UPDATE firerelay_client_routing SET deleted_at = NOW() WHERE node_id = ? AND deleted_at IS NULL', [nodeId]);
+  const [result] = await db.query('UPDATE firerelay_nodes SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL', [nodeId]);
   if (result.affectedRows === 0) throw new NotFoundError('firerelay_nodes');
   // Clean up circuit breaker
   nodeBreakers.delete(nodeId);
@@ -291,7 +291,7 @@ async function assignClient(clientId, nodeId) {
  * Remove a client from the routing table.
  */
 async function unassignClient(clientId) {
-  await db.query('DELETE FROM firerelay_client_routing WHERE client_id = ?', [clientId]);
+  await db.query('UPDATE firerelay_client_routing SET deleted_at = NOW() WHERE client_id = ? AND deleted_at IS NULL', [clientId]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -24,6 +24,7 @@ router.post('/', requirePermission('devices.create'), validate(createDevice), ct
 router.put('/:id', requirePermission('devices.update'), validate(updateDevice), ctrl.update);
 router.patch('/:id', requirePermission('devices.update'), validate(patchDevice), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('devices.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('devices.update'), ctrl.restore);
 
 // Device SNMP metrics
 router.get('/:id/snmp-metrics', requirePermission('devices.view'), async (req, res, next) => {

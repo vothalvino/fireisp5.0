@@ -18,13 +18,15 @@ class Radius extends BaseModel {
 
   static get hasOrgScope() { return false; }
 
+  static get softDelete() { return true; }
+
   /**
    * Find RADIUS account(s) for a contract.
    */
   static async findByContract(contractId) {
     const db = require('../config/database');
     const [rows] = await db.query(
-      'SELECT * FROM radius WHERE contract_id = ?',
+      'SELECT * FROM radius WHERE contract_id = ? AND deleted_at IS NULL',
       [contractId],
     );
     return rows;

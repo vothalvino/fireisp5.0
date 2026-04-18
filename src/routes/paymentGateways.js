@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('payment_gateways.view'), ctrl.get);
 router.post('/', requirePermission('payment_gateways.create'), validate(createPaymentGateway), ctrl.create);
 router.put('/:id', requirePermission('payment_gateways.update'), validate(updatePaymentGateway), ctrl.update);
 router.delete('/:id', requirePermission('payment_gateways.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('payment_gateways.update'), ctrl.restore);
 
 module.exports = router;

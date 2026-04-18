@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('recurring_payment_profiles.view'), ctrl.ge
 router.post('/', requirePermission('recurring_payment_profiles.create'), validate(createRecurringPaymentProfile), ctrl.create);
 router.put('/:id', requirePermission('recurring_payment_profiles.update'), validate(updateRecurringPaymentProfile), ctrl.update);
 router.delete('/:id', requirePermission('recurring_payment_profiles.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('recurring_payment_profiles.update'), ctrl.restore);
 
 module.exports = router;

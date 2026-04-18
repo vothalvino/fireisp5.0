@@ -16,6 +16,8 @@ class Webhook extends BaseModel {
 
   static get hasOrgScope() { return true; }
 
+  static get softDelete() { return true; }
+
   static async getDeliveries(webhookId) {
     const db = require('../config/database');
     const [rows] = await db.query(

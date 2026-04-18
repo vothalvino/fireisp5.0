@@ -23,6 +23,7 @@ router.post('/', requirePermission('users.create'), validate(createUser), ctrl.c
 router.put('/:id', requirePermission('users.update'), validate(updateUser), ctrl.update);
 router.patch('/:id', requirePermission('users.update'), validate(patchUser), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('users.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('users.update'), ctrl.restore);
 
 // Get user's permissions
 router.get('/:id/permissions', requirePermission('users.view'), async (req, res, next) => {

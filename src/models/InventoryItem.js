@@ -16,6 +16,8 @@ class InventoryItem extends BaseModel {
 
   static get hasOrgScope() { return true; }
 
+  static get softDelete() { return true; }
+
   /**
    * Get stock levels for this item across all warehouses.
    */

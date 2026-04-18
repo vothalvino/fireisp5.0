@@ -23,5 +23,6 @@ router.post('/', requirePermission('sites.create'), validate(createSite), ctrl.c
 router.put('/:id', requirePermission('sites.update'), validate(updateSite), ctrl.update);
 router.patch('/:id', requirePermission('sites.update'), validate(patchSite), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('sites.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('sites.update'), ctrl.restore);
 
 module.exports = router;

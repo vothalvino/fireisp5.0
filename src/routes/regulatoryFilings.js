@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('regulatory_filings.view'), ctrl.get);
 router.post('/', requirePermission('regulatory_filings.create'), validate(createRegulatoryFiling), ctrl.create);
 router.put('/:id', requirePermission('regulatory_filings.update'), validate(updateRegulatoryFiling), ctrl.update);
 router.delete('/:id', requirePermission('regulatory_filings.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('regulatory_filings.update'), ctrl.restore);
 
 module.exports = router;

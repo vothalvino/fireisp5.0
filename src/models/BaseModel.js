@@ -19,6 +19,11 @@ class BaseModel {
     return [];
   }
 
+  /** Whether this model uses soft-delete (deleted_at column) */
+  static get softDelete() {
+    return false;
+  }
+
   /**
    * Find a record by primary key.
    */
@@ -28,6 +33,9 @@ class BaseModel {
     if (orgId !== null && this.hasOrgScope) {
       sql += ' AND organization_id = ?';
       params.push(orgId);
+    }
+    if (this.softDelete) {
+      sql += ' AND deleted_at IS NULL';
     }
     const [rows] = await db.query(sql, params);
     return rows[0] || null;
@@ -42,6 +50,20 @@ class BaseModel {
     return record;
   }
 
+  /**
+   * Find a record by ID including soft-deleted records.
+   */
+  static async findByIdIncludingDeleted(id, orgId = null) {
+    let sql = `SELECT * FROM \`${this.tableName}\` WHERE id = ?`;
+    const params = [id];
+    if (orgId !== null && this.hasOrgScope) {
+      sql += ' AND organization_id = ?';
+      params.push(orgId);
+    }
+    const [rows] = await db.query(sql, params);
+    return rows[0] || null;
+  }
+
   /** @returns {string[]} Columns allowed for ORDER BY */
   static get sortable() {
     return [...this.fillable, 'id', 'created_at', 'updated_at'];
@@ -49,14 +71,20 @@ class BaseModel {
 
   /**
    * List records with optional filters, pagination, and org scoping.
+   * @param {object} [options]
+   * @param {boolean} [options.withDeleted=false] Include soft-deleted records
    */
-  static async findAll({ where = {}, orderBy = 'id', order = 'ASC', limit = 50, offset = 0, orgId = null } = {}) {
+  static async findAll({ where = {}, orderBy = 'id', order = 'ASC', limit = 50, offset = 0, orgId = null, withDeleted = false } = {}) {
     const conditions = [];
     const params = [];
 
     if (orgId !== null && this.hasOrgScope) {
       conditions.push('organization_id = ?');
       params.push(orgId);
+    }
+
+    if (this.softDelete && !withDeleted) {
+      conditions.push('deleted_at IS NULL');
     }
 
     for (const [col, val] of Object.entries(where)) {
@@ -79,14 +107,20 @@ class BaseModel {
 
   /**
    * Count records matching filters.
+   * @param {object} [options]
+   * @param {boolean} [options.withDeleted=false] Include soft-deleted records
    */
-  static async count({ where = {}, orgId = null } = {}) {
+  static async count({ where = {}, orgId = null, withDeleted = false } = {}) {
     const conditions = [];
     const params = [];
 
     if (orgId !== null && this.hasOrgScope) {
       conditions.push('organization_id = ?');
       params.push(orgId);
+    }
+
+    if (this.softDelete && !withDeleted) {
+      conditions.push('deleted_at IS NULL');
     }
 
     for (const [col, val] of Object.entries(where)) {
@@ -118,7 +152,7 @@ class BaseModel {
     const sql = `INSERT INTO \`${this.tableName}\` (${cols.map(c => `\`${c}\``).join(', ')}) VALUES (${placeholders})`;
     const [result] = await db.query(sql, Object.values(filtered));
 
-    return this.findById(result.insertId);
+    return this.findByIdIncludingDeleted(result.insertId);
   }
 
   /**
@@ -142,6 +176,10 @@ class BaseModel {
       params.push(orgId);
     }
 
+    if (this.softDelete) {
+      sql += ' AND deleted_at IS NULL';
+    }
+
     const [result] = await db.query(sql, params);
     if (result.affectedRows === 0) throw new NotFoundError(this.tableName);
 
@@ -149,9 +187,24 @@ class BaseModel {
   }
 
   /**
-   * Delete a record by ID.
+   * Delete a record by ID. Uses soft-delete (sets deleted_at) when the model
+   * has softDelete enabled; otherwise performs a hard DELETE.
    */
   static async delete(id, orgId = null) {
+    if (this.softDelete) {
+      let sql = `UPDATE \`${this.tableName}\` SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL`;
+      const params = [id];
+
+      if (orgId !== null && this.hasOrgScope) {
+        sql += ' AND organization_id = ?';
+        params.push(orgId);
+      }
+
+      const [result] = await db.query(sql, params);
+      if (result.affectedRows === 0) throw new NotFoundError(this.tableName);
+      return true;
+    }
+
     let sql = `DELETE FROM \`${this.tableName}\` WHERE id = ?`;
     const params = [id];
 
@@ -163,6 +216,44 @@ class BaseModel {
     const [result] = await db.query(sql, params);
     if (result.affectedRows === 0) throw new NotFoundError(this.tableName);
     return true;
+  }
+
+  /**
+   * Permanently delete a record, bypassing soft-delete.
+   */
+  static async forceDelete(id, orgId = null) {
+    let sql = `DELETE FROM \`${this.tableName}\` WHERE id = ?`;
+    const params = [id];
+
+    if (orgId !== null && this.hasOrgScope) {
+      sql += ' AND organization_id = ?';
+      params.push(orgId);
+    }
+
+    const [result] = await db.query(sql, params);
+    if (result.affectedRows === 0) throw new NotFoundError(this.tableName);
+    return true;
+  }
+
+  /**
+   * Restore a soft-deleted record by clearing its deleted_at timestamp.
+   */
+  static async restore(id, orgId = null) {
+    if (!this.softDelete) {
+      throw new Error(`${this.tableName} does not support soft-delete`);
+    }
+
+    let sql = `UPDATE \`${this.tableName}\` SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL`;
+    const params = [id];
+
+    if (orgId !== null && this.hasOrgScope) {
+      sql += ' AND organization_id = ?';
+      params.push(orgId);
+    }
+
+    const [result] = await db.query(sql, params);
+    if (result.affectedRows === 0) throw new NotFoundError(this.tableName);
+    return this.findById(id, orgId);
   }
 
   /** Whether this model's table has an organization_id column */

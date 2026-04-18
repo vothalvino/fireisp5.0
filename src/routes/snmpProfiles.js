@@ -23,6 +23,7 @@ router.get('/:id', requirePermission('snmp_profiles.view'), ctrl.get);
 router.post('/', requirePermission('snmp_profiles.create'), validate(createSnmpProfile), ctrl.create);
 router.put('/:id', requirePermission('snmp_profiles.update'), validate(updateSnmpProfile), ctrl.update);
 router.delete('/:id', requirePermission('snmp_profiles.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('snmp_profiles.update'), ctrl.restore);
 
 // Get OIDs for an SNMP profile
 router.get('/:id/oids', requirePermission('snmp_profiles.view'), async (req, res, next) => {
@@ -48,7 +49,7 @@ router.post('/:id/oids', requirePermission('snmp_profiles.update'), validate(cre
 router.delete('/:id/oids/:oidId', requirePermission('snmp_profiles.update'), async (req, res, next) => {
   try {
     await db.query(
-      'DELETE FROM snmp_profile_oids WHERE id = ? AND profile_id = ?',
+      'UPDATE snmp_profile_oids SET deleted_at = NOW() WHERE id = ? AND profile_id = ? AND deleted_at IS NULL',
       [req.params.oidId, req.params.id],
     );
     res.status(204).end();

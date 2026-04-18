@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('outages.view'), ctrl.get);
 router.post('/', requirePermission('outages.create'), validate(createOutage), ctrl.create);
 router.put('/:id', requirePermission('outages.update'), validate(updateOutage), ctrl.update);
 router.delete('/:id', requirePermission('outages.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('outages.update'), ctrl.restore);
 
 module.exports = router;

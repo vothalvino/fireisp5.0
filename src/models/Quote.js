@@ -17,10 +17,12 @@ class Quote extends BaseModel {
 
   static get hasOrgScope() { return true; }
 
+  static get softDelete() { return true; }
+
   static async getItems(quoteId) {
     const db = require('../config/database');
     const [rows] = await db.query(
-      'SELECT * FROM quote_items WHERE quote_id = ? ORDER BY id',
+      'SELECT * FROM quote_items WHERE quote_id = ? AND deleted_at IS NULL ORDER BY id',
       [quoteId],
     );
     return rows;

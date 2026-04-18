@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('suspension_rules.view'), ctrl.get);
 router.post('/', requirePermission('suspension_rules.create'), validate(createSuspensionRule), ctrl.create);
 router.put('/:id', requirePermission('suspension_rules.update'), validate(updateSuspensionRule), ctrl.update);
 router.delete('/:id', requirePermission('suspension_rules.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('suspension_rules.update'), ctrl.restore);
 
 module.exports = router;

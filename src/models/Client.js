@@ -17,13 +17,15 @@ class Client extends BaseModel {
 
   static get hasOrgScope() { return true; }
 
+  static get softDelete() { return true; }
+
   /**
    * Get contacts for this client.
    */
   static async getContacts(clientId) {
     const db = require('../config/database');
     const [rows] = await db.query(
-      'SELECT * FROM contacts WHERE client_id = ? ORDER BY id',
+      'SELECT * FROM contacts WHERE client_id = ? AND deleted_at IS NULL ORDER BY id',
       [clientId],
     );
     return rows;
@@ -35,7 +37,7 @@ class Client extends BaseModel {
   static async getMxProfile(clientId) {
     const db = require('../config/database');
     const [rows] = await db.query(
-      'SELECT * FROM client_mx_profiles WHERE client_id = ?',
+      'SELECT * FROM client_mx_profiles WHERE client_id = ? AND deleted_at IS NULL',
       [clientId],
     );
     return rows[0] || null;

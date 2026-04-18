@@ -24,6 +24,7 @@ router.get('/items/:id', requirePermission('inventory.view'), ctrl.get);
 router.post('/items', requirePermission('inventory.create'), validate(createInventoryItem), ctrl.create);
 router.put('/items/:id', requirePermission('inventory.update'), validate(updateInventoryItem), ctrl.update);
 router.delete('/items/:id', requirePermission('inventory.delete'), ctrl.destroy);
+router.post('/items/:id/restore', requirePermission('inventory.update'), ctrl.restore);
 
 // Stock levels for an item
 router.get('/items/:id/stock', requirePermission('inventory.view'), async (req, res, next) => {

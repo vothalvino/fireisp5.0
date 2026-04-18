@@ -22,5 +22,6 @@ router.get('/:id', requirePermission('concession_titles.view'), ctrl.get);
 router.post('/', requirePermission('concession_titles.create'), validate(createConcessionTitle), ctrl.create);
 router.put('/:id', requirePermission('concession_titles.update'), validate(updateConcessionTitle), ctrl.update);
 router.delete('/:id', requirePermission('concession_titles.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('concession_titles.update'), ctrl.restore);
 
 module.exports = router;
