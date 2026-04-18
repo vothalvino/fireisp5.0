@@ -74,6 +74,7 @@ describe('taskRunner', () => {
     test('dispatches auto_suspend_overdue task', async () => {
       db.query.mockResolvedValueOnce([[{ id: 42 }]]);  // orgs
       suspensionService.evaluateRules.mockResolvedValueOnce([]);
+      db.query.mockResolvedValueOnce([[]]);  // runSuspensionWarnings: no rules
 
       const result = await taskRunner.runTask('auto_suspend_overdue', 42);
       expect(result).toHaveProperty('contracts_suspended', 0);
@@ -116,17 +117,21 @@ describe('taskRunner', () => {
       const contract = {
         id: 1, organization_id: 42, plan_id: 10,
         plan_name: 'Basic', plan_price: '500.00', plan_currency: 'MXN',
-        status: 'active',
+        status: 'active', client_id: 10,
       };
       const period = { id: 100, status: 'pending' };
 
       db.query.mockResolvedValueOnce([[contract]]);  // contracts
       billingService.generateBillingPeriod.mockResolvedValueOnce(period);
       billingService.generateInvoice.mockResolvedValueOnce({ id: 200 });
+      // client fetch for email (no email → silently skipped)
+      db.query.mockResolvedValueOnce([[{ name: 'Test', email: null, org_name: 'ISP' }]]);
+      db.query.mockResolvedValueOnce([[]]);  // invoice items
 
       const result = await taskRunner.runAutoInvoice(42);
       expect(result.invoices_generated).toBe(1);
       expect(result.contracts_checked).toBe(1);
+      expect(result).toHaveProperty('emails_sent');
     });
 
     test('skips contracts where period is already invoiced', async () => {
@@ -171,6 +176,7 @@ describe('taskRunner', () => {
         },
       ]);
       suspensionService.suspendContract.mockResolvedValueOnce();
+      db.query.mockResolvedValueOnce([[]]);  // runSuspensionWarnings: no rules
 
       const result = await taskRunner.runAutoSuspend(42);
       expect(result.contracts_suspended).toBe(1);
@@ -185,6 +191,7 @@ describe('taskRunner', () => {
           contract: { id: 10, invoice_id: 50 },
         },
       ]);
+      db.query.mockResolvedValueOnce([[]]);  // runSuspensionWarnings: no rules
 
       const result = await taskRunner.runAutoSuspend(42);
       expect(result.contracts_suspended).toBe(0);
@@ -196,6 +203,7 @@ describe('taskRunner', () => {
       suspensionService.evaluateRules
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([]);
+      db.query.mockResolvedValueOnce([[]]);  // runSuspensionWarnings: no rules
 
       const result = await taskRunner.runAutoSuspend();
       expect(result.contracts_suspended).toBe(0);
