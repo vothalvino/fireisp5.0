@@ -107,12 +107,15 @@ describe('Integration Workflow: Billing → CFDI → Suspension', () => {
 
       // Step 3: Cancel
       db.query
-        .mockResolvedValueOnce([[{ id: 1, sat_status: 'vigente', organization_id: 42 }]])
+        .mockResolvedValueOnce([[{ id: 1, sat_status: 'vigente', organization_id: 42, uuid: stampResult.uuid, emisor_rfc: 'ABC123' }]])
+        .mockResolvedValueOnce([[{ id: 1, provider_name: 'test', status: 'active', environment: 'sandbox' }]])  // PAC provider
         .mockResolvedValueOnce([{ insertId: 1 }])  // INSERT cancellation
-        .mockResolvedValueOnce([{ affectedRows: 1 }]);  // UPDATE status
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE → cancel_pending
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE cancellation with PAC response
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);  // UPDATE → cancelado
 
       const cancelResult = await cfdiService.cancel(1, '02', null);
-      expect(cancelResult.status).toBe('cancel_pending');
+      expect(cancelResult.status).toBe('cancelado');
     });
   });
 

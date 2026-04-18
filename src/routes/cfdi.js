@@ -32,6 +32,16 @@ router.post('/cancel',
   cfdiController.cancel,
 );
 
+router.get('/:id/cancellation-status',
+  requirePermission('cfdi_documents.view'),
+  cfdiController.cancellationStatus,
+);
+
+router.get('/:id/cancellations',
+  requirePermission('cfdi_documents.view'),
+  cfdiController.listCancellations,
+);
+
 router.get('/:id/xml', requirePermission('cfdi_documents.view'), cfdiController.downloadXml);
 router.get('/:id/pdf', requirePermission('cfdi_documents.view'), cfdiController.downloadPdf);
 
