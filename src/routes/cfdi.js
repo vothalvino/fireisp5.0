@@ -45,4 +45,15 @@ router.get('/:id/cancellations',
 router.get('/:id/xml', requirePermission('cfdi_documents.view'), cfdiController.downloadXml);
 router.get('/:id/pdf', requirePermission('cfdi_documents.view'), cfdiController.downloadPdf);
 
+router.post('/payment-complement',
+  requirePermission('cfdi_documents.create'),
+  validate(cfdiSchemas.paymentComplement),
+  cfdiController.createPaymentComplement,
+);
+
+router.get('/payment-complement/:id',
+  requirePermission('cfdi_documents.view'),
+  cfdiController.getPaymentComplement,
+);
+
 module.exports = router;

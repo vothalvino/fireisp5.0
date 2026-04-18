@@ -71,7 +71,7 @@
 - ✅ PAC provider integration, CSD certificate management
 - ✅ Factura pública (venta al público en general)
 - ✅ Add CFDI cancellation flow (submit to SAT, track acceptance/rejection)
-- ⬜ Add complemento de pago generation for partial payments
+- ✅ Add complemento de pago generation for partial payments
 - ⬜ Add monthly CFDI reconciliation report (issued vs SAT acknowledgments)
 
 ### 1.6 — Automated Billing Cycle _(moved from Milestone 5 — core revenue engine, not polish)_
@@ -208,4 +208,4 @@
 | 2026-04-18 | 1.4 | Payment receipt PDF generation (pdfService + route + send-receipt) | #TBD |
 | 2026-04-18 | 1.4 | E2E test: client → plan → invoice → payment → ledger (16 tests) | #TBD |
 | 2026-04-18 | 1.5 | CFDI cancellation flow (submit to SAT, track acceptance/rejection) | #TBD |
-<!-- Add a row here every time you complete a roadmap item -->
+| 2026-04-18 | 1.5 | Complemento de pago 2.0 generation for partial/full PPD payments | #TBD |

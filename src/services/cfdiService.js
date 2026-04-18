@@ -731,9 +731,260 @@ async function listCancellations(cfdiDocumentId, orgId) {
   return rows;
 }
 
+// =============================================================================
+// Complemento de Pago 2.0
+// =============================================================================
+
+/**
+ * Generate a Complemento de Pago 2.0 CFDI (tipo P) for a payment event.
+ *
+ * Creates:
+ *   - One cfdi_documents row (tipo_comprobante = 'P', SubTotal/Total = 0)
+ *   - One cfdi_payment_complements row (payment metadata)
+ *   - N cfdi_payment_complement_items rows (one per PPD invoice being settled)
+ *   - Generates and stores the XML
+ *
+ * @param {object} params
+ * @param {number} params.organization_id
+ * @param {number} params.client_id
+ * @param {number|null} params.payment_id           - Link to payments table (optional)
+ * @param {string|null} params.serie                - CFDI series prefix (e.g. 'P')
+ * @param {string|null} params.folio               - Sequential folio
+ * @param {string} params.fecha_emision             - ISO 8601 datetime string
+ * @param {string} params.lugar_expedicion          - Postal code of issuance
+ * @param {string} params.emisor_rfc
+ * @param {string} params.emisor_nombre
+ * @param {string} params.emisor_regimen_fiscal
+ * @param {string} params.receptor_rfc
+ * @param {string} params.receptor_nombre
+ * @param {string} params.receptor_domicilio_fiscal - Postal code of receiver
+ * @param {string} params.receptor_regimen_fiscal
+ * @param {string} params.payment_date              - Date the payment was received (YYYY-MM-DD)
+ * @param {string} params.forma_pago                - SAT c_FormaPago (e.g. '03')
+ * @param {string} params.moneda                    - SAT c_Moneda (e.g. 'MXN')
+ * @param {number|null} params.tipo_cambio          - Exchange rate; null when MXN
+ * @param {number} params.amount                    - Total payment amount
+ * @param {string|null} params.operation_number     - Bank transaction reference
+ * @param {string|null} params.payer_rfc
+ * @param {string|null} params.payer_bank_name
+ * @param {string|null} params.payer_account
+ * @param {string|null} params.beneficiary_rfc
+ * @param {string|null} params.beneficiary_account
+ * @param {Array} params.related_documents          - Array of DoctoRelacionado items
+ *   Each item: { related_cfdi_uuid, serie, folio, moneda_dr, equivalencia_dr,
+ *                num_parcialidad, imp_saldo_ant, imp_pagado, imp_saldo_insoluto }
+ *
+ * @returns {{ cfdi_document_id, complement_id, xml }}
+ */
+async function generatePaymentComplement(params) {
+  const {
+    organization_id, client_id, payment_id = null,
+    serie = null, folio = null,
+    fecha_emision, lugar_expedicion,
+    emisor_rfc, emisor_nombre, emisor_regimen_fiscal,
+    receptor_rfc, receptor_nombre, receptor_domicilio_fiscal, receptor_regimen_fiscal,
+    payment_date, forma_pago, moneda, tipo_cambio = null, amount,
+    operation_number = null,
+    payer_rfc = null, payer_bank_name = null, payer_account = null,
+    beneficiary_rfc = null, beneficiary_account = null,
+    related_documents,
+  } = params;
+
+  logger.info({ organization_id, client_id, amount }, 'Generating Complemento de Pago');
+
+  if (!related_documents || related_documents.length === 0) {
+    throw new Error('At least one related document (DoctoRelacionado) is required for a payment complement');
+  }
+
+  // 1. Create cfdi_documents record (tipo P, SubTotal=0, Total=0, Moneda=XXX)
+  const [insertDocResult] = await db.query(
+    `INSERT INTO cfdi_documents
+       (organization_id, client_id, serie, folio, tipo_comprobante, uso_cfdi,
+        moneda, tipo_cambio, fecha_emision, lugar_expedicion,
+        emisor_rfc, emisor_nombre, emisor_regimen_fiscal,
+        receptor_rfc, receptor_nombre, receptor_domicilio_fiscal, receptor_regimen_fiscal,
+        subtotal, total_impuestos, total, sat_status, payment_id)
+     VALUES (?, ?, ?, ?, 'P', 'CP01', 'XXX', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'draft', ?)`,
+    [
+      organization_id, client_id, serie, folio,
+      tipo_cambio, fecha_emision, lugar_expedicion,
+      emisor_rfc, emisor_nombre, emisor_regimen_fiscal,
+      receptor_rfc, receptor_nombre, receptor_domicilio_fiscal, receptor_regimen_fiscal,
+      payment_id,
+    ],
+  );
+  const cfdiDocumentId = insertDocResult.insertId;
+
+  // 2. Create cfdi_payment_complements record
+  const [insertCompResult] = await db.query(
+    `INSERT INTO cfdi_payment_complements
+       (cfdi_document_id, payment_date, forma_pago, moneda, tipo_cambio, amount,
+        operation_number, payer_rfc, payer_bank_name, payer_account,
+        beneficiary_rfc, beneficiary_account)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      cfdiDocumentId, payment_date, forma_pago, moneda, tipo_cambio, amount,
+      operation_number, payer_rfc, payer_bank_name, payer_account,
+      beneficiary_rfc, beneficiary_account,
+    ],
+  );
+  const complementId = insertCompResult.insertId;
+
+  // 3. Create cfdi_payment_complement_items records
+  for (const rd of related_documents) {
+    await db.query(
+      `INSERT INTO cfdi_payment_complement_items
+         (complement_id, related_cfdi_uuid, serie, folio, moneda_dr, equivalencia_dr,
+          num_parcialidad, imp_saldo_ant, imp_pagado, imp_saldo_insoluto)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        complementId,
+        rd.related_cfdi_uuid,
+        rd.serie || null,
+        rd.folio || null,
+        rd.moneda_dr || 'MXN',
+        rd.equivalencia_dr !== undefined ? rd.equivalencia_dr : 1.0,
+        rd.num_parcialidad || 1,
+        rd.imp_saldo_ant,
+        rd.imp_pagado,
+        rd.imp_saldo_insoluto,
+      ],
+    );
+  }
+
+  // 4. Build the Complemento de Pago 2.0 XML
+  const doc = {
+    serie, folio, fecha_emision, lugar_expedicion, tipo_cambio,
+    emisor_rfc, emisor_nombre, emisor_regimen_fiscal,
+    receptor_rfc, receptor_nombre, receptor_domicilio_fiscal, receptor_regimen_fiscal,
+  };
+  const complement = {
+    payment_date, forma_pago, moneda, tipo_cambio, amount, operation_number,
+    payer_rfc, payer_bank_name, payer_account, beneficiary_rfc, beneficiary_account,
+  };
+  const xml = buildPaymentComplementXml(doc, complement, related_documents);
+
+  // 5. Store the generated XML
+  await db.query(
+    'UPDATE cfdi_documents SET xml_content = ? WHERE id = ?',
+    [xml, cfdiDocumentId],
+  );
+
+  logger.info({ cfdiDocumentId, complementId }, 'Complemento de Pago generated');
+  return { cfdi_document_id: cfdiDocumentId, complement_id: complementId, xml };
+}
+
+/**
+ * Build the Complemento de Pago 2.0 XML string per the SAT specification.
+ *
+ * SAT rules for tipo=P:
+ *   - Moneda at Comprobante level = 'XXX' (not-applicable currency)
+ *   - SubTotal = 0, Total = 0
+ *   - UsoCFDI = 'CP01' (Pagos)
+ *   - Single Concepto: ClaveProdServ=84111506, ValorUnitario=0, Importe=0, ObjetoImp=01
+ *   - cfdi:Complemento > pago20:Pagos Version="2.0"
+ *   - pago20:Totales MontoTotalPagos = sum of imp_pagado across all items
+ */
+function buildPaymentComplementXml(doc, complement, items) {
+  const fecha = doc.fecha_emision
+    ? new Date(doc.fecha_emision).toISOString().replace(/\.\d+Z$/, '')
+    : '';
+
+  // FechaPago must include time component; use T00:00:00 if only a date was given
+  const fechaPago = complement.payment_date
+    ? (complement.payment_date.includes('T')
+      ? complement.payment_date
+      : `${complement.payment_date}T12:00:00`)
+    : '';
+
+  const montoTotalPagos = items
+    .reduce((sum, rd) => sum + Number(rd.imp_pagado || 0), 0)
+    .toFixed(2);
+
+  // Optional payer/beneficiary attributes
+  const payerAttrs = [
+    complement.payer_rfc ? ` RfcEmisorCtaOrd="${escapeXml(complement.payer_rfc)}"` : '',
+    complement.payer_bank_name ? ` NomBancoOrdExt="${escapeXml(complement.payer_bank_name)}"` : '',
+    complement.payer_account ? ` CtaOrdenante="${escapeXml(complement.payer_account)}"` : '',
+    complement.beneficiary_rfc ? ` RfcEmisorCtaBen="${escapeXml(complement.beneficiary_rfc)}"` : '',
+    complement.beneficiary_account ? ` CtaBeneficiario="${escapeXml(complement.beneficiary_account)}"` : '',
+  ].join('');
+
+  const operacionAttr = complement.operation_number
+    ? ` NumOperacion="${escapeXml(complement.operation_number)}"`
+    : '';
+
+  const tipoCambioAttr = complement.tipo_cambio !== null && complement.tipo_cambio !== undefined
+    ? ` TipoCambioP="${complement.tipo_cambio}"`
+    : '';
+
+  const doctosXml = items.map(rd => {
+    const serieAttr = rd.serie ? ` Serie="${escapeXml(rd.serie)}"` : '';
+    const folioAttr = rd.folio ? ` Folio="${escapeXml(String(rd.folio))}"` : '';
+    const eqDR = rd.equivalencia_dr !== undefined ? Number(rd.equivalencia_dr) : 1;
+    return `        <pago20:DoctoRelacionado IdDocumento="${escapeXml(rd.related_cfdi_uuid)}"${serieAttr}${folioAttr} MonedaDR="${escapeXml(rd.moneda_dr || 'MXN')}" EquivalenciaDR="${eqDR.toFixed(4)}" NumParcialidad="${rd.num_parcialidad || 1}" ImpSaldoAnt="${Number(rd.imp_saldo_ant).toFixed(2)}" ImpPagado="${Number(rd.imp_pagado).toFixed(2)}" ImpSaldoInsoluto="${Number(rd.imp_saldo_insoluto).toFixed(2)}" ObjetoImpDR="01" />`;
+  }).join('\n');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:pago20="http://www.sat.gob.mx/Pagos20"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  Version="4.0"
+  Serie="${escapeXml(doc.serie || '')}"
+  Folio="${escapeXml(String(doc.folio || ''))}"
+  Fecha="${fecha}"
+  TipoDeComprobante="P"
+  Exportacion="01"
+  LugarExpedicion="${escapeXml(doc.lugar_expedicion || '')}"
+  Moneda="XXX"
+  SubTotal="0"
+  Total="0">
+  <cfdi:Emisor Rfc="${escapeXml(doc.emisor_rfc || '')}" Nombre="${escapeXml(doc.emisor_nombre || '')}" RegimenFiscal="${escapeXml(doc.emisor_regimen_fiscal || '')}" />
+  <cfdi:Receptor Rfc="${escapeXml(doc.receptor_rfc || '')}" Nombre="${escapeXml(doc.receptor_nombre || '')}" DomicilioFiscalReceptor="${escapeXml(doc.receptor_domicilio_fiscal || '')}" RegimenFiscalReceptor="${escapeXml(doc.receptor_regimen_fiscal || '')}" UsoCFDI="CP01" />
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="84111506" Cantidad="1" ClaveUnidad="ACT" Descripcion="Pago" ValorUnitario="0" Importe="0" ObjetoImp="01" />
+  </cfdi:Conceptos>
+  <cfdi:Complemento>
+    <pago20:Pagos Version="2.0">
+      <pago20:Totales MontoTotalPagos="${montoTotalPagos}" />
+      <pago20:Pago FechaPago="${fechaPago}" FormaDePagoP="${escapeXml(complement.forma_pago || '')}" MonedaP="${escapeXml(complement.moneda || 'MXN')}"${tipoCambioAttr} Monto="${Number(complement.amount).toFixed(2)}"${operacionAttr}${payerAttrs}>
+${doctosXml}
+      </pago20:Pago>
+    </pago20:Pagos>
+  </cfdi:Complemento>
+</cfdi:Comprobante>`;
+}
+
+/**
+ * Retrieve a payment complement and its items by cfdi_document_id.
+ */
+async function getPaymentComplement(cfdiDocumentId, orgId) {
+  const [docs] = await db.query(
+    'SELECT * FROM cfdi_documents WHERE id = ? AND organization_id = ? AND tipo_comprobante = \'P\'',
+    [cfdiDocumentId, orgId],
+  );
+  const doc = docs[0];
+  if (!doc) throw new Error('Payment complement document not found');
+
+  const [complements] = await db.query(
+    'SELECT * FROM cfdi_payment_complements WHERE cfdi_document_id = ? LIMIT 1',
+    [cfdiDocumentId],
+  );
+  const complement = complements[0];
+  if (!complement) throw new Error('Payment complement record not found');
+
+  const [items] = await db.query(
+    'SELECT * FROM cfdi_payment_complement_items WHERE complement_id = ? ORDER BY id ASC',
+    [complement.id],
+  );
+
+  return { document: doc, complement, items };
+}
+
 module.exports = {
   generateXml, buildCfdi40Xml, escapeXml, stamp, cancel,
   callPacStamp, callPacCancel, callPacCancelStatus,
   parseCancellationStatus, getCancellationStatus, listCancellations,
+  generatePaymentComplement, buildPaymentComplementXml, getPaymentComplement,
   httpRequest, circuitBreaker,
 };
