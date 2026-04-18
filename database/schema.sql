@@ -5395,6 +5395,23 @@ VALUES
      NULL);
 
 -- ---------------------------------------------------------------------------
+-- Seed: billing cycle orchestrator scheduled task (migration 155)
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO scheduled_tasks
+    (organization_id, task_name, task_type, description,
+     cron_expression, priority, max_retries, timeout_seconds, is_enabled)
+VALUES
+    (NULL,
+     'billing_cycle',
+     'generate_invoice',
+     'Full automated billing cycle: generate invoices → email clients → send suspension warnings → suspend overdue contracts.',
+     '0 2 * * *',
+     'high',
+     3,
+     600,
+     TRUE);
+
+-- ---------------------------------------------------------------------------
 -- ALTER: add currency to expenses (migration 124)
 -- Purpose: Idempotent guard — adds expenses.currency only if migration 051
 --          has not already applied it.

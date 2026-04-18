@@ -46,7 +46,7 @@ An open source ISP (Internet Service Provider) management software designed to h
 fireisp5.0/
 ├── database/                # Database schema and migrations
 │   ├── schema.sql           # Combined schema (all 107 tables)
-│   └── migrations/          # Individual numbered migration files (001–150)
+│   └── migrations/          # Individual numbered migration files (001–155)
 ├── src/                     # Application source code
 │   ├── app.js               # Express app setup (middleware, routes, error handling)
 │   ├── server.js            # HTTP server entry point
@@ -352,6 +352,16 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 149 — Contract status FSM trigger:** `149_contract_status_fsm_trigger.sql` adds a BEFORE UPDATE trigger on `contracts` that enforces valid status transitions: `pending → active|cancelled`, `active → expired|cancelled`. Both `expired` and `cancelled` are terminal states. Raises SQLSTATE '45000' on invalid transitions.
 
 > **Migration 150 — Outage temporal logic triggers:** `150_outage_temporal_logic_trigger.sql` adds BEFORE INSERT / BEFORE UPDATE triggers on `outages` that ensure `resolved_at` is always after `started_at` when set. Prevents nonsensical duration calculations and corrupt SLA/uptime reporting. Raises SQLSTATE '45000'.
+
+> **Migration 151 — Soft-delete columns:** `151_add_soft_delete_columns.sql` adds a nullable `deleted_at DATETIME` column and a corresponding index to 62 resource tables (users, clients, contracts, invoices, payments, devices, tickets, and all other major entities). Enables archive-on-delete instead of hard `DELETE`, preserving data integrity and audit trails. The `BaseModel.delete()` method sets `deleted_at = NOW()` while `forceDelete()` performs a hard delete; `restore()` clears the column.
+
+> **Migration 152 — Refresh token rotation:** `152_add_refresh_token_rotation.sql` adds a `token_family VARCHAR(255)` column and index to `user_sessions`. The family identifier links all refresh tokens issued from one login session, enabling server-side reuse detection: if an already-rotated token is presented, all sessions in the same family are revoked to mitigate refresh token theft.
+
+> **Migration 153 — Payment retries table:** `153_create_payment_retries_table.sql` creates the `payment_retries` table that tracks failed payment charges and schedules automatic retry attempts. Each row represents a retry schedule for a failed `payment_transactions` record. Retries follow exponential backoff (4 h → 24 h → 72 h, 3 attempts maximum). Stores attempt count, next retry timestamp, last error, status (`pending` / `processing` / `succeeded` / `exhausted` / `cancelled`), and FK links to the original transaction, client, invoice, and recurring payment profile.
+
+> **Migration 154 — Seed payment retry task:** `154_seed_payment_retry_task.sql` inserts the `retry_failed_charges` scheduled task (cron `0 * * * *` — hourly) that processes pending payment retries whose `next_retry_at` has passed. Uses `INSERT IGNORE` for idempotency.
+
+> **Migration 155 — Seed billing cycle task:** `155_seed_billing_cycle_task.sql` inserts the `billing_cycle` scheduled task (cron `0 2 * * *` — daily at 02:00, priority `high`, timeout 600 s) that orchestrates the full automated revenue engine: auto-generate invoices → email invoice to client → send suspension warning emails for overdue contracts approaching the rule threshold → suspend contracts past the `days_past_due` limit and email post-suspension confirmation. Dispatched by `taskRunner.runBillingCycle()`. Uses `INSERT IGNORE` for idempotency.
 
 ### Venta al Público en General (Factura Pública)
 

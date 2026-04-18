@@ -19,7 +19,7 @@
 
 | Layer | Status | Notes |
 |---|---|---|
-| Database schema | ✅ 150 migrations, 101 tables | schema.sql synced |
+| Database schema | ✅ 155 migrations, 101 tables | schema.sql synced |
 | API routes | ✅ 55+ route files | 184 OpenAPI paths |
 | Services | ✅ 24 service modules | billing, CFDI, RADIUS, payments, etc. |
 | Middleware | ✅ Auth, RBAC, validation, rate limiting | circuit breaker added |
