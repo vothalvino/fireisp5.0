@@ -61,7 +61,7 @@
 ### 1.4 — Payment Processing
 - ✅ Stripe/Conekta/PayPal webhook receivers
 - ✅ Idempotency keys, auto-reconciliation
-- ⬜ Add payment retry logic (failed charge → retry 3x over 72 hours)
+- ✅ Add payment retry logic (failed charge → retry 3x over 72 hours)
 - ✅ Implement proration calculation for mid-cycle plan changes
 - ⬜ Add payment receipt PDF generation (integrate with existing pdfService)
 - ⬜ End-to-end test: create client → assign plan → generate invoice → process payment → verify ledger
@@ -203,5 +203,6 @@
 | 2026-04-16 | 1.2 | Pagination consistency audit | #TBD |
 | 2026-04-18 | 1.3 | Refresh token rotation (access 15m, refresh 7d) | #TBD |
 | 2026-04-18 | 1.3 | API token scoping (read-only vs read-write per resource) | #TBD |
+| 2026-04-18 | 1.4 | Payment retry logic (failed charge → retry 3x over 72h) | #TBD |
 | 2026-04-18 | — | Roadmap reprioritization: mark 4 done items (lockout, proration, logging, request tracing), move billing cycle to M1.6, move data migration/backups to M1.7, demote IP allowlist to M4.1, demote coverage map/SNMP traps to M5 | #TBD |
 <!-- Add a row here every time you complete a roadmap item -->

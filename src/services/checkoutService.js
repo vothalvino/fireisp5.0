@@ -8,6 +8,7 @@
 const crypto = require('crypto');
 const db = require('../config/database');
 const paymentGatewayService = require('./paymentGatewayService');
+const paymentRetryService = require('./paymentRetryService');
 const logger = require('../utils/logger');
 
 /**
@@ -125,8 +126,26 @@ async function chargeRecurringProfile(profileId) {
     [profileId],
   );
 
+  // Schedule retry if charge failed
+  if (result.status === 'failed' && result.transaction_id) {
+    try {
+      await paymentRetryService.scheduleRetry({
+        transactionId: result.transaction_id,
+        organizationId: profile.organization_id,
+        clientId: profile.client_id,
+        amount: parseFloat(invoice.total),
+        currency: invoice.currency,
+        invoiceId: invoice.id,
+        recurringProfileId: profileId,
+        errorMessage: result.error || 'Charge failed',
+      });
+    } catch (retryErr) {
+      logger.error({ retryErr, transactionId: result.transaction_id }, 'Failed to schedule payment retry');
+    }
+  }
+
   return {
-    charged: true,
+    charged: result.status !== 'failed',
     profile_id: profileId,
     invoice_id: invoice.id,
     invoice_number: invoice.invoice_number,
