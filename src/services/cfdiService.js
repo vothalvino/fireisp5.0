@@ -338,6 +338,11 @@ function httpRequest(url, method, body, headers) {
 async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
   logger.info({ cfdiDocumentId, reason, replacementUuid }, 'Cancelling CFDI document');
 
+  const VALID_MOTIVOS = ['01', '02', '03', '04'];
+  if (!VALID_MOTIVOS.includes(reason)) {
+    throw new CfdiCancellationError(`Invalid cancellation reason "${reason}" — must be one of: ${VALID_MOTIVOS.join(', ')}`, { cfdiDocumentId, reason });
+  }
+
   const [docs] = await db.query('SELECT * FROM cfdi_documents WHERE id = ?', [cfdiDocumentId]);
   const doc = docs[0];
   if (!doc) throw new CfdiCancellationError('CFDI document not found', { cfdiDocumentId });
@@ -548,6 +553,7 @@ function parseCancellationStatus(rawStatus) {
   if (s === '201' || s === 'cancelado' || s === 'accepted' || s === 'cancelled') return 'accepted';
   if (s === '202' || s === 'en proceso' || s === 'pending' || s === 'in_progress') return 'pending';
   if (s === '203' || s === 'rechazado' || s === 'rejected') return 'rejected';
+  if (s === '204' || s === 'no encontrado' || s === 'not_found') return 'rejected';
   if (s === '205' || s === 'no cancelable') return 'rejected';
   return 'pending';
 }

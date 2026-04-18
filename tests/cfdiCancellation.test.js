@@ -64,6 +64,18 @@ describe('CFDI Cancellation Flow', () => {
       expect(cfdiService.parseCancellationStatus('no cancelable')).toBe('rejected');
     });
 
+    test('returns "rejected" for SAT code 204 (UUID not found)', () => {
+      expect(cfdiService.parseCancellationStatus('204')).toBe('rejected');
+    });
+
+    test('returns "rejected" for "no encontrado"', () => {
+      expect(cfdiService.parseCancellationStatus('no encontrado')).toBe('rejected');
+    });
+
+    test('returns "rejected" for "not_found"', () => {
+      expect(cfdiService.parseCancellationStatus('not_found')).toBe('rejected');
+    });
+
     test('returns "pending" for null/undefined', () => {
       expect(cfdiService.parseCancellationStatus(null)).toBe('pending');
       expect(cfdiService.parseCancellationStatus(undefined)).toBe('pending');
@@ -141,6 +153,11 @@ describe('CFDI Cancellation Flow', () => {
       db.query.mockResolvedValueOnce([[{ ...vigentDoc, uuid: null }]]);
       await expect(cfdiService.cancel(1, '02'))
         .rejects.toThrow('CFDI document has no UUID');
+    });
+
+    test('throws for invalid cancellation reason', async () => {
+      await expect(cfdiService.cancel(1, '99'))
+        .rejects.toThrow('Invalid cancellation reason');
     });
 
     test('throws when motivo 01 has no replacement UUID', async () => {
