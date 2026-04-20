@@ -227,6 +227,44 @@ app.get('/health', async (req, res) => {
   res.status(statusCode).json(health);
 });
 
+// /healthz — standard readiness alias used by load balancers and frontend dev proxies
+// Returns 200 with DB + optional Redis status; 503 when not ready.
+app.get('/healthz', async (_req, res) => {
+  const checks = { db: false };
+  let ready = true;
+
+  try {
+    const db = require('./config/database');
+    const t0 = Date.now();
+    await db.query('SELECT 1');
+    checks.db = { connected: true, latencyMs: Date.now() - t0 };
+  } catch (_err) {
+    checks.db = { connected: false };
+    ready = false;
+  }
+
+  if (process.env.REDIS_URL) {
+    try {
+      const cacheService = require('./services/cacheService');
+      if (cacheService.isReady && cacheService.isReady()) {
+        checks.redis = { connected: true };
+      } else {
+        checks.redis = { connected: false };
+        ready = false;
+      }
+    } catch (_err) {
+      checks.redis = { connected: false };
+      ready = false;
+    }
+  }
+
+  res.status(ready ? 200 : 503).json({
+    status: ready ? 'ok' : 'degraded',
+    checks,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Liveness probe — lightweight check that the process is running
 app.get('/health/live', (_req, res) => {
   res.status(200).json({

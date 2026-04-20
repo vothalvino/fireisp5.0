@@ -305,3 +305,32 @@ describe('Metrics Endpoint', () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe('/healthz Endpoint', () => {
+  test('GET /healthz returns ok when DB is up', async () => {
+    db.query.mockResolvedValueOnce([[]]);
+    const res = await request(app).get('/healthz');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+    expect(res.body.checks.db.connected).toBe(true);
+    expect(res.body.checks.db.latencyMs).toEqual(expect.any(Number));
+    expect(res.body.timestamp).toBeDefined();
+  });
+
+  test('GET /healthz returns degraded when DB is down', async () => {
+    db.query.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    const res = await request(app).get('/healthz');
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe('degraded');
+    expect(res.body.checks.db.connected).toBe(false);
+  });
+
+  test('GET /healthz does not include redis key when REDIS_URL is not set', async () => {
+    db.query.mockResolvedValueOnce([[]]);
+    const prev = process.env.REDIS_URL;
+    delete process.env.REDIS_URL;
+    const res = await request(app).get('/healthz');
+    if (prev !== undefined) process.env.REDIS_URL = prev;
+    expect(res.body.checks.redis).toBeUndefined();
+  });
+});
