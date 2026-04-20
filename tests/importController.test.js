@@ -16,6 +16,10 @@ const {
   importClientsFile,
   importDevicesFile,
   importContractsFile,
+  importInvoices,
+  importInvoicesFile,
+  importPayments,
+  importPaymentsFile,
 } = require('../src/controllers/importController');
 
 function mockReqRes(overrides = {}) {
@@ -420,6 +424,260 @@ describe('importController', () => {
       const result = res.json.mock.calls[0][0].data;
       expect(result.imported).toBe(0);
       expect(result.errors.length).toBe(2);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // importInvoices
+  // ---------------------------------------------------------------------------
+  describe('importInvoices', () => {
+    test('returns 422 when csv field is missing', async () => {
+      const { req, res, next } = mockReqRes({ body: {} });
+      await importInvoices(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(422);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.objectContaining({ code: 'VALIDATION_ERROR' }) }),
+      );
+    });
+
+    test('imports valid rows and returns counts', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const csv = 'client_id,invoice_number,issue_date,due_date,subtotal,total\n1,INV-001,2024-01-01,2024-01-31,100,116';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importInvoices(req, res, next);
+      expect(res.json).toHaveBeenCalledWith({ data: { imported: 1, total: 1, errors: [] } });
+    });
+
+    test('validates required fields', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const csv = 'client_id,invoice_number,issue_date,due_date\n,INV-002,2024-01-01,2024-01-31\n1,,2024-01-01,2024-01-31';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importInvoices(req, res, next);
+      const result = res.json.mock.calls[0][0].data;
+      expect(result.imported).toBe(0);
+      expect(result.errors.length).toBe(2);
+    });
+
+    test('rejects invalid status', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const csv = 'client_id,invoice_number,issue_date,due_date,status\n1,INV-003,2024-01-01,2024-01-31,unknown';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importInvoices(req, res, next);
+      const result = res.json.mock.calls[0][0].data;
+      expect(result.imported).toBe(0);
+      expect(result.errors[0].error).toMatch(/status must be one of/);
+    });
+
+    test('defaults status to draft when not provided', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const csv = 'client_id,invoice_number,issue_date,due_date\n1,INV-004,2024-01-01,2024-01-31';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importInvoices(req, res, next);
+      const callArgs = db.query.mock.calls[0][1];
+      expect(callArgs[callArgs.length - 1]).toBe('draft');
+    });
+
+    test('calculates tax_amount and total from subtotal and tax_rate', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const csv = 'client_id,invoice_number,issue_date,due_date,subtotal,tax_rate\n1,INV-005,2024-01-01,2024-01-31,100,0.16';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importInvoices(req, res, next);
+      const args = db.query.mock.calls[0][1];
+      expect(args[5]).toBe(100);   // subtotal
+      expect(args[6]).toBe(0.16);  // tax_rate
+      expect(args[7]).toBe(16);    // tax_amount
+      expect(args[8]).toBe(116);   // total
+    });
+
+    test('tracks db errors per row', async () => {
+      db.query.mockRejectedValueOnce(new Error('duplicate key')).mockResolvedValueOnce([{ insertId: 2 }]);
+      const csv = 'client_id,invoice_number,issue_date,due_date\n1,INV-DUP,2024-01-01,2024-01-31\n2,INV-006,2024-01-01,2024-01-31';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importInvoices(req, res, next);
+      const result = res.json.mock.calls[0][0].data;
+      expect(result.imported).toBe(1);
+      expect(result.errors.length).toBe(1);
+      expect(result.errors[0].error).toMatch(/duplicate key/);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // importInvoicesFile
+  // ---------------------------------------------------------------------------
+  describe('importInvoicesFile', () => {
+    test('returns 422 when no file is provided', async () => {
+      const { req, res, next } = mockReqRes({ file: null });
+      await importInvoicesFile(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(422);
+    });
+
+    test('imports invoices from a CSV file buffer', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const csv = 'client_id,invoice_number,issue_date,due_date\n1,INV-007,2024-01-01,2024-01-31';
+      const { req, res, next } = mockReqRes({
+        file: { buffer: Buffer.from(csv), originalname: 'invoices.csv' },
+      });
+      await importInvoicesFile(req, res, next);
+      expect(res.json).toHaveBeenCalledWith({ data: { imported: 1, total: 1, errors: [] } });
+    });
+
+    test('imports invoices from an XLSX file buffer', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const buf = await buildXlsxBuffer(
+        ['client_id', 'invoice_number', 'issue_date', 'due_date'],
+        [['1', 'INV-008', '2024-01-01', '2024-01-31'], ['2', 'INV-009', '2024-02-01', '2024-02-28']],
+      );
+      const { req, res, next } = mockReqRes({
+        file: { buffer: buf, originalname: 'invoices.xlsx' },
+      });
+      await importInvoicesFile(req, res, next);
+      expect(res.json).toHaveBeenCalledWith({ data: { imported: 2, total: 2, errors: [] } });
+    });
+
+    test('validates required fields in file upload', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const buf = await buildXlsxBuffer(
+        ['client_id', 'invoice_number', 'issue_date', 'due_date'],
+        [['', 'INV-010', '2024-01-01', '2024-01-31']],
+      );
+      const { req, res, next } = mockReqRes({
+        file: { buffer: buf, originalname: 'invoices.xlsx' },
+      });
+      await importInvoicesFile(req, res, next);
+      const result = res.json.mock.calls[0][0].data;
+      expect(result.imported).toBe(0);
+      expect(result.errors[0].error).toMatch(/client_id is required/);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // importPayments
+  // ---------------------------------------------------------------------------
+  describe('importPayments', () => {
+    test('returns 422 when csv field is missing', async () => {
+      const { req, res, next } = mockReqRes({ body: {} });
+      await importPayments(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(422);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.objectContaining({ code: 'VALIDATION_ERROR' }) }),
+      );
+    });
+
+    test('imports valid rows and returns counts', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const csv = 'client_id,amount,payment_date,payment_method\n1,500.00,2024-01-15,cash';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importPayments(req, res, next);
+      expect(res.json).toHaveBeenCalledWith({ data: { imported: 1, total: 1, errors: [] } });
+    });
+
+    test('validates required fields', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const csv = 'client_id,amount,payment_date\n,500.00,2024-01-15\n1,,2024-01-15\n1,500.00,';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importPayments(req, res, next);
+      const result = res.json.mock.calls[0][0].data;
+      expect(result.imported).toBe(0);
+      expect(result.errors.length).toBe(3);
+    });
+
+    test('rejects invalid payment_method', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const csv = 'client_id,amount,payment_date,payment_method\n1,100,2024-01-15,bitcoin';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importPayments(req, res, next);
+      const result = res.json.mock.calls[0][0].data;
+      expect(result.imported).toBe(0);
+      expect(result.errors[0].error).toMatch(/payment_method must be one of/);
+    });
+
+    test('rejects non-positive amount', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const csv = 'client_id,amount,payment_date\n1,-50,2024-01-15';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importPayments(req, res, next);
+      const result = res.json.mock.calls[0][0].data;
+      expect(result.imported).toBe(0);
+      expect(result.errors[0].error).toMatch(/positive/);
+    });
+
+    test('defaults payment_method to cash when not provided', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const csv = 'client_id,amount,payment_date\n1,200,2024-01-15';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importPayments(req, res, next);
+      const callArgs = db.query.mock.calls[0][1];
+      expect(callArgs[4]).toBe('cash');
+    });
+
+    test('stores optional fields correctly', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const csv = 'client_id,invoice_id,amount,payment_date,payment_method,reference_number,notes\n1,42,300.00,2024-01-15,spei,REF-XYZ,some note';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importPayments(req, res, next);
+      const args = db.query.mock.calls[0][1];
+      expect(args[1]).toBe('42');      // invoice_id
+      expect(args[6]).toBe('REF-XYZ'); // reference_number
+      expect(args[9]).toBe('some note'); // notes
+    });
+
+    test('tracks db errors per row', async () => {
+      db.query.mockRejectedValueOnce(new Error('FK violation')).mockResolvedValueOnce([{ insertId: 2 }]);
+      const csv = 'client_id,amount,payment_date\n999,100,2024-01-15\n1,200,2024-01-16';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importPayments(req, res, next);
+      const result = res.json.mock.calls[0][0].data;
+      expect(result.imported).toBe(1);
+      expect(result.errors.length).toBe(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // importPaymentsFile
+  // ---------------------------------------------------------------------------
+  describe('importPaymentsFile', () => {
+    test('returns 422 when no file is provided', async () => {
+      const { req, res, next } = mockReqRes({ file: null });
+      await importPaymentsFile(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(422);
+    });
+
+    test('imports payments from a CSV file buffer', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const csv = 'client_id,amount,payment_date,payment_method\n1,150.00,2024-01-20,bank_transfer';
+      const { req, res, next } = mockReqRes({
+        file: { buffer: Buffer.from(csv), originalname: 'payments.csv' },
+      });
+      await importPaymentsFile(req, res, next);
+      expect(res.json).toHaveBeenCalledWith({ data: { imported: 1, total: 1, errors: [] } });
+    });
+
+    test('imports payments from an XLSX file buffer', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const buf = await buildXlsxBuffer(
+        ['client_id', 'amount', 'payment_date', 'payment_method'],
+        [['1', '250.00', '2024-01-20', 'spei'], ['2', '300.00', '2024-01-21', 'cash']],
+      );
+      const { req, res, next } = mockReqRes({
+        file: { buffer: buf, originalname: 'payments.xlsx' },
+      });
+      await importPaymentsFile(req, res, next);
+      expect(res.json).toHaveBeenCalledWith({ data: { imported: 2, total: 2, errors: [] } });
+    });
+
+    test('validates required fields in file upload', async () => {
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+      const buf = await buildXlsxBuffer(
+        ['client_id', 'amount', 'payment_date'],
+        [['1', '', '2024-01-20']],
+      );
+      const { req, res, next } = mockReqRes({
+        file: { buffer: buf, originalname: 'payments.xlsx' },
+      });
+      await importPaymentsFile(req, res, next);
+      const result = res.json.mock.calls[0][0].data;
+      expect(result.imported).toBe(0);
+      expect(result.errors[0].error).toMatch(/amount is required/);
     });
   });
 });

@@ -378,6 +378,245 @@ async function importContractsFile(req, res, next) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Invoice import helpers
+// ---------------------------------------------------------------------------
+
+const VALID_INVOICE_STATUSES = new Set(['draft', 'sent', 'paid', 'overdue', 'cancelled']);
+
+/**
+ * Insert one invoice row from a parsed row object.
+ * Returns null on success, or an error message string.
+ */
+async function insertInvoiceRow(row) {
+  if (!row.client_id) return 'client_id is required';
+  if (!row.invoice_number) return 'invoice_number is required';
+  if (!row.issue_date) return 'issue_date is required';
+  if (!row.due_date) return 'due_date is required';
+
+  const status = row.status || 'draft';
+  if (!VALID_INVOICE_STATUSES.has(status)) {
+    return `status must be one of: ${[...VALID_INVOICE_STATUSES].join(', ')}`;
+  }
+
+  const subtotal = parseFloat(row.subtotal) || 0;
+  const taxRate = parseFloat(row.tax_rate) || 0;
+  const taxAmount = parseFloat(row.tax_amount) || parseFloat((subtotal * taxRate).toFixed(2));
+  const total = parseFloat(row.total) || parseFloat((subtotal + taxAmount).toFixed(2));
+
+  await db.query(
+    `INSERT INTO invoices
+       (client_id, contract_id, invoice_number,
+        issue_date, due_date, subtotal, tax_rate, tax_amount, total, notes, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      row.client_id,
+      row.contract_id || null,
+      row.invoice_number,
+      row.issue_date,
+      row.due_date,
+      subtotal,
+      taxRate,
+      taxAmount,
+      total,
+      row.notes || null,
+      status,
+    ],
+  );
+  return null;
+}
+
+/**
+ * POST /api/import/invoices
+ * Import invoices from CSV.
+ * Required columns: client_id, invoice_number, issue_date, due_date
+ * Optional columns: contract_id, subtotal, tax_rate, tax_amount, total, notes, status
+ */
+async function importInvoices(req, res, next) {
+  try {
+    if (!req.body.csv) {
+      return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'csv field is required' } });
+    }
+
+    const rows = parseCsv(req.body.csv);
+    let imported = 0;
+    const errors = [];
+    const rowCount = rows.length;
+
+    for (let i = 0; i < rowCount; i++) {
+      const row = rows[i];
+      try {
+        const err = await insertInvoiceRow(row);
+        if (err) {
+          errors.push({ row: i + 2, error: err });
+        } else {
+          imported++;
+        }
+      } catch (dbErr) {
+        errors.push({ row: i + 2, error: dbErr.message });
+      }
+    }
+
+    res.json({ data: { imported, total: rowCount, errors } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/import/invoices/upload
+ * Import invoices from an uploaded CSV or XLSX file.
+ */
+async function importInvoicesFile(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'file is required' } });
+    }
+
+    const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
+    let imported = 0;
+    const errors = [];
+    const rowCount = rows.length;
+
+    for (let i = 0; i < rowCount; i++) {
+      const row = rows[i];
+      try {
+        const err = await insertInvoiceRow(row);
+        if (err) {
+          errors.push({ row: i + 2, error: err });
+        } else {
+          imported++;
+        }
+      } catch (dbErr) {
+        errors.push({ row: i + 2, error: dbErr.message });
+      }
+    }
+
+    res.json({ data: { imported, total: rowCount, errors } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Payment import helpers
+// ---------------------------------------------------------------------------
+
+const VALID_PAYMENT_METHODS = new Set([
+  'cash', 'check', 'credit_card', 'debit_card', 'bank_transfer',
+  'oxxo_pay', 'spei', 'codi', 'convenience_store', 'digital_wallet', 'other',
+]);
+
+/**
+ * Insert one payment row from a parsed row object.
+ * Returns null on success, or an error message string.
+ */
+async function insertPaymentRow(row) {
+  if (!row.client_id) return 'client_id is required';
+  if (!row.amount) return 'amount is required';
+  if (!row.payment_date) return 'payment_date is required';
+
+  const method = row.payment_method || 'cash';
+  if (!VALID_PAYMENT_METHODS.has(method)) {
+    return `payment_method must be one of: ${[...VALID_PAYMENT_METHODS].join(', ')}`;
+  }
+
+  const amount = parseFloat(row.amount);
+  if (isNaN(amount) || amount <= 0) return 'amount must be a positive number';
+
+  await db.query(
+    `INSERT INTO payments
+       (client_id, invoice_id, amount, payment_date,
+        payment_method, sat_forma_pago, reference_number, clabe, bank_name, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      row.client_id,
+      row.invoice_id || null,
+      amount,
+      row.payment_date,
+      method,
+      row.sat_forma_pago || null,
+      row.reference_number || null,
+      row.clabe || null,
+      row.bank_name || null,
+      row.notes || null,
+    ],
+  );
+  return null;
+}
+
+/**
+ * POST /api/import/payments
+ * Import payments from CSV.
+ * Required columns: client_id, amount, payment_date
+ * Optional columns: invoice_id, payment_method, sat_forma_pago, reference_number, clabe, bank_name, notes
+ */
+async function importPayments(req, res, next) {
+  try {
+    if (!req.body.csv) {
+      return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'csv field is required' } });
+    }
+
+    const rows = parseCsv(req.body.csv);
+    let imported = 0;
+    const errors = [];
+    const rowCount = rows.length;
+
+    for (let i = 0; i < rowCount; i++) {
+      const row = rows[i];
+      try {
+        const err = await insertPaymentRow(row);
+        if (err) {
+          errors.push({ row: i + 2, error: err });
+        } else {
+          imported++;
+        }
+      } catch (dbErr) {
+        errors.push({ row: i + 2, error: dbErr.message });
+      }
+    }
+
+    res.json({ data: { imported, total: rowCount, errors } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/import/payments/upload
+ * Import payments from an uploaded CSV or XLSX file.
+ */
+async function importPaymentsFile(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'file is required' } });
+    }
+
+    const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
+    let imported = 0;
+    const errors = [];
+    const rowCount = rows.length;
+
+    for (let i = 0; i < rowCount; i++) {
+      const row = rows[i];
+      try {
+        const err = await insertPaymentRow(row);
+        if (err) {
+          errors.push({ row: i + 2, error: err });
+        } else {
+          imported++;
+        }
+      } catch (dbErr) {
+        errors.push({ row: i + 2, error: dbErr.message });
+      }
+    }
+
+    res.json({ data: { imported, total: rowCount, errors } });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   importClients,
   importDevices,
@@ -385,6 +624,10 @@ module.exports = {
   importClientsFile,
   importDevicesFile,
   importContractsFile,
+  importInvoices,
+  importInvoicesFile,
+  importPayments,
+  importPaymentsFile,
   parseCsv,
   parseCsvLine,
   parseXlsx,
