@@ -80,7 +80,7 @@
 ### 1.7 — Pre-deployment Safety _(moved up — needed before UAT/launch)_
 - ✅ Add database backup cron job (mysqldump → S3/B2 daily)
 - ✅ Build import tool for existing ISP data (clients, contracts, devices from CSV/Excel)
-- ⬜ Build import tool for legacy billing system (invoices, payments)
+- ✅ Build import tool for legacy billing system (invoices, payments)
 - ⬜ Document data migration runbook in `/docs/data-migration.md`
 
 ---
@@ -213,3 +213,4 @@
 | 2026-04-18 | 1.6 | Automated billing cycle: invoice emails, suspension warnings, post-suspension emails, billing_cycle orchestrator task | #TBD |
 | 2026-04-18 | 1.7 | Database backup cron job: mysqldump → gzip → S3/B2 daily (migration 156, cloudStorageService, SigV4 auth) | #TBD |
 | 2026-04-18 | 1.7 | Import tool: clients, contracts, devices from CSV/Excel (XLSX); file-upload endpoints + exceljs parser | #TBD |
+| 2026-04-20 | 1.7 | Import tool for legacy billing: invoices & payments from CSV/Excel; JSON + file-upload endpoints | #TBD |

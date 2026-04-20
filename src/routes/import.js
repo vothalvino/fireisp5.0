@@ -56,6 +56,8 @@ function uploadImportFile(req, res, next) {
 router.post('/clients', requirePermission('clients.create'), validate(importSchemas.importCsv), importController.importClients);
 router.post('/devices', requirePermission('devices.create'), validate(importSchemas.importCsv), importController.importDevices);
 router.post('/contracts', requirePermission('contracts.create'), validate(importSchemas.importCsv), importController.importContracts);
+router.post('/invoices', requirePermission('invoices.create'), validate(importSchemas.importCsv), importController.importInvoices);
+router.post('/payments', requirePermission('payments.create'), validate(importSchemas.importCsv), importController.importPayments);
 
 // ---------------------------------------------------------------------------
 // File upload routes (multipart/form-data, field "file", .csv or .xlsx)
@@ -63,5 +65,7 @@ router.post('/contracts', requirePermission('contracts.create'), validate(import
 router.post('/clients/upload', requirePermission('clients.create'), uploadImportFile, importController.importClientsFile);
 router.post('/devices/upload', requirePermission('devices.create'), uploadImportFile, importController.importDevicesFile);
 router.post('/contracts/upload', requirePermission('contracts.create'), uploadImportFile, importController.importContractsFile);
+router.post('/invoices/upload', requirePermission('invoices.create'), uploadImportFile, importController.importInvoicesFile);
+router.post('/payments/upload', requirePermission('payments.create'), uploadImportFile, importController.importPaymentsFile);
 
 module.exports = router;
