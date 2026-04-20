@@ -441,8 +441,9 @@ async function importInvoices(req, res, next) {
     const rows = parseCsv(req.body.csv);
     let imported = 0;
     const errors = [];
+    const rowCount = rows.length;
 
-    for (let i = 0; i < rows.length; i++) {
+    for (let i = 0; i < rowCount; i++) {
       const row = rows[i];
       try {
         const err = await insertInvoiceRow(row);
@@ -456,7 +457,7 @@ async function importInvoices(req, res, next) {
       }
     }
 
-    res.json({ data: { imported, total: rows.length, errors } });
+    res.json({ data: { imported, total: rowCount, errors } });
   } catch (err) {
     next(err);
   }
@@ -475,8 +476,9 @@ async function importInvoicesFile(req, res, next) {
     const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
     let imported = 0;
     const errors = [];
+    const rowCount = rows.length;
 
-    for (let i = 0; i < rows.length; i++) {
+    for (let i = 0; i < rowCount; i++) {
       const row = rows[i];
       try {
         const err = await insertInvoiceRow(row);
@@ -490,7 +492,7 @@ async function importInvoicesFile(req, res, next) {
       }
     }
 
-    res.json({ data: { imported, total: rows.length, errors } });
+    res.json({ data: { imported, total: rowCount, errors } });
   } catch (err) {
     next(err);
   }
@@ -558,8 +560,9 @@ async function importPayments(req, res, next) {
     const rows = parseCsv(req.body.csv);
     let imported = 0;
     const errors = [];
+    const rowCount = rows.length;
 
-    for (let i = 0; i < rows.length; i++) {
+    for (let i = 0; i < rowCount; i++) {
       const row = rows[i];
       try {
         const err = await insertPaymentRow(row);
@@ -573,7 +576,7 @@ async function importPayments(req, res, next) {
       }
     }
 
-    res.json({ data: { imported, total: rows.length, errors } });
+    res.json({ data: { imported, total: rowCount, errors } });
   } catch (err) {
     next(err);
   }
@@ -592,8 +595,9 @@ async function importPaymentsFile(req, res, next) {
     const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
     let imported = 0;
     const errors = [];
+    const rowCount = rows.length;
 
-    for (let i = 0; i < rows.length; i++) {
+    for (let i = 0; i < rowCount; i++) {
       const row = rows[i];
       try {
         const err = await insertPaymentRow(row);
@@ -607,7 +611,7 @@ async function importPaymentsFile(req, res, next) {
       }
     }
 
-    res.json({ data: { imported, total: rows.length, errors } });
+    res.json({ data: { imported, total: rowCount, errors } });
   } catch (err) {
     next(err);
   }
