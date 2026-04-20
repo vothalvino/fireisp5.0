@@ -19,21 +19,23 @@
 
 | Layer | Status | Notes |
 |---|---|---|
-| Database schema | ✅ 155 migrations, 101 tables | schema.sql synced |
-| API routes | ✅ 55+ route files | 184 OpenAPI paths |
-| Services | ✅ 24 service modules | billing, CFDI, RADIUS, payments, etc. |
+| Database schema | ✅ 156 migrations, 108 tables | schema.sql synced |
+| API routes | ✅ 69 route files | 184 OpenAPI paths |
+| Services | ✅ 27 service modules | billing, CFDI, RADIUS, payments, etc. |
 | Middleware | ✅ Auth, RBAC, validation, rate limiting | circuit breaker added |
-| Tests | ✅ 77.5% coverage | 162 integration tests |
-| Frontend (SPA) | 🟡 30 pages scaffolded in `/public` | Needs real UI framework |
-| Docs | ✅ 16 doc files in `/docs` | architecture, API guide, runbook |
+| Tests | ✅ 2021 Jest tests / 83 suites | 13 supertest-based integration files |
+| Frontend (SPA) | 🟡 Legacy vanilla-JS SPA shell in `/public` (56 routes registered in `js/pages.js`) | To be replaced — see Milestone 2 |
+| Docs | ✅ 17 doc files in `/docs` | architecture, API guide, runbook, data-migration |
 | Infrastructure | 🟡 Docker + K8s manifests exist | Not production-validated |
 | CI/CD | ✅ GitHub Actions pipeline | lint + test on push |
 
 ---
 
-## Milestone 1: Production-Ready Backend
+## Milestone 1: Production-Ready Backend ✅ COMPLETE (2026-04-20)
 
 > Goal: The API server can be deployed and handle real ISP operations reliably.
+> All sub-items below shipped. Backend is feature-complete for first deployment;
+> remaining production work lives in Milestone 4.
 
 ### 1.1 — Data Integrity & Migrations
 - ✅ Complete schema through migration 150
@@ -88,15 +90,19 @@
 ## Milestone 2: Frontend Application
 
 > Goal: Admin panel is usable by real ISP operators, not just API consumers.
+> Note: the existing `/public` directory is a legacy vanilla-JS SPA shell. It will be **replaced**, not extended, by the work below. Leave it in place until the new frontend reaches feature parity for Milestone 2.2 pages, then remove.
 
 ### 2.1 — Framework & Tooling
-- ⬜ Choose and scaffold frontend framework (React/Vue/Svelte) in `/frontend`
-- ⬜ Set up Vite build pipeline + proxy to API in development
-- ⬜ Add shared API client (auto-generated from `/docs/openapi.json`)
-- ⬜ Add auth flow (login → store JWT → refresh → logout)
-- ⬜ Add role-based UI routing (admin sees everything, technician sees limited)
+- ⬜ **Pick the frontend framework** (React + TypeScript / Vue 3 / SvelteKit) — record decision in `/docs/adr/0001-frontend-framework.md` with rationale (team familiarity, ecosystem, SSR need). Blocks every item below.
+- ⬜ Audit and regenerate `/docs/openapi.json` against the 69 route files (the spec is the contract for the auto-generated client; verify it matches reality before generating)
+- ⬜ Validate `/healthz` returns 200 with DB+Redis status _(moved from 4.1 — needed by frontend dev proxy and load balancer alike)_
+- ⬜ Scaffold chosen framework in `/frontend` with Vite + dev proxy to API
+- ⬜ Generate typed API client from `/docs/openapi.json` and wire into `/frontend`
+- ⬜ Implement auth flow (login → store JWT → silent refresh on 401 → logout)
+- ⬜ Implement role-based UI routing (admin sees everything, technician sees limited)
 
 ### 2.2 — Core Pages (MVP)
+> **Definition of done for M2:** an operator can onboard a client, generate and send an invoice, record a payment, open a ticket, and check device status — all without ever calling the API directly.
 - ⬜ Dashboard (KPIs: active clients, MRR, overdue invoices, open tickets, device uptime)
 - ⬜ Client list + detail (contracts, invoices, payments, devices, ledger)
 - ⬜ Contract management (create, renew, suspend, cancel)
@@ -105,6 +111,7 @@
 - ⬜ Ticket list + detail (create, assign, comment, close)
 - ⬜ Device/network map (sites, links, SNMP status)
 - ⬜ User management (create, assign roles, enable 2FA)
+- ⬜ Remove legacy `/public` SPA once parity is reached
 
 ### 2.3 — Advanced Pages (Post-MVP)
 - ⬜ CFDI management (stamp, cancel, download XML/PDF)
@@ -122,8 +129,8 @@
 
 ### 3.1 — FireRelay (Remote Router Management)
 - ✅ FireRelay service architecture + clustering design
-- ⬜ Implement FireRelay agent (Node.js process that runs at remote POP sites)
 - ⬜ Implement WebSocket tunnel between agent and central server
+- ⬜ Implement FireRelay agent process (Node.js) that runs at remote POP sites and connects via the tunnel
 - ⬜ Add RouterOS API commands: PPPoE create/delete, queue set, address-list add/remove
 - ⬜ Add config backup pull (automated nightly backup via agent)
 - ⬜ Test with real MikroTik hAP (lab environment)
@@ -151,15 +158,13 @@
 - ⬜ Add production docker-compose (with MySQL replication, Redis, Nginx reverse proxy)
 - ⬜ Add TLS termination config (Let's Encrypt / Cloudflare)
 - ⬜ Implement IP allowlist for admin endpoints _(moved from 1.3 — network-layer firewalls preferred; existing auth stack is strong)_
-- ⬜ Add health check endpoint for load balancer (`/healthz` already exists, validate it)
 - ⬜ Load test API with realistic ISP workload (500 clients, 5000 invoices, 100 devices)
 
 ### 4.2 — Observability
 - ✅ Prometheus metrics endpoint
 - ✅ Add structured JSON logging across all services (Pino JSON logger adopted; 28+ services use it)
 - ✅ Add request tracing (requestId middleware already correlates across logs)
-- ⬜ Build Grafana dashboards using `/docs/grafana` templates _(moved from 3.2 — belongs with observability)_
-- ⬜ Set up Grafana dashboard for API latency, error rates, DB query times
+- ⬜ Build Grafana dashboards for API latency, error rates, and DB query times — start from `/docs/grafana` templates _(consolidated from 3.2 + 4.2 duplicate)_
 - ⬜ Add Sentry or equivalent error tracking
 
 ---
@@ -215,3 +220,4 @@
 | 2026-04-18 | 1.7 | Import tool: clients, contracts, devices from CSV/Excel (XLSX); file-upload endpoints + exceljs parser | #TBD |
 | 2026-04-20 | 1.7 | Import tool for legacy billing: invoices & payments from CSV/Excel; JSON + file-upload endpoints | #TBD |
 | 2026-04-20 | 1.7 | Data migration runbook: pre-migration checklist, import order, column reference, verification queries, rollback | #TBD |
+| 2026-04-20 | — | Roadmap deep-dive refresh: corrected Status Snapshot counts (155→156 migrations, 101→108 tables, 55+→69 routes, 24→27 services, 16→17 docs, frontend & tests rows); marked M1 complete; sharpened M2.1 (framework decision ADR, OpenAPI audit, `/healthz` validation moved up, legacy `/public` retirement); added M2 MVP definition-of-done; collapsed redundant FireRelay parent bullet in 3.1; de-duplicated Grafana items in 4.2 | #TBD |
