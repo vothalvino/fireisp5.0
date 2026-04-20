@@ -1,0 +1,201 @@
+// =============================================================================
+// FireISP 5.0 — Auth Context
+// =============================================================================
+// Manages:
+//   • Login  — POST /auth/login → store access token in memory, refresh in localStorage
+//   • Logout — POST /auth/logout → clear tokens
+//   • me()   — GET /auth/me → hydrate user profile + roles on mount
+//   • Silent refresh is handled transparently by the API client middleware
+// =============================================================================
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { tokenStore } from '@/api/client';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface AuthUser {
+  id: number;
+  email: string;
+  name: string;
+  role: string;        // primary role slug, e.g. "admin" | "technician" | "billing" | "support"
+  roles?: string[];    // all roles the user belongs to
+  organization_id: number | null;
+  is_active: boolean;
+  email_verified: boolean;
+  twofa_enabled: boolean;
+}
+
+interface AuthState {
+  user: AuthUser | null;
+  /** true while the initial /auth/me call is in flight */
+  loading: boolean;
+  /** true after the first /auth/me attempt completes (success or failure) */
+  initialized: boolean;
+}
+
+interface AuthContextValue extends AuthState {
+  login: (email: string, password: string, totpCode?: string) => Promise<void>;
+  logout: () => Promise<void>;
+  /** Call after an external token change (e.g., impersonation) to re-hydrate user */
+  refresh: () => Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// Context
+// ---------------------------------------------------------------------------
+
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+// ---------------------------------------------------------------------------
+// Provider
+// ---------------------------------------------------------------------------
+
+interface LoginResponse {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  user: AuthUser;
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<AuthState>({
+    user: null,
+    loading: true,
+    initialized: false,
+  });
+
+  // Fetch /auth/me with the current access token.
+  const hydrateUser = useCallback(async () => {
+    setState(s => ({ ...s, loading: true }));
+    try {
+      const res = await fetch('/api/v1/auth/me', {
+        headers: tokenStore.getAccess()
+          ? { Authorization: `Bearer ${tokenStore.getAccess()}` }
+          : {},
+      });
+      if (res.ok) {
+        const json = (await res.json()) as { data: AuthUser };
+        setState({ user: json.data, loading: false, initialized: true });
+      } else {
+        tokenStore.clear();
+        setState({ user: null, loading: false, initialized: true });
+      }
+    } catch {
+      tokenStore.clear();
+      setState({ user: null, loading: false, initialized: true });
+    }
+  }, []);
+
+  // On mount: attempt silent restore from refresh token stored in localStorage.
+  const booted = useRef(false);
+  useEffect(() => {
+    if (booted.current) return;
+    booted.current = true;
+
+    const refreshToken = tokenStore.getRefresh();
+    if (!refreshToken) {
+      setState({ user: null, loading: false, initialized: true });
+      return;
+    }
+
+    // Try to get a new access token silently.
+    (async () => {
+      try {
+        const res = await fetch('/api/v1/auth/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        });
+        if (res.ok) {
+          const json = (await res.json()) as {
+            data: { accessToken: string; refreshToken: string };
+          };
+          tokenStore.setAccess(json.data.accessToken);
+          tokenStore.setRefresh(json.data.refreshToken);
+          await hydrateUser();
+        } else {
+          tokenStore.clear();
+          setState({ user: null, loading: false, initialized: true });
+        }
+      } catch {
+        tokenStore.clear();
+        setState({ user: null, loading: false, initialized: true });
+      }
+    })();
+  }, [hydrateUser]);
+
+  const login = useCallback(
+    async (email: string, password: string, totpCode?: string) => {
+      const body: Record<string, unknown> = { email, password };
+      if (totpCode) body.totpCode = totpCode;
+
+      const res = await fetch('/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as {
+          error?: { message?: string };
+        };
+        throw new Error(err.error?.message ?? 'Login failed');
+      }
+
+      const json = (await res.json()) as { data: LoginResponse };
+      tokenStore.setAccess(json.data.accessToken);
+      tokenStore.setRefresh(json.data.refreshToken);
+
+      setState({ user: json.data.user, loading: false, initialized: true });
+    },
+    [],
+  );
+
+  const logout = useCallback(async () => {
+    try {
+      const accessToken = tokenStore.getAccess();
+      const refreshToken = tokenStore.getRefresh();
+      if (accessToken) {
+        await fetch('/api/v1/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ refreshToken }),
+        });
+      }
+    } finally {
+      tokenStore.clear();
+      setState({ user: null, loading: false, initialized: true });
+    }
+  }, []);
+
+  const value = useMemo<AuthContextValue>(
+    () => ({ ...state, login, logout, refresh: hydrateUser }),
+    [state, login, logout, hydrateUser],
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+// ---------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------
+
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used inside <AuthProvider>');
+  return ctx;
+}
