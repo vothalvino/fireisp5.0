@@ -105,7 +105,7 @@
 > **Definition of done for M2:** an operator can onboard a client, generate and send an invoice, record a payment, open a ticket, and check device status — all without ever calling the API directly.
 - ✅ Dashboard (KPIs: active clients, MRR, overdue invoices, open tickets, device uptime)
 - ✅ Client list + detail (contracts, invoices, payments, devices, ledger)
-- ⬜ Contract management (create, renew, suspend, cancel)
+- ✅ Contract management (create, renew, suspend, cancel)
 - ⬜ Invoice list + detail (generate, send email, download PDF, record payment)
 - ⬜ Payment recording (manual entry + payment gateway status)
 - ⬜ Ticket list + detail (create, assign, comment, close)
@@ -224,3 +224,4 @@
 | 2026-04-20 | 2.1 | Frontend framework: React + TypeScript ADR; /auth/refresh added to OpenAPI spec (185 paths); /healthz endpoint (DB+Redis); React+TS+Vite scaffold in /frontend; openapi-fetch typed client; AuthContext (JWT in memory, refresh token in localStorage, silent refresh on 401); PrivateRoute role guard (admin/billing/technician/support/read-only) | #TBD |
 | 2026-04-20 | 2.2 | Dashboard KPI page: active clients, MRR, overdue invoices, open tickets, device uptime cards + overdue invoices table; fetches /dashboard/summary, /dashboard/mrr, /dashboard/device-health, /dashboard/overdue via React Query | #TBD |
 | 2026-04-21 | 2.2 | Client list + detail: searchable/paginated ClientList; ClientDetail with 5 tabs (Contracts, Invoices, Payments, Devices, Ledger); status badges; breadcrumb nav | #TBD |
+| 2026-04-21 | 2.2 | Contract management: ContractList page with status filter, pagination, New Contract modal (client+plan+type+dates+IP), Renew modal (reactivate + set end date), Suspend/Cancel confirmation dialogs with per-row action buttons | #TBD |
