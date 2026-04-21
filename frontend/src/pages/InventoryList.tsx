@@ -537,16 +537,16 @@ function TransactionModal({ item, preselectedStockId, onClose, onRecorded }: Tra
             ))}
           </select>
 
-          <label style={labelStyle}>Quantity *</label>
+          <label style={labelStyle}>Quantity *{txType === 'adjustment' ? ' (use negative to decrease stock)' : ''}</label>
           <input
             style={inputStyle}
             type="number"
-            min="1"
+            min={txType === 'adjustment' ? undefined : '1'}
             step="1"
             value={quantity}
             onChange={e => setQuantity(e.target.value)}
             required
-            placeholder="e.g. 10"
+            placeholder={txType === 'adjustment' ? 'e.g. -5 or 10' : 'e.g. 10'}
           />
 
           <label style={labelStyle}>Unit Price (MXN)</label>

@@ -337,6 +337,7 @@ function WarehouseStockModal({ warehouse, onClose }: WarehouseStockModalProps) {
                       {[row.aisle, row.col, row.shelf].filter(Boolean).join(' / ') || '—'}
                     </td>
                     <td style={{ ...td, fontWeight: 700 }}>
+                      {/* Use qty<=0 as red; qty<=5 as amber warning (reorder_level not in this response) */}
                       <span style={{ color: row.quantity <= 0 ? '#dc2626' : row.quantity <= 5 ? '#d97706' : '#065f46' }}>
                         {row.quantity}
                       </span>
