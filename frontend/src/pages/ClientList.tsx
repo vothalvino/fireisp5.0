@@ -40,17 +40,18 @@ const PAGE_SIZE = 20;
 
 async function fetchClients(page: number, search: string): Promise<ClientsResponse> {
   const params: Record<string, string | number> = { page, limit: PAGE_SIZE };
-  // The list endpoint supports filtering by any fillable column.
-  // We pass search as `name` — note: the API does exact match, so for search
-  // we fetch a large set and filter client-side when a search term is present.
   if (!search) {
     const res = await api.GET('/clients', { params: { query: params as never } });
     if (res.error) throw new Error('Failed to load clients');
     return res.data as unknown as ClientsResponse;
   }
-  // Fetch without filter, search client-side (works well for typical ISP scale).
+  // Fetch a large page then filter client-side by name/email/city.
+  // The backend list endpoint supports only exact-match column filters, not
+  // LIKE/full-text search, so client-side filtering is necessary here.
+  // The limit of 500 covers typical single-ISP deployments; if the client
+  // base grows larger, server-side search should be added to the API.
   const res = await api.GET('/clients', {
-    params: { query: { page: 1, limit: 100 } as never },
+    params: { query: { page: 1, limit: 500 } as never },
   });
   if (res.error) throw new Error('Failed to load clients');
   const all = res.data as unknown as ClientsResponse;
