@@ -30,7 +30,7 @@ import { tokenStore } from '@/api/client';
 // Types
 // ---------------------------------------------------------------------------
 
-type Tab = 'revenue' | 'growth' | 'aging' | 'ift';
+type Tab = 'revenue' | 'growth' | 'aging' | 'ift' | 'technicians';
 
 // Revenue
 interface FinancialData {
@@ -85,6 +85,23 @@ interface AgingData {
   total_outstanding: number;
   invoice_count: number;
   details: AgingInvoice[];
+}
+
+// Technician productivity
+interface TechnicianRow {
+  user_id: number;
+  first_name: string;
+  last_name: string;
+  total_jobs: number;
+  completed: number;
+  cancelled: number;
+  in_progress: number;
+  avg_completion_hours: number | null;
+}
+interface TechnicianData {
+  generated_at: string;
+  period: { from: string; to: string };
+  technicians: TechnicianRow[];
 }
 
 // IFT statistical
@@ -318,7 +335,7 @@ function GrowthTab() {
 
   const totalNew = newVals.reduce((a, b) => a + b, 0);
   const totalChurn = churnVals.reduce((a, b) => a + b, 0);
-  const churnRate = totalNew > 0 ? ((totalChurn / totalNew) * 100).toFixed(1) : '—';
+  const churnRatio = totalNew > 0 ? ((totalChurn / totalNew) * 100).toFixed(1) : '—';
 
   return (
     <div style={styles.tabContent}>
@@ -338,7 +355,7 @@ function GrowthTab() {
             <KpiCard label="New Contracts" value={String(totalNew)} sub={`${applied}-month total`} color="#27ae60" />
             <KpiCard label="Churned" value={String(totalChurn)} sub={`${applied}-month total`} color="#e74c3c" />
             <KpiCard label="Net Growth" value={String(totalNew - totalChurn)} sub="New − Churned" color={totalNew - totalChurn >= 0 ? '#27ae60' : '#e74c3c'} />
-            <KpiCard label="Churn Rate" value={`${churnRate}%`} sub="Churned / New" color="#e67e22" />
+            <KpiCard label="Churn Ratio" value={churnRatio === '—' ? '—' : `${churnRatio}%`} sub="Churned ÷ New" color="#e67e22" />
           </div>
 
           <h3 style={styles.sectionTitle}>Monthly Subscriber Trend</h3>
@@ -667,6 +684,87 @@ function IftTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Tab: Technician Productivity
+// ---------------------------------------------------------------------------
+
+function TechnicianTab() {
+  const today = new Date().toISOString().slice(0, 10);
+  const firstOfMonth = today.slice(0, 7) + '-01';
+  const [from, setFrom] = useState(firstOfMonth);
+  const [to, setTo] = useState(today);
+  const [applied, setApplied] = useState<{ from: string; to: string }>({ from: firstOfMonth, to: today });
+
+  const { data, isFetching, error } = useQuery<{ data: TechnicianData }>({
+    queryKey: ['reports', 'technicians', applied],
+    queryFn: () => apiFetch(`/reports/technicians?from=${applied.from}&to=${applied.to}`),
+  });
+
+  function handleApply(e: FormEvent) {
+    e.preventDefault();
+    setApplied({ from, to });
+  }
+
+  const techs = data?.data?.technicians ?? [];
+  const totalCompleted = techs.reduce((a, t) => a + Number(t.completed), 0);
+  const totalJobs = techs.reduce((a, t) => a + Number(t.total_jobs), 0);
+  const avgHours = techs.length > 0
+    ? (techs.reduce((a, t) => a + (t.avg_completion_hours ?? 0), 0) / techs.length).toFixed(1)
+    : '—';
+
+  return (
+    <div style={styles.tabContent}>
+      <form onSubmit={handleApply} style={styles.filterRow}>
+        <label style={styles.label}>From</label>
+        <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={styles.input} />
+        <label style={styles.label}>To</label>
+        <input type="date" value={to} onChange={e => setTo(e.target.value)} style={styles.input} />
+        <button type="submit" style={styles.btn}>Apply</button>
+      </form>
+
+      {isFetching && <p style={styles.muted}>Loading…</p>}
+      {error && <p style={styles.error}>{String(error)}</p>}
+      {data && (
+        <>
+          <div style={styles.kpiRow}>
+            <KpiCard label="Total Jobs" value={String(totalJobs)} sub={`${applied.from} – ${applied.to}`} color="#4a90e2" />
+            <KpiCard label="Completed" value={String(totalCompleted)} sub={totalJobs > 0 ? pct(totalCompleted, totalJobs) + ' completion' : '—'} color="#27ae60" />
+            <KpiCard label="Avg Completion" value={avgHours === '—' ? '—' : `${avgHours}h`} sub="Across technicians" color="#9b59b6" />
+            <KpiCard label="Technicians" value={String(techs.length)} sub="With assigned jobs" color="#e67e22" />
+          </div>
+
+          <h3 style={styles.sectionTitle}>Per-Technician Breakdown</h3>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                {['Technician', 'Total', 'Completed', 'In Progress', 'Cancelled', 'Avg Completion'].map(h => (
+                  <th key={h} style={styles.th}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {techs.map(t => (
+                <tr key={t.user_id}>
+                  <td style={styles.td}>{t.first_name} {t.last_name}</td>
+                  <td style={styles.td}>{t.total_jobs}</td>
+                  <td style={{ ...styles.td, color: '#27ae60', fontWeight: 600 }}>{t.completed}</td>
+                  <td style={styles.td}>{t.in_progress}</td>
+                  <td style={{ ...styles.td, color: '#e74c3c' }}>{t.cancelled}</td>
+                  <td style={styles.td}>{t.avg_completion_hours != null ? `${t.avg_completion_hours}h` : '—'}</td>
+                </tr>
+              ))}
+              {techs.length === 0 && (
+                <tr><td colSpan={6} style={{ ...styles.td, textAlign: 'center', color: '#999' }}>No data for this period</td></tr>
+              )}
+            </tbody>
+          </table>
+          {data.data && <p style={styles.muted}>Generated {new Date(data.data.generated_at).toLocaleString()}</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // KPI card
 // ---------------------------------------------------------------------------
 
@@ -720,6 +818,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'growth', label: '📈 Subscriber Growth' },
   { key: 'aging', label: '⏳ AR Aging' },
   { key: 'ift', label: '🏛️ IFT Statistical' },
+  { key: 'technicians', label: '🔧 Technicians' },
 ];
 
 export function Reports() {
@@ -745,6 +844,7 @@ export function Reports() {
       {tab === 'growth' && <GrowthTab />}
       {tab === 'aging' && <AgingTab />}
       {tab === 'ift' && <IftTab />}
+      {tab === 'technicians' && <TechnicianTab />}
     </div>
   );
 }
