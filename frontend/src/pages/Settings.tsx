@@ -1,0 +1,840 @@
+// =============================================================================
+// FireISP 5.0 — Settings Page
+// =============================================================================
+// Admin-only page at /settings. Provides four tabs:
+//
+//   1. Org Config       — key/value settings from GET/PUT /api/v1/settings
+//   2. Email Templates  — CRUD on message templates via /api/v1/message-templates
+//   3. Alert Rules      — CRUD on alert rules via /api/v1/alerts/rules
+//   4. Payment Gateways — CRUD on payment gateways via /api/v1/payment-gateways
+// =============================================================================
+
+import { useState } from 'react';
+import type { FormEvent } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { tokenStore } from '@/api/client';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type SettingsTab = 'orgConfig' | 'emailTemplates' | 'alertRules' | 'paymentGateways';
+
+interface Setting {
+  key: string;
+  value: string | null;
+  description?: string;
+}
+
+interface MessageTemplate {
+  id: number;
+  name: string;
+  channel: string;
+  subject: string | null;
+  body: string;
+  variables: string | null;
+  created_at: string;
+}
+
+interface AlertRule {
+  id: number;
+  name: string;
+  description: string | null;
+  metric: string;
+  operator: string;
+  threshold: number;
+  device_id: number | null;
+  duration_minutes: number;
+  severity: string;
+  auto_create_outage: boolean;
+  is_enabled: boolean;
+  created_at: string;
+}
+
+interface PaymentGateway {
+  id: number;
+  provider: string;
+  label: string | null;
+  environment: string;
+  public_key: string | null;
+  webhook_secret: string | null;
+  status: string;
+  created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const API_BASE = '/api/v1';
+const CHANNELS = ['email', 'sms', 'whatsapp', 'push'];
+const METRICS = ['bandwidth_in', 'bandwidth_out', 'cpu', 'memory', 'signal', 'latency', 'uptime'];
+const OPERATORS = ['>', '>=', '<', '<=', '='];
+const SEVERITIES = ['critical', 'major', 'minor', 'warning'];
+const PROVIDERS = ['stripe', 'conekta', 'openpay', 'mercadopago', 'paypal', 'manual', 'other'];
+const ENVIRONMENTS = ['sandbox', 'production'];
+
+// ---------------------------------------------------------------------------
+// API helpers
+// ---------------------------------------------------------------------------
+
+function authHeaders(): Record<string, string> {
+  const token = tokenStore.getAccess();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(init?.headers ?? {}) },
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+    throw new Error(body.error ?? body.message ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+// ---------------------------------------------------------------------------
+// Org Config tab
+// ---------------------------------------------------------------------------
+
+function OrgConfigTab() {
+  const [editKey, setEditKey] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const qc = useQueryClient();
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => apiFetch<{ data: Setting[] }>(`${API_BASE}/settings`),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ key, value }: { key: string; value: string }) =>
+      apiFetch(`${API_BASE}/settings/${encodeURIComponent(key)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ value }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] });
+      setEditKey(null);
+      setSaveError('');
+    },
+    onError: (err: Error) => setSaveError(err.message),
+  });
+
+  if (isLoading) return <p style={sty.muted}>Loading settings…</p>;
+  if (error) return <p style={sty.errorText}>Failed to load settings.</p>;
+
+  const settings = data?.data ?? [];
+
+  function startEdit(setting: Setting) {
+    setEditKey(setting.key);
+    setEditValue(setting.value ?? '');
+    setSaveError('');
+  }
+
+  return (
+    <div>
+      <h3 style={sty.sectionTitle}>Organization Settings</h3>
+      {settings.length === 0 && <p style={sty.muted}>No settings found.</p>}
+      {settings.length > 0 && (
+        <table style={sty.table}>
+          <thead>
+            <tr>
+              {['Key', 'Value', 'Description', ''].map(h => (
+                <th key={h} style={sty.th}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {settings.map(setting => (
+              <tr key={setting.key}>
+                <td style={sty.td}><code style={sty.code}>{setting.key}</code></td>
+                <td style={{ ...sty.td, maxWidth: 260 }}>
+                  {editKey === setting.key ? (
+                    <input
+                      style={sty.input}
+                      value={editValue}
+                      onChange={e => setEditValue(e.target.value)}
+                    />
+                  ) : (
+                    <span style={sty.valueCap}>{setting.value ?? <em style={sty.muted}>—</em>}</span>
+                  )}
+                </td>
+                <td style={{ ...sty.td, color: '#888', fontSize: '0.82rem' }}>{setting.description ?? ''}</td>
+                <td style={sty.td}>
+                  {editKey === setting.key ? (
+                    <span style={sty.rowActions}>
+                      <button style={sty.btnPrimary} disabled={updateMutation.isPending}
+                        onClick={() => { setSaveError(''); updateMutation.mutate({ key: setting.key, value: editValue }); }}>
+                        Save
+                      </button>
+                      <button style={sty.btnGhost} onClick={() => setEditKey(null)}>Cancel</button>
+                    </span>
+                  ) : (
+                    <button style={sty.btnGhost} onClick={() => startEdit(setting)}>Edit</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {saveError && <p style={sty.errorText}>{saveError}</p>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Email Templates tab
+// ---------------------------------------------------------------------------
+
+const EMPTY_TPL = { name: '', channel: 'email', subject: '', body: '', variables: '' };
+
+function EmailTemplatesTab() {
+  const [showModal, setShowModal] = useState(false);
+  const [editing, setEditing] = useState<MessageTemplate | null>(null);
+  const [form, setForm] = useState({ ...EMPTY_TPL });
+  const [formError, setFormError] = useState('');
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const qc = useQueryClient();
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['message-templates'],
+    queryFn: () =>
+      apiFetch<{ data: MessageTemplate[]; meta: { total: number } }>(`${API_BASE}/message-templates?limit=100`),
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: (body: typeof form) =>
+      editing
+        ? apiFetch(`${API_BASE}/message-templates/${editing.id}`, { method: 'PUT', body: JSON.stringify(body) })
+        : apiFetch(`${API_BASE}/message-templates`, { method: 'POST', body: JSON.stringify(body) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['message-templates'] }); closeModal(); },
+    onError: (err: Error) => setFormError(err.message),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiFetch(`${API_BASE}/message-templates/${id}`, { method: 'DELETE' }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['message-templates'] }); setDeleteId(null); },
+  });
+
+  function openNew() { setEditing(null); setForm({ ...EMPTY_TPL }); setFormError(''); setShowModal(true); }
+  function openEdit(t: MessageTemplate) {
+    setEditing(t);
+    setForm({ name: t.name, channel: t.channel, subject: t.subject ?? '', body: t.body, variables: t.variables ?? '' });
+    setFormError('');
+    setShowModal(true);
+  }
+  function closeModal() { setShowModal(false); setEditing(null); }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setFormError('');
+    if (!form.name.trim()) { setFormError('Name is required'); return; }
+    if (!form.body.trim()) { setFormError('Body is required'); return; }
+    saveMutation.mutate(form);
+  }
+
+  const templates = data?.data ?? [];
+
+  return (
+    <div>
+      <div style={sty.tabBar}>
+        <h3 style={sty.sectionTitle}>Email / SMS Templates</h3>
+        <button style={sty.btnPrimary} onClick={openNew}>+ New Template</button>
+      </div>
+
+      {isLoading && <p style={sty.muted}>Loading templates…</p>}
+      {error && <p style={sty.errorText}>Failed to load templates.</p>}
+      {!isLoading && templates.length === 0 && <p style={sty.muted}>No templates defined.</p>}
+
+      {templates.length > 0 && (
+        <table style={sty.table}>
+          <thead>
+            <tr>{['Name', 'Channel', 'Subject', 'Created', ''].map(h => <th key={h} style={sty.th}>{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {templates.map(t => (
+              <tr key={t.id}>
+                <td style={sty.td}>{t.name}</td>
+                <td style={sty.td}><span style={channelBadge(t.channel)}>{t.channel}</span></td>
+                <td style={{ ...sty.td, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {t.subject ?? <em style={sty.muted}>—</em>}
+                </td>
+                <td style={sty.td}>{t.created_at.slice(0, 10)}</td>
+                <td style={sty.td}>
+                  <span style={sty.rowActions}>
+                    <button style={sty.btnGhost} onClick={() => openEdit(t)}>Edit</button>
+                    <button style={sty.btnDanger} onClick={() => setDeleteId(t.id)}>Delete</button>
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {showModal && (
+        <Modal title={editing ? 'Edit Template' : 'New Template'} onClose={closeModal}>
+          <form onSubmit={handleSubmit} style={sty.form}>
+            <label style={sty.label}>Name *
+              <input style={sty.input} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required />
+            </label>
+            <label style={sty.label}>Channel *
+              <select style={sty.select} value={form.channel} onChange={e => setForm(f => ({ ...f, channel: e.target.value }))}>
+                {CHANNELS.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <label style={sty.label}>Subject
+              <input style={sty.input} value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} />
+            </label>
+            <label style={sty.label}>
+              Body * <span style={sty.hint}>(use {'{{'+'variable'+'}}'} placeholders)</span>
+              <textarea
+                style={{ ...sty.input, height: 140, resize: 'vertical' }}
+                value={form.body}
+                onChange={e => setForm(f => ({ ...f, body: e.target.value }))}
+                required
+              />
+            </label>
+            <label style={sty.label}>Variables (comma-separated list)
+              <input style={sty.input} value={form.variables} placeholder="e.g. client_name, invoice_total"
+                onChange={e => setForm(f => ({ ...f, variables: e.target.value }))} />
+            </label>
+            {formError && <p style={sty.errorText}>{formError}</p>}
+            <div style={sty.modalFooter}>
+              <button type="button" style={sty.btnGhost} onClick={closeModal}>Cancel</button>
+              <button type="submit" style={sty.btnPrimary} disabled={saveMutation.isPending}>
+                {saveMutation.isPending ? 'Saving…' : editing ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {deleteId !== null && (
+        <ConfirmDialog
+          message="Delete this template? This cannot be undone."
+          onConfirm={() => deleteMutation.mutate(deleteId!)}
+          onCancel={() => setDeleteId(null)}
+          loading={deleteMutation.isPending}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Alert Rules tab
+// ---------------------------------------------------------------------------
+
+const EMPTY_RULE = {
+  name: '', description: '', metric: 'bandwidth_in', operator: '>',
+  threshold: '0', device_id: '', duration_minutes: '5', severity: 'major',
+  auto_create_outage: false, is_enabled: true,
+};
+
+function AlertRulesTab() {
+  const [showModal, setShowModal] = useState(false);
+  const [editing, setEditing] = useState<AlertRule | null>(null);
+  const [form, setForm] = useState({ ...EMPTY_RULE });
+  const [formError, setFormError] = useState('');
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const qc = useQueryClient();
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['alert-rules'],
+    queryFn: () =>
+      apiFetch<{ data: AlertRule[]; meta: { total: number } }>(`${API_BASE}/alerts/rules?limit=100`),
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      editing
+        ? apiFetch(`${API_BASE}/alerts/rules/${editing.id}`, { method: 'PUT', body: JSON.stringify(body) })
+        : apiFetch(`${API_BASE}/alerts/rules`, { method: 'POST', body: JSON.stringify(body) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['alert-rules'] }); closeModal(); },
+    onError: (err: Error) => setFormError(err.message),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiFetch(`${API_BASE}/alerts/rules/${id}`, { method: 'DELETE' }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['alert-rules'] }); setDeleteId(null); },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, is_enabled }: { id: number; is_enabled: boolean }) =>
+      apiFetch(`${API_BASE}/alerts/rules/${id}`, { method: 'PUT', body: JSON.stringify({ is_enabled }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['alert-rules'] }),
+  });
+
+  function openNew() { setEditing(null); setForm({ ...EMPTY_RULE }); setFormError(''); setShowModal(true); }
+  function openEdit(r: AlertRule) {
+    setEditing(r);
+    setForm({
+      name: r.name, description: r.description ?? '', metric: r.metric,
+      operator: r.operator, threshold: String(r.threshold),
+      device_id: r.device_id ? String(r.device_id) : '',
+      duration_minutes: String(r.duration_minutes),
+      severity: r.severity, auto_create_outage: r.auto_create_outage, is_enabled: r.is_enabled,
+    });
+    setFormError(''); setShowModal(true);
+  }
+  function closeModal() { setShowModal(false); setEditing(null); }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setFormError('');
+    if (!form.name.trim()) { setFormError('Name is required'); return; }
+    const threshold = parseFloat(form.threshold);
+    if (isNaN(threshold)) { setFormError('Threshold must be a number'); return; }
+    saveMutation.mutate({
+      name: form.name, description: form.description || undefined,
+      metric: form.metric, operator: form.operator, threshold,
+      device_id: form.device_id ? parseInt(form.device_id, 10) : undefined,
+      duration_minutes: parseInt(form.duration_minutes, 10) || 5,
+      severity: form.severity, auto_create_outage: form.auto_create_outage,
+      is_enabled: form.is_enabled,
+    });
+  }
+
+  const rules = data?.data ?? [];
+
+  return (
+    <div>
+      <div style={sty.tabBar}>
+        <h3 style={sty.sectionTitle}>Alert Rules</h3>
+        <button style={sty.btnPrimary} onClick={openNew}>+ New Rule</button>
+      </div>
+
+      {isLoading && <p style={sty.muted}>Loading rules…</p>}
+      {error && <p style={sty.errorText}>Failed to load alert rules.</p>}
+      {!isLoading && rules.length === 0 && <p style={sty.muted}>No alert rules defined.</p>}
+
+      {rules.length > 0 && (
+        <table style={sty.table}>
+          <thead>
+            <tr>{['Rule', 'Metric', 'Condition', 'Severity', 'Enabled', ''].map(h => <th key={h} style={sty.th}>{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {rules.map(r => (
+              <tr key={r.id}>
+                <td style={sty.td}>
+                  <div style={{ fontWeight: 500 }}>{r.name}</div>
+                  {r.description && <div style={{ fontSize: '0.8rem', color: '#888' }}>{r.description}</div>}
+                </td>
+                <td style={sty.td}><code style={sty.code}>{r.metric}</code></td>
+                <td style={sty.td}>{r.operator} {r.threshold} for {r.duration_minutes}m</td>
+                <td style={sty.td}><span style={severityBadge(r.severity)}>{r.severity}</span></td>
+                <td style={sty.td}>
+                  <button
+                    style={r.is_enabled ? sty.btnPrimary : sty.btnGhost}
+                    onClick={() => toggleMutation.mutate({ id: r.id, is_enabled: !r.is_enabled })}
+                    disabled={toggleMutation.isPending}
+                  >
+                    {r.is_enabled ? 'On' : 'Off'}
+                  </button>
+                </td>
+                <td style={sty.td}>
+                  <span style={sty.rowActions}>
+                    <button style={sty.btnGhost} onClick={() => openEdit(r)}>Edit</button>
+                    <button style={sty.btnDanger} onClick={() => setDeleteId(r.id)}>Delete</button>
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {showModal && (
+        <Modal title={editing ? 'Edit Alert Rule' : 'New Alert Rule'} onClose={closeModal}>
+          <form onSubmit={handleSubmit} style={sty.form}>
+            <label style={sty.label}>Name *
+              <input style={sty.input} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required />
+            </label>
+            <label style={sty.label}>Description
+              <input style={sty.input} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+            </label>
+            <div style={sty.row2}>
+              <label style={sty.label}>Metric *
+                <select style={sty.select} value={form.metric} onChange={e => setForm(f => ({ ...f, metric: e.target.value }))}>
+                  {METRICS.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </label>
+              <label style={sty.label}>Operator
+                <select style={sty.select} value={form.operator} onChange={e => setForm(f => ({ ...f, operator: e.target.value }))}>
+                  {OPERATORS.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </label>
+            </div>
+            <div style={sty.row2}>
+              <label style={sty.label}>Threshold *
+                <input style={sty.input} type="number" step="any" value={form.threshold}
+                  onChange={e => setForm(f => ({ ...f, threshold: e.target.value }))} required />
+              </label>
+              <label style={sty.label}>Duration (min)
+                <input style={sty.input} type="number" min="1" value={form.duration_minutes}
+                  onChange={e => setForm(f => ({ ...f, duration_minutes: e.target.value }))} />
+              </label>
+            </div>
+            <div style={sty.row2}>
+              <label style={sty.label}>Severity
+                <select style={sty.select} value={form.severity} onChange={e => setForm(f => ({ ...f, severity: e.target.value }))}>
+                  {SEVERITIES.map(sv => <option key={sv} value={sv}>{sv}</option>)}
+                </select>
+              </label>
+              <label style={sty.label}>Device ID (optional)
+                <input style={sty.input} type="number" value={form.device_id} placeholder="leave blank for all"
+                  onChange={e => setForm(f => ({ ...f, device_id: e.target.value }))} />
+              </label>
+            </div>
+            <div style={sty.checkRow}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.auto_create_outage}
+                  onChange={e => setForm(f => ({ ...f, auto_create_outage: e.target.checked }))} />
+                Auto-create outage when triggered
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.is_enabled}
+                  onChange={e => setForm(f => ({ ...f, is_enabled: e.target.checked }))} />
+                Enabled
+              </label>
+            </div>
+            {formError && <p style={sty.errorText}>{formError}</p>}
+            <div style={sty.modalFooter}>
+              <button type="button" style={sty.btnGhost} onClick={closeModal}>Cancel</button>
+              <button type="submit" style={sty.btnPrimary} disabled={saveMutation.isPending}>
+                {saveMutation.isPending ? 'Saving…' : editing ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {deleteId !== null && (
+        <ConfirmDialog
+          message="Delete this alert rule?"
+          onConfirm={() => deleteMutation.mutate(deleteId!)}
+          onCancel={() => setDeleteId(null)}
+          loading={deleteMutation.isPending}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Payment Gateways tab
+// ---------------------------------------------------------------------------
+
+const EMPTY_GW = {
+  provider: 'stripe', label: '', environment: 'sandbox',
+  public_key: '', secret_key_encrypted: '', webhook_secret: '', status: 'active',
+};
+
+function PaymentGatewaysTab() {
+  const [showModal, setShowModal] = useState(false);
+  const [editing, setEditing] = useState<PaymentGateway | null>(null);
+  const [form, setForm] = useState({ ...EMPTY_GW });
+  const [formError, setFormError] = useState('');
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const qc = useQueryClient();
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['payment-gateways'],
+    queryFn: () =>
+      apiFetch<{ data: PaymentGateway[]; meta: { total: number } }>(`${API_BASE}/payment-gateways?limit=100`),
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: (body: typeof form) =>
+      editing
+        ? apiFetch(`${API_BASE}/payment-gateways/${editing.id}`, { method: 'PUT', body: JSON.stringify(body) })
+        : apiFetch(`${API_BASE}/payment-gateways`, { method: 'POST', body: JSON.stringify(body) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['payment-gateways'] }); closeModal(); },
+    onError: (err: Error) => setFormError(err.message),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiFetch(`${API_BASE}/payment-gateways/${id}`, { method: 'DELETE' }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['payment-gateways'] }); setDeleteId(null); },
+  });
+
+  function openNew() { setEditing(null); setForm({ ...EMPTY_GW }); setFormError(''); setShowModal(true); }
+  function openEdit(gw: PaymentGateway) {
+    setEditing(gw);
+    setForm({
+      provider: gw.provider, label: gw.label ?? '', environment: gw.environment,
+      public_key: gw.public_key ?? '', secret_key_encrypted: '',
+      webhook_secret: gw.webhook_secret ?? '', status: gw.status,
+    });
+    setFormError(''); setShowModal(true);
+  }
+  function closeModal() { setShowModal(false); setEditing(null); }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setFormError('');
+    saveMutation.mutate(form);
+  }
+
+  const gateways = data?.data ?? [];
+
+  return (
+    <div>
+      <div style={sty.tabBar}>
+        <h3 style={sty.sectionTitle}>Payment Gateways</h3>
+        <button style={sty.btnPrimary} onClick={openNew}>+ Add Gateway</button>
+      </div>
+
+      {isLoading && <p style={sty.muted}>Loading gateways…</p>}
+      {error && <p style={sty.errorText}>Failed to load payment gateways.</p>}
+      {!isLoading && gateways.length === 0 && <p style={sty.muted}>No payment gateways configured.</p>}
+
+      {gateways.length > 0 && (
+        <table style={sty.table}>
+          <thead>
+            <tr>{['Provider', 'Label', 'Environment', 'Status', ''].map(h => <th key={h} style={sty.th}>{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {gateways.map(gw => (
+              <tr key={gw.id}>
+                <td style={sty.td}><span style={channelBadge(gw.provider)}>{gw.provider}</span></td>
+                <td style={sty.td}>{gw.label ?? <em style={sty.muted}>—</em>}</td>
+                <td style={sty.td}>{gw.environment}</td>
+                <td style={sty.td}><span style={statusBadge(gw.status)}>{gw.status}</span></td>
+                <td style={sty.td}>
+                  <span style={sty.rowActions}>
+                    <button style={sty.btnGhost} onClick={() => openEdit(gw)}>Edit</button>
+                    <button style={sty.btnDanger} onClick={() => setDeleteId(gw.id)}>Delete</button>
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {showModal && (
+        <Modal title={editing ? 'Edit Gateway' : 'Add Payment Gateway'} onClose={closeModal}>
+          <form onSubmit={handleSubmit} style={sty.form}>
+            <div style={sty.row2}>
+              <label style={sty.label}>Provider *
+                <select style={sty.select} value={form.provider} onChange={e => setForm(f => ({ ...f, provider: e.target.value }))}>
+                  {PROVIDERS.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </label>
+              <label style={sty.label}>Label
+                <input style={sty.input} value={form.label} placeholder="e.g. Stripe MX"
+                  onChange={e => setForm(f => ({ ...f, label: e.target.value }))} />
+              </label>
+            </div>
+            <div style={sty.row2}>
+              <label style={sty.label}>Environment
+                <select style={sty.select} value={form.environment} onChange={e => setForm(f => ({ ...f, environment: e.target.value }))}>
+                  {ENVIRONMENTS.map(env => <option key={env} value={env}>{env}</option>)}
+                </select>
+              </label>
+              <label style={sty.label}>Status
+                <select style={sty.select} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+                  <option value="active">active</option>
+                  <option value="inactive">inactive</option>
+                </select>
+              </label>
+            </div>
+            <label style={sty.label}>Public Key
+              <input style={sty.input} value={form.public_key} placeholder="pk_live_…"
+                onChange={e => setForm(f => ({ ...f, public_key: e.target.value }))} />
+            </label>
+            <label style={sty.label}>
+              Secret Key {editing && <span style={sty.hint}>(leave blank to keep existing)</span>}
+              <input style={sty.input} type="password" value={form.secret_key_encrypted}
+                placeholder={editing ? '••••••••' : 'sk_live_…'}
+                onChange={e => setForm(f => ({ ...f, secret_key_encrypted: e.target.value }))} />
+            </label>
+            <label style={sty.label}>Webhook Secret
+              <input style={sty.input} value={form.webhook_secret} placeholder="whsec_…"
+                onChange={e => setForm(f => ({ ...f, webhook_secret: e.target.value }))} />
+            </label>
+            {formError && <p style={sty.errorText}>{formError}</p>}
+            <div style={sty.modalFooter}>
+              <button type="button" style={sty.btnGhost} onClick={closeModal}>Cancel</button>
+              <button type="submit" style={sty.btnPrimary} disabled={saveMutation.isPending}>
+                {saveMutation.isPending ? 'Saving…' : editing ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {deleteId !== null && (
+        <ConfirmDialog
+          message="Delete this payment gateway? Existing transactions linked to it will be preserved."
+          onConfirm={() => deleteMutation.mutate(deleteId!)}
+          onCancel={() => setDeleteId(null)}
+          loading={deleteMutation.isPending}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Shared helper components
+// ---------------------------------------------------------------------------
+
+interface ModalProps { title: string; onClose: () => void; children: React.ReactNode; }
+function Modal({ title, onClose, children }: ModalProps) {
+  return (
+    <div style={sty.overlay}>
+      <div style={sty.modal}>
+        <div style={sty.modalHeader}>
+          <span style={{ fontWeight: 600 }}>{title}</span>
+          <button style={sty.closeBtn} onClick={onClose}>✕</button>
+        </div>
+        <div style={sty.modalBody}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+interface ConfirmProps { message: string; onConfirm: () => void; onCancel: () => void; loading: boolean; }
+function ConfirmDialog({ message, onConfirm, onCancel, loading }: ConfirmProps) {
+  return (
+    <div style={sty.overlay}>
+      <div style={{ ...sty.modal, maxWidth: 400 }}>
+        <div style={sty.modalBody}>
+          <p style={{ marginTop: 0 }}>{message}</p>
+          <div style={sty.modalFooter}>
+            <button style={sty.btnGhost} onClick={onCancel} disabled={loading}>Cancel</button>
+            <button style={sty.btnDanger} onClick={onConfirm} disabled={loading}>
+              {loading ? 'Deleting…' : 'Delete'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Badge helpers
+// ---------------------------------------------------------------------------
+
+function channelBadge(label: string) {
+  const colours: Record<string, string> = {
+    email: '#3b82f6', sms: '#8b5cf6', whatsapp: '#22c55e', push: '#f59e0b',
+    stripe: '#635bff', conekta: '#e74c3c', openpay: '#2ecc71', paypal: '#003087',
+    mercadopago: '#009ee3', manual: '#888', other: '#888',
+  };
+  return { ...sty.badge, background: colours[label] ?? '#888' };
+}
+
+function severityBadge(level: string) {
+  const colours: Record<string, string> = {
+    critical: '#dc2626', major: '#ea580c', minor: '#d97706', warning: '#ca8a04',
+  };
+  return {
+    padding: '2px 8px', borderRadius: 10, fontSize: '0.75rem', fontWeight: 600,
+    background: colours[level] ?? '#888', color: '#fff',
+  };
+}
+
+function statusBadge(st: string) {
+  return {
+    padding: '2px 8px', borderRadius: 10, fontSize: '0.75rem', fontWeight: 600,
+    background: st === 'active' ? '#16a34a' : '#888', color: '#fff',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Main Settings page
+// ---------------------------------------------------------------------------
+
+const TABS: { id: SettingsTab; label: string }[] = [
+  { id: 'orgConfig', label: '🏢 Org Config' },
+  { id: 'emailTemplates', label: '✉️ Email Templates' },
+  { id: 'alertRules', label: '🚨 Alert Rules' },
+  { id: 'paymentGateways', label: '💳 Payment Gateways' },
+];
+
+export function Settings() {
+  const [tab, setTab] = useState<SettingsTab>('orgConfig');
+
+  return (
+    <div style={sty.page}>
+      <h2 style={sty.pageTitle}>Settings</h2>
+
+      {/* Tab bar */}
+      <div style={sty.tabs}>
+        {TABS.map(t => (
+          <button
+            key={t.id}
+            style={{ ...sty.tabBtn, ...(tab === t.id ? sty.tabBtnActive : {}) }}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      <div style={sty.card}>
+        {tab === 'orgConfig' && <OrgConfigTab />}
+        {tab === 'emailTemplates' && <EmailTemplatesTab />}
+        {tab === 'alertRules' && <AlertRulesTab />}
+        {tab === 'paymentGateways' && <PaymentGatewaysTab />}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
+const sty = {
+  page: { padding: '1.5rem 2rem', fontFamily: 'system-ui, sans-serif', maxWidth: 1000 },
+  pageTitle: { margin: '0 0 1rem', fontSize: '1.4rem' },
+  tabs: { display: 'flex', gap: 4, borderBottom: '2px solid #e5e7eb', marginBottom: '1.25rem' },
+  tabBtn: {
+    background: 'none', border: 'none', borderBottom: '2px solid transparent',
+    padding: '0.5rem 1rem', cursor: 'pointer', fontSize: '0.9rem', color: '#555',
+    marginBottom: -2, transition: 'color .15s',
+  } as React.CSSProperties,
+  tabBtnActive: { color: '#e25822', borderBottomColor: '#e25822', fontWeight: 600 } as React.CSSProperties,
+  card: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '1.5rem' },
+  sectionTitle: { margin: '0 0 1rem', fontSize: '1rem', fontWeight: 600 },
+  tabBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' },
+  muted: { color: '#888', fontStyle: 'italic' as const, fontSize: '0.875rem' },
+  table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: '0.875rem' },
+  th: { textAlign: 'left' as const, padding: '0.5rem 0.75rem', borderBottom: '2px solid #e5e7eb', fontWeight: 600, color: '#444' },
+  td: { padding: '0.6rem 0.75rem', borderBottom: '1px solid #f3f4f6', verticalAlign: 'middle' as const },
+  code: { background: '#f3f4f6', padding: '2px 6px', borderRadius: 4, fontFamily: 'monospace', fontSize: '0.82rem' },
+  valueCap: { display: 'block', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const },
+  badge: { padding: '2px 8px', borderRadius: 10, fontSize: '0.75rem', fontWeight: 600, color: '#fff' },
+  rowActions: { display: 'flex', gap: 6 },
+  errorText: { color: '#dc2626', fontSize: '0.85rem', margin: '0.5rem 0 0' },
+  hint: { fontWeight: 400, color: '#888', fontSize: '0.8rem' },
+  // modal
+  overlay: { position: 'fixed' as const, inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 80, zIndex: 1000 },
+  modal: { background: '#fff', borderRadius: 8, width: '100%', maxWidth: 560, boxShadow: '0 8px 32px rgba(0,0,0,.2)', maxHeight: '80vh', overflow: 'auto' as const },
+  modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.25rem', borderBottom: '1px solid #e5e7eb' },
+  modalBody: { padding: '1.25rem' },
+  modalFooter: { display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: '1rem' },
+  closeBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', color: '#888' },
+  form: { display: 'flex', flexDirection: 'column' as const, gap: 12 },
+  label: { display: 'flex', flexDirection: 'column' as const, gap: 4, fontSize: '0.875rem', fontWeight: 500, color: '#374151' },
+  input: { padding: '0.45rem 0.65rem', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.875rem', width: '100%', boxSizing: 'border-box' as const },
+  select: { padding: '0.45rem 0.65rem', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.875rem', background: '#fff', width: '100%', boxSizing: 'border-box' as const },
+  row2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 },
+  checkRow: { display: 'flex', gap: 24, fontSize: '0.875rem' },
+  // buttons
+  btnPrimary: { padding: '0.4rem 1rem', background: '#e25822', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500 },
+  btnGhost: { padding: '0.4rem 1rem', background: '#f9fafb', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', fontSize: '0.875rem' },
+  btnDanger: { padding: '0.4rem 1rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: '0.875rem' },
+} as const;

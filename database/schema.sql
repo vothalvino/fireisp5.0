@@ -3635,6 +3635,10 @@ CREATE TABLE IF NOT EXISTS ift_statistical_reports (
     period_end                  DATE            NOT NULL
                                     COMMENT 'Last day of the reporting period',
 
+    -- Concession linkage (IFT F2)
+    concession_title_id         BIGINT UNSIGNED NULL
+                                    COMMENT 'Concession/authorization title under which the service is provided (IFT F2)',
+
     -- Subscriber counts
     total_subscribers           INT UNSIGNED    NOT NULL DEFAULT 0
                                     COMMENT 'Total active subscribers at the end of the period',
@@ -3642,8 +3646,14 @@ CREATE TABLE IF NOT EXISTS ift_statistical_reports (
                                     COMMENT 'JSON object: speed tier label => subscriber count (e.g. {"10Mbps":120,"50Mbps":300})',
     subscribers_by_state        JSON            NULL
                                     COMMENT 'JSON object: state code => subscriber count',
+    subscribers_by_municipality JSON            NULL
+                                    COMMENT 'JSON object: INEGI municipality code => subscriber count (IFT F5 breakdown)',
     subscribers_by_technology   JSON            NULL
                                     COMMENT 'JSON object: technology label => subscriber count (e.g. {"fiber":200,"wireless":220})',
+    subscribers_by_customer_type JSON           NULL
+                                    COMMENT 'JSON object: residential/business subscriber counts (IFT F11)',
+    subscribers_by_payment_modality JSON        NULL
+                                    COMMENT 'JSON object: pospago/prepago/empaquetado subscriber counts (IFT F12)',
     coverage_localities         JSON            NULL
                                     COMMENT 'JSON array of locality codes (INEGI AGEB / localidad) covered',
 
@@ -3670,6 +3680,8 @@ CREATE TABLE IF NOT EXISTS ift_statistical_reports (
     status                      ENUM('draft', 'final', 'filed')
                                     NOT NULL DEFAULT 'draft'
                                     COMMENT 'draft=being prepared; final=ready for submission; filed=submitted to regulator',
+    notes                       TEXT            NULL
+                                    COMMENT 'Free-form notes / filing comments for this snapshot',
 
     created_at                  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -3682,10 +3694,13 @@ CREATE TABLE IF NOT EXISTS ift_statistical_reports (
     KEY idx_ift_statistical_reports_period_start (period_start),
     KEY idx_ift_statistical_reports_filing_id (filing_id),
     KEY idx_ift_statistical_reports_deleted_at (deleted_at),
+    KEY idx_ift_statistical_reports_concession_title_id (concession_title_id),
     CONSTRAINT fk_ift_statistical_reports_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_ift_statistical_reports_filing FOREIGN KEY (filing_id)
         REFERENCES regulatory_filings (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_ift_statistical_reports_concession_title FOREIGN KEY (concession_title_id)
+        REFERENCES concession_titles (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT chk_ift_statistical_reports_period CHECK (period_end >= period_start)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

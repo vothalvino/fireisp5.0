@@ -19,7 +19,7 @@
 
 | Layer | Status | Notes |
 |---|---|---|
-| Database schema | ✅ 156 migrations, 108 tables | schema.sql synced |
+| Database schema | ✅ 157 migrations, 108 tables | schema.sql synced |
 | API routes | ✅ 69 route files | 184 OpenAPI paths |
 | Services | ✅ 27 service modules | billing, CFDI, RADIUS, payments, etc. |
 | Middleware | ✅ Auth, RBAC, validation, rate limiting | circuit breaker added |
@@ -119,7 +119,7 @@
 - ✅ RADIUS session viewer (live PPPoE sessions)
 - ✅ SNMP metrics charts (bandwidth, uptime, per-device)
 - ✅ Reports page (revenue, churn, usage, IFT statistical)
-- ⬜ Settings (org config, email templates, alert rules, payment gateways)
+- ✅ Settings (org config, email templates, alert rules, payment gateways)
 
 ---
 
@@ -236,3 +236,4 @@
 | 2026-04-21 | 2.3 | RADIUS session viewer: live PPPoE sessions table (username/IP/NAS filters, auto-refresh 30s, duration, bytes ↓/↑); GET /connection-logs/active endpoint; POST /radius/:id/disconnect endpoint; route /radius-sessions (technician+) | #TBD |
 | 2026-04-21 | 2.3 | SNMP metrics charts: device selector, time range (24h raw/7d hourly/30d daily), interface selector, SVG line charts (bandwidth ↓/↑, CPU, memory, signal, latency), summary bar; GET /snmp-metrics + GET /snmp-metrics/devices endpoints; route /snmp-metrics (technician+) | #TBD |
 | 2026-04-21 | 2.3 | Reports page: Revenue tab (financial summary KPIs + bar chart, date-range picker), Subscriber Growth tab (new vs churned line chart + monthly table, churn rate KPI), AR Aging tab (bucket KPIs + bar chart + searchable overdue-invoice table), IFT Statistical tab (paginated list + detail modal + create modal); 4 new OpenAPI paths added (financial, aging, subscriber-growth, technicians) | #TBD |
+| 2026-04-21 | 2.3 | Settings page: Org Config (key/value settings editor), Email Templates (CRUD for message_templates), Alert Rules (CRUD with enable/disable toggle), Payment Gateways (CRUD for payment gateways); new /api/v1/message-templates route added; schema.sql synced with migration 157 (ift_statistical_reports: concession_title_id FK, subscribers_by_municipality, subscribers_by_customer_type, subscribers_by_payment_modality, notes columns) | #TBD |
