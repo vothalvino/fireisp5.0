@@ -7,6 +7,7 @@ const config = require('./config');
 const app = require('./app');
 const db = require('./config/database');
 const scheduler = require('./services/scheduler');
+const { tunnelServer } = require('./services/firerelayTunnel');
 const logger = require('./utils/logger');
 
 async function start() {
@@ -61,6 +62,13 @@ async function start() {
     logger.info({ port: config.port, env: config.env }, 'FireISP 5.0 listening');
   });
 
+  // Attach the FireRelay WebSocket tunnel to the HTTP server
+  try {
+    tunnelServer.attach(server);
+  } catch (err) {
+    logger.warn({ err }, 'FireRelay tunnel failed to attach');
+  }
+
   // ---------------------------------------------------------------------------
   // Graceful shutdown — drain HTTP connections before exiting
   // ---------------------------------------------------------------------------
@@ -72,6 +80,7 @@ async function start() {
     // Stop accepting new connections; let in-flight requests finish
     server.close(async () => {
       logger.info('HTTP server closed');
+      await tunnelServer.close();
       scheduler.stop();
       await db.close();
       logger.info('All resources released — exiting');
