@@ -347,24 +347,32 @@ export function InvoiceDetail() {
       showToast(`Invoice emailed to ${result.to}`);
       qc.invalidateQueries({ queryKey: ['invoice', id] });
     },
-    onError: (err: Error) => showToast(`Error: ${err.message}`, true),
+    onError: (err: Error) => showToast(`Error: ${err.message}`),
   });
 
-  function showToast(msg: string, _isError = false) {
+  function showToast(msg: string) {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(''), 4000);
   }
 
-  function handleDownloadPdf() {
+  async function handleDownloadPdf() {
     const token = tokenStore.getAccess();
     const url = `${API_BASE}/pdf/invoices/${id}`;
-    // Open in new tab — browser will download the PDF
-    const link = document.createElement('a');
-    link.href = url;
-    link.target = '_blank';
-    // Add auth token as query param for the download (simple approach since PDF endpoint requires auth)
-    if (token) link.href = `${url}?_t=${encodeURIComponent(token)}`;
-    link.click();
+    try {
+      const res = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('Failed to download PDF');
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `invoice-${invoice?.invoice_number || id}.pdf`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+    } catch (err) {
+      showToast(`Error: ${err instanceof Error ? err.message : 'Download failed'}`);
+    }
   }
 
   const invoice = invoiceQ.data;

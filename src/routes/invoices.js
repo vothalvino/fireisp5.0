@@ -133,7 +133,7 @@ router.post('/:id/send-email', requirePermission('invoices.view'), async (req, r
       to: invoice.client_email,
       subject: template.subject,
       html: template.html,
-      attachments: [{ filename: `invoice-${invoiceId}.pdf`, content: buffer }],
+      attachments: [{ filename: `invoice-${invoice.invoice_number || invoiceId}.pdf`, content: buffer }],
     });
 
     res.json({ message: 'Invoice sent', to: invoice.client_email });
