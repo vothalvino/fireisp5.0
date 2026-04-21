@@ -44,12 +44,13 @@ router.get('/rules', requirePermission('devices.view'), async (req, res, next) =
 router.post('/rules', requirePermission('devices.create'), validate(alertSchemas.createRule), async (req, res, next) => {
   try {
     const [result] = await db.query(
-      `INSERT INTO alert_rules (organization_id, name, description, metric, operator, threshold, device_id, duration_minutes, severity, auto_create_outage, notification_channels, is_enabled)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO alert_rules (organization_id, name, description, metric, operator, threshold, device_id, duration_minutes, severity, auto_create_outage, auto_create_ticket, notification_channels, is_enabled)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [req.orgId, req.body.name, req.body.description || null, req.body.metric,
         req.body.operator || '>', req.body.threshold, req.body.device_id || null,
         req.body.duration_minutes || 5, req.body.severity || 'major',
         req.body.auto_create_outage || false,
+        req.body.auto_create_ticket || false,
         req.body.notification_channels ? JSON.stringify(req.body.notification_channels) : null,
         req.body.is_enabled !== false],
     );
@@ -64,7 +65,7 @@ router.put('/rules/:id', requirePermission('devices.update'), validate(alertSche
     const fields = [];
     const params = [];
     const allowed = ['name', 'description', 'metric', 'operator', 'threshold', 'device_id',
-      'duration_minutes', 'severity', 'auto_create_outage', 'is_enabled'];
+      'duration_minutes', 'severity', 'auto_create_outage', 'auto_create_ticket', 'is_enabled'];
 
     for (const key of allowed) {
       if (req.body[key] !== undefined) {

@@ -12,6 +12,7 @@ const createRule = {
   duration_minutes: { type: 'number', required: false },
   severity: { type: 'string', required: false },
   auto_create_outage: { type: 'boolean', required: false },
+  auto_create_ticket: { type: 'boolean', required: false },
   is_enabled: { type: 'boolean', required: false },
 };
 
@@ -25,6 +26,7 @@ const updateRule = {
   duration_minutes: { type: 'number', required: false },
   severity: { type: 'string', required: false },
   auto_create_outage: { type: 'boolean', required: false },
+  auto_create_ticket: { type: 'boolean', required: false },
   is_enabled: { type: 'boolean', required: false },
 };
 

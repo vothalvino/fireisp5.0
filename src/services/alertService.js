@@ -18,6 +18,18 @@ const ALLOWED_METRICS = new Set([
   'latency_ms',
   'packet_loss',
   'uptime',
+  'if_in_octets',
+  'if_out_octets',
+]);
+
+// Metrics stored directly in snmp_metrics (used to build safe queries).
+const SNMP_METRICS = new Set([
+  'cpu_usage',
+  'memory_usage',
+  'signal_strength',
+  'latency_ms',
+  'if_in_octets',
+  'if_out_octets',
 ]);
 
 /**
@@ -50,6 +62,11 @@ async function evaluateAlerts(organizationId) {
         if (rule.auto_create_outage && breached.device_id) {
           await autoCreateOutage(organizationId, rule, breached);
         }
+
+        // Auto-create ticket if configured
+        if (rule.auto_create_ticket && breached.device_id) {
+          await autoCreateTicket(organizationId, rule, breached);
+        }
       }
     } catch (err) {
       logger.error({ err, ruleId: rule.id }, 'Alert rule evaluation failed');
@@ -74,8 +91,8 @@ async function checkRule(rule) {
   let sql;
   let params;
 
-  if (['cpu_usage', 'memory_usage', 'signal_strength', 'latency_ms'].includes(metric)) {
-    // SNMP metric check
+  if (SNMP_METRICS.has(metric)) {
+    // SNMP metric check (includes bandwidth counters if_in_octets / if_out_octets)
     sql = `
       SELECT device_id, AVG(\`${metric}\`) AS avg_value, MAX(\`${metric}\`) AS max_value
       FROM snmp_metrics
@@ -183,6 +200,33 @@ async function autoCreateOutage(organizationId, rule, breach) {
 }
 
 /**
+ * Auto-create a support ticket when an alert fires.
+ * The ticket is linked to the device that breached the threshold.
+ */
+async function autoCreateTicket(organizationId, rule, breach) {
+  try {
+    const subject = `Alert: ${rule.name} — ${breach.metric} ${breach.operator} ${breach.threshold}`;
+    const description = [
+      'Threshold alert automatically opened by the monitoring system.',
+      `Rule: ${rule.name}`,
+      `Metric: ${breach.metric}`,
+      `Condition: ${breach.metric} ${breach.operator} ${breach.threshold}`,
+      `Current value: ${breach.current_value}`,
+      `Device ID: ${breach.device_id}`,
+    ].join('\n');
+
+    await db.query(
+      `INSERT INTO tickets
+         (organization_id, subject, description, priority, category, status)
+       VALUES (?, ?, ?, ?, 'network', 'open')`,
+      [organizationId, subject, description, rule.severity === 'critical' ? 'high' : 'medium'],
+    );
+  } catch (_err) {
+    // Best effort — don't block alert processing
+  }
+}
+
+/**
  * Get alert history for an organization.
  */
 async function getAlertHistory(organizationId, { page = 1, limit = 50 } = {}) {
@@ -216,4 +260,4 @@ async function acknowledgeAlert(alertEventId, userId) {
   );
 }
 
-module.exports = { evaluateAlerts, checkRule, getAlertHistory, acknowledgeAlert };
+module.exports = { evaluateAlerts, checkRule, getAlertHistory, acknowledgeAlert, autoCreateTicket };
