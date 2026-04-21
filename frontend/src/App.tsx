@@ -24,6 +24,7 @@ import { PaymentList } from '@/pages/PaymentList';
 import { TicketList } from '@/pages/TicketList';
 import { TicketDetail } from '@/pages/TicketDetail';
 import { DeviceMap } from '@/pages/DeviceMap';
+import { UserList } from '@/pages/UserList';
 import { NotFound } from '@/pages/NotFound';
 
 // Stub pages for Milestone 2.2 pages — each will be replaced with a real component.
@@ -80,7 +81,7 @@ export function App() {
             {/* Admin-only */}
             <Route element={<PrivateRoute requiredRole="admin" />}>
               <Route element={<Layout />}>
-                <Route path="users" element={<Placeholder title="Users" />} />
+                <Route path="users" element={<UserList />} />
                 <Route path="settings" element={<Placeholder title="Settings" />} />
               </Route>
             </Route>
