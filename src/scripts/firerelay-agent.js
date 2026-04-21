@@ -6,6 +6,7 @@
 // =============================================================================
 
 require('dotenv').config();
+const { URL } = require('url');
 const FireRelayAgent = require('../services/firerelayAgent');
 const relayConfig = require('../config/firerelay');
 const logger = require('../utils/logger').child({ script: 'firerelay-agent' });
