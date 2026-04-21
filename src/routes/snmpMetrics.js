@@ -123,8 +123,15 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
       const params = [deviceId, lookbackHours];
 
       if (filterInterface) {
-        conditions.push('interface_id = ?');
-        params.push(interfaceId || '');
+        // In snmp_metrics_1hr, device-level rows use interface_id = '' (NOT NULL DEFAULT '').
+        // An empty interfaceId selects device-level rows; any non-empty value selects that interface.
+        if (interfaceId === '') {
+          conditions.push('interface_id = ?');
+          params.push('');
+        } else {
+          conditions.push('interface_id = ?');
+          params.push(interfaceId);
+        }
       }
 
       const [rows] = await db.query(
@@ -166,8 +173,15 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
     const params = [deviceId, Math.ceil(lookbackHours / 24)];
 
     if (filterInterface) {
-      conditions.push('interface_id = ?');
-      params.push(interfaceId || '');
+      // In snmp_metrics_1day, device-level rows use interface_id = '' (NOT NULL DEFAULT '').
+      // An empty interfaceId selects device-level rows; any non-empty value selects that interface.
+      if (interfaceId === '') {
+        conditions.push('interface_id = ?');
+        params.push('');
+      } else {
+        conditions.push('interface_id = ?');
+        params.push(interfaceId);
+      }
     }
 
     const [rows] = await db.query(

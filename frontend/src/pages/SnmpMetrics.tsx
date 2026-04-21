@@ -433,7 +433,6 @@ export function SnmpMetrics() {
               style={cs.select}
             >
               <option value="">All interfaces</option>
-              <option value="">(device-level)</option>
               {interfaces.map(iface => (
                 <option key={iface} value={iface}>{iface}</option>
               ))}
