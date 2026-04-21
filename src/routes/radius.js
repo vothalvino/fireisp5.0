@@ -10,6 +10,7 @@ const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createRadius, updateRadius } = require('../middleware/schemas/radius');
+const { disconnectSession } = require('../services/radiusService');
 
 const router = Router();
 const ctrl = crudController(Radius);
@@ -29,6 +30,23 @@ router.get('/contract/:contractId', requirePermission('devices.view'), async (re
   try {
     const accounts = await Radius.findByContract(req.params.contractId);
     res.json({ data: accounts });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Disconnect a subscriber's active PPPoE session via RADIUS Disconnect-Request
+router.post('/:id/disconnect', requirePermission('devices.update'), async (req, res, next) => {
+  try {
+    const [rows] = await require('../config/database').query(
+      'SELECT contract_id FROM radius WHERE id = ?',
+      [req.params.id],
+    );
+    if (!rows.length) {
+      return res.status(404).json({ error: 'RADIUS account not found' });
+    }
+    const result = await disconnectSession(rows[0].contract_id);
+    res.json({ data: result });
   } catch (err) {
     next(err);
   }

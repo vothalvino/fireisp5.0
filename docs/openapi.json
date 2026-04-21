@@ -5488,6 +5488,42 @@
         }
       }
     },
+    "/radius/{id}/disconnect": {
+      "post": {
+        "tags": [
+          "RADIUS"
+        ],
+        "summary": "Disconnect active PPPoE session for a RADIUS account",
+        "operationId": "disconnectRadiusSession",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Disconnect result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/snmp-profiles": {
       "get": {
         "tags": [
@@ -6512,6 +6548,59 @@
         "responses": {
           "204": {
             "description": "No content"
+          }
+        }
+      }
+    },
+    "/connection-logs/active": {
+      "get": {
+        "tags": [
+          "Connection Logs"
+        ],
+        "summary": "List active PPPoE sessions (start events with no stop)",
+        "operationId": "listActiveRadiusSessions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "username",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "ip_address",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "nas_ip_address",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": { "type": "integer", "default": 1 }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "default": 50 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active session list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
