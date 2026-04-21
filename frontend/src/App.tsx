@@ -15,6 +15,8 @@ import { PrivateRoute } from '@/auth/PrivateRoute';
 import { Layout } from '@/components/Layout';
 import { Login } from '@/pages/Login';
 import { Dashboard } from '@/pages/Dashboard';
+import { ClientList } from '@/pages/ClientList';
+import { ClientDetail } from '@/pages/ClientDetail';
 import { NotFound } from '@/pages/NotFound';
 
 // Stub pages for Milestone 2.2 pages — each will be replaced with a real component.
@@ -49,7 +51,8 @@ export function App() {
             <Route element={<PrivateRoute />}>
               <Route element={<Layout />}>
                 <Route index element={<Dashboard />} />
-                <Route path="clients" element={<Placeholder title="Clients" />} />
+                <Route path="clients" element={<ClientList />} />
+                <Route path="clients/:id" element={<ClientDetail />} />
                 <Route path="contracts" element={<Placeholder title="Contracts" />} />
                 <Route path="invoices" element={<Placeholder title="Invoices" />} />
                 <Route path="payments" element={<Placeholder title="Payments" />} />
