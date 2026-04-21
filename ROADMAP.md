@@ -108,7 +108,7 @@
 - ✅ Contract management (create, renew, suspend, cancel)
 - ✅ Invoice list + detail (generate, send email, download PDF, record payment)
 - ✅ Payment recording (manual entry + payment gateway status)
-- ⬜ Ticket list + detail (create, assign, comment, close)
+- ✅ Ticket list + detail (create, assign, comment, close)
 - ⬜ Device/network map (sites, links, SNMP status)
 - ⬜ User management (create, assign roles, enable 2FA)
 - ⬜ Remove legacy `/public` SPA once parity is reached
@@ -227,3 +227,4 @@
 | 2026-04-21 | 2.2 | Contract management: ContractList page with status filter, pagination, New Contract modal (client+plan+type+dates+IP), Renew modal (reactivate + set end date), Suspend/Cancel confirmation dialogs with per-row action buttons | #TBD |
 | 2026-04-21 | 2.2 | Invoice list + detail: InvoiceList (status filter, pagination, Generate Invoice modal), InvoiceDetail (metadata, line items, send-email action, download-PDF action, record-payment modal with allocation); backend POST /invoices/:id/send-email | #TBD |
 | 2026-04-21 | 2.2 | Payment recording: PaymentList page (status filter, pagination), Record Payment modal (client, amount, method, status, date, reference, optional invoice allocation), inline allocation drawer, gateway transaction status drawer, Send Receipt action | #TBD |
+| 2026-04-21 | 2.2 | Ticket list + detail: TicketList (status/priority filter, pagination, New Ticket modal), TicketDetail (metadata, quick-action status buttons, assign to user, comments thread with internal-note toggle) | #TBD |
