@@ -3,22 +3,25 @@
 // =============================================================================
 // /api/firerelay/* endpoints for cluster node management.
 //
-//   GET    /api/firerelay/health      — Worker: report node metrics
-//   GET    /api/firerelay/nodes       — Master: list all nodes
-//   POST   /api/firerelay/nodes       — Master: register a node
-//   PUT    /api/firerelay/nodes/:id   — Master: update node status / metrics
-//   DELETE /api/firerelay/nodes/:id   — Master: deregister a node
+//   GET    /api/firerelay/health              — Worker: report node metrics
+//   GET    /api/firerelay/nodes               — Master: list all nodes
+//   POST   /api/firerelay/nodes               — Master: register a node
+//   PUT    /api/firerelay/nodes/:id           — Master: update node status / metrics
+//   DELETE /api/firerelay/nodes/:id           — Master: deregister a node
+//   GET    /api/firerelay/tunnel/agents       — List connected WebSocket agents
+//   POST   /api/firerelay/tunnel/command      — Send a command to a connected agent
 // =============================================================================
 
 const { Router } = require('express');
 const { authenticate } = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { firerelayNode, firerelayNodeUpdate } = require('../middleware/schemas/firerelay');
+const { firerelayNode, firerelayNodeUpdate, firerelayTunnelCommand } = require('../middleware/schemas/firerelay');
 const relayConfig = require('../config/firerelay');
 const db = require('../config/database');
 const firerelayService = require('../services/firerelayService');
-const { ValidationError } = require('../utils/errors');
+const { tunnelServer } = require('../services/firerelayTunnel');
+const { ValidationError, NotFoundError } = require('../utils/errors');
 
 const router = Router();
 
@@ -139,6 +142,35 @@ router.delete(
       }
       await firerelayService.deregisterNode(req.params.id);
       res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// GET /api/firerelay/tunnel/agents — list currently connected WebSocket agents
+// ---------------------------------------------------------------------------
+router.get('/tunnel/agents', requireRole('admin', 'owner'), (_req, res) => {
+  const agents = tunnelServer.connectedAgents();
+  res.json({ data: agents, meta: { total: agents.length } });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/firerelay/tunnel/command — send a command to a connected agent
+// ---------------------------------------------------------------------------
+router.post(
+  '/tunnel/command',
+  requireRole('admin', 'owner'),
+  validate(firerelayTunnelCommand),
+  async (req, res, next) => {
+    try {
+      const { node_id, method, params, timeout_ms } = req.body;
+      if (!tunnelServer.isConnected(node_id)) {
+        throw new NotFoundError(`Agent ${node_id} is not connected`);
+      }
+      const result = await tunnelServer.sendCommand(node_id, method, params ?? {}, timeout_ms);
+      res.json({ data: result });
     } catch (err) {
       next(err);
     }

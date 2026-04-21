@@ -22,4 +22,11 @@ const firerelayNodeUpdate = {
   last_seen_at: { type: 'string', max: 30, pattern: /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?/ },
 };
 
-module.exports = { firerelayNode, firerelayNodeUpdate };
+const firerelayTunnelCommand = {
+  node_id: { type: 'string', required: true, min: 1, max: 64 },
+  method: { type: 'string', required: true, min: 1, max: 128 },
+  params: { type: 'object' },
+  timeout_ms: { type: 'number', min: 1000, max: 60000 },
+};
+
+module.exports = { firerelayNode, firerelayNodeUpdate, firerelayTunnelCommand };
