@@ -22,14 +22,61 @@ jest.mock('../src/services/suspensionService', () => ({
   sendRadiusCoA: jest.fn(),
 }));
 
+jest.mock('../src/services/radiusService', () => ({
+  syncAllAccounts: jest.fn().mockResolvedValue({ synced: 0, total: 0 }),
+}));
+
+jest.mock('../src/services/snmpPoller', () => ({
+  poll: jest.fn(),
+}));
+
+jest.mock('../src/services/emailTransport', () => ({
+  processQueue: jest.fn(),
+  sendEmail: jest.fn(),
+}));
+
+jest.mock('../src/services/webhookService', () => ({
+  retryPending: jest.fn(),
+}));
+
+jest.mock('../src/services/checkoutService', () => ({
+  processRecurringCharges: jest.fn(),
+}));
+
+jest.mock('../src/services/alertService', () => ({
+  evaluateAlerts: jest.fn(),
+}));
+
+jest.mock('../src/services/retentionService', () => ({
+  runAll: jest.fn(),
+}));
+
+jest.mock('../src/services/paymentRetryService', () => ({
+  processPendingRetries: jest.fn(),
+}));
+
+jest.mock('../src/views/emailTemplates', () => ({
+  invoiceEmail: jest.fn(() => ({ subject: 'Test', html: '<p>Test</p>' })),
+  suspensionWarningEmail: jest.fn(() => ({ subject: 'Test', html: '<p>Test</p>' })),
+  serviceSuspendedEmail: jest.fn(() => ({ subject: 'Test', html: '<p>Test</p>' })),
+}));
+
+jest.mock('../src/scripts/backup', () => ({
+  backup: jest.fn(),
+}));
+
 const db = require('../src/config/database');
 const billingService = require('../src/services/billingService');
 const suspensionService = require('../src/services/suspensionService');
+const radiusService = require('../src/services/radiusService');
+const emailTransport = require('../src/services/emailTransport');
 const taskRunner = require('../src/services/taskRunner');
 
 describe('taskRunner', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
+    radiusService.syncAllAccounts.mockResolvedValue({ synced: 0, total: 0 });
+    emailTransport.sendEmail.mockResolvedValue({});
   });
 
   // =========================================================================
@@ -172,10 +219,11 @@ describe('taskRunner', () => {
       suspensionService.evaluateRules.mockResolvedValueOnce([
         {
           rule: { id: 1, action: 'auto_suspend' },
-          contract: { id: 10, invoice_id: 50 },
+          contract: { id: 10, invoice_id: 50, client_id: 99 },
         },
       ]);
       suspensionService.suspendContract.mockResolvedValueOnce();
+      db.query.mockResolvedValueOnce([[{ name: 'Client', email: 'client@example.com', org_name: 'ISP' }]]);  // suspension email client lookup
       db.query.mockResolvedValueOnce([[]]);  // runSuspensionWarnings: no rules
 
       const result = await taskRunner.runAutoSuspend(42);
