@@ -26,6 +26,8 @@ import { TicketDetail } from '@/pages/TicketDetail';
 import { DeviceMap } from '@/pages/DeviceMap';
 import { UserList } from '@/pages/UserList';
 import { CfdiList } from '@/pages/CfdiList';
+import { InventoryList } from '@/pages/InventoryList';
+import { WarehouseList } from '@/pages/WarehouseList';
 import { NotFound } from '@/pages/NotFound';
 
 // Stub pages for Milestone 2.2 pages — each will be replaced with a real component.
@@ -69,6 +71,14 @@ export function App() {
                 <Route path="tickets" element={<TicketList />} />
                 <Route path="tickets/:id" element={<TicketDetail />} />
                 <Route path="devices" element={<DeviceMap />} />
+              </Route>
+            </Route>
+
+            {/* Technician+ — technician, billing, or admin */}
+            <Route element={<PrivateRoute requiredRole="technician" />}>
+              <Route element={<Layout />}>
+                <Route path="inventory" element={<InventoryList />} />
+                <Route path="warehouses" element={<WarehouseList />} />
               </Route>
             </Route>
 
