@@ -118,7 +118,7 @@
 - ✅ Inventory/warehouse management
 - ✅ RADIUS session viewer (live PPPoE sessions)
 - ✅ SNMP metrics charts (bandwidth, uptime, per-device)
-- ⬜ Reports page (revenue, churn, usage, IFT statistical)
+- ✅ Reports page (revenue, churn, usage, IFT statistical)
 - ⬜ Settings (org config, email templates, alert rules, payment gateways)
 
 ---
@@ -235,3 +235,4 @@
 | 2026-04-21 | 2.3 | Inventory/warehouse management: InventoryList page (category+status filters, pagination, New/Edit Item modals, Stock modal across warehouses, Record Transaction modal); WarehouseList page (status filter, pagination, New/Edit Warehouse modals, Stock Levels modal with search); routes /inventory + /warehouses accessible to technician+ | #TBD |
 | 2026-04-21 | 2.3 | RADIUS session viewer: live PPPoE sessions table (username/IP/NAS filters, auto-refresh 30s, duration, bytes ↓/↑); GET /connection-logs/active endpoint; POST /radius/:id/disconnect endpoint; route /radius-sessions (technician+) | #TBD |
 | 2026-04-21 | 2.3 | SNMP metrics charts: device selector, time range (24h raw/7d hourly/30d daily), interface selector, SVG line charts (bandwidth ↓/↑, CPU, memory, signal, latency), summary bar; GET /snmp-metrics + GET /snmp-metrics/devices endpoints; route /snmp-metrics (technician+) | #TBD |
+| 2026-04-21 | 2.3 | Reports page: Revenue tab (financial summary KPIs + bar chart, date-range picker), Subscriber Growth tab (new vs churned line chart + monthly table, churn rate KPI), AR Aging tab (bucket KPIs + bar chart + searchable overdue-invoice table), IFT Statistical tab (paginated list + detail modal + create modal); 4 new OpenAPI paths added (financial, aging, subscriber-growth, technicians) | #TBD |

@@ -30,6 +30,7 @@ import { InventoryList } from '@/pages/InventoryList';
 import { WarehouseList } from '@/pages/WarehouseList';
 import { RadiusSessions } from '@/pages/RadiusSessions';
 import { SnmpMetrics } from '@/pages/SnmpMetrics';
+import { Reports } from '@/pages/Reports';
 import { NotFound } from '@/pages/NotFound';
 
 // Stub pages for Milestone 2.2 pages — each will be replaced with a real component.
@@ -90,7 +91,7 @@ export function App() {
             <Route element={<PrivateRoute requiredRole="billing" />}>
               <Route element={<Layout />}>
                 <Route path="cfdi" element={<CfdiList />} />
-                <Route path="reports" element={<Placeholder title="Reports" />} />
+                <Route path="reports" element={<Reports />} />
               </Route>
             </Route>
 
