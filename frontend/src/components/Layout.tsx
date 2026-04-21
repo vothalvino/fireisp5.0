@@ -20,6 +20,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/payments', label: '💳 Payments' },
   { to: '/tickets', label: '🎫 Tickets' },
   { to: '/devices', label: '🖧 Devices' },
+  { to: '/cfdi', label: '🏛️ CFDI', requiredRole: 'billing' },
   // Admin-only
   { to: '/users', label: '🔑 Users', requiredRole: 'admin' },
   { to: '/reports', label: '📈 Reports', requiredRole: 'billing' },

@@ -25,6 +25,7 @@ import { TicketList } from '@/pages/TicketList';
 import { TicketDetail } from '@/pages/TicketDetail';
 import { DeviceMap } from '@/pages/DeviceMap';
 import { UserList } from '@/pages/UserList';
+import { CfdiList } from '@/pages/CfdiList';
 import { NotFound } from '@/pages/NotFound';
 
 // Stub pages for Milestone 2.2 pages — each will be replaced with a real component.
@@ -74,6 +75,7 @@ export function App() {
             {/* Billing+ — billing or admin */}
             <Route element={<PrivateRoute requiredRole="billing" />}>
               <Route element={<Layout />}>
+                <Route path="cfdi" element={<CfdiList />} />
                 <Route path="reports" element={<Placeholder title="Reports" />} />
               </Route>
             </Route>
