@@ -20,6 +20,7 @@ import { ClientDetail } from '@/pages/ClientDetail';
 import { ContractList } from '@/pages/ContractList';
 import { InvoiceList } from '@/pages/InvoiceList';
 import { InvoiceDetail } from '@/pages/InvoiceDetail';
+import { PaymentList } from '@/pages/PaymentList';
 import { NotFound } from '@/pages/NotFound';
 
 // Stub pages for Milestone 2.2 pages — each will be replaced with a real component.
@@ -59,7 +60,7 @@ export function App() {
                 <Route path="contracts" element={<ContractList />} />
                 <Route path="invoices" element={<InvoiceList />} />
                 <Route path="invoices/:id" element={<InvoiceDetail />} />
-                <Route path="payments" element={<Placeholder title="Payments" />} />
+                <Route path="payments" element={<PaymentList />} />
                 <Route path="tickets" element={<Placeholder title="Tickets" />} />
                 <Route path="devices" element={<Placeholder title="Devices" />} />
               </Route>
