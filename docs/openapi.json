@@ -2276,6 +2276,134 @@
         }
       }
     },
+    "/contracts/{id}/suspend": {
+      "post": {
+        "tags": [
+          "Contracts"
+        ],
+        "summary": "Suspend a contract and kick active RADIUS session via CoA Disconnect-Request",
+        "operationId": "suspendContract",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "rule_id": {
+                    "type": "integer",
+                    "description": "Optional suspension rule ID"
+                  },
+                  "invoice_id": {
+                    "type": "integer",
+                    "description": "Optional overdue invoice ID triggering the suspension"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Contract suspended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "contract_id": { "type": "integer" },
+                        "status": { "type": "string", "example": "suspended" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "description": "Contract not found" },
+          "422": { "description": "Contract is already suspended" }
+        }
+      }
+    },
+    "/contracts/{id}/unsuspend": {
+      "post": {
+        "tags": [
+          "Contracts"
+        ],
+        "summary": "Unsuspend a contract and restore RADIUS access via CoA-Request",
+        "operationId": "unsuspendContract",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "invoice_id": {
+                    "type": "integer",
+                    "description": "Optional invoice ID being settled"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Contract unsuspended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "contract_id": { "type": "integer" },
+                        "status": { "type": "string", "example": "active" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "description": "Contract not found" },
+          "422": { "description": "Contract is not suspended" }
+        }
+      }
+    },
     "/invoices": {
       "get": {
         "tags": [
