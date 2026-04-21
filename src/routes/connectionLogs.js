@@ -74,6 +74,119 @@ router.get('/active', requirePermission('connection_logs.view'), async (req, res
   }
 });
 
+// GET /daily-usage — data usage aggregated per client per day
+router.get('/daily-usage', requirePermission('connection_logs.view'), async (req, res, next) => {
+  try {
+    const {
+      client_id, contract_id, date_from, date_to,
+      page = 1, limit = 50,
+    } = req.query;
+
+    // Default: last 30 days when no date range supplied
+    const defaultTo = new Date();
+    const defaultFrom = new Date();
+    defaultFrom.setDate(defaultFrom.getDate() - 30);
+
+    const from = date_from || defaultFrom.toISOString().slice(0, 10);
+    const to = date_to || defaultTo.toISOString().slice(0, 10);
+
+    // All user-supplied values go exclusively into parameterized placeholders.
+    const conditions = ['event_type IN (\'stop\', \'interim-update\')', 'DATE(event_at) >= ?', 'DATE(event_at) <= ?'];
+    const params = [from, to];
+
+    if (client_id) { conditions.push('client_id = ?'); params.push(client_id); }
+    if (contract_id) { conditions.push('contract_id = ?'); params.push(contract_id); }
+
+    const where = conditions.join(' AND ');
+    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+
+    const [rows] = await db.query(
+      `SELECT
+         DATE(event_at)          AS usage_date,
+         client_id,
+         contract_id,
+         username,
+         COUNT(*)                AS session_count,
+         COALESCE(SUM(bytes_in),  0) AS bytes_in,
+         COALESCE(SUM(bytes_out), 0) AS bytes_out,
+         COALESCE(SUM(bytes_in + bytes_out), 0) AS bytes_total,
+         COALESCE(SUM(session_duration), 0) AS duration_seconds
+       FROM connection_logs
+       WHERE ${where}
+       GROUP BY DATE(event_at), client_id, contract_id, username
+       ORDER BY usage_date DESC, bytes_total DESC
+       LIMIT ? OFFSET ?`,
+      [...params, parseInt(limit, 10), offset],
+    );
+
+    const [countResult] = await db.query(
+      `SELECT COUNT(*) AS total
+       FROM (
+         SELECT 1
+         FROM connection_logs
+         WHERE ${where}
+         GROUP BY DATE(event_at), client_id, contract_id, username
+       ) sub`,
+      params,
+    );
+
+    res.json({
+      data: rows,
+      meta: {
+        total: countResult[0].total,
+        page: parseInt(page, 10),
+        limit: parseInt(limit, 10),
+        date_from: from,
+        date_to: to,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /top-consumers — top N clients by data usage in a period
+router.get('/top-consumers', requirePermission('connection_logs.view'), async (req, res, next) => {
+  try {
+    const { date_from, date_to, limit = 10 } = req.query;
+
+    const defaultTo = new Date();
+    const defaultFrom = new Date();
+    defaultFrom.setDate(defaultFrom.getDate() - 30);
+
+    const from = date_from || defaultFrom.toISOString().slice(0, 10);
+    const to = date_to || defaultTo.toISOString().slice(0, 10);
+
+    const [rows] = await db.query(
+      `SELECT
+         client_id,
+         contract_id,
+         username,
+         COUNT(DISTINCT DATE(event_at))           AS active_days,
+         COUNT(*)                                  AS session_count,
+         COALESCE(SUM(bytes_in),  0)               AS bytes_in,
+         COALESCE(SUM(bytes_out), 0)               AS bytes_out,
+         COALESCE(SUM(bytes_in + bytes_out), 0)    AS bytes_total,
+         COALESCE(SUM(session_duration), 0)        AS duration_seconds
+       FROM connection_logs
+       WHERE event_type IN ('stop', 'interim-update')
+         AND DATE(event_at) >= ?
+         AND DATE(event_at) <= ?
+       GROUP BY client_id, contract_id, username
+       ORDER BY bytes_total DESC
+       LIMIT ?`,
+      [from, to, parseInt(limit, 10)],
+    );
+
+    res.json({
+      data: rows,
+      meta: { date_from: from, date_to: to, limit: parseInt(limit, 10) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // List connection logs with filters
 router.get('/', requirePermission('connection_logs.view'), async (req, res, next) => {
   try {
