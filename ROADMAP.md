@@ -117,7 +117,7 @@
 - ✅ CFDI management (stamp, cancel, download XML/PDF)
 - ✅ Inventory/warehouse management
 - ✅ RADIUS session viewer (live PPPoE sessions)
-- ⬜ SNMP metrics charts (bandwidth, uptime, per-device)
+- ✅ SNMP metrics charts (bandwidth, uptime, per-device)
 - ⬜ Reports page (revenue, churn, usage, IFT statistical)
 - ⬜ Settings (org config, email templates, alert rules, payment gateways)
 
@@ -234,3 +234,4 @@
 | 2026-04-21 | 2.3 | CFDI management: paginated CFDI document list (status + type filters), Stamp modal (PAC timbrado confirmation), Cancel modal (SAT reason codes 01–04, optional replacement UUID), Download XML/PDF per-row actions; route /cfdi accessible to billing+ roles | #TBD |
 | 2026-04-21 | 2.3 | Inventory/warehouse management: InventoryList page (category+status filters, pagination, New/Edit Item modals, Stock modal across warehouses, Record Transaction modal); WarehouseList page (status filter, pagination, New/Edit Warehouse modals, Stock Levels modal with search); routes /inventory + /warehouses accessible to technician+ | #TBD |
 | 2026-04-21 | 2.3 | RADIUS session viewer: live PPPoE sessions table (username/IP/NAS filters, auto-refresh 30s, duration, bytes ↓/↑); GET /connection-logs/active endpoint; POST /radius/:id/disconnect endpoint; route /radius-sessions (technician+) | #TBD |
+| 2026-04-21 | 2.3 | SNMP metrics charts: device selector, time range (24h raw/7d hourly/30d daily), interface selector, SVG line charts (bandwidth ↓/↑, CPU, memory, signal, latency), summary bar; GET /snmp-metrics + GET /snmp-metrics/devices endpoints; route /snmp-metrics (technician+) | #TBD |
