@@ -180,7 +180,7 @@ function DeviceChip({ device }: { device: Device }) {
       </div>
       <div style={{ fontSize: '0.72rem', color: '#6b7280', marginBottom: 3 }}>
         {device.manufacturer ? `${device.manufacturer} ` : ''}
-        {device.model ?? device.type.replace('_', ' ')}
+        {device.model ?? device.type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
       </div>
       {device.ip_address && (
         <div style={{ fontSize: '0.72rem', color: '#6b7280', fontFamily: 'monospace', marginBottom: 4 }}>
