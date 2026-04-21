@@ -410,13 +410,13 @@ const { mountApiDocs } = require('./utils/openapi');
 mountApiDocs(app);
 
 // ---------------------------------------------------------------------------
-// Static admin dashboard — served from public/
+// Static admin dashboard — served from frontend/dist/ (React build output)
 // ---------------------------------------------------------------------------
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(express.static(path.join(__dirname, '..', 'frontend', 'dist')));
 
 // SPA fallback: any non-API GET that doesn't match a file → serve index.html
 app.get(/^\/(?!api|metrics|health)/, (req, res, next) => {
-  const indexPath = path.join(__dirname, '..', 'public', 'index.html');
+  const indexPath = path.join(__dirname, '..', 'frontend', 'dist', 'index.html');
   res.sendFile(indexPath, (err) => {
     if (err) next(); // fall through to 404
   });

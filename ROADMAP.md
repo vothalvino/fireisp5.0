@@ -24,7 +24,7 @@
 | Services | ✅ 27 service modules | billing, CFDI, RADIUS, payments, etc. |
 | Middleware | ✅ Auth, RBAC, validation, rate limiting | circuit breaker added |
 | Tests | ✅ 2021 Jest tests / 83 suites | 13 supertest-based integration files |
-| Frontend (SPA) | 🟡 Legacy vanilla-JS SPA shell in `/public` (56 routes registered in `js/pages.js`) | To be replaced — see Milestone 2 |
+| Frontend (SPA) | ✅ React + TypeScript SPA in `/frontend` (Vite, openapi-fetch, React Query, role-based routing) | Built to `frontend/dist/`; served by Express in production |
 | Docs | ✅ 17 doc files in `/docs` | architecture, API guide, runbook, data-migration |
 | Infrastructure | 🟡 Docker + K8s manifests exist | Not production-validated |
 | CI/CD | ✅ GitHub Actions pipeline | lint + test on push |
@@ -111,7 +111,7 @@
 - ✅ Ticket list + detail (create, assign, comment, close)
 - ✅ Device/network map (sites, links, SNMP status)
 - ✅ User management (create, assign roles, enable 2FA)
-- ⬜ Remove legacy `/public` SPA once parity is reached
+- ✅ Remove legacy `/public` SPA once parity is reached
 
 ### 2.3 — Advanced Pages (Post-MVP)
 - ⬜ CFDI management (stamp, cancel, download XML/PDF)
@@ -230,3 +230,4 @@
 | 2026-04-21 | 2.2 | Ticket list + detail: TicketList (status/priority filter, pagination, New Ticket modal), TicketDetail (metadata, quick-action status buttons, assign to user, comments thread with internal-note toggle) | #TBD |
 | 2026-04-21 | 2.2 | Device/network map: sites as collapsible cards with device chips (status badge, SNMP indicator), Unassigned group, network links table (device A/B, type, capacity, status), summary bar (sites, devices, online/offline, SNMP monitored, active links), site name + device status filters | #TBD |
 | 2026-04-21 | 2.2 | User management: paginated user table (role/status filter), New User modal (name/email/password/role/phone/status), Edit User modal (role change + info update), 2FA setup wizard (TOTP secret + OTPAuth URL + verify code + backup codes) and 2FA disable flow for the current user | #TBD |
+| 2026-04-21 | 2.2 | Remove legacy /public SPA: deleted /public dir, Express now serves frontend/dist/, Dockerfile updated to multi-stage build (frontend build → production image), README updated | #TBD |

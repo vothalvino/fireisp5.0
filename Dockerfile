@@ -1,3 +1,15 @@
+# ── Stage 1: build the React frontend ─────────────────────────────────────────
+FROM node:18-alpine AS frontend-build
+
+WORKDIR /frontend
+
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci --ignore-scripts
+
+COPY frontend/ ./
+RUN npm run build
+
+# ── Stage 2: production API server ────────────────────────────────────────────
 FROM node:18-alpine
 
 RUN addgroup -S fireisp && adduser -S fireisp -G fireisp
@@ -8,6 +20,9 @@ COPY package.json package-lock.json* ./
 RUN npm install --production && npm cache clean --force
 
 COPY . .
+
+# Copy the compiled React SPA into the location the Express server expects
+COPY --from=frontend-build /frontend/dist ./frontend/dist
 
 RUN chown -R fireisp:fireisp /app
 

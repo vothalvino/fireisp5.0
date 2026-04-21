@@ -68,7 +68,7 @@ fireisp5.0/
 │   ├── organizations/       # Organization-level files (logos, maps, SAT docs)
 │   └── backups/             # System database and config backups
 ├── docs/                    # Project documentation (API guide, architecture, deployment, etc.)
-├── public/                  # Public web assets (CSS, JS, images)
+├── frontend/                # React + TypeScript SPA (Vite); builds to frontend/dist/
 ├── tests/                   # Automated tests (65 test files, 1,363 Jest tests)
 ├── LICENSE
 └── README.md
