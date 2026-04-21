@@ -149,4 +149,20 @@ describe('FireRelayAgent', () => {
       await new Promise(r => server.close(r));
     }
   });
+
+  test('setHandler validates method name and handler function', () => {
+    const agent = new FireRelayAgent({
+      nodeId: 'agent-E',
+      token: 'test-secret',
+      tunnelUrl: 'ws://127.0.0.1:1234/ws/firerelay',
+    });
+
+    expect(() => agent.setHandler('', async () => {})).toThrow('method must be a non-empty string');
+    expect(() => agent.setHandler(123, async () => {})).toThrow('method must be a non-empty string');
+    expect(() => agent.setHandler('echo.run', 'not-a-function')).toThrow('handler must be a function');
+
+    const fn = async () => ({ ok: true });
+    agent.setHandler('echo.run', fn);
+    expect(agent.handlers['echo.run']).toBe(fn);
+  });
 });
