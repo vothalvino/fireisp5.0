@@ -88,4 +88,58 @@ router.get('/:id/payments', requirePermission('payments.view'), async (req, res,
   } catch (err) { next(err); }
 });
 
+// Send invoice email with PDF attachment to the client
+router.post('/:id/send-email', requirePermission('invoices.view'), async (req, res, next) => {
+  try {
+    const invoiceId = parseInt(req.params.id, 10);
+    const pdfService = require('../services/pdfService');
+    const emailTransport = require('../services/emailTransport');
+    const templates = require('../views/emailTemplates');
+
+    const [rows] = await db.query(
+      `SELECT i.*,
+              cl.name AS client_name, cl.email AS client_email,
+              o.name AS org_name
+       FROM invoices i
+       LEFT JOIN clients cl ON cl.id = i.client_id
+       LEFT JOIN organizations o ON o.id = i.organization_id
+       WHERE i.id = ? AND i.deleted_at IS NULL`,
+      [invoiceId],
+    );
+    const invoice = rows[0];
+    if (!invoice) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Invoice not found' } });
+    if (!invoice.client_email) return res.status(422).json({ error: { code: 'NO_EMAIL', message: 'Client has no email address' } });
+
+    const locale = req.query.locale || 'en';
+    const buffer = await pdfService.generateInvoicePdf(invoiceId, { locale });
+
+    const [itemRows] = await db.query(
+      'SELECT description, amount FROM invoice_items WHERE invoice_id = ? AND deleted_at IS NULL',
+      [invoiceId],
+    );
+
+    const template = templates.invoiceEmail({
+      clientName: invoice.client_name,
+      orgName: invoice.org_name,
+      invoiceNumber: invoice.invoice_number,
+      total: invoice.total,
+      currency: invoice.currency,
+      dueDate: invoice.due_date ? String(invoice.due_date).slice(0, 10) : '',
+      items: itemRows,
+    });
+
+    await emailTransport.sendEmail({
+      organizationId: invoice.organization_id,
+      to: invoice.client_email,
+      subject: template.subject,
+      html: template.html,
+      attachments: [{ filename: `invoice-${invoice.invoice_number || invoiceId}.pdf`, content: buffer }],
+    });
+
+    res.json({ message: 'Invoice sent', to: invoice.client_email });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
