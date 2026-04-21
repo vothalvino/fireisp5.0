@@ -103,7 +103,7 @@
 
 ### 2.2 — Core Pages (MVP)
 > **Definition of done for M2:** an operator can onboard a client, generate and send an invoice, record a payment, open a ticket, and check device status — all without ever calling the API directly.
-- ⬜ Dashboard (KPIs: active clients, MRR, overdue invoices, open tickets, device uptime)
+- ✅ Dashboard (KPIs: active clients, MRR, overdue invoices, open tickets, device uptime)
 - ⬜ Client list + detail (contracts, invoices, payments, devices, ledger)
 - ⬜ Contract management (create, renew, suspend, cancel)
 - ⬜ Invoice list + detail (generate, send email, download PDF, record payment)
@@ -222,3 +222,4 @@
 | 2026-04-20 | 1.7 | Data migration runbook: pre-migration checklist, import order, column reference, verification queries, rollback | #TBD |
 | 2026-04-20 | — | Roadmap deep-dive refresh: corrected Status Snapshot counts (155→156 migrations, 101→108 tables, 55+→69 routes, 24→27 services, 16→17 docs, frontend & tests rows); marked M1 complete; sharpened M2.1 (framework decision ADR, OpenAPI audit, `/healthz` validation moved up, legacy `/public` retirement); added M2 MVP definition-of-done; collapsed redundant FireRelay parent bullet in 3.1; de-duplicated Grafana items in 4.2 | #TBD |
 | 2026-04-20 | 2.1 | Frontend framework: React + TypeScript ADR; /auth/refresh added to OpenAPI spec (185 paths); /healthz endpoint (DB+Redis); React+TS+Vite scaffold in /frontend; openapi-fetch typed client; AuthContext (JWT in memory, refresh token in localStorage, silent refresh on 401); PrivateRoute role guard (admin/billing/technician/support/read-only) | #TBD |
+| 2026-04-20 | 2.2 | Dashboard KPI page: active clients, MRR, overdue invoices, open tickets, device uptime cards + overdue invoices table; fetches /dashboard/summary, /dashboard/mrr, /dashboard/device-health, /dashboard/overdue via React Query | #TBD |
