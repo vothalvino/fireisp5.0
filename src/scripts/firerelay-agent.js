@@ -9,6 +9,7 @@ require('dotenv').config();
 const { URL } = require('url');
 const FireRelayAgent = require('../services/firerelayAgent');
 const relayConfig = require('../config/firerelay');
+const { handlers: routerosHandlers } = require('../services/routerosService');
 const logger = require('../utils/logger').child({ script: 'firerelay-agent' });
 
 function deriveTunnelUrl() {
@@ -35,7 +36,7 @@ function buildAgent() {
     token: relayConfig.tunnelSecret,
     tunnelUrl,
     reconnectDelayMs: parseInt(process.env.FIRERELAY_AGENT_RECONNECT_MS || '2000', 10),
-    handlers: {},
+    handlers: { ...routerosHandlers },
     logger: logger.child({ component: 'agent' }),
   });
 }
