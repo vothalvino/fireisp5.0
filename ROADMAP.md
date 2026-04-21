@@ -130,7 +130,7 @@
 ### 3.1 — FireRelay (Remote Router Management)
 - ✅ FireRelay service architecture + clustering design
 - ✅ Implement WebSocket tunnel between agent and central server
-- ⬜ Implement FireRelay agent process (Node.js) that runs at remote POP sites and connects via the tunnel
+- ✅ Implement FireRelay agent process (Node.js) that runs at remote POP sites and connects via the tunnel
 - ⬜ Add RouterOS API commands: PPPoE create/delete, queue set, address-list add/remove
 - ⬜ Add config backup pull (automated nightly backup via agent)
 - ⬜ Test with real MikroTik hAP (lab environment)
@@ -238,3 +238,4 @@
 | 2026-04-21 | 2.3 | Reports page: Revenue tab (financial summary KPIs + bar chart, date-range picker), Subscriber Growth tab (new vs churned line chart + monthly table, churn rate KPI), AR Aging tab (bucket KPIs + bar chart + searchable overdue-invoice table), IFT Statistical tab (paginated list + detail modal + create modal); 4 new OpenAPI paths added (financial, aging, subscriber-growth, technicians) | #TBD |
 | 2026-04-21 | 2.3 | Settings page: Org Config (key/value settings editor), Email Templates (CRUD for message_templates), Alert Rules (CRUD with enable/disable toggle), Payment Gateways (CRUD for payment gateways); new /api/v1/message-templates route added; schema.sql synced with migration 157 (ift_statistical_reports: concession_title_id FK, subscribers_by_municipality, subscribers_by_customer_type, subscribers_by_payment_modality, notes columns) | #TBD |
 | 2026-04-21 | 3.1 | WebSocket tunnel: TunnelServer class with auth handshake (shared secret), heartbeat ping/pong, command dispatch (sendCommand → Promise), agent connect/disconnect events, DB status hooks; attached to HTTP server at /ws/firerelay; GET /api/firerelay/tunnel/agents + POST /api/firerelay/tunnel/command routes; 21 new Jest tests | #TBD |
+| 2026-04-21 | 3.1 | FireRelay agent process: new FireRelayAgent service with outbound tunnel auth/reconnect/command-response lifecycle; new `npm run firerelay:agent` script (`src/scripts/firerelay-agent.js`) for remote POP runtime; 4 Jest tests for connect/auth, command handling, unsupported method errors, and auto-reconnect | #TBD |
