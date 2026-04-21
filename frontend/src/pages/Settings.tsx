@@ -292,7 +292,7 @@ function EmailTemplatesTab() {
               <input style={sty.input} value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} />
             </label>
             <label style={sty.label}>
-              Body * <span style={sty.hint}>(use {'{{'+'variable'+'}}'} placeholders)</span>
+              Body * <span style={sty.hint}>(use {'{{variable}}'} placeholders)</span>
               <textarea
                 style={{ ...sty.input, height: 140, resize: 'vertical' }}
                 value={form.body}
