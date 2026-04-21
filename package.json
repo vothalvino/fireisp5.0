@@ -11,6 +11,7 @@
     "rollback": "node src/scripts/rollback.js",
     "seed": "node src/scripts/seed.js",
     "backup": "node src/scripts/backup.js",
+    "firerelay:agent": "node src/scripts/firerelay-agent.js",
     "admin": "node src/scripts/admin.js",
     "openapi": "node src/scripts/openapi.js",
     "postman": "node src/scripts/postman.js",
