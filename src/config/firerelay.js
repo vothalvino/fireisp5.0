@@ -53,6 +53,8 @@ module.exports = {
   // FIRERELAY_TUNNEL_SECRET: shared secret agents must present during auth handshake.
   // If empty, tunnel is disabled.
   tunnelSecret: process.env.FIRERELAY_TUNNEL_SECRET || '',
+  // How long to wait for an auth message from a newly-connected agent (ms)
+  tunnelAuthTimeout: parseInt(process.env.FIRERELAY_TUNNEL_AUTH_TIMEOUT || '10000', 10),
   // How long to wait for a command response from an agent (ms)
   tunnelCommandTimeout: parseInt(process.env.FIRERELAY_TUNNEL_COMMAND_TIMEOUT || '10000', 10),
   // Interval for WebSocket ping/pong heartbeats (ms)

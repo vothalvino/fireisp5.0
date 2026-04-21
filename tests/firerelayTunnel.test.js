@@ -23,6 +23,7 @@ jest.mock('../src/config/firerelay', () => ({
   maxClients: 10000,
   maxDevices: 3000,
   tunnelSecret: 'test-secret',
+  tunnelAuthTimeout: 10000,
   tunnelCommandTimeout: 2000,
   tunnelPingInterval: 60000,
 }));
@@ -31,6 +32,9 @@ const http = require('http');
 const WebSocket = require('ws');
 const db = require('../src/config/database');
 const { TunnelServer } = require('../src/services/firerelayTunnel');
+
+/** Milliseconds to wait for async DB calls to settle in tests */
+const DB_SETTLE_MS = 50;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -357,7 +361,7 @@ describe('TunnelServer', () => {
         // Send a rogue response that doesn't match any pending command
         ws.send(JSON.stringify({ type: 'response', id: 'no-such-id', ok: true, data: {} }));
         // No error should be thrown — just silently ignored
-        await new Promise(r => setTimeout(r, 50));
+        await new Promise(r => setTimeout(r, DB_SETTLE_MS));
       } finally {
         ws.close();
         await tunnel.close();
@@ -409,7 +413,7 @@ describe('TunnelServer', () => {
       try {
         await authenticate(ws, 'db-node');
         // Allow async DB call to settle
-        await new Promise(r => setTimeout(r, 50));
+        await new Promise(r => setTimeout(r, DB_SETTLE_MS));
         expect(db.query).toHaveBeenCalledWith(
           expect.stringContaining("status = 'active'"),
           ['db-node'],
@@ -429,7 +433,7 @@ describe('TunnelServer', () => {
         const closed = new Promise(r => ws.once('close', r));
         ws.close();
         await closed;
-        await new Promise(r => setTimeout(r, 50));
+        await new Promise(r => setTimeout(r, DB_SETTLE_MS));
         expect(db.query).toHaveBeenCalledWith(
           expect.stringContaining("status = 'offline'"),
           ['db-node-2'],

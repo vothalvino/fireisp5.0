@@ -118,7 +118,7 @@ class TunnelServer extends EventEmitter {
     const authTimeout = setTimeout(() => {
       logger.warn({ remoteIp }, 'Tunnel: auth timeout, closing connection');
       ws.close(4001, 'Authentication timeout');
-    }, 10000);
+    }, relayConfig.tunnelAuthTimeout);
 
     // Track whether this socket has authenticated yet
     ws._authenticated = false;
@@ -307,7 +307,11 @@ class TunnelServer extends EventEmitter {
     }
 
     const id = randomUUID();
-    const timeout = timeoutMs ?? relayConfig.tunnelCommandTimeout;
+    // Clamp timeout to safe bounds regardless of call-site origin
+    const MAX_COMMAND_TIMEOUT_MS = 60000;
+    const MIN_COMMAND_TIMEOUT_MS = 1000;
+    const rawTimeout = timeoutMs ?? relayConfig.tunnelCommandTimeout;
+    const timeout = Math.min(Math.max(rawTimeout, MIN_COMMAND_TIMEOUT_MS), MAX_COMMAND_TIMEOUT_MS);
 
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
