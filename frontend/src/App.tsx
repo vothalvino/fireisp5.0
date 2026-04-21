@@ -28,6 +28,7 @@ import { UserList } from '@/pages/UserList';
 import { CfdiList } from '@/pages/CfdiList';
 import { InventoryList } from '@/pages/InventoryList';
 import { WarehouseList } from '@/pages/WarehouseList';
+import { RadiusSessions } from '@/pages/RadiusSessions';
 import { NotFound } from '@/pages/NotFound';
 
 // Stub pages for Milestone 2.2 pages — each will be replaced with a real component.
@@ -79,6 +80,7 @@ export function App() {
               <Route element={<Layout />}>
                 <Route path="inventory" element={<InventoryList />} />
                 <Route path="warehouses" element={<WarehouseList />} />
+                <Route path="radius-sessions" element={<RadiusSessions />} />
               </Route>
             </Route>
 

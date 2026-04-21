@@ -22,6 +22,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/devices', label: '🖧 Devices' },
   { to: '/inventory', label: '📦 Inventory', requiredRole: 'technician' },
   { to: '/warehouses', label: '🏭 Warehouses', requiredRole: 'technician' },
+  { to: '/radius-sessions', label: '📡 RADIUS Sessions', requiredRole: 'technician' },
   { to: '/cfdi', label: '🏛️ CFDI', requiredRole: 'billing' },
   // Admin-only
   { to: '/users', label: '🔑 Users', requiredRole: 'admin' },
