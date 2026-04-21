@@ -1,8 +1,8 @@
 # IFT Statistical Report — Schema Review
 
 **Date:** 2026-04-21
-**Status:** Draft for sign-off — **DO NOT proceed with UI or export work until reviewed and accepted by the regulatory lead.**
-**Scope:** `ift_statistical_reports` table (migration 079), `IftStatisticalReport` model, and the `iftStatisticalReports` validation schema.
+**Status:** Schema alignment implemented in migration 157 and the model/validation rewrite below; **regulatory-lead sign-off still required before UI/export work begins.**
+**Scope:** `ift_statistical_reports` table (migrations 079 + 157), `IftStatisticalReport` model, and the `iftStatisticalReports` validation schema.
 **Authority:** Ley Federal de Telecomunicaciones y Radiodifusión (LFTR) **Art. 175** and the IFT *Lineamientos Generales para la Presentación de Información Estadística por parte de los Concesionarios y Autorizados* (most recent published *Formato Estadístico* for fixed‑broadband / *Servicio Fijo de Internet*).
 
 ---
@@ -102,11 +102,11 @@ These are bugs regardless of IFT requirements, and they must be fixed in lock-st
 
 **Block the UI/export milestone until the following are addressed:**
 
-- [ ] **Migration `080_align_ift_statistical_reports_with_ift_format.sql`** — adds `concession_title_id`, `subscribers_by_municipality`, `subscribers_by_customer_type`, `subscribers_by_payment_modality`, `notes`; adds FK to `concession_titles(id)`.
-- [ ] **Model `fillable` rewrite** to mirror DB columns 1:1 (use the `_mbps` and `_total` suffixes; add `period_start`, `period_end`, `coverage_localities`, `concession_title_id`, `total_subscribers`, `filing_id`, `filed_at`).
-- [ ] **Validation schema rewrite** mirroring the new `fillable`; require `period_start`, `period_end` and the renamed `total_subscribers`/`avg_*_speed_mbps`/`revenue_total`. Tighten `report_period` to `max: 10` (matches `VARCHAR(10)`).
-- [ ] **OpenAPI regeneration** so the published request bodies use the IFT field vocabulary (the future UI consumes the typed client).
-- [ ] **Tests** for the validation schema covering each newly-required field and each renamed field.
+- [x] **Migration `157_align_ift_statistical_reports_with_ift_format.sql`** — adds `concession_title_id` (+ FK to `concession_titles(id)`), `subscribers_by_municipality`, `subscribers_by_customer_type`, `subscribers_by_payment_modality`, and `notes`.
+- [x] **Model `fillable` rewrite** — now mirrors DB columns 1:1 (uses the `_mbps` and `_total` suffixes; adds `period_start`, `period_end`, `coverage_localities`, `concession_title_id`, `total_subscribers`, `filing_id`, `filed_at`, `notes`, and the new breakdown columns).
+- [x] **Validation schema rewrite** — uses the corrected column names; `period_start` / `period_end` are required ISO dates; `report_period` tightened to `max: 10` with a `YYYY-Qn` / `YYYY-MM` pattern; the JSON breakdown payloads (`subscribers_by_*`, `coverage_localities`) are length-guarded.
+- [x] **Tests** — `tests/newValidationSchemas.test.js` updated to use the corrected field names and to cover the newly-required `period_start` / `period_end`, the `report_period` pattern, the renamed `total_subscribers` / `avg_*_speed_mbps` / `revenue_total`, and the new breakdown fields.
+- [ ] **OpenAPI regeneration** so the published request bodies use the IFT field vocabulary (the future UI consumes the typed client). *(The `crudPaths(...)` helper in `src/utils/openapi.js` derives request bodies from the validation schema, so the published spec already reflects the new field names; re-run the frontend `npm run gen:api` step before starting UI work.)*
 - [ ] **Sign-off** from the regulatory lead that the *Tecnología* enum, the *Tipo de contratación* enum, and the *Modalidad de pago* enum match the latest published IFT formato.
 
 Once those items are merged and the regulatory lead has signed off this document, the UI and CSV/XLSX export work tracked under the *Reporting / Export* milestone may begin.
@@ -126,4 +126,4 @@ Once those items are merged and the regulatory lead has signed off this document
 - IFT — *Lineamientos Generales para la Presentación de Información Estadística* (publicación más reciente en el DOF).
 - IFT — *Formato Estadístico — Servicio Fijo de Internet* (descargable desde el portal del IFT, <https://www.ift.org.mx/>).
 - INEGI — Catálogo Único de Claves de Áreas Geoestadísticas Estatales, Municipales y Localidades (códigos usados en F4–F6).
-- Internal: migration `database/migrations/079_create_ift_statistical_reports_table.sql`, model `src/models/IftStatisticalReport.js`, schema `src/middleware/schemas/iftStatisticalReports.js`, routes `src/routes/iftStatisticalReports.js`.
+- Internal: migrations `database/migrations/079_create_ift_statistical_reports_table.sql` and `database/migrations/157_align_ift_statistical_reports_with_ift_format.sql`, model `src/models/IftStatisticalReport.js`, schema `src/middleware/schemas/iftStatisticalReports.js`, routes `src/routes/iftStatisticalReports.js`.

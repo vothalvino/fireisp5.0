@@ -1314,26 +1314,65 @@ describe('RegulatoryFiling validation schemas', () => {
 describe('IftStatisticalReport validation schemas', () => {
   const { createIftStatisticalReport, updateIftStatisticalReport } = require('../src/middleware/schemas/iftStatisticalReports');
 
+  const validBase = {
+    report_period: '2025-Q1',
+    period_start: '2025-01-01',
+    period_end: '2025-03-31',
+  };
+
   test('createIftStatisticalReport requires report_period', () => {
     const next = run(createIftStatisticalReport, {});
     expectReject(next);
     expect(errorFields(next)).toContain('report_period');
   });
 
+  test('createIftStatisticalReport requires period_start and period_end', () => {
+    const next = run(createIftStatisticalReport, { report_period: '2025-Q1' });
+    expectReject(next);
+    const fields = errorFields(next);
+    expect(fields).toContain('period_start');
+    expect(fields).toContain('period_end');
+  });
+
   test('createIftStatisticalReport rejects invalid status', () => {
-    const next = run(createIftStatisticalReport, { report_period: '2025-Q1', status: 'pending' });
+    const next = run(createIftStatisticalReport, { ...validBase, status: 'pending' });
     expectReject(next);
   });
 
-  test('createIftStatisticalReport rejects subscribers_count < 0', () => {
-    const next = run(createIftStatisticalReport, { report_period: '2025-Q1', subscribers_count: -1 });
+  test('createIftStatisticalReport rejects total_subscribers < 0', () => {
+    const next = run(createIftStatisticalReport, { ...validBase, total_subscribers: -1 });
     expectReject(next);
   });
 
-  test('createIftStatisticalReport accepts valid data', () => {
+  test('createIftStatisticalReport rejects malformed report_period', () => {
+    const next = run(createIftStatisticalReport, { ...validBase, report_period: '2025/Q1' });
+    expectReject(next);
+    expect(errorFields(next)).toContain('report_period');
+  });
+
+  test('createIftStatisticalReport rejects malformed period_start', () => {
+    const next = run(createIftStatisticalReport, { ...validBase, period_start: '01-01-2025' });
+    expectReject(next);
+    expect(errorFields(next)).toContain('period_start');
+  });
+
+  test('createIftStatisticalReport accepts valid data with renamed fields', () => {
     const next = run(createIftStatisticalReport, {
-      report_period: '2025-Q1', subscribers_count: 5000, avg_download_speed: 75.5,
-      revenue: 500000, status: 'draft',
+      ...validBase,
+      total_subscribers: 5000,
+      avg_download_speed_mbps: 75.5,
+      avg_upload_speed_mbps: 20,
+      revenue_total: 500000,
+      subscribers_by_state: '{"01":120,"02":340}',
+      subscribers_by_municipality: '{"01001":50,"01002":70}',
+      subscribers_by_customer_type: '{"residential":4500,"business":500}',
+      subscribers_by_payment_modality: '{"pospago":4000,"prepago":1000}',
+      coverage_localities: '["010010001","010020001"]',
+      coverage_municipalities: 12,
+      concession_title_id: 1,
+      filing_id: 2,
+      notes: 'Q1 2025 snapshot',
+      status: 'draft',
     });
     expectPass(next);
   });
