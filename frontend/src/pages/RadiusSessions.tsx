@@ -66,6 +66,11 @@ function formatBytes(bytes: number | null): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(3)} GB`;
 }
 
+function formatSessionId(sessionId: string | null): string {
+  if (!sessionId) return '—';
+  return sessionId.length > 16 ? `${sessionId.slice(0, 16)}…` : sessionId;
+}
+
 function formatDuration(seconds: number | null): string {
   if (seconds == null) return '—';
   const h = Math.floor(seconds / 3600);
@@ -255,11 +260,11 @@ export function RadiusSessions() {
         </div>
         <div style={s.summaryCard}>
           <div style={s.summaryValue}>{formatBytes(totalBytesIn)}</div>
-          <div style={s.summaryLabel}>↓ Download (visible page)</div>
+          <div style={s.summaryLabel}>↓ Download (current page)</div>
         </div>
         <div style={s.summaryCard}>
           <div style={s.summaryValue}>{formatBytes(totalBytesOut)}</div>
-          <div style={s.summaryLabel}>↑ Upload (visible page)</div>
+          <div style={s.summaryLabel}>↑ Upload (current page)</div>
         </div>
       </div>
 
@@ -325,7 +330,7 @@ export function RadiusSessions() {
                 <td style={s.td}>{session.ip_address || '—'}</td>
                 <td style={s.td}>{session.nas_ip_address || '—'}</td>
                 <td style={{ ...s.td, fontFamily: 'monospace', fontSize: '0.78rem' }}>
-                  {session.session_id ? session.session_id.slice(0, 16) + (session.session_id.length > 16 ? '…' : '') : '—'}
+                  {formatSessionId(session.session_id)}
                 </td>
                 <td style={s.td}>{formatDate(session.event_at)}</td>
                 <td style={s.td}>{sessionDuration(session.event_at)}</td>

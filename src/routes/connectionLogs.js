@@ -18,6 +18,9 @@ router.get('/active', requirePermission('connection_logs.view'), async (req, res
   try {
     const { username, ip_address, nas_ip_address, page = 1, limit = 50 } = req.query;
 
+    // All user-supplied values go exclusively into parameterized placeholders.
+    // The conditions array contains only hardcoded SQL fragments; no user input
+    // is ever interpolated into the query string.
     const conditions = [];
     const params = [];
 
@@ -25,10 +28,13 @@ router.get('/active', requirePermission('connection_logs.view'), async (req, res
     if (ip_address) { conditions.push('cl.ip_address LIKE ?'); params.push(`%${ip_address}%`); }
     if (nas_ip_address) { conditions.push('cl.nas_ip_address = ?'); params.push(nas_ip_address); }
 
-    const extraWhere = conditions.length ? `AND ${conditions.join(' AND ')}` : '';
+    // Build the extra filter clause from the hardcoded fragments list.
+    const extraConditions = conditions.length
+      ? `AND ${conditions.join(' AND ')}`
+      : '';
     const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
 
-    const sql = `
+    const activeSql = `
       SELECT cl.*
       FROM connection_logs cl
       WHERE cl.event_type = 'start'
@@ -38,7 +44,7 @@ router.get('/active', requirePermission('connection_logs.view'), async (req, res
             AND cl2.contract_id = cl.contract_id
             AND cl2.event_type = 'stop'
         )
-        ${extraWhere}
+        ${extraConditions}
       ORDER BY cl.event_at DESC
       LIMIT ? OFFSET ?
     `;
@@ -53,10 +59,10 @@ router.get('/active', requirePermission('connection_logs.view'), async (req, res
             AND cl2.contract_id = cl.contract_id
             AND cl2.event_type = 'stop'
         )
-        ${extraWhere}
+        ${extraConditions}
     `;
 
-    const [rows] = await db.query(sql, [...params, parseInt(limit, 10), offset]);
+    const [rows] = await db.query(activeSql, [...params, parseInt(limit, 10), offset]);
     const [countResult] = await db.query(countSql, params);
 
     res.json({
