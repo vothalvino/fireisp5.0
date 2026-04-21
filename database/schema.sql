@@ -324,6 +324,8 @@ CREATE TABLE IF NOT EXISTS devices (
                                        COMMENT 'Explicit SNMP profile override; NULL = auto-match by manufacturer/model/type',
     status        ENUM('online', 'offline', 'maintenance') NOT NULL DEFAULT 'offline',
     notes         TEXT            NULL,
+    firerelay_node_id VARCHAR(64) NULL
+                                   COMMENT 'FireRelay agent node that can reach this device via RouterOS API',
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
@@ -337,6 +339,7 @@ CREATE TABLE IF NOT EXISTS devices (
     KEY idx_devices_status (status),
     KEY idx_devices_snmp_enabled (snmp_enabled),
     KEY idx_devices_snmp_profile_id (snmp_profile_id),
+    KEY idx_devices_firerelay_node_id (firerelay_node_id),
     KEY idx_devices_deleted_at (deleted_at),
     CONSTRAINT fk_devices_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,

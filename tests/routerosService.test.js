@@ -24,6 +24,7 @@ const {
   queueSet,
   addressListAdd,
   addressListRemove,
+  configBackup,
   connFromParams,
   handlers,
   DEFAULT_PORT,
@@ -511,12 +512,13 @@ describe('addressListRemove', () => {
 // =============================================================================
 
 describe('handlers', () => {
-  test('exports all five expected methods', () => {
+  test('exports all six expected methods', () => {
     expect(typeof handlers['pppoe.create']).toBe('function');
     expect(typeof handlers['pppoe.delete']).toBe('function');
     expect(typeof handlers['queue.set']).toBe('function');
     expect(typeof handlers['addressList.add']).toBe('function');
     expect(typeof handlers['addressList.remove']).toBe('function');
+    expect(typeof handlers['config.backup']).toBe('function');
   });
 
   test('pppoe.create handler uses conn from params', async () => {
@@ -542,5 +544,92 @@ describe('handlers', () => {
     await expect(
       handlers['pppoe.create']({ user: 'admin', password: 'x', name: 'u', secretPassword: 'p' }),
     ).rejects.toThrow('host is required');
+  });
+
+  test('config.backup handler uses conn from params', async () => {
+    const line1 = '# RouterOS export';
+    const line2 = '/system identity set name=R1';
+    const mockHandler = sequenceServer([
+      [['!done']],                                // login
+      [['!re', `=ret=${line1}`], ['!re', `=ret=${line2}`], ['!done']], // /export
+    ]);
+
+    await withMockServer(mockHandler, async (port) => {
+      const result = await handlers['config.backup']({
+        host: '127.0.0.1',
+        port,
+        user: 'admin',
+        password: 'secret',
+      });
+      expect(result.configType).toBe('mikrotik_export');
+      expect(result.content).toContain(line1);
+      expect(result.content).toContain(line2);
+    });
+  });
+});
+
+// =============================================================================
+// configBackup
+// =============================================================================
+
+const BACKUP_CONN = { host: '127.0.0.1', user: 'admin', password: 'secret' };
+
+describe('configBackup', () => {
+  test('collects !re ret lines and returns combined content', async () => {
+    const lines = ['# RouterOS config', '/ip address add address=192.168.1.1/24 interface=ether1'];
+    const mockHandler = sequenceServer([
+      [['!done']], // login
+      [
+        ['!re', `=ret=${lines[0]}`],
+        ['!re', `=ret=${lines[1]}`],
+        ['!done'],
+      ],
+    ]);
+
+    await withMockServer(mockHandler, async (port) => {
+      const result = await configBackup({ ...BACKUP_CONN, port }, {});
+      expect(result.configType).toBe('mikrotik_export');
+      expect(result.content).toBe(lines.join('\n'));
+    });
+  });
+
+  test('uses mikrotik_compact type when compact=true', async () => {
+    const mockHandler = sequenceServer([
+      [['!done']],  // login
+      [['!re', '=ret=/ip/address/add...'], ['!done']],
+    ]);
+
+    await withMockServer(mockHandler, async (port) => {
+      const result = await configBackup({ ...BACKUP_CONN, port }, { compact: true });
+      expect(result.configType).toBe('mikrotik_compact');
+    });
+  });
+
+  test('returns empty content when router sends no !re lines', async () => {
+    const mockHandler = sequenceServer([
+      [['!done']], // login
+      [['!done']], // /export — no data lines
+    ]);
+
+    await withMockServer(mockHandler, async (port) => {
+      const result = await configBackup({ ...BACKUP_CONN, port }, {});
+      expect(result.content).toBe('');
+    });
+  });
+
+  test('ignores sentences without =ret= attribute', async () => {
+    const mockHandler = sequenceServer([
+      [['!done']], // login
+      [
+        ['!re', '=other=value'],     // no =ret=
+        ['!re', '=ret=valid line'],  // has =ret=
+        ['!done'],
+      ],
+    ]);
+
+    await withMockServer(mockHandler, async (port) => {
+      const result = await configBackup({ ...BACKUP_CONN, port }, {});
+      expect(result.content).toBe('valid line');
+    });
   });
 });
