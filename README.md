@@ -45,8 +45,8 @@ An open source ISP (Internet Service Provider) management software designed to h
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 107 tables)
-│   └── migrations/          # Individual numbered migration files (001–156)
+│   ├── schema.sql           # Combined schema (all 108 tables)
+│   └── migrations/          # Individual numbered migration files (001–158)
 ├── src/                     # Application source code
 │   ├── app.js               # Express app setup (middleware, routes, error handling)
 │   ├── server.js            # HTTP server entry point
@@ -364,6 +364,10 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 155 — Seed billing cycle task:** `155_seed_billing_cycle_task.sql` inserts the `billing_cycle` scheduled task (cron `0 2 * * *` — daily at 02:00, priority `high`, timeout 600 s) that orchestrates the full automated revenue engine: auto-generate invoices → email invoice to client → send suspension warning emails for overdue contracts approaching the rule threshold → suspend contracts past the `days_past_due` limit and email post-suspension confirmation. Dispatched by `taskRunner.runBillingCycle()`. Uses `INSERT IGNORE` for idempotency.
 
 > **Migration 156 — Seed database backup task:** `156_seed_database_backup_task.sql` inserts the `database_backup` scheduled task (cron `0 3 * * *` — daily at 03:00 UTC, priority `normal`, timeout 1800 s, 2 retries) that runs `mysqldump`, compresses the output with gzip, saves it locally in `storage/backups/` (retaining the last 7 copies), and uploads it to S3-compatible cloud storage (AWS S3 or Backblaze B2) when `BACKUP_S3_BUCKET`/`BACKUP_S3_REGION`/`BACKUP_S3_ACCESS_KEY`/`BACKUP_S3_SECRET_KEY` are configured. Cloud upload failure is non-fatal — the local copy is retained. Uses `INSERT IGNORE` for idempotency.
+
+> **Migration 157 — IFT statistical report alignment ALTER:** `157_align_ift_statistical_reports_with_ift_format.sql` aligns `ift_statistical_reports` with the IFT *Formato Estadístico — Servicio Fijo de Internet* required fields (see [`docs/ift-statistical-report-schema-review.md`](docs/ift-statistical-report-schema-review.md)). Adds `concession_title_id BIGINT UNSIGNED NULL` (FK to `concession_titles`, IFT F2), `subscribers_by_municipality JSON NULL` (INEGI municipality-code breakdown, IFT F5), `subscribers_by_customer_type JSON NULL` (residential/business counts, IFT F11), `subscribers_by_payment_modality JSON NULL` (pospago/prepago/empaquetado counts, IFT F12), and `notes TEXT NULL` (free-form filing comments).
+
+> **Migration 158 — FireRelay node on devices + config backup task:** `158_add_firerelay_node_to_devices_and_seed_config_backup_task.sql` adds `firerelay_node_id VARCHAR(64) NULL` to `devices` (with `idx_devices_firerelay_node_id` index) — records which FireRelay agent can reach the device via the RouterOS API. No FK is added because the agent connection is the authoritative reachability source and standalone-mode deployments may have no `firerelay_nodes` rows. Also seeds the `config_backup_pull` scheduled task (cron `0 2 * * *`, daily at 02:00 UTC, 2 retries, 3600 s timeout) that pulls RouterOS `/export` configs from all devices with a `firerelay_node_id` and stores versioned snapshots in `device_config_backups` with SHA-256 deduplication. Uses `INSERT IGNORE` for idempotency.
 
 ### Venta al Público en General (Factura Pública)
 

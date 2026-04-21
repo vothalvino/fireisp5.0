@@ -33,6 +33,82 @@ function extractTableNames(sqlContent) {
   return tables;
 }
 
+/**
+ * Extract column names per table from CREATE TABLE blocks in a SQL file.
+ *
+ * Returns a Map<tableName, Set<columnName>>.
+ *
+ * The parser walks the file line by line, tracking paren depth so it can tell
+ * which lines are at the top level of a CREATE TABLE body (depth 1). Lines at
+ * depth > 1 are inside sub-expressions (ENUM values, inline expressions, etc.)
+ * and are skipped. At depth 1, KEY / CONSTRAINT / closing-paren lines are also
+ * skipped; everything else is treated as the start of a column definition and
+ * the first identifier on the line is recorded as the column name.
+ */
+function extractSchemaColumns(sqlContent) {
+  const result = new Map();
+  const lines = sqlContent.split('\n');
+  let currentTable = null;
+  let depth = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (currentTable === null) {
+      const m = trimmed.match(
+        /^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?(\w+)`?/i,
+      );
+      if (m) {
+        currentTable = m[1].toLowerCase();
+        result.set(currentTable, new Set());
+        // Count any parens that appear on the CREATE TABLE line itself
+        for (const ch of line) {
+          if (ch === '(') depth++;
+          else if (ch === ')') depth--;
+        }
+      }
+      continue;
+    }
+
+    // We are inside a CREATE TABLE block.
+    // Record depth BEFORE processing this line so we know where the line starts.
+    const depthBefore = depth;
+    for (const ch of line) {
+      if (ch === '(') depth++;
+      else if (ch === ')') depth--;
+    }
+
+    // If depth dropped to 0 the table body just closed — stop.
+    if (depth === 0) {
+      currentTable = null;
+      continue;
+    }
+
+    // Only examine lines that begin at the top level of the table body (depth 1).
+    if (depthBefore !== 1) continue;
+
+    // Skip blank lines and SQL comments.
+    if (!trimmed || trimmed.startsWith('--')) continue;
+
+    // Skip KEY / CONSTRAINT lines (indexes, FKs, primary key).
+    if (/^(PRIMARY\s+KEY|UNIQUE\s+KEY|KEY\s|CONSTRAINT\s|FULLTEXT\s)/i.test(trimmed)) continue;
+
+    // Skip lines that are continuations of a previous column definition:
+    // closing paren, quoted strings (ENUM values), or continuation keywords.
+    if (/^[)'"]/.test(trimmed)) continue;
+    if (/^(COMMENT\s|NOT\s+NULL|NULL\b|DEFAULT\s|REFERENCES\s|AFTER\s|ON\s+DELETE|ON\s+UPDATE|COLLATE\s)/i.test(trimmed)) continue;
+
+    // First identifier on the line is the column name.
+    const colM = trimmed.match(/^`?(\w+)`?/);
+    if (colM) {
+      result.get(currentTable).add(colM[1].toLowerCase());
+    }
+  }
+
+  return result;
+}
+
 async function runSmokeTest() {
   // -------------------------------------------------------------------------
   // 1. Verify all migration files were applied (recorded in schema_migrations)
@@ -108,6 +184,87 @@ async function runSmokeTest() {
     'Schema comparison complete',
   );
 
+  // -------------------------------------------------------------------------
+  // 3. Column-level comparison — detect columns added by migrations that were
+  //    not backfilled into schema.sql (the most common sync oversight).
+  // -------------------------------------------------------------------------
+  const [colRows] = await db.query(
+    `SELECT table_name, column_name
+     FROM information_schema.columns
+     WHERE table_schema = ?
+     ORDER BY table_name, ordinal_position`,
+    [dbName],
+  );
+
+  // Map of tableName -> Set<columnName> from the live migrated database.
+  const dbCols = new Map();
+  for (const row of colRows) {
+    const tbl = (row.TABLE_NAME || row.table_name).toLowerCase();
+    const col = (row.COLUMN_NAME || row.column_name).toLowerCase();
+    if (!dbCols.has(tbl)) dbCols.set(tbl, new Set());
+    dbCols.get(tbl).add(col);
+  }
+
+  // Map of tableName -> Set<columnName> parsed from schema.sql CREATE TABLE blocks.
+  const schemaColMap = extractSchemaColumns(schemaSql);
+
+  // Report columns present in the migrated DB but absent from schema.sql.
+  // This is the primary failure mode: a migration adds a column but schema.sql
+  // is not updated.
+  const colsMissingFromSchema = [];
+  for (const [tbl, cols] of dbCols) {
+    if (tbl === 'schema_migrations') continue;
+    const schemaCols = schemaColMap.get(tbl);
+    if (!schemaCols) continue; // table not in schema.sql — reported above
+    for (const col of cols) {
+      if (!schemaCols.has(col)) {
+        colsMissingFromSchema.push(`${tbl}.${col}`);
+      }
+    }
+  }
+
+  if (colsMissingFromSchema.length > 0) {
+    logger.error(
+      { columns: colsMissingFromSchema },
+      'Columns exist in migrated DB but are missing from schema.sql — update schema.sql to include these columns',
+    );
+    passed = false;
+  }
+
+  // Report columns declared in schema.sql but absent from the migrated DB.
+  // This is less common but indicates schema.sql has drifted ahead of migrations.
+  const colsMissingFromDb = [];
+  for (const [tbl, cols] of schemaColMap) {
+    const dbTableCols = dbCols.get(tbl);
+    if (!dbTableCols) continue; // table not in DB — reported above
+    for (const col of cols) {
+      if (!dbTableCols.has(col)) {
+        colsMissingFromDb.push(`${tbl}.${col}`);
+      }
+    }
+  }
+
+  if (colsMissingFromDb.length > 0) {
+    logger.warn(
+      { columns: colsMissingFromDb },
+      'Columns declared in schema.sql but missing from migrated DB — a migration may be needed',
+    );
+    // Warning only: schema.sql may declare columns that are intentionally
+    // added via ALTER TABLE migrations that haven't run yet in some setups.
+  }
+
+  const totalDbCols = [...dbCols.values()].reduce((s, c) => s + c.size, 0);
+  const totalSchemaCols = [...schemaColMap.values()].reduce((s, c) => s + c.size, 0);
+  logger.info(
+    {
+      dbColumnCount: totalDbCols,
+      schemaColumnCount: totalSchemaCols,
+      missingFromSchemaCount: colsMissingFromSchema.length,
+      missingFromDbCount: colsMissingFromDb.length,
+    },
+    'Column-level comparison complete',
+  );
+
   return passed;
 }
 
@@ -134,4 +291,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { runSmokeTest, extractTableNames };
+module.exports = { runSmokeTest, extractTableNames, extractSchemaColumns };

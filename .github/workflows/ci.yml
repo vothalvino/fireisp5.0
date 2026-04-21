@@ -81,6 +81,37 @@ jobs:
           done
           echo "All $((EXPECTED - 1)) migrations are sequentially numbered — no gaps"
 
+      - name: Validate README.md is in sync with migrations and schema
+        if: matrix.node-version == 22
+        run: |
+          # Ensure README migration range matches actual file count
+          ACTUAL_MIGS=$(ls database/migrations/*.sql | wc -l | tr -d ' ')
+          README_MIGS=$(grep 'Individual numbered migration files' README.md | tr -d ')' | grep -oE '[0-9]+$' | tr -d ' ')
+          if [ -z "$README_MIGS" ]; then
+            echo "ERROR: Could not parse migration range from README.md"
+            exit 1
+          fi
+          if [ "$ACTUAL_MIGS" != "$README_MIGS" ]; then
+            echo "ERROR: README.md says migrations go up to $README_MIGS but $ACTUAL_MIGS migration files exist"
+            echo "Fix: update the '001–$README_MIGS' range in README.md to '001–$ACTUAL_MIGS'"
+            exit 1
+          fi
+          echo "✓ README migration count: $ACTUAL_MIGS"
+
+          # Ensure README table count matches schema.sql CREATE TABLE count
+          SCHEMA_TABLES=$(grep -c "CREATE TABLE" database/schema.sql)
+          README_TABLES=$(grep -oE 'all [0-9]+ tables' README.md | grep -oE '[0-9]+' | head -1)
+          if [ -z "$README_TABLES" ]; then
+            echo "ERROR: Could not parse table count from README.md"
+            exit 1
+          fi
+          if [ "$SCHEMA_TABLES" != "$README_TABLES" ]; then
+            echo "ERROR: README.md says $README_TABLES tables but schema.sql has $SCHEMA_TABLES CREATE TABLE statements"
+            echo "Fix: update 'all $README_TABLES tables' in README.md to 'all $SCHEMA_TABLES tables'"
+            exit 1
+          fi
+          echo "✓ README table count: $SCHEMA_TABLES"
+
   database-tests:
     runs-on: ubuntu-latest
 
