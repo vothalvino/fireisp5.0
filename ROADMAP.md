@@ -132,7 +132,7 @@
 - ✅ Implement WebSocket tunnel between agent and central server
 - ✅ Implement FireRelay agent process (Node.js) that runs at remote POP sites and connects via the tunnel
 - ✅ Add RouterOS API commands: PPPoE create/delete, queue set, address-list add/remove
-- ⬜ Add config backup pull (automated nightly backup via agent)
+- ✅ Add config backup pull (automated nightly backup via agent)
 - ⬜ Test with real MikroTik hAP (lab environment)
 
 ### 3.2 — SNMP Monitoring
@@ -239,3 +239,4 @@
 | 2026-04-21 | 2.3 | Settings page: Org Config (key/value settings editor), Email Templates (CRUD for message_templates), Alert Rules (CRUD with enable/disable toggle), Payment Gateways (CRUD for payment gateways); new /api/v1/message-templates route added; schema.sql synced with migration 157 (ift_statistical_reports: concession_title_id FK, subscribers_by_municipality, subscribers_by_customer_type, subscribers_by_payment_modality, notes columns) | #TBD |
 | 2026-04-21 | 3.1 | WebSocket tunnel: TunnelServer class with auth handshake (shared secret), heartbeat ping/pong, command dispatch (sendCommand → Promise), agent connect/disconnect events, DB status hooks; attached to HTTP server at /ws/firerelay; GET /api/firerelay/tunnel/agents + POST /api/firerelay/tunnel/command routes; 21 new Jest tests | #TBD |
 | 2026-04-21 | 3.1 | RouterOS API commands: pppoe.create/delete, queue.set, addressList.add/remove — routerosService.js (RouterOS API protocol client, 5 handlers); firerelay-agent.js wired; 42 new Jest tests | #TBD |
+| 2026-04-21 | 3.1 | Config backup pull: configBackupService.js (pullBackupForDevice, runNightlyBackups, SHA-256 dedup); config.backup RouterOS handler (/export); migration 158 (firerelay_node_id on devices + config_backup_pull task); POST /device-config-backups/pull route; 47 new Jest tests | #TBD |

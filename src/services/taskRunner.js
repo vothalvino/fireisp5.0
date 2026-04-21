@@ -16,6 +16,7 @@ const checkoutService = require('./checkoutService');
 const alertService = require('./alertService');
 const retentionService = require('./retentionService');
 const paymentRetryService = require('./paymentRetryService');
+const configBackupService = require('./configBackupService');
 const emailTemplates = require('../views/emailTemplates');
 const { backup: runBackup } = require('../scripts/backup');
 
@@ -71,6 +72,8 @@ async function runTask(taskName, organizationId = null) {
       return retentionService.runAll();
     case 'database_backup':
       return runBackup();
+    case 'config_backup_pull':
+      return configBackupService.runNightlyBackups(organizationId);
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }

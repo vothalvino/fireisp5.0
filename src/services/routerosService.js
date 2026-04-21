@@ -649,6 +649,45 @@ async function addressListAdd(conn, params) {
 }
 
 /**
+ * Export the running configuration from a RouterOS device.
+ *
+ * Uses /export (or /export with =compact=yes for compact output).
+ * Each !re sentence in the response contributes a line to the configuration
+ * text via its =ret= attribute.
+ *
+ * @param {{ host: string, port?: number, user: string, password: string }} conn
+ * @param {{ compact?: boolean }} params
+ * @returns {Promise<{ content: string, configType: string }>}
+ */
+async function configBackup(conn, params = {}) {
+  const { compact = false } = params;
+
+  const client = await createClient(conn);
+  try {
+    const words = compact ? ['/export', '=compact=yes'] : ['/export'];
+    const sentences = await client.run(words);
+
+    const lines = [];
+    for (const sentence of sentences) {
+      if (sentence[0] === '!re') {
+        const attrs = parseAttrs(sentence.slice(1));
+        if (attrs.ret !== undefined) {
+          lines.push(attrs.ret);
+        }
+      }
+    }
+
+    const content = lines.join('\n');
+    const configType = compact ? 'mikrotik_compact' : 'mikrotik_export';
+
+    logger.info({ host: conn.host, configType, lines: lines.length }, 'RouterOS: config export complete');
+    return { content, configType };
+  } finally {
+    await client.close();
+  }
+}
+
+/**
  * Remove an address from a firewall address-list.
  *
  * @param {{ host: string, port?: number, user: string, password: string }} conn
@@ -717,6 +756,10 @@ const handlers = {
     const conn = connFromParams(params);
     return addressListRemove(conn, params);
   },
+  'config.backup': async (params) => {
+    const conn = connFromParams(params);
+    return configBackup(conn, params);
+  },
 };
 
 module.exports = {
@@ -732,6 +775,7 @@ module.exports = {
   queueSet,
   addressListAdd,
   addressListRemove,
+  configBackup,
   handlers,
   connFromParams,
   DEFAULT_PORT,
