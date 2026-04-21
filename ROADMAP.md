@@ -138,7 +138,7 @@
 ### 3.2 — SNMP Monitoring
 - ✅ SNMP poller service, wide metrics table, monthly partitioning
 - ✅ OID profile system per vendor/model
-- ⬜ Add threshold-based alerting (e.g., bandwidth > 90% → create ticket automatically)
+- ✅ Add threshold-based alerting (e.g., bandwidth > 90% → create ticket automatically)
 
 ### 3.3 — RADIUS / PPPoE
 - ✅ FreeRADIUS schema, NAS table, pool management
@@ -240,3 +240,4 @@
 | 2026-04-21 | 3.1 | WebSocket tunnel: TunnelServer class with auth handshake (shared secret), heartbeat ping/pong, command dispatch (sendCommand → Promise), agent connect/disconnect events, DB status hooks; attached to HTTP server at /ws/firerelay; GET /api/firerelay/tunnel/agents + POST /api/firerelay/tunnel/command routes; 21 new Jest tests | #TBD |
 | 2026-04-21 | 3.1 | RouterOS API commands: pppoe.create/delete, queue.set, addressList.add/remove — routerosService.js (RouterOS API protocol client, 5 handlers); firerelay-agent.js wired; 42 new Jest tests | #TBD |
 | 2026-04-21 | 3.1 | Config backup pull: configBackupService.js (pullBackupForDevice, runNightlyBackups, SHA-256 dedup); config.backup RouterOS handler (/export); migration 158 (firerelay_node_id on devices + config_backup_pull task); POST /device-config-backups/pull route; 47 new Jest tests | #TBD |
+| 2026-04-21 | 3.2 | Threshold-based alerting: bandwidth metrics (if_in_octets, if_out_octets) added to ALLOWED_METRICS; autoCreateTicket() in alertService; auto_create_ticket flag on alert_rules (migration 159); alert schema + routes updated; 14 new Jest tests | #TBD |
