@@ -64,13 +64,14 @@ interface CreateContractBody {
 // Fetch / mutate helpers
 // ---------------------------------------------------------------------------
 
-const PAGE_SIZE = 25;
+const DEFAULT_PAGE_SIZE = 25;
+const API_BASE = '/api/v1';
 
 async function fetchContracts(
   page: number,
   statusFilter: string,
 ): Promise<ContractsResponse> {
-  const query: Record<string, string | number> = { page, limit: PAGE_SIZE };
+  const query: Record<string, string | number> = { page, limit: DEFAULT_PAGE_SIZE };
   if (statusFilter) query.status = statusFilter;
   const res = await api.GET('/contracts', {
     params: { query: query as never },
@@ -104,7 +105,7 @@ async function patchContractStatus(
   if (endDate !== undefined) body.end_date = endDate;
   // PATCH is not in the generated OpenAPI schema yet; use raw fetch with the stored token.
   const token = tokenStore.getAccess();
-  const res = await fetch(`/api/v1/contracts/${id}`, {
+  const res = await fetch(`${API_BASE}/contracts/${id}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -131,6 +132,10 @@ function fmt(dateStr: string | null | undefined): string {
     month: 'short',
     day: 'numeric',
   });
+}
+
+function capitalizeStatus(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -204,7 +209,7 @@ function NewContractModal({ plans, clients, onClose, onCreated }: NewContractMod
         plan_id: Number(form.plan_id),
         connection_type: form.connection_type,
         start_date: form.start_date,
-        billing_day: form.billing_day ? Number(form.billing_day) : undefined,
+        billing_day: form.billing_day ? Math.min(28, Math.max(1, Number(form.billing_day))) : undefined,
         ip_address: form.ip_address || undefined,
         price_override: form.price_override ? Number(form.price_override) : undefined,
         facturar: form.facturar,
@@ -341,7 +346,7 @@ function NewContractModal({ plans, clients, onClose, onCreated }: NewContractMod
           </label>
 
           {/* Facturar */}
-          <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+          <label style={modalStyles.checkboxLabel}>
             <input
               type="checkbox"
               checked={form.facturar}
@@ -558,7 +563,7 @@ export function ContractList() {
           onChange={e => handleFilterChange(e.target.value)}
         >
           {STATUS_OPTIONS.map(s => (
-            <option key={s} value={s}>{s ? s.charAt(0).toUpperCase() + s.slice(1) : 'All'}</option>
+            <option key={s} value={s}>{s ? capitalizeStatus(s) : 'All'}</option>
           ))}
         </select>
         {statusFilter && (
@@ -944,5 +949,15 @@ const modalStyles = {
     background: '#fef2f2',
     borderRadius: 4,
     border: '1px solid #fecaca',
+  },
+  checkboxLabel: {
+    display: 'flex',
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    gap: '0.5rem',
+    fontSize: '0.82rem',
+    fontWeight: 600,
+    color: '#374151',
+    cursor: 'pointer',
   },
 } as const;
