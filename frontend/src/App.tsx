@@ -31,17 +31,8 @@ import { WarehouseList } from '@/pages/WarehouseList';
 import { RadiusSessions } from '@/pages/RadiusSessions';
 import { SnmpMetrics } from '@/pages/SnmpMetrics';
 import { Reports } from '@/pages/Reports';
+import { Settings } from '@/pages/Settings';
 import { NotFound } from '@/pages/NotFound';
-
-// Stub pages for Milestone 2.2 pages — each will be replaced with a real component.
-const Placeholder = ({ title }: { title: string }) => (
-  <div style={{ padding: '2rem', fontFamily: 'system-ui, sans-serif' }}>
-    <h1 style={{ marginTop: 0 }}>{title}</h1>
-    <p style={{ color: '#888', fontStyle: 'italic' }}>
-      This page will be implemented in Milestone 2.2.
-    </p>
-  </div>
-);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -99,7 +90,7 @@ export function App() {
             <Route element={<PrivateRoute requiredRole="admin" />}>
               <Route element={<Layout />}>
                 <Route path="users" element={<UserList />} />
-                <Route path="settings" element={<Placeholder title="Settings" />} />
+                <Route path="settings" element={<Settings />} />
               </Route>
             </Route>
 
