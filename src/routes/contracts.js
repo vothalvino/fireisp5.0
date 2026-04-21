@@ -11,6 +11,7 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createContract, updateContract, patchContract, createContractAddon } = require('../middleware/schemas/contracts');
 const db = require('../config/database');
+const suspensionService = require('../services/suspensionService');
 
 const router = Router();
 const ctrl = crudController(Contract);
@@ -31,6 +32,55 @@ router.get('/:id/addons', requirePermission('contracts.view'), async (req, res, 
   try {
     const addons = await Contract.getAddons(req.params.id);
     res.json({ data: addons });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Suspend a contract and immediately kick the active RADIUS session via CoA Disconnect-Request
+router.post('/:id/suspend', requirePermission('contracts.update'), async (req, res, next) => {
+  try {
+    const [contracts] = await db.query(
+      'SELECT * FROM contracts WHERE id = ? AND organization_id = ?',
+      [req.params.id, req.orgId],
+    );
+    if (!contracts[0]) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Contract not found' } });
+    }
+    if (contracts[0].status === 'suspended') {
+      return res.status(422).json({ error: { code: 'ALREADY_SUSPENDED', message: 'Contract is already suspended' } });
+    }
+    await suspensionService.suspendContract(
+      parseInt(req.params.id, 10),
+      req.body.rule_id || null,
+      req.user.id,
+      req.body.invoice_id || null,
+    );
+    res.json({ data: { contract_id: parseInt(req.params.id, 10), status: 'suspended' } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Unsuspend a contract and restore RADIUS access via CoA-Request
+router.post('/:id/unsuspend', requirePermission('contracts.update'), async (req, res, next) => {
+  try {
+    const [contracts] = await db.query(
+      'SELECT * FROM contracts WHERE id = ? AND organization_id = ?',
+      [req.params.id, req.orgId],
+    );
+    if (!contracts[0]) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Contract not found' } });
+    }
+    if (contracts[0].status !== 'suspended') {
+      return res.status(422).json({ error: { code: 'NOT_SUSPENDED', message: 'Contract is not suspended' } });
+    }
+    await suspensionService.reconnectContract(
+      parseInt(req.params.id, 10),
+      req.user.id,
+      req.body.invoice_id || null,
+    );
+    res.json({ data: { contract_id: parseInt(req.params.id, 10), status: 'active' } });
   } catch (err) {
     next(err);
   }

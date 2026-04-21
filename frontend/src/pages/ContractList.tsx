@@ -116,6 +116,23 @@ async function patchContractStatus(
   if (!res.ok) throw new Error('Failed to update contract');
 }
 
+async function postContractAction(
+  id: number,
+  action: 'suspend' | 'unsuspend',
+  extra?: Record<string, unknown>,
+): Promise<void> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/contracts/${id}/${action}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(extra ?? {}),
+  });
+  if (!res.ok) throw new Error(`Failed to ${action} contract`);
+}
+
 async function createContract(body: CreateContractBody): Promise<void> {
   const res = await api.POST('/contracts', { body: body as never });
   if (res.error) throw new Error('Failed to create contract');
@@ -516,10 +533,19 @@ export function ContractList() {
     staleTime: 60_000,
   });
 
-  // Mutation for suspend/cancel
-  const statusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: number; status: string }) =>
-      patchContractStatus(id, status),
+  // Mutation for suspend (uses dedicated CoA-disconnect endpoint)
+  const suspendMutation = useMutation({
+    mutationFn: ({ id }: { id: number }) =>
+      postContractAction(id, 'suspend'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contracts'] });
+    },
+  });
+
+  // Mutation for cancel (still uses PATCH — no RADIUS session to kick)
+  const cancelMutation = useMutation({
+    mutationFn: ({ id }: { id: number }) =>
+      patchContractStatus(id, 'cancelled'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['contracts'] });
     },
@@ -532,8 +558,11 @@ export function ContractList() {
 
   function handleConfirm() {
     if (!confirm) return;
-    const status = confirm.type === 'suspend' ? 'suspended' : 'cancelled';
-    statusMutation.mutate({ id: confirm.contractId, status });
+    if (confirm.type === 'suspend') {
+      suspendMutation.mutate({ id: confirm.contractId });
+    } else {
+      cancelMutation.mutate({ id: confirm.contractId });
+    }
     setConfirm(null);
   }
 
