@@ -29,6 +29,7 @@ import { CfdiList } from '@/pages/CfdiList';
 import { InventoryList } from '@/pages/InventoryList';
 import { WarehouseList } from '@/pages/WarehouseList';
 import { RadiusSessions } from '@/pages/RadiusSessions';
+import { SessionAccounting } from '@/pages/SessionAccounting';
 import { SnmpMetrics } from '@/pages/SnmpMetrics';
 import { Reports } from '@/pages/Reports';
 import { Settings } from '@/pages/Settings';
@@ -74,6 +75,7 @@ export function App() {
                 <Route path="inventory" element={<InventoryList />} />
                 <Route path="warehouses" element={<WarehouseList />} />
                 <Route path="radius-sessions" element={<RadiusSessions />} />
+                <Route path="session-accounting" element={<SessionAccounting />} />
                 <Route path="snmp-metrics" element={<SnmpMetrics />} />
               </Route>
             </Route>

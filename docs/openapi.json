@@ -2328,8 +2328,13 @@
                     "data": {
                       "type": "object",
                       "properties": {
-                        "contract_id": { "type": "integer" },
-                        "status": { "type": "string", "example": "suspended" }
+                        "contract_id": {
+                          "type": "integer"
+                        },
+                        "status": {
+                          "type": "string",
+                          "example": "suspended"
+                        }
                       }
                     }
                   }
@@ -2337,8 +2342,12 @@
               }
             }
           },
-          "404": { "description": "Contract not found" },
-          "422": { "description": "Contract is already suspended" }
+          "404": {
+            "description": "Contract not found"
+          },
+          "422": {
+            "description": "Contract is already suspended"
+          }
         }
       }
     },
@@ -2390,8 +2399,13 @@
                     "data": {
                       "type": "object",
                       "properties": {
-                        "contract_id": { "type": "integer" },
-                        "status": { "type": "string", "example": "active" }
+                        "contract_id": {
+                          "type": "integer"
+                        },
+                        "status": {
+                          "type": "string",
+                          "example": "active"
+                        }
                       }
                     }
                   }
@@ -2399,8 +2413,12 @@
               }
             }
           },
-          "404": { "description": "Contract not found" },
-          "422": { "description": "Contract is not suspended" }
+          "404": {
+            "description": "Contract not found"
+          },
+          "422": {
+            "description": "Contract is not suspended"
+          }
         }
       }
     },
@@ -6734,6 +6752,132 @@
         "responses": {
           "200": {
             "description": "Active session list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connection-logs/daily-usage": {
+      "get": {
+        "tags": [
+          "Connection Logs"
+        ],
+        "summary": "Daily data usage aggregated per client",
+        "operationId": "getDailyUsage",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "contract_id",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "date_from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Daily usage per client",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connection-logs/top-consumers": {
+      "get": {
+        "tags": [
+          "Connection Logs"
+        ],
+        "summary": "Top N clients by data usage in a period",
+        "operationId": "getTopConsumers",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "date_from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Top consumers list",
             "content": {
               "application/json": {
                 "schema": {
