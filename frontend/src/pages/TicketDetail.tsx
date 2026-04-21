@@ -32,6 +32,8 @@ interface Ticket {
   updated_at: string;
 }
 
+type TicketPatch = Partial<Omit<Ticket, 'id' | 'created_at' | 'updated_at'>>;
+
 interface TicketComment {
   id: number;
   ticket_id: number;
@@ -90,7 +92,7 @@ async function fetchUsers(): Promise<User[]> {
   return (res.data as unknown as { data: User[] }).data ?? [];
 }
 
-async function patchTicket(id: number, patch: Partial<Ticket>): Promise<void> {
+async function patchTicket(id: number, patch: TicketPatch): Promise<void> {
   const token = tokenStore.getAccess();
   const res = await fetch(`${API_BASE}/tickets/${id}`, {
     method: 'PATCH',
@@ -196,10 +198,10 @@ function TicketActions({ ticket, users, onPatched }: ActionsProps) {
 
   const mutation = useMutation({
     mutationFn: () => {
-      const patch: Partial<Ticket> = {};
-      if (newStatus !== ticket.status) patch.status = newStatus as Ticket['status'];
+      const patch: TicketPatch = {};
+      if (newStatus !== ticket.status) patch.status = newStatus;
       if (newAssignee !== String(ticket.assigned_to ?? '')) {
-        patch.assigned_to = newAssignee ? Number(newAssignee) : null as unknown as number;
+        patch.assigned_to = newAssignee ? Number(newAssignee) : null;
       }
       return patchTicket(ticket.id, patch);
     },
