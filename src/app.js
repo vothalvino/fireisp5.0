@@ -14,6 +14,7 @@ const { sanitize } = require('./middleware/sanitize');
 const { requestId } = require('./middleware/requestId');
 const { firerelay } = require('./middleware/firerelay');
 const { requireFeature } = require('./middleware/featureFlag');
+const { createIpAllowlist, parseAllowlist } = require('./middleware/ipAllowlist');
 const logger = require('./utils/logger');
 
 // Route imports
@@ -320,9 +321,13 @@ app.get('/health/ready', async (_req, res) => {
 // ---------------------------------------------------------------------------
 const v1 = express.Router();
 
+// IP allowlist for admin-tier endpoints — enabled via ADMIN_IP_ALLOWLIST env var.
+// When the env var is not set the middleware is a no-op (opt-in feature).
+const adminIpAllowlist = createIpAllowlist(parseAllowlist(config.adminIpAllowlist));
+
 v1.use('/auth', authRoutes);
-v1.use('/organizations', organizationRoutes);
-v1.use('/users', userRoutes);
+v1.use('/organizations', adminIpAllowlist, organizationRoutes);
+v1.use('/users', adminIpAllowlist, userRoutes);
 v1.use('/sites', siteRoutes);
 v1.use('/clients', clientRoutes);
 v1.use('/plans', planRoutes);
@@ -340,7 +345,7 @@ v1.use('/inventory', inventoryRoutes);
 v1.use('/quotes', quoteRoutes);
 v1.use('/expenses', expenseRoutes);
 v1.use('/outages', outageRoutes);
-v1.use('/roles', roleRoutes);
+v1.use('/roles', adminIpAllowlist, roleRoutes);
 v1.use('/api-tokens', apiTokenRoutes);
 v1.use('/sla-definitions', slaDefinitionRoutes);
 v1.use('/ip-pools', ipPoolRoutes);
@@ -352,9 +357,9 @@ v1.use('/snmp-profiles', requireFeature('snmp'), snmpProfileRoutes);
 v1.use('/snmp-metrics', requireFeature('snmp'), snmpMetricsRoutes);
 v1.use('/connection-logs', connectionLogRoutes);
 v1.use('/network-health', networkHealthRoutes);
-v1.use('/settings', settingsRoutes);
+v1.use('/settings', adminIpAllowlist, settingsRoutes);
 v1.use('/message-templates', messageTemplateRoutes);
-v1.use('/audit-logs', auditLogRoutes);
+v1.use('/audit-logs', adminIpAllowlist, auditLogRoutes);
 v1.use('/files', fileRoutes);
 v1.use('/service-areas', serviceAreaRoutes);
 v1.use('/coverage-zones', coverageZoneRoutes);
@@ -369,18 +374,18 @@ v1.use('/suspension-rules', suspensionRuleRoutes);
 v1.use('/csd-certificates', requireFeature('cfdi'), csdCertificateRoutes);
 v1.use('/pac-providers', requireFeature('cfdi'), pacProviderRoutes);
 v1.use('/cfdi-documents', requireFeature('cfdi'), cfdiDocumentRoutes);
-v1.use('/scheduled-tasks', scheduledTaskRoutes);
+v1.use('/scheduled-tasks', adminIpAllowlist, scheduledTaskRoutes);
 v1.use('/concession-titles', concessionTitleRoutes);
 v1.use('/regulatory-filings', regulatoryFilingRoutes);
 v1.use('/ift-statistical-reports', iftStatisticalReportRoutes);
 v1.use('/sat-catalogs', requireFeature('cfdi'), satCatalogRoutes);
 v1.use('/facturas-publicas', requireFeature('cfdi'), facturaPublicaRoutes);
-v1.use('/billing', billingRoutes);
+v1.use('/billing', adminIpAllowlist, billingRoutes);
 v1.use('/cfdi', requireFeature('cfdi'), cfdiRoutes);
 v1.use('/suspension', suspensionRoutes);
 v1.use('/dashboard', dashboardRoutes);
 v1.use('/export', exportRoutes);
-v1.use('/import', importRoutes);
+v1.use('/import', adminIpAllowlist, importRoutes);
 v1.use('/firerelay', firerelayRoutes);
 v1.use('/pdf', pdfRoutes);
 v1.use('/events', eventsRoutes);

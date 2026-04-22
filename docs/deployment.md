@@ -14,8 +14,9 @@ This guide covers deploying FireISP 5.0 in production environments. Choose the d
 6. [MySQL Tuning](#mysql-tuning)
 7. [Reverse Proxy (Nginx)](#reverse-proxy-nginx)
 8. [TLS / HTTPS](#tls--https)
-9. [Monitoring](#monitoring)
-10. [Production Checklist](#production-checklist)
+9. [Admin IP Allowlist](#admin-ip-allowlist)
+10. [Monitoring](#monitoring)
+11. [Production Checklist](#production-checklist)
 
 ---
 
@@ -398,6 +399,74 @@ hours to pick them up.
 
 ---
 
+## Admin IP Allowlist
+
+FireISP can restrict access to sensitive admin endpoints to a set of trusted
+IP addresses and/or CIDR ranges, providing an additional defence-in-depth
+layer on top of JWT authentication and RBAC.
+
+### Protected endpoints
+
+When `ADMIN_IP_ALLOWLIST` is set, the following API routes require the
+client IP to match:
+
+| Route | Purpose |
+|---|---|
+| `/api/v1/organizations` | Organisation configuration |
+| `/api/v1/users` | User management |
+| `/api/v1/roles` | Role management |
+| `/api/v1/settings` | System settings |
+| `/api/v1/audit-logs` | Audit trail |
+| `/api/v1/scheduled-tasks` | Scheduled task management |
+| `/api/v1/import` | Bulk data import |
+| `/api/v1/billing` | Billing cycle management |
+
+### Configuration
+
+Set `ADMIN_IP_ALLOWLIST` in `.env` to a comma-separated list of IPv4
+addresses and/or CIDR blocks:
+
+```env
+# Allow a private management subnet and a specific jump-box IP
+ADMIN_IP_ALLOWLIST=10.0.0.0/8,203.0.113.5
+
+# Allow only a /24 management VLAN
+# ADMIN_IP_ALLOWLIST=192.168.100.0/24
+```
+
+When `ADMIN_IP_ALLOWLIST` is **not set**, the feature is disabled and all
+IPs are permitted (existing behaviour is preserved — the feature is opt-in).
+
+### Rejected requests
+
+Requests from unlisted IPs receive:
+
+```json
+{
+  "error": {
+    "code": "FORBIDDEN",
+    "message": "Access denied: your IP address is not permitted to access this endpoint"
+  }
+}
+```
+
+### Behind a reverse proxy
+
+If FireISP runs behind Nginx (or any other reverse proxy), make sure the
+proxy sets `X-Forwarded-For` and that Express trusts the proxy:
+
+```env
+# Trust the first upstream proxy (Nginx)
+# Set this in your .env if the app is behind a reverse proxy
+TRUST_PROXY=1
+```
+
+Or call `app.set('trust proxy', 1)` in `src/app.js` when the deployment
+topology requires it. Without this, `req.ip` will be the proxy's IP rather
+than the real client IP, and the allowlist will not work as expected.
+
+---
+
 ## Monitoring
 
 ### Health Check
@@ -450,6 +519,7 @@ Available metrics:
 - [ ] Database user has minimal required privileges
 - [ ] File upload directory permissions correct (`storage/`)
 - [ ] Rate limiting verified
+- [ ] `ADMIN_IP_ALLOWLIST` configured (optional — restricts admin routes to trusted IPs/CIDRs)
 
 ---
 
