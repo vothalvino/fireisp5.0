@@ -6,7 +6,7 @@
 // =============================================================================
 
 const mysql = require('mysql2/promise');
-const { recordDbQuery } = require('../routes/metrics');
+const { recordDbQuery } = require('../utils/dbMetrics');
 
 const parseIntEnv = (key, fallback) => {
   const v = process.env[key];

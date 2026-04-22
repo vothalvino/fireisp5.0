@@ -2,7 +2,8 @@
 // FireISP 5.0 — Prometheus Metrics Tests
 // =============================================================================
 
-const { metricsMiddleware, counters, recordDbQuery, dbQuerySamples } = require('../src/routes/metrics');
+const { metricsMiddleware, counters } = require('../src/routes/metrics');
+const { recordDbQuery, dbQuerySamples } = require('../src/utils/dbMetrics');
 
 describe('Prometheus Metrics', () => {
   beforeEach(() => {
@@ -97,7 +98,7 @@ describe('Prometheus Metrics', () => {
       }
       const samples = dbQuerySamples.get('SELECT');
       expect(samples).toHaveLength(2000);
-      // First sample (0) should have been evicted; the second (0.0001) is now index 0
+      // The first sample (i=0, value=0) should have been evicted; index 0 is now i=1 (0.0001)
       expect(samples[0]).toBeCloseTo(0.0001, 5);
     });
   });

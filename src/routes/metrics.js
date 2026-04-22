@@ -6,6 +6,7 @@
 // =============================================================================
 
 const { Router } = require('express');
+const { recordDbQuery, dbQuerySamples, dbQueryBuckets } = require('../utils/dbMetrics');
 
 const router = Router();
 
@@ -20,29 +21,6 @@ const counters = {
 const histogramBuckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
 /** @type {Map<string, number[]>} keyed by method:route */
 const latencySamples = new Map();
-
-// ---------------------------------------------------------------------------
-// DB Query Metrics
-// ---------------------------------------------------------------------------
-const dbQueryBuckets = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5];
-/** @type {Map<string, number[]>} keyed by SQL operation (SELECT, INSERT, ...) */
-const dbQuerySamples = new Map();
-
-/**
- * Record a DB query duration sample.
- * Called by src/config/database.js after every query.
- * @param {number} durationSeconds
- * @param {string} [operation='OTHER']
- */
-function recordDbQuery(durationSeconds, operation = 'OTHER') {
-  if (!dbQuerySamples.has(operation)) {
-    dbQuerySamples.set(operation, []);
-  }
-  const samples = dbQuerySamples.get(operation);
-  samples.push(durationSeconds);
-  // Keep only last 2000 samples per operation to bound memory
-  if (samples.length > 2000) samples.shift();
-}
 
 /**
  * Middleware to record request count and latency.
