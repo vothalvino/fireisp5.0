@@ -1,0 +1,33 @@
+# =============================================================================
+# Cloudflare DNS API credentials for Certbot DNS-01 challenge
+# =============================================================================
+#
+# Used when issuing wildcard certificates (*.isp.example.com) or when the
+# server is behind a firewall and cannot be reached on port 80.
+#
+# Prerequisites:
+#   1. Create a Cloudflare API Token at https://dash.cloudflare.com/profile/api-tokens
+#      with the following permissions:
+#        Zone → Zone       → Read
+#        Zone → DNS        → Edit
+#      Scope: All zones (or a specific zone if preferred).
+#
+#   2. Copy this file to cloudflare.ini and fill in your token:
+#        cp nginx/cloudflare.ini.example nginx/cloudflare.ini
+#        chmod 600 nginx/cloudflare.ini
+#
+#   3. Add cloudflare.ini to .gitignore (already present).
+#
+# Usage with init-letsencrypt.sh:
+#   CF_API_TOKEN=<token> DOMAIN=isp.example.com EMAIL=admin@example.com \
+#     nginx/init-letsencrypt.sh --cloudflare
+#
+# Alternatively, set the token directly in this file and reference it:
+#   certbot certonly --dns-cloudflare \
+#     --dns-cloudflare-credentials nginx/cloudflare.ini \
+#     -d isp.example.com -d *.isp.example.com
+#
+# =============================================================================
+
+# Replace with your actual Cloudflare API Token (NOT the Global API Key).
+dns_cloudflare_api_token = YOUR_CLOUDFLARE_API_TOKEN_HERE

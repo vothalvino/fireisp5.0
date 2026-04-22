@@ -156,7 +156,7 @@
 ### 4.1 — Infrastructure
 - ✅ Dockerfile, docker-compose.yml, K8s manifests
 - ✅ Add production docker-compose (with MySQL replication, Redis, Nginx reverse proxy)
-- ⬜ Add TLS termination config (Let's Encrypt / Cloudflare)
+- ✅ Add TLS termination config (Let's Encrypt / Cloudflare)
 - ⬜ Implement IP allowlist for admin endpoints _(moved from 1.3 — network-layer firewalls preferred; existing auth stack is strong)_
 - ⬜ Load test API with realistic ISP workload (500 clients, 5000 invoices, 100 devices)
 
@@ -244,3 +244,4 @@
 | 2026-04-21 | 3.3 | CoA disconnect: POST /contracts/:id/suspend (suspensionService.suspendContract → RADIUS Disconnect-Request code 40) and POST /contracts/:id/unsuspend (suspensionService.reconnectContract → RADIUS CoA-Request code 43); frontend ContractList updated to use dedicated suspend endpoint; 2 new OpenAPI paths; 12 new Jest tests | #TBD |
 | 2026-04-21 | 3.3 | Session accounting dashboard: GET /connection-logs/daily-usage (per-client per-day aggregation with date range + optional client_id/contract_id filters) and GET /connection-logs/top-consumers (top N by bytes in period); SessionAccounting.tsx page (date picker, summary bar, SVG daily bar chart, top-10 table, paginated daily breakdown); route /session-accounting (technician+); 2 new OpenAPI paths; 14 new Jest tests | #TBD |
 | 2026-04-22 | 4.1 | Production docker-compose: MySQL primary+replica (GTID streaming), Redis (AOF + password), Nginx reverse proxy (HTTP→HTTPS, TLS 1.2/1.3, rate limiting, WebSocket pass-through); nginx/nginx.conf, mysql/primary.cnf, mysql/replica.cnf, mysql/init-replica.sh | #TBD |
+| 2026-04-22 | 4.1 | TLS termination config: Let's Encrypt HTTP-01 (nginx/init-letsencrypt.sh bootstrap, certbot service in docker-compose.prod.yml, certbot-deploy-hook.sh, 6h nginx hot-reload); Cloudflare DNS-01 wildcard cert support (cloudflare.ini.example, --cloudflare flag); docs/tls-setup.md + deployment.md updated | #TBD |

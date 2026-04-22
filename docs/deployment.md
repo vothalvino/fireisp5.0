@@ -374,14 +374,27 @@ server {
 
 ## TLS / HTTPS
 
-### Let's Encrypt (Certbot)
+See **[docs/tls-setup.md](./tls-setup.md)** for the full TLS configuration
+guide, including:
+
+- **Let's Encrypt (HTTP-01)** — single-domain, automated via the Certbot
+  Docker service + `nginx/init-letsencrypt.sh` bootstrap script.
+- **Let's Encrypt (DNS-01 / Cloudflare)** — wildcard certificates
+  (`*.isp.example.com`) using the `certbot-dns-cloudflare` plugin and
+  `nginx/cloudflare.ini`.
+- **Manual / commercial certificate** — drop `fullchain.pem` + `privkey.pem`
+  into `./nginx/certs/` and reload nginx.
+
+### Quick start (Let's Encrypt, HTTP-01)
 
 ```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d isp.example.com
+chmod +x nginx/init-letsencrypt.sh
+DOMAIN=isp.example.com EMAIL=admin@example.com ./nginx/init-letsencrypt.sh
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
-Auto-renewal is configured by default via systemd timer.
+Certificates renew automatically when within 30 days of expiry; nginx hot-reloads every 6
+hours to pick them up.
 
 ---
 

@@ -3,6 +3,13 @@ node_modules/
 
 # Environment
 .env
+.env.prod
+.env.local
+
+# TLS credentials (never commit secrets)
+nginx/cloudflare.ini
+nginx/certs/
+nginx/letsencrypt/
 
 # Logs
 *.log
