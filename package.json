@@ -10,6 +10,8 @@
     "migrate:smoke-test": "node src/scripts/migrate.js && node src/scripts/migration-smoke-test.js",
     "rollback": "node src/scripts/rollback.js",
     "seed": "node src/scripts/seed.js",
+    "loadtest:seed": "node src/scripts/loadtest-seed.js",
+    "loadtest": "node src/scripts/loadtest.js",
     "backup": "node src/scripts/backup.js",
     "firerelay:agent": "node src/scripts/firerelay-agent.js",
     "admin": "node src/scripts/admin.js",
@@ -53,6 +55,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "autocannon": "^7.15.0",
     "eslint": "^10.2.0",
     "jest": "^30.3.0",
     "nodemon": "^3.1.14",
