@@ -6,7 +6,7 @@
 // =============================================================================
 
 const { Router } = require('express');
-const { recordDbQuery, dbQuerySamples, dbQueryBuckets } = require('../utils/dbMetrics');
+const { dbQuerySamples, dbQueryBuckets } = require('../utils/dbMetrics');
 
 const router = Router();
 
@@ -143,4 +143,4 @@ router.get('/', (_req, res) => {
   res.send(lines.join('\n') + '\n');
 });
 
-module.exports = { router, metricsMiddleware, counters, recordDbQuery, dbQuerySamples };
+module.exports = { router, metricsMiddleware, counters };
