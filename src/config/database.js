@@ -6,6 +6,7 @@
 // =============================================================================
 
 const mysql = require('mysql2/promise');
+const { recordDbQuery } = require('../utils/dbMetrics');
 
 const parseIntEnv = (key, fallback) => {
   const v = process.env[key];
@@ -39,9 +40,17 @@ const pool = mysql.createPool({
 
 /**
  * Run a query and return [rows, fields].
+ * Records DB query duration into the Prometheus histogram.
  */
 async function query(sql, params) {
-  return pool.execute(sql, params);
+  const start = process.hrtime.bigint();
+  try {
+    return await pool.execute(sql, params);
+  } finally {
+    const durationSeconds = Number(process.hrtime.bigint() - start) / 1e9;
+    const op = /^\s*(SELECT|INSERT|UPDATE|DELETE|REPLACE)/i.exec(sql);
+    recordDbQuery(durationSeconds, op ? op[1].toUpperCase() : 'OTHER');
+  }
 }
 
 /**
