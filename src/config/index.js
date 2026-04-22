@@ -35,6 +35,11 @@ const config = {
   // CORS — comma-separated allowlist of origins, e.g. "https://app.fireisp.com,https://admin.fireisp.com"
   corsOrigins: process.env.CORS_ORIGINS || '',
 
+  // IP allowlist for admin endpoints — comma-separated IPv4 addresses and/or CIDR ranges.
+  // When not set the feature is disabled and all IPs are allowed (existing behaviour preserved).
+  // Example: "10.0.0.0/8,203.0.113.5"
+  adminIpAllowlist: process.env.ADMIN_IP_ALLOWLIST || '',
+
   // Rate limit overrides (requests per window)
   rateLimit: {
     windowMs: parseIntEnv('RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000),
