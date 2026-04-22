@@ -1,0 +1,45 @@
+# =============================================================================
+# FireISP 5.0 — MySQL Replica (Standby) Configuration
+# Used by the db-replica service in docker-compose.prod.yml
+# =============================================================================
+
+[mysqld]
+# --- Replication identity ---
+server-id          = 2
+log-bin            = mysql-bin
+binlog-format      = ROW
+binlog-row-image   = FULL
+expire-logs-days   = 7
+max-binlog-size    = 256M
+sync-binlog        = 1
+
+# --- GTID replication ---
+gtid-mode          = ON
+enforce-gtid-consistency = ON
+log-slave-updates  = ON
+
+# --- Replica is read-only (writes must go to primary) ---
+read-only          = ON
+super-read-only    = ON
+
+# --- Character set ---
+character-set-server   = utf8mb4
+collation-server       = utf8mb4_unicode_ci
+
+# --- Connection / InnoDB tuning ---
+default-authentication-plugin = mysql_native_password
+event-scheduler    = OFF
+max-connections    = 200
+innodb-buffer-pool-size = 512M
+innodb-log-file-size    = 128M
+innodb-flush-log-at-trx-commit = 1
+innodb-flush-method = O_DIRECT
+
+# --- Relay log ---
+relay-log          = relay-bin
+relay-log-index    = relay-bin.index
+relay-log-info-repository = TABLE
+master-info-repository    = TABLE
+
+# --- Crash-safe replica ---
+sync-relay-log     = 1
