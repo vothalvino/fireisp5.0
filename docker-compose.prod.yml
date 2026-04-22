@@ -205,14 +205,23 @@ services:
     ports:
       - '80:80'
       - '443:443'
+    # Reload nginx every 6 hours so it picks up renewed TLS certificates
+    # without requiring a container restart. Let's Encrypt renews ~30 days
+    # before expiry; the 6-hour window guarantees fresh certs within hours.
+    command: >
+      /bin/sh -c
+      'while :; do sleep 6h & wait $${!}; nginx -s reload; done
+       & exec nginx -g "daemon off;"'
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      # TLS certificates — mount your own or use a Certbot companion:
-      #   Option A (manual): place fullchain.pem + privkey.pem in ./nginx/certs/
-      #   Option B (Certbot): mount the Certbot live dir into nginx_certs and
-      #                        adjust ssl_certificate paths in nginx.conf
+      # TLS certificates directory — populated by:
+      #   • init-letsencrypt.sh   (first-time bootstrap)
+      #   • certbot-deploy-hook.sh (automatic renewal copy)
+      #   • Manual: place fullchain.pem + privkey.pem here directly
+      # The certbot service also mounts this directory (write) to copy renewed
+      # certs. nginx itself only reads certs, so we keep it read-only here.
       - ./nginx/certs:/etc/nginx/certs:ro
-      # Certbot ACME challenge web-root (for Let's Encrypt renewals)
+      # Certbot ACME challenge web-root (HTTP-01 challenge)
       - certbot_www:/var/www/certbot:ro
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://localhost/healthz || exit 1']
@@ -228,4 +237,35 @@ services:
         reservations:
           cpus:   '0.1'
           memory: 32M
+    logging: *default-logging
+
+  # ── Certbot (Let's Encrypt certificate renewal) ───────────────────────────
+  # This service checks for certificate renewal every 12 hours.
+  # Let's Encrypt renews certs that are within 30 days of expiry.
+  #
+  # First-time setup: run nginx/init-letsencrypt.sh instead of starting
+  # this service directly — it handles the chicken-and-egg bootstrapping.
+  certbot:
+    image: certbot/certbot:latest
+    restart: unless-stopped
+    # Renewal loop: check every 12 hours. certbot renew is a no-op when
+    # the certificate is not yet due for renewal (< 30 days to expiry).
+    entrypoint: >
+      /bin/sh -c
+      'trap exit TERM;
+       while :; do
+         certbot renew --quiet;
+         sleep 12h & wait $${!};
+       done'
+    volumes:
+      # Let's Encrypt config + issued certificates (local bind-mount so the
+      # directory is visible on the host and easy to inspect/backup)
+      - ./nginx/letsencrypt:/etc/letsencrypt
+      # HTTP-01 ACME challenge web-root (shared with nginx)
+      - certbot_www:/var/www/certbot
+      # Shared certs dir: deploy hook copies renewed certs here so nginx
+      # can read them without mounting the full /etc/letsencrypt tree
+      - ./nginx/certs:/certs
+      # Deploy hook: runs automatically on successful renewal
+      - ./nginx/certbot-deploy-hook.sh:/etc/letsencrypt/renewal-hooks/deploy/copy-certs.sh:ro
     logging: *default-logging
