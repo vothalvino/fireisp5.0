@@ -158,7 +158,7 @@
 - ✅ Add production docker-compose (with MySQL replication, Redis, Nginx reverse proxy)
 - ✅ Add TLS termination config (Let's Encrypt / Cloudflare)
 - ✅ Implement IP allowlist for admin endpoints _(moved from 1.3 — network-layer firewalls preferred; existing auth stack is strong)_
-- ⬜ Load test API with realistic ISP workload (500 clients, 5000 invoices, 100 devices)
+- ✅ Load test API with realistic ISP workload (500 clients, 5000 invoices, 100 devices) — autocannon scripts in `src/scripts/loadtest{,-seed}.js`; see [`docs/load-testing.md`](docs/load-testing.md)
 
 ### 4.2 — Observability
 - ✅ Prometheus metrics endpoint
@@ -246,3 +246,4 @@
 | 2026-04-22 | 4.1 | Production docker-compose: MySQL primary+replica (GTID streaming), Redis (AOF + password), Nginx reverse proxy (HTTP→HTTPS, TLS 1.2/1.3, rate limiting, WebSocket pass-through); nginx/nginx.conf, mysql/primary.cnf, mysql/replica.cnf, mysql/init-replica.sh | #TBD |
 | 2026-04-22 | 4.1 | TLS termination config: Let's Encrypt HTTP-01 (nginx/init-letsencrypt.sh bootstrap, certbot service in docker-compose.prod.yml, certbot-deploy-hook.sh, 6h nginx hot-reload); Cloudflare DNS-01 wildcard cert support (cloudflare.ini.example, --cloudflare flag); docs/tls-setup.md + deployment.md updated | #TBD |
 | 2026-04-22 | 4.1 | IP allowlist for admin endpoints: ipAllowlist middleware (IPv4 + CIDR, IPv4-mapped IPv6, opt-in via ADMIN_IP_ALLOWLIST); applied to organizations, users, roles, settings, audit-logs, scheduled-tasks, import, billing routes; .env.example + deployment.md updated; 39 new Jest tests | #TBD |
+| 2026-04-22 | 4.1 | Load test for realistic ISP workload: autocannon-based runner (`src/scripts/loadtest.js`) and idempotent fixture seeder (`src/scripts/loadtest-seed.js`) — 500 clients / 5,000 invoices / 100 devices; new `loadtest:seed` and `loadtest` npm scripts; `docs/load-testing.md` with sample run (~3,900 req/s on `/health`, ~1,100 req/s on indexed single-record GETs, p99 < 35 ms); first run surfaced a `mysqld_stmt_execute` regression on every paginated list endpoint (`BaseModel.findAll` uses `LIMIT ?/OFFSET ?` over the prepared-statement protocol) — filed as a follow-up bug | #TBD |
