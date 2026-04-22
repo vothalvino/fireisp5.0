@@ -258,14 +258,14 @@ describe('createIpAllowlist', () => {
     expect(mw.name).toBe('ipAllowlistDisabled');
   });
 
-  test('allows a whitelisted IP and calls next()', () => {
+  test('allows an allowlisted IP and calls next()', () => {
     const mw = createIpAllowlist(parseAllowlist('10.0.0.0/8'));
     const next = jest.fn();
     mw(mockReq('10.20.30.40'), {}, next);
     expect(next).toHaveBeenCalledWith();
   });
 
-  test('blocks a non-whitelisted IP and calls next(error)', () => {
+  test('blocks a non-allowlisted IP and calls next(error)', () => {
     const mw = createIpAllowlist(parseAllowlist('10.0.0.0/8'));
     const next = jest.fn();
     mw(mockReq('8.8.8.8'), {}, next);
@@ -282,7 +282,7 @@ describe('createIpAllowlist', () => {
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
   });
 
-  test('allows IPv4-mapped IPv6 that maps to a whitelisted IPv4', () => {
+  test('allows IPv4-mapped IPv6 that maps to an allowlisted IPv4', () => {
     const mw = createIpAllowlist(parseAllowlist('192.168.1.0/24'));
     const next = jest.fn();
     mw(mockReq('::ffff:192.168.1.42'), {}, next);
