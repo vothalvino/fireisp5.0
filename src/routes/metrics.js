@@ -17,9 +17,32 @@ const counters = {
   http_request_errors_total: 0,
 };
 
-const histogramBuckets = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
+const histogramBuckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
 /** @type {Map<string, number[]>} keyed by method:route */
 const latencySamples = new Map();
+
+// ---------------------------------------------------------------------------
+// DB Query Metrics
+// ---------------------------------------------------------------------------
+const dbQueryBuckets = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5];
+/** @type {Map<string, number[]>} keyed by SQL operation (SELECT, INSERT, ...) */
+const dbQuerySamples = new Map();
+
+/**
+ * Record a DB query duration sample.
+ * Called by src/config/database.js after every query.
+ * @param {number} durationSeconds
+ * @param {string} [operation='OTHER']
+ */
+function recordDbQuery(durationSeconds, operation = 'OTHER') {
+  if (!dbQuerySamples.has(operation)) {
+    dbQuerySamples.set(operation, []);
+  }
+  const samples = dbQuerySamples.get(operation);
+  samples.push(durationSeconds);
+  // Keep only last 2000 samples per operation to bound memory
+  if (samples.length > 2000) samples.shift();
+}
 
 /**
  * Middleware to record request count and latency.
@@ -52,24 +75,24 @@ function metricsMiddleware(req, res, next) {
 /**
  * Build histogram buckets for a set of samples.
  */
-function buildHistogram(name, labels, samples) {
+function buildHistogram(name, labels, samples, buckets) {
   const lines = [];
   let sum = 0;
-  const bucketCounts = histogramBuckets.map(() => 0);
+  const bucketCounts = buckets.map(() => 0);
 
   for (const s of samples) {
     sum += s;
-    for (let i = 0; i < histogramBuckets.length; i++) {
-      if (s <= histogramBuckets[i]) {
+    for (let i = 0; i < buckets.length; i++) {
+      if (s <= buckets[i]) {
         bucketCounts[i]++;
       }
     }
   }
 
-  for (let i = 0; i < histogramBuckets.length; i++) {
+  for (let i = 0; i < buckets.length; i++) {
     // Cumulative
     const cumulative = bucketCounts.slice(0, i + 1).reduce((a, b) => a + b, 0);
-    lines.push(`${name}_bucket{${labels},le="${histogramBuckets[i]}"} ${cumulative}`);
+    lines.push(`${name}_bucket{${labels},le="${buckets[i]}"} ${cumulative}`);
   }
   lines.push(`${name}_bucket{${labels},le="+Inf"} ${samples.length}`);
   lines.push(`${name}_sum{${labels}} ${sum.toFixed(6)}`);
@@ -127,11 +150,19 @@ router.get('/', (_req, res) => {
   for (const [key, samples] of latencySamples.entries()) {
     const [method, path] = key.split(':');
     const labels = `method="${method}",path="${path}"`;
-    lines.push(...buildHistogram('http_request_duration_seconds', labels, samples));
+    lines.push(...buildHistogram('http_request_duration_seconds', labels, samples, histogramBuckets));
+  }
+
+  // ---- DB query duration histogram ----
+  lines.push('# HELP db_query_duration_seconds Database query duration in seconds');
+  lines.push('# TYPE db_query_duration_seconds histogram');
+  for (const [op, samples] of dbQuerySamples.entries()) {
+    const labels = `operation="${op}"`;
+    lines.push(...buildHistogram('db_query_duration_seconds', labels, samples, dbQueryBuckets));
   }
 
   res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
   res.send(lines.join('\n') + '\n');
 });
 
-module.exports = { router, metricsMiddleware, counters };
+module.exports = { router, metricsMiddleware, counters, recordDbQuery, dbQuerySamples };
