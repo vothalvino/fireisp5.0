@@ -348,21 +348,28 @@ jobs:
           DB_USER: root
           DB_PASSWORD: fireisp_e2e
           DB_NAME: fireisp_e2e
-          JWT_SECRET: ci-e2e-jwt-secret-not-for-production
+          JWT_SECRET: ci-e2e-jwt-secret-not-for-production-use-only-min-64-chars-abcdef
+          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           LOG_LEVEL: warn
           REDIS_URL: ''
         run: node src/server.js &
 
       - name: Wait for backend to be healthy
         run: |
+          READY=0
           for i in $(seq 1 30); do
             if curl -sf http://localhost:3000/health/live | grep -q ok; then
               echo "Backend is ready"
+              READY=1
               break
             fi
             echo "Waiting for backend... ($i/30)"
             sleep 2
           done
+          if [ "$READY" -ne 1 ]; then
+            echo "ERROR: Backend did not become healthy in time"
+            exit 1
+          fi
 
       # ---- Playwright -----------------------------------------------------
       - name: Install Playwright dependencies
@@ -373,7 +380,7 @@ jobs:
 
       - name: Run E2E smoke tests
         env:
-          BASE_URL: http://localhost:3000
+          BASE_URL: http://127.0.0.1:3000
           CI: 'true'
         run: npx --prefix e2e playwright test --config e2e/playwright.config.ts
 
