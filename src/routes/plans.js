@@ -10,15 +10,16 @@ const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createPlan, updatePlan, patchPlan, createPlanAddon } = require('../middleware/schemas/plans');
+const { httpCache } = require('../middleware/httpCache');
 const db = require('../config/database');
 
 const router = Router();
-const ctrl = crudController(Plan);
+const ctrl = crudController(Plan, { cacheResource: 'plans' });
 
 router.use(authenticate);
 router.use(orgScope);
 
-router.get('/', requirePermission('plans.view'), ctrl.list);
+router.get('/', requirePermission('plans.view'), httpCache('plans', 300), ctrl.list);
 router.get('/:id', requirePermission('plans.view'), ctrl.get);
 router.post('/', requirePermission('plans.create'), validate(createPlan), ctrl.create);
 router.put('/:id', requirePermission('plans.update'), validate(updatePlan), ctrl.update);

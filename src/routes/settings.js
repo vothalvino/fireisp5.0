@@ -9,6 +9,7 @@ const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { updateSetting } = require('../middleware/schemas/settings');
+const { httpCache, bustCache } = require('../middleware/httpCache');
 
 const router = Router();
 
@@ -16,7 +17,7 @@ router.use(authenticate);
 router.use(orgScope);
 
 // List all settings for the current organization
-router.get('/', requirePermission('settings.view'), async (req, res, next) => {
+router.get('/', requirePermission('settings.view'), httpCache('settings', 600), async (req, res, next) => {
   try {
     const settings = await Organization.getSettings(req.orgId);
     res.json({ data: settings });
@@ -30,6 +31,7 @@ router.put('/:key', requirePermission('settings.update'), validate(updateSetting
   try {
     const { value } = req.body;
     await Organization.setSetting(req.orgId, req.params.key, value);
+    await bustCache(req.orgId, 'settings');
     const settings = await Organization.getSettings(req.orgId);
     res.json({ data: settings });
   } catch (err) {

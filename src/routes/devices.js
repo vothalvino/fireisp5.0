@@ -10,15 +10,16 @@ const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createDevice, updateDevice, patchDevice } = require('../middleware/schemas/devices');
+const { httpCache } = require('../middleware/httpCache');
 const db = require('../config/database');
 
 const router = Router();
-const ctrl = crudController(Device);
+const ctrl = crudController(Device, { cacheResource: 'devices' });
 
 router.use(authenticate);
 router.use(orgScope);
 
-router.get('/', requirePermission('devices.view'), ctrl.list);
+router.get('/', requirePermission('devices.view'), httpCache('devices', 120), ctrl.list);
 router.get('/:id', requirePermission('devices.view'), ctrl.get);
 router.post('/', requirePermission('devices.create'), validate(createDevice), ctrl.create);
 router.put('/:id', requirePermission('devices.update'), validate(updateDevice), ctrl.update);
