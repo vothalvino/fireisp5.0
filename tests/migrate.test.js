@@ -100,8 +100,8 @@ CREATE EVENT IF NOT EXISTS evt ON SCHEDULE EVERY 1 HOUR DO CALL p();
       'utf8',
     );
     const stmts = splitStatements(sql028);
-    // Expects at minimum: CREATE TABLE, 2 INSERTs, 4 procedures, 4 events = 11+
-    expect(stmts.length).toBeGreaterThanOrEqual(8);
+    // Expects at minimum: header+CREATE TABLE, INSERT IGNORE block, 4 procedures, 4 events = 10+
+    expect(stmts.length).toBeGreaterThanOrEqual(10);
     // No statement should begin with DELIMITER
     for (const s of stmts) {
       expect(s.trim().toUpperCase()).not.toMatch(/^DELIMITER/);
