@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "npm run gen:api && tsc --noEmit && vite build",
     "preview": "vite preview",
     "gen:api": "openapi-typescript ../docs/openapi.json -o src/api/schema.d.ts",
     "lint": "npm run gen:api && tsc --noEmit",
