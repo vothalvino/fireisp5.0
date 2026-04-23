@@ -9,7 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "gen:api": "openapi-typescript ../docs/openapi.json -o src/api/schema.d.ts",
-    "lint": "tsc --noEmit",
+    "lint": "npm run gen:api && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

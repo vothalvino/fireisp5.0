@@ -1994,7 +1994,7 @@ CREATE TABLE IF NOT EXISTS billing_periods (
     CONSTRAINT fk_billing_periods_contract FOREIGN KEY (contract_id)
         REFERENCES contracts (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_billing_periods_invoice FOREIGN KEY (invoice_id)
-        REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+        REFERENCES invoices (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT chk_billing_periods_invoiced CHECK (
         status != 'invoiced' OR invoice_id IS NOT NULL
     )
@@ -2030,9 +2030,9 @@ CREATE TABLE IF NOT EXISTS network_links (
     KEY idx_network_links_status (status),
     KEY idx_network_links_deleted_at (deleted_at),
     CONSTRAINT fk_network_links_device_a FOREIGN KEY (device_a_id)
-        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE,
+        REFERENCES devices (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_network_links_device_b FOREIGN KEY (device_b_id)
-        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE,
+        REFERENCES devices (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT chk_network_links_different_devices CHECK (device_a_id != device_b_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -3250,11 +3250,11 @@ CREATE TABLE IF NOT EXISTS cfdi_documents (
     CONSTRAINT fk_cfdi_documents_moneda FOREIGN KEY (moneda)
         REFERENCES sat_moneda (code) ON UPDATE CASCADE,
     CONSTRAINT fk_cfdi_documents_invoice FOREIGN KEY (invoice_id)
-        REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+        REFERENCES invoices (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_cfdi_documents_credit_note FOREIGN KEY (credit_note_id)
-        REFERENCES credit_notes (id) ON DELETE SET NULL ON UPDATE CASCADE,
+        REFERENCES credit_notes (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_cfdi_documents_payment FOREIGN KEY (payment_id)
-        REFERENCES payments (id) ON DELETE SET NULL ON UPDATE CASCADE,
+        REFERENCES payments (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_cfdi_documents_xml_file FOREIGN KEY (xml_file_id)
         REFERENCES files (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cfdi_documents_pdf_file FOREIGN KEY (pdf_file_id)
@@ -4491,8 +4491,6 @@ CREATE TABLE IF NOT EXISTS payment_retries (
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_payment_retries_invoice FOREIGN KEY (invoice_id)
         REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_payment_retries_profile FOREIGN KEY (recurring_profile_id)
-        REFERENCES recurring_payment_profiles (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT chk_payment_retries_attempts CHECK (attempt_number <= max_attempts)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -4526,6 +4524,10 @@ CREATE TABLE IF NOT EXISTS recurring_payment_profiles (
     CONSTRAINT fk_recurring_profiles_gateway FOREIGN KEY (payment_gateway_id)
         REFERENCES payment_gateways (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE payment_retries
+    ADD CONSTRAINT fk_payment_retries_profile FOREIGN KEY (recurring_profile_id)
+        REFERENCES recurring_payment_profiles (id) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- ---------------------------------------------------------------------------
 -- Table: suspension_rules

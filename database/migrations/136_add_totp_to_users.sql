@@ -13,7 +13,7 @@ BEGIN
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'totp_secret'
   ) THEN
     ALTER TABLE users
-      ADD COLUMN totp_secret VARCHAR(255) NULL AFTER email_verify_token_hash,
+      ADD COLUMN totp_secret VARCHAR(255) NULL AFTER status,
       ADD COLUMN totp_enabled BOOLEAN NOT NULL DEFAULT FALSE AFTER totp_secret,
       ADD COLUMN totp_backup_codes JSON NULL AFTER totp_enabled;
   END IF;

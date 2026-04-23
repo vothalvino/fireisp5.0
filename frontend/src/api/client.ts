@@ -10,7 +10,7 @@
 // =============================================================================
 
 import createClient, { type Middleware } from 'openapi-fetch';
-import type { paths } from './schema.d';
+import type { paths } from './schema';
 
 // Token storage — access token lives in module scope (memory only, not localStorage).
 // Refresh token lives in localStorage for cross-tab persistence.
