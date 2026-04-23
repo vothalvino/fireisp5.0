@@ -6,6 +6,7 @@ const { Router } = require('express');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { httpCache } = require('../middleware/httpCache');
 const reportService = require('../services/reportService');
 
 const router = Router();
@@ -13,7 +14,7 @@ router.use(authenticate);
 router.use(orgScope);
 
 // GET /api/reports/aging — Accounts Receivable Aging
-router.get('/aging', requirePermission('invoices.view'), async (req, res, next) => {
+router.get('/aging', requirePermission('invoices.view'), httpCache('report_aging', 300), async (req, res, next) => {
   try {
     const data = await reportService.agingReport(req.orgId, {
       currency: req.query.currency,
@@ -23,7 +24,7 @@ router.get('/aging', requirePermission('invoices.view'), async (req, res, next) 
 });
 
 // GET /api/reports/financial — Financial Summary
-router.get('/financial', requirePermission('invoices.view'), async (req, res, next) => {
+router.get('/financial', requirePermission('invoices.view'), httpCache('report_financial', 300), async (req, res, next) => {
   try {
     const data = await reportService.financialSummary(req.orgId, {
       from: req.query.from,

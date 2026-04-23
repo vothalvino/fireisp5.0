@@ -10,14 +10,15 @@ const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createNas, updateNas } = require('../middleware/schemas/nas');
+const { httpCache } = require('../middleware/httpCache');
 
 const router = Router();
-const ctrl = crudController(Nas);
+const ctrl = crudController(Nas, { cacheResource: 'nas' });
 
 router.use(authenticate);
 router.use(orgScope);
 
-router.get('/', requirePermission('devices.view'), ctrl.list);
+router.get('/', requirePermission('devices.view'), httpCache('nas', 300), ctrl.list);
 router.get('/:id', requirePermission('devices.view'), ctrl.get);
 router.post('/', requirePermission('devices.create'), validate(createNas), ctrl.create);
 router.put('/:id', requirePermission('devices.update'), validate(updateNas), ctrl.update);

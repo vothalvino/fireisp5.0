@@ -10,16 +10,17 @@ const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createClient, updateClient, patchClient, createContact, updateMxProfile } = require('../middleware/schemas/clients');
+const { httpCache } = require('../middleware/httpCache');
 const { ValidationError, NotFoundError } = require('../utils/errors');
 const db = require('../config/database');
 
 const router = Router();
-const ctrl = crudController(Client);
+const ctrl = crudController(Client, { cacheResource: 'clients' });
 
 router.use(authenticate);
 router.use(orgScope);
 
-router.get('/', requirePermission('clients.view'), ctrl.list);
+router.get('/', requirePermission('clients.view'), httpCache('clients', 60), ctrl.list);
 router.get('/:id', requirePermission('clients.view'), ctrl.get);
 router.post('/', requirePermission('clients.create'), validate(createClient), ctrl.create);
 router.put('/:id', requirePermission('clients.update'), validate(updateClient), ctrl.update);

@@ -6,14 +6,17 @@
 // =============================================================================
 
 const auditLog = require('../services/auditLog');
+const { bustCache } = require('../middleware/httpCache');
 
 /**
  * Create standard CRUD handlers for a model.
  * @param {typeof import('../models/BaseModel')} Model
  * @param {object} [options]
  * @param {string} [options.resourceName] - Name for error messages
+ * @param {string} [options.cacheResource] - Cache resource name to bust on mutations
  */
 function crudController(Model, _options = {}) {
+  const { cacheResource } = _options;
 
   return {
     /**
@@ -85,6 +88,7 @@ function crudController(Model, _options = {}) {
           newValues: req.body,
         });
 
+        if (cacheResource) await bustCache(req.orgId, cacheResource);
         res.status(201).json({ data: record });
       } catch (err) {
         next(err);
@@ -109,6 +113,7 @@ function crudController(Model, _options = {}) {
           newValues: req.body,
         });
 
+        if (cacheResource) await bustCache(req.orgId, cacheResource);
         res.json({ data: record });
       } catch (err) {
         next(err);
@@ -133,6 +138,7 @@ function crudController(Model, _options = {}) {
           newValues: req.body,
         });
 
+        if (cacheResource) await bustCache(req.orgId, cacheResource);
         res.json({ data: record });
       } catch (err) {
         next(err);
@@ -156,6 +162,7 @@ function crudController(Model, _options = {}) {
           oldValues: old,
         });
 
+        if (cacheResource) await bustCache(req.orgId, cacheResource);
         res.status(204).send();
       } catch (err) {
         next(err);
@@ -177,6 +184,7 @@ function crudController(Model, _options = {}) {
           recordId: record.id,
         });
 
+        if (cacheResource) await bustCache(req.orgId, cacheResource);
         res.json({ data: record });
       } catch (err) {
         next(err);

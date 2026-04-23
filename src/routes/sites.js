@@ -10,14 +10,15 @@ const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createSite, updateSite, patchSite } = require('../middleware/schemas/sites');
+const { httpCache } = require('../middleware/httpCache');
 
 const router = Router();
-const ctrl = crudController(Site);
+const ctrl = crudController(Site, { cacheResource: 'sites' });
 
 router.use(authenticate);
 router.use(orgScope);
 
-router.get('/', requirePermission('sites.view'), ctrl.list);
+router.get('/', requirePermission('sites.view'), httpCache('sites', 300), ctrl.list);
 router.get('/:id', requirePermission('sites.view'), ctrl.get);
 router.post('/', requirePermission('sites.create'), validate(createSite), ctrl.create);
 router.put('/:id', requirePermission('sites.update'), validate(updateSite), ctrl.update);
