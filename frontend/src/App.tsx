@@ -37,6 +37,7 @@ import { UserList } from '@/pages/UserList';
 import { CfdiList } from '@/pages/CfdiList';
 import { InventoryList } from '@/pages/InventoryList';
 import { WarehouseList } from '@/pages/WarehouseList';
+import { CoverageZoneMap } from '@/pages/CoverageZoneMap';
 import { RadiusSessions } from '@/pages/RadiusSessions';
 import { SessionAccounting } from '@/pages/SessionAccounting';
 import { SnmpMetrics } from '@/pages/SnmpMetrics';
@@ -99,6 +100,7 @@ export function App() {
                 <Route path="radius-sessions" element={<RadiusSessions />} />
                 <Route path="session-accounting" element={<SessionAccounting />} />
                 <Route path="snmp-metrics" element={<SnmpMetrics />} />
+                <Route path="coverage-zones" element={<CoverageZoneMap />} />
               </Route>
             </Route>
 
