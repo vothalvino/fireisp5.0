@@ -133,7 +133,7 @@
 - ✅ Implement FireRelay agent process (Node.js) that runs at remote POP sites and connects via the tunnel
 - ✅ Add RouterOS API commands: PPPoE create/delete, queue set, address-list add/remove
 - ✅ Add config backup pull (automated nightly backup via agent)
-- ⬜ Test with real MikroTik hAP (lab environment)
+- ✅ Test with real MikroTik hAP (lab environment)
 
 ### 3.2 — SNMP Monitoring
 - ✅ SNMP poller service, wide metrics table, monthly partitioning
