@@ -162,8 +162,44 @@ jobs:
             "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='fireisp_migrate_test' AND table_type='BASE TABLE';")
           echo "schema.sql declares $SCHEMA_TABLES tables, migrations created $MIGRATED_TABLES tables"
           if [ "$MIGRATED_TABLES" -lt "$SCHEMA_TABLES" ]; then
-            echo "WARNING: Migration table count ($MIGRATED_TABLES) is less than schema.sql ($SCHEMA_TABLES)"
+            echo "ERROR: Migration table count ($MIGRATED_TABLES) is less than schema.sql ($SCHEMA_TABLES)"
+            exit 1
           fi
+
+      - name: Assert FK column types match referenced PK types
+        run: |
+          # Every FK column must have the same data type as the PK it references.
+          # This catches INT UNSIGNED FK -> BIGINT UNSIGNED PK mismatches (e.g. ERROR 3780).
+          MISMATCHES=$(mysql -h 127.0.0.1 -u root -pfireisp_test -N -e "
+            SELECT CONCAT(
+              kcu.table_name, '.', kcu.column_name,
+              ' (', fk_col.column_type, ')',
+              ' -> ',
+              kcu.referenced_table_name, '.', kcu.referenced_column_name,
+              ' (', pk_col.column_type, ')'
+            )
+            FROM information_schema.key_column_usage kcu
+            JOIN information_schema.referential_constraints rc
+              ON rc.constraint_schema = kcu.constraint_schema
+             AND rc.constraint_name   = kcu.constraint_name
+            JOIN information_schema.columns fk_col
+              ON fk_col.table_schema  = kcu.constraint_schema
+             AND fk_col.table_name    = kcu.table_name
+             AND fk_col.column_name   = kcu.column_name
+            JOIN information_schema.columns pk_col
+              ON pk_col.table_schema  = kcu.constraint_schema
+             AND pk_col.table_name    = kcu.referenced_table_name
+             AND pk_col.column_name   = kcu.referenced_column_name
+            WHERE kcu.constraint_schema = 'fireisp_migrate_test'
+              AND kcu.referenced_table_name IS NOT NULL
+              AND fk_col.column_type <> pk_col.column_type;
+          " fireisp_migrate_test)
+          if [ -n "$MISMATCHES" ]; then
+            echo "ERROR: FK column type mismatches detected:"
+            echo "$MISMATCHES"
+            exit 1
+          fi
+          echo "✓ All FK column types match their referenced PK types"
 
   migration-smoke-test:
     runs-on: ubuntu-latest

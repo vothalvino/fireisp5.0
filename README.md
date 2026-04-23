@@ -45,8 +45,8 @@ An open source ISP (Internet Service Provider) management software designed to h
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 108 tables)
-│   └── migrations/          # Individual numbered migration files (001–158)
+│   ├── schema.sql           # Combined schema (all 110 tables)
+│   └── migrations/          # Individual numbered migration files (001–163)
 ├── src/                     # Application source code
 │   ├── app.js               # Express app setup (middleware, routes, error handling)
 │   ├── server.js            # HTTP server entry point

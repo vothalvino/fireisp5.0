@@ -1108,8 +1108,8 @@ CREATE TABLE IF NOT EXISTS snmp_profile_oids (
 
 CREATE TABLE IF NOT EXISTS snmp_traps (
     id               BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
-    organization_id  INT UNSIGNED,
-    device_id        INT UNSIGNED,
+    organization_id  BIGINT UNSIGNED,
+    device_id        BIGINT UNSIGNED,
     source_ip        VARCHAR(45)      NOT NULL,
     trap_type        VARCHAR(64)      NOT NULL DEFAULT 'unknown',
     trap_oid         VARCHAR(255),
@@ -1117,7 +1117,7 @@ CREATE TABLE IF NOT EXISTS snmp_traps (
     community        VARCHAR(128),
     snmp_version     TINYINT UNSIGNED NOT NULL DEFAULT 2,
     is_acknowledged  TINYINT(1)       NOT NULL DEFAULT 0,
-    acknowledged_by  INT UNSIGNED,
+    acknowledged_by  BIGINT UNSIGNED,
     acknowledged_at  DATETIME,
     received_at      DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

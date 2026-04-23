@@ -17,6 +17,64 @@ const logger = require('../utils/logger').child({ script: 'migrate' });
 
 const MIGRATIONS_DIR = path.resolve(__dirname, '../../database/migrations');
 
+/**
+ * Split a SQL migration file into individual executable statements.
+ *
+ * Handles `DELIMITER $$` / `DELIMITER ;` directives that are understood by the
+ * mysql CLI client but rejected by mysql2's prepared-statement protocol.  The
+ * function tracks the current delimiter and emits one statement string per
+ * delimiter occurrence so callers can execute them one by one via conn.query().
+ *
+ * @param {string} sql - Raw file content of a .sql migration file.
+ * @returns {string[]} Array of non-empty SQL statement strings (no trailing delimiter).
+ */
+function splitStatements(sql) {
+  const statements = [];
+  let delimiter = ';';
+  let current = '';
+
+  // Process line by line so DELIMITER directives are easy to detect at line start.
+  for (const rawLine of sql.split('\n')) {
+    const trimmed = rawLine.trim();
+
+    // DELIMITER directive: switch the current statement terminator.
+    const delimMatch = trimmed.match(/^DELIMITER\s+(\S+)\s*$/i);
+    if (delimMatch) {
+      // Flush any accumulated text before the directive change.
+      const pending = current.trim();
+      if (pending) {
+        statements.push(pending);
+        current = '';
+      }
+      delimiter = delimMatch[1];
+      continue;
+    }
+
+    current += rawLine + '\n';
+
+    // Check if the accumulated buffer ends with the current delimiter.
+    // We compare against the trimmed tail of the buffer to ignore trailing
+    // whitespace / newlines after the delimiter token.
+    const trimmedCurrent = current.trimEnd();
+    if (trimmedCurrent.endsWith(delimiter)) {
+      // Strip the trailing delimiter before pushing.
+      const stmt = trimmedCurrent.slice(0, trimmedCurrent.length - delimiter.length).trim();
+      if (stmt) {
+        statements.push(stmt);
+      }
+      current = '';
+    }
+  }
+
+  // Flush any remaining content (e.g. files that don't end with a delimiter).
+  const tail = current.trim();
+  if (tail) {
+    statements.push(tail);
+  }
+
+  return statements;
+}
+
 async function runMigrations() {
   // Migrations may contain multiple SQL statements per file, so we use a
   // dedicated connection with multipleStatements enabled (the main pool
@@ -61,7 +119,9 @@ async function runMigrations() {
       logger.info({ file }, 'Applying migration');
 
       try {
-        await conn.query(sql);
+        for (const stmt of splitStatements(sql)) {
+          await conn.query(stmt);
+        }
         await conn.execute(
           'INSERT INTO schema_migrations (filename) VALUES (?)',
           [file],
@@ -99,4 +159,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { runMigrations };
+module.exports = { runMigrations, splitStatements };
