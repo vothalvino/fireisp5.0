@@ -56,7 +56,8 @@ async function runTask(taskName, organizationId = null) {
     case 'sms_send':
       return smsTransport.processQueue();
     case 'webhook_delivery':
-      return webhookService.retryPending();
+    case 'webhook_retry':
+      return webhookService.processRetries();
     case 'radius_sync':
       return radiusService.syncAllAccounts(organizationId);
     case 'populate_revenue_summary':

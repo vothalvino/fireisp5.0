@@ -193,7 +193,38 @@ curl -X POST /api/v1/webhooks \
   }'
 ```
 
-Webhook deliveries are logged in the `webhook_deliveries` table. Failed deliveries are retried automatically.
+Webhook deliveries are logged in the `webhook_deliveries` table. Failed deliveries are retried automatically using exponential backoff.
+
+## Retry Policy
+
+When a delivery fails (non-2xx response or network error), FireISP schedules automatic retries using **full-jitter exponential backoff**.
+
+| Attempt | Base delay window |
+|---------|-------------------|
+| 1 | Immediate (synchronous with the triggering event) |
+| 2 | 0 – 10 s |
+| 3 | 0 – 20 s |
+| 4 | 0 – 40 s |
+| 5 | 0 – 80 s |
+| n | 0 – min(3 600, 10 × 2^(n-1)) s |
+
+The `webhook_retry` scheduled task runs every 5 minutes and processes all deliveries whose `next_retry_at` timestamp has passed.
+
+Once **`max_retries`** (default 5) attempts are exhausted the row is set to `dead_letter` status and no further automatic retries occur.
+
+### Dead-letter management
+
+List dead-letter deliveries for review:
+
+```bash
+GET /api/v1/webhooks/dead-letters
+```
+
+Manually re-deliver a dead-letter entry (resets to attempt 1):
+
+```bash
+POST /api/v1/webhooks/deliveries/:id/redeliver
+```
 
 ## Verifying Signatures
 
