@@ -10,6 +10,15 @@
 > all within the documented Recovery Time Objective (RTO < 1 hour for the
 > database layer).
 
+> **Automation:** Phase 1 (backup + size check) and Phase 4 (verification
+> queries) are run automatically by the `quarterly_dr_drill` scheduled task
+> at 02:00 UTC on the 1st of January, April, July, and October.  Results are
+> stored in the `dr_drill_logs` table and surfaced as a warning popup in the
+> admin frontend when the drill is overdue or the last automated run failed.
+> **Phases 2 and 3 (drop + restore) must still be performed manually** by
+> an on-call engineer against a test/staging instance — never against
+> production.
+
 ---
 
 ## Table of Contents
@@ -193,7 +202,7 @@ SELECT 'schema_migrations',   COUNT(*) FROM schema_migrations;
 
 All `rows` values must be **≥ the pre-drill count** (or ≥ 1 for a
 freshly-seeded drill environment).  The `schema_migrations` count must be
-**163** (as of FireISP 5.0.x).
+**164** (as of FireISP 5.0.x).
 
 ### 4b. Referential integrity — orphaned child rows
 
