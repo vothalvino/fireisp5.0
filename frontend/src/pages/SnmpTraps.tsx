@@ -51,7 +51,7 @@ interface TrapsResponse {
 
 const TRAP_TYPE_COLORS: Record<string, string> = {
   linkDown:             '#e74c3c',
-  authenticationFailure:'#e67e22',
+  authenticationFailure: '#e67e22',
   egpNeighborLoss:      '#c0392b',
   linkUp:               '#27ae60',
   coldStart:            '#2980b9',
