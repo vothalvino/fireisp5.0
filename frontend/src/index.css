@@ -1,0 +1,184 @@
+/* =============================================================================
+   FireISP 5.0 — Global base styles & mobile-responsive layout
+   ============================================================================= */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.9rem;
+  background: #f5f6fa;
+  color: #111827;
+}
+
+/* ---- App shell ---------------------------------------------------------- */
+
+.app-shell {
+  display: flex;
+  height: 100vh;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.9rem;
+}
+
+/* ---- Sidebar ------------------------------------------------------------ */
+
+.app-sidebar {
+  width: 220px;
+  background: #1a1a2e;
+  color: #ccc;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  transition: transform 0.25s ease;
+  z-index: 200;
+}
+
+/* ---- Main content area -------------------------------------------------- */
+
+.app-main {
+  flex: 1;
+  overflow: auto;
+  min-width: 0; /* prevent content from pushing layout */
+}
+
+/* ---- Hamburger button (hidden on desktop) ------------------------------- */
+
+.hamburger-btn {
+  display: none;
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 300;
+  background: #1a1a2e;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 0.45rem 0.6rem;
+  font-size: 1.2rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+/* ---- Mobile top bar (hidden on desktop) --------------------------------- */
+
+.mobile-topbar {
+  display: none;
+}
+
+/* ---- Sidebar overlay backdrop (hidden on desktop) ----------------------- */
+
+.nav-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 150;
+}
+
+/* ---- Portal layout CSS helpers ------------------------------------------ */
+
+.portal-header {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.75rem 1.5rem;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  flex-wrap: wrap;
+}
+
+.portal-nav {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.portal-user-area {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-left: auto;
+}
+
+/* =========================================================================
+   Mobile — screens narrower than 768 px
+   ========================================================================= */
+
+@media (max-width: 768px) {
+
+  /* Show hamburger button */
+  .hamburger-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Show mobile top bar */
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    height: 48px;
+    background: #1a1a2e;
+    padding: 0 1rem 0 3.5rem;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    color: #fff;
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: 0.01em;
+  }
+
+  /* Push main content below the fixed top bar */
+  .app-main {
+    padding-top: 48px;
+  }
+
+  /* Sidebar becomes an off-canvas drawer */
+  .app-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    transform: translateX(-100%);
+  }
+
+  /* Sidebar visible state */
+  .app-sidebar.sidebar-open {
+    transform: translateX(0);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
+  }
+
+  /* Overlay visible when sidebar is open */
+  .nav-overlay.overlay-open {
+    display: block;
+  }
+
+  /* Portal header stacks on narrow screens */
+  .portal-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+  }
+
+  .portal-nav {
+    width: 100%;
+  }
+
+  .portal-user-area {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+  }
+}

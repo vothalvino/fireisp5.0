@@ -2,6 +2,7 @@
 // FireISP 5.0 — App Layout (shell + nav)
 // =============================================================================
 
+import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
 import { hasRole } from '@/auth/PrivateRoute';
@@ -34,15 +35,40 @@ const NAV_ITEMS: NavItem[] = [
 
 export function Layout() {
   const { user, logout } = useAuth();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   async function handleLogout() {
     await logout();
   }
 
+  function closeSidebar() {
+    setSidebarOpen(false);
+  }
+
   return (
-    <div style={styles.shell}>
+    <div className="app-shell">
+      {/* Hamburger button — visible only on mobile via CSS */}
+      <button
+        className="hamburger-btn"
+        onClick={() => setSidebarOpen(v => !v)}
+        aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'}
+        aria-expanded={sidebarOpen}
+      >
+        {sidebarOpen ? '✕' : '☰'}
+      </button>
+
+      {/* Mobile top bar — visible only on mobile via CSS */}
+      <div className="mobile-topbar">🔥 FireISP</div>
+
+      {/* Backdrop overlay — shown on mobile when sidebar is open */}
+      <div
+        className={`nav-overlay${sidebarOpen ? ' overlay-open' : ''}`}
+        onClick={closeSidebar}
+        aria-hidden="true"
+      />
+
       {/* Sidebar */}
-      <aside style={styles.sidebar}>
+      <aside className={`app-sidebar${sidebarOpen ? ' sidebar-open' : ''}`}>
         <div style={styles.logo}>🔥 FireISP</div>
 
         <nav style={styles.nav}>
@@ -53,6 +79,7 @@ export function Layout() {
               key={item.to}
               to={item.to}
               end={item.to === '/'}
+              onClick={closeSidebar}
               style={({ isActive }) => ({
                 ...styles.navLink,
                 ...(isActive ? styles.navLinkActive : {}),
@@ -78,7 +105,7 @@ export function Layout() {
       </aside>
 
       {/* Main content */}
-      <main style={styles.main}>
+      <main className="app-main">
         <Outlet />
       </main>
     </div>
@@ -86,21 +113,6 @@ export function Layout() {
 }
 
 const styles = {
-  shell: {
-    display: 'flex',
-    height: '100vh',
-    fontFamily: 'system-ui, sans-serif',
-    fontSize: '0.9rem',
-    background: '#f5f6fa',
-  },
-  sidebar: {
-    width: 220,
-    background: '#1a1a2e',
-    color: '#ccc',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    flexShrink: 0,
-  },
   logo: {
     padding: '1.25rem 1rem',
     fontWeight: 700,
@@ -147,9 +159,5 @@ const styles = {
     cursor: 'pointer',
     fontSize: '0.8rem',
     alignSelf: 'flex-start' as const,
-  },
-  main: {
-    flex: 1,
-    overflow: 'auto',
   },
 } as const;
