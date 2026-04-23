@@ -6,10 +6,10 @@
 // To run:
 //   MIKROTIK_HAP_HOST=<ip> npx jest tests/mikrotikHapIntegration.test.js
 //
-// Optional overrides (all have sensible defaults for the lab router):
+// Optional overrides:
 //   MIKROTIK_HAP_PORT  — RouterOS API port  (default: 8728)
-//   MIKROTIK_HAP_USER  — API username       (default: ai_test)
-//   MIKROTIK_HAP_PASS  — API password       (default: ai_test123)
+//   MIKROTIK_HAP_USER  — API username       (required)
+//   MIKROTIK_HAP_PASS  — API password       (required)
 //
 // Tests are SKIPPED when MIKROTIK_HAP_HOST is not set so that normal CI runs
 // are unaffected.
@@ -39,16 +39,16 @@ const {
 // ─── Connection parameters ────────────────────────────────────────────────────
 const HAP_HOST = process.env.MIKROTIK_HAP_HOST || null;
 const HAP_PORT = parseInt(process.env.MIKROTIK_HAP_PORT || '8728', 10);
-const HAP_USER = process.env.MIKROTIK_HAP_USER || 'ai_test';
-const HAP_PASS = process.env.MIKROTIK_HAP_PASS || 'ai_test123';
+const HAP_USER = process.env.MIKROTIK_HAP_USER || null;
+const HAP_PASS = process.env.MIKROTIK_HAP_PASS || null;
 
 const CONN = { host: HAP_HOST, port: HAP_PORT, user: HAP_USER, password: HAP_PASS };
 
 // Unique suffix per run to prevent name collisions on a shared lab router.
 const SUFFIX = `fi_${Date.now()}`;
 
-// Only execute when a real host is configured.
-const describeHap = HAP_HOST ? describe : describe.skip;
+// Only execute when a real host, user and password are configured.
+const describeHap = HAP_HOST && HAP_USER && HAP_PASS ? describe : describe.skip;
 
 // =============================================================================
 describeHap('MikroTik hAP Lab Integration', () => {
