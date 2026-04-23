@@ -607,7 +607,7 @@ export function ContractList() {
       </div>
 
       {/* Mutation error banner */}
-      {statusMutation.isError && (
+      {(suspendMutation.isError || cancelMutation.isError) && (
         <p style={{ color: '#ef4444', marginBottom: '0.75rem', fontSize: '0.85rem' }}>
           Action failed. Please try again.
         </p>

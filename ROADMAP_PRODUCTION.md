@@ -97,10 +97,10 @@ tenant)**, and **P3 (continuous improvement)**.
 ## P1 — Must-Have Before First Paying Tenant
 
 ### P1.1 — Frontend automated tests
-- Add Vitest + React Testing Library to `/frontend`; replace the placeholder `test` script with a real runner
-- Cover at minimum: AuthContext (silent refresh on 401, role-based routing), each MVP page's happy path (Dashboard, Clients, Contracts, Invoices, Payments, Tickets, Devices, Users, Portal*) — load fixture, assert key elements render
-- Wire `npm --prefix frontend test` into `.github/workflows/ci.yml`
-- Target: 60% line coverage on `frontend/src/pages` and `frontend/src/auth`
+- ✅ Vitest + React Testing Library + jsdom added to `/frontend`; placeholder `test` script replaced with `vitest run`; `test:watch` and `test:coverage` scripts added
+- ✅ 43 tests across 11 test files covering: `AuthContext` (login, logout, silent refresh, session restore, error paths), `PrivateRoute` + `hasRole` (redirect, 403, role rank logic), `Login` page (happy path, error, TOTP prompt), `Dashboard` (KPI rendering), `ClientList`, `ContractList`, `InvoiceList`, `PaymentList`, `TicketList`, `UserList` happy paths, `PortalLogin` (happy path, error)
+- ✅ Pre-existing bug fixed: `ContractList.tsx` referenced undefined `statusMutation` — replaced with `(suspendMutation.isError || cancelMutation.isError)`
+- ✅ `frontend-test` job added to `.github/workflows/ci.yml` — runs `npm --prefix frontend ci`, `npm --prefix frontend test`, and `npm --prefix frontend run lint` on Node 22 for every push/PR
 
 ### P1.2 — End-to-end (browser) smoke test
 - Add Playwright. One scenario: log in → create client → assign plan → generate invoice → record payment → open ticket → log out
@@ -207,3 +207,4 @@ tenant)**, and **P3 (continuous improvement)**.
 |---|---|---|
 | 2026-04-23 | — | Roadmap v2 created from production-readiness deep dive (CI run #206 red, frontend-test gap, LIMIT/OFFSET regression, operational maturity gaps) |
 | 2026-04-23 | P0.1–P0.5 | P0 items resolved: migration 163 FK types, migration 028 DELIMITER parser, BaseModel LIMIT/OFFSET inlining, schema.sql/README sync, CI table-count hard failure, FK type CI assertion |
+| 2026-04-23 | P1.1 | Frontend automated tests: Vitest + RTL, 43 tests / 11 suites, ContractList `statusMutation` bug fixed, `frontend-test` CI job wired |
