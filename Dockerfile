@@ -1,5 +1,5 @@
 # ── Stage 1: build the React frontend ─────────────────────────────────────────
-FROM node:18-alpine AS frontend-build
+FROM node:22-alpine AS frontend-build
 
 WORKDIR /frontend
 
@@ -10,7 +10,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ── Stage 2: production API server ────────────────────────────────────────────
-FROM node:18-alpine
+FROM node:22-alpine
 
 RUN addgroup -S fireisp && adduser -S fireisp -G fireisp
 
