@@ -2371,28 +2371,6 @@ CREATE TABLE IF NOT EXISTS outages (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Multi-currency support (migration 051)
--- Purpose: Adds currency CHAR(3) (ISO 4217) to core financial tables.
--- ---------------------------------------------------------------------------
-ALTER TABLE invoices
-    ADD COLUMN currency CHAR(3) NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code';
-
-ALTER TABLE payments
-    ADD COLUMN currency CHAR(3) NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code';
-
-ALTER TABLE credit_notes
-    ADD COLUMN currency CHAR(3) NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code';
-
-ALTER TABLE quotes
-    ADD COLUMN currency CHAR(3) NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code';
-
-ALTER TABLE plans
-    ADD COLUMN currency CHAR(3) NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code';
-
-ALTER TABLE expenses
-    ADD COLUMN currency CHAR(3) NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code';
-
--- ---------------------------------------------------------------------------
 -- Table: vlans
 -- Purpose: VLAN registry linked to sites. Tracks IEEE 802.1Q VLAN IDs per
 --          site for network segmentation, service isolation, and capacity
@@ -2446,30 +2424,6 @@ CREATE TABLE IF NOT EXISTS tax_rates (
     CONSTRAINT fk_tax_rates_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ---------------------------------------------------------------------------
--- Tax rate references (migration 056)
--- Purpose: Links invoices, quotes, and credit notes to the tax_rates master
---          table. The existing tax_rate DECIMAL column is kept as a snapshot
---          of the rate at document-creation time.
--- ---------------------------------------------------------------------------
-ALTER TABLE invoices
-    ADD COLUMN tax_rate_id BIGINT UNSIGNED NULL COMMENT 'Tax rate configuration used; NULL = manual / legacy rate',
-    ADD KEY idx_invoices_tax_rate_id (tax_rate_id),
-    ADD CONSTRAINT fk_invoices_tax_rate FOREIGN KEY (tax_rate_id)
-        REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE;
-
-ALTER TABLE quotes
-    ADD COLUMN tax_rate_id BIGINT UNSIGNED NULL COMMENT 'Tax rate configuration used; NULL = manual / legacy rate',
-    ADD KEY idx_quotes_tax_rate_id (tax_rate_id),
-    ADD CONSTRAINT fk_quotes_tax_rate FOREIGN KEY (tax_rate_id)
-        REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE;
-
-ALTER TABLE credit_notes
-    ADD COLUMN tax_rate_id BIGINT UNSIGNED NULL COMMENT 'Tax rate configuration used; NULL = manual / legacy rate',
-    ADD KEY idx_credit_notes_tax_rate_id (tax_rate_id),
-    ADD CONSTRAINT fk_credit_notes_tax_rate FOREIGN KEY (tax_rate_id)
-        REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- ---------------------------------------------------------------------------
 -- Table: message_templates
