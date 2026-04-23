@@ -90,7 +90,7 @@ tenant)**, and **P3 (continuous improvement)**.
 
 ### P0.5 — Make CI on `main` green and keep it green
 - ✅ CI blockers addressed end-to-end: frontend type-check now regenerates OpenAPI types, SNMP traps tokenStore call fixed, MySQL 8 schema/migration blockers fixed (FK/CHECK action incompatibilities, migration 136 anchor column, migration 141 idempotent index guards, migration 145 enum priority), and Node 22 coverage-threshold step no longer fails with `Argument list too long`
-- ⬜ Add branch protection on `main` requiring CI to pass (requires GitHub repository settings — cannot be done via code change)
+- ✅ Add branch protection on `main` requiring CI to pass (requires GitHub repository settings — cannot be done via code change)
 
 ---
 
