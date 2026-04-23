@@ -1,7 +1,11 @@
 # 🗺️ FireISP 5.0 — Development Roadmap
 
-> **Single source of truth.** Before asking "what should I build next?", check this file.
+> **Single source of truth for *features*.** Before asking "what should I build next?", check this file.
 > Update this file with every PR — mark items ✅ when done, never delete them.
+>
+> 📌 **Production-readiness work** (CI defects, hardening, DR, SSO, pen-test, SLOs, etc.)
+> lives in [`ROADMAP_PRODUCTION.md`](./ROADMAP_PRODUCTION.md). That file is a **companion**
+> to this one, not a replacement. Both files are kept up-to-date in parallel.
 
 ---
 
