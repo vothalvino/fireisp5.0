@@ -6,6 +6,7 @@ import { useState, type ChangeEvent } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
 import { hasRole } from '@/auth/PrivateRoute';
+import { DrDrillBanner } from '@/components/DrDrillBanner';
 
 interface NavItem {
   to: string;
@@ -142,6 +143,7 @@ export function Layout() {
 
       {/* Main content */}
       <main className="app-main">
+        <DrDrillBanner />
         <Outlet />
       </main>
     </div>

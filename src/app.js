@@ -93,6 +93,7 @@ const twoFactorRoutes = require('./routes/twoFactor');
 const bulkRoutes = require('./routes/bulk');
 const portalRoutes = require('./routes/portal');
 const smsRoutes = require('./routes/sms');
+const drDrillRoutes = require('./routes/drDrill');
 
 const crypto = require('crypto');
 
@@ -402,6 +403,7 @@ v1.use('/2fa', authLimiter, requireFeature('twoFactor'), twoFactorRoutes);
 v1.use('/bulk', apiLimiter, bulkRoutes);
 v1.use('/portal', portalRoutes);
 v1.use('/sms', smsRoutes);
+v1.use('/dr-drill', adminIpAllowlist, drDrillRoutes);
 
 // Mount v1 at both /api (backward compat) and /api/v1 (versioned)
 app.use('/api/v1', v1);
