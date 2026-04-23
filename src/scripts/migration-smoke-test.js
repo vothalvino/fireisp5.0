@@ -92,7 +92,7 @@ function extractSchemaColumns(sqlContent) {
     if (!trimmed || trimmed.startsWith('--')) continue;
 
     // Skip index / FK / constraint lines.
-    if (/^(PRIMARY\s+KEY|UNIQUE\s+KEY|UNIQUE\s+INDEX|KEY\s|INDEX\s|SPATIAL\s+KEY|FULLTEXT\s|CONSTRAINT\s|FOREIGN\s+KEY)/i.test(trimmed)) continue;
+    if (/^(PRIMARY\s+KEY|UNIQUE\s+KEY|KEY\s|INDEX\s|SPATIAL\s+KEY|FULLTEXT\s|CONSTRAINT\s|FOREIGN\s+KEY)/i.test(trimmed)) continue;
 
     // Skip lines that are continuations of a previous column definition:
     // closing paren, quoted strings (ENUM values), or continuation keywords.
