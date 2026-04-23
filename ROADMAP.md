@@ -175,7 +175,7 @@
 - ✅ Mobile-responsive frontend
 - ✅ SMS notification integration (Twilio/local MX provider)
 - ✅ API rate limiting per tenant
-- ⬜ Webhook delivery retry with exponential backoff
+- ✅ Webhook delivery retry with exponential backoff
 - ⬜ Performance: add Redis caching to top 10 most-queried endpoints
 - ⬜ Performance: add database read replica routing for reports
 - ⬜ Coverage zone map editor (draw polygons on map) _(moved from 2.3 — high effort, low MVP impact)_
@@ -252,3 +252,4 @@
 | 2026-04-23 | 5.2 | Mobile-responsive frontend: src/index.css (CSS reset, `.app-shell`/`.app-sidebar`/`.app-main` layout classes, `.hamburger-btn`, `.mobile-topbar`, `.nav-overlay` + `@media (max-width: 768px)` breakpoint); Layout.tsx — off-canvas sidebar drawer with hamburger toggle button, overlay backdrop, close-on-nav-click; PortalLayout.tsx — stacks nav below logo on narrow screens via `.portal-header`/`.portal-nav`/`.portal-user-area` CSS classes; no new backend changes, no new tests | #TBD |
 | 2026-04-23 | 5.3 | SMS notification integration: smsTransport.js (sendSms/queueSms/processQueue/retryLog, Twilio + generic HTTP provider abstraction); SMS hooks in notificationHooks.js for invoice.created, payment.received, contract.suspended, suspension.warning; sms_send scheduled task (migration 162); GET /sms/logs + POST /sms/send + POST /sms/logs/:id/retry routes; SmsLog.js fillable columns fixed; notificationService.js column names fixed; SMS_PROVIDER/SMS_PROVIDER_URL/SMS_PROVIDER_API_KEY/SMS_PROVIDER_FROM added to .env.example; 17 new Jest tests | #TBD |
 | 2026-04-23 | 5.4 | API rate limiting per tenant: CacheStore class (express-rate-limit v8 store backed by cacheService — Redis when available, in-memory otherwise); tenantApiLimiter keyed by req.orgId (RATE_LIMIT_TENANT_API=500/window, RATE_LIMIT_TENANT_WINDOW_MS=900000); applied inside orgScope middleware so all authenticated+org-scoped routes are covered without touching individual route files; .env.example updated; rateLimiter.test.js updated; 20 new Jest tests in rateLimitTenant.test.js | #TBD |
+| 2026-04-23 | 5.5 | Webhook delivery retry with exponential backoff: webhookService.js rewritten — dispatch() makes one attempt then schedules async retry via next_retry_at; deliverOnce() writes correct schema column names (event_name/payload/http_status_code/attempt_number); processRetries() processes due retrying rows with full-jitter exponential backoff (base 10 s, cap 1 h); dead_letter after max_retries exhausted; migration 162 (webhook_retry task every 5 min); webhook_retry case in taskRunner; GET /webhooks/dead-letters + POST /webhooks/deliveries/:id/redeliver routes; docs/webhook-events.md retry policy table; 22 new Jest tests in webhookRetry.test.js | #TBD |

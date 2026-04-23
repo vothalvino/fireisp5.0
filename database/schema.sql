@@ -2137,7 +2137,8 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     task_name         VARCHAR(100)     NOT NULL COMMENT 'Unique machine-readable identifier, e.g. ''auto_suspend_overdue''',
     task_type         ENUM('auto_suspend', 'generate_invoice', 'radius_sync',
                           'snmp_poll', 'usage_rollup', 'cleanup',
-                          'notification', 'backup', 'other')
+                          'notification', 'backup', 'maintenance',
+                          'webhook_retry', 'other')
                                        NOT NULL DEFAULT 'other'
                                        COMMENT 'Category of the scheduled task',
     handler           VARCHAR(255)     NULL     COMMENT 'Fully-qualified class or function that executes this task',
@@ -5471,7 +5472,7 @@ VALUES
      TRUE);
 
 -- ---------------------------------------------------------------------------
--- Seed: SMS queue processor scheduled task (migration 162)
+-- Seed: SMS queue processor scheduled task (M5.3)
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO scheduled_tasks
     (organization_id, task_name, task_type, description,
@@ -5485,6 +5486,40 @@ VALUES
      'high',
      3,
      60,
+     TRUE);
+
+-- ---------------------------------------------------------------------------
+-- Seed: RouterOS config backup pull scheduled task (migration 158)
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO scheduled_tasks
+    (organization_id, task_name, task_type, description,
+     cron_expression, priority, max_retries, timeout_seconds, is_enabled)
+VALUES
+    (NULL,
+     'config_backup_pull',
+     'maintenance',
+     'Nightly RouterOS config backup pull: for each device with a firerelay_node_id and ip_address, sends a config.backup command via the FireRelay tunnel and stores the result in device_config_backups. Skips unchanged configs (same SHA-256 checksum).',
+     '0 2 * * *',
+     'normal',
+     2,
+     3600,
+     TRUE);
+
+-- ---------------------------------------------------------------------------
+-- Seed: Webhook retry processor scheduled task (migration 162)
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO scheduled_tasks
+    (organization_id, task_name, task_type, description,
+     cron_expression, priority, max_retries, timeout_seconds, is_enabled)
+VALUES
+    (NULL,
+     'webhook_retry',
+     'webhook_retry',
+     'Process due webhook retry deliveries — picks up retrying rows whose next_retry_at <= NOW(), makes one HTTP attempt per row, reschedules or dead-letters based on attempt count.',
+     '*/5 * * * *',
+     'normal',
+     1,
+     120,
      TRUE);
 
 -- ---------------------------------------------------------------------------

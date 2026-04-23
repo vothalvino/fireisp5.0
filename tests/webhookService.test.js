@@ -99,28 +99,30 @@ describe('webhookService', () => {
   // deliver
   // =========================================================================
   describe('deliver()', () => {
-    test('returns failed after exhausting retries on HTTP error', async () => {
+    test('dead_letters immediately when max_retries=0 and delivery fails', async () => {
       const webhook = {
         id: 3, url: 'http://example.com/fail', events: '*',
         secret_encrypted: null, max_retries: 0, timeout_seconds: 1,
       };
 
-      db.query.mockResolvedValue([]);  // delivery logs
+      db.query.mockResolvedValue([{ insertId: 99 }]);  // delivery log insert
       mockHttpSuccess(500, 'Internal Server Error');
 
       const result = await webhookService.deliver(webhook, 'test', { foo: 1 });
-      expect(result.status).toBe('failed');
+      // max_retries=0 means no retries allowed — result is dead_letter after first attempt
+      expect(result.status).toBe('dead_letter');
     });
   });
 
   // =========================================================================
-  // retryPending
+  // retryPending (deprecated shim — delegates to processRetries)
   // =========================================================================
   describe('retryPending()', () => {
     test('returns zero counts when no pending deliveries', async () => {
       db.query.mockResolvedValueOnce([[]]);
       const result = await webhookService.retryPending();
-      expect(result).toEqual({ succeeded: 0, failed: 0, total: 0 });
+      expect(result.succeeded).toBe(0);
+      expect(result.total).toBe(0);
     });
   });
 });
