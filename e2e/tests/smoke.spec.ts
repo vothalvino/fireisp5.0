@@ -39,8 +39,7 @@ async function apiCreateClient(
   const res = await request.post(`${API}/clients`, {
     headers: { Authorization: `Bearer ${token}` },
     data: {
-      first_name: 'Smoke',
-      last_name: suffix,
+      name: `Smoke ${suffix}`,
       email: `smoke.${suffix}@e2e.test`,
       client_type: 'residential',
       status: 'active',
