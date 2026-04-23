@@ -240,10 +240,16 @@ VALUES (9001, 9000, 9003, 200.00);
 CALL assert_true(ROW_COUNT() = 1, 'E2: Payment allocation $200 more succeeds (total $500)');
 
 -- E3. Allocate $1 more — exceeds payment total, should fail
-CALL assert_sql_error('45000', '-- Need another invoice for the unique constraint INSERT INTO invoices (id, client_id, invoice_number, issue_date, due_date, subtotal, tax_amount, total, status) VALUES (9004, 9001, ''INV-T9004'', ''2024-04-01'', ''2024-04-30'', 100.00, 0.00, 100.00, ''sent''); INSERT INTO payment_allocations (id, payment_id, invoice_id, amount) VALUES (9002, 9000, 9004, 1.00)', 'E3: Payment over-allocation rejected (500+1 > 500)');
+-- Need another invoice for the unique constraint
+INSERT INTO invoices (id, client_id, invoice_number, issue_date, due_date, subtotal, tax_amount, total, status)
+VALUES (9004, 9001, 'INV-T9004', '2024-04-01', '2024-04-30', 100.00, 0.00, 100.00, 'sent');
+CALL assert_sql_error('45000', 'INSERT INTO payment_allocations (id, payment_id, invoice_id, amount) VALUES (9002, 9000, 9004, 1.00)', 'E3: Payment over-allocation rejected (500+1 > 500)');
 
 -- E4. Allocate more than invoice total — should fail (invoice 9003 total is 300, already has 200)
-CALL assert_sql_error('45000', '-- Create a second payment to test the invoice-side guard INSERT INTO payments (id, client_id, amount, payment_date, payment_method) VALUES (9001, 9001, 500.00, ''2024-02-16'', ''cash''); INSERT INTO payment_allocations (id, payment_id, invoice_id, amount) VALUES (9003, 9001, 9003, 101.00)', 'E4: Invoice over-allocation rejected (200+101 > 300)');
+-- Create a second payment to test the invoice-side guard
+INSERT INTO payments (id, client_id, amount, payment_date, payment_method)
+VALUES (9001, 9001, 500.00, '2024-02-16', 'cash');
+CALL assert_sql_error('45000', 'INSERT INTO payment_allocations (id, payment_id, invoice_id, amount) VALUES (9003, 9001, 9003, 101.00)', 'E4: Invoice over-allocation rejected (200+101 > 300)');
 
 -- E5. Update allocation to exceed payment — should fail
 CALL assert_sql_error('45000', 'UPDATE payment_allocations SET amount = 400.00 WHERE id = 9001', 'E5: UPDATE allocation exceeding payment total rejected');
