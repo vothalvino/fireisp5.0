@@ -41,7 +41,7 @@ async function agingReport(organizationId, { currency } = {}) {
   }
 
   sql += ' ORDER BY days_overdue DESC';
-  const [rows] = await db.query(sql, params);
+  const [rows] = await db.queryReplica(sql, params);
 
   // Aggregate by bucket
   const buckets = { current: 0, '1-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
@@ -70,7 +70,7 @@ async function financialSummary(organizationId, { from, to, currency } = {}) {
   const baseParams = currency ? [organizationId, dateFrom, dateTo, currency] : [organizationId, dateFrom, dateTo];
 
   const [[invoiceRows], [paymentRows], [expenseRows]] = await Promise.all([
-    db.query(`
+    db.queryReplica(`
       SELECT
         COALESCE(SUM(total), 0) AS total_invoiced,
         COALESCE(SUM(CASE WHEN status = 'paid' THEN total ELSE 0 END), 0) AS total_collected,
@@ -79,14 +79,14 @@ async function financialSummary(organizationId, { from, to, currency } = {}) {
       FROM invoices
       WHERE organization_id = ? AND created_at >= ? AND created_at <= ? ${currencyFilter}
     `, baseParams),
-    db.query(`
+    db.queryReplica(`
       SELECT
         COALESCE(SUM(amount), 0) AS total_payments,
         COUNT(*) AS payment_count
       FROM payments
       WHERE organization_id = ? AND created_at >= ? AND created_at <= ? ${currencyFilter}
     `, baseParams),
-    db.query(`
+    db.queryReplica(`
       SELECT
         COALESCE(SUM(amount), 0) AS total_expenses,
         COUNT(*) AS expense_count
@@ -124,7 +124,7 @@ async function technicianReport(organizationId, { from, to } = {}) {
   const dateFrom = from || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
   const dateTo = to || new Date().toISOString().slice(0, 10);
 
-  const [rows] = await db.query(`
+  const [rows] = await db.queryReplica(`
     SELECT
       j.assigned_to AS user_id,
       u.first_name, u.last_name,
@@ -153,7 +153,7 @@ async function technicianReport(organizationId, { from, to } = {}) {
  * Subscriber Growth Report — new/churned contracts per month.
  */
 async function subscriberGrowthReport(organizationId, { months = 12 } = {}) {
-  const [rows] = await db.query(`
+  const [rows] = await db.queryReplica(`
     SELECT
       DATE_FORMAT(c.created_at, '%Y-%m') AS month,
       SUM(c.status IN ('active', 'suspended')) AS new_contracts,

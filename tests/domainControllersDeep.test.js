@@ -8,6 +8,7 @@
 
 jest.mock('../src/config/database', () => ({
   query: jest.fn(),
+  queryReplica: jest.fn(),
   execute: jest.fn(),
   getConnection: jest.fn(),
   close: jest.fn(),
@@ -334,7 +335,7 @@ describe('dashboardController — deep', () => {
   // -------------------------------------------------------------------------
   describe('summary', () => {
     test('returns correct structure with zero/empty data', async () => {
-      db.query
+      db.queryReplica
         .mockResolvedValueOnce([[{ total: 0, active: 0 }]])
         .mockResolvedValueOnce([[{ total: 0, active: 0, suspended: 0 }]])
         .mockResolvedValueOnce([[{ outstanding: 0, collected: 0, total_invoiced: 0 }]])
@@ -355,7 +356,7 @@ describe('dashboardController — deep', () => {
     });
 
     test('calls next on DB failure', async () => {
-      db.query.mockRejectedValueOnce(new Error('timeout'));
+      db.queryReplica.mockRejectedValueOnce(new Error('timeout'));
       const res = mockRes();
 
       await dashboardController.summary(mockReq(), res, mockNext);
@@ -369,7 +370,7 @@ describe('dashboardController — deep', () => {
   // -------------------------------------------------------------------------
   describe('revenue', () => {
     test('returns empty array when no invoices exist', async () => {
-      db.query.mockResolvedValueOnce([[]]);
+      db.queryReplica.mockResolvedValueOnce([[]]);
       const res = mockRes();
 
       await dashboardController.revenue(mockReq(), res, mockNext);
@@ -378,7 +379,7 @@ describe('dashboardController — deep', () => {
     });
 
     test('returns multiple months correctly', async () => {
-      db.query.mockResolvedValueOnce([[
+      db.queryReplica.mockResolvedValueOnce([[
         { month: '2025-01', currency: 'MXN', invoiced: 1000, collected: 800, invoice_count: 5 },
         { month: '2024-12', currency: 'MXN', invoiced: 900, collected: 900, invoice_count: 4 },
       ]]);
@@ -397,7 +398,7 @@ describe('dashboardController — deep', () => {
   // -------------------------------------------------------------------------
   describe('mrr', () => {
     test('returns empty array when no active contracts exist', async () => {
-      db.query.mockResolvedValueOnce([[]]);
+      db.queryReplica.mockResolvedValueOnce([[]]);
       const res = mockRes();
 
       await dashboardController.mrr(mockReq(), res, mockNext);
@@ -406,7 +407,7 @@ describe('dashboardController — deep', () => {
     });
 
     test('returns multiple currencies', async () => {
-      db.query.mockResolvedValueOnce([[
+      db.queryReplica.mockResolvedValueOnce([[
         { currency: 'MXN', active_contracts: 10, mrr: 5000, arpu: 500 },
         { currency: 'USD', active_contracts: 2, mrr: 200, arpu: 100 },
       ]]);
@@ -425,7 +426,7 @@ describe('dashboardController — deep', () => {
   // -------------------------------------------------------------------------
   describe('deviceHealth', () => {
     test('returns empty arrays when no devices or health data', async () => {
-      db.query
+      db.queryReplica
         .mockResolvedValueOnce([[]])   // devices by type
         .mockResolvedValueOnce([[]]);  // health snapshots
 
@@ -438,7 +439,7 @@ describe('dashboardController — deep', () => {
     });
 
     test('returns devices with no health snapshots', async () => {
-      db.query
+      db.queryReplica
         .mockResolvedValueOnce([[{ type: 'router', total: 5, monitored: 3, active: 4 }]])
         .mockResolvedValueOnce([[]]);
 
@@ -451,7 +452,7 @@ describe('dashboardController — deep', () => {
     });
 
     test('calls next on DB error', async () => {
-      db.query.mockRejectedValueOnce(new Error('snap fail'));
+      db.queryReplica.mockRejectedValueOnce(new Error('snap fail'));
       const res = mockRes();
 
       await dashboardController.deviceHealth(mockReq(), res, mockNext);
@@ -465,7 +466,7 @@ describe('dashboardController — deep', () => {
   // -------------------------------------------------------------------------
   describe('overdue', () => {
     test('returns empty array when no overdue invoices', async () => {
-      db.query.mockResolvedValueOnce([[]]);
+      db.queryReplica.mockResolvedValueOnce([[]]);
       const res = mockRes();
 
       await dashboardController.overdue(mockReq(), res, mockNext);
@@ -474,7 +475,7 @@ describe('dashboardController — deep', () => {
     });
 
     test('returns overdue invoices sorted by days_overdue', async () => {
-      db.query.mockResolvedValueOnce([[
+      db.queryReplica.mockResolvedValueOnce([[
         { id: 1, invoice_number: 'INV-1', total: 500, days_overdue: 30 },
         { id: 2, invoice_number: 'INV-2', total: 200, days_overdue: 10 },
       ]]);
@@ -488,7 +489,7 @@ describe('dashboardController — deep', () => {
     });
 
     test('calls next on DB error', async () => {
-      db.query.mockRejectedValueOnce(new Error('overdue fail'));
+      db.queryReplica.mockRejectedValueOnce(new Error('overdue fail'));
       const res = mockRes();
 
       await dashboardController.overdue(mockReq(), res, mockNext);

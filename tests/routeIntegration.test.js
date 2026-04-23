@@ -7,6 +7,7 @@
 // Mock the database module before requiring anything else
 jest.mock('../src/config/database', () => ({
   query: jest.fn(),
+  queryReplica: jest.fn(),
   execute: jest.fn(),
   getConnection: jest.fn(),
   close: jest.fn(),
@@ -443,7 +444,7 @@ describe('Dashboard Routes — /api/dashboard', () => {
   describe('GET /api/dashboard/summary', () => {
     test('returns aggregated KPIs', async () => {
       mockAuthUser();
-      db.query
+      db.queryReplica
         .mockResolvedValueOnce([[{ total: 100, active: 80 }]])     // clients
         .mockResolvedValueOnce([[{ total: 90, active: 70, suspended: 5 }]])  // contracts
         .mockResolvedValueOnce([[{ outstanding: 5000, collected: 20000, total_invoiced: 25000 }]]) // revenue
@@ -464,7 +465,7 @@ describe('Dashboard Routes — /api/dashboard', () => {
   describe('GET /api/dashboard/revenue', () => {
     test('returns monthly revenue', async () => {
       mockAuthUser();
-      db.query.mockResolvedValueOnce([[
+      db.queryReplica.mockResolvedValueOnce([[
         { month: '2025-06', currency: 'MXN', invoiced: 50000, collected: 40000, invoice_count: 100 },
       ]]);
 
@@ -481,7 +482,7 @@ describe('Dashboard Routes — /api/dashboard', () => {
   describe('GET /api/dashboard/mrr', () => {
     test('returns MRR data', async () => {
       mockAuthUser();
-      db.query.mockResolvedValueOnce([[
+      db.queryReplica.mockResolvedValueOnce([[
         { currency: 'MXN', active_contracts: 70, mrr: 34930, arpu: 499 },
       ]]);
 

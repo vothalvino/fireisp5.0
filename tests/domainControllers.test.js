@@ -7,6 +7,7 @@
 
 jest.mock('../src/config/database', () => ({
   query: jest.fn(),
+  queryReplica: jest.fn(),
   execute: jest.fn(),
   getConnection: jest.fn(),
   close: jest.fn(),
@@ -293,7 +294,7 @@ describe('Domain Controllers', () => {
       const res = mockRes();
       const next = jest.fn();
 
-      db.query
+      db.queryReplica
         .mockResolvedValueOnce([[{ total: 100, active: 90 }]])       // clients
         .mockResolvedValueOnce([[{ total: 80, active: 70, suspended: 5 }]])  // contracts
         .mockResolvedValueOnce([[{ outstanding: 5000, collected: 15000, total_invoiced: 20000 }]])  // revenue
@@ -315,7 +316,7 @@ describe('Domain Controllers', () => {
       const res = mockRes();
       const next = jest.fn();
 
-      db.query.mockResolvedValueOnce([[{ currency: 'MXN', active_contracts: 50, mrr: 25000, arpu: 500 }]]);
+      db.queryReplica.mockResolvedValueOnce([[{ currency: 'MXN', active_contracts: 50, mrr: 25000, arpu: 500 }]]);
 
       await dashboardController.mrr(req, res, next);
 

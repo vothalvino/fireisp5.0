@@ -4,6 +4,7 @@
 
 jest.mock('../src/config/database', () => ({
   query: jest.fn(),
+  queryReplica: jest.fn(),
   execute: jest.fn(),
   getConnection: jest.fn(),
   close: jest.fn(),
@@ -20,7 +21,7 @@ describe('reportService', () => {
 
   describe('agingReport()', () => {
     test('returns aging buckets and details', async () => {
-      db.query.mockResolvedValueOnce([[
+      db.queryReplica.mockResolvedValueOnce([[
         { client_id: 1, first_name: 'John', last_name: 'Doe', email: 'john@test.com', invoice_id: 10, invoice_number: 'INV-001', total: '500.00', currency: 'MXN', due_date: '2026-01-15', days_overdue: 45, aging_bucket: '31-60' },
         { client_id: 2, first_name: 'Jane', last_name: 'Doe', email: 'jane@test.com', invoice_id: 11, invoice_number: 'INV-002', total: '300.00', currency: 'MXN', due_date: '2026-02-01', days_overdue: 10, aging_bucket: '1-30' },
       ]]);
@@ -34,9 +35,9 @@ describe('reportService', () => {
     });
 
     test('filters by currency', async () => {
-      db.query.mockResolvedValueOnce([[]]);
+      db.queryReplica.mockResolvedValueOnce([[]]);
       await reportService.agingReport(1, { currency: 'USD' });
-      const [sql, params] = db.query.mock.calls[0];
+      const [sql, params] = db.queryReplica.mock.calls[0];
       expect(sql).toContain('currency = ?');
       expect(params).toContain('USD');
     });
@@ -44,7 +45,7 @@ describe('reportService', () => {
 
   describe('financialSummary()', () => {
     test('returns revenue, payments, and expenses', async () => {
-      db.query
+      db.queryReplica
         .mockResolvedValueOnce([[{ total_invoiced: '10000.00', total_collected: '8000.00', total_outstanding: '2000.00', invoice_count: 50 }]])
         .mockResolvedValueOnce([[{ total_payments: '8500.00', payment_count: 45 }]])
         .mockResolvedValueOnce([[{ total_expenses: '3000.00', expense_count: 20 }]]);
@@ -60,7 +61,7 @@ describe('reportService', () => {
 
   describe('technicianReport()', () => {
     test('returns technician productivity metrics', async () => {
-      db.query.mockResolvedValueOnce([[
+      db.queryReplica.mockResolvedValueOnce([[
         { user_id: 1, first_name: 'Tech', last_name: 'A', total_jobs: 20, completed: 15, cancelled: 2, in_progress: 3, avg_completion_hours: 4.5 },
       ]]);
 
@@ -72,7 +73,7 @@ describe('reportService', () => {
 
   describe('subscriberGrowthReport()', () => {
     test('returns monthly growth data', async () => {
-      db.query.mockResolvedValueOnce([[
+      db.queryReplica.mockResolvedValueOnce([[
         { month: '2026-03', new_contracts: 10, churned: 2 },
         { month: '2026-02', new_contracts: 8, churned: 1 },
       ]]);

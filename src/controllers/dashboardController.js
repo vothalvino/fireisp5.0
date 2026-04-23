@@ -21,15 +21,15 @@ async function summary(req, res, next) {
       [ticketsResult],
       [devicesResult],
     ] = await Promise.all([
-      db.query(
+      db.queryReplica(
         'SELECT COUNT(*) AS total, SUM(status = \'active\') AS active FROM clients WHERE organization_id = ?',
         [orgId],
       ),
-      db.query(
+      db.queryReplica(
         'SELECT COUNT(*) AS total, SUM(status = \'active\') AS active, SUM(status = \'suspended\') AS suspended FROM contracts WHERE organization_id = ?',
         [orgId],
       ),
-      db.query(
+      db.queryReplica(
         `SELECT
            COALESCE(SUM(CASE WHEN status = 'issued' THEN total ELSE 0 END), 0) AS outstanding,
            COALESCE(SUM(CASE WHEN status = 'paid' THEN total ELSE 0 END), 0) AS collected,
@@ -38,11 +38,11 @@ async function summary(req, res, next) {
          WHERE organization_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`,
         [orgId],
       ),
-      db.query(
+      db.queryReplica(
         'SELECT COUNT(*) AS total, SUM(status = \'open\') AS open_count FROM tickets WHERE organization_id = ?',
         [orgId],
       ),
-      db.query(
+      db.queryReplica(
         'SELECT COUNT(*) AS total, SUM(snmp_enabled = 1) AS monitored FROM devices WHERE organization_id = ?',
         [orgId],
       ),
@@ -68,7 +68,7 @@ async function summary(req, res, next) {
  */
 async function revenue(req, res, next) {
   try {
-    const [rows] = await db.query(
+    const [rows] = await db.queryReplica(
       `SELECT
          DATE_FORMAT(created_at, '%Y-%m') AS month,
          currency,
@@ -93,7 +93,7 @@ async function revenue(req, res, next) {
  */
 async function mrr(req, res, next) {
   try {
-    const [rows] = await db.query(
+    const [rows] = await db.queryReplica(
       `SELECT
          p.currency,
          COUNT(c.id) AS active_contracts,
@@ -117,7 +117,7 @@ async function mrr(req, res, next) {
  */
 async function deviceHealth(req, res, next) {
   try {
-    const [devices] = await db.query(
+    const [devices] = await db.queryReplica(
       `SELECT
          d.type,
          COUNT(*) AS total,
@@ -130,7 +130,7 @@ async function deviceHealth(req, res, next) {
     );
 
     // Latest network health snapshots (last 7 days)
-    const [health] = await db.query(
+    const [health] = await db.queryReplica(
       `SELECT
          snapshot_date,
          COUNT(*) AS device_count,
@@ -156,7 +156,7 @@ async function deviceHealth(req, res, next) {
  */
 async function overdue(req, res, next) {
   try {
-    const [rows] = await db.query(
+    const [rows] = await db.queryReplica(
       `SELECT i.id, i.invoice_number, i.total, i.currency, i.due_date,
               i.client_id, cl.first_name, cl.last_name,
               DATEDIFF(NOW(), i.due_date) AS days_overdue
