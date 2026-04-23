@@ -2,10 +2,10 @@
 // FireISP 5.0 — Rate Limiter Tests
 // =============================================================================
 
-const { apiLimiter, authLimiter, publicLimiter, uploadLimiter, exportLimiter, sseLimiter, webhookLimiter } = require('../src/middleware/rateLimit');
+const { apiLimiter, authLimiter, publicLimiter, uploadLimiter, exportLimiter, sseLimiter, webhookLimiter, tenantApiLimiter } = require('../src/middleware/rateLimit');
 
 describe('Rate Limiters', () => {
-  it('exports all seven limiters', () => {
+  it('exports all eight limiters', () => {
     expect(apiLimiter).toBeDefined();
     expect(authLimiter).toBeDefined();
     expect(publicLimiter).toBeDefined();
@@ -13,6 +13,7 @@ describe('Rate Limiters', () => {
     expect(exportLimiter).toBeDefined();
     expect(sseLimiter).toBeDefined();
     expect(webhookLimiter).toBeDefined();
+    expect(tenantApiLimiter).toBeDefined();
   });
 
   it('each limiter is a function (Express middleware)', () => {
@@ -23,11 +24,12 @@ describe('Rate Limiters', () => {
     expect(typeof exportLimiter).toBe('function');
     expect(typeof sseLimiter).toBe('function');
     expect(typeof webhookLimiter).toBe('function');
+    expect(typeof tenantApiLimiter).toBe('function');
   });
 
   it('limiters accept standard Express middleware arguments (req, res, next)', () => {
     // Each limiter should have arity of 3 (req, res, next) — standard Express middleware
-    for (const limiter of [apiLimiter, authLimiter, publicLimiter, uploadLimiter, exportLimiter, sseLimiter, webhookLimiter]) {
+    for (const limiter of [apiLimiter, authLimiter, publicLimiter, uploadLimiter, exportLimiter, sseLimiter, webhookLimiter, tenantApiLimiter]) {
       // express-rate-limit middleware has .length that can vary but should be callable
       expect(typeof limiter).toBe('function');
     }

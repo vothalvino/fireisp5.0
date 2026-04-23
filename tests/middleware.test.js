@@ -79,18 +79,31 @@ describe('validate middleware', () => {
 });
 
 describe('orgScope middleware', () => {
-  test('passes when user has organizationId', () => {
-    const next = jest.fn();
-    const req = { user: { id: 1, organizationId: 42 } };
-    orgScope(req, {}, next);
-    expect(next).toHaveBeenCalledWith();
-    expect(req.orgId).toBe(42);
+  function makeRes() {
+    const headers = {};
+    return {
+      setHeader: (k, v) => { headers[k] = v; },
+      getHeader: (k) => headers[k],
+      headers,
+      status(code) { this._statusCode = code; return this; },
+      send(body) { this._body = body; return this; },
+      json(body) { this._body = body; return this; },
+    };
+  }
+
+  test('passes when user has organizationId', (done) => {
+    const req = { user: { id: 1, organizationId: 42 }, ip: '127.0.0.1', headers: {}, socket: {} };
+    orgScope(req, makeRes(), (err) => {
+      expect(err).toBeUndefined();
+      expect(req.orgId).toBe(42);
+      done();
+    });
   });
 
   test('fails when user has no organizationId', () => {
     const next = jest.fn();
     const req = { user: { id: 1, organizationId: null } };
-    orgScope(req, {}, next);
+    orgScope(req, makeRes(), next);
     expect(next).toHaveBeenCalledWith(expect.objectContaining({
       statusCode: 403,
     }));
@@ -98,7 +111,7 @@ describe('orgScope middleware', () => {
 
   test('fails when no user', () => {
     const next = jest.fn();
-    orgScope({}, {}, next);
+    orgScope({}, makeRes(), next);
     expect(next).toHaveBeenCalledWith(expect.objectContaining({
       statusCode: 403,
     }));

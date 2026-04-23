@@ -50,6 +50,9 @@ const config = {
     export: parseIntEnv('RATE_LIMIT_EXPORT', 20),
     sse: parseIntEnv('RATE_LIMIT_SSE', 10),
     webhook: parseIntEnv('RATE_LIMIT_WEBHOOK', 100),
+    // Per-tenant limits — apply to all authenticated/org-scoped requests
+    tenantWindowMs: parseIntEnv('RATE_LIMIT_TENANT_WINDOW_MS', 15 * 60 * 1000),
+    tenantApi: parseIntEnv('RATE_LIMIT_TENANT_API', 500),
   },
 
   // Request timeout in milliseconds (0 = disabled)
