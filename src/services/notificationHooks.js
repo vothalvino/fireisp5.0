@@ -7,6 +7,7 @@
 
 const eventBus = require('./eventBus');
 const emailTransport = require('./emailTransport');
+const smsTransport = require('./smsTransport');
 const templates = require('../views/emailTemplates');
 const webhookService = require('./webhookService');
 const logger = require('../utils/logger');
@@ -44,6 +45,18 @@ function registerHooks() {
           subject: template.subject,
           html: template.html,
         });
+      }
+
+      // SMS: notify client phone if available
+      if (client?.phone) {
+        const clientName = `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.name || '';
+        const smsBody = `Hola ${clientName}, se generó tu factura ${invoice.invoice_number} por ${invoice.currency} ${invoice.total}. Vence: ${invoice.due_date ? new Date(invoice.due_date).toISOString().slice(0, 10) : 'N/A'}.`;
+        await smsTransport.queueSms({
+          organizationId,
+          clientId: invoice.client_id,
+          to:       client.phone,
+          body:     smsBody,
+        }).catch(err => logger.warn({ err, event: 'invoice.created' }, 'SMS queue error'));
       }
 
       // SSE broadcast
@@ -89,6 +102,18 @@ function registerHooks() {
         });
       }
 
+      // SMS: payment confirmation to client phone
+      if (client?.phone) {
+        const clientName = `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.name || '';
+        const smsBody = `Hola ${clientName}, recibimos tu pago de ${payment.currency} ${payment.amount}. Gracias!`;
+        await smsTransport.queueSms({
+          organizationId,
+          clientId: payment.client_id,
+          to:       client.phone,
+          body:     smsBody,
+        }).catch(err => logger.warn({ err, event: 'payment.received' }, 'SMS queue error'));
+      }
+
       getBroadcast()(`org:${organizationId}:notifications`, 'payment.received', {
         payment_id: payment.id,
         client_id: payment.client_id,
@@ -124,6 +149,18 @@ function registerHooks() {
           subject: template.subject,
           html: template.html,
         });
+      }
+
+      // SMS: service suspension notice to client phone
+      if (client?.phone) {
+        const clientName = `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.name || '';
+        const smsBody = `Hola ${clientName}, tu servicio ha sido suspendido por falta de pago. Contáctanos para reactivarlo.`;
+        await smsTransport.queueSms({
+          organizationId,
+          clientId: contract.client_id,
+          to:       client.phone,
+          body:     smsBody,
+        }).catch(err => logger.warn({ err, event: 'contract.suspended' }, 'SMS queue error'));
       }
 
       getBroadcast()(`org:${organizationId}:notifications`, 'contract.suspended', {
@@ -176,6 +213,19 @@ function registerHooks() {
           subject: template.subject,
           html: template.html,
         });
+      }
+
+      // SMS: suspension warning to client phone
+      if (client?.phone) {
+        const clientName = `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.name || '';
+        const invoiceRef = invoice?.invoice_number ? ` (factura ${invoice.invoice_number})` : '';
+        const smsBody = `Hola ${clientName}, tienes ${daysOverdue} día(s) de atraso${invoiceRef}. Realiza tu pago para evitar la suspensión.`;
+        await smsTransport.queueSms({
+          organizationId,
+          clientId: invoice?.client_id || null,
+          to:       client.phone,
+          body:     smsBody,
+        }).catch(err => logger.warn({ err, event: 'suspension.warning' }, 'SMS queue error'));
       }
     } catch (err) {
       logger.error({ err, event: 'suspension.warning' }, 'Notification hook error');
