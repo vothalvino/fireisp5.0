@@ -8,6 +8,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const config = require('./config');
 const { AppError } = require('./utils/errors');
+const errorTracking = require('./utils/errorTracking');
 const { apiLimiter, authLimiter, exportLimiter, sseLimiter, webhookLimiter } = require('./middleware/rateLimit');
 const { requestLogger } = require('./middleware/requestLogger');
 const { sanitize } = require('./middleware/sanitize');
@@ -432,6 +433,12 @@ app.get(/^\/(?!api|metrics|health)/, (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// Error tracking — Sentry error handler (must come after all routes and
+// before the application's own error handlers)
+// ---------------------------------------------------------------------------
+errorTracking.setupExpressErrorHandler(app);
+
+// ---------------------------------------------------------------------------
 // 404 handler
 // ---------------------------------------------------------------------------
 app.use((req, res) => {
@@ -487,6 +494,7 @@ app.use((err, req, res, _next) => {
 
   // Unexpected errors
   logger.error({ err, requestId: req.id }, 'Unhandled error');
+  errorTracking.captureException(err, { requestId: req.id });
   const statusCode = err.statusCode || 500;
   res.status(statusCode).json(
     errorBody(

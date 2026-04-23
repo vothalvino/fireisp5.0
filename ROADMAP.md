@@ -165,7 +165,7 @@
 - ✅ Add structured JSON logging across all services (Pino JSON logger adopted; 28+ services use it)
 - ✅ Add request tracing (requestId middleware already correlates across logs)
 - ✅ Build Grafana dashboards for API latency, error rates, and DB query times — `docs/grafana/fireisp-api-performance.json`; `db_query_duration_seconds` histogram added to `/metrics` endpoint and instrumented in `src/config/database.js`
-- ⬜ Add Sentry or equivalent error tracking
+- ✅ Add Sentry or equivalent error tracking
 
 ---
 
