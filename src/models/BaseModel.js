@@ -97,9 +97,15 @@ class BaseModel {
     // Validate orderBy against allowed columns to prevent SQL injection
     const safeOrderBy = this.sortable.includes(orderBy) ? orderBy : 'id';
 
+    // Inline limit and offset as integer literals (not bind parameters) to avoid
+    // the mysqld_stmt_execute regression with LIMIT ?/OFFSET ? on the prepared-
+    // statement protocol.  Both values are validated as safe non-negative integers
+    // before interpolation so there is no SQL-injection risk.
+    const safeLimit  = Math.max(1, parseInt(limit,  10) || 50);
+    const safeOffset = Math.max(0, parseInt(offset, 10) || 0);
+
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const sql = `SELECT * FROM \`${this.tableName}\` ${whereClause} ORDER BY \`${safeOrderBy}\` ${order === 'DESC' ? 'DESC' : 'ASC'} LIMIT ? OFFSET ?`;
-    params.push(limit, offset);
+    const sql = `SELECT * FROM \`${this.tableName}\` ${whereClause} ORDER BY \`${safeOrderBy}\` ${order === 'DESC' ? 'DESC' : 'ASC'} LIMIT ${safeLimit} OFFSET ${safeOffset}`;
 
     const [rows] = await db.query(sql, params);
     return rows;

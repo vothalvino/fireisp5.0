@@ -97,9 +97,9 @@ describe('crudController', () => {
       const { req, res, next } = mockReqRes({ query: { limit: '500' } });
       await ctrl.list(req, res, next);
 
-      // Verify the query used limit 100, not 500
+      // Verify the query used limit 100, not 500 — limit is now inlined in SQL
       const findAllCall = db.query.mock.calls[0];
-      expect(findAllCall[1]).toContain(100);
+      expect(findAllCall[0]).toMatch(/LIMIT 100\b/);
     });
 
     test('calls next on error', async () => {
