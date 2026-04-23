@@ -14,6 +14,15 @@ import { AuthProvider } from '@/auth/AuthContext';
 import { PrivateRoute } from '@/auth/PrivateRoute';
 import { Layout } from '@/components/Layout';
 import { Login } from '@/pages/Login';
+import { PortalAuthProvider } from '@/auth/PortalAuthContext';
+import { PortalRoute } from '@/auth/PortalRoute';
+import { PortalLayout } from '@/components/PortalLayout';
+import { PortalLogin } from '@/pages/portal/PortalLogin';
+import { PortalDashboard } from '@/pages/portal/PortalDashboard';
+import { PortalInvoices } from '@/pages/portal/PortalInvoices';
+import { PortalInvoiceDetail } from '@/pages/portal/PortalInvoiceDetail';
+import { PortalTickets } from '@/pages/portal/PortalTickets';
+import { PortalTicketDetail } from '@/pages/portal/PortalTicketDetail';
 import { Dashboard } from '@/pages/Dashboard';
 import { ClientList } from '@/pages/ClientList';
 import { ClientDetail } from '@/pages/ClientDetail';
@@ -48,10 +57,23 @@ export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <BrowserRouter>
-          <Routes>
-            {/* Public */}
-            <Route path="/login" element={<Login />} />
+        <PortalAuthProvider>
+          <BrowserRouter>
+            <Routes>
+              {/* Public */}
+              <Route path="/login" element={<Login />} />
+
+              {/* ---- Client Self-Service Portal ---- */}
+              <Route path="/portal/login" element={<PortalLogin />} />
+              <Route element={<PortalRoute />}>
+                <Route element={<PortalLayout />}>
+                  <Route path="/portal" element={<PortalDashboard />} />
+                  <Route path="/portal/invoices" element={<PortalInvoices />} />
+                  <Route path="/portal/invoices/:id" element={<PortalInvoiceDetail />} />
+                  <Route path="/portal/tickets" element={<PortalTickets />} />
+                  <Route path="/portal/tickets/:id" element={<PortalTicketDetail />} />
+                </Route>
+              </Route>
 
             {/* Protected — any authenticated user */}
             <Route element={<PrivateRoute />}>
@@ -101,6 +123,7 @@ export function App() {
             <Route path="*" element={<Navigate to="/404" replace />} />
           </Routes>
         </BrowserRouter>
+        </PortalAuthProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

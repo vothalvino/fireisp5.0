@@ -64,6 +64,9 @@ CREATE TABLE IF NOT EXISTS clients (
     zip_code        VARCHAR(20)     NULL,
     notes           TEXT            NULL,
     status          ENUM('active', 'inactive', 'suspended') NOT NULL DEFAULT 'active',
+    portal_password_hash       VARCHAR(255) NULL      COMMENT 'bcrypt hash for self-service portal password; NULL = portal access not enabled',
+    portal_login_attempts      TINYINT      NOT NULL DEFAULT 0,
+    portal_locked_until        TIMESTAMP    NULL,
     version         INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -2198,6 +2201,25 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     KEY idx_user_sessions_token_family (token_family),
     CONSTRAINT fk_user_sessions_user FOREIGN KEY (user_id)
         REFERENCES users (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: portal_refresh_tokens
+-- Purpose: Refresh tokens for the client self-service portal
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS portal_refresh_tokens (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    client_id   BIGINT UNSIGNED NOT NULL,
+    token_hash  VARCHAR(64)     NOT NULL COMMENT 'SHA-256 hex of the opaque refresh token',
+    expires_at  TIMESTAMP       NOT NULL,
+    revoked_at  TIMESTAMP       NULL,
+    created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_portal_refresh_tokens_hash (token_hash),
+    KEY idx_portal_refresh_tokens_client (client_id),
+    CONSTRAINT fk_portal_refresh_tokens_client
+        FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------

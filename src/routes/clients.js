@@ -119,4 +119,24 @@ router.get('/:id/balance-ledger', requirePermission('clients.view'), async (req,
   } catch (err) { next(err); }
 });
 
+// Set / reset portal password for a client (admin action)
+router.put('/:id/portal-password', requirePermission('clients.update'), async (req, res, next) => {
+  try {
+    const { password } = req.body;
+    if (!password || typeof password !== 'string' || password.length < 8) {
+      return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'password must be at least 8 characters' } });
+    }
+    const portalAuthService = require('../services/portalAuthService');
+    // Verify this client belongs to this org
+    const [rows] = await db.query(
+      'SELECT id FROM clients WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [req.params.id, req.orgId],
+    );
+    if (!rows[0]) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Client not found' } });
+
+    await portalAuthService.setPassword(req.params.id, password);
+    res.json({ message: 'Portal password updated' });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

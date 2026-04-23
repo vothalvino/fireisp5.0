@@ -171,7 +171,7 @@
 
 ## Milestone 5: Scale & Polish
 
-- ⬜ Client self-service portal (view invoices, pay online, open tickets)
+- ✅ Client self-service portal (view invoices, pay online, open tickets)
 - ⬜ Mobile-responsive frontend
 - ⬜ SMS notification integration (Twilio/local MX provider)
 - ⬜ API rate limiting per tenant
@@ -248,3 +248,4 @@
 | 2026-04-22 | 4.1 | TLS termination config: Let's Encrypt HTTP-01 (nginx/init-letsencrypt.sh bootstrap, certbot service in docker-compose.prod.yml, certbot-deploy-hook.sh, 6h nginx hot-reload); Cloudflare DNS-01 wildcard cert support (cloudflare.ini.example, --cloudflare flag); docs/tls-setup.md + deployment.md updated | #TBD |
 | 2026-04-22 | 4.1 | IP allowlist for admin endpoints: ipAllowlist middleware (IPv4 + CIDR, IPv4-mapped IPv6, opt-in via ADMIN_IP_ALLOWLIST); applied to organizations, users, roles, settings, audit-logs, scheduled-tasks, import, billing routes; .env.example + deployment.md updated; 39 new Jest tests | #TBD |
 | 2026-04-22 | 4.1 | Load test for realistic ISP workload: autocannon-based runner (`src/scripts/loadtest.js`) and idempotent fixture seeder (`src/scripts/loadtest-seed.js`) — 500 clients / 5,000 invoices / 100 devices; new `loadtest:seed` and `loadtest` npm scripts; `docs/load-testing.md` with sample run (~3,900 req/s on `/health`, ~1,100 req/s on indexed single-record GETs, p99 < 35 ms); first run surfaced a `mysqld_stmt_execute` regression on every paginated list endpoint (`BaseModel.findAll` uses `LIMIT ?/OFFSET ?` over the prepared-statement protocol) — filed as a follow-up bug | #TBD |
+| 2026-04-23 | 5.1 | Client self-service portal: /portal/* routes for client login (email+bcrypt, lockout), JWT/refresh-token auth (portal_refresh_tokens table, type:portal claim), invoice list + detail + online payment (checkout session), ticket list + new ticket + detail + reply; migrations 160 (portal credentials on clients) + 161 (portal_refresh_tokens); portalAuthService + portalAuth middleware; 5 portal React pages (PortalDashboard, PortalInvoices, PortalInvoiceDetail, PortalTickets, PortalTicketDetail) + PortalLayout + PortalAuthContext; admin PUT /clients/:id/portal-password; 19 new Jest tests | #TBD |
