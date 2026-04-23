@@ -26,6 +26,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/radius-sessions', label: '📡 RADIUS Sessions', requiredRole: 'technician' },
   { to: '/session-accounting', label: '📈 Session Accounting', requiredRole: 'technician' },
   { to: '/snmp-metrics', label: '📶 SNMP Metrics', requiredRole: 'technician' },
+  { to: '/coverage-zones', label: '🗺️ Coverage Zones', requiredRole: 'technician' },
   { to: '/cfdi', label: '🏛️ CFDI', requiredRole: 'billing' },
   // Admin-only
   { to: '/users', label: '🔑 Users', requiredRole: 'admin' },
