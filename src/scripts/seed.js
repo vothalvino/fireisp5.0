@@ -29,8 +29,8 @@ async function seed() {
     // 1. Organization
     logger.info('Seeding organization...');
     await conn.execute(`
-      INSERT IGNORE INTO organizations (id, name, slug, locale, country, currency, status)
-      VALUES (1, 'Demo ISP', 'demo-isp', 'global', 'US', 'USD', 'active')
+      INSERT IGNORE INTO organizations (id, name, locale, country, status)
+      VALUES (1, 'Demo ISP', 'global', 'US', 'active')
     `);
 
     // 2. Admin user (password: admin123!)
@@ -50,10 +50,10 @@ async function seed() {
     // 3. Sites
     logger.info('Seeding sites...');
     await conn.execute(`
-      INSERT IGNORE INTO sites (id, organization_id, name, address, city, state, zip_code, country, status)
+      INSERT IGNORE INTO sites (id, organization_id, name, site_type, address, city, state, zip_code, country, status)
       VALUES
-        (1, 1, 'Main Office', '123 Network Ave', 'Austin', 'TX', '78701', 'US', 'active'),
-        (2, 1, 'North Tower', '456 Fiber Rd', 'Austin', 'TX', '78702', 'US', 'active')
+        (1, 1, 'Main Office', 'pop', '123 Network Ave', 'Austin', 'TX', '78701', 'US', 'active'),
+        (2, 1, 'North Tower', 'tower', '456 Fiber Rd', 'Austin', 'TX', '78702', 'US', 'active')
     `);
 
     // 4. Plans
@@ -70,53 +70,53 @@ async function seed() {
     // 5. Clients
     logger.info('Seeding clients...');
     await conn.execute(`
-      INSERT IGNORE INTO clients (id, organization_id, first_name, last_name, email, phone, client_type, status, city, state, country)
+      INSERT IGNORE INTO clients (id, organization_id, name, email, phone, client_type, status, city, state, country)
       VALUES
-        (1, 1, 'John',    'Doe',     'john@example.com',    '+15551234567', 'residential', 'active', 'Austin', 'TX', 'US'),
-        (2, 1, 'Jane',    'Smith',   'jane@example.com',    '+15559876543', 'residential', 'active', 'Austin', 'TX', 'US'),
-        (3, 1, 'Acme',    'Corp',    'billing@acme.com',    '+15555551234', 'business',    'active', 'Austin', 'TX', 'US'),
-        (4, 1, 'Bob',     'Wilson',  'bob@example.com',     '+15551112222', 'residential', 'active', 'Austin', 'TX', 'US'),
-        (5, 1, 'Alice',   'Johnson', 'alice@example.com',   '+15553334444', 'residential', 'active', 'Austin', 'TX', 'US')
+        (1, 1, 'John Doe',      'john@example.com',    '+15551234567', 'personal', 'active', 'Austin', 'TX', 'US'),
+        (2, 1, 'Jane Smith',    'jane@example.com',    '+15559876543', 'personal', 'active', 'Austin', 'TX', 'US'),
+        (3, 1, 'Acme Corp',     'billing@acme.com',    '+15555551234', 'company',  'active', 'Austin', 'TX', 'US'),
+        (4, 1, 'Bob Wilson',    'bob@example.com',     '+15551112222', 'personal', 'active', 'Austin', 'TX', 'US'),
+        (5, 1, 'Alice Johnson', 'alice@example.com',   '+15553334444', 'personal', 'active', 'Austin', 'TX', 'US')
     `);
 
     // 6. Contracts
     logger.info('Seeding contracts...');
     await conn.execute(`
-      INSERT IGNORE INTO contracts (id, organization_id, client_id, plan_id, site_id, start_date, status, connection_type)
+      INSERT IGNORE INTO contracts (id, client_id, plan_id, site_id, start_date, status, connection_type)
       VALUES
-        (1, 1, 1, 1, 1, '2025-01-01', 'active', 'fiber'),
-        (2, 1, 2, 2, 1, '2025-02-01', 'active', 'fiber'),
-        (3, 1, 3, 4, 2, '2025-01-15', 'active', 'fiber'),
-        (4, 1, 4, 3, 1, '2025-03-01', 'active', 'wireless'),
-        (5, 1, 5, 1, 2, '2025-04-01', 'active', 'fiber')
+        (1, 1, 1, 1, '2025-01-01', 'active', 'pppoe'),
+        (2, 2, 2, 1, '2025-02-01', 'active', 'pppoe'),
+        (3, 3, 4, 2, '2025-01-15', 'active', 'static'),
+        (4, 4, 3, 1, '2025-03-01', 'active', 'pppoe'),
+        (5, 5, 1, 2, '2025-04-01', 'active', 'static')
     `);
 
     // 7. Devices
     logger.info('Seeding devices...');
     await conn.execute(`
-      INSERT IGNORE INTO devices (id, organization_id, site_id, name, ip_address, type, status, snmp_enabled)
+      INSERT IGNORE INTO devices (id, site_id, category, name, ip_address, type, status, snmp_enabled)
       VALUES
-        (1, 1, 1, 'Core Router',     '10.0.0.1',   'router',  'active', 1),
-        (2, 1, 1, 'Access Switch 1', '10.0.0.2',   'switch',  'active', 1),
-        (3, 1, 2, 'North AP',        '10.0.1.1',   'ap',      'active', 1),
-        (4, 1, 2, 'North OLT',       '10.0.1.2',   'olt',     'active', 1)
+        (1, 1, 'pop', 'Core Router',     '10.0.0.1',   'router',  'online', 1),
+        (2, 1, 'pop', 'Access Switch 1', '10.0.0.2',   'switch',  'online', 1),
+        (3, 2, 'pop', 'North AP',        '10.0.1.1',   'ptmp_ap', 'online', 1),
+        (4, 2, 'pop', 'North OLT',       '10.0.1.2',   'olt',     'online', 1)
     `);
 
     // 8. NAS (RADIUS)
     logger.info('Seeding NAS...');
     await conn.execute(`
-      INSERT IGNORE INTO nas (id, organization_id, name, ip_address, secret, type, coa_port, status)
+      INSERT IGNORE INTO nas (id, name, ip_address, secret, type, status)
       VALUES
-        (1, 1, 'Main NAS', '10.0.0.1', 'testing123', 'mikrotik', 3799, 'active')
+        (1, 'Main NAS', '10.0.0.1', 'testing123', 'mikrotik', 'active')
     `);
 
     // 9. A couple of tickets
     logger.info('Seeding tickets...');
     await conn.execute(`
-      INSERT IGNORE INTO tickets (id, organization_id, client_id, subject, description, status, priority)
+      INSERT IGNORE INTO tickets (id, client_id, title, description, status, priority)
       VALUES
-        (1, 1, 1, 'Slow internet speeds', 'Customer reports download speed below 20 Mbps during peak hours', 'open', 'high'),
-        (2, 1, 3, 'New office connection', 'Need to set up a second connection at the new Acme Corp office', 'open', 'medium')
+        (1, 1, 'Slow internet speeds', 'Customer reports download speed below 20 Mbps during peak hours', 'open', 'high'),
+        (2, 3, 'New office connection', 'Need to set up a second connection at the new Acme Corp office', 'open', 'medium')
     `);
 
     logger.info('Seed data inserted successfully.');
