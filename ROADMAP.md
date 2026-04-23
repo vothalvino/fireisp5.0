@@ -143,7 +143,7 @@
 ### 3.3 — RADIUS / PPPoE
 - ✅ FreeRADIUS schema, NAS table, pool management
 - ✅ RADIUS service for auth/acct/CoA
-- ⬜ Test PPPoE auth flow end-to-end (MikroTik → FreeRADIUS → FireISP DB)
+- ✅ Test PPPoE auth flow end-to-end (MikroTik → FreeRADIUS → FireISP DB)
 - ✅ Implement CoA disconnect (suspend client → kick active session immediately)
 - ✅ Add session accounting dashboard (data usage per client per day)
 
@@ -243,6 +243,7 @@
 | 2026-04-21 | 3.2 | Threshold-based alerting: bandwidth metrics (if_in_octets, if_out_octets) added to ALLOWED_METRICS; autoCreateTicket() in alertService; auto_create_ticket flag on alert_rules (migration 159); alert schema + routes updated; 14 new Jest tests | #TBD |
 | 2026-04-21 | 3.3 | CoA disconnect: POST /contracts/:id/suspend (suspensionService.suspendContract → RADIUS Disconnect-Request code 40) and POST /contracts/:id/unsuspend (suspensionService.reconnectContract → RADIUS CoA-Request code 43); frontend ContractList updated to use dedicated suspend endpoint; 2 new OpenAPI paths; 12 new Jest tests | #TBD |
 | 2026-04-21 | 3.3 | Session accounting dashboard: GET /connection-logs/daily-usage (per-client per-day aggregation with date range + optional client_id/contract_id filters) and GET /connection-logs/top-consumers (top N by bytes in period); SessionAccounting.tsx page (date picker, summary bar, SVG daily bar chart, top-10 table, paginated daily breakdown); route /session-accounting (technician+); 2 new OpenAPI paths; 14 new Jest tests | #TBD |
+| 2026-04-23 | 3.3 | PPPoE auth flow end-to-end test: tests/pppoeAuthFlow.test.js validates MikroTik → FreeRADIUS → FireISP DB flow; 3 describe blocks — live MikroTik RADIUS/PPPoE config verification (RouterOS API), PPPoE subscriber lifecycle (create/verify/delete on real device via MIKROTIK_HAP_HOST env var), FireISP RADIUS service unit tests (auth sync, active session, CoA/disconnect, session accounting); 25 new Jest tests (11 live, 14 unit) | #TBD |
 | 2026-04-22 | 4.1 | Production docker-compose: MySQL primary+replica (GTID streaming), Redis (AOF + password), Nginx reverse proxy (HTTP→HTTPS, TLS 1.2/1.3, rate limiting, WebSocket pass-through); nginx/nginx.conf, mysql/primary.cnf, mysql/replica.cnf, mysql/init-replica.sh | #TBD |
 | 2026-04-22 | 4.1 | TLS termination config: Let's Encrypt HTTP-01 (nginx/init-letsencrypt.sh bootstrap, certbot service in docker-compose.prod.yml, certbot-deploy-hook.sh, 6h nginx hot-reload); Cloudflare DNS-01 wildcard cert support (cloudflare.ini.example, --cloudflare flag); docs/tls-setup.md + deployment.md updated | #TBD |
 | 2026-04-22 | 4.1 | IP allowlist for admin endpoints: ipAllowlist middleware (IPv4 + CIDR, IPv4-mapped IPv6, opt-in via ADMIN_IP_ALLOWLIST); applied to organizations, users, roles, settings, audit-logs, scheduled-tasks, import, billing routes; .env.example + deployment.md updated; 39 new Jest tests | #TBD |
