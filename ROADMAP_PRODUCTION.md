@@ -103,8 +103,11 @@ tenant)**, and **P3 (continuous improvement)**.
 - ✅ `frontend-test` job added to `.github/workflows/ci.yml` — runs `npm --prefix frontend ci`, `npm --prefix frontend test`, and `npm --prefix frontend run lint` on Node 22 for every push/PR
 
 ### P1.2 — End-to-end (browser) smoke test
-- Add Playwright. One scenario: log in → create client → assign plan → generate invoice → record payment → open ticket → log out
-- Run against `docker-compose.test.yml` in CI on every PR
+- ✅ Playwright added under `e2e/` (`@playwright/test` ^1.49, own `package.json` + `playwright.config.ts`)
+- ✅ Smoke test scenario in `e2e/tests/smoke.spec.ts`: log in (UI) → create client (API setup) → assign plan — New Contract modal (UI) → generate invoice (UI) → record payment (UI) → open ticket (UI) → sign out → assert redirect to /login
+- ✅ API health-check test verifies `/health/live` endpoint independently of seed data
+- ✅ `docker-compose.e2e.yml` added — runs MySQL + production container (Express + bundled React) + Playwright runner in one `docker compose up` command
+- ✅ `e2e` job added to `.github/workflows/ci.yml` — runs after `lint-and-test` and `frontend-test`; starts MySQL service, runs migrations + seed, builds frontend, starts backend server, installs Playwright chromium, runs smoke tests, uploads HTML report as artifact on failure
 
 ### P1.3 — Documented disaster-recovery drill
 - Take a backup, destroy the DB, restore from the backup, verify referential integrity and row counts. Document the steps and the timing in `docs/dr-drill.md`
@@ -208,3 +211,4 @@ tenant)**, and **P3 (continuous improvement)**.
 | 2026-04-23 | — | Roadmap v2 created from production-readiness deep dive (CI run #206 red, frontend-test gap, LIMIT/OFFSET regression, operational maturity gaps) |
 | 2026-04-23 | P0.1–P0.5 | P0 items resolved: migration 163 FK types, migration 028 DELIMITER parser, BaseModel LIMIT/OFFSET inlining, schema.sql/README sync, CI table-count hard failure, FK type CI assertion |
 | 2026-04-23 | P1.1 | Frontend automated tests: Vitest + RTL, 43 tests / 11 suites, ContractList `statusMutation` bug fixed, `frontend-test` CI job wired |
+| 2026-04-23 | P1.2 | E2E smoke test: Playwright `e2e/` package, smoke scenario (login → create client → new contract → generate invoice → record payment → new ticket → sign out), `docker-compose.e2e.yml`, `e2e` CI job |

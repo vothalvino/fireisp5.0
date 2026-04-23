@@ -1,0 +1,85 @@
+# =============================================================================
+# FireISP 5.0 — Full-stack E2E test environment
+# =============================================================================
+# Spins up MySQL and the full production container (Express + bundled React),
+# then runs the Playwright smoke test suite against the live stack.
+#
+# Usage:
+#   docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit
+#   docker compose -f docker-compose.e2e.yml down -v
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # MySQL 8 — ephemeral, RAM-disk backed for speed
+  # ---------------------------------------------------------------------------
+  e2e-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: e2epassword
+      MYSQL_DATABASE: fireisp_e2e
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --event-scheduler=ON
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    tmpfs:
+      - /var/lib/mysql
+
+  # ---------------------------------------------------------------------------
+  # App — Express API + bundled React SPA (production build)
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+    depends_on:
+      e2e-db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: test
+      PORT: 3000
+      DB_HOST: e2e-db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: e2epassword
+      DB_NAME: fireisp_e2e
+      JWT_SECRET: e2e-test-jwt-secret-not-for-production
+      REDIS_URL: ''
+      LOG_LEVEL: warn
+    # Run migrations and seed before starting the server so Playwright
+    # can immediately find the admin user and reference data.
+    command: >
+      sh -c "node src/scripts/migrate.js && node src/scripts/seed.js && node src/server.js"
+    ports:
+      - '3000:3000'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/health/live | grep -q ok']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # ---------------------------------------------------------------------------
+  # Playwright — runs the smoke test suite against the live app
+  # ---------------------------------------------------------------------------
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.49.0-jammy
+    depends_on:
+      app:
+        condition: service_healthy
+    working_dir: /e2e
+    volumes:
+      - ./e2e:/e2e
+    environment:
+      BASE_URL: http://app:3000
+      CI: 'true'
+    command: >
+      sh -c "npm ci && npx playwright install --with-deps chromium && npx playwright test"
+
+volumes: {}
