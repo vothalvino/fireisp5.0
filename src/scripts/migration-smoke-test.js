@@ -91,8 +91,8 @@ function extractSchemaColumns(sqlContent) {
     // Skip blank lines and SQL comments.
     if (!trimmed || trimmed.startsWith('--')) continue;
 
-    // Skip KEY / CONSTRAINT lines (indexes, FKs, primary key).
-    if (/^(PRIMARY\s+KEY|UNIQUE\s+KEY|KEY\s|CONSTRAINT\s|FULLTEXT\s)/i.test(trimmed)) continue;
+    // Skip index / FK / constraint lines.
+    if (/^(PRIMARY\s+KEY|UNIQUE\s+KEY|UNIQUE\s+INDEX|KEY\s|INDEX\s|SPATIAL\s+KEY|FULLTEXT\s|CONSTRAINT\s|FOREIGN\s+KEY)/i.test(trimmed)) continue;
 
     // Skip lines that are continuations of a previous column definition:
     // closing paren, quoted strings (ENUM values), or continuation keywords.
