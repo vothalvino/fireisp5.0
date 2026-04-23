@@ -887,8 +887,6 @@ export function CoverageZoneMap() {
 // Styles
 // ---------------------------------------------------------------------------
 
-const API = '/api/v1';
-
 const filterSelect: React.CSSProperties = {
   display: 'block', width: '100%', marginTop: 4,
   padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db',
