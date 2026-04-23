@@ -10,6 +10,7 @@ const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createClient, updateClient, patchClient, createContact, updateMxProfile } = require('../middleware/schemas/clients');
+const { ValidationError, NotFoundError } = require('../utils/errors');
 const db = require('../config/database');
 
 const router = Router();
@@ -116,6 +117,26 @@ router.get('/:id/balance-ledger', requirePermission('clients.view'), async (req,
       [req.params.id, req.orgId],
     );
     res.json({ data: rows });
+  } catch (err) { next(err); }
+});
+
+// Set / reset portal password for a client (admin action)
+router.put('/:id/portal-password', requirePermission('clients.update'), async (req, res, next) => {
+  try {
+    const { password } = req.body;
+    if (!password || typeof password !== 'string' || password.length < 8) {
+      throw new ValidationError('password must be at least 8 characters');
+    }
+    const portalAuthService = require('../services/portalAuthService');
+    // Verify this client belongs to this org
+    const [rows] = await db.query(
+      'SELECT id FROM clients WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [req.params.id, req.orgId],
+    );
+    if (!rows[0]) throw new NotFoundError('Client');
+
+    await portalAuthService.setPassword(req.params.id, password);
+    res.json({ message: 'Portal password updated' });
   } catch (err) { next(err); }
 });
 
