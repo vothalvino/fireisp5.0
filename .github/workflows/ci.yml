@@ -338,6 +338,9 @@ jobs:
       - name: Build frontend (creates frontend/dist/)
         run: npm --prefix frontend run build
 
+      - name: Generate ephemeral encryption key for CI
+        run: echo "ENCRYPTION_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
       # ---- Start backend server (serves API + frontend/dist/) ------------
       - name: Start backend server
         env:
@@ -349,7 +352,6 @@ jobs:
           DB_PASSWORD: fireisp_e2e
           DB_NAME: fireisp_e2e
           JWT_SECRET: ci-e2e-jwt-secret-not-for-production-use-only-min-64-chars-abcdef
-          ENCRYPTION_KEY: 9f3b2d7a1e4c8b6f0a5d9c3e7b1f4a2d8c6e0b3f5a7d1c9e4b2f6a8d0c3e7b5f
           LOG_LEVEL: warn
           REDIS_URL: ''
         run: node src/server.js &
