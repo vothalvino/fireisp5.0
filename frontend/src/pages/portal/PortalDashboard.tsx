@@ -124,7 +124,7 @@ export function PortalDashboard() {
             </table>
           )}
           <div style={{ marginTop: '1rem' }}>
-            <Link to="/portal/tickets/new" style={styles.newTicketBtn}>+ Open a ticket</Link>
+            <Link to="/portal/tickets" style={styles.newTicketBtn}>+ Open a ticket</Link>
           </div>
         </section>
       </div>

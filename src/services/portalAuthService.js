@@ -10,6 +10,7 @@
 // used against portal endpoints.
 // =============================================================================
 
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const config = require('../config');
@@ -27,7 +28,6 @@ const REFRESH_SECONDS = 604800; // 7 days
 // ---------------------------------------------------------------------------
 
 function generateRefreshToken() {
-  const crypto = require('crypto');
   return crypto.randomBytes(32).toString('hex');
 }
 
@@ -102,7 +102,6 @@ async function login({ email, password }) {
   );
 
   const refreshToken = generateRefreshToken();
-  const crypto = require('crypto');
   const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
   const expiresAt = new Date(Date.now() + REFRESH_SECONDS * 1000);
 
@@ -132,7 +131,6 @@ async function login({ email, password }) {
 async function refreshToken(token) {
   if (!token) throw new UnauthorizedError('Refresh token required');
 
-  const crypto = require('crypto');
   const hash = crypto.createHash('sha256').update(token).digest('hex');
 
   const [rows] = await db.query(
@@ -189,7 +187,6 @@ async function refreshToken(token) {
 
 async function logout(token) {
   if (!token) return;
-  const crypto = require('crypto');
   const hash = crypto.createHash('sha256').update(token).digest('hex');
   await db.query(
     'UPDATE portal_refresh_tokens SET revoked_at = NOW() WHERE token_hash = ?',

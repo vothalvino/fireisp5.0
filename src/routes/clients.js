@@ -10,6 +10,7 @@ const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createClient, updateClient, patchClient, createContact, updateMxProfile } = require('../middleware/schemas/clients');
+const { ValidationError, NotFoundError } = require('../utils/errors');
 const db = require('../config/database');
 
 const router = Router();
@@ -124,7 +125,7 @@ router.put('/:id/portal-password', requirePermission('clients.update'), async (r
   try {
     const { password } = req.body;
     if (!password || typeof password !== 'string' || password.length < 8) {
-      return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'password must be at least 8 characters' } });
+      throw new ValidationError('password must be at least 8 characters');
     }
     const portalAuthService = require('../services/portalAuthService');
     // Verify this client belongs to this org
@@ -132,7 +133,7 @@ router.put('/:id/portal-password', requirePermission('clients.update'), async (r
       'SELECT id FROM clients WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
       [req.params.id, req.orgId],
     );
-    if (!rows[0]) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Client not found' } });
+    if (!rows[0]) throw new NotFoundError('Client');
 
     await portalAuthService.setPassword(req.params.id, password);
     res.json({ message: 'Portal password updated' });

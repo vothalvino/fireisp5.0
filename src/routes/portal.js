@@ -27,7 +27,7 @@ const { authLimiter, apiLimiter } = require('../middleware/rateLimit');
 const portalAuthService = require('../services/portalAuthService');
 const checkoutService = require('../services/checkoutService');
 const db = require('../config/database');
-const { NotFoundError, ForbiddenError, ValidationError } = require('../utils/errors');
+const { NotFoundError, ValidationError } = require('../utils/errors');
 
 const router = Router();
 
@@ -210,19 +210,14 @@ router.get('/invoices/:id', async (req, res, next) => {
 router.post('/invoices/:id/pay', async (req, res, next) => {
   try {
     const [rows] = await db.query(
-      'SELECT id, client_id, organization_id FROM invoices WHERE id = ? AND client_id = ? AND deleted_at IS NULL',
+      'SELECT id, organization_id FROM invoices WHERE id = ? AND client_id = ? AND deleted_at IS NULL',
       [req.params.id, req.client.id],
     );
     if (!rows[0]) throw new NotFoundError('Invoice');
 
-    const invoice = rows[0];
-
-    // Ensure the client belongs to this org (defence in depth)
-    if (invoice.client_id !== req.client.id) throw new ForbiddenError();
-
     const session = await checkoutService.createCheckoutSession({
-      organizationId: invoice.organization_id,
-      invoiceId: invoice.id,
+      organizationId: rows[0].organization_id,
+      invoiceId: rows[0].id,
       clientId: req.client.id,
       returnUrl: req.body.return_url || null,
     });
