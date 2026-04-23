@@ -41,13 +41,10 @@ jobs:
       - name: Check coverage threshold
         if: matrix.node-version == 22
         run: |
-          COVERAGE=$(npx jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=json-summary 2>/dev/null && node -e "
-            const s = require('./coverage/coverage-summary.json');
-            const pct = s.total.lines.pct;
-            console.log(pct);
-          ")
+          npx jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=json-summary >/dev/null
+          COVERAGE=$(node -e "const s=require('./coverage/coverage-summary.json'); console.log(s.total.lines.pct);")
           echo "Line coverage: ${COVERAGE}%"
-          node -e "if (parseFloat('${COVERAGE}') < 70) { console.error('Coverage below 70% threshold'); process.exit(1); }"
+          node -e "const pct=parseFloat(process.argv[1]); if (pct < 70) { console.error('Coverage below 70% threshold'); process.exit(1); }" "$COVERAGE"
 
       - name: Upload coverage report
         if: matrix.node-version == 22

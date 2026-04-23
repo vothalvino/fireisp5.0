@@ -127,11 +127,11 @@ CREATE TABLE IF NOT EXISTS cfdi_documents (
     CONSTRAINT fk_cfdi_documents_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_cfdi_documents_invoice FOREIGN KEY (invoice_id)
-        REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+        REFERENCES invoices (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_cfdi_documents_credit_note FOREIGN KEY (credit_note_id)
-        REFERENCES credit_notes (id) ON DELETE SET NULL ON UPDATE CASCADE,
+        REFERENCES credit_notes (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_cfdi_documents_payment FOREIGN KEY (payment_id)
-        REFERENCES payments (id) ON DELETE SET NULL ON UPDATE CASCADE,
+        REFERENCES payments (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
 
     -- At most one source document may be linked per CFDI
     CONSTRAINT chk_cfdi_documents_single_source CHECK (

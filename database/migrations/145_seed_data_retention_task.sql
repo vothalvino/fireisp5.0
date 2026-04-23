@@ -5,5 +5,5 @@
 -- =============================================================================
 
 INSERT INTO scheduled_tasks (task_name, cron_expression, description, is_enabled, priority)
-VALUES ('data_retention', '0 3 * * *', 'Purge old audit logs, alert events, webhook deliveries, and expired idempotency keys', TRUE, 5)
+VALUES ('data_retention', '0 3 * * *', 'Purge old audit logs, alert events, webhook deliveries, and expired idempotency keys', TRUE, 'high')
 ON DUPLICATE KEY UPDATE description = VALUES(description);

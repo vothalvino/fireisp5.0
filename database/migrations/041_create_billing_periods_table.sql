@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS billing_periods (
     CONSTRAINT fk_billing_periods_contract FOREIGN KEY (contract_id)
         REFERENCES contracts (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_billing_periods_invoice FOREIGN KEY (invoice_id)
-        REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+        REFERENCES invoices (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT chk_billing_periods_invoiced CHECK (
         status != 'invoiced' OR invoice_id IS NOT NULL
     )

@@ -26,8 +26,8 @@ CREATE TABLE IF NOT EXISTS network_links (
     KEY idx_network_links_link_type (link_type),
     KEY idx_network_links_status (status),
     CONSTRAINT fk_network_links_device_a FOREIGN KEY (device_a_id)
-        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE,
+        REFERENCES devices (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_network_links_device_b FOREIGN KEY (device_b_id)
-        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE,
+        REFERENCES devices (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT chk_network_links_different_devices CHECK (device_a_id != device_b_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

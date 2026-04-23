@@ -3,7 +3,7 @@
 // =============================================================================
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { PrivateRoute, hasRole } from '../PrivateRoute';
 import * as AuthContextModule from '../AuthContext';
 import type { AuthUser } from '../AuthContext';

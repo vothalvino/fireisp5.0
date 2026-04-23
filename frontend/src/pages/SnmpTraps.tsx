@@ -69,7 +69,7 @@ function trapColor(trapType: string): string {
 // ---------------------------------------------------------------------------
 
 function apiHeaders() {
-  const token = tokenStore.get();
+  const token = tokenStore.getAccess();
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
