@@ -41,6 +41,7 @@ import { CoverageZoneMap } from '@/pages/CoverageZoneMap';
 import { RadiusSessions } from '@/pages/RadiusSessions';
 import { SessionAccounting } from '@/pages/SessionAccounting';
 import { SnmpMetrics } from '@/pages/SnmpMetrics';
+import { SnmpTraps } from '@/pages/SnmpTraps';
 import { Reports } from '@/pages/Reports';
 import { Settings } from '@/pages/Settings';
 import { NotFound } from '@/pages/NotFound';
@@ -100,6 +101,7 @@ export function App() {
                 <Route path="radius-sessions" element={<RadiusSessions />} />
                 <Route path="session-accounting" element={<SessionAccounting />} />
                 <Route path="snmp-metrics" element={<SnmpMetrics />} />
+                <Route path="snmp-traps" element={<SnmpTraps />} />
                 <Route path="coverage-zones" element={<CoverageZoneMap />} />
               </Route>
             </Route>

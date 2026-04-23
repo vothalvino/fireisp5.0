@@ -329,6 +329,29 @@ function registerHooks() {
     }
   });
 
+  // --- Device Trap (unsolicited SNMP trap) ---
+  eventBus.on('device.trap', async ({ organizationId, device, trapId, trapType, trapOid }) => {
+    try {
+      getBroadcast()(`org:${organizationId}:notifications`, 'device.trap', {
+        trap_id:    trapId,
+        device_id:  device.id,
+        device_name: device.name,
+        trap_type:  trapType,
+        trap_oid:   trapOid,
+      });
+
+      await webhookService.dispatch(organizationId, 'device.trap', {
+        trap_id:   trapId,
+        device_id: device.id,
+        name:      device.name,
+        trap_type: trapType,
+        trap_oid:  trapOid,
+      });
+    } catch (err) {
+      logger.error({ err, event: 'device.trap' }, 'Notification hook error');
+    }
+  });
+
   logger.info('Notification hooks registered');
 }
 

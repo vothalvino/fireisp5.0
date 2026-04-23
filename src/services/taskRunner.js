@@ -10,6 +10,7 @@ const billingService = require('./billingService');
 const suspensionService = require('./suspensionService');
 const radiusService = require('./radiusService');
 const snmpPoller = require('./snmpPoller');
+const snmpTrapReceiver = require('./snmpTrapReceiver');
 const emailTransport = require('./emailTransport');
 const smsTransport = require('./smsTransport');
 const webhookService = require('./webhookService');
@@ -51,6 +52,10 @@ async function runTask(taskName, organizationId = null) {
       return runBillingCycle(organizationId);
     case 'snmp_poll':
       return snmpPoller.poll();
+    case 'snmp_trap_receiver_restart':
+      snmpTrapReceiver.stop();
+      snmpTrapReceiver.start();
+      return { message: 'SNMP trap receiver restarted' };
     case 'email_send':
       return emailTransport.processQueue();
     case 'sms_send':

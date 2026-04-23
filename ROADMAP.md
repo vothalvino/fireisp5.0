@@ -179,7 +179,7 @@
 - ✅ Performance: add Redis caching to top 10 most-queried endpoints
 - ✅ Performance: add database read replica routing for reports
 - ✅ Coverage zone map editor (draw polygons on map) _(moved from 2.3 — high effort, low MVP impact)_
-- ⬜ Add SNMP trap receiver (for unsolicited device alerts) _(moved from 3.2 — polling covers 90% of needs)_
+- ✅ Add SNMP trap receiver (for unsolicited device alerts) _(moved from 3.2 — polling covers 90% of needs)_
 - ⬜ Multi-tenant support (multiple ISP organizations in one instance) _(prove single-tenant first)_
 
 ---
