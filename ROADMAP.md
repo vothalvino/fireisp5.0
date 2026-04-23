@@ -173,7 +173,7 @@
 
 - ✅ Client self-service portal (view invoices, pay online, open tickets)
 - ✅ Mobile-responsive frontend
-- ⬜ SMS notification integration (Twilio/local MX provider)
+- ✅ SMS notification integration (Twilio/local MX provider)
 - ⬜ API rate limiting per tenant
 - ⬜ Webhook delivery retry with exponential backoff
 - ⬜ Performance: add Redis caching to top 10 most-queried endpoints
@@ -250,3 +250,4 @@
 | 2026-04-22 | 4.1 | Load test for realistic ISP workload: autocannon-based runner (`src/scripts/loadtest.js`) and idempotent fixture seeder (`src/scripts/loadtest-seed.js`) — 500 clients / 5,000 invoices / 100 devices; new `loadtest:seed` and `loadtest` npm scripts; `docs/load-testing.md` with sample run (~3,900 req/s on `/health`, ~1,100 req/s on indexed single-record GETs, p99 < 35 ms); first run surfaced a `mysqld_stmt_execute` regression on every paginated list endpoint (`BaseModel.findAll` uses `LIMIT ?/OFFSET ?` over the prepared-statement protocol) — filed as a follow-up bug | #TBD |
 | 2026-04-23 | 5.1 | Client self-service portal: /portal/* routes for client login (email+bcrypt, lockout), JWT/refresh-token auth (portal_refresh_tokens table, type:portal claim), invoice list + detail + online payment (checkout session), ticket list + new ticket + detail + reply; migrations 160 (portal credentials on clients) + 161 (portal_refresh_tokens); portalAuthService + portalAuth middleware; 5 portal React pages (PortalDashboard, PortalInvoices, PortalInvoiceDetail, PortalTickets, PortalTicketDetail) + PortalLayout + PortalAuthContext; admin PUT /clients/:id/portal-password; 19 new Jest tests | #TBD |
 | 2026-04-23 | 5.2 | Mobile-responsive frontend: src/index.css (CSS reset, `.app-shell`/`.app-sidebar`/`.app-main` layout classes, `.hamburger-btn`, `.mobile-topbar`, `.nav-overlay` + `@media (max-width: 768px)` breakpoint); Layout.tsx — off-canvas sidebar drawer with hamburger toggle button, overlay backdrop, close-on-nav-click; PortalLayout.tsx — stacks nav below logo on narrow screens via `.portal-header`/`.portal-nav`/`.portal-user-area` CSS classes; no new backend changes, no new tests | #TBD |
+| 2026-04-23 | 5.3 | SMS notification integration: smsTransport.js (sendSms/queueSms/processQueue/retryLog, Twilio + generic HTTP provider abstraction); SMS hooks in notificationHooks.js for invoice.created, payment.received, contract.suspended, suspension.warning; sms_send scheduled task (migration 162); GET /sms/logs + POST /sms/send + POST /sms/logs/:id/retry routes; SmsLog.js fillable columns fixed; notificationService.js column names fixed; SMS_PROVIDER/SMS_PROVIDER_URL/SMS_PROVIDER_API_KEY/SMS_PROVIDER_FROM added to .env.example; 17 new Jest tests | #TBD |

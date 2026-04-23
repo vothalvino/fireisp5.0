@@ -11,6 +11,7 @@ const suspensionService = require('./suspensionService');
 const radiusService = require('./radiusService');
 const snmpPoller = require('./snmpPoller');
 const emailTransport = require('./emailTransport');
+const smsTransport = require('./smsTransport');
 const webhookService = require('./webhookService');
 const checkoutService = require('./checkoutService');
 const alertService = require('./alertService');
@@ -52,6 +53,8 @@ async function runTask(taskName, organizationId = null) {
       return snmpPoller.poll();
     case 'email_send':
       return emailTransport.processQueue();
+    case 'sms_send':
+      return smsTransport.processQueue();
     case 'webhook_delivery':
       return webhookService.retryPending();
     case 'radius_sync':

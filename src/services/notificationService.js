@@ -63,7 +63,7 @@ async function sendNotification({ organizationId, clientId, channel, templateId,
     }
 
     await db.query(
-      `INSERT INTO sms_logs (organization_id, client_id, template_id, recipient, channel, body, direction, status, provider_message_id, error_message)
+      `INSERT INTO sms_logs (organization_id, client_id, template_id, phone_number, channel, message_body, direction, status, provider_message_id, error_message)
        VALUES (?, ?, ?, ?, ?, ?, 'outbound', ?, ?, ?)`,
       [organizationId, clientId, templateId, recipientPhone, channel, body, status, providerMessageId, errorMessage],
     );
