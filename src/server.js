@@ -8,6 +8,7 @@ const app = require('./app');
 const db = require('./config/database');
 const scheduler = require('./services/scheduler');
 const { tunnelServer } = require('./services/firerelayTunnel');
+const snmpTrapReceiver = require('./services/snmpTrapReceiver');
 const logger = require('./utils/logger');
 
 async function start() {
@@ -69,6 +70,13 @@ async function start() {
     logger.warn({ err }, 'FireRelay tunnel failed to attach');
   }
 
+  // Start the SNMP trap receiver (UDP listener for unsolicited device alerts)
+  try {
+    snmpTrapReceiver.start();
+  } catch (err) {
+    logger.warn({ err }, 'SNMP trap receiver failed to start');
+  }
+
   // ---------------------------------------------------------------------------
   // Graceful shutdown — drain HTTP connections before exiting
   // ---------------------------------------------------------------------------
@@ -81,6 +89,7 @@ async function start() {
     server.close(async () => {
       logger.info('HTTP server closed');
       await tunnelServer.close();
+      snmpTrapReceiver.stop();
       scheduler.stop();
       await db.close();
       logger.info('All resources released — exiting');

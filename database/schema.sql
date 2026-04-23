@@ -1100,6 +1100,39 @@ CREATE TABLE IF NOT EXISTS snmp_profile_oids (
         REFERENCES snmp_profiles (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Table: snmp_traps
+-- ---------------------------------------------------------------------------
+-- Stores unsolicited SNMP trap messages pushed by network devices.
+-- Populated by the snmpTrapReceiver service (UDP listener on SNMP_TRAP_PORT).
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS snmp_traps (
+    id               BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id  INT UNSIGNED,
+    device_id        INT UNSIGNED,
+    source_ip        VARCHAR(45)      NOT NULL,
+    trap_type        VARCHAR(64)      NOT NULL DEFAULT 'unknown',
+    trap_oid         VARCHAR(255),
+    varbinds         JSON,
+    community        VARCHAR(128),
+    snmp_version     TINYINT UNSIGNED NOT NULL DEFAULT 2,
+    is_acknowledged  TINYINT(1)       NOT NULL DEFAULT 0,
+    acknowledged_by  INT UNSIGNED,
+    acknowledged_at  DATETIME,
+    received_at      DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+
+    CONSTRAINT fk_snmp_traps_org    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL,
+    CONSTRAINT fk_snmp_traps_device FOREIGN KEY (device_id)       REFERENCES devices(id)       ON DELETE SET NULL,
+    CONSTRAINT fk_snmp_traps_ack_by FOREIGN KEY (acknowledged_by) REFERENCES users(id)         ON DELETE SET NULL,
+
+    INDEX idx_snmp_traps_org_received    (organization_id, received_at),
+    INDEX idx_snmp_traps_device_received (device_id, received_at),
+    INDEX idx_snmp_traps_type            (trap_type),
+    INDEX idx_snmp_traps_received        (received_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ---------------------------------------------------------------------------
 -- Seed: snmp_profiles — pre-built profiles for common ISP device vendors
 -- ---------------------------------------------------------------------------
