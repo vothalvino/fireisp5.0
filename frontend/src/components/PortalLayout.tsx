@@ -18,9 +18,9 @@ export function PortalLayout() {
   return (
     <div style={styles.shell}>
       {/* Top bar */}
-      <header style={styles.header}>
+      <header className="portal-header">
         <Link to="/portal" style={styles.logo}>🔥 FireISP — My Account</Link>
-        <nav style={styles.nav}>
+        <nav className="portal-nav">
           <NavLink
             to="/portal"
             end
@@ -41,7 +41,7 @@ export function PortalLayout() {
             🎫 Support
           </NavLink>
         </nav>
-        <div style={styles.userArea}>
+        <div className="portal-user-area">
           {client && <span style={styles.userName}>{client.name}</span>}
           <button onClick={handleLogout} style={styles.logoutBtn}>Sign out</button>
         </div>
@@ -67,25 +67,12 @@ const styles = {
     fontFamily: 'system-ui, sans-serif',
     background: '#f5f7fa',
   },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1.5rem',
-    padding: '0.75rem 1.5rem',
-    background: '#fff',
-    borderBottom: '1px solid #e5e7eb',
-    flexWrap: 'wrap' as const,
-  },
   logo: {
     fontWeight: 700,
     fontSize: '1.1rem',
     color: '#e25822',
     textDecoration: 'none',
     marginRight: 'auto',
-  },
-  nav: {
-    display: 'flex',
-    gap: '0.25rem',
   },
   navLink: {
     padding: '0.4rem 0.8rem',
@@ -98,11 +85,6 @@ const styles = {
     background: '#fff0eb',
     color: '#e25822',
     fontWeight: 600,
-  },
-  userArea: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.75rem',
   },
   userName: {
     fontSize: '0.85rem',
