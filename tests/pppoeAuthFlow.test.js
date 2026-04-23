@@ -514,7 +514,7 @@ describe('PPPoE Auth Flow — FireISP RADIUS service (unit)', () => {
         username: 'fiber_client_050',
         session_id: 'FI-FIBER-20260421-050',
         ip_address: '10.20.30.50',
-        nas_ip_address: '74.208.108.182',
+        nas_ip_address: '192.0.2.1',
         event_type: 'start',
         event_at: new Date().toISOString(),
       }]]);
@@ -522,8 +522,8 @@ describe('PPPoE Auth Flow — FireISP RADIUS service (unit)', () => {
       const activeSession = await radiusService.getActiveSession(50);
       expect(activeSession).not.toBeNull();
       expect(activeSession.username).toBe('fiber_client_050');
-      // nas_ip_address matches the MikroTik under test
-      expect(activeSession.nas_ip_address).toBe('74.208.108.182');
+      // nas_ip_address should be the configured NAS address
+      expect(activeSession.nas_ip_address).toBe('192.0.2.1');
 
       // Step 3: usage data accumulated (FreeRADIUS interim-update accounting)
       db.query.mockResolvedValueOnce([[{
