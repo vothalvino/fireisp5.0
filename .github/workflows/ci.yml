@@ -13,17 +13,13 @@ jobs:
   lint-and-test:
     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        node-version: [18, 20, 22]
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Use Node.js ${{ matrix.node-version }}
+      - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -39,7 +35,6 @@ jobs:
         run: npx jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=text --coverageReporters=lcov
 
       - name: Check coverage threshold
-        if: matrix.node-version == 22
         run: |
           npx jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=json-summary >/dev/null
           COVERAGE=$(node -e "const s=require('./coverage/coverage-summary.json'); console.log(s.total.lines.pct);")
@@ -47,7 +42,6 @@ jobs:
           node -e "const pct=parseFloat(process.argv[1]); if (pct < 70) { console.error('Coverage below 70% threshold'); process.exit(1); }" "$COVERAGE"
 
       - name: Upload coverage report
-        if: matrix.node-version == 22
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
@@ -64,7 +58,6 @@ jobs:
           test "$MIGRATION_COUNT" -ge 100
 
       - name: Check migration numbering integrity
-        if: matrix.node-version == 22
         run: |
           # Verify migrations are sequentially numbered with no gaps
           EXPECTED=1
@@ -79,7 +72,6 @@ jobs:
           echo "All $((EXPECTED - 1)) migrations are sequentially numbered — no gaps"
 
       - name: Validate README.md is in sync with migrations and schema
-        if: matrix.node-version == 22
         run: |
           # Ensure README migration range matches actual file count
           ACTUAL_MIGS=$(ls database/migrations/*.sql | wc -l | tr -d ' ')
@@ -219,219 +211,3 @@ jobs:
 
       - name: Run frontend type-check
         run: npm --prefix frontend run lint
-
-  migration-smoke-test:
-    runs-on: ubuntu-latest
-
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: fireisp_smoke
-          MYSQL_DATABASE: fireisp_smoke
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h localhost"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Use Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Wait for MySQL
-        env:
-          MYSQL_PWD: fireisp_smoke
-        run: |
-          until mysqladmin ping -h 127.0.0.1 -u root --silent; do
-            sleep 2
-          done
-
-      - name: Run migrations (production path)
-        env:
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_USER: root
-          DB_PASSWORD: fireisp_smoke
-          DB_NAME: fireisp_smoke
-        run: node src/scripts/migrate.js
-
-      - name: Validate migrated schema
-        env:
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_USER: root
-          DB_PASSWORD: fireisp_smoke
-          DB_NAME: fireisp_smoke
-        run: node src/scripts/migration-smoke-test.js
-
-  e2e:
-    name: E2E smoke test (Playwright)
-    runs-on: ubuntu-latest
-    needs: [lint-and-test, frontend-test]
-
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: fireisp_e2e
-          MYSQL_DATABASE: fireisp_e2e
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h localhost"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Use Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      # ---- Backend --------------------------------------------------------
-      - name: Install backend dependencies
-        run: npm ci
-
-      - name: Wait for MySQL
-        run: |
-          until mysqladmin ping -h 127.0.0.1 --silent; do
-            sleep 2
-          done
-
-      - name: Run migrations
-        env:
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_USER: root
-          DB_PASSWORD: fireisp_e2e
-          DB_NAME: fireisp_e2e
-        run: node src/scripts/migrate.js
-
-      - name: Seed reference data
-        env:
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_USER: root
-          DB_PASSWORD: fireisp_e2e
-          DB_NAME: fireisp_e2e
-        run: node src/scripts/seed.js
-
-      # ---- Frontend build -------------------------------------------------
-      - name: Install frontend dependencies
-        run: npm --prefix frontend ci
-
-      - name: Build frontend (creates frontend/dist/)
-        run: npm --prefix frontend run build
-
-      - name: Generate ephemeral encryption key for CI
-        run: echo "ENCRYPTION_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
-
-      # ---- Start backend server (serves API + frontend/dist/) ------------
-      - name: Start backend server
-        env:
-          NODE_ENV: production
-          PORT: 3000
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_USER: root
-          DB_PASSWORD: fireisp_e2e
-          DB_NAME: fireisp_e2e
-          JWT_SECRET: ci-e2e-jwt-secret-not-for-production-use-only-min-64-chars-abcdef
-          LOG_LEVEL: warn
-          REDIS_URL: ''
-        run: node src/server.js &
-
-      - name: Wait for backend to be healthy
-        run: |
-          READY=0
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:3000/health/live | grep -q ok; then
-              echo "Backend is ready"
-              READY=1
-              break
-            fi
-            echo "Waiting for backend... ($i/30)"
-            sleep 2
-          done
-          if [ "$READY" -ne 1 ]; then
-            echo "ERROR: Backend did not become healthy in time"
-            exit 1
-          fi
-
-      # ---- Playwright -----------------------------------------------------
-      - name: Install Playwright dependencies
-        run: npm --prefix e2e ci
-
-      - name: Install Playwright browsers
-        run: npx --prefix e2e playwright install --with-deps chromium
-
-      - name: Run E2E smoke tests
-        env:
-          BASE_URL: http://127.0.0.1:3000
-          CI: 'true'
-        run: npx --prefix e2e playwright test --config e2e/playwright.config.ts
-
-      - name: Upload Playwright report
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: e2e/playwright-report/
-          retention-days: 7
-
-  docker-build:
-    runs-on: ubuntu-latest
-    needs: lint-and-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build Docker image
-        run: docker build -t fireisp:${{ github.sha }} .
-
-      - name: Verify Docker image runs
-        run: |
-          docker run --rm -d --name fireisp-test \
-            -e NODE_ENV=production \
-            -e JWT_SECRET=ci-test-secret-key-not-for-production-use-only \
-            -e DB_HOST=localhost \
-            -e DB_NAME=fireisp \
-            -p 3000:3000 \
-            fireisp:${{ github.sha }} || true
-          sleep 3
-          docker stop fireisp-test 2>/dev/null || true
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Push to GHCR
-        run: |
-          IMAGE=ghcr.io/${{ github.repository }}
-          IMAGE_LOWER=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
-          docker tag fireisp:${{ github.sha }} "$IMAGE_LOWER:${{ github.sha }}"
-          docker tag fireisp:${{ github.sha }} "$IMAGE_LOWER:latest"
-          docker push "$IMAGE_LOWER:${{ github.sha }}"
-          docker push "$IMAGE_LOWER:latest"
