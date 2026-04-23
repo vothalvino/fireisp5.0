@@ -26,7 +26,7 @@
 const cacheService = require('../services/cacheService');
 const logger = require('../utils/logger');
 
-const VERSION_TTL = 86400; // keep version keys alive for 24 h
+const VERSION_TTL = 604800; // keep version keys alive for 7 days (much longer than any cache entry TTL)
 
 // ---------------------------------------------------------------------------
 // Version helpers
