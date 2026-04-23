@@ -1,4 +1,4 @@
-const { extractTableNames } = require('../src/scripts/migration-smoke-test');
+const { extractTableNames, extractSchemaColumns } = require('../src/scripts/migration-smoke-test');
 
 describe('migration-smoke-test — extractTableNames', () => {
   it('extracts simple CREATE TABLE names', () => {
@@ -40,5 +40,27 @@ describe('migration-smoke-test — extractTableNames', () => {
       CREATE TABLE IF NOT EXISTS users ( id INT );
     `;
     expect(extractTableNames(sql)).toEqual(new Set(['users']));
+  });
+});
+
+describe('migration-smoke-test — extractSchemaColumns', () => {
+  it('extracts only true columns and skips key/index/constraint lines', () => {
+    const sql = `
+      CREATE TABLE test_table (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        name VARCHAR(255) NOT NULL,
+        location POLYGON NOT NULL /*!80003 SRID 4326 */,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_name (name),
+        KEY idx_name (name),
+        INDEX idx_location (location),
+        SPATIAL KEY spx_location (location),
+        CONSTRAINT fk_test_org FOREIGN KEY (id) REFERENCES organizations (id),
+        FOREIGN KEY (name) REFERENCES names (value)
+      ) ENGINE=InnoDB;
+    `;
+
+    const cols = extractSchemaColumns(sql);
+    expect(cols.get('test_table')).toEqual(new Set(['id', 'name', 'location']));
   });
 });

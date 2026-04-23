@@ -152,6 +152,7 @@ CREATE TABLE IF NOT EXISTS plans (
     upload_speed    INT UNSIGNED    NOT NULL COMMENT 'Speed in Mbps',
     data_cap_gb     DECIMAL(10, 2)  NULL COMMENT 'Monthly data cap in GB, NULL = unlimited',
     price           DECIMAL(10, 2)  NOT NULL,
+    currency        CHAR(3)         NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code',
     billing_cycle   ENUM('monthly', 'quarterly', 'semi_annual', 'annual') NOT NULL DEFAULT 'monthly',
     burst_download  INT UNSIGNED    NULL COMMENT 'Burst download speed in Mbps',
     burst_upload    INT UNSIGNED    NULL COMMENT 'Burst upload speed in Mbps',
@@ -405,6 +406,8 @@ CREATE TABLE IF NOT EXISTS invoices (
     tax_rate       DECIMAL(5, 4)   NOT NULL DEFAULT 0.0000 COMMENT 'e.g. 0.0800 for 8%',
     tax_amount     DECIMAL(10, 2)  NOT NULL DEFAULT 0.00,
     total          DECIMAL(10, 2)  NOT NULL DEFAULT 0.00,
+    currency       CHAR(3)         NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code',
+    tax_rate_id    BIGINT UNSIGNED NULL COMMENT 'Tax rate configuration used; NULL = manual / legacy rate',
     notes          TEXT            NULL,
     status         ENUM('draft', 'sent', 'paid', 'overdue', 'cancelled') NOT NULL DEFAULT 'draft',
     paid_at        TIMESTAMP       NULL,
@@ -422,11 +425,14 @@ CREATE TABLE IF NOT EXISTS invoices (
     KEY idx_invoices_due_date (due_date),
     KEY idx_invoices_client_created (client_id, created_at DESC),
     KEY idx_invoices_status_due (status, due_date),
+    KEY idx_invoices_tax_rate_id (tax_rate_id),
     KEY idx_invoices_deleted_at (deleted_at),
     CONSTRAINT fk_invoices_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_invoices_contract FOREIGN KEY (contract_id)
         REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_invoices_tax_rate FOREIGN KEY (tax_rate_id)
+        REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_invoices_created_by FOREIGN KEY (created_by)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -440,6 +446,7 @@ CREATE TABLE IF NOT EXISTS payments (
     client_id        BIGINT UNSIGNED NOT NULL,
     invoice_id       BIGINT UNSIGNED NULL,
     amount           DECIMAL(10, 2)  NOT NULL,
+    currency         CHAR(3)         NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code',
     payment_date     DATE            NOT NULL,
     payment_method   ENUM('cash', 'check', 'credit_card', 'debit_card', 'bank_transfer',
                          'oxxo_pay', 'spei', 'codi', 'convenience_store', 'digital_wallet',
@@ -511,6 +518,8 @@ CREATE TABLE IF NOT EXISTS quotes (
     tax_rate     DECIMAL(5, 4)   NOT NULL DEFAULT 0.0000 COMMENT 'e.g. 0.0800 for 8%',
     tax_amount   DECIMAL(10, 2)  NOT NULL DEFAULT 0.00,
     total        DECIMAL(10, 2)  NOT NULL DEFAULT 0.00,
+    currency     CHAR(3)         NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code',
+    tax_rate_id  BIGINT UNSIGNED NULL COMMENT 'Tax rate configuration used; NULL = manual / legacy rate',
     notes        TEXT            NULL,
     status       ENUM('draft', 'sent', 'accepted', 'rejected', 'expired') NOT NULL DEFAULT 'draft',
     created_by   BIGINT UNSIGNED NULL,
@@ -522,9 +531,12 @@ CREATE TABLE IF NOT EXISTS quotes (
     UNIQUE KEY uq_quotes_number (quote_number),
     KEY idx_quotes_client_id (client_id),
     KEY idx_quotes_status (status),
+    KEY idx_quotes_tax_rate_id (tax_rate_id),
     KEY idx_quotes_deleted_at (deleted_at),
     CONSTRAINT fk_quotes_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_quotes_tax_rate FOREIGN KEY (tax_rate_id)
+        REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_quotes_created_by FOREIGN KEY (created_by)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -586,6 +598,7 @@ CREATE TABLE IF NOT EXISTS expenses (
     category     VARCHAR(100)    NOT NULL COMMENT 'e.g. fuel, equipment, labor, parts',
     description  TEXT            NULL,
     amount       DECIMAL(10, 2)  NOT NULL,
+    currency     CHAR(3)         NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code',
     expense_date DATE            NOT NULL,
     receipt_url  VARCHAR(500)    NULL COMMENT 'URL or path to receipt file',
     status       ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
@@ -778,6 +791,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     description VARCHAR(255)    NOT NULL COMMENT 'Line-item description e.g. plan name, one-time fee',
     quantity    DECIMAL(10, 2)  NOT NULL DEFAULT 1.00,
     unit_price  DECIMAL(10, 2)  NOT NULL,
+    tax_rate_id BIGINT UNSIGNED NULL COMMENT 'Per-line-item tax rate override; NULL = inherit from parent invoice',
     total       DECIMAL(10, 2)  GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT 'quantity * unit_price',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -785,9 +799,12 @@ CREATE TABLE IF NOT EXISTS invoice_items (
 
     PRIMARY KEY (id),
     KEY idx_invoice_items_invoice_id (invoice_id),
+    KEY idx_invoice_items_tax_rate_id (tax_rate_id),
     KEY idx_invoice_items_deleted_at (deleted_at),
     CONSTRAINT fk_invoice_items_invoice FOREIGN KEY (invoice_id)
-        REFERENCES invoices (id) ON DELETE CASCADE ON UPDATE CASCADE
+        REFERENCES invoices (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_invoice_items_tax_rate FOREIGN KEY (tax_rate_id)
+        REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -800,6 +817,7 @@ CREATE TABLE IF NOT EXISTS quote_items (
     description VARCHAR(255)    NOT NULL COMMENT 'Line-item description e.g. service, installation fee',
     quantity    DECIMAL(10, 2)  NOT NULL DEFAULT 1.00,
     unit_price  DECIMAL(10, 2)  NOT NULL,
+    tax_rate_id BIGINT UNSIGNED NULL COMMENT 'Per-line-item tax rate override; NULL = inherit from parent quote',
     total       DECIMAL(10, 2)  GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT 'quantity * unit_price',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -807,9 +825,12 @@ CREATE TABLE IF NOT EXISTS quote_items (
 
     PRIMARY KEY (id),
     KEY idx_quote_items_quote_id (quote_id),
+    KEY idx_quote_items_tax_rate_id (tax_rate_id),
     KEY idx_quote_items_deleted_at (deleted_at),
     CONSTRAINT fk_quote_items_quote FOREIGN KEY (quote_id)
-        REFERENCES quotes (id) ON DELETE CASCADE ON UPDATE CASCADE
+        REFERENCES quotes (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_quote_items_tax_rate FOREIGN KEY (tax_rate_id)
+        REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -1910,6 +1931,8 @@ CREATE TABLE IF NOT EXISTS credit_notes (
     tax_rate           DECIMAL(5, 4)   NOT NULL DEFAULT 0.0000 COMMENT 'e.g. 0.0800 for 8%',
     tax_amount         DECIMAL(10, 2)  NOT NULL DEFAULT 0.00,
     total              DECIMAL(10, 2)  NOT NULL DEFAULT 0.00,
+    currency           CHAR(3)         NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code',
+    tax_rate_id        BIGINT UNSIGNED NULL COMMENT 'Tax rate configuration used; NULL = manual / legacy rate',
     notes              TEXT            NULL,
     status             ENUM('draft', 'issued', 'applied', 'cancelled') NOT NULL DEFAULT 'draft'
                            COMMENT 'draft=being prepared; issued=sent to client; applied=credit applied to account; cancelled=voided',
@@ -1928,6 +1951,7 @@ CREATE TABLE IF NOT EXISTS credit_notes (
     KEY idx_credit_notes_status (status),
     KEY idx_credit_notes_reason (reason),
     KEY idx_credit_notes_issue_date (issue_date),
+    KEY idx_credit_notes_tax_rate_id (tax_rate_id),
     KEY idx_credit_notes_deleted_at (deleted_at),
     CONSTRAINT fk_credit_notes_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -1937,6 +1961,8 @@ CREATE TABLE IF NOT EXISTS credit_notes (
         REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_credit_notes_payment FOREIGN KEY (payment_id)
         REFERENCES payments (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_credit_notes_tax_rate FOREIGN KEY (tax_rate_id)
+        REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_credit_notes_created_by FOREIGN KEY (created_by)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1952,6 +1978,7 @@ CREATE TABLE IF NOT EXISTS credit_note_items (
     description     VARCHAR(255)    NOT NULL COMMENT 'Line-item description e.g. returned router, service outage compensation',
     quantity        DECIMAL(10, 2)  NOT NULL DEFAULT 1.00,
     unit_price      DECIMAL(10, 2)  NOT NULL,
+    tax_rate_id     BIGINT UNSIGNED NULL COMMENT 'Per-line-item tax rate override; NULL = inherit from parent credit note',
     total           DECIMAL(10, 2)  GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT 'quantity * unit_price',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1959,9 +1986,12 @@ CREATE TABLE IF NOT EXISTS credit_note_items (
 
     PRIMARY KEY (id),
     KEY idx_credit_note_items_credit_note_id (credit_note_id),
+    KEY idx_credit_note_items_tax_rate_id (tax_rate_id),
     KEY idx_credit_note_items_deleted_at (deleted_at),
     CONSTRAINT fk_credit_note_items_credit_note FOREIGN KEY (credit_note_id)
-        REFERENCES credit_notes (id) ON DELETE CASCADE ON UPDATE CASCADE
+        REFERENCES credit_notes (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_credit_note_items_tax_rate FOREIGN KEY (tax_rate_id)
+        REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
