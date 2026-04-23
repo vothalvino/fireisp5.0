@@ -155,9 +155,12 @@ CALL assert_true(@cnt = 1, 'F7: csd_expiry_monitor task exists');
 -- =========================================================================
 -- G. SUSPENSION RULES (migration 122)
 -- =========================================================================
+SET @has_org1 = 0;
+SELECT COUNT(*) INTO @has_org1 FROM organizations WHERE id = 1;
 SET @cnt = 0;
 SELECT COUNT(*) INTO @cnt FROM suspension_rules;
-CALL assert_true(@cnt >= 1, 'G1: At least 1 default suspension rule seeded');
+CALL assert_true((@has_org1 = 1 AND @cnt >= 1) OR (@has_org1 = 0 AND @cnt = 0),
+                 'G1: Default suspension rule seeded only when organization id=1 exists');
 
 -- =========================================================================
 -- H. SAT CATALOGS (migration 069)
