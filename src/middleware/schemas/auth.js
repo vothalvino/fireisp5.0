@@ -36,4 +36,9 @@ const refreshToken = {
   refreshToken: { type: 'string', required: true },
 };
 
-module.exports = { register, login, requestPasswordReset, resetPassword, changePassword, verifyEmail, refreshToken };
+const switchOrganization = {
+  organizationId: { type: 'number', required: true, min: 1 },
+  refreshToken: { type: 'string', required: true },
+};
+
+module.exports = { register, login, requestPasswordReset, resetPassword, changePassword, verifyEmail, refreshToken, switchOrganization };

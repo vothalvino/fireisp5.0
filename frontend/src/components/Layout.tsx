@@ -2,7 +2,7 @@
 // FireISP 5.0 — App Layout (shell + nav)
 // =============================================================================
 
-import { useState } from 'react';
+import { useState, type ChangeEvent } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
 import { hasRole } from '@/auth/PrivateRoute';
@@ -36,8 +36,9 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export function Layout() {
-  const { user, logout } = useAuth();
+  const { user, logout, switchOrganization } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [switching, setSwitching] = useState(false);
 
   async function handleLogout() {
     await logout();
@@ -46,6 +47,24 @@ export function Layout() {
   function closeSidebar() {
     setSidebarOpen(false);
   }
+
+  async function handleOrgChange(e: ChangeEvent<HTMLSelectElement>) {
+    const newOrgId = Number(e.target.value);
+    if (!user || newOrgId === user.organization_id) return;
+    setSwitching(true);
+    try {
+      await switchOrganization(newOrgId);
+    } catch (err) {
+      // Restore the select to the current org and surface the error
+      // eslint-disable-next-line no-alert
+      alert(err instanceof Error ? err.message : 'Failed to switch organization');
+    } finally {
+      setSwitching(false);
+    }
+  }
+
+  const orgs = user?.organizations ?? [];
+  const showOrgSwitcher = orgs.length > 1;
 
   return (
     <div className="app-shell">
@@ -98,6 +117,21 @@ export function Layout() {
             <>
               <div style={styles.userName}>{user.name || user.email}</div>
               <div style={styles.userRole}>{user.role}</div>
+              {showOrgSwitcher && (
+                <select
+                  aria-label="Active organization"
+                  value={user.organization_id ?? ''}
+                  onChange={handleOrgChange}
+                  disabled={switching}
+                  style={styles.orgSelect}
+                >
+                  {orgs.map(org => (
+                    <option key={org.id} value={org.id}>
+                      {org.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </>
           )}
           <button onClick={handleLogout} style={styles.logoutBtn}>
@@ -151,6 +185,15 @@ const styles = {
   },
   userName: { color: '#fff', fontWeight: 600, fontSize: '0.85rem' },
   userRole: { color: '#888', fontSize: '0.75rem', textTransform: 'capitalize' as const },
+  orgSelect: {
+    marginTop: 6,
+    background: '#222',
+    color: '#fff',
+    border: '1px solid #555',
+    borderRadius: 4,
+    padding: '4px 6px',
+    fontSize: '0.8rem',
+  },
   logoutBtn: {
     marginTop: 6,
     background: 'transparent',
