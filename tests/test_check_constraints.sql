@@ -34,20 +34,10 @@ INSERT INTO vlans (id, site_id, vlan_id, name, status) VALUES (8001, 8000, 4094,
 CALL assert_true(ROW_COUNT() = 1, 'A2: VLAN ID 4094 accepted (max valid)');
 
 -- A3. Invalid VLAN ID (0)
-SET @chk_err = 0;
-BEGIN
-    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET @chk_err = 1;
-    INSERT INTO vlans (id, site_id, vlan_id, name, status) VALUES (8002, 8000, 0, 'VLAN-0', 'active');
-END;
-CALL assert_true(@chk_err = 1, 'A3: VLAN ID 0 rejected (below min)');
+CALL assert_sql_error(NULL, 'INSERT INTO vlans (id, site_id, vlan_id, name, status) VALUES (8002, 8000, 0, ''VLAN-0'', ''active'')', 'A3: VLAN ID 0 rejected (below min)');
 
 -- A4. Invalid VLAN ID (4095)
-SET @chk_err = 0;
-BEGIN
-    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET @chk_err = 1;
-    INSERT INTO vlans (id, site_id, vlan_id, name, status) VALUES (8003, 8000, 4095, 'VLAN-4095', 'active');
-END;
-CALL assert_true(@chk_err = 1, 'A4: VLAN ID 4095 rejected (above max)');
+CALL assert_sql_error(NULL, 'INSERT INTO vlans (id, site_id, vlan_id, name, status) VALUES (8003, 8000, 4095, ''VLAN-4095'', ''active'')', 'A4: VLAN ID 4095 rejected (above max)');
 
 -- =========================================================================
 -- B. network_links — chk_network_links_different_devices
@@ -63,13 +53,7 @@ VALUES (8000, 8000, 8001, 'fiber', 'active');
 CALL assert_true(ROW_COUNT() = 1, 'B1: Network link between different devices accepted');
 
 -- B2. Same device — should fail
-SET @chk_err = 0;
-BEGIN
-    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET @chk_err = 1;
-    INSERT INTO network_links (id, device_a_id, device_b_id, link_type, status)
-    VALUES (8001, 8000, 8000, 'fiber', 'active');
-END;
-CALL assert_true(@chk_err = 1, 'B2: Network link self-loop rejected');
+CALL assert_sql_error(NULL, 'INSERT INTO network_links (id, device_a_id, device_b_id, link_type, status) VALUES (8001, 8000, 8000, ''fiber'', ''active'')', 'B2: Network link self-loop rejected');
 
 -- =========================================================================
 -- C. billing_periods — chk_billing_periods_invoiced
@@ -83,13 +67,7 @@ VALUES (8000, 8000, '2024-01-01', '2024-01-31', '2024-01-01 00:00:00', 'pending'
 CALL assert_true(ROW_COUNT() = 1, 'C1: Billing period pending without invoice_id accepted');
 
 -- C2. Status 'invoiced' without invoice_id — should fail
-SET @chk_err = 0;
-BEGIN
-    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET @chk_err = 1;
-    INSERT INTO billing_periods (id, contract_id, period_start, period_end, scheduled_at, status, invoice_id)
-    VALUES (8001, 8000, '2024-02-01', '2024-02-29', '2024-02-01 00:00:00', 'invoiced', NULL);
-END;
-CALL assert_true(@chk_err = 1, 'C2: Billing period invoiced without invoice_id rejected');
+CALL assert_sql_error(NULL, 'INSERT INTO billing_periods (id, contract_id, period_start, period_end, scheduled_at, status, invoice_id) VALUES (8001, 8000, ''2024-02-01'', ''2024-02-29'', ''2024-02-01 00:00:00'', ''invoiced'', NULL)', 'C2: Billing period invoiced without invoice_id rejected');
 
 -- C3. Status 'invoiced' with invoice_id — should succeed
 INSERT INTO invoices (id, client_id, invoice_number, issue_date, due_date, total, status)
@@ -107,22 +85,10 @@ VALUES (8000, 8000, 'Test Promo', 'TESTPROMO', 'percentage', 10.00, 'active');
 CALL assert_true(ROW_COUNT() = 1, 'D1: Promotion with positive discount accepted');
 
 -- D2. Zero discount — should fail
-SET @chk_err = 0;
-BEGIN
-    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET @chk_err = 1;
-    INSERT INTO promotions (id, organization_id, name, code, discount_type, discount_value, status)
-    VALUES (8001, 8000, 'Bad Promo', 'BADPROMO', 'percentage', 0, 'active');
-END;
-CALL assert_true(@chk_err = 1, 'D2: Promotion with zero discount rejected');
+CALL assert_sql_error(NULL, 'INSERT INTO promotions (id, organization_id, name, code, discount_type, discount_value, status) VALUES (8001, 8000, ''Bad Promo'', ''BADPROMO'', ''percentage'', 0, ''active'')', 'D2: Promotion with zero discount rejected');
 
 -- D3. Negative discount — should fail
-SET @chk_err = 0;
-BEGIN
-    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET @chk_err = 1;
-    INSERT INTO promotions (id, organization_id, name, code, discount_type, discount_value, status)
-    VALUES (8002, 8000, 'Neg Promo', 'NEGPROMO', 'percentage', -5.00, 'active');
-END;
-CALL assert_true(@chk_err = 1, 'D3: Promotion with negative discount rejected');
+CALL assert_sql_error(NULL, 'INSERT INTO promotions (id, organization_id, name, code, discount_type, discount_value, status) VALUES (8002, 8000, ''Neg Promo'', ''NEGPROMO'', ''percentage'', -5.00, ''active'')', 'D3: Promotion with negative discount rejected');
 
 -- =========================================================================
 -- E. promotions — chk_promotions_ends_after_starts
@@ -133,13 +99,7 @@ VALUES (8003, 8000, 'Dated Promo', 'DATEDPROMO', 'fixed_amount', 50.00, '2024-01
 CALL assert_true(ROW_COUNT() = 1, 'E1: Promotion ends_at > starts_at accepted');
 
 -- E2. ends_at < starts_at — should fail
-SET @chk_err = 0;
-BEGIN
-    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET @chk_err = 1;
-    INSERT INTO promotions (id, organization_id, name, code, discount_type, discount_value, starts_at, ends_at, status)
-    VALUES (8004, 8000, 'Bad Dates', 'BADDATES', 'fixed_amount', 50.00, '2024-12-31', '2024-01-01', 'active');
-END;
-CALL assert_true(@chk_err = 1, 'E2: Promotion ends_at < starts_at rejected');
+CALL assert_sql_error(NULL, 'INSERT INTO promotions (id, organization_id, name, code, discount_type, discount_value, starts_at, ends_at, status) VALUES (8004, 8000, ''Bad Dates'', ''BADDATES'', ''fixed_amount'', 50.00, ''2024-12-31'', ''2024-01-01'', ''active'')', 'E2: Promotion ends_at < starts_at rejected');
 
 -- =========================================================================
 -- F. files — chk_files_entity_id and chk_files_category_match
@@ -153,22 +113,10 @@ VALUES (8000, 'device', 8000, 'device_history', 'test.log', '/devices/test.log',
 CALL assert_true(ROW_COUNT() = 1, 'F1: Device file with device_history category accepted');
 
 -- F2. Invalid category for entity_type — device with client_file should fail
-SET @chk_err = 0;
-BEGIN
-    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET @chk_err = 1;
-    INSERT INTO files (id, entity_type, entity_id, category, file_name, file_path, file_size, mime_type, uploaded_by)
-    VALUES (8001, 'device', 8000, 'client_file', 'bad.log', '/devices/bad.log', 1024, 'text/plain', 8000);
-END;
-CALL assert_true(@chk_err = 1, 'F2: Device with client_file category rejected');
+CALL assert_sql_error(NULL, 'INSERT INTO files (id, entity_type, entity_id, category, file_name, file_path, file_size, mime_type, uploaded_by) VALUES (8001, ''device'', 8000, ''client_file'', ''bad.log'', ''/devices/bad.log'', 1024, ''text/plain'', 8000)', 'F2: Device with client_file category rejected');
 
 -- F3. Non-backup entity_type with NULL entity_id — should fail
-SET @chk_err = 0;
-BEGIN
-    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET @chk_err = 1;
-    INSERT INTO files (id, entity_type, entity_id, category, file_name, file_path, file_size, mime_type, uploaded_by)
-    VALUES (8002, 'client', NULL, 'client_file', 'null.log', '/clients/null.log', 1024, 'text/plain', 8000);
-END;
-CALL assert_true(@chk_err = 1, 'F3: Non-backup entity_type with NULL entity_id rejected');
+CALL assert_sql_error(NULL, 'INSERT INTO files (id, entity_type, entity_id, category, file_name, file_path, file_size, mime_type, uploaded_by) VALUES (8002, ''client'', NULL, ''client_file'', ''null.log'', ''/clients/null.log'', 1024, ''text/plain'', 8000)', 'F3: Non-backup entity_type with NULL entity_id rejected');
 
 -- F4. Backup entity with NULL entity_id — should succeed
 INSERT INTO files (id, entity_type, entity_id, category, file_name, file_path, file_size, mime_type, uploaded_by)
@@ -184,13 +132,7 @@ VALUES (8000, 'chk_test_task', 'cleanup', '0 0 * * *', 'normal', 3, 3, TRUE);
 CALL assert_true(ROW_COUNT() = 1, 'G1: Scheduled task retry_count = max_retries accepted');
 
 -- G2. retry_count > max_retries — should fail
-SET @chk_err = 0;
-BEGIN
-    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET @chk_err = 1;
-    INSERT INTO scheduled_tasks (id, task_name, task_type, cron_expression, priority, retry_count, max_retries, is_enabled)
-    VALUES (8001, 'chk_bad_task', 'cleanup', '0 0 * * *', 'normal', 5, 3, TRUE);
-END;
-CALL assert_true(@chk_err = 1, 'G2: Scheduled task retry_count > max_retries rejected');
+CALL assert_sql_error(NULL, 'INSERT INTO scheduled_tasks (id, task_name, task_type, cron_expression, priority, retry_count, max_retries, is_enabled) VALUES (8001, ''chk_bad_task'', ''cleanup'', ''0 0 * * *'', ''normal'', 5, 3, TRUE)', 'G2: Scheduled task retry_count > max_retries rejected');
 
 -- =========================================================================
 -- H. ift_statistical_reports — chk_ift_statistical_reports_period
@@ -203,13 +145,7 @@ VALUES (8000, 8001, 'CHK-2024-Q1', '2024-01-01', '2024-03-31', 'draft');
 CALL assert_true(ROW_COUNT() = 1, 'H1: IFT report period_end >= period_start accepted');
 
 -- H2. Invalid period (end < start) — should fail
-SET @chk_err = 0;
-BEGIN
-    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET @chk_err = 1;
-    INSERT INTO ift_statistical_reports (id, organization_id, report_period, period_start, period_end, status)
-    VALUES (8001, 8001, 'CHK-2024-Q2', '2024-06-30', '2024-04-01', 'draft');
-END;
-CALL assert_true(@chk_err = 1, 'H2: IFT report period_end < period_start rejected');
+CALL assert_sql_error(NULL, 'INSERT INTO ift_statistical_reports (id, organization_id, report_period, period_start, period_end, status) VALUES (8001, 8001, ''CHK-2024-Q2'', ''2024-06-30'', ''2024-04-01'', ''draft'')', 'H2: IFT report period_end < period_start rejected');
 
 -- =========================================================================
 -- CLEANUP

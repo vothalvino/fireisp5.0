@@ -8,7 +8,7 @@
 --   2. CALL test_begin('Test Suite Name');
 --   3. CALL assert_true(condition, 'description');
 --      CALL assert_equal(expected, actual, 'description');
---      CALL assert_signal('45000', 'SQL statement', 'description');
+--      CALL assert_sql_error('45000', 'SQL statement', 'description');
 --   4. CALL test_summary();   -- prints pass/fail totals; exits 1 on failure
 --
 -- The helpers use a temporary table (__test_results) to track outcomes so that
@@ -82,6 +82,41 @@ BEGIN
                        ' (expected "', IFNULL(p_expected, 'NULL'),
                        '", got "', IFNULL(p_actual, 'NULL'), '")') AS '';
     END IF;
+END$$
+
+-- ---------------------------------------------------------------------------
+-- assert_sql_error: passes when SQL raises an error (optionally SQLSTATE)
+-- ---------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS assert_sql_error$$
+CREATE PROCEDURE assert_sql_error(
+    IN p_expected_sqlstate CHAR(5),
+    IN p_sql               TEXT,
+    IN p_description       VARCHAR(500)
+)
+BEGIN
+    DECLARE v_sqlstate CHAR(5) DEFAULT NULL;
+    DECLARE v_raised   BOOLEAN DEFAULT FALSE;
+    DECLARE v_prepared BOOLEAN DEFAULT FALSE;
+
+    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
+    BEGIN
+        SET v_raised = TRUE;
+        GET DIAGNOSTICS CONDITION 1 v_sqlstate = RETURNED_SQLSTATE;
+    END;
+
+    SET @__assert_sql_error_stmt = p_sql;
+    PREPARE _assert_sql_error_stmt FROM @__assert_sql_error_stmt;
+    SET v_prepared = TRUE;
+    EXECUTE _assert_sql_error_stmt;
+
+    IF v_prepared THEN
+        DEALLOCATE PREPARE _assert_sql_error_stmt;
+    END IF;
+
+    CALL assert_true(
+        v_raised = TRUE AND (p_expected_sqlstate IS NULL OR v_sqlstate = p_expected_sqlstate),
+        p_description
+    );
 END$$
 
 -- ---------------------------------------------------------------------------
