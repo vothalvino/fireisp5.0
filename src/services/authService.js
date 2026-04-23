@@ -357,6 +357,97 @@ async function verifyEmail(token) {
 }
 
 /**
+ * Switch the active organization for a user who belongs to multiple
+ * organizations.  The caller proves possession of the current refresh token,
+ * which we rotate (within the same family) so the previous tokens are
+ * invalidated immediately.  A new access token is minted with `orgId` set to
+ * the requested organization.
+ *
+ * Throws ForbiddenError if the user is not a member of the target org.
+ */
+async function switchOrganization(userId, organizationId, currentRefreshToken) {
+  const { ForbiddenError } = require('../utils/errors');
+
+  if (!organizationId) {
+    throw new ValidationError('organizationId is required');
+  }
+
+  // Verify membership: user must have a non-deleted organization_users row
+  // for the target org AND the org itself must not be soft-deleted.
+  const [rows] = await db.query(
+    `SELECT ou.role AS membership_role, o.id AS org_id, o.name AS org_name
+     FROM organization_users ou
+     JOIN organizations o ON o.id = ou.organization_id
+     WHERE ou.user_id = ? AND ou.organization_id = ?
+       AND ou.deleted_at IS NULL AND o.deleted_at IS NULL`,
+    [userId, organizationId],
+  );
+
+  if (rows.length === 0) {
+    throw new ForbiddenError('User is not a member of the requested organization');
+  }
+  const membership = rows[0];
+
+  // User must still be active.
+  const user = await User.findById(userId);
+  if (!user || user.status !== 'active') {
+    throw new UnauthorizedError('User not found or inactive');
+  }
+
+  // Validate + rotate the refresh token.  We require the current refresh token
+  // so a stolen access token alone cannot be used to pivot to another org.
+  if (!currentRefreshToken) {
+    throw new UnauthorizedError('Refresh token required to switch organizations');
+  }
+  const oldHash = crypto.createHash('sha256').update(currentRefreshToken).digest('hex');
+  const [sessions] = await db.query(
+    'SELECT * FROM user_sessions WHERE token_hash = ? AND user_id = ?',
+    [oldHash, userId],
+  );
+  if (sessions.length === 0) {
+    throw new UnauthorizedError('Invalid or expired refresh token');
+  }
+  const session = sessions[0];
+  if (new Date(session.expires_at) <= new Date()) {
+    await db.query('DELETE FROM user_sessions WHERE id = ?', [session.id]);
+    throw new UnauthorizedError('Refresh token expired');
+  }
+
+  // Mint new access token bound to the requested organization.
+  const newAccessToken = jwt.sign(
+    {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      orgId: membership.org_id,
+    },
+    config.jwt.secret,
+    { expiresIn: config.jwt.accessExpiresIn },
+  );
+
+  // Rotate refresh token within the same family.
+  const newRefreshValue = generateRefreshToken();
+  const newRefreshHash = crypto.createHash('sha256').update(newRefreshValue).digest('hex');
+  await db.query('DELETE FROM user_sessions WHERE id = ?', [session.id]);
+  await db.query(
+    `INSERT INTO user_sessions (user_id, token_hash, token_family, ip_address, user_agent, expires_at)
+     VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
+    [user.id, newRefreshHash, session.token_family, null, null, REFRESH_SECONDS],
+  );
+
+  return {
+    accessToken: newAccessToken,
+    refreshToken: newRefreshValue,
+    expiresIn: ACCESS_SECONDS,
+    organization: {
+      id: membership.org_id,
+      name: membership.org_name,
+      membership_role: membership.membership_role,
+    },
+  };
+}
+
+/**
  * Generate an email verification token for a user.
  */
 async function generateEmailVerificationToken(userId) {
@@ -372,7 +463,7 @@ async function generateEmailVerificationToken(userId) {
 }
 
 module.exports = {
-  register, login, logout, refreshToken,
+  register, login, logout, refreshToken, switchOrganization,
   requestPasswordReset, resetPassword, changePassword,
   verifyEmail, generateEmailVerificationToken,
 };

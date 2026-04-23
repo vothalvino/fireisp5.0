@@ -560,6 +560,51 @@
         }
       }
     },
+    "/auth/switch-organization": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Switch the active organization for a multi-tenant user",
+        "operationId": "switchOrganization",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "auth_switchOrganization",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["organizationId", "refreshToken"],
+                "properties": {
+                  "organizationId": { "type": "integer", "minimum": 1 },
+                  "refreshToken": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "New token pair bound to the requested organization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "User is not a member of the requested organization"
+          }
+        }
+      }
+    },
     "/organizations": {
       "get": {
         "tags": [

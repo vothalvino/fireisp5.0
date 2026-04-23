@@ -34,6 +34,13 @@ export interface AuthUser {
   is_active: boolean;
   email_verified: boolean;
   twofa_enabled: boolean;
+  organizations?: AuthOrganization[];
+}
+
+export interface AuthOrganization {
+  id: number;
+  name: string;
+  membership_role?: string;
 }
 
 interface AuthState {
@@ -49,6 +56,8 @@ interface AuthContextValue extends AuthState {
   logout: () => Promise<void>;
   /** Call after an external token change (e.g., impersonation) to re-hydrate user */
   refresh: () => Promise<void>;
+  /** Switch the active organization for a multi-tenant user */
+  switchOrganization: (organizationId: number) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,9 +191,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Switch the active organization for a multi-tenant user.  The backend
+  // mints a new access token whose `orgId` claim is the requested org, and
+  // rotates the refresh token within the same family.  The user must
+  // currently be a member of the target org.
+  const switchOrganization = useCallback(
+    async (organizationId: number) => {
+      const accessToken = tokenStore.getAccess();
+      const refreshToken = tokenStore.getRefresh();
+      if (!accessToken || !refreshToken) {
+        throw new Error('Not authenticated');
+      }
+
+      const res = await fetch('/api/v1/auth/switch-organization', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ organizationId, refreshToken }),
+      });
+
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as {
+          error?: { message?: string };
+        };
+        throw new Error(err.error?.message ?? 'Failed to switch organization');
+      }
+
+      const json = (await res.json()) as {
+        data: { accessToken: string; refreshToken: string };
+      };
+      tokenStore.setAccess(json.data.accessToken);
+      tokenStore.setRefresh(json.data.refreshToken);
+
+      // Re-hydrate user profile so `organization_id` and any org-scoped state
+      // reflects the new context.
+      await hydrateUser();
+    },
+    [hydrateUser],
+  );
+
   const value = useMemo<AuthContextValue>(
-    () => ({ ...state, login, logout, refresh: hydrateUser }),
-    [state, login, logout, hydrateUser],
+    () => ({ ...state, login, logout, refresh: hydrateUser, switchOrganization }),
+    [state, login, logout, hydrateUser, switchOrganization],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

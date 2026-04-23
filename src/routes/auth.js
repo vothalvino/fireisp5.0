@@ -128,4 +128,24 @@ router.post('/refresh',
   },
 );
 
+// POST /api/auth/switch-organization — switch the active organization for a
+// user with multiple memberships.  Mints a new access token whose `orgId`
+// claim is the requested organization, and rotates the refresh token within
+// the same family.  The user must currently be a member of the target org.
+router.post('/switch-organization', authenticate,
+  validate(authSchemas.switchOrganization),
+  async (req, res, next) => {
+    try {
+      const result = await authService.switchOrganization(
+        req.user.id,
+        req.body.organizationId,
+        req.body.refreshToken,
+      );
+      res.json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 module.exports = router;
