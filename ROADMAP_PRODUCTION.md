@@ -115,8 +115,11 @@ tenant)**, and **P3 (continuous improvement)**.
 - ✅ RTO target documented: total drill ≤ 60 minutes; breach triggers a P1 issue
 
 ### P1.4 — Production secrets management
-- `.env.example` has 36 vars but the production story is "set them somehow". Document the supported options: K8s Secret + Sealed-Secrets, AWS/GCP Secret Manager, HashiCorp Vault. Pick one as the recommended default and ship a manifest in `/k8s/`
-- Audit: no secrets ever logged (Pino redact list), no secrets ever returned by `/health?detail=true`
+- ✅ `docs/secrets-management.md` created — documents four supported options: **K8s Sealed Secrets** (recommended default), External Secrets Operator + AWS Secrets Manager, External Secrets Operator + GCP Secret Manager, HashiCorp Vault Agent Injector. Each option includes copy-paste manifests/commands. Bare-metal (systemd `LoadCredential` + env-file) also covered. Checklist at the end.
+- ✅ `k8s/sealed-secret.yaml` added — `SealedSecret` template (bitnami-labs/sealed-secrets) covering all 18 FireISP secrets; inline kubeseal quick-start, rotation steps, and airgapped-cluster instructions.
+- ✅ `src/utils/logger.js` updated — Pino `redact` list added with 62 paths covering common secret field names (`password`, `secret`, `token`, `authorization`, `accessToken`, `refreshToken`, `apiKey`, `privateKey`), all known env-var names (`JWT_SECRET`, `ENCRYPTION_KEY`, `DB_PASSWORD`, `SMTP_PASS`, `TWILIO_AUTH_TOKEN`, `STRIPE_SECRET_KEY`, `CONEKTA_API_KEY`, `PAC_PASSWORD`, `RADIUS_SECRET`, `REDIS_PASSWORD`, `BACKUP_S3_SECRET_KEY`, `CF_API_TOKEN`, …), and HTTP request fields (`req.headers.authorization`, `req.body.password`, etc.). Censor value is `[REDACTED]`.
+- ✅ Audit confirmed: no secrets ever returned by `/health`, `/health?detail=true`, `/health/live`, `/health/ready`, `/healthz` — responses contain only operational metadata (status, version, uptime, relay, memory stats, DB latency).
+- ✅ `tests/secretsAudit.test.js` added — 11 tests: health endpoints return no secret env-var names, `/health?detail=true` response keys are whitelisted, Pino redact censors `password`/`secret`/`authorization`, REDACT_PATHS source-level coverage assertion for all critical vars.
 
 ### P1.5 — Container image hardening + SBOM
 - Convert `Dockerfile` to multi-stage if it isn't already, run as non-root user, drop all Linux capabilities
@@ -214,3 +217,4 @@ tenant)**, and **P3 (continuous improvement)**.
 | 2026-04-23 | P1.1 | Frontend automated tests: Vitest + RTL, 43 tests / 11 suites, ContractList `statusMutation` bug fixed, `frontend-test` CI job wired |
 | 2026-04-23 | P1.2 | E2E smoke test: Playwright `e2e/` package, smoke scenario (login → create client → new contract → generate invoice → record payment → new ticket → sign out), `docker-compose.e2e.yml`, `e2e` CI job |
 | 2026-04-23 | P1.3 | DR drill: `docs/dr-drill.md` — 5-phase procedure (backup → destroy → restore → verify RI/counts/financials → storage), timing template, quarterly log table |
+| 2026-04-23 | P1.4 | Secrets management: `docs/secrets-management.md` (Sealed Secrets recommended + ESO/AWS/GCP + Vault + bare-metal options), `k8s/sealed-secret.yaml` template, Pino `redact` list in `src/utils/logger.js`, health-endpoint secrets audit, 10 new tests in `tests/secretsAudit.test.js` |
