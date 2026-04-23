@@ -110,8 +110,9 @@ tenant)**, and **P3 (continuous improvement)**.
 - ✅ `e2e` job added to `.github/workflows/ci.yml` — runs after `lint-and-test` and `frontend-test`; starts MySQL service, runs migrations + seed, builds frontend, starts backend server, installs Playwright chromium, runs smoke tests, uploads HTML report as artifact on failure
 
 ### P1.3 — Documented disaster-recovery drill
-- Take a backup, destroy the DB, restore from the backup, verify referential integrity and row counts. Document the steps and the timing in `docs/dr-drill.md`
-- Re-run quarterly; record the run date in the doc
+- ✅ `docs/dr-drill.md` created: end-to-end DR drill procedure covering Phase 1 (take backup via `npm run backup` or manual `mysqldump`), Phase 2 (simulate DB destruction), Phase 3 (restore from backup), Phase 4 (referential-integrity + financial-consistency SQL verification queries + app preflight), Phase 5 (restore storage files)
+- ✅ Timing record table and Quarterly Drill Log appended in `docs/dr-drill.md`; operators commit a new row after each quarterly drill
+- ✅ RTO target documented: total drill ≤ 60 minutes; breach triggers a P1 issue
 
 ### P1.4 — Production secrets management
 - `.env.example` has 36 vars but the production story is "set them somehow". Document the supported options: K8s Secret + Sealed-Secrets, AWS/GCP Secret Manager, HashiCorp Vault. Pick one as the recommended default and ship a manifest in `/k8s/`
@@ -212,3 +213,4 @@ tenant)**, and **P3 (continuous improvement)**.
 | 2026-04-23 | P0.1–P0.5 | P0 items resolved: migration 163 FK types, migration 028 DELIMITER parser, BaseModel LIMIT/OFFSET inlining, schema.sql/README sync, CI table-count hard failure, FK type CI assertion |
 | 2026-04-23 | P1.1 | Frontend automated tests: Vitest + RTL, 43 tests / 11 suites, ContractList `statusMutation` bug fixed, `frontend-test` CI job wired |
 | 2026-04-23 | P1.2 | E2E smoke test: Playwright `e2e/` package, smoke scenario (login → create client → new contract → generate invoice → record payment → new ticket → sign out), `docker-compose.e2e.yml`, `e2e` CI job |
+| 2026-04-23 | P1.3 | DR drill: `docs/dr-drill.md` — 5-phase procedure (backup → destroy → restore → verify RI/counts/financials → storage), timing template, quarterly log table |
