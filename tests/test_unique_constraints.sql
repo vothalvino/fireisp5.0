@@ -66,8 +66,8 @@ CALL assert_sql_error(NULL, 'INSERT INTO invoices (id, client_id, invoice_number
 -- =========================================================================
 -- F. ip_assignments — uq_ip_assignments_ip
 -- =========================================================================
-INSERT INTO ip_pools (id, site_id, name, network, cidr, ip_version, total_addresses, status)
-VALUES (7000, 7000, 'Pool-A', '10.0.0.0', 24, '4', 254, 'active');
+INSERT INTO ip_pools (id, site_id, name, network, cidr, ip_version, status)
+VALUES (7000, 7000, 'Pool-A', '10.0.0.0', 24, '4', 'active');
 INSERT INTO ip_assignments (id, pool_id, ip_address, client_id, type, status)
 VALUES (7000, 7000, '10.0.0.1', 7000, 'static', 'active');
 
@@ -123,10 +123,10 @@ CALL assert_sql_error(NULL, 'INSERT INTO roles (id, name, description) VALUES (7
 -- =========================================================================
 -- M. inventory_items — uq_inventory_items_sku
 -- =========================================================================
-INSERT INTO inventory_items (id, organization_id, name, sku, category, unit, status)
-VALUES (7000, 7000, 'Item-A', 'SKU-UQ-001', 'router', 'unit', 'active');
+INSERT INTO inventory_items (id, name, sku, category, unit, status)
+VALUES (7000, 'Item-A', 'SKU-UQ-001', 'router', 'unit', 'active');
 
-CALL assert_sql_error(NULL, 'INSERT INTO inventory_items (id, organization_id, name, sku, category, unit, status) VALUES (7001, 7000, ''Item-B'', ''SKU-UQ-001'', ''switch'', ''unit'', ''active'')', 'M: Duplicate inventory item SKU rejected');
+CALL assert_sql_error(NULL, 'INSERT INTO inventory_items (id, name, sku, category, unit, status) VALUES (7001, ''Item-B'', ''SKU-UQ-001'', ''switch'', ''unit'', ''active'')', 'M: Duplicate inventory item SKU rejected');
 
 -- =========================================================================
 -- N. api_tokens — uq_api_tokens_hash

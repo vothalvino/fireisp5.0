@@ -80,26 +80,26 @@ CALL assert_true(ROW_COUNT() = 1, 'C3: Billing period invoiced with invoice_id a
 -- D. promotions — chk_promotions_discount_value > 0
 -- =========================================================================
 -- D1. Positive discount — should succeed
-INSERT INTO promotions (id, organization_id, name, code, discount_type, discount_value, status)
-VALUES (8000, 8000, 'Test Promo', 'TESTPROMO', 'percentage', 10.00, 'active');
+INSERT INTO promotions (id, organization_id, name, code, discount_type, discount_value, is_active)
+VALUES (8000, 8000, 'Test Promo', 'TESTPROMO', 'percentage', 10.00, TRUE);
 CALL assert_true(ROW_COUNT() = 1, 'D1: Promotion with positive discount accepted');
 
 -- D2. Zero discount — should fail
-CALL assert_sql_error(NULL, 'INSERT INTO promotions (id, organization_id, name, code, discount_type, discount_value, status) VALUES (8001, 8000, ''Bad Promo'', ''BADPROMO'', ''percentage'', 0, ''active'')', 'D2: Promotion with zero discount rejected');
+CALL assert_sql_error(NULL, 'INSERT INTO promotions (id, organization_id, name, code, discount_type, discount_value, is_active) VALUES (8001, 8000, ''Bad Promo'', ''BADPROMO'', ''percentage'', 0, TRUE)', 'D2: Promotion with zero discount rejected');
 
 -- D3. Negative discount — should fail
-CALL assert_sql_error(NULL, 'INSERT INTO promotions (id, organization_id, name, code, discount_type, discount_value, status) VALUES (8002, 8000, ''Neg Promo'', ''NEGPROMO'', ''percentage'', -5.00, ''active'')', 'D3: Promotion with negative discount rejected');
+CALL assert_sql_error(NULL, 'INSERT INTO promotions (id, organization_id, name, code, discount_type, discount_value, is_active) VALUES (8002, 8000, ''Neg Promo'', ''NEGPROMO'', ''percentage'', -5.00, TRUE)', 'D3: Promotion with negative discount rejected');
 
 -- =========================================================================
 -- E. promotions — chk_promotions_ends_after_starts
 -- =========================================================================
 -- E1. ends_at > starts_at — should succeed
-INSERT INTO promotions (id, organization_id, name, code, discount_type, discount_value, starts_at, ends_at, status)
-VALUES (8003, 8000, 'Dated Promo', 'DATEDPROMO', 'fixed_amount', 50.00, '2024-01-01', '2024-12-31', 'active');
+INSERT INTO promotions (id, organization_id, name, code, discount_type, discount_value, starts_at, ends_at, is_active)
+VALUES (8003, 8000, 'Dated Promo', 'DATEDPROMO', 'fixed_amount', 50.00, '2024-01-01', '2024-12-31', TRUE);
 CALL assert_true(ROW_COUNT() = 1, 'E1: Promotion ends_at > starts_at accepted');
 
 -- E2. ends_at < starts_at — should fail
-CALL assert_sql_error(NULL, 'INSERT INTO promotions (id, organization_id, name, code, discount_type, discount_value, starts_at, ends_at, status) VALUES (8004, 8000, ''Bad Dates'', ''BADDATES'', ''fixed_amount'', 50.00, ''2024-12-31'', ''2024-01-01'', ''active'')', 'E2: Promotion ends_at < starts_at rejected');
+CALL assert_sql_error(NULL, 'INSERT INTO promotions (id, organization_id, name, code, discount_type, discount_value, starts_at, ends_at, is_active) VALUES (8004, 8000, ''Bad Dates'', ''BADDATES'', ''fixed_amount'', 50.00, ''2024-12-31'', ''2024-01-01'', TRUE)', 'E2: Promotion ends_at < starts_at rejected');
 
 -- =========================================================================
 -- F. files — chk_files_entity_id and chk_files_category_match
@@ -141,11 +141,11 @@ INSERT INTO organizations (id, name, locale, status) VALUES (8001, 'MX Check Org
 
 -- H1. Valid period (end >= start) — should succeed
 INSERT INTO ift_statistical_reports (id, organization_id, report_period, period_start, period_end, status)
-VALUES (8000, 8001, 'CHK-2024-Q1', '2024-01-01', '2024-03-31', 'draft');
+VALUES (8000, 8001, '2024-Q1', '2024-01-01', '2024-03-31', 'draft');
 CALL assert_true(ROW_COUNT() = 1, 'H1: IFT report period_end >= period_start accepted');
 
 -- H2. Invalid period (end < start) — should fail
-CALL assert_sql_error(NULL, 'INSERT INTO ift_statistical_reports (id, organization_id, report_period, period_start, period_end, status) VALUES (8001, 8001, ''CHK-2024-Q2'', ''2024-06-30'', ''2024-04-01'', ''draft'')', 'H2: IFT report period_end < period_start rejected');
+CALL assert_sql_error(NULL, 'INSERT INTO ift_statistical_reports (id, organization_id, report_period, period_start, period_end, status) VALUES (8001, 8001, ''2024-Q2'', ''2024-06-30'', ''2024-04-01'', ''draft'')', 'H2: IFT report period_end < period_start rejected');
 
 -- =========================================================================
 -- CLEANUP

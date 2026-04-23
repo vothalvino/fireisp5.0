@@ -98,10 +98,18 @@ BEGIN
     DECLARE v_raised   BOOLEAN DEFAULT FALSE;
     DECLARE v_prepared BOOLEAN DEFAULT FALSE;
 
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '45000'
+    BEGIN
+        SET v_raised = TRUE;
+        SET v_sqlstate = '45000';
+    END;
+
     DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
     BEGIN
         SET v_raised = TRUE;
-        GET DIAGNOSTICS CONDITION 1 v_sqlstate = RETURNED_SQLSTATE;
+        IF v_sqlstate IS NULL THEN
+            SET v_sqlstate = 'ERROR';
+        END IF;
     END;
 
     SET @__assert_sql_error_stmt = p_sql;

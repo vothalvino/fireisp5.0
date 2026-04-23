@@ -74,19 +74,19 @@ CALL assert_sql_error('45000', 'INSERT INTO cfdi_documents (id, organization_id,
 -- A7. concession_titles — INSERT for MX org should succeed
 INSERT INTO concession_titles (id, organization_id, title_number, concession_type, services_authorized,
                                granted_date, regulatory_body, status)
-VALUES (9000, 9001, 'CT-TEST-001', 'commercial', 'Internet', '2020-01-01', 'IFT', 'active');
+VALUES (9000, 9001, 'CT-TEST-001', 'commercial', '["Internet"]', '2020-01-01', 'IFT', 'active');
 CALL assert_true(ROW_COUNT() = 1, 'A7: concession_titles INSERT succeeds for MX org');
 
 -- A8. concession_titles — INSERT for global org should fail
-CALL assert_sql_error('45000', 'INSERT INTO concession_titles (id, organization_id, title_number, concession_type, services_authorized, granted_date, regulatory_body, status) VALUES (9001, 9000, ''CT-TEST-002'', ''commercial'', ''Internet'', ''2020-01-01'', ''IFT'', ''active'')', 'A8: concession_titles INSERT rejected for global org');
+CALL assert_sql_error('45000', 'INSERT INTO concession_titles (id, organization_id, title_number, concession_type, services_authorized, granted_date, regulatory_body, status) VALUES (9001, 9000, ''CT-TEST-002'', ''commercial'', ''[\"Internet\"]'', ''2020-01-01'', ''IFT'', ''active'')', 'A8: concession_titles INSERT rejected for global org');
 
 -- A9. contract_templates_mx — INSERT for MX org should succeed
-INSERT INTO contract_templates_mx (id, organization_id, template_name, body_text, status)
+INSERT INTO contract_templates_mx (id, organization_id, template_name, template_body, status)
 VALUES (9000, 9001, 'Test Template', 'Contract body text...', 'draft');
 CALL assert_true(ROW_COUNT() = 1, 'A9: contract_templates_mx INSERT succeeds for MX org');
 
 -- A10. contract_templates_mx — INSERT for global org should fail
-CALL assert_sql_error('45000', 'INSERT INTO contract_templates_mx (id, organization_id, template_name, body_text, status) VALUES (9001, 9000, ''Test Template 2'', ''Contract body text...'', ''draft'')', 'A10: contract_templates_mx INSERT rejected for global org');
+CALL assert_sql_error('45000', 'INSERT INTO contract_templates_mx (id, organization_id, template_name, template_body, status) VALUES (9001, 9000, ''Test Template 2'', ''Contract body text...'', ''draft'')', 'A10: contract_templates_mx INSERT rejected for global org');
 
 -- A11. regulatory_filings — INSERT for MX org should succeed
 INSERT INTO regulatory_filings (id, organization_id, filing_type, status)
@@ -265,8 +265,8 @@ CALL assert_sql_error('45000', 'UPDATE payment_allocations SET amount = 101.00 W
 
 -- Fixture
 INSERT INTO warehouses (id, organization_id, name, status) VALUES (9000, 9000, 'Test Warehouse', 'active');
-INSERT INTO inventory_items (id, organization_id, name, sku, category, unit, status)
-VALUES (9000, 9000, 'Test Router', 'RTR-TEST-001', 'router', 'unit', 'active');
+INSERT INTO inventory_items (id, name, sku, category, unit, status)
+VALUES (9000, 'Test Router', 'RTR-TEST-001', 'router', 'unit', 'active');
 INSERT INTO inventory_stock (id, item_id, warehouse_id, quantity, aisle, col, shelf)
 VALUES (9000, 9000, 9000, 10, 'A', '1', '1');
 
