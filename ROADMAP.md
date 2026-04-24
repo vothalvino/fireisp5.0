@@ -261,3 +261,15 @@
 | 2026-04-23 | 5.7 | DB read replica routing: replicaPool in database.js (DB_REPLICA_HOST/DB_REPLICA_PORT/DB_REPLICA_USER/DB_REPLICA_PASSWORD/DB_REPLICA_POOL_SIZE; falls back to primary when not set); queryReplica() routes all report + dashboard SELECT queries to replica; close() drains both pools; reportService.js (agingReport, financialSummary, technicianReport, subscriberGrowthReport) and dashboardController.js (summary, revenue, mrr, deviceHealth, overdue) switched to queryReplica; .env.example updated; 19 new Jest tests in dbReadReplica.test.js | #TBD |
 | 2026-04-23 | 5.8 | Coverage zone map editor: coverageZoneService.js (GeoJSON ↔ MySQL POLYGON via ST_AsGeoJSON/ST_GeomFromGeoJSON; listZones/getZone/createZone/updateZone/deleteZone/restoreZone with org scoping, polygon validation ≥4 vertices, audit logging); coverageZones route rewritten to use service (returns boundary as parsed GeoJSON objects; POST/PUT accept GeoJSON Polygon); CoverageZoneMap.tsx — SVG polygon editor (service area selector, zone list with status/type/color, draw-polygon mode with click-to-add-vertex/undo/complete, viewport auto-fit, create/edit modal, delete confirmation); wired to /coverage-zones route (technician+); nav item added; 20 new Jest tests in coverageZoneMap.test.js | #TBD |
 | 2026-04-23 | 5.10 | Multi-tenant active-organization switching: `authService.switchOrganization(userId, orgId, refreshToken)` validates non-deleted `organization_users` membership against non-deleted `organizations`, requires the current refresh token (scoped to the calling user) to defend against stolen-access-token pivot, mints a new access token with `orgId` claim, rotates refresh token within the same family; new `POST /api/v1/auth/switch-organization` route + validation schema; OpenAPI updated; frontend `AuthContext` exposes `switchOrganization()` and `AuthUser.organizations`; org-switcher `<select>` in `Layout.tsx` user area shown only when the user has >1 org; 11 new Jest tests in `tests/switchOrganization.test.js` | #TBD |
+
+
+---
+
+## Deprecation Tracking
+
+Long-horizon items deferred from the 2026-04 dependency-deprecation sweep. These are tracked here so they are not forgotten when their sunset/upgrade window arrives.
+
+| Owner | Item | Trigger | Notes |
+|---|---|---|---|
+| Backend | Migrate XLSX/CSV export off `exceljs` (A2) | When a maintained alternative is required (e.g. additional warning resurfaces, new vuln, or feature need) | `exceljs` is unmaintained and pulls in `archiver@5`/`unzipper@0.10`/`fast-csv@4`. Transitive deprecation noise is silenced via `overrides` (`glob` ^13, `rimraf` ^6) but the stack remains old. Preferred replacement: `xlsx-populate` or `node-xlsx` plus `csv-stringify`. |
+| Backend | Remove `/api/` URL alias (D2) | **2027-06-01** sunset (per `docs/api-versioning.md`) | Drop the alias middleware in `src/app.js` and the `Deprecation`/`Sunset`/`Link` headers it emits. All clients must use `/api/v1/`. |
