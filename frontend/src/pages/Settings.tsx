@@ -1,24 +1,26 @@
 // =============================================================================
 // FireISP 5.0 — Settings Page
 // =============================================================================
-// Admin-only page at /settings. Provides four tabs:
+// Admin-only page at /settings. Provides five tabs:
 //
 //   1. Org Config       — key/value settings from GET/PUT /api/v1/settings
 //   2. Email Templates  — CRUD on message templates via /api/v1/message-templates
 //   3. Alert Rules      — CRUD on alert rules via /api/v1/alerts/rules
 //   4. Payment Gateways — CRUD on payment gateways via /api/v1/payment-gateways
+//   5. Quotas           — per-tenant resource usage + limit management
 // =============================================================================
 
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tokenStore } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type SettingsTab = 'orgConfig' | 'emailTemplates' | 'alertRules' | 'paymentGateways';
+type SettingsTab = 'orgConfig' | 'emailTemplates' | 'alertRules' | 'paymentGateways' | 'quotas';
 
 interface Setting {
   key: string;
@@ -752,6 +754,157 @@ function statusBadge(st: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Quotas Tab
+// ---------------------------------------------------------------------------
+
+interface QuotaLimits {
+  max_clients: number | null;
+  max_devices: number | null;
+  max_storage_mb: number | null;
+  max_scheduled_tasks: number | null;
+}
+
+interface QuotaUsage {
+  clients: number;
+  devices: number;
+  storage_mb: number;
+  scheduled_tasks: number;
+}
+
+interface QuotaData {
+  limits: QuotaLimits;
+  usage: QuotaUsage;
+}
+
+function QuotaBar({ label, used, limit }: { label: string; used: number; limit: number | null }) {
+  const isUnlimited = limit === null;
+  const pct = isUnlimited ? 0 : Math.min(100, Math.round((used / limit!) * 100));
+  const color = pct >= 95 ? '#dc2626' : pct >= 80 ? '#d97706' : '#16a34a';
+  return (
+    <div style={{ marginBottom: '1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: '0.875rem' }}>
+        <span style={{ fontWeight: 500 }}>{label}</span>
+        <span style={{ color: '#555' }}>
+          {used.toLocaleString()} / {isUnlimited ? '∞' : limit!.toLocaleString()}
+          {!isUnlimited && <span style={{ color: pct >= 95 ? '#dc2626' : '#888', marginLeft: 6 }}>({pct}%)</span>}
+        </span>
+      </div>
+      {!isUnlimited && (
+        <div style={{ background: '#f3f4f6', borderRadius: 6, height: 8, overflow: 'hidden' }}>
+          <div style={{ width: `${pct}%`, background: color, height: '100%', borderRadius: 6, transition: 'width .3s' }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QuotasTab() {
+  const { user } = useAuth();
+  const orgId = user?.organization_id;
+  const queryClient = useQueryClient();
+
+  const { data, isLoading, error } = useQuery<{ data: QuotaData }>({
+    queryKey: ['org-quota', orgId],
+    queryFn: () => apiFetch<{ data: QuotaData }>(`/api/v1/organizations/${orgId}/quota`),
+    enabled: !!orgId,
+  });
+
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<Partial<Record<keyof QuotaLimits, string>>>({});
+
+  const saveMutation = useMutation({
+    mutationFn: (body: Record<string, number | null>) =>
+      apiFetch<{ data: QuotaData }>(`/api/v1/organizations/${orgId}/quota`, { method: 'PUT', body: JSON.stringify(body) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org-quota', orgId] });
+      setEditing(false);
+    },
+  });
+
+  if (isLoading) return <p style={sty.muted}>Loading quota…</p>;
+  if (error || !data) return <p style={{ color: '#dc2626', fontSize: '0.875rem' }}>Failed to load quota.</p>;
+
+  const { limits, usage } = data.data;
+
+  function startEdit() {
+    setForm({
+      max_clients:         limits.max_clients         === null ? '' : String(limits.max_clients),
+      max_devices:         limits.max_devices         === null ? '' : String(limits.max_devices),
+      max_storage_mb:      limits.max_storage_mb      === null ? '' : String(limits.max_storage_mb),
+      max_scheduled_tasks: limits.max_scheduled_tasks === null ? '' : String(limits.max_scheduled_tasks),
+    });
+    setEditing(true);
+  }
+
+  function handleSave(e: FormEvent) {
+    e.preventDefault();
+    const body: Record<string, number | null> = {};
+    for (const [k, v] of Object.entries(form)) {
+      body[k] = v === '' || v === undefined ? null : Number(v);
+    }
+    saveMutation.mutate(body);
+  }
+
+  return (
+    <div>
+      <div style={sty.tabBar}>
+        <h3 style={sty.sectionTitle}>Resource Quotas</h3>
+        {!editing && (
+          <button style={sty.btnPrimary} onClick={startEdit}>✏️ Edit Limits</button>
+        )}
+      </div>
+
+      {!editing ? (
+        <>
+          <p style={{ fontSize: '0.85rem', color: '#555', marginTop: 0, marginBottom: '1.5rem' }}>
+            Current usage versus configured limits. <strong>∞</strong> means unlimited.
+          </p>
+          <QuotaBar label="Clients"         used={usage.clients}         limit={limits.max_clients} />
+          <QuotaBar label="Devices"         used={usage.devices}         limit={limits.max_devices} />
+          <QuotaBar label="Storage (MB)"    used={usage.storage_mb}      limit={limits.max_storage_mb} />
+          <QuotaBar label="Scheduled Tasks" used={usage.scheduled_tasks} limit={limits.max_scheduled_tasks} />
+        </>
+      ) : (
+        <form onSubmit={handleSave} style={sty.form}>
+          <p style={{ fontSize: '0.85rem', color: '#555', margin: '0 0 0.75rem' }}>
+            Leave a field blank to set it as <strong>unlimited</strong>.
+          </p>
+          {(
+            [
+              ['max_clients',         'Max Clients'],
+              ['max_devices',         'Max Devices'],
+              ['max_storage_mb',      'Max Storage (MB)'],
+              ['max_scheduled_tasks', 'Max Scheduled Tasks'],
+            ] as const
+          ).map(([key, label]) => (
+            <label key={key} style={sty.label}>
+              {label}
+              <input
+                style={sty.input}
+                type="number"
+                min={0}
+                placeholder="unlimited"
+                value={form[key] ?? ''}
+                onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+              />
+            </label>
+          ))}
+          {saveMutation.error && (
+            <p style={sty.errorText}>{(saveMutation.error as Error).message}</p>
+          )}
+          <div style={sty.modalFooter}>
+            <button type="button" style={sty.btnGhost} onClick={() => setEditing(false)}>Cancel</button>
+            <button type="submit" style={sty.btnPrimary} disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? 'Saving…' : 'Save Limits'}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Settings page
 // ---------------------------------------------------------------------------
 
@@ -760,6 +913,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'emailTemplates', label: '✉️ Email Templates' },
   { id: 'alertRules', label: '🚨 Alert Rules' },
   { id: 'paymentGateways', label: '💳 Payment Gateways' },
+  { id: 'quotas', label: '📊 Quotas' },
 ];
 
 export function Settings() {
@@ -788,6 +942,7 @@ export function Settings() {
         {tab === 'emailTemplates' && <EmailTemplatesTab />}
         {tab === 'alertRules' && <AlertRulesTab />}
         {tab === 'paymentGateways' && <PaymentGatewaysTab />}
+        {tab === 'quotas' && <QuotasTab />}
       </div>
     </div>
   );
