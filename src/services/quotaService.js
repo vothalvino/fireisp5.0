@@ -33,15 +33,15 @@ async function getQuota(orgId) {
 async function getUsage(orgId) {
   const [[clientRow], [deviceRow], [taskRow], [storageRow]] = await Promise.all([
     db.query(
-      `SELECT COUNT(*) AS cnt FROM clients WHERE organization_id = ? AND deleted_at IS NULL`,
+      'SELECT COUNT(*) AS cnt FROM clients WHERE organization_id = ? AND deleted_at IS NULL',
       [orgId],
     ),
     db.query(
-      `SELECT COUNT(*) AS cnt FROM devices WHERE organization_id = ? AND deleted_at IS NULL`,
+      'SELECT COUNT(*) AS cnt FROM devices WHERE organization_id = ? AND deleted_at IS NULL',
       [orgId],
     ),
     db.query(
-      `SELECT COUNT(*) AS cnt FROM scheduled_tasks WHERE organization_id = ? AND deleted_at IS NULL`,
+      'SELECT COUNT(*) AS cnt FROM scheduled_tasks WHERE organization_id = ? AND deleted_at IS NULL',
       [orgId],
     ),
     db.query(
