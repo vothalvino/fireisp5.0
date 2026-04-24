@@ -24,7 +24,7 @@ This runbook covers migrating an existing ISP's data into FireISP 5.0. It applie
 
 ## Overview
 
-FireISP 5.0 exposes bulk-import API endpoints that accept **CSV** or **Excel (XLSX/XLS)** files. Each endpoint inserts rows independently — errors in individual rows do not abort the entire import; instead they are collected and returned in the response.
+FireISP 5.0 exposes bulk-import API endpoints that accept **CSV** files. Each endpoint inserts rows independently — errors in individual rows do not abort the entire import; instead they are collected and returned in the response.
 
 ### Import endpoints summary
 
@@ -50,7 +50,7 @@ Before importing any data, complete every item on this checklist:
 - [ ] All required **Plans** exist (`POST /api/plans`) — contracts reference `plan_id`
 - [ ] All required **Sites** exist (`POST /api/sites`) — devices reference `site_id`
 - [ ] A fresh backup of the target database has been taken (`npm run backup`)
-- [ ] Source data has been exported to CSV or XLSX
+- [ ] Source data has been exported to CSV
 - [ ] Source data has been reviewed for encoding (UTF-8 required) and date format (`YYYY-MM-DD`)
 - [ ] A staging environment has been used to validate the import before running on production
 
@@ -173,7 +173,7 @@ Optional columns: `type` (default `router`), `site_id`, `mac_address`, `snmp_com
 curl -X POST http://localhost:3000/api/import/devices/upload \
   -H "Authorization: Bearer <token>" \
   -H "X-Org-Id: <org_id>" \
-  -F "file=@devices.xlsx"
+  -F "file=@devices.csv"
 ```
 
 ---
@@ -453,9 +453,9 @@ Valid `payment_method` values: `cash`, `check`, `credit_card`, `debit_card`, `ba
 
 You sent a JSON body request without the `csv` field, or you forgot to set `Content-Type: application/json`.
 
-### `422 UPLOAD_ERROR: Only .csv, .xlsx, and .xls files are accepted`
+### `422 UPLOAD_ERROR: Only .csv files are accepted`
 
-The uploaded file has a disallowed extension or MIME type. Ensure your file is named with `.csv`, `.xlsx`, or `.xls`.
+The uploaded file has a disallowed extension or MIME type. Ensure your file is named with `.csv` and uploaded with a `text/csv` content type.
 
 ### `422 UPLOAD_ERROR: File too large`
 
@@ -497,10 +497,6 @@ df = pd.read_csv("clients.csv")
 df["start_date"] = pd.to_datetime(df["start_date"], dayfirst=True).dt.strftime("%Y-%m-%d")
 df.to_csv("clients_fixed.csv", index=False)
 ```
-
-### Excel numeric dates
-
-When opening a legacy `.xls` file in Excel, date columns sometimes become 5-digit serial numbers (e.g. `45658`). Open the file in Excel, select the column, and format it as `YYYY-MM-DD` before saving as `.xlsx`.
 
 ### Character encoding issues
 

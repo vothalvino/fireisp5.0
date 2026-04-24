@@ -1,5 +1,5 @@
 // =============================================================================
-// FireISP 5.0 — Import Routes (Bulk CSV / Excel)
+// FireISP 5.0 — Import Routes (Bulk CSV)
 // =============================================================================
 
 const { Router } = require('express');
@@ -20,8 +20,6 @@ const IMPORT_MAX_SIZE = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_IMPORT_MIMES = new Set([
   'text/csv',
   'text/plain',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.ms-excel',
   'application/octet-stream',
 ]);
 
@@ -30,9 +28,8 @@ const importUpload = multer({
   limits: { fileSize: IMPORT_MAX_SIZE },
   fileFilter(_req, file, cb) {
     const ext = require('path').extname(file.originalname).toLowerCase();
-    const allowedExts = new Set(['.csv', '.xlsx', '.xls']);
-    if (!allowedExts.has(ext) || !ALLOWED_IMPORT_MIMES.has(file.mimetype)) {
-      return cb(new Error('Only .csv, .xlsx, and .xls files are accepted'));
+    if (ext !== '.csv' || !ALLOWED_IMPORT_MIMES.has(file.mimetype)) {
+      return cb(new Error('Only .csv files are accepted'));
     }
     cb(null, true);
   },
@@ -60,7 +57,7 @@ router.post('/invoices', requirePermission('invoices.create'), validate(importSc
 router.post('/payments', requirePermission('payments.create'), validate(importSchemas.importCsv), importController.importPayments);
 
 // ---------------------------------------------------------------------------
-// File upload routes (multipart/form-data, field "file", .csv or .xlsx)
+// File upload routes (multipart/form-data, field "file", .csv only)
 // ---------------------------------------------------------------------------
 router.post('/clients/upload', requirePermission('clients.create'), uploadImportFile, importController.importClientsFile);
 router.post('/devices/upload', requirePermission('devices.create'), uploadImportFile, importController.importDevicesFile);

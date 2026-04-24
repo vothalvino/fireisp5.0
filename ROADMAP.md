@@ -271,5 +271,4 @@ Long-horizon items deferred from the 2026-04 dependency-deprecation sweep. These
 
 | Owner | Item | Trigger | Notes |
 |---|---|---|---|
-| Backend | Migrate XLSX/CSV export off `exceljs` (A2) | When a maintained alternative is required (e.g. additional warning resurfaces, new vuln, or feature need) | `exceljs` is unmaintained and pulls in `archiver@5`/`unzipper@0.10`/`fast-csv@4`. Transitive deprecation noise is silenced via `overrides` (`glob` ^13, `rimraf` ^6) but the stack remains old. Preferred replacement: `xlsx-populate` or `node-xlsx` plus `csv-stringify`. |
 | Backend | Remove `/api/` URL alias (D2) | **2027-06-01** sunset (per `docs/api-versioning.md`) | Drop the alias middleware in `src/app.js` and the `Deprecation`/`Sunset`/`Link` headers it emits. All clients must use `/api/v1/`. |
