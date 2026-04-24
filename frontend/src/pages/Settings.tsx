@@ -778,7 +778,7 @@ interface QuotaData {
 
 function QuotaBar({ label, used, limit }: { label: string; used: number; limit: number | null }) {
   const isUnlimited = limit === null;
-  const pct = isUnlimited ? 0 : Math.min(100, Math.round((used / limit!) * 100));
+  const pct = (isUnlimited || limit === 0) ? 100 : Math.min(100, Math.round((used / limit!) * 100));
   const color = pct >= 95 ? '#dc2626' : pct >= 80 ? '#d97706' : '#16a34a';
   return (
     <div style={{ marginBottom: '1rem' }}>

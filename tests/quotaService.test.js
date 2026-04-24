@@ -128,14 +128,8 @@ describe('quotaService.checkQuota', () => {
     await expect(checkQuota(1, 'clients')).resolves.toBeUndefined();
   });
 
-  it('does not throw when exactly at limit', async () => {
-    // exactly at limit — quota is NOT over until current >= limit, but we test: current (9) < limit (10)
-    mockQuery.mockResolvedValueOnce([[{ organization_id: 1, max_clients: 10, max_devices: null, max_storage_mb: null, max_scheduled_tasks: null }], []]);
-    mockUsage({ clients: 9 });
-    await expect(checkQuota(1, 'clients')).resolves.toBeUndefined();
-  });
-
-  it('throws ValidationError when at limit (current === limit)', async () => {
+  it('throws ValidationError when exactly at limit (current === limit)', async () => {
+    // current (10) >= limit (10) → quota exceeded
     mockQuery.mockResolvedValueOnce([[{ organization_id: 1, max_clients: 10, max_devices: null, max_storage_mb: null, max_scheduled_tasks: null }], []]);
     mockUsage({ clients: 10 });
     await expect(checkQuota(1, 'clients')).rejects.toMatchObject({

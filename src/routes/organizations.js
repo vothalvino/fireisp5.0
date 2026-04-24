@@ -59,7 +59,22 @@ router.get('/:id/quota', requirePermission('organizations.view'), async (req, re
 
 router.put('/:id/quota', requirePermission('organizations.update'), async (req, res, next) => {
   try {
-    await OrganizationQuota.upsert(req.params.id, req.body);
+    const QUOTA_FIELDS = ['max_clients', 'max_devices', 'max_storage_mb', 'max_scheduled_tasks'];
+    const { ValidationError: VE } = require('../utils/errors');
+    const body = req.body || {};
+    for (const key of Object.keys(body)) {
+      if (!QUOTA_FIELDS.includes(key)) {
+        return next(new VE(`Unknown quota field: ${key}`));
+      }
+      const val = body[key];
+      if (val !== null && val !== '') {
+        const num = Number(val);
+        if (!Number.isInteger(num) || num < 0) {
+          return next(new VE(`${key} must be a non-negative integer or null`));
+        }
+      }
+    }
+    await OrganizationQuota.upsert(req.params.id, body);
     const data = await getQuotaWithUsage(req.params.id);
     res.json({ data });
   } catch (err) {

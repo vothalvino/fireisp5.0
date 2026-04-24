@@ -96,11 +96,14 @@ async function checkQuota(orgId, resource) {
     const labels = {
       clients: 'client',
       devices: 'device',
-      storage_mb: 'storage',
+      storage_mb: 'MB storage',
       scheduled_tasks: 'scheduled task',
     };
+    const label = labels[resource] ?? resource;
+    const uncountable = resource === 'storage_mb';
+    const plural = uncountable ? '' : limit === 1 ? '' : 's';
     throw new ValidationError(
-      `Tenant quota exceeded: maximum ${limit} ${labels[resource] ?? resource}${limit === 1 ? '' : 's'} allowed (current: ${current})`,
+      `Tenant quota exceeded: maximum ${limit} ${label}${plural} allowed (current: ${current})`,
     );
   }
 }
