@@ -809,6 +809,8 @@ describe('Device Routes — /api/devices', () => {
     test('creates a device and returns 201', async () => {
       mockAuthUser();
       db.query
+        // quotaCheck: SELECT * FROM organization_quotas → no row → unlimited
+        .mockResolvedValueOnce([[]])
         .mockResolvedValueOnce([{ insertId: 2, affectedRows: 1 }])
         .mockResolvedValueOnce([[{ ...mockDevice, id: 2 }]])
         .mockResolvedValueOnce([{ affectedRows: 1 }]);

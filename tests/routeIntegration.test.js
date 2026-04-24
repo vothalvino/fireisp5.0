@@ -248,6 +248,8 @@ describe('Client Routes — /api/clients', () => {
       mockAuthUser();
       // Model.create: first query = INSERT, second = findById
       db.query
+        // quotaCheck: SELECT * FROM organization_quotas → no row → unlimited
+        .mockResolvedValueOnce([[]])
         .mockResolvedValueOnce([{ insertId: 5, affectedRows: 1 }])
         .mockResolvedValueOnce([[{ id: 5, name: 'New Client', organization_id: 1, status: 'active' }]])
         // auditLog.log
