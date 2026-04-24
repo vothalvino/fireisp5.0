@@ -344,13 +344,8 @@ function httpPost(url, body, headers, timeout) {
 }
 
 // ---------------------------------------------------------------------------
-// Backward-compat shim
+// Backward-compat helpers
 // ---------------------------------------------------------------------------
-
-/** @deprecated Use processRetries() instead. */
-async function retryPending() {
-  return processRetries();
-}
 
 /**
  * deliver() kept for backward compatibility.
@@ -365,7 +360,6 @@ module.exports = {
   deliver,
   deliverOnce,
   processRetries,
-  retryPending,
   markDeadLetter,
   listDeadLetters,
   redeliverDeadLetter,

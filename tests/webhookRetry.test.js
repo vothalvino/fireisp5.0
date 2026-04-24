@@ -316,12 +316,12 @@ describe('redeliverDeadLetter()', () => {
 });
 
 // =============================================================================
-// retryPending() backward compat shim
+// processRetries() — alias for retry processing
 // =============================================================================
-describe('retryPending() (deprecated shim)', () => {
-  test('delegates to processRetries() and returns same shape', async () => {
+describe('processRetries() (public API)', () => {
+  test('returns zero counts when no pending deliveries', async () => {
     db.query.mockResolvedValueOnce([[]]);
-    const result = await webhookService.retryPending();
+    const result = await webhookService.processRetries();
     expect(result).toHaveProperty('succeeded');
     expect(result).toHaveProperty('total');
   });

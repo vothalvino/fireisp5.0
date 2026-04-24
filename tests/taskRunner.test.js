@@ -36,7 +36,7 @@ jest.mock('../src/services/emailTransport', () => ({
 }));
 
 jest.mock('../src/services/webhookService', () => ({
-  retryPending: jest.fn(),
+  processRetries: jest.fn(),
 }));
 
 jest.mock('../src/services/checkoutService', () => ({

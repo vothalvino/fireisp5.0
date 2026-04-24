@@ -115,12 +115,12 @@ describe('webhookService', () => {
   });
 
   // =========================================================================
-  // retryPending (deprecated shim — delegates to processRetries)
+  // processRetries delegate behaviour
   // =========================================================================
-  describe('retryPending()', () => {
+  describe('processRetries()', () => {
     test('returns zero counts when no pending deliveries', async () => {
       db.query.mockResolvedValueOnce([[]]);
-      const result = await webhookService.retryPending();
+      const result = await webhookService.processRetries();
       expect(result.succeeded).toBe(0);
       expect(result.total).toBe(0);
     });
