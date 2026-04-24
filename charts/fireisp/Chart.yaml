@@ -1,0 +1,17 @@
+apiVersion: v2
+name: fireisp
+description: FireISP 5.0 — ISP management platform (billing, RADIUS, SNMP, CFDI)
+type: application
+version: 5.0.0
+appVersion: "5.0.0"
+keywords:
+  - isp
+  - billing
+  - radius
+  - mikrotik
+home: https://github.com/vothalvino/fireisp5.0
+sources:
+  - https://github.com/vothalvino/fireisp5.0
+maintainers:
+  - name: FireISP
+    url: https://github.com/vothalvino/fireisp5.0

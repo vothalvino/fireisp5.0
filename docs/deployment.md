@@ -1167,3 +1167,244 @@ BULLMQ_CONCURRENCY=5
 ```
 
 > **Tip:** For large deployments (10,000+ clients), run separate worker processes dedicated to SNMP polling and invoice generation to avoid blocking lighter tasks like email delivery.
+
+---
+
+## Helm Chart Deployment
+
+FireISP 5.0 ships a production-grade Helm chart under `charts/fireisp/` that
+templates every Kubernetes resource (Namespace, ConfigMap, Secret, Deployment,
+Service, Ingress, HPA, PDB, PVC, PrometheusRule, and ClusterImagePolicy).
+
+### Prerequisites
+
+- Helm 3.12+
+- Kubernetes 1.27+
+- (Optional) [cert-manager](https://cert-manager.io/) for TLS
+- (Optional) [Prometheus Operator](https://github.com/prometheus-operator/prometheus-operator) for alerting rules
+- (Optional) [Sigstore policy-controller](https://github.com/sigstore/policy-controller) for image verification
+
+### Quick Start
+
+```bash
+# Add the chart repo (GitHub Pages — populated by chart-releaser CI)
+helm repo add fireisp https://vothalvino.github.io/fireisp5.0
+helm repo update
+
+# Install into the fireisp namespace (creates namespace automatically)
+helm install fireisp fireisp/fireisp \
+  --namespace fireisp --create-namespace \
+  --set ingress.hostname=isp.example.com \
+  --set secrets.JWT_SECRET="$(openssl rand -base64 48)" \
+  --set secrets.ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+  --set secrets.DB_HOST=mysql.fireisp.svc.cluster.local \
+  --set secrets.DB_PASSWORD=my-db-password
+```
+
+> **Production secret management:** Do not pass secrets via `--set` in CI
+> pipelines. Use Sealed Secrets or External Secrets Operator instead —
+> see [docs/secrets-management.md](./secrets-management.md).
+
+### Installing from Source
+
+```bash
+cd charts/fireisp
+helm dependency update          # no external dependencies currently
+helm install fireisp . \
+  --namespace fireisp --create-namespace \
+  -f my-values.yaml
+```
+
+### values.yaml Overrides
+
+Create a `my-values.yaml` that overrides only what you need:
+
+```yaml
+replicaCount: 3
+
+image:
+  repository: ghcr.io/vothalvino/fireisp5.0
+  tag: "5.0.0"
+
+ingress:
+  hostname: isp.example.com
+  tls:
+    enabled: true
+    clusterIssuer: letsencrypt-prod   # cert-manager ClusterIssuer name
+
+config:
+  LOG_LEVEL: "info"
+  FEATURE_SSO: "true"
+
+secrets:
+  JWT_SECRET: ""          # populated by Sealed Secret / ESO
+  ENCRYPTION_KEY: ""
+  DB_HOST: mysql-primary.fireisp.svc.cluster.local
+  DB_PASSWORD: ""
+
+persistence:
+  size: 50Gi
+  storageClassName: gp3
+
+monitoring:
+  enabled: true           # requires Prometheus Operator CRDs
+
+cosignPolicy:
+  enabled: true           # requires sigstore policy-controller CRDs
+```
+
+### Running Migrations
+
+Run migrations once after the first install (or after upgrading):
+
+```bash
+kubectl exec -n fireisp deploy/fireisp -- npm run migrate
+```
+
+### Upgrading
+
+```bash
+helm upgrade fireisp fireisp/fireisp \
+  --namespace fireisp \
+  -f my-values.yaml \
+  --set image.tag=5.1.0
+```
+
+### Uninstalling
+
+```bash
+helm uninstall fireisp --namespace fireisp
+# The PVC is NOT deleted by default (Helm preserves PVCs by default). The
+# Secret also has helm.sh/resource-policy: keep — delete both manually if
+# doing a full teardown.
+kubectl delete pvc -n fireisp fireisp-storage
+```
+
+---
+
+## GitOps with Argo CD
+
+[Argo CD](https://argo-cd.readthedocs.io/) can continuously reconcile the
+Helm chart against your cluster, giving you automated drift detection and
+one-click rollbacks.
+
+### Install Argo CD
+
+```bash
+kubectl create namespace argocd
+kubectl apply -n argocd \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+```
+
+### Argo CD Application Manifest
+
+Create `gitops/fireisp-app.yaml` and commit it to your GitOps repository:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fireisp
+  namespace: argocd
+  # Cascade delete: removing this Application also removes the K8s resources.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/vothalvino/fireisp5.0
+    targetRevision: main          # or a tag, e.g. v5.0.0
+    path: charts/fireisp
+    helm:
+      valueFiles:
+        - values.yaml
+        # Override with environment-specific values committed to the repo:
+        - values-production.yaml
+      # Fine-grained overrides (avoid plain-text secrets here):
+      parameters:
+        - name: image.tag
+          value: "5.0.0"
+        - name: ingress.hostname
+          value: isp.example.com
+        - name: ingress.tls.enabled
+          value: "true"
+        - name: ingress.tls.clusterIssuer
+          value: letsencrypt-prod
+        - name: monitoring.enabled
+          value: "true"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fireisp
+
+  syncPolicy:
+    automated:
+      prune: true         # remove resources deleted from the chart
+      selfHeal: true      # revert manual kubectl changes
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+```
+
+Apply the Application to Argo CD:
+
+```bash
+kubectl apply -f gitops/fireisp-app.yaml
+# Open the Argo CD UI to watch the sync:
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+# https://localhost:8080 — default credentials: admin / <initial-password>
+argocd admin initial-password -n argocd
+```
+
+### Secrets with Argo CD + Sealed Secrets
+
+Combine Argo CD with [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets)
+so encrypted secret manifests can be committed safely to git:
+
+```bash
+# Seal the fireisp-secret for the fireisp namespace
+kubectl create secret generic fireisp-secret \
+  --namespace fireisp \
+  --dry-run=client \
+  --from-literal=JWT_SECRET="$(openssl rand -base64 48)" \
+  --from-literal=ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+  --from-literal=DB_PASSWORD="my-password" \
+  -o yaml \
+  | kubeseal --format yaml > gitops/fireisp-sealed-secret.yaml
+
+git add gitops/fireisp-sealed-secret.yaml
+git commit -m "chore: rotate fireisp secrets"
+git push
+# Argo CD will automatically apply the SealedSecret and Sealed Secrets
+# controller will decrypt it into a regular Secret inside the cluster.
+```
+
+See [docs/secrets-management.md](./secrets-management.md) for the full
+Sealed Secrets workflow and other secret-backend options (ESO / Vault).
+
+### Chart Release Workflow
+
+The CI pipeline (`.github/workflows/ci.yml`) includes a `helm-release` job
+that runs on every push of a version tag (`v*.*.*`):
+
+1. Packages the chart with `helm package charts/fireisp`.
+2. Uploads the packaged chart to the `gh-pages` branch via
+   [`helm/chart-releaser-action`](https://github.com/helm/chart-releaser-action).
+3. The updated `index.yaml` is served at
+   `https://vothalvino.github.io/fireisp5.0` and is immediately available
+   to `helm repo update`.
+
+To cut a new chart release, bump `version` in `charts/fireisp/Chart.yaml`
+(and `appVersion` if the app changed) and push a matching git tag:
+
+```bash
+git tag v5.1.0
+git push origin v5.1.0
+```

@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*.*.*"]
   pull_request:
     branches: [main]
 
@@ -388,3 +389,45 @@ jobs:
             report_html.html
             report_json.json
           retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Helm chart lint + release
+  # Lint runs on every push/PR; release (chart-releaser) runs only on v* tags.
+  # ---------------------------------------------------------------------------
+  helm-release:
+    name: Helm lint & release
+    runs-on: ubuntu-latest
+    needs: [lint-and-test]
+    permissions:
+      contents: write   # chart-releaser needs to push to gh-pages
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # chart-releaser needs full history for gh-pages
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+
+      - name: Lint Helm chart
+        run: helm lint charts/fireisp --strict
+
+      - name: Template Helm chart (smoke-render)
+        run: |
+          helm template fireisp charts/fireisp \
+            --set secrets.JWT_SECRET=test-jwt-secret-placeholder \
+            --set secrets.ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 \
+            > /dev/null
+
+      # chart-releaser publishes packaged charts to the gh-pages branch and
+      # generates an updated Helm repo index.yaml.  Only runs on v* tags.
+      - name: Run chart-releaser
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: helm/chart-releaser-action@v1.6.0
+        env:
+          CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          charts_dir: charts
+          skip_existing: true

@@ -1,0 +1,20 @@
+FireISP {{ .Chart.AppVersion }} deployed successfully.
+
+1. Get the application URL:
+{{- if .Values.ingress.enabled }}
+  http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.hostname }}
+{{- else }}
+  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "{{ include "fireisp.selectorLabels" . }}" -o jsonpath="{.items[0].metadata.name}")
+  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 3000:3000
+  Open http://127.0.0.1:3000
+{{- end }}
+
+2. Run database migrations (first deploy only):
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "fireisp.fullname" . }} -- npm run migrate
+
+3. (Optional) Seed demo data:
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "fireisp.fullname" . }} -- npm run seed
+
+⚠  IMPORTANT: Replace the placeholder secret values in values.yaml (or a
+   sealed-secrets / external-secrets overlay) before going to production.
+   See docs/secrets-management.md for full instructions.
