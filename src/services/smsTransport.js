@@ -226,7 +226,9 @@ async function sendSms({ organizationId, clientId = null, to, body, channel = 's
 
 /**
  * Queue an SMS for later delivery by inserting a 'queued' row into sms_logs.
- * The sms_send scheduled task will pick it up and call processQueue().
+ * When REDIS_URL is set the job is also enqueued via BullMQ for immediate
+ * processing rather than waiting for the next cron tick.
+ * The sms_send scheduled task / BullMQ worker will call retryLog() to send.
  *
  * @param {object} opts - Same as sendSms()
  * @returns {Promise<{queued: true, logId: number}>}
@@ -242,7 +244,18 @@ async function queueSms({ organizationId, clientId = null, to, body, channel = '
     [organizationId, clientId, to, channel, templateId, body, provider],
   );
 
-  return { queued: true, logId: result.insertId };
+  const logId = result.insertId;
+
+  // When BullMQ is available dispatch immediately — otherwise the cron task picks it up
+  if (process.env.REDIS_URL) {
+    const jobQueue = require('./jobQueueService');
+    await jobQueue.add('sms-send', { logId }, {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 2000 },
+    }).catch(() => {}); // Non-critical: cron fallback will pick it up
+  }
+
+  return { queued: true, logId };
 }
 
 /**

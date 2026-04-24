@@ -14,6 +14,11 @@
 const logger = require('../utils/logger');
 
 // ---------------------------------------------------------------------------
+// Well-known queue names — used for stats even before any jobs are added
+// ---------------------------------------------------------------------------
+const QUEUE_NAMES = ['scheduled-task', 'webhook-delivery', 'sms-send', 'cfdi-stamp', 'config-backup'];
+
+// ---------------------------------------------------------------------------
 // In-process queue (fallback when BullMQ is not available)
 // ---------------------------------------------------------------------------
 class InProcessQueue {
@@ -69,6 +74,10 @@ class InProcessQueue {
   async close() {
     this.handlers.clear();
   }
+
+  async getStats() {
+    return { mode: 'in-process', queues: [] };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +127,23 @@ function createQueue() {
           for (const [, w] of workers) await w.close();
           for (const [, q] of queues) await q.close();
         },
+
+        async getStats() {
+          try {
+            const stats = await Promise.all(QUEUE_NAMES.map(async (name) => {
+              if (!queues.has(name)) {
+                queues.set(name, new Queue(name, { connection }));
+              }
+              const counts = await queues.get(name).getJobCounts(
+                'waiting', 'active', 'completed', 'failed', 'delayed',
+              );
+              return { name, ...counts };
+            }));
+            return { mode: 'bullmq', queues: stats };
+          } catch (_err) {
+            return { mode: 'bullmq', queues: [], error: 'Stats unavailable' };
+          }
+        },
       };
     } catch (_err) {
       logger.info('bullmq not installed — using in-process job queue');
@@ -139,4 +165,6 @@ module.exports = {
   add: (name, data, opts) => getQueue().add(name, data, opts),
   process: (name, handler) => getQueue().process(name, handler),
   close: () => getQueue().close(),
+  getStats: () => getQueue().getStats(),
+  QUEUE_NAMES,
 };

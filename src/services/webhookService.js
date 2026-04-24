@@ -5,6 +5,10 @@
 // Failed deliveries are scheduled for background retry with exponential backoff
 // rather than retrying inline — call processRetries() from the webhook_retry
 // scheduled task to process due retries.
+//
+// When REDIS_URL is set, dispatch() enqueues jobs via BullMQ and the
+// webhook-delivery worker handles delivery + retry natively (no DB polling
+// needed).  When REDIS_URL is absent the existing inline + DB-poll path is used.
 // =============================================================================
 
 const crypto = require('crypto');
@@ -45,8 +49,12 @@ function nextRetryAt(delayMs) {
 
 /**
  * Dispatch an event to all matching webhooks for an organization.
- * Each webhook gets exactly one HTTP attempt; failures are queued for
- * background retry via processRetries().
+ *
+ * When REDIS_URL is set (BullMQ available): each webhook delivery is enqueued
+ * as a separate BullMQ job — non-blocking, with native retry/backoff.
+ *
+ * Fallback (no Redis): each webhook gets exactly one HTTP attempt inline;
+ * failures are queued for background retry via processRetries().
  */
 async function dispatch(organizationId, event, payload) {
   const [webhooks] = await db.query(
@@ -59,6 +67,26 @@ async function dispatch(organizationId, event, payload) {
     return events.includes(event) || events.includes('*');
   });
 
+  // BullMQ path: enqueue each delivery as a non-blocking job
+  if (process.env.REDIS_URL) {
+    const jobQueue = require('./jobQueueService');
+    const results = await Promise.all(matching.map(async (webhook) => {
+      const maxRetries = webhook.max_retries != null ? webhook.max_retries : 5;
+      const job = await jobQueue.add('webhook-delivery', {
+        webhookId: webhook.id,
+        event,
+        payloadJson: JSON.stringify(payload),
+        deliveryRowId: null,
+      }, {
+        attempts: maxRetries + 1,
+        backoff: { type: 'exponential', delay: 10000 },
+      });
+      return { webhook_id: webhook.id, status: 'queued', job_id: job.id };
+    }));
+    return { dispatched: results.length, results };
+  }
+
+  // Fallback: inline delivery (no Redis)
   const results = [];
   for (const webhook of matching) {
     const result = await deliverOnce(webhook, event, payload, 1);
@@ -178,8 +206,135 @@ async function deliverOnce(webhook, event, payload, attemptNumber, deliveryRowId
 }
 
 // ---------------------------------------------------------------------------
-// Background retry processor
+// BullMQ worker handler: deliverForWorker()
 // ---------------------------------------------------------------------------
+
+/**
+ * Handle a BullMQ webhook-delivery job.
+ *
+ * Job data: { webhookId, event, payloadJson, deliveryRowId }
+ *   - deliveryRowId is null on the first attempt and is populated (via
+ *     job.update) after the INSERT so subsequent retries UPDATE the same row.
+ *
+ * Throws on transient failure so BullMQ retries with native backoff.
+ * Returns normally on success or permanent failure (dead_letter).
+ *
+ * @param {import('bullmq').Job} job
+ */
+async function deliverForWorker(job) {
+  const { webhookId, event, payloadJson, deliveryRowId: existingRowId } = job.data;
+  const attemptNumber = (job.attemptsMade || 0) + 1;
+  // BullMQ opts.attempts counts all attempts (including first); subtract 1 for retries remaining
+  const maxAttempts = job.opts?.attempts || 6;
+  const isFinalAttempt = attemptNumber >= maxAttempts;
+
+  const [webhooks] = await db.query(
+    'SELECT * FROM webhooks WHERE id = ? AND is_enabled = 1',
+    [webhookId],
+  );
+
+  if (!webhooks.length) {
+    // Webhook disabled or deleted — stop retrying
+    return { status: 'webhook_disabled', webhook_id: webhookId };
+  }
+
+  const webhook = webhooks[0];
+  let payload;
+  try {
+    payload = payloadJson ? JSON.parse(payloadJson) : {};
+  } catch (_) {
+    payload = {};
+  }
+
+  const body = JSON.stringify({ event, data: payload, timestamp: new Date().toISOString() });
+  const signature = webhook.secret_encrypted
+    ? crypto.createHmac('sha256', webhook.secret_encrypted).update(body).digest('hex')
+    : null;
+  const timeout = (webhook.timeout_seconds || 10) * 1000;
+  const startTime = Date.now();
+
+  let httpStatus = null;
+  let responseBody = null;
+  let responseTimeMs;
+  let ok = false;
+  let lastError = null;
+
+  try {
+    const response = await httpPost(webhook.url, body, {
+      'Content-Type': 'application/json',
+      'X-FireISP-Event': event,
+      ...(signature && { 'X-FireISP-Signature': `sha256=${signature}` }),
+    }, timeout);
+
+    responseTimeMs = Date.now() - startTime;
+    httpStatus = response.statusCode;
+    responseBody = response.body ? response.body.slice(0, 4096) : null;
+    ok = httpStatus >= 200 && httpStatus < 300;
+    if (!ok) lastError = `HTTP ${httpStatus}`;
+  } catch (err) {
+    responseTimeMs = Date.now() - startTime;
+    lastError = err.message;
+  }
+
+  if (ok) {
+    if (existingRowId) {
+      await db.query(
+        `UPDATE webhook_deliveries
+         SET http_status_code = ?, response_body = ?, response_time_ms = ?,
+             attempt_number = ?, status = 'success', delivered_at = NOW(),
+             next_retry_at = NULL
+         WHERE id = ?`,
+        [httpStatus, responseBody, responseTimeMs, attemptNumber, existingRowId],
+      ).catch(() => {});
+    } else {
+      await db.query(
+        `INSERT INTO webhook_deliveries
+         (webhook_id, event_name, payload, http_status_code, response_body,
+          response_time_ms, attempt_number, status, delivered_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'success', NOW())`,
+        [webhook.id, event, body, httpStatus, responseBody, responseTimeMs, attemptNumber],
+      ).catch(() => {});
+    }
+    return { webhook_id: webhook.id, status: 'success', attempt_number: attemptNumber };
+  }
+
+  // Failure — determine final vs transient
+  const newStatus = isFinalAttempt ? 'dead_letter' : 'retrying';
+
+  if (existingRowId) {
+    await db.query(
+      `UPDATE webhook_deliveries
+       SET http_status_code = ?, response_body = ?, response_time_ms = ?,
+           attempt_number = ?, status = ?, next_retry_at = NULL
+       WHERE id = ?`,
+      [httpStatus, responseBody, responseTimeMs, attemptNumber, newStatus, existingRowId],
+    ).catch(() => {});
+  } else {
+    // First attempt — INSERT and persist rowId in job data for later retries
+    try {
+      const [insertResult] = await db.query(
+        `INSERT INTO webhook_deliveries
+         (webhook_id, event_name, payload, http_status_code, response_body,
+          response_time_ms, attempt_number, status, next_retry_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+        [webhook.id, event, body, httpStatus, responseBody, responseTimeMs, attemptNumber, newStatus],
+      );
+      if (insertResult?.insertId && typeof job.update === 'function') {
+        await job.update({ ...job.data, deliveryRowId: insertResult.insertId }).catch(() => {});
+      }
+    } catch (_err) {
+      // Audit row failure must not block the retry cycle
+    }
+  }
+
+  if (!isFinalAttempt) {
+    throw new Error(`Webhook delivery failed (attempt ${attemptNumber}): ${lastError || 'HTTP error'}`);
+  }
+
+  return { webhook_id: webhook.id, status: 'dead_letter', attempt_number: attemptNumber, error: lastError };
+}
+
+
 
 /**
  * Process all webhook deliveries that are due for retry.
@@ -359,6 +514,7 @@ module.exports = {
   dispatch,
   deliver,
   deliverOnce,
+  deliverForWorker,
   processRetries,
   markDeadLetter,
   listDeadLetters,
