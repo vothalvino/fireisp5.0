@@ -1,0 +1,26 @@
+{{- if .Values.cosignPolicy.enabled -}}
+# Sigstore Policy Controller — ClusterImagePolicy for FireISP image verification.
+# Prerequisites: policy-controller CRDs installed.
+#   helm repo add sigstore https://sigstore.github.io/helm-charts
+#   helm upgrade --install policy-controller sigstore/policy-controller \
+#     -n cosign-system --create-namespace
+#   kubectl label namespace {{ .Release.Namespace }} policy.sigstore.dev/include=true
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: {{ include "fireisp.fullname" . }}-image-policy
+  labels:
+    {{- include "fireisp.labels" . | nindent 4 }}
+spec:
+  images:
+    - glob: "ghcr.io/vothalvino/fireisp5.0:*"
+  authorities:
+    - name: keyless-github-actions
+      keyless:
+        url: https://fulcio.sigstore.dev
+        identities:
+          - issuer: https://token.actions.githubusercontent.com
+            subjectRegExp: "^https://github.com/vothalvino/fireisp5.0/.github/workflows/ci.yml@refs/heads/main$"
+      ctlog:
+        url: https://rekor.sigstore.dev
+{{- end }}
