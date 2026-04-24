@@ -17,7 +17,7 @@ An open source ISP (Internet Service Provider) management software designed to h
 - Audit logging and notifications
 - Email / SMS / WhatsApp send log for auditing and billing disputes
 - Service outage tracking with SLA reporting hooks
-- Scheduled task observability and active session management — nine core automation tasks seeded on install (`auto_generate_invoices`, `auto_suspend_overdue`, `radius_sync`, `populate_revenue_summary`, `populate_network_health_snapshots`, `csd_expiry_monitor`, `alert_evaluation`, `process_recurring_charges`, `data_retention`)
+- Scheduled task observability and active session management — fifteen core automation tasks seeded on install (`auto_generate_invoices`, `auto_suspend_overdue`, `radius_sync`, `populate_revenue_summary`, `populate_network_health_snapshots`, `csd_expiry_monitor`, `alert_evaluation`, `process_recurring_charges`, `data_retention`, `payment_retry`, `billing_cycle`, `database_backup`, `config_backup`, `webhook_retry`, `quarterly_dr_drill`)
 - Monitoring alert rules with configurable thresholds, severity levels, and multi-channel notifications (email, SMS, SSE, webhook)
 - Two-factor authentication (TOTP) with backup codes and brute-force account lockout
 - FireRelay cluster mode for multi-node deployments with client routing
@@ -45,8 +45,8 @@ An open source ISP (Internet Service Provider) management software designed to h
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 110 tables)
-│   └── migrations/          # Individual numbered migration files (001–163)
+│   ├── schema.sql           # Combined schema (all 111 tables)
+│   └── migrations/          # Individual numbered migration files (001–164)
 ├── src/                     # Application source code
 │   ├── app.js               # Express app setup (middleware, routes, error handling)
 │   ├── server.js            # HTTP server entry point
@@ -126,83 +126,87 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 28 | `snmp_rollup_state` | High-watermark table tracking the last successfully rolled-up timestamp per tier |
 | 29 | `snmp_profiles` | SNMP OID polling profiles — named templates that map device brands/models to their OIDs |
 | 30 | `snmp_profile_oids` | Individual OID-to-column mappings belonging to an SNMP profile |
-| 31 | `connection_logs` | Subscriber session events (start/stop/interim-update) for regulatory compliance and per-contract data usage — partitioned by month, 2-year retention |
-| 32 | `warehouses` | Physical storage locations for spare equipment and materials (multiple warehouses supported) |
-| 33 | `inventory_items` | Catalog of spare equipment and materials (antennas, cables, routers, ONUs, etc.) |
-| 34 | `inventory_stock` | Current stock levels per item per warehouse location (aisle / column / shelf) |
-| 35 | `inventory_transactions` | Immutable log of every stock movement — receiving, job assignments, client sales, transfers, returns, and adjustments |
-| 36 | `credit_notes` | Credit notes issued to clients — for returns, courtesy, service outages, billing errors, duplicate payments, downgrades, cancellations, etc. |
-| 37 | `credit_note_items` | Individual line items that make up a credit note's subtotal |
-| 38 | `payment_allocations` | Junction table for split payments — records what portion of a payment was applied to each invoice (supports one-payment-many-invoices) |
-| 39 | `billing_periods` | Tracks each contract's billing windows — which periods have been invoiced, which are upcoming, and when the next invoice should be auto-generated |
-| 40 | `network_links` | Device-to-device connections — fiber, wireless, copper, or virtual links with capacity and interface metadata |
-| 41 | `settings` | App settings / key-value configuration store — system-wide settings such as default tax rate, currency, invoice prefix, SMTP config, and SNMP poll interval |
-| 42 | `tax_rules` | Tax rules per region and service type — supports VAT, sales tax, GST, and other regional tax configurations for multi-country ISPs |
-| 43 | `client_balance_ledger` | Running account balance per client (prepaid / postpaid tracking) — records every debit (invoice, usage deduction) and credit (payment, top-up, credit note, adjustment) with a running balance; supports prepaid (credit remaining) and postpaid (amount owed) billing models |
-| 44 | `email_logs` | Email / SMS / WhatsApp send log — records every message sent to clients or internal users with delivery status (queued, sent, delivered, failed, bounced) |
-| 45 | `scheduled_tasks` | App-level task queue — dispatches recurring and one-shot jobs (auto-suspend overdue clients, generate invoices, RADIUS sync, SNMP polls) with cron scheduling, distributed locking, retry logic, priority ordering, and JSON payloads |
-| 46 | `user_sessions` | Active session tracking for security audit — stores hashed session tokens, IP address, user-agent, and expiry; enables "logout all devices" and suspicious-login detection |
-| 47 | `roles` | RBAC role definitions — named roles with optional system-role flag (system roles cannot be deleted) |
-| 48 | `permissions` | RBAC permission definitions — granular permission slugs (e.g. `clients.view`, `invoices.create`) grouped by functional module |
-| 49 | `role_permissions` | RBAC junction table — maps roles to their granted permissions (many-to-many) |
-| 50 | `outages` | Planned and unplanned outage log — tracks network-wide events affecting many clients at once, per site and/or device with start/end times, severity, affected client count, root cause, and resolution status |
-| 51 | `schema_migrations` | Migration state tracking — records which migration files have been applied so the deploy script can skip already-run files |
-| 52 | `vlans` | VLAN registry linked to sites — tracks IEEE 802.1Q VLAN IDs per site for network segmentation, service isolation, and capacity planning |
-| 53 | `tax_rates` | Named tax configurations (e.g. "IVA 16%", "Exempt", "GST 5%") — master table of reusable tax rates referenced by invoices, quotes, and credit notes |
-| 54 | `message_templates` | Reusable message templates for email, SMS, and WhatsApp — stores subject, body, and placeholder variables for outbound communications (invoice reminders, welcome messages, outage alerts) |
-| 55 | `api_tokens` | API keys for external integrations — hashed token secrets with optional scopes, expiry, revocation, and last-used tracking for third-party billing, monitoring tools, and custom integrations |
-| 56 | `promotions` | Coupon codes, promotional pricing, and referral discounts — supports percentage and fixed-amount discounts with optional coupon codes, validity windows, per-client usage limits, and minimum order thresholds |
-| 57 | `service_areas` | Geographic service areas (regions / markets) for sales territory assignment and network planning — named boundary polygons (WGS 84) linked to sites, with planned/active/retired status and map colour |
-| 58 | `coverage_zones` | Coverage zones within a service area — finer-grained polygons describing network reach, access technology (fiber, fixed wireless, DSL, cable, satellite, LTE, 5G), maximum speeds, and build-out status |
-| 59 | `sla_definitions` | SLA terms per plan — uptime guarantees (e.g. 99.95%), maximum response and resolution times, compensation rules for SLA breaches, measurement periods, and maintenance-window exclusions |
-| 60 | `device_config_backups` | Versioned configuration snapshots per device — stores MikroTik exports, RouterOS backups, Cisco running-config, and similar captures with SHA-256 checksums for change detection, version tracking, and capture method (manual, scheduled, pre/post change) |
-| 61 | `client_mx_profiles` | Mexico extension for clients (1:1) — required when `clients.locale = 'MX'` and at least one contract has `facturar = TRUE`; stores RFC, CURP, razon_social, regimen_fiscal, codigo_postal_fiscal, and Mexican address fields for CFDI 4.0 compliance |
-| 62 | `organization_mx_profiles` | Mexico extension for organizations (1:1) — required when `organizations.locale = 'MX'`; stores RFC, razon_social, CSD digital-seal certificate, PAC stamping credentials, CFDI series/folio numbering, and Mexican address fields |
-| 63 | `sat_regimen_fiscal` | SAT catalog c_RegimenFiscal — fiscal regime codes (601–626) used on CFDI 4.0 issuer and receptor nodes |
-| 64 | `sat_uso_cfdi` | SAT catalog c_UsoCFDI — permitted use codes for the CFDI receptor (G01, G03, S01, CP01, etc.) |
-| 65 | `sat_forma_pago` | SAT catalog c_FormaPago — payment instrument codes (01=cash, 03=SPEI, 28=debit card, 99=TBD, etc.) |
-| 66 | `sat_metodo_pago` | SAT catalog c_MetodoPago — payment timing: PUE (single payment) or PPD (installments / deferred) |
-| 67 | `sat_tipo_comprobante` | SAT catalog c_TipoDeComprobante — CFDI document type: I=ingreso, E=egreso, P=pago, T=traslado, N=nómina |
-| 68 | `sat_moneda` | SAT catalog c_Moneda (subset) — currencies accepted in CFDI 4.0: MXN, USD, EUR, XXX |
-| 69 | `cfdi_documents` | Core CFDI 4.0 fiscal document records linked to invoices, credit notes, and payments — stores folio fiscal UUID, XML, PDF URL, PAC stamping metadata, SAT status, and receiver snapshot |
-| 70 | `cfdi_related_documents` | CfdiRelacionados rows per CFDI document — records relationships between CFDIs (e.g. credit note referencing original invoice, substitution of cancelled CFDI) |
-| 71 | `cfdi_payment_complements` | Complemento de Pago 2.0 headers — one per payment event for PPD invoices; records payment date, payment form, amounts, and bank details |
-| 72 | `cfdi_payment_complement_items` | DoctoRelacionado rows per Complemento de Pago — links each payment event to the specific PPD invoices being settled with balance tracking |
-| 73 | `concession_titles` | IFT/CRT concession title registry — tracks title number, type, authorized services, spectrum bands, validity dates, and regulatory status for each organization |
-| 74 | `regulatory_filings` | IFT/CRT periodic filing log — annual reports, quarterly stats, tariff registrations, QoS reports, and other LFTR-mandated submissions |
-| 75 | `contract_templates_mx` | IFT/CRT-registered Carta de Adhesión templates — stores the registered standard contract model including registration number, version, body text, and approval status |
-| 76 | `ift_statistical_reports` | Pre-aggregated IFT/CRT reporting snapshots — subscriber counts by speed tier/state/technology, average speeds, coverage municipalities, and revenue per reporting period (see [`docs/ift-statistical-report-schema-review.md`](docs/ift-statistical-report-schema-review.md) for the field-by-field validation against the IFT *Formato Estadístico* — UI/export work is gated on that review) |
-| 77 | `sat_clave_prod_serv` | SAT catalog c_ClaveProdServ — product and service classification codes (e.g. `81161700` for internet access) required on every CFDI 4.0 line item |
-| 78 | `sat_clave_unidad` | SAT catalog c_ClaveUnidad — unit-of-measure codes (e.g. `E48` for service unit, `H87` for piece) required on every CFDI 4.0 line item |
+| 31 | `snmp_traps` | SNMP trap receiver log — stores unsolicited trap messages (coldStart, warmStart, linkDown, linkUp, authenticationFailure, egpNeighborLoss, enterpriseSpecific) from network devices |
+| 32 | `dr_drill_logs` | Audit log for automated quarterly DR-drill runs — records backup verification, referential-integrity checks, financial-consistency queries, and pass/fail status |
+| 33 | `connection_logs` | Subscriber session events (start/stop/interim-update) for regulatory compliance and per-contract data usage — partitioned by month, 2-year retention |
+| 34 | `warehouses` | Physical storage locations for spare equipment and materials (multiple warehouses supported) |
+| 35 | `inventory_items` | Catalog of spare equipment and materials (antennas, cables, routers, ONUs, etc.) |
+| 36 | `inventory_stock` | Current stock levels per item per warehouse location (aisle / column / shelf) |
+| 37 | `inventory_transactions` | Immutable log of every stock movement — receiving, job assignments, client sales, transfers, returns, and adjustments |
+| 38 | `credit_notes` | Credit notes issued to clients — for returns, courtesy, service outages, billing errors, duplicate payments, downgrades, cancellations, etc. |
+| 39 | `credit_note_items` | Individual line items that make up a credit note's subtotal |
+| 40 | `payment_allocations` | Junction table for split payments — records what portion of a payment was applied to each invoice (supports one-payment-many-invoices) |
+| 41 | `billing_periods` | Tracks each contract's billing windows — which periods have been invoiced, which are upcoming, and when the next invoice should be auto-generated |
+| 42 | `network_links` | Device-to-device connections — fiber, wireless, copper, or virtual links with capacity and interface metadata |
+| 43 | `settings` | App settings / key-value configuration store — system-wide settings such as default tax rate, currency, invoice prefix, SMTP config, and SNMP poll interval |
+| 44 | `tax_rules` | Tax rules per region and service type — supports VAT, sales tax, GST, and other regional tax configurations for multi-country ISPs |
+| 45 | `client_balance_ledger` | Running account balance per client (prepaid / postpaid tracking) — records every debit (invoice, usage deduction) and credit (payment, top-up, credit note, adjustment) with a running balance; supports prepaid (credit remaining) and postpaid (amount owed) billing models |
+| 46 | `email_logs` | Email / SMS / WhatsApp send log — records every message sent to clients or internal users with delivery status (queued, sent, delivered, failed, bounced) |
+| 47 | `scheduled_tasks` | App-level task queue — dispatches recurring and one-shot jobs (auto-suspend overdue clients, generate invoices, RADIUS sync, SNMP polls) with cron scheduling, distributed locking, retry logic, priority ordering, and JSON payloads |
+| 48 | `user_sessions` | Active session tracking for security audit — stores hashed session tokens, IP address, user-agent, and expiry; enables "logout all devices" and suspicious-login detection |
+| 49 | `portal_refresh_tokens` | Client self-service portal refresh tokens — stores SHA-256 hashed tokens for long-lived authentication with expiry and revocation tracking |
+| 50 | `roles` | RBAC role definitions — named roles with optional system-role flag (system roles cannot be deleted) |
+| 51 | `permissions` | RBAC permission definitions — granular permission slugs (e.g. `clients.view`, `invoices.create`) grouped by functional module |
+| 52 | `role_permissions` | RBAC junction table — maps roles to their granted permissions (many-to-many) |
+| 53 | `outages` | Planned and unplanned outage log — tracks network-wide events affecting many clients at once, per site and/or device with start/end times, severity, affected client count, root cause, and resolution status |
+| 54 | `schema_migrations` | Migration state tracking — records which migration files have been applied so the deploy script can skip already-run files |
+| 55 | `vlans` | VLAN registry linked to sites — tracks IEEE 802.1Q VLAN IDs per site for network segmentation, service isolation, and capacity planning |
+| 56 | `tax_rates` | Named tax configurations (e.g. "IVA 16%", "Exempt", "GST 5%") — master table of reusable tax rates referenced by invoices, quotes, and credit notes |
+| 57 | `message_templates` | Reusable message templates for email, SMS, and WhatsApp — stores subject, body, and placeholder variables for outbound communications (invoice reminders, welcome messages, outage alerts) |
+| 58 | `api_tokens` | API keys for external integrations — hashed token secrets with optional scopes, expiry, revocation, and last-used tracking for third-party billing, monitoring tools, and custom integrations |
+| 59 | `promotions` | Coupon codes, promotional pricing, and referral discounts — supports percentage and fixed-amount discounts with optional coupon codes, validity windows, per-client usage limits, and minimum order thresholds |
+| 60 | `service_areas` | Geographic service areas (regions / markets) for sales territory assignment and network planning — named boundary polygons (WGS 84) linked to sites, with planned/active/retired status and map colour |
+| 61 | `coverage_zones` | Coverage zones within a service area — finer-grained polygons describing network reach, access technology (fiber, fixed wireless, DSL, cable, satellite, LTE, 5G), maximum speeds, and build-out status |
+| 62 | `sla_definitions` | SLA terms per plan — uptime guarantees (e.g. 99.95%), maximum response and resolution times, compensation rules for SLA breaches, measurement periods, and maintenance-window exclusions |
+| 63 | `device_config_backups` | Versioned configuration snapshots per device — stores MikroTik exports, RouterOS backups, Cisco running-config, and similar captures with SHA-256 checksums for change detection, version tracking, and capture method (manual, scheduled, pre/post change) |
+| 64 | `client_mx_profiles` | Mexico extension for clients (1:1) — required when `clients.locale = 'MX'` and at least one contract has `facturar = TRUE`; stores RFC, CURP, razon_social, regimen_fiscal, codigo_postal_fiscal, and Mexican address fields for CFDI 4.0 compliance |
+| 65 | `organization_mx_profiles` | Mexico extension for organizations (1:1) — required when `organizations.locale = 'MX'`; stores RFC, razon_social, CSD digital-seal certificate, PAC stamping credentials, CFDI series/folio numbering, and Mexican address fields |
+| 66 | `sat_regimen_fiscal` | SAT catalog c_RegimenFiscal — fiscal regime codes (601–626) used on CFDI 4.0 issuer and receptor nodes |
+| 67 | `sat_uso_cfdi` | SAT catalog c_UsoCFDI — permitted use codes for the CFDI receptor (G01, G03, S01, CP01, etc.) |
+| 68 | `sat_forma_pago` | SAT catalog c_FormaPago — payment instrument codes (01=cash, 03=SPEI, 28=debit card, 99=TBD, etc.) |
+| 69 | `sat_metodo_pago` | SAT catalog c_MetodoPago — payment timing: PUE (single payment) or PPD (installments / deferred) |
+| 70 | `sat_tipo_comprobante` | SAT catalog c_TipoDeComprobante — CFDI document type: I=ingreso, E=egreso, P=pago, T=traslado, N=nómina |
+| 71 | `sat_moneda` | SAT catalog c_Moneda (subset) — currencies accepted in CFDI 4.0: MXN, USD, EUR, XXX |
+| 72 | `sat_clave_prod_serv` | SAT catalog c_ClaveProdServ — product and service classification codes (e.g. `81161700` for internet access) required on every CFDI 4.0 line item |
+| 73 | `sat_clave_unidad` | SAT catalog c_ClaveUnidad — unit-of-measure codes (e.g. `E48` for service unit, `H87` for piece) required on every CFDI 4.0 line item |
+| 74 | `cfdi_documents` | Core CFDI 4.0 fiscal document records linked to invoices, credit notes, and payments — stores folio fiscal UUID, XML, PDF URL, PAC stamping metadata, SAT status, and receiver snapshot |
+| 75 | `cfdi_related_documents` | CfdiRelacionados rows per CFDI document — records relationships between CFDIs (e.g. credit note referencing original invoice, substitution of cancelled CFDI) |
+| 76 | `cfdi_payment_complements` | Complemento de Pago 2.0 headers — one per payment event for PPD invoices; records payment date, payment form, amounts, and bank details |
+| 77 | `cfdi_payment_complement_items` | DoctoRelacionado rows per Complemento de Pago — links each payment event to the specific PPD invoices being settled with balance tracking |
+| 78 | `cfdi_payment_complement_item_taxes` | Per-DoctoRelacionado tax breakdown (ImpuestosP) for Complemento de Pago 2.0 — one row per `<Traslado>` or `<Retencion>` inside a payment complement item; stores tax type, SAT tax code, rate type, rate, taxable base, and calculated tax amount |
 | 79 | `cfdi_conceptos` | CFDI 4.0 concept (line item) rows — one per `<Concepto>` node; stores SAT product/service key, unit key, quantity, description, unit price, line total, optional discount, and ObjetoImp indicator |
 | 80 | `cfdi_concepto_impuestos` | Per-line tax breakdown for CFDI 4.0 — one row per `<Traslado>` or `<Retencion>` inside a concept; stores tax type, SAT tax code (ISR/IVA/IEPS), rate type, rate, taxable base, and calculated tax amount |
-| 81 | `factura_publica_invoices` | Factura pública (venta al público en general) periodic aggregation documents — when MX contracts have `facturar = FALSE`, their invoices are aggregated into a periodic factura pública per SAT InformacionGlobal (Periodicidad, Meses, Año); one row per organization per period |
-| 82 | `factura_publica_invoice_items` | Junction table linking individual invoices from contracts with `facturar = FALSE` to their parent factura pública — each invoice belongs to at most one factura pública document |
-| 83 | `cfdi_payment_complement_item_taxes` | Per-DoctoRelacionado tax breakdown (ImpuestosP) for Complemento de Pago 2.0 — one row per `<Traslado>` or `<Retencion>` inside a payment complement item; stores tax type, SAT tax code, rate type, rate, taxable base, and calculated tax amount |
-| 84 | `payment_gateways` | Payment gateway provider configuration per organization (Stripe, Conekta, OpenPay, MercadoPago, PayPal, manual) — stores environment, encrypted credentials, webhook secrets, and provider-specific JSON config |
-| 85 | `payment_transactions` | Raw gateway transaction log for every payment attempt — provider reference ID, gateway status, raw request/response payloads, webhook data, and idempotency key for auditing and reconciliation |
-| 86 | `recurring_payment_profiles` | Stored card / token per client for autopay (recurring charges) — gateway customer ID or card token, card brand, last four digits, expiry, and lifecycle status |
-| 87 | `suspension_rules` | Configurable suspension rules per organization — days-past-due threshold, grace period, action (auto_suspend / notify_only / auto_disconnect), optional plan-ID scoping |
-| 88 | `suspension_logs` | History of suspend / unsuspend / disconnect / reconnect events per contract — triggering rule, performer, RADIUS CoA sent/response, and linked invoice |
-| 89 | `csd_certificates` | CSD (Certificado de Sello Digital) storage per organization for SAT CFDI 4.0 stamping — PEM-encoded public certificate, encrypted private key, SHA-256 fingerprint, and expiry monitoring |
-| 90 | `pac_providers` | PAC (Proveedor Autorizado de Certificación) provider credentials and endpoint configuration per organization — supports Finkok, SW Sapien, Digicel, Comercio Digital, FacturAPI with sandbox/production environments |
-| 91 | `webhooks` | Outbound webhook registrations per organization — target URL, HMAC signing secret, JSON event subscriptions, max retries, and timeout configuration |
-| 92 | `webhook_deliveries` | Delivery log for outbound webhooks — HTTP status, response body, response time, attempt number, retry scheduling, and delivery outcome |
-| 93 | `organization_users` | Pivot table linking users to organizations with per-organization roles (owner, admin, manager, technician, billing, readonly) — enables multi-tenant user membership |
-| 94 | `plan_addons` | Catalog of plan add-ons available for sale per organization — static IP, extra IP block, extra bandwidth, equipment rental; price and billing cycle (monthly / one-time / yearly) |
-| 95 | `contract_addons` | Add-ons attached to a specific client contract — references plan_addons catalog, stores contracted quantity, negotiated unit price, validity window, and lifecycle status |
-| 96 | `speed_tests` | Speed test results from client portal, technician tools, automated probes, or external services — download/upload Mbps, latency, jitter, packet loss for SLA correlation |
-| 97 | `ticket_sla_events` | SLA tracking events per support ticket — first-response time, resolution time, escalation, breach warnings, and breaches; pairs with sla_definitions for target comparison |
-| 98 | `sms_logs` | SMS and WhatsApp notification logging per organization — complements email_logs for non-email channels; captures direction, provider, delivery status, cost, and timestamps |
-| 99 | `revenue_summary` | Materialized revenue summary for MRR / churn / ARPU reporting — populated by a scheduled task (not a view); one row per organization per calendar month per currency |
-| 100 | `network_health_snapshots` | Aggregated daily device uptime and link utilization snapshots — uptime %, avg/peak latency, avg/peak throughput in/out, packet loss, total downtime minutes |
-| 101 | `cfdi_cancellations` | SAT CFDI cancellation audit trail — cancellation reason code (motivo 01–04), optional replacement UUID (folio_sustitucion), PAC response status, and raw acuse XML acknowledgement |
-| 102 | `firerelay_nodes` | FireRelay cluster node registry — tracks node ID, API URL, status (active/draining/maintenance/offline), resource metrics (CPU/memory/disk), client and device counts; only used when `FIRERELAY_MODE = master` |
-| 103 | `firerelay_client_routing` | Client-to-node routing map for FireRelay cluster — maps each `client_id` to the node that owns it; only used when `FIRERELAY_MODE = master` |
-| 104 | `webhook_events` | Inbound payment gateway webhook events — stores raw event payloads from Stripe, Conekta, and other providers with deduplication via unique `(provider, provider_event_id)` constraint, processing status, and linked `payment_transactions` record after reconciliation |
-| 105 | `idempotency_keys` | Idempotency key storage for payment charge requests — prevents duplicate charges when the same key is submitted more than once; keys expire after 24 hours; scoped per organization |
-| 106 | `alert_rules` | Configurable monitoring alert rules per organization — defines metric thresholds (CPU, memory, signal, latency, packet loss, uptime), evaluation windows, severity levels, optional auto-outage creation, and notification channel routing (email/SMS/SSE/webhook) |
-| 107 | `alert_events` | Triggered alert event log — records each time an alert rule fires with current vs threshold values, acknowledgement tracking, and resolution timestamps |
+| 81 | `concession_titles` | IFT/CRT concession title registry — tracks title number, type, authorized services, spectrum bands, validity dates, and regulatory status for each organization |
+| 82 | `regulatory_filings` | IFT/CRT periodic filing log — annual reports, quarterly stats, tariff registrations, QoS reports, and other LFTR-mandated submissions |
+| 83 | `contract_templates_mx` | IFT/CRT-registered Carta de Adhesión templates — stores the registered standard contract model including registration number, version, body text, and approval status |
+| 84 | `ift_statistical_reports` | Pre-aggregated IFT/CRT reporting snapshots — subscriber counts by speed tier/state/technology, average speeds, coverage municipalities, and revenue per reporting period (see [`docs/ift-statistical-report-schema-review.md`](docs/ift-statistical-report-schema-review.md) for the field-by-field validation against the IFT *Formato Estadístico* — UI/export work is gated on that review) |
+| 85 | `factura_publica_invoices` | Factura pública (venta al público en general) periodic aggregation documents — when MX contracts have `facturar = FALSE`, their invoices are aggregated into a periodic factura pública per SAT InformacionGlobal (Periodicidad, Meses, Año); one row per organization per period |
+| 86 | `factura_publica_invoice_items` | Junction table linking individual invoices from contracts with `facturar = FALSE` to their parent factura pública — each invoice belongs to at most one factura pública document |
+| 87 | `payment_gateways` | Payment gateway provider configuration per organization (Stripe, Conekta, OpenPay, MercadoPago, PayPal, manual) — stores environment, encrypted credentials, webhook secrets, and provider-specific JSON config |
+| 88 | `payment_transactions` | Raw gateway transaction log for every payment attempt — provider reference ID, gateway status, raw request/response payloads, webhook data, and idempotency key for auditing and reconciliation |
+| 89 | `payment_retries` | Failed payment retry scheduler — tracks retry attempts with exponential backoff (4h → 24h → 72h) for failed payment_transactions; max 3 attempts |
+| 90 | `recurring_payment_profiles` | Stored card / token per client for autopay (recurring charges) — gateway customer ID or card token, card brand, last four digits, expiry, and lifecycle status |
+| 91 | `suspension_rules` | Configurable suspension rules per organization — days-past-due threshold, grace period, action (auto_suspend / notify_only / auto_disconnect), optional plan-ID scoping |
+| 92 | `suspension_logs` | History of suspend / unsuspend / disconnect / reconnect events per contract — triggering rule, performer, RADIUS CoA sent/response, and linked invoice |
+| 93 | `csd_certificates` | CSD (Certificado de Sello Digital) storage per organization for SAT CFDI 4.0 stamping — PEM-encoded public certificate, encrypted private key, SHA-256 fingerprint, and expiry monitoring |
+| 94 | `pac_providers` | PAC (Proveedor Autorizado de Certificación) provider credentials and endpoint configuration per organization — supports Finkok, SW Sapien, Digicel, Comercio Digital, FacturAPI with sandbox/production environments |
+| 95 | `webhooks` | Outbound webhook registrations per organization — target URL, HMAC signing secret, JSON event subscriptions, max retries, and timeout configuration |
+| 96 | `webhook_deliveries` | Delivery log for outbound webhooks — HTTP status, response body, response time, attempt number, retry scheduling, and delivery outcome |
+| 97 | `organization_users` | Pivot table linking users to organizations with per-organization roles (owner, admin, manager, technician, billing, readonly) — enables multi-tenant user membership |
+| 98 | `plan_addons` | Catalog of plan add-ons available for sale per organization — static IP, extra IP block, extra bandwidth, equipment rental; price and billing cycle (monthly / one-time / yearly) |
+| 99 | `contract_addons` | Add-ons attached to a specific client contract — references plan_addons catalog, stores contracted quantity, negotiated unit price, validity window, and lifecycle status |
+| 100 | `speed_tests` | Speed test results from client portal, technician tools, automated probes, or external services — download/upload Mbps, latency, jitter, packet loss for SLA correlation |
+| 101 | `ticket_sla_events` | SLA tracking events per support ticket — first-response time, resolution time, escalation, breach warnings, and breaches; pairs with sla_definitions for target comparison |
+| 102 | `sms_logs` | SMS and WhatsApp notification logging per organization — complements email_logs for non-email channels; captures direction, provider, delivery status, cost, and timestamps |
+| 103 | `revenue_summary` | Materialized revenue summary for MRR / churn / ARPU reporting — populated by a scheduled task (not a view); one row per organization per calendar month per currency |
+| 104 | `network_health_snapshots` | Aggregated daily device uptime and link utilization snapshots — uptime %, avg/peak latency, avg/peak throughput in/out, packet loss, total downtime minutes |
+| 105 | `cfdi_cancellations` | SAT CFDI cancellation audit trail — cancellation reason code (motivo 01–04), optional replacement UUID (folio_sustitucion), PAC response status, and raw acuse XML acknowledgement |
+| 106 | `firerelay_nodes` | FireRelay cluster node registry — tracks node ID, API URL, status (active/draining/maintenance/offline), resource metrics (CPU/memory/disk), client and device counts; only used when `FIRERELAY_MODE = master` |
+| 107 | `firerelay_client_routing` | Client-to-node routing map for FireRelay cluster — maps each `client_id` to the node that owns it; only used when `FIRERELAY_MODE = master` |
+| 108 | `webhook_events` | Inbound payment gateway webhook events — stores raw event payloads from Stripe, Conekta, and other providers with deduplication via unique `(provider, provider_event_id)` constraint, processing status, and linked `payment_transactions` record after reconciliation |
+| 109 | `idempotency_keys` | Idempotency key storage for payment charge requests — prevents duplicate charges when the same key is submitted more than once; keys expire after 24 hours; scoped per organization |
+| 110 | `alert_rules` | Configurable monitoring alert rules per organization — defines metric thresholds (CPU, memory, signal, latency, packet loss, uptime), evaluation windows, severity levels, optional auto-outage creation, and notification channel routing (email/SMS/SSE/webhook) |
+| 111 | `alert_events` | Triggered alert event log — records each time an alert rule fires with current vs threshold values, acknowledgement tracking, and resolution timestamps |
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 
@@ -368,6 +372,18 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 157 — IFT statistical report alignment ALTER:** `157_align_ift_statistical_reports_with_ift_format.sql` aligns `ift_statistical_reports` with the IFT *Formato Estadístico — Servicio Fijo de Internet* required fields (see [`docs/ift-statistical-report-schema-review.md`](docs/ift-statistical-report-schema-review.md)). Adds `concession_title_id BIGINT UNSIGNED NULL` (FK to `concession_titles`, IFT F2), `subscribers_by_municipality JSON NULL` (INEGI municipality-code breakdown, IFT F5), `subscribers_by_customer_type JSON NULL` (residential/business counts, IFT F11), `subscribers_by_payment_modality JSON NULL` (pospago/prepago/empaquetado counts, IFT F12), and `notes TEXT NULL` (free-form filing comments).
 
 > **Migration 158 — FireRelay node on devices + config backup task:** `158_add_firerelay_node_to_devices_and_seed_config_backup_task.sql` adds `firerelay_node_id VARCHAR(64) NULL` to `devices` (with `idx_devices_firerelay_node_id` index) — records which FireRelay agent can reach the device via the RouterOS API. No FK is added because the agent connection is the authoritative reachability source and standalone-mode deployments may have no `firerelay_nodes` rows. Also seeds the `config_backup_pull` scheduled task (cron `0 2 * * *`, daily at 02:00 UTC, 2 retries, 3600 s timeout) that pulls RouterOS `/export` configs from all devices with a `firerelay_node_id` and stores versioned snapshots in `device_config_backups` with SHA-256 deduplication. Uses `INSERT IGNORE` for idempotency.
+
+> **Migration 159 — Auto-create ticket on alert:** `159_add_auto_create_ticket_to_alert_rules.sql` adds `auto_create_ticket BOOLEAN NOT NULL DEFAULT FALSE` to `alert_rules`. When enabled, the alert evaluation task automatically creates a support ticket for each triggered alert event with severity `critical` or `high`. The ticket is linked to the device, client, or site referenced in the alert and pre-populated with the alert threshold breach details.
+
+> **Migration 160 — Portal credentials on clients:** `160_add_portal_credentials_to_clients.sql` adds `portal_email VARCHAR(255) NULL` (UNIQUE, nullable for clients without portal access) and `portal_password_hash VARCHAR(255) NULL` to `clients` for self-service portal authentication. Portal credentials are separate from administrative user credentials; clients can log in with their portal_email to view invoices, submit tickets, run speed tests, and manage payment methods.
+
+> **Migration 161 — Portal refresh tokens table:** `161_create_portal_refresh_tokens_table.sql` creates the `portal_refresh_tokens` table that stores SHA-256 hashed refresh tokens for long-lived client portal authentication. Each row links to a `client_id`, includes an `expires_at` timestamp, and supports revocation via `revoked_at`. Complements the portal credentials added in migration 160; enables "remember me" sessions without exposing long-lived access tokens.
+
+> **Migration 162 — Seed webhook retry task:** `162_seed_webhook_retry_task.sql` inserts the `webhook_retry` scheduled task (cron `*/10 * * * *` — every 10 minutes) that processes pending webhook deliveries whose `next_retry_at` has passed and status is `pending` or `retrying`. Implements exponential backoff (5 min → 15 min → 60 min → 6 h → 24 h, 5 attempts maximum). Uses `INSERT IGNORE` for idempotency.
+
+> **Migration 163 — SNMP traps table:** `163_create_snmp_traps_table.sql` creates the `snmp_traps` table that stores unsolicited SNMP trap messages received from network devices. The trap receiver listens on UDP (port 1620 by default, configurable via `SNMP_TRAP_PORT`). Each row captures the device IP, trap type (coldStart, warmStart, linkDown, linkUp, authenticationFailure, egpNeighborLoss, enterpriseSpecific, unknown), raw OID, timestamp, uptime, variable bindings (varbinds) as JSON, and optional FK link to a known device. Enables automated alerting on device reboots, link failures, and authentication failures. Partitioned by month with 6-month retention.
+
+> **Migration 164 — DR drill logs table + quarterly task:** `164_create_dr_drill_logs.sql` creates the `dr_drill_logs` table to record the outcome of each automated quarterly DR-drill run (Phase 1: backup + size verification, Phase 4: referential-integrity + financial-consistency checks). The drill is NON-DESTRUCTIVE — Phases 2 (drop) and 3 (restore) remain manual per `docs/dr-drill.md`. Also seeds the `quarterly_dr_drill` scheduled task (cron `0 2 1 1,4,7,10 *` — 02:00 on 1 Jan / 1 Apr / 1 Jul / 1 Oct, 1 retry, 3600 s timeout). Drill results (pass/fail/error) and an overdue flag are surfaced in the admin frontend on every login for compliance visibility.
 
 ### Venta al Público en General (Factura Pública)
 
