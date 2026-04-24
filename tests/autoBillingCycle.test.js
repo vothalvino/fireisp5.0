@@ -34,7 +34,7 @@ jest.mock('../src/services/emailTransport', () => ({
 
 jest.mock('../src/services/radiusService', () => ({ syncAllAccounts: jest.fn() }));
 jest.mock('../src/services/snmpPoller', () => ({ poll: jest.fn() }));
-jest.mock('../src/services/webhookService', () => ({ retryPending: jest.fn() }));
+jest.mock('../src/services/webhookService', () => ({ processRetries: jest.fn() }));
 jest.mock('../src/services/checkoutService', () => ({ processRecurringCharges: jest.fn() }));
 jest.mock('../src/services/alertService', () => ({ evaluateAlerts: jest.fn() }));
 jest.mock('../src/services/retentionService', () => ({ runAll: jest.fn() }));

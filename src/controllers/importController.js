@@ -1,13 +1,12 @@
 // =============================================================================
 // FireISP 5.0 — Bulk Import Controller
 // =============================================================================
-// CSV and Excel (XLSX/XLS) bulk import for clients, devices, and contracts.
+// CSV bulk import for clients, devices, contracts, invoices, and payments.
 // Supports two modes:
-//   • JSON body:  POST with { csv: "..." }  (legacy, CSV only)
-//   • File upload: POST multipart/form-data with field "file" (.csv or .xlsx)
+//   • JSON body:  POST with { csv: "..." }
+//   • File upload: POST multipart/form-data with field "file" (.csv)
 // =============================================================================
 
-const path = require('path');
 const db = require('../config/database');
 
 /**
@@ -198,61 +197,10 @@ async function importContracts(req, res, next) {
 }
 
 /**
- * Parse an Excel workbook buffer (XLSX or XLS) into rows of objects.
- * Uses the first sheet and the first row as column headers.
- * Limits to 10,000 data rows.
+ * Parse the uploaded CSV file buffer and return rows as objects.
+ * @param {Buffer} buffer Raw file buffer (UTF-8 CSV)
  */
-async function parseXlsx(buffer) {
-  const ExcelJS = require('exceljs');
-  const MAX_ROWS = 10000;
-
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
-
-  const worksheet = workbook.worksheets[0];
-  if (!worksheet) return [];
-
-  const rows = [];
-  let headers = null;
-
-  worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-    const values = row.values.slice(1); // exceljs row.values is 1-indexed; index 0 is always undefined
-    const cells = values.map((v) => {
-      if (v === null || v === undefined) return '';
-      if (typeof v === 'object' && v.text !== undefined) return String(v.text); // rich-text
-      if (typeof v === 'object' && v instanceof Date) return v.toISOString().slice(0, 10);
-      return String(v).trim();
-    });
-
-    if (rowNumber === 1) {
-      headers = cells.map((h) => h.trim());
-      return;
-    }
-
-    if (rows.length >= MAX_ROWS) return;
-
-    if (!headers) return;
-    const obj = {};
-    for (let i = 0; i < headers.length; i++) {
-      obj[headers[i]] = cells[i] !== undefined ? cells[i] : '';
-    }
-    rows.push(obj);
-  });
-
-  return rows;
-}
-
-/**
- * Parse the uploaded file (CSV or XLSX) and return rows as objects.
- * @param {Buffer} buffer   Raw file buffer
- * @param {string} filename Original file name (used to detect format)
- */
-async function parseUploadedFile(buffer, filename) {
-  const ext = path.extname(filename).toLowerCase();
-  if (ext === '.xlsx' || ext === '.xls') {
-    return parseXlsx(buffer);
-  }
-  // Default to CSV
+function parseUploadedFile(buffer) {
   return parseCsv(buffer.toString('utf8'));
 }
 
@@ -262,7 +210,7 @@ async function parseUploadedFile(buffer, filename) {
 
 /**
  * POST /api/import/clients/upload
- * Import clients from an uploaded CSV or XLSX file.
+ * Import clients from an uploaded CSV file.
  */
 async function importClientsFile(req, res, next) {
   try {
@@ -270,7 +218,7 @@ async function importClientsFile(req, res, next) {
       return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'file is required' } });
     }
 
-    const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
+    const rows = parseUploadedFile(req.file.buffer);
     let imported = 0;
     const errors = [];
 
@@ -301,7 +249,7 @@ async function importClientsFile(req, res, next) {
 
 /**
  * POST /api/import/devices/upload
- * Import devices from an uploaded CSV or XLSX file.
+ * Import devices from an uploaded CSV file.
  */
 async function importDevicesFile(req, res, next) {
   try {
@@ -309,7 +257,7 @@ async function importDevicesFile(req, res, next) {
       return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'file is required' } });
     }
 
-    const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
+    const rows = parseUploadedFile(req.file.buffer);
     let imported = 0;
     const errors = [];
 
@@ -340,7 +288,7 @@ async function importDevicesFile(req, res, next) {
 
 /**
  * POST /api/import/contracts/upload
- * Import contracts from an uploaded CSV or XLSX file.
+ * Import contracts from an uploaded CSV file.
  */
 async function importContractsFile(req, res, next) {
   try {
@@ -348,7 +296,7 @@ async function importContractsFile(req, res, next) {
       return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'file is required' } });
     }
 
-    const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
+    const rows = parseUploadedFile(req.file.buffer);
     let imported = 0;
     const errors = [];
 
@@ -465,7 +413,7 @@ async function importInvoices(req, res, next) {
 
 /**
  * POST /api/import/invoices/upload
- * Import invoices from an uploaded CSV or XLSX file.
+ * Import invoices from an uploaded CSV file.
  */
 async function importInvoicesFile(req, res, next) {
   try {
@@ -473,7 +421,7 @@ async function importInvoicesFile(req, res, next) {
       return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'file is required' } });
     }
 
-    const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
+    const rows = parseUploadedFile(req.file.buffer);
     let imported = 0;
     const errors = [];
     const rowCount = rows.length;
@@ -584,7 +532,7 @@ async function importPayments(req, res, next) {
 
 /**
  * POST /api/import/payments/upload
- * Import payments from an uploaded CSV or XLSX file.
+ * Import payments from an uploaded CSV file.
  */
 async function importPaymentsFile(req, res, next) {
   try {
@@ -592,7 +540,7 @@ async function importPaymentsFile(req, res, next) {
       return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'file is required' } });
     }
 
-    const rows = await parseUploadedFile(req.file.buffer, req.file.originalname);
+    const rows = parseUploadedFile(req.file.buffer);
     let imported = 0;
     const errors = [];
     const rowCount = rows.length;
@@ -630,6 +578,5 @@ module.exports = {
   importPaymentsFile,
   parseCsv,
   parseCsvLine,
-  parseXlsx,
   parseUploadedFile,
 };
