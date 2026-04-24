@@ -2,7 +2,8 @@
 // FireISP 5.0 — Scheduler Service
 // =============================================================================
 // Loads enabled scheduled_tasks from the database, schedules them with
-// node-cron, and dispatches each run through taskRunner.
+// node-cron, and dispatches each run through taskRunner (single-instance) or
+// BullMQ (when REDIS_URL is set — for horizontally-scaled deployments).
 // =============================================================================
 
 const cron = require('node-cron');
@@ -12,6 +13,7 @@ const cacheService = require('./cacheService');
 const logger = require('../utils/logger').child({ service: 'scheduler' });
 
 const jobs = new Map();
+const MINUTE_IN_MS = 60_000;
 
 /**
  * Attempt to acquire a distributed lock for a task using the cache service.
@@ -77,7 +79,29 @@ function schedule(task) {
   }
 
   const job = cron.schedule(task.cron_expression, async () => {
-    // Distributed lock: only one node should execute each task
+    // BullMQ path: enqueue job with minute-granular deduplication ID so that
+    // only one instance across multiple pods adds a job per cron tick.
+    if (process.env.REDIS_URL) {
+      const jobQueue = require('./jobQueueService');
+      const minuteSlot = Math.floor(Date.now() / MINUTE_IN_MS);
+      const orgSuffix = task.organization_id != null ? `-org${task.organization_id}` : '';
+      const jobId = `${task.task_name}${orgSuffix}-${minuteSlot}`;
+      await jobQueue.add(
+        'scheduled-task',
+        { taskName: task.task_name, organizationId: task.organization_id ?? null },
+        {
+          jobId,
+          attempts: 2,
+          backoff: { type: 'exponential', delay: 5000 },
+        },
+      ).catch((err) => {
+        // jobId collision means another node already enqueued it — normal
+        logger.debug({ err: err.message, taskName: task.task_name }, 'Scheduled-task job dedup (normal)');
+      });
+      return;
+    }
+
+    // Fallback (no Redis): acquire advisory lock, run inline
     const acquired = await acquireLock(task.task_name);
     if (!acquired) {
       return; // Another node is running this task

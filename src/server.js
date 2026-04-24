@@ -7,6 +7,8 @@ const config = require('./config');
 const app = require('./app');
 const db = require('./config/database');
 const scheduler = require('./services/scheduler');
+const jobQueue = require('./services/jobQueueService');
+const workers = require('./workers');
 const { tunnelServer } = require('./services/firerelayTunnel');
 const snmpTrapReceiver = require('./services/snmpTrapReceiver');
 const logger = require('./utils/logger');
@@ -59,6 +61,13 @@ async function start() {
     logger.warn({ err }, 'Scheduler failed to start');
   }
 
+  // Register BullMQ job workers (no-op when REDIS_URL is unset)
+  try {
+    workers.registerWorkers();
+  } catch (err) {
+    logger.warn({ err }, 'Worker registration failed');
+  }
+
   const server = app.listen(config.port, () => {
     logger.info({ port: config.port, env: config.env }, 'FireISP 5.0 listening');
   });
@@ -91,6 +100,7 @@ async function start() {
       await tunnelServer.close();
       snmpTrapReceiver.stop();
       scheduler.stop();
+      await jobQueue.close().catch(() => {});
       await db.close();
       logger.info('All resources released — exiting');
       process.exit(0);
