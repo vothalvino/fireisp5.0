@@ -98,6 +98,8 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       mockAuthUser();
       // BaseModel.create: INSERT → findByIdIncludingDeleted → auditLog
       db.query
+        // quotaCheck: SELECT * FROM organization_quotas → no row → unlimited
+        .mockResolvedValueOnce([[]])
         .mockResolvedValueOnce([{ insertId: 10, affectedRows: 1 }])
         .mockResolvedValueOnce([[mockClient]])
         .mockResolvedValueOnce([{ affectedRows: 1 }]);
@@ -113,6 +115,8 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
 
     test('rejects client without required name', async () => {
       mockAuthUser();
+      // quotaCheck: SELECT * FROM organization_quotas → no row → unlimited
+      db.query.mockResolvedValueOnce([[]]);
 
       const res = await request(app)
         .post('/api/v1/clients')
@@ -488,6 +492,8 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       // --- Step 1: Create client ---
       // BaseModel.create: INSERT → findByIdIncludingDeleted → auditLog
       db.query
+        // quotaCheck: SELECT * FROM organization_quotas → no row → unlimited
+        .mockResolvedValueOnce([[]])
         .mockResolvedValueOnce([{ insertId: 10, affectedRows: 1 }])
         .mockResolvedValueOnce([[{
           id: 10, organization_id: 1, name: 'María García',
