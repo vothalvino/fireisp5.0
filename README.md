@@ -20,6 +20,8 @@ An open source ISP (Internet Service Provider) management software designed to h
 - Scheduled task observability and active session management — fifteen core automation tasks seeded on install (`auto_generate_invoices`, `auto_suspend_overdue`, `radius_sync`, `populate_revenue_summary`, `populate_network_health_snapshots`, `csd_expiry_monitor`, `alert_evaluation`, `process_recurring_charges`, `data_retention`, `payment_retry`, `billing_cycle`, `database_backup`, `config_backup`, `webhook_retry`, `quarterly_dr_drill`)
 - Monitoring alert rules with configurable thresholds, severity levels, and multi-channel notifications (email, SMS, SSE, webhook)
 - Two-factor authentication (TOTP) with backup codes and brute-force account lockout
+- Single sign-on (SSO) — per-organization SAML 2.0 and OIDC IdP configuration, automatic user provisioning on first login, and IdP group-to-FireISP role mappings
+- Per-tenant resource quotas — configurable upper bounds per organization for clients, devices, storage, and scheduled tasks (NULL = unlimited; absence of a quota row = unlimited)
 - FireRelay cluster mode for multi-node deployments with client routing
 - Outbound webhooks with HMAC signing, configurable retries, and dead-letter queue for failed deliveries
 - Inbound webhook event deduplication and idempotent payment processing
@@ -45,8 +47,8 @@ An open source ISP (Internet Service Provider) management software designed to h
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 111 tables)
-│   └── migrations/          # Individual numbered migration files (001–164)
+│   ├── schema.sql           # Combined schema (all 115 tables)
+│   └── migrations/          # Individual numbered migration files (001–166)
 ├── src/                     # Application source code
 │   ├── app.js               # Express app setup (middleware, routes, error handling)
 │   ├── server.js            # HTTP server entry point
@@ -207,6 +209,10 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 109 | `idempotency_keys` | Idempotency key storage for payment charge requests — prevents duplicate charges when the same key is submitted more than once; keys expire after 24 hours; scoped per organization |
 | 110 | `alert_rules` | Configurable monitoring alert rules per organization — defines metric thresholds (CPU, memory, signal, latency, packet loss, uptime), evaluation windows, severity levels, optional auto-outage creation, and notification channel routing (email/SMS/SSE/webhook) |
 | 111 | `alert_events` | Triggered alert event log — records each time an alert rule fires with current vs threshold values, acknowledgement tracking, and resolution timestamps |
+| 112 | `organization_sso_configs` | Per-organization SSO configuration — one row per (organization, provider_type); stores SAML 2.0 IdP metadata (entity ID, SSO URL, SLO URL, X.509 signing certificate, SP private key) and OIDC settings (issuer, client ID/secret, scopes); controls auto-provisioning behaviour and the default role for new SSO users |
+| 113 | `organization_sso_group_mappings` | IdP group-to-role mapping — maps an exact IdP group name to a FireISP role (admin/manager/technician/billing/readonly) for a given SSO config; evaluated at login to assign the highest-ranked matching role |
+| 114 | `sso_auth_states` | Short-lived OIDC authorization state / nonce store — holds the random `state` and `nonce` parameters generated at the start of an OIDC authorization-code flow; rows expire after 10 minutes; prevents CSRF and replay attacks |
+| 115 | `organization_quotas` | Per-tenant resource quota table — stores optional upper bounds for `max_clients`, `max_devices`, `max_storage_mb`, and `max_scheduled_tasks`; a NULL limit means "unlimited"; absence of a row is also treated as unlimited |
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 
@@ -384,6 +390,13 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 163 — SNMP traps table:** `163_create_snmp_traps_table.sql` creates the `snmp_traps` table that stores unsolicited SNMP trap messages received from network devices. The trap receiver listens on UDP (port 1620 by default, configurable via `SNMP_TRAP_PORT`). Each row captures the device IP, trap type (coldStart, warmStart, linkDown, linkUp, authenticationFailure, egpNeighborLoss, enterpriseSpecific, unknown), raw OID, timestamp, uptime, variable bindings (varbinds) as JSON, and optional FK link to a known device. Enables automated alerting on device reboots, link failures, and authentication failures. Partitioned by month with 6-month retention.
 
 > **Migration 164 — DR drill logs table + quarterly task:** `164_create_dr_drill_logs.sql` creates the `dr_drill_logs` table to record the outcome of each automated quarterly DR-drill run (Phase 1: backup + size verification, Phase 4: referential-integrity + financial-consistency checks). The drill is NON-DESTRUCTIVE — Phases 2 (drop) and 3 (restore) remain manual per `docs/dr-drill.md`. Also seeds the `quarterly_dr_drill` scheduled task (cron `0 2 1 1,4,7,10 *` — 02:00 on 1 Jan / 1 Apr / 1 Jul / 1 Oct, 1 retry, 3600 s timeout). Drill results (pass/fail/error) and an overdue flag are surfaced in the admin frontend on every login for compliance visibility.
+
+> **Migration 165 — SSO configuration tables (P2.1):** `165_create_sso_configs.sql` creates three tables for per-organization single sign-on:
+> - **`organization_sso_configs`** — one row per `(organization_id, provider_type)` (SAML 2.0 or OIDC); holds all IdP connection settings (SAML entity ID / SSO URL / SLO URL / X.509 cert / SP private key; OIDC issuer / client ID / client secret), attribute-mapping JSON, auto-provisioning flag, and the default role assigned to new SSO users. Unique constraint on `(organization_id, provider_type)`.
+> - **`organization_sso_group_mappings`** — maps exact IdP group names to FireISP roles; evaluated at login to give authenticated users their correct role. Unique constraint on `(sso_config_id, idp_group)`.
+> - **`sso_auth_states`** — short-lived OIDC state/nonce store for the authorization-code flow; rows expire after 10 minutes and should be purged by a cleanup task. Unique constraint on `state`.
+
+> **Migration 166 — Per-tenant resource quotas:** `166_create_organization_quotas.sql` creates the `organization_quotas` table that stores optional upper bounds per organization for four resources: `max_clients` (active client records), `max_devices` (active device records), `max_storage_mb` (sum of all org-owned `files.file_size`), and `max_scheduled_tasks` (org-scoped scheduled task rows). A `NULL` value in any limit column means "unlimited" for that resource. A row is created only when a quota is first configured; the absence of a row is also treated as unlimited. The `checkQuota` middleware enforces these limits at the API layer before the relevant creation handlers. Unique constraint on `organization_id`.
 
 ### Venta al Público en General (Factura Pública)
 
