@@ -7,6 +7,7 @@ COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci --ignore-scripts
 
 COPY frontend/ ./
+COPY docs/openapi.json /docs/openapi.json
 RUN npm run build
 
 # ── Stage 2: production API server ────────────────────────────────────────────
