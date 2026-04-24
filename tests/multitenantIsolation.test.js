@@ -152,7 +152,7 @@ describe('BaseModel — org isolation at SQL level', () => {
           }
         },
       ),
-      { numRuns: 10 },
+      { numRuns: 50 },
     );
   });
 
@@ -176,7 +176,7 @@ describe('BaseModel — org isolation at SQL level', () => {
           }
         },
       ),
-      { numRuns: 10 },
+      { numRuns: 50 },
     );
   });
 
@@ -200,7 +200,7 @@ describe('BaseModel — org isolation at SQL level', () => {
           }
         },
       ),
-      { numRuns: 10 },
+      { numRuns: 50 },
     );
   });
 
@@ -230,7 +230,7 @@ describe('BaseModel — org isolation at SQL level', () => {
           expect(result).toBeNull();
         },
       ),
-      { numRuns: 20 },
+      { numRuns: 100 },
     );
   });
 
@@ -262,7 +262,7 @@ describe('BaseModel — org isolation at SQL level', () => {
           }
         },
       ),
-      { numRuns: 5 },
+      { numRuns: 50 },
     );
   });
 });
