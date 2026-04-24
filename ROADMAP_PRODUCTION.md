@@ -150,8 +150,12 @@ tenant)**, and **P3 (continuous improvement)**.
 ## P2 — Must-Have Before Scaling Beyond a Single Tenant Org
 
 ### P2.1 — SSO / SAML / OIDC for admin users
-- Larger ISPs will want to bring their own IdP (Okta, Azure AD, Google Workspace). Add SAML 2.0 + OIDC (passport-saml + openid-client) gated by a feature flag per organization
-- Map IdP groups to FireISP roles via a config table
+- ✅ `database/migrations/165_create_sso_configs.sql` added — `organization_sso_configs` (per-org SAML 2.0 + OIDC config, `is_enabled` per provider), `organization_sso_group_mappings` (IdP group → FireISP role), `sso_auth_states` (short-lived OIDC state/nonce store)
+- ✅ `src/services/ssoService.js` added — full SAML 2.0 + OIDC flows using `@node-saml/node-saml` and `openid-client@5`; `findOrCreateSsoUser()` with auto-provisioning + group-to-role mapping; `mintTokens()` issues JWT + refresh token; `purgeExpiredStates()` for cleanup
+- ✅ `src/routes/sso.js` added — browser-facing: `GET /sso/:orgId/saml/login`, `GET /sso/:orgId/saml/metadata`, `POST /sso/:orgId/saml/acs`, `GET /sso/:orgId/oidc/login`, `GET /sso/:orgId/oidc/callback`; admin (JWT + owner/admin): CRUD for SAML/OIDC config and group mappings
+- ✅ `src/config/index.js` — `FEATURE_SSO` feature flag added (default `false`); SSO routes gated by the flag
+- ✅ `database/schema.sql` — all three SSO tables appended
+- ✅ `tests/sso.test.js` added — 38 tests covering: `parseAttributeMapping`, `normalizeSamlProfile`, `normalizeOidcProfile`, `findOrCreateSsoUser` (existing user, group mapping, auto-provision, no-provision guard, no-email guard), `mintTokens`, `getConfig`, `saveConfig` (create + update), `getGroupMappings`, `saveGroupMappings` (success + rollback), `purgeExpiredStates`, and all 10 route integration tests (feature-flag disabled, SAML/OIDC config CRUD, group-mapping CRUD, invalid orgId, saml/login config-missing)
 
 ### P2.2 — Penetration test + remediation
 - Engage a third party (or run OWASP ZAP DAST in CI as a starting point) against a staging instance
@@ -222,3 +226,4 @@ tenant)**, and **P3 (continuous improvement)**.
 | 2026-04-24 | P1.7 | Privacy & compliance: `docs/privacy.md` (full PII field inventory, LFPDPPP + GDPR lawful basis, retention periods, erasure procedure, DSAR procedure, third-party processors, DSAR log), `src/routes/dsar.js` (`GET /api/v1/dsar/clients/:id` DSAR export endpoint, admin-IP-allowlisted), wired in `src/app.js`, 6 new tests in `tests/dsar.test.js` |
 | 2026-04-24 | P1.8 | SLOs & alerting: `docs/slo.md` (SLO-1 availability 99.9%, SLO-2 p99 ≤ 500 ms, SLO-3 RADIUS 99.95%, error budget policy, burn-rate alert table, Alertmanager config template, on-call rotation), `k8s/prometheus-alerts.yaml` (PrometheusRule CRD — 10 alerts: 3 SLO-1 burn-rate, 2 SLO-2 latency, 2 SLO-3 RADIUS, 3 operational; 5 recording rules) |
 | 2026-04-24 | P1.9 | Incident response runbook: `docs/runbook.md` extended with SEV1–SEV4 severity matrix, declaration criteria, 7-step incident workflow, 6 SEV1 step-by-step scenarios (DB down, RADIUS down, payment gateway, mass suspension, leaked credentials, TLS expired), comms templates, post-mortem markdown template, escalation path |
+| 2026-04-24 | P2.1 | SSO / SAML 2.0 + OIDC: `database/migrations/165_create_sso_configs.sql` (3 new tables: organization_sso_configs, organization_sso_group_mappings, sso_auth_states), `src/services/ssoService.js` (`@node-saml/node-saml` + `openid-client@5`, auto-provision, group→role mapping, mintTokens), `src/routes/sso.js` (browser-facing SAML/OIDC flows + JWT-protected admin config/group-mapping CRUD), `FEATURE_SSO` feature flag (default off), schema.sql updated, 38 new tests in `tests/sso.test.js` |
