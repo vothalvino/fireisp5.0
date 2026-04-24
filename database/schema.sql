@@ -6024,3 +6024,61 @@ END$$
 DELIMITER ;
 CALL _schema_add_composite_indexes();
 DROP PROCEDURE IF EXISTS _schema_add_composite_indexes;
+
+-- ---------------------------------------------------------------------------
+-- Tables: organization_sso_configs, organization_sso_group_mappings,
+--         sso_auth_states  (migration 165 — P2.1 SSO)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS organization_sso_configs (
+    id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id       BIGINT UNSIGNED NOT NULL                     COMMENT 'Owning tenant organization',
+    provider_type         ENUM('saml', 'oidc') NOT NULL                COMMENT 'SSO protocol',
+    is_enabled            TINYINT(1) NOT NULL DEFAULT 0,
+    saml_entity_id        VARCHAR(500) NULL,
+    saml_sso_url          VARCHAR(500) NULL,
+    saml_slo_url          VARCHAR(500) NULL,
+    saml_x509_cert        TEXT         NULL,
+    saml_sign_requests    TINYINT(1) NOT NULL DEFAULT 0,
+    saml_sp_private_key   TEXT         NULL                            COMMENT 'AES-256-GCM encrypted SP private key',
+    oidc_issuer           VARCHAR(500) NULL,
+    oidc_client_id        VARCHAR(255) NULL,
+    oidc_client_secret    TEXT         NULL                            COMMENT 'AES-256-GCM encrypted client secret',
+    oidc_scopes           VARCHAR(500) NULL DEFAULT 'openid profile email',
+    attribute_mapping     JSON         NULL,
+    idp_group_attribute   VARCHAR(255) NULL DEFAULT 'groups',
+    auto_provision        TINYINT(1) NOT NULL DEFAULT 1,
+    default_role          ENUM('admin','manager','technician','billing','readonly') NOT NULL DEFAULT 'readonly',
+    created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_org_sso_config_org_type (organization_id, provider_type),
+    KEY idx_sso_config_org_id (organization_id),
+    CONSTRAINT fk_sso_config_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS organization_sso_group_mappings (
+    id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    sso_config_id         BIGINT UNSIGNED NOT NULL,
+    idp_group             VARCHAR(255) NOT NULL,
+    fireisp_role          ENUM('admin','manager','technician','billing','readonly') NOT NULL,
+    created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_group_mapping_config_group (sso_config_id, idp_group),
+    KEY idx_group_mapping_config_id (sso_config_id),
+    CONSTRAINT fk_group_mapping_config FOREIGN KEY (sso_config_id)
+        REFERENCES organization_sso_configs (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS sso_auth_states (
+    id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    state                 VARCHAR(64) NOT NULL,
+    nonce                 VARCHAR(64) NOT NULL,
+    organization_id       BIGINT UNSIGNED NOT NULL,
+    redirect_to           VARCHAR(2000) NULL,
+    expires_at            DATETIME NOT NULL,
+    created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_sso_state (state),
+    KEY idx_sso_state_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

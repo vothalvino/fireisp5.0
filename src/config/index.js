@@ -65,6 +65,7 @@ const config = {
     twoFactor: parseBoolEnv('FEATURE_2FA', true),
     webhooks: parseBoolEnv('FEATURE_WEBHOOKS', true),
     snmp: parseBoolEnv('FEATURE_SNMP', true),
+    sso: parseBoolEnv('FEATURE_SSO', false),
   },
 };
 
