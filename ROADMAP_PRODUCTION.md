@@ -128,23 +128,22 @@ tenant)**, and **P3 (continuous improvement)**.
 - ✅ `k8s/cosign-policy.yaml` added — Sigstore policy-controller `ClusterImagePolicy` requiring valid keyless signature issued by the GitHub Actions OIDC identity for `vothalvino/fireisp5.0` on the `main` workflow; includes Helm install + namespace-label instructions
 
 ### P1.6 — Pre-production load + soak test
-- Re-run the M4.1 autocannon load test against the production docker-compose stack (not just the dev API) **after** P0.3 lands
-- Add a 24-hour soak test (low rate, continuous) to catch memory leaks, FD leaks, connection-pool exhaustion
-- Record the results, set a regression budget, run on every release candidate
+- ✅ `src/scripts/loadtest-soak.js` added — low-rate (default 5 connections), configurable-duration soak runner; tracks RSS growth per round against a configurable budget (`SOAK_MAX_RSS_GROWTH_MB`, default 100 MB) and error-rate budget (`SOAK_MAX_ERROR_RATE`, default 0.5%); exits non-zero on any violation
+- ✅ `loadtest:soak` script added to `package.json` (`node src/scripts/loadtest-soak.js`)
+- ✅ `docs/load-testing.md` extended with: production docker-compose stack setup, **regression budget table** (0% errors, p99 ≤ 200 ms single-record, p99 ≤ 500 ms lists, ≥ 500 req/s `/health`, ≥ 100 req/s lists), soak test configuration reference, how-to-interpret-results guide, and release-candidate gate procedure
+- ✅ `tests/loadtestSoak.test.js` added — 7 tests covering `probeRssMb()`: successful RSS parse, no-memory field, network error, non-JSON body, non-numeric RSS, plus exports assertions
 
 ### P1.7 — Privacy & data-subject compliance
-- Mexico: LFPDPPP — document the lawful basis for each PII column, add a "data subject access request" admin tool that exports a single client's PII as JSON
-- EU customers (if any): GDPR DSAR + erasure flow on top of the existing soft-delete
-- Add `/docs/privacy.md` listing every PII field, retention period, and erasure path
+- ✅ `docs/privacy.md` created — full PII field inventory across all tables (`clients`, `contacts`, `client_mx_profiles`, `contracts`, `invoices`, `cfdi_documents`, `payments`, `connection_logs`, `ip_assignments`, `tickets`, `users`, `audit_logs`); lawful basis for each field (LFPDPPP MX + GDPR); retention periods; third-party data processors table; DSAR procedure (LFPDPPP 20-day + GDPR 30-day); full SQL erasure procedure with legal-hold caveat (SAT 10yr, IFT 2yr); DSAR log table for compliance evidence
+- ✅ `src/routes/dsar.js` added — `GET /api/v1/dsar/clients/:id`; requires `clients.view` permission; returns a single JSON export of all PII held for the client (client record, contacts, MX profile, contracts, invoices, payments, tickets, last-500 connection logs, IP assignments); mounted under `adminIpAllowlist` in `app.js`
+- ✅ `tests/dsar.test.js` added — 6 tests: 200 with full payload, 404 for unknown client, null mxProfile path, ISO timestamp in meta, multi-row connection logs, 500 on DB error
 
 ### P1.8 — Observability: SLOs and alerting
-- Define and document SLOs in `/docs/slo.md`: API availability ≥ 99.9% / month, p99 latency ≤ 500ms for read endpoints, RADIUS auth success ≥ 99.95%
-- Author Prometheus alerting rules backed by the SLOs (burn-rate alerts, not threshold alerts)
-- Wire alerts to PagerDuty/Opsgenie (or email-only if single-operator) — document the on-call rotation
+- ✅ `docs/slo.md` created — three SLOs defined: **SLO-1** API availability ≥ 99.9% / 30-day (43.8 min/month budget), **SLO-2** API GET p99 ≤ 500 ms / 1-hour window, **SLO-3** RADIUS auth success ≥ 99.95% / 24-hour window; error budget policy table (5%/50%/100% burn-rate actions); burn-rate alert names and thresholds; Alertmanager receiver config template (PagerDuty + email); on-call rotation guidance (single-operator, small team, escalation path); SLO tracking log table
+- ✅ `k8s/prometheus-alerts.yaml` added — Prometheus Operator `PrometheusRule` CRD with: SLO-1 fast/slow/long burn-rate alerts (14.4×/6×/3× budget), recording rules for 5 m/30 m/1 h/6 h/24 h error-rate windows, SLO-2 p99 latency fast/slow alerts, SLO-3 RADIUS spike/sustained alerts, plus 3 operational alerts (RSS > 1.5 GB, MySQL pool > 85%, backup overdue > 25 h)
 
 ### P1.9 — Incident response runbook
-- Extend `docs/runbook.md` with: severity matrix (SEV1–SEV4), declaration criteria, comms templates (status page, customer email), post-mortem template, escalation paths
-- Add a "what to do when X is on fire" section per SEV1 scenario: DB down, RADIUS down, payment gateway down, mass suspension event, leaked credentials
+- ✅ `docs/runbook.md` extended with a full **Incident Response** section: SEV1–SEV4 severity matrix (definition, response time, examples), incident declaration criteria, 7-step incident workflow (detect → declare → assign → assess → mitigate → resolve → close), SEV1 step-by-step scenarios (DB down, RADIUS down, payment gateway down, mass suspension, leaked credentials, TLS cert expired), comms templates (SEV1 status-page customer email, SEV1 internal incident-channel bridge, SEV2 degraded notice, resolution email), post-mortem markdown template (timeline, root cause, impact, contributing factors, action items, lessons learned), and escalation path diagram (on-call → engineering lead → all-hands bridge; legal escalation for data breach; finance escalation for payment issues)
 
 ---
 
@@ -219,3 +218,7 @@ tenant)**, and **P3 (continuous improvement)**.
 | 2026-04-23 | P1.3 | DR drill: `docs/dr-drill.md` — 5-phase procedure (backup → destroy → restore → verify RI/counts/financials → storage), timing template, quarterly log table |
 | 2026-04-23 | P1.4 | Secrets management: `docs/secrets-management.md` (Sealed Secrets recommended + ESO/AWS/GCP + Vault + bare-metal options), `k8s/sealed-secret.yaml` template, Pino `redact` list in `src/utils/logger.js`, health-endpoint secrets audit, 10 new tests in `tests/secretsAudit.test.js` |
 | 2026-04-23 | P1.5 | Container hardening: `node:18-alpine` → `node:22-alpine`, K8s `capabilities.drop=[ALL]` + `readOnlyRootFilesystem` + `seccompProfile=RuntimeDefault` + `/tmp` emptyDir, `container-scan` CI job (Trivy `HIGH`/`CRITICAL` exit-1 + SBOM via anchore/sbom-action + keyless cosign signing on main), `k8s/cosign-policy.yaml` (Sigstore ClusterImagePolicy) |
+| 2026-04-24 | P1.6 | Pre-production load + soak test: `src/scripts/loadtest-soak.js` (low-rate round-based soak, RSS growth budget, error-rate budget, exit 1 on violation), `loadtest:soak` npm script, `docs/load-testing.md` extended (production docker-compose stack, regression budget table, soak test configuration reference, RC gate procedure), 7 new tests in `tests/loadtestSoak.test.js` |
+| 2026-04-24 | P1.7 | Privacy & compliance: `docs/privacy.md` (full PII field inventory, LFPDPPP + GDPR lawful basis, retention periods, erasure procedure, DSAR procedure, third-party processors, DSAR log), `src/routes/dsar.js` (`GET /api/v1/dsar/clients/:id` DSAR export endpoint, admin-IP-allowlisted), wired in `src/app.js`, 6 new tests in `tests/dsar.test.js` |
+| 2026-04-24 | P1.8 | SLOs & alerting: `docs/slo.md` (SLO-1 availability 99.9%, SLO-2 p99 ≤ 500 ms, SLO-3 RADIUS 99.95%, error budget policy, burn-rate alert table, Alertmanager config template, on-call rotation), `k8s/prometheus-alerts.yaml` (PrometheusRule CRD — 10 alerts: 3 SLO-1 burn-rate, 2 SLO-2 latency, 2 SLO-3 RADIUS, 3 operational; 5 recording rules) |
+| 2026-04-24 | P1.9 | Incident response runbook: `docs/runbook.md` extended with SEV1–SEV4 severity matrix, declaration criteria, 7-step incident workflow, 6 SEV1 step-by-step scenarios (DB down, RADIUS down, payment gateway, mass suspension, leaked credentials, TLS expired), comms templates, post-mortem markdown template, escalation path |

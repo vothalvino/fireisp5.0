@@ -153,3 +153,125 @@ Beyond that one finding, the API sustains ~3,900 req/s on the static
 `/health` baseline and ~1,000 req/s on indexed single-record DB reads with
 p99 latency under 35 ms — comfortably above the "realistic ISP workload"
 the 4.1 milestone calls for.
+
+---
+
+## Running against the production docker-compose stack (P1.6)
+
+**P1.6 of `ROADMAP_PRODUCTION.md`** requires verifying the load test
+against the full production stack, not just the dev API.
+
+### Start the production stack
+
+```bash
+# Copy and fill in all secrets:
+cp .env.example .env
+# Edit .env — set JWT_SECRET (≥ 64 chars), ENCRYPTION_KEY, DB_PASSWORD, etc.
+
+# Start MySQL primary, Redis, app, and Nginx:
+RATE_LIMIT_API=10000000 RATE_LIMIT_AUTH=10000000 \
+  docker compose -f docker-compose.prod.yml up -d
+
+# Wait for MySQL to be ready, then run migrations and seed:
+docker exec fireisp-app npm run migrate
+docker exec fireisp-app npm run seed
+docker exec fireisp-app npm run loadtest:seed
+```
+
+### Run the standard load test against it
+
+```bash
+# Point the load test at the Nginx TLS frontend (or plain HTTP for local):
+LOADTEST_URL=https://your-fireisp.domain npm run loadtest
+# or locally:
+LOADTEST_URL=http://localhost npm run loadtest
+```
+
+### Regression budget
+
+The following thresholds define a **passing** load test run.
+Exit code 0 from `npm run loadtest` means all assertions below hold:
+
+| Metric | Budget | Rationale |
+|---|---|---|
+| Error rate (5xx + network errors) | **0%** | Any 5xx under load is a P0 bug |
+| p99 latency — single-record reads | **≤ 200 ms** | Well inside SLO-2 (500 ms) with production DB |
+| p99 latency — paginated list reads | **≤ 500 ms** | SLO-2 boundary |
+| Throughput — `/health` | **≥ 500 req/s** | Validates Nginx + TLS overhead |
+| Throughput — list endpoints | **≥ 100 req/s** | Validates DB + connection-pool headroom |
+
+If any threshold is breached, create a P0 issue referencing this file and
+do not promote the build to production.
+
+---
+
+## Soak test (P1.6)
+
+The **soak test** runs at a much lower rate than the standard load test but
+for a much longer duration. Its purpose is to catch:
+
+- Memory leaks (RSS growth > 100 MB over the session).
+- File-descriptor leaks.
+- MySQL connection-pool exhaustion over time.
+- Token/cache expiry edge cases that only surface after minutes of traffic.
+
+### Quick command
+
+```bash
+# 5-minute soak (CI gate — default):
+npm run loadtest:soak
+
+# 30-minute soak (pre-release check):
+SOAK_TOTAL_DURATION=1800 npm run loadtest:soak
+
+# Full overnight soak (major release):
+SOAK_TOTAL_DURATION=86400 SOAK_ROUND_DURATION=60 npm run loadtest:soak
+```
+
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `LOADTEST_URL` | `http://127.0.0.1:3000` | API base URL |
+| `LOADTEST_EMAIL` | `loadtest@fireisp.local` | Auth email (same as standard load test) |
+| `LOADTEST_PASSWORD` | `loadtest123!` | Auth password |
+| `SOAK_TOTAL_DURATION` | `300` | Total soak duration in seconds |
+| `SOAK_ROUND_DURATION` | `30` | Duration of each autocannon round in seconds |
+| `SOAK_CONNECTIONS` | `5` | Concurrent connections (low rate by design) |
+| `SOAK_MAX_RSS_GROWTH_MB` | `100` | RSS growth budget; violation exits 1 |
+| `SOAK_MAX_ERROR_RATE` | `0.005` | Max acceptable error fraction (0.5%) |
+
+### How to interpret results
+
+The soak test prints a table after each round:
+
+```
+=== FireISP P1.6 Soak Test — Summary ===
+  Duration: 300s / 300s  |  Rounds: 10  |  Connections: 5
+
+  Round  Elapsed   RSS(MB)  ΔRss(MB)   Reqs    Errors  ErrRate  p99(ms)
+      1      32s      128       +0    1450        0    0.00%       28
+      2      64s      130       +2    1455        0    0.00%       29
+    ...
+     10     302s      132       +4   14550        0    0.00%       31
+
+  ✓ All soak rounds passed within budget
+```
+
+A clean run shows:
+- `ΔRss(MB)` stays small and roughly flat after the first few rounds
+  (initial growth from JIT compilation / warm-up is expected).
+- `ErrRate` is 0.00% throughout.
+- `p99(ms)` is stable and below 500 ms.
+
+### Release candidate gate
+
+Run the 5-minute soak as part of the release candidate checklist:
+
+```bash
+# After deploying RC to staging:
+npm run loadtest:seed   # ensure fixture exists
+LOADTEST_URL=https://staging.your-isp.com npm run loadtest:soak
+# Exit 0 = soak passed; exit 1 = investigate before promoting to production
+```
+

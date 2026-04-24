@@ -1,0 +1,271 @@
+# FireISP 5.0 — Prometheus Alerting Rules (P1.8)
+#
+# Implements multi-window burn-rate alerts for the three SLOs defined in
+# docs/slo.md:
+#   SLO-1 — API availability ≥ 99.9% / 30-day window
+#   SLO-2 — API read p99 latency ≤ 500 ms / 1-hour window
+#   SLO-3 — RADIUS auth success ≥ 99.95% / 24-hour window
+#
+# Deploy:
+#   kubectl apply -f k8s/prometheus-alerts.yaml
+#
+# Prerequisites:
+#   - Prometheus Operator installed (https://github.com/prometheus-operator/prometheus-operator)
+#   - The FireISP app must expose /metrics (it does — see src/routes/metrics.js)
+#   - For SLO-3: FireRelay agent must expose radius_auth_* counters or
+#     the RADIUS proxy must export them via the Prometheus node-exporter / custom exporter.
+#
+# Metric names assumed (from src/routes/metrics.js / prom-client):
+#   http_requests_total{status, method, route}  — request counter
+#   http_request_duration_seconds{quantile}     — latency summary (or histogram)
+#   radius_auth_request_total                   — total RADIUS Access-Requests
+#   radius_auth_accept_total                    — total RADIUS Access-Accepts
+#
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: fireisp-slo-alerts
+  namespace: fireisp
+  labels:
+    app: fireisp
+    release: prometheus   # adjust to match your Prometheus Operator release label
+spec:
+  groups:
+    # -------------------------------------------------------------------------
+    # SLO-1 — API Availability (target: 99.9% = 0.001 error budget)
+    # Multi-window burn-rate alerting (Google SRE Workbook §5).
+    # -------------------------------------------------------------------------
+    - name: fireisp.slo1.availability
+      rules:
+
+        # Fast-burn: fires when 1 h burn rate > 14.4× budget AND 5 min > 14.4×
+        # → error budget exhausted in < 2 hours
+        - alert: FireISP_API_HighErrorRate_FastBurn
+          expr: |
+            (
+              job:fireisp_http_error_rate:ratio_1h > (14.4 * 0.001)
+              and
+              job:fireisp_http_error_rate:ratio_5m > (14.4 * 0.001)
+            )
+          for: 2m
+          labels:
+            severity: critical
+            slo: availability
+          annotations:
+            summary: "FireISP API fast error-budget burn (SLO-1)"
+            description: >
+              The API 5-minute error rate is {{ $value | humanizePercentage }},
+              which is more than 14.4× the 0.1% error budget.
+              At this rate the monthly error budget will be exhausted in under 2 hours.
+              Check application logs and recent deployments immediately.
+            runbook: "https://github.com/vothalvino/fireisp5.0/blob/main/docs/runbook.md#sev1-scenarios"
+
+        # Slow-burn: fires when 6 h burn rate > 6× budget AND 30 min > 6×
+        # → error budget exhausted in < 5 days
+        - alert: FireISP_API_HighErrorRate_SlowBurn
+          expr: |
+            (
+              job:fireisp_http_error_rate:ratio_6h > (6 * 0.001)
+              and
+              job:fireisp_http_error_rate:ratio_30m > (6 * 0.001)
+            )
+          for: 15m
+          labels:
+            severity: warning
+            slo: availability
+          annotations:
+            summary: "FireISP API slow error-budget burn (SLO-1)"
+            description: >
+              The API 6-hour error rate is {{ $value | humanizePercentage }},
+              which is 6× the 0.1% error budget.
+              Acknowledge and investigate within 1 hour.
+            runbook: "https://github.com/vothalvino/fireisp5.0/blob/main/docs/runbook.md"
+
+        # Long-burn: fires when 24 h burn rate > 3× budget AND 6 h > 3×
+        # → error budget exhausted in < 10 days
+        - alert: FireISP_API_HighErrorRate_LongBurn
+          expr: |
+            (
+              job:fireisp_http_error_rate:ratio_24h > (3 * 0.001)
+              and
+              job:fireisp_http_error_rate:ratio_6h > (3 * 0.001)
+            )
+          for: 60m
+          labels:
+            severity: info
+            slo: availability
+          annotations:
+            summary: "FireISP API sustained elevated error rate (SLO-1)"
+            description: >
+              The API 24-hour error rate is {{ $value | humanizePercentage }},
+              which is 3× the 0.1% error budget.
+              Review within 4 hours and create a tracking issue.
+            runbook: "https://github.com/vothalvino/fireisp5.0/blob/main/docs/runbook.md"
+
+    # -------------------------------------------------------------------------
+    # Recording rules for SLO-1 (computed over multiple windows)
+    # -------------------------------------------------------------------------
+    - name: fireisp.slo1.recording
+      rules:
+        - record: job:fireisp_http_error_rate:ratio_5m
+          expr: |
+            sum(rate(http_requests_total{job="fireisp", status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{job="fireisp"}[5m]))
+
+        - record: job:fireisp_http_error_rate:ratio_30m
+          expr: |
+            sum(rate(http_requests_total{job="fireisp", status=~"5.."}[30m]))
+            /
+            sum(rate(http_requests_total{job="fireisp"}[30m]))
+
+        - record: job:fireisp_http_error_rate:ratio_1h
+          expr: |
+            sum(rate(http_requests_total{job="fireisp", status=~"5.."}[1h]))
+            /
+            sum(rate(http_requests_total{job="fireisp"}[1h]))
+
+        - record: job:fireisp_http_error_rate:ratio_6h
+          expr: |
+            sum(rate(http_requests_total{job="fireisp", status=~"5.."}[6h]))
+            /
+            sum(rate(http_requests_total{job="fireisp"}[6h]))
+
+        - record: job:fireisp_http_error_rate:ratio_24h
+          expr: |
+            sum(rate(http_requests_total{job="fireisp", status=~"5.."}[24h]))
+            /
+            sum(rate(http_requests_total{job="fireisp"}[24h]))
+
+    # -------------------------------------------------------------------------
+    # SLO-2 — API Read Latency (target: p99 ≤ 500 ms)
+    # -------------------------------------------------------------------------
+    - name: fireisp.slo2.latency
+      rules:
+
+        - alert: FireISP_API_HighLatency_FastBurn
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(http_request_duration_seconds_bucket{job="fireisp", method="GET"}[5m]))
+              by (le)
+            ) > 0.5
+          for: 5m
+          labels:
+            severity: critical
+            slo: latency
+          annotations:
+            summary: "FireISP API p99 latency > 500 ms (fast burn, SLO-2)"
+            description: >
+              The API GET p99 latency is {{ $value | humanizeDuration }},
+              which exceeds the 500 ms SLO target.
+              Investigate DB latency, connection pool exhaustion, and recent deploys.
+            runbook: "https://github.com/vothalvino/fireisp5.0/blob/main/docs/runbook.md"
+
+        - alert: FireISP_API_HighLatency_SlowBurn
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(http_request_duration_seconds_bucket{job="fireisp", method="GET"}[30m]))
+              by (le)
+            ) > 0.5
+          for: 30m
+          labels:
+            severity: warning
+            slo: latency
+          annotations:
+            summary: "FireISP API p99 latency elevated > 500 ms for 30 min (SLO-2)"
+            description: >
+              The API GET p99 latency has exceeded 500 ms for 30 minutes.
+              Review recent traffic and DB health.
+            runbook: "https://github.com/vothalvino/fireisp5.0/blob/main/docs/runbook.md"
+
+    # -------------------------------------------------------------------------
+    # SLO-3 — RADIUS Authentication Success Rate (target: ≥ 99.95%)
+    # -------------------------------------------------------------------------
+    - name: fireisp.slo3.radius
+      rules:
+
+        - alert: FireISP_RADIUS_AuthFailureSpike
+          expr: |
+            (
+              sum(rate(radius_auth_accept_total[5m]))
+              /
+              sum(rate(radius_auth_request_total[5m]))
+            ) < 0.995
+          for: 2m
+          labels:
+            severity: critical
+            slo: radius
+          annotations:
+            summary: "FireISP RADIUS authentication failure spike (SLO-3)"
+            description: >
+              RADIUS accept rate over the last 5 min is {{ $value | humanizePercentage }},
+              below the 99.5% warning threshold.
+              Clients may be unable to connect. Check FreeRADIUS, NAS connectivity,
+              and database reachability from the RADIUS host.
+            runbook: "https://github.com/vothalvino/fireisp5.0/blob/main/docs/runbook.md#radius-debugging"
+
+        - alert: FireISP_RADIUS_AuthFailureSustained
+          expr: |
+            (
+              sum(rate(radius_auth_accept_total[1h]))
+              /
+              sum(rate(radius_auth_request_total[1h]))
+            ) < 0.9995
+          for: 15m
+          labels:
+            severity: warning
+            slo: radius
+          annotations:
+            summary: "FireISP RADIUS authentication rate below SLO-3 target"
+            description: >
+              The 1-hour RADIUS accept rate is {{ $value | humanizePercentage }},
+              below the 99.95% SLO-3 target.
+              Investigate rejected authentications in FreeRADIUS logs.
+            runbook: "https://github.com/vothalvino/fireisp5.0/blob/main/docs/runbook.md#radius-debugging"
+
+    # -------------------------------------------------------------------------
+    # General operational alerts (not SLO-gated but operationally important)
+    # -------------------------------------------------------------------------
+    - name: fireisp.operational
+      rules:
+
+        - alert: FireISP_HighMemoryUsage
+          expr: |
+            process_resident_memory_bytes{job="fireisp"} > 1.5 * 1024 * 1024 * 1024
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "FireISP process RSS > 1.5 GB"
+            description: >
+              The FireISP Node.js process RSS is {{ $value | humanize1024 }}B.
+              This may indicate a memory leak. Run `npm run loadtest:soak` against
+              a staging instance to confirm. Consider rolling restart if in production.
+
+        - alert: FireISP_DBConnectionPoolExhausted
+          expr: |
+            mysql_global_status_threads_connected{job="mysql"}
+            / mysql_global_variables_max_connections{job="mysql"}
+            > 0.85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "MySQL connection pool > 85% utilised"
+            description: >
+              MySQL thread count is {{ $value | humanizePercentage }} of max_connections.
+              Increase DB_POOL_SIZE in FireISP config or max_connections in MySQL,
+              or investigate connection leaks.
+
+        - alert: FireISP_BackupMissing
+          expr: |
+            (time() - fireisp_last_backup_timestamp_seconds) > 90000
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "FireISP database backup is overdue (> 25 hours)"
+            description: >
+              The last successful database backup was more than 25 hours ago.
+              Check the backup cron job and storage destination.
+            runbook: "https://github.com/vothalvino/fireisp5.0/blob/main/docs/backup-restore.md"

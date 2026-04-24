@@ -12,6 +12,7 @@
     "seed": "node src/scripts/seed.js",
     "loadtest:seed": "node src/scripts/loadtest-seed.js",
     "loadtest": "node src/scripts/loadtest.js",
+    "loadtest:soak": "node src/scripts/loadtest-soak.js",
     "backup": "node src/scripts/backup.js",
     "firerelay:agent": "node src/scripts/firerelay-agent.js",
     "admin": "node src/scripts/admin.js",
