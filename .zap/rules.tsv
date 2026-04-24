@@ -1,0 +1,38 @@
+# =============================================================================
+# FireISP 5.0 — OWASP ZAP Passive-Scan Rule Overrides
+# =============================================================================
+# Format: <rule-id> TAB <IGNORE|WARN|FAIL> TAB (<optional description>)
+# Reference: https://www.zaproxy.org/docs/alerts/
+# =============================================================================
+
+# 10035 — Strict-Transport-Security Not Set
+# Rationale: HSTS is enforced at the reverse-proxy (Nginx) level; the Express
+# app is never accessed directly by end-users in production.
+10035	IGNORE	(HSTS enforced by Nginx in production)
+
+# 10063 — Permissions-Policy Header Not Set
+# Rationale: The Permissions-Policy header is an optional hardening header;
+# helmet@8 does not set it by default. It has no security impact for an API-only
+# backend. Track for a future helmet upgrade.
+10063	IGNORE	(Optional hardening header; API-only backend)
+
+# 10096 — Timestamp Disclosure
+# Rationale: created_at / updated_at timestamps in API responses are expected
+# and documented in OpenAPI. Disclosing record timestamps is not a vulnerability.
+10096	IGNORE	(Record timestamps are public API contract)
+
+# 10021 — X-Content-Type-Options Header Missing
+# Rationale: helmet sets nosniff automatically; ZAP may flag the /health
+# endpoint which responds with JSON (not HTML). Helmet is verified in unit tests.
+10021	IGNORE	(Set by helmet; confirmed in secretsAudit.test.js)
+
+# 90003 — Sub Resource Integrity Attribute Missing
+# Rationale: FireISP serves self-hosted bundled assets from Vite; SRI is
+# relevant only for CDN-hosted third-party scripts, not self-hosted bundles.
+90003	IGNORE	(Self-hosted Vite bundle; no CDN third-party scripts)
+
+# 10110 — Dangerous JS Functions
+# Rationale: ZAP flags eval() usage in bundled third-party libraries (e.g.
+# regenerator-runtime). These are reviewed via SBOM + Trivy (P1.5); they are
+# not in application code.
+10110	IGNORE	(Third-party bundle internals; covered by Trivy/SBOM scan)
