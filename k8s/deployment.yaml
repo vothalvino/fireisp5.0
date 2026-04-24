@@ -28,6 +28,8 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: fireisp
           image: fireisp/fireisp:latest
@@ -40,6 +42,12 @@ spec:
                 name: fireisp-config
             - secretRef:
                 name: fireisp-secret
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           livenessProbe:
             httpGet:
               path: /health/live
@@ -73,7 +81,11 @@ spec:
           volumeMounts:
             - name: storage
               mountPath: /app/storage
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: storage
           persistentVolumeClaim:
             claimName: fireisp-storage
+        - name: tmp
+          emptyDir: {}

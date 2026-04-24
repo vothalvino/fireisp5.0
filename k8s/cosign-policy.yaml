@@ -1,0 +1,44 @@
+# Sigstore Policy Controller — ClusterImagePolicy for FireISP image verification
+#
+# Prerequisites:
+#   1. Install policy-controller in your cluster:
+#      helm repo add sigstore https://sigstore.github.io/helm-charts
+#      helm upgrade --install policy-controller sigstore/policy-controller \
+#        -n cosign-system --create-namespace
+#
+#   2. Label the fireisp namespace to enable enforcement:
+#      kubectl label namespace fireisp policy.sigstore.dev/include=true
+#
+# This policy requires every image in the fireisp/* path to carry a valid
+# keyless (Fulcio-issued) signature issued by the GitHub Actions OIDC identity
+# for the vothalvino/fireisp5.0 repository. The Rekor transparency log entry
+# is also verified automatically by the policy controller.
+#
+# Rotate: If you move to a registry-specific key, replace the `keyless`
+# block with an `authorities[].key.kms` or `authorities[].key.data` entry.
+---
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: fireisp-image-policy
+spec:
+  images:
+    # Restrict to images published from this repository's registry path.
+    # Update this glob when you push to a specific registry, e.g.:
+    #   ghcr.io/vothalvino/fireisp5.0:*
+    # The current pattern requires all matching images to originate from
+    # ghcr.io (GitHub Container Registry) — adjust if you use Docker Hub
+    # or another registry.
+    - glob: "ghcr.io/vothalvino/fireisp5.0:*"
+  authorities:
+    - name: keyless-github-actions
+      keyless:
+        # Trust only Fulcio certificates whose Subject (SAN) matches the
+        # GitHub Actions workflow URL for this repository. Adjust the URL
+        # if the workflow file is renamed.
+        url: https://fulcio.sigstore.dev
+        identities:
+          - issuer: https://token.actions.githubusercontent.com
+            subjectRegExp: "^https://github.com/vothalvino/fireisp5.0/.github/workflows/ci.yml@refs/heads/main$"
+      ctlog:
+        url: https://rekor.sigstore.dev

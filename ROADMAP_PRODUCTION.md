@@ -122,10 +122,10 @@ tenant)**, and **P3 (continuous improvement)**.
 - ✅ `tests/secretsAudit.test.js` added — 11 tests: health endpoints return no secret env-var names, `/health?detail=true` response keys are whitelisted, Pino redact censors `password`/`secret`/`authorization`, REDACT_PATHS source-level coverage assertion for all critical vars.
 
 ### P1.5 — Container image hardening + SBOM
-- Convert `Dockerfile` to multi-stage if it isn't already, run as non-root user, drop all Linux capabilities
-- Generate an SBOM on every build (`docker buildx … --sbom=true` or `syft`) and attach it as a build artifact
-- Add Trivy (or Grype) container scan as a CI job; fail on `HIGH` or `CRITICAL` CVEs
-- Sign the image with cosign and verify the signature in K8s admission
+- ✅ `Dockerfile` upgraded from `node:18-alpine` → `node:22-alpine` in both build stages (aligns with CI Node 22)
+- ✅ `k8s/deployment.yaml` container `securityContext` added: `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true`, `capabilities: {drop: [ALL]}`; pod `securityContext` gains `seccompProfile: {type: RuntimeDefault}`; `/tmp` emptyDir volume added for transient writes
+- ✅ `container-scan` CI job added to `.github/workflows/ci.yml` — builds image with `docker buildx`, generates SPDX SBOM via `anchore/sbom-action@v0.18.0` (uploaded as 90-day artifact), scans with `aquasecurity/trivy-action@0.35.0` failing on `HIGH`/`CRITICAL` CVEs (SARIF report uploaded), installs cosign and signs the image keylessly (Fulcio + Rekor) on every push to `main` when `REGISTRY` is configured
+- ✅ `k8s/cosign-policy.yaml` added — Sigstore policy-controller `ClusterImagePolicy` requiring valid keyless signature issued by the GitHub Actions OIDC identity for `vothalvino/fireisp5.0` on the `main` workflow; includes Helm install + namespace-label instructions
 
 ### P1.6 — Pre-production load + soak test
 - Re-run the M4.1 autocannon load test against the production docker-compose stack (not just the dev API) **after** P0.3 lands
@@ -218,3 +218,4 @@ tenant)**, and **P3 (continuous improvement)**.
 | 2026-04-23 | P1.2 | E2E smoke test: Playwright `e2e/` package, smoke scenario (login → create client → new contract → generate invoice → record payment → new ticket → sign out), `docker-compose.e2e.yml`, `e2e` CI job |
 | 2026-04-23 | P1.3 | DR drill: `docs/dr-drill.md` — 5-phase procedure (backup → destroy → restore → verify RI/counts/financials → storage), timing template, quarterly log table |
 | 2026-04-23 | P1.4 | Secrets management: `docs/secrets-management.md` (Sealed Secrets recommended + ESO/AWS/GCP + Vault + bare-metal options), `k8s/sealed-secret.yaml` template, Pino `redact` list in `src/utils/logger.js`, health-endpoint secrets audit, 10 new tests in `tests/secretsAudit.test.js` |
+| 2026-04-23 | P1.5 | Container hardening: `node:18-alpine` → `node:22-alpine`, K8s `capabilities.drop=[ALL]` + `readOnlyRootFilesystem` + `seccompProfile=RuntimeDefault` + `/tmp` emptyDir, `container-scan` CI job (Trivy `HIGH`/`CRITICAL` exit-1 + SBOM via anchore/sbom-action + keyless cosign signing on main), `k8s/cosign-policy.yaml` (Sigstore ClusterImagePolicy) |
