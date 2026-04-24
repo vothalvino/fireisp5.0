@@ -12,6 +12,7 @@ const { validate } = require('../middleware/validate');
 const { createClient, updateClient, patchClient, createContact, updateMxProfile } = require('../middleware/schemas/clients');
 const { httpCache } = require('../middleware/httpCache');
 const { ValidationError, NotFoundError } = require('../utils/errors');
+const { quotaCheck } = require('../middleware/checkQuota');
 const db = require('../config/database');
 
 const router = Router();
@@ -22,7 +23,7 @@ router.use(orgScope);
 
 router.get('/', requirePermission('clients.view'), httpCache('clients', 60), ctrl.list);
 router.get('/:id', requirePermission('clients.view'), ctrl.get);
-router.post('/', requirePermission('clients.create'), validate(createClient), ctrl.create);
+router.post('/', requirePermission('clients.create'), quotaCheck('clients'), validate(createClient), ctrl.create);
 router.put('/:id', requirePermission('clients.update'), validate(updateClient), ctrl.update);
 router.patch('/:id', requirePermission('clients.update'), validate(patchClient), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('clients.delete'), ctrl.destroy);

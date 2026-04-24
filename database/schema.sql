@@ -6082,3 +6082,24 @@ CREATE TABLE IF NOT EXISTS sso_auth_states (
     UNIQUE KEY uq_sso_state (state),
     KEY idx_sso_state_expires (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ---------------------------------------------------------------------------
+-- Per-tenant resource quotas  (migration 166 — P2.4)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS organization_quotas (
+    id                    BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id       BIGINT UNSIGNED  NOT NULL,
+    max_clients           INT UNSIGNED     NULL     COMMENT 'Max active clients; NULL = unlimited',
+    max_devices           INT UNSIGNED     NULL     COMMENT 'Max active devices; NULL = unlimited',
+    max_storage_mb        INT UNSIGNED     NULL     COMMENT 'Max total file storage in MB; NULL = unlimited',
+    max_scheduled_tasks   INT UNSIGNED     NULL     COMMENT 'Max org-scoped scheduled tasks; NULL = unlimited',
+    created_at            TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at            TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_organization_quotas_org (organization_id),
+    CONSTRAINT fk_organization_quotas_org
+        FOREIGN KEY (organization_id) REFERENCES organizations (id)
+        ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

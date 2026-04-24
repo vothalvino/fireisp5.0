@@ -11,6 +11,7 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createDevice, updateDevice, patchDevice } = require('../middleware/schemas/devices');
 const { httpCache } = require('../middleware/httpCache');
+const { quotaCheck } = require('../middleware/checkQuota');
 const db = require('../config/database');
 
 const router = Router();
@@ -21,7 +22,7 @@ router.use(orgScope);
 
 router.get('/', requirePermission('devices.view'), httpCache('devices', 120), ctrl.list);
 router.get('/:id', requirePermission('devices.view'), ctrl.get);
-router.post('/', requirePermission('devices.create'), validate(createDevice), ctrl.create);
+router.post('/', requirePermission('devices.create'), quotaCheck('devices'), validate(createDevice), ctrl.create);
 router.put('/:id', requirePermission('devices.update'), validate(updateDevice), ctrl.update);
 router.patch('/:id', requirePermission('devices.update'), validate(patchDevice), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('devices.delete'), ctrl.destroy);
