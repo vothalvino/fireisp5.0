@@ -49,8 +49,18 @@ function sanitizeObject(obj) {
 /**
  * Express middleware that sanitizes req.body string fields.
  * Preserves non-string types (numbers, booleans, nulls) untouched.
+ *
+ * Note: GraphQL requests are excluded because the GraphQL engine performs its
+ * own query parsing and validation, and HTML-encoding query strings breaks
+ * the GraphQL parser (e.g. `"10"` becomes `&quot;10&quot;`).
  */
 function sanitize(req, _res, next) {
+  // GraphQL has its own query validation — skip HTML encoding for GraphQL requests.
+  // Using exact path matching to avoid inadvertently bypassing sanitization for
+  // unrelated paths that happen to end in '/graphql'.
+  if (req.path === '/api/v1/graphql' || req.path === '/api/graphql') {
+    return next();
+  }
   if (req.body && typeof req.body === 'object') {
     req.body = sanitizeObject(req.body);
   }

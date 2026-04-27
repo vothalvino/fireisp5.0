@@ -3,146 +3,172 @@
 // =============================================================================
 // Shows a single client with tabbed sub-sections:
 //   Contracts | Invoices | Payments | Devices | Ledger
+//
+// P3.3 — Uses a single GraphQL query to fetch all nested data in one round-trip,
+// eliminating the 5+ sequential REST calls that were previously needed.
 // =============================================================================
 
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/api/client';
+import { gql } from '@/api/graphql';
 
 // ---------------------------------------------------------------------------
-// Types
+// GraphQL query — fetches the client + all sub-resources in one request
+// ---------------------------------------------------------------------------
+
+const CLIENT_DETAIL_QUERY = /* GraphQL */ `
+  query ClientDetail($id: ID!) {
+    client(id: $id) {
+      id
+      name
+      email
+      phone
+      clientType
+      status
+      address
+      city
+      state
+      zipCode
+      country
+      taxId
+      notes
+      createdAt
+      contracts {
+        id
+        connectionType
+        startDate
+        endDate
+        billingDay
+        ipAddress
+        status
+      }
+      invoices {
+        id
+        invoiceNumber
+        total
+        currency
+        dueDate
+        paidAt
+        status
+      }
+      payments {
+        id
+        amount
+        currency
+        paymentMethod
+        reference
+        status
+        createdAt
+      }
+      devices {
+        id
+        name
+        type
+        manufacturer
+        model
+        macAddress
+        ipAddress
+        status
+      }
+      ledger {
+        id
+        entryType
+        amount
+        currency
+        balanceAfter
+        notes
+        createdAt
+      }
+    }
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// Types (derived from GraphQL schema)
 // ---------------------------------------------------------------------------
 
 interface Client {
-  id: number;
+  id: string;
   name: string;
-  email: string;
+  email: string | null;
   phone: string | null;
-  client_type: string;
+  clientType: string;
   status: string;
   address: string | null;
   city: string | null;
   state: string | null;
-  zip_code: string | null;
+  zipCode: string | null;
   country: string | null;
-  tax_id: string | null;
+  taxId: string | null;
   notes: string | null;
-  created_at: string;
+  createdAt: string;
+  contracts: Contract[];
+  invoices: Invoice[];
+  payments: Payment[];
+  devices: Device[];
+  ledger: LedgerEntry[];
 }
 
 interface Contract {
-  id: number;
-  plan_id: number;
-  connection_type: string;
-  start_date: string;
-  end_date: string | null;
-  billing_day: number;
+  id: string;
+  connectionType: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  billingDay: number | null;
+  ipAddress: string | null;
   status: string;
-  ip_address: string | null;
-  price_override: string | null;
-  notes: string | null;
 }
 
 interface Invoice {
-  id: number;
-  invoice_number: string;
-  subtotal: string;
-  tax_amount: string;
+  id: string;
+  invoiceNumber: string;
   total: string;
   currency: string;
-  due_date: string;
-  paid_at: string | null;
+  dueDate: string | null;
+  paidAt: string | null;
   status: string;
-  created_at: string;
 }
 
 interface Payment {
-  id: number;
+  id: string;
   amount: string;
   currency: string;
-  payment_method: string;
+  paymentMethod: string;
   reference: string | null;
   status: string;
-  created_at: string;
+  createdAt: string;
 }
 
 interface Device {
-  id: number;
+  id: string;
   name: string;
-  type: string;
+  type: string | null;
   manufacturer: string | null;
   model: string | null;
-  mac_address: string | null;
-  ip_address: string | null;
+  macAddress: string | null;
+  ipAddress: string | null;
   status: string;
-  contract_id: number | null;
 }
 
 interface LedgerEntry {
-  id: number;
-  entry_type: string;
+  id: string;
+  entryType: string;
   amount: string;
   currency: string;
-  reference_type: string | null;
-  reference_id: number | null;
-  balance_after: string;
+  balanceAfter: string;
   notes: string | null;
-  created_at: string;
+  createdAt: string;
 }
 
 // ---------------------------------------------------------------------------
-// Fetch helpers
+// Fetch helper (single GraphQL query)
 // ---------------------------------------------------------------------------
 
-async function fetchClient(id: string): Promise<Client> {
-  const res = await api.GET('/clients/{id}', { params: { path: { id: Number(id) } } });
-  if (res.error) throw new Error('Client not found');
-  return (res.data as unknown as { data: Client }).data;
-}
-
-async function fetchClientContracts(id: string): Promise<Contract[]> {
-  const res = await api.GET('/clients/{id}/contracts', { params: { path: { id: Number(id) } } });
-  if (res.error) throw new Error('Failed to load contracts');
-  return (res.data as unknown as { data: Contract[] }).data;
-}
-
-async function fetchClientInvoices(id: string): Promise<Invoice[]> {
-  const res = await api.GET('/clients/{id}/invoices', { params: { path: { id: Number(id) } } });
-  if (res.error) throw new Error('Failed to load invoices');
-  return (res.data as unknown as { data: Invoice[] }).data;
-}
-
-async function fetchClientPayments(id: string): Promise<Payment[]> {
-  const res = await api.GET('/payments', {
-    params: { query: { client_id: id, limit: 100 } as never },
-  });
-  if (res.error) throw new Error('Failed to load payments');
-  return (res.data as unknown as { data: Payment[] }).data;
-}
-
-async function fetchClientDevices(contractIds: number[]): Promise<Device[]> {
-  if (contractIds.length === 0) return [];
-  // Fetch devices for each contract in parallel, then flatten.
-  const results = await Promise.all(
-    contractIds.map(cid =>
-      api
-        .GET('/devices', { params: { query: { contract_id: cid, limit: 100 } as never } })
-        .then(res => {
-          if (res.error) return [] as Device[];
-          return (res.data as unknown as { data: Device[] }).data;
-        }),
-    ),
-  );
-  return results.flat();
-}
-
-async function fetchClientLedger(id: string): Promise<LedgerEntry[]> {
-  const res = await api.GET('/clients/{id}/balance-ledger', {
-    params: { path: { id: Number(id) } },
-  });
-  if (res.error) throw new Error('Failed to load ledger');
-  return (res.data as unknown as { data: LedgerEntry[] }).data;
+async function fetchClientDetail(id: string): Promise<Client> {
+  const data = await gql<{ client: Client | null }>(CLIENT_DETAIL_QUERY, { id });
+  if (!data.client) throw new Error('Client not found');
+  return data.client;
 }
 
 // ---------------------------------------------------------------------------
@@ -214,17 +240,11 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Tab panels
+// Tab panels — receive pre-loaded data as props (no sub-queries needed)
 // ---------------------------------------------------------------------------
 
-function ContractsTab({ clientId }: { clientId: string }) {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['client-contracts', clientId],
-    queryFn: () => fetchClientContracts(clientId),
-  });
-  if (isLoading) return <p style={styles.msg}>Loading…</p>;
-  if (error)     return <p style={styles.msgError}>Failed to load contracts.</p>;
-  if (!data?.length) return <p style={styles.msg}>No contracts found.</p>;
+function ContractsTab({ contracts }: { contracts: Contract[] }) {
+  if (!contracts.length) return <p style={styles.msg}>No contracts found.</p>;
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={styles.table}>
@@ -234,14 +254,14 @@ function ContractsTab({ clientId }: { clientId: string }) {
           ))}</tr>
         </thead>
         <tbody>
-          {data.map(c => (
+          {contracts.map(c => (
             <tr key={c.id} style={styles.tr}>
               <td style={styles.td}>#{c.id}</td>
-              <td style={{ ...styles.td, textTransform: 'capitalize' }}>{c.connection_type || '—'}</td>
-              <td style={styles.td}>{fmt(c.start_date)}</td>
-              <td style={styles.td}>{fmt(c.end_date)}</td>
-              <td style={styles.td}>{c.billing_day ?? '—'}</td>
-              <td style={{ ...styles.td, fontFamily: 'monospace' }}>{c.ip_address || '—'}</td>
+              <td style={{ ...styles.td, textTransform: 'capitalize' }}>{c.connectionType || '—'}</td>
+              <td style={styles.td}>{fmt(c.startDate)}</td>
+              <td style={styles.td}>{fmt(c.endDate)}</td>
+              <td style={styles.td}>{c.billingDay ?? '—'}</td>
+              <td style={{ ...styles.td, fontFamily: 'monospace' }}>{c.ipAddress || '—'}</td>
               <td style={styles.td}><StatusBadge status={c.status} /></td>
             </tr>
           ))}
@@ -251,14 +271,8 @@ function ContractsTab({ clientId }: { clientId: string }) {
   );
 }
 
-function InvoicesTab({ clientId }: { clientId: string }) {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['client-invoices', clientId],
-    queryFn: () => fetchClientInvoices(clientId),
-  });
-  if (isLoading) return <p style={styles.msg}>Loading…</p>;
-  if (error)     return <p style={styles.msgError}>Failed to load invoices.</p>;
-  if (!data?.length) return <p style={styles.msg}>No invoices found.</p>;
+function InvoicesTab({ invoices }: { invoices: Invoice[] }) {
+  if (!invoices.length) return <p style={styles.msg}>No invoices found.</p>;
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={styles.table}>
@@ -268,14 +282,14 @@ function InvoicesTab({ clientId }: { clientId: string }) {
           ))}</tr>
         </thead>
         <tbody>
-          {data.map(inv => (
+          {invoices.map(inv => (
             <tr key={inv.id} style={styles.tr}>
-              <td style={{ ...styles.td, fontWeight: 600 }}>{inv.invoice_number}</td>
+              <td style={{ ...styles.td, fontWeight: 600 }}>{inv.invoiceNumber}</td>
               <td style={{ ...styles.td, fontVariantNumeric: 'tabular-nums' }}>
                 {fmtMoney(inv.total, inv.currency)}
               </td>
-              <td style={styles.td}>{fmt(inv.due_date)}</td>
-              <td style={styles.td}>{fmt(inv.paid_at)}</td>
+              <td style={styles.td}>{fmt(inv.dueDate)}</td>
+              <td style={styles.td}>{fmt(inv.paidAt)}</td>
               <td style={styles.td}><StatusBadge status={inv.status} /></td>
             </tr>
           ))}
@@ -285,14 +299,8 @@ function InvoicesTab({ clientId }: { clientId: string }) {
   );
 }
 
-function PaymentsTab({ clientId }: { clientId: string }) {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['client-payments', clientId],
-    queryFn: () => fetchClientPayments(clientId),
-  });
-  if (isLoading) return <p style={styles.msg}>Loading…</p>;
-  if (error)     return <p style={styles.msgError}>Failed to load payments.</p>;
-  if (!data?.length) return <p style={styles.msg}>No payments found.</p>;
+function PaymentsTab({ payments }: { payments: Payment[] }) {
+  if (!payments.length) return <p style={styles.msg}>No payments found.</p>;
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={styles.table}>
@@ -302,15 +310,15 @@ function PaymentsTab({ clientId }: { clientId: string }) {
           ))}</tr>
         </thead>
         <tbody>
-          {data.map(p => (
+          {payments.map(p => (
             <tr key={p.id} style={styles.tr}>
               <td style={styles.td}>#{p.id}</td>
               <td style={{ ...styles.td, fontVariantNumeric: 'tabular-nums' }}>
                 {fmtMoney(p.amount, p.currency)}
               </td>
-              <td style={{ ...styles.td, textTransform: 'capitalize' }}>{p.payment_method || '—'}</td>
+              <td style={{ ...styles.td, textTransform: 'capitalize' }}>{p.paymentMethod || '—'}</td>
               <td style={styles.td}>{p.reference || '—'}</td>
-              <td style={styles.td}>{fmt(p.created_at)}</td>
+              <td style={styles.td}>{fmt(p.createdAt)}</td>
               <td style={styles.td}><StatusBadge status={p.status} /></td>
             </tr>
           ))}
@@ -320,26 +328,8 @@ function PaymentsTab({ clientId }: { clientId: string }) {
   );
 }
 
-function DevicesTab({ clientId }: { clientId: string }) {
-  // First get contracts, then fetch devices per contract.
-  const contractsQ = useQuery({
-    queryKey: ['client-contracts', clientId],
-    queryFn: () => fetchClientContracts(clientId),
-  });
-
-  const contractIds = (contractsQ.data ?? []).map(c => c.id);
-
-  const devicesQ = useQuery({
-    queryKey: ['client-devices', clientId, contractIds],
-    queryFn: () => fetchClientDevices(contractIds),
-    enabled: contractsQ.isSuccess,
-  });
-
-  if (contractsQ.isLoading || devicesQ.isLoading) return <p style={styles.msg}>Loading…</p>;
-  if (devicesQ.error) return <p style={styles.msgError}>Failed to load devices.</p>;
-  const devices = devicesQ.data ?? [];
+function DevicesTab({ devices }: { devices: Device[] }) {
   if (!devices.length) return <p style={styles.msg}>No devices found.</p>;
-
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={styles.table}>
@@ -356,8 +346,8 @@ function DevicesTab({ clientId }: { clientId: string }) {
               <td style={styles.td}>
                 {[d.manufacturer, d.model].filter(Boolean).join(' / ') || '—'}
               </td>
-              <td style={{ ...styles.td, fontFamily: 'monospace' }}>{d.mac_address || '—'}</td>
-              <td style={{ ...styles.td, fontFamily: 'monospace' }}>{d.ip_address || '—'}</td>
+              <td style={{ ...styles.td, fontFamily: 'monospace' }}>{d.macAddress || '—'}</td>
+              <td style={{ ...styles.td, fontFamily: 'monospace' }}>{d.ipAddress || '—'}</td>
               <td style={styles.td}><StatusBadge status={d.status} /></td>
             </tr>
           ))}
@@ -367,14 +357,8 @@ function DevicesTab({ clientId }: { clientId: string }) {
   );
 }
 
-function LedgerTab({ clientId }: { clientId: string }) {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['client-ledger', clientId],
-    queryFn: () => fetchClientLedger(clientId),
-  });
-  if (isLoading) return <p style={styles.msg}>Loading…</p>;
-  if (error)     return <p style={styles.msgError}>Failed to load ledger.</p>;
-  if (!data?.length) return <p style={styles.msg}>No ledger entries found.</p>;
+function LedgerTab({ ledger }: { ledger: LedgerEntry[] }) {
+  if (!ledger.length) return <p style={styles.msg}>No ledger entries found.</p>;
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={styles.table}>
@@ -384,13 +368,13 @@ function LedgerTab({ clientId }: { clientId: string }) {
           ))}</tr>
         </thead>
         <tbody>
-          {data.map(e => {
+          {ledger.map(e => {
             const isCredit = parseFloat(e.amount) >= 0;
             return (
               <tr key={e.id} style={styles.tr}>
-                <td style={styles.td}>{fmt(e.created_at)}</td>
+                <td style={styles.td}>{fmt(e.createdAt)}</td>
                 <td style={{ ...styles.td, textTransform: 'capitalize' }}>
-                  {(e.entry_type || '').replace(/_/g, ' ')}
+                  {(e.entryType || '').replace(/_/g, ' ')}
                 </td>
                 <td
                   style={{
@@ -403,7 +387,7 @@ function LedgerTab({ clientId }: { clientId: string }) {
                   {isCredit ? '+' : ''}{fmtMoney(e.amount, e.currency)}
                 </td>
                 <td style={{ ...styles.td, fontVariantNumeric: 'tabular-nums' }}>
-                  {fmtMoney(e.balance_after, e.currency)}
+                  {fmtMoney(e.balanceAfter, e.currency)}
                 </td>
                 <td style={{ ...styles.td, color: '#6b7280' }}>{e.notes || '—'}</td>
               </tr>
@@ -420,19 +404,19 @@ function LedgerTab({ clientId }: { clientId: string }) {
 // ---------------------------------------------------------------------------
 
 function ClientInfoCard({ client }: { client: Client }) {
-  const location = [client.address, client.city, client.state, client.zip_code, client.country]
+  const location = [client.address, client.city, client.state, client.zipCode, client.country]
     .filter(Boolean)
     .join(', ');
 
   return (
     <div style={styles.infoCard}>
       <div style={styles.infoGrid}>
-        <InfoRow label="Email"  value={client.email}    />
-        <InfoRow label="Phone"  value={client.phone}    />
-        <InfoRow label="Type"   value={client.client_type} capitalize />
-        <InfoRow label="Tax ID" value={client.tax_id}   mono />
-        <InfoRow label="Location" value={location || null} />
-        <InfoRow label="Since"  value={fmt(client.created_at)} />
+        <InfoRow label="Email"    value={client.email}       />
+        <InfoRow label="Phone"    value={client.phone}       />
+        <InfoRow label="Type"     value={client.clientType}  capitalize />
+        <InfoRow label="Tax ID"   value={client.taxId}       mono />
+        <InfoRow label="Location" value={location || null}   />
+        <InfoRow label="Since"    value={fmt(client.createdAt)} />
       </div>
       {client.notes && (
         <div style={styles.notesRow}>
@@ -481,8 +465,8 @@ export function ClientDetail() {
   const [activeTab, setActiveTab] = useState<TabId>('contracts');
 
   const { data: client, isLoading, error } = useQuery({
-    queryKey: ['client', id],
-    queryFn: () => fetchClient(id!),
+    queryKey: ['client-detail-gql', id],
+    queryFn: () => fetchClientDetail(id!),
     enabled: Boolean(id),
   });
 
@@ -544,11 +528,11 @@ export function ClientDetail() {
 
       {/* Tab content */}
       <div style={styles.tabContent}>
-        {activeTab === 'contracts' && <ContractsTab clientId={id!} />}
-        {activeTab === 'invoices'  && <InvoicesTab  clientId={id!} />}
-        {activeTab === 'payments'  && <PaymentsTab  clientId={id!} />}
-        {activeTab === 'devices'   && <DevicesTab   clientId={id!} />}
-        {activeTab === 'ledger'    && <LedgerTab    clientId={id!} />}
+        {activeTab === 'contracts' && <ContractsTab contracts={client.contracts} />}
+        {activeTab === 'invoices'  && <InvoicesTab  invoices={client.invoices}   />}
+        {activeTab === 'payments'  && <PaymentsTab  payments={client.payments}   />}
+        {activeTab === 'devices'   && <DevicesTab   devices={client.devices}     />}
+        {activeTab === 'ledger'    && <LedgerTab    ledger={client.ledger}       />}
       </div>
     </div>
   );
@@ -652,3 +636,4 @@ const styles = {
   msg:      { padding: '2rem 1.5rem', color: '#6b7280', fontStyle: 'italic' as const, margin: 0 },
   msgError: { padding: '2rem 1.5rem', color: '#ef4444', margin: 0 },
 } as const;
+

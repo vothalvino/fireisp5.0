@@ -1,0 +1,233 @@
+// =============================================================================
+// FireISP 5.0 — GraphQL Resolvers (P3.3)
+// =============================================================================
+// Each resolver is org-scoped: it uses ctx.orgId (set by the orgScope Express
+// middleware) to ensure users can only query data from their own organization.
+//
+// Nested field resolvers (e.g. Client.contracts) are intentionally lazy — they
+// only run when the client actually requests those fields, so a `clients` query
+// that only asks for `name` and `status` never executes the sub-queries.
+// =============================================================================
+
+const db = require('../config/database');
+const Client = require('../models/Client');
+const Invoice = require('../models/Invoice');
+const Ticket = require('../models/Ticket');
+
+/** Clamp pagination params to safe bounds. */
+function clamp(val, defaultVal, max) {
+  const n = parseInt(val, 10);
+  if (Number.isNaN(n) || n < 0) return defaultVal;
+  return Math.min(n, max);
+}
+
+const MAX_LIMIT = 200;
+
+const resolvers = {
+  // ---------------------------------------------------------------------------
+  // Root Query resolvers
+  // ---------------------------------------------------------------------------
+  Query: {
+    client: (_parent, { id }, ctx) => Client.findById(id, ctx.orgId),
+
+    clients: (_parent, { limit, offset }, ctx) =>
+      Client.findAll({
+        orgId: ctx.orgId,
+        limit: clamp(limit, 50, MAX_LIMIT),
+        offset: clamp(offset, 0, 1e6),
+      }),
+
+    invoice: (_parent, { id }, ctx) => Invoice.findById(id, ctx.orgId),
+
+    invoices: (_parent, { limit, offset, clientId }, ctx) =>
+      Invoice.findAll({
+        where: clientId ? { client_id: clientId } : {},
+        orgId: ctx.orgId,
+        limit: clamp(limit, 50, MAX_LIMIT),
+        offset: clamp(offset, 0, 1e6),
+      }),
+
+    ticket: (_parent, { id }, ctx) => Ticket.findById(id, ctx.orgId),
+
+    tickets: (_parent, { limit, offset, clientId }, ctx) =>
+      Ticket.findAll({
+        where: clientId ? { client_id: clientId } : {},
+        orgId: ctx.orgId,
+        limit: clamp(limit, 50, MAX_LIMIT),
+        offset: clamp(offset, 0, 1e6),
+      }),
+  },
+
+  // ---------------------------------------------------------------------------
+  // Client field resolvers
+  // ---------------------------------------------------------------------------
+  Client: {
+    clientType: (c) => c.client_type,
+    zipCode: (c) => c.zip_code,
+    taxId: (c) => c.tax_id,
+    createdAt: (c) => c.created_at,
+
+    contracts: async (client, _args, ctx) => {
+      const [rows] = await db.query(
+        'SELECT * FROM contracts WHERE client_id = ? AND organization_id = ? AND deleted_at IS NULL ORDER BY id',
+        [client.id, ctx.orgId],
+      );
+      return rows;
+    },
+
+    invoices: async (client, _args, ctx) => {
+      const [rows] = await db.query(
+        'SELECT * FROM invoices WHERE client_id = ? AND organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC',
+        [client.id, ctx.orgId],
+      );
+      return rows;
+    },
+
+    payments: async (client, _args, ctx) => {
+      const [rows] = await db.query(
+        'SELECT * FROM payments WHERE client_id = ? AND organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 100',
+        [client.id, ctx.orgId],
+      );
+      return rows;
+    },
+
+    devices: async (client, _args, ctx) => {
+      const [rows] = await db.query(
+        `SELECT d.* FROM devices d
+         INNER JOIN contracts c ON c.id = d.contract_id
+         WHERE c.client_id = ? AND c.organization_id = ? AND d.deleted_at IS NULL`,
+        [client.id, ctx.orgId],
+      );
+      return rows;
+    },
+
+    ledger: async (client, _args, ctx) => {
+      const [rows] = await db.query(
+        'SELECT * FROM client_balance_ledger WHERE client_id = ? AND organization_id = ? ORDER BY created_at DESC',
+        [client.id, ctx.orgId],
+      );
+      return rows;
+    },
+
+    contacts: (client) => Client.getContacts(client.id),
+  },
+
+  // ---------------------------------------------------------------------------
+  // Contract field resolvers (snake_case → camelCase mapping)
+  // ---------------------------------------------------------------------------
+  Contract: {
+    clientId: (c) => c.client_id,
+    planId: (c) => c.plan_id,
+    connectionType: (c) => c.connection_type,
+    startDate: (c) => c.start_date,
+    endDate: (c) => c.end_date,
+    billingDay: (c) => c.billing_day,
+    ipAddress: (c) => c.ip_address,
+    priceOverride: (c) => c.price_override,
+    createdAt: (c) => c.created_at,
+  },
+
+  // ---------------------------------------------------------------------------
+  // Invoice field resolvers
+  // ---------------------------------------------------------------------------
+  Invoice: {
+    clientId: (inv) => inv.client_id,
+    contractId: (inv) => inv.contract_id,
+    invoiceNumber: (inv) => inv.invoice_number,
+    taxAmount: (inv) => inv.tax_amount,
+    dueDate: (inv) => inv.due_date,
+    paidAt: (inv) => inv.paid_at,
+    createdAt: (inv) => inv.created_at,
+
+    client: (inv, _args, ctx) =>
+      inv.client_id ? Client.findById(inv.client_id, ctx.orgId) : null,
+
+    items: (inv) => Invoice.getItems(inv.id),
+
+    appliedPayments: async (inv) => {
+      const [rows] = await db.query(
+        `SELECT pa.*, p.amount AS payment_amount, p.payment_method, p.payment_date
+         FROM payment_allocations pa
+         JOIN payments p ON p.id = pa.payment_id
+         WHERE pa.invoice_id = ?`,
+        [inv.id],
+      );
+      return rows;
+    },
+  },
+
+  // ---------------------------------------------------------------------------
+  // InvoiceItem field resolvers
+  // ---------------------------------------------------------------------------
+  InvoiceItem: {
+    unitPrice: (item) => item.unit_price,
+    taxRate: (item) => item.tax_rate,
+  },
+
+  // ---------------------------------------------------------------------------
+  // AppliedPayment field resolvers
+  // ---------------------------------------------------------------------------
+  AppliedPayment: {
+    paymentId: (ap) => ap.payment_id,
+    invoiceId: (ap) => ap.invoice_id,
+    paymentAmount: (ap) => ap.payment_amount,
+    paymentMethod: (ap) => ap.payment_method,
+    paymentDate: (ap) => ap.payment_date,
+  },
+
+  // ---------------------------------------------------------------------------
+  // Payment field resolvers
+  // ---------------------------------------------------------------------------
+  Payment: {
+    paymentMethod: (p) => p.payment_method,
+    createdAt: (p) => p.created_at,
+  },
+
+  // ---------------------------------------------------------------------------
+  // Device field resolvers
+  // ---------------------------------------------------------------------------
+  Device: {
+    macAddress: (d) => d.mac_address,
+    ipAddress: (d) => d.ip_address,
+    contractId: (d) => d.contract_id,
+  },
+
+  // ---------------------------------------------------------------------------
+  // LedgerEntry field resolvers
+  // ---------------------------------------------------------------------------
+  LedgerEntry: {
+    entryType: (e) => e.entry_type,
+    referenceType: (e) => e.reference_type,
+    referenceId: (e) => e.reference_id,
+    balanceAfter: (e) => e.balance_after,
+    createdAt: (e) => e.created_at,
+  },
+
+  // ---------------------------------------------------------------------------
+  // Ticket field resolvers
+  // ---------------------------------------------------------------------------
+  Ticket: {
+    clientId: (t) => t.client_id,
+    contractId: (t) => t.contract_id,
+    assignedTo: (t) => t.assigned_to,
+    createdAt: (t) => t.created_at,
+    updatedAt: (t) => t.updated_at,
+
+    client: (ticket, _args, ctx) =>
+      ticket.client_id ? Client.findById(ticket.client_id, ctx.orgId) : null,
+
+    comments: (ticket) => Ticket.getComments(ticket.id),
+  },
+
+  // ---------------------------------------------------------------------------
+  // TicketComment field resolvers
+  // ---------------------------------------------------------------------------
+  TicketComment: {
+    ticketId: (c) => c.ticket_id,
+    userId: (c) => c.user_id,
+    isInternal: (c) => Boolean(c.is_internal),
+    createdAt: (c) => c.created_at,
+  },
+};
+
+module.exports = resolvers;
