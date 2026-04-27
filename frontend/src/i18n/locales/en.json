@@ -92,7 +92,10 @@
       "daysOverdue": "Days Overdue",
       "daysFormat": "{{days}}d"
     },
-    "overdueMore": "Showing top 20 of {{total}} overdue invoices."
+    "overdueMore": "Showing top 20 of {{total}} overdue invoices.",
+    "liveConnected": "Live",
+    "liveDisconnected": "Offline",
+    "liveEvents": "{{count}} new events"
   },
   "drDrill": {
     "modalTitle": "DR Drill Warning",

@@ -9,10 +9,11 @@
 //   • Comments thread (chronological list, add comment with is_internal toggle)
 // =============================================================================
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, tokenStore } from '@/api/client';
+import { useWebSocket } from '@/api/useWebSocket';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -399,6 +400,21 @@ export function TicketDetail() {
     queryKey: ['users-mini'],
     queryFn: fetchUsers,
   });
+
+  // ── Live ticket updates via WebSocket ──────────────────────────────────────
+  const { lastMessage: liveEvent } = useWebSocket(id ? `ticket:${id}` : 'notifications');
+
+  useEffect(() => {
+    if (!liveEvent || !id) return;
+    const ev = liveEvent.event;
+    if (ev === 'comment') {
+      // New comment posted — refetch comments silently
+      void refetchComments();
+    } else if (ev === 'status') {
+      // Status or assignment changed — refetch ticket
+      queryClient.invalidateQueries({ queryKey: ['ticket', id] });
+    }
+  }, [liveEvent, id, refetchComments, queryClient]);
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ['ticket', id] });
