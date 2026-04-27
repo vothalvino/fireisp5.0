@@ -84,7 +84,9 @@ function schedule(task) {
     if (process.env.REDIS_URL) {
       const jobQueue = require('./jobQueueService');
       const minuteSlot = Math.floor(Date.now() / MINUTE_IN_MS);
-      const orgSuffix = task.organization_id != null ? `-org${task.organization_id}` : '';
+      const orgSuffix = task.organization_id !== null && task.organization_id !== undefined
+        ? `-org${task.organization_id}`
+        : '';
       const jobId = `${task.task_name}${orgSuffix}-${minuteSlot}`;
       await jobQueue.add(
         'scheduled-task',
