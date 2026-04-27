@@ -563,7 +563,7 @@ function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
 // ---------------------------------------------------------------------------
 
 const card: React.CSSProperties = {
-  background: '#fff', borderRadius: 8, padding: '1rem',
+  background: 'var(--bg-card)', borderRadius: 8, padding: '1rem',
   boxShadow: '0 1px 4px rgba(0,0,0,.08)', marginBottom: '0.25rem',
 };
 const metaGrid: React.CSSProperties = {
