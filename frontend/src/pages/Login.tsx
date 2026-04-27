@@ -4,12 +4,14 @@
 
 import { type FormEvent, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/auth/AuthContext';
 
 export function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation();
   const from = (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? '/';
 
   const [email, setEmail] = useState('');
@@ -32,7 +34,7 @@ export function Login() {
       // If the server says TOTP is required, show the TOTP field.
       if (msg.toLowerCase().includes('totp') || msg.toLowerCase().includes('two-factor')) {
         setNeedsTotp(true);
-        setError('Enter your two-factor authentication code.');
+        setError(t('login.totpPrompt'));
       } else {
         setError(msg);
       }
@@ -44,13 +46,13 @@ export function Login() {
   return (
     <div style={styles.container}>
       <form style={styles.card} onSubmit={handleSubmit}>
-        <h1 style={styles.title}>🔥 FireISP 5.0</h1>
-        <p style={styles.subtitle}>Sign in to continue</p>
+        <h1 style={styles.title}>{t('login.title')}</h1>
+        <p style={styles.subtitle}>{t('login.subtitle')}</p>
 
         {error && <div style={styles.error}>{error}</div>}
 
         <label style={styles.label}>
-          Email
+          {t('login.emailLabel')}
           <input
             type="email"
             value={email}
@@ -62,7 +64,7 @@ export function Login() {
         </label>
 
         <label style={styles.label}>
-          Password
+          {t('login.passwordLabel')}
           <input
             type="password"
             value={password}
@@ -75,7 +77,7 @@ export function Login() {
 
         {needsTotp && (
           <label style={styles.label}>
-            Two-Factor Code
+            {t('login.totpLabel')}
             <input
               type="text"
               inputMode="numeric"
@@ -85,13 +87,13 @@ export function Login() {
               required
               autoComplete="one-time-code"
               style={styles.input}
-              placeholder="6-digit code"
+              placeholder={t('login.totpPlaceholder')}
             />
           </label>
         )}
 
         <button type="submit" disabled={loading} style={styles.button}>
-          {loading ? 'Signing in…' : 'Sign In'}
+          {loading ? t('common.signingIn') : t('common.signIn')}
         </button>
       </form>
     </div>

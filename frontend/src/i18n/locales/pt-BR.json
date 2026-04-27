@@ -1,0 +1,240 @@
+{
+  "common": {
+    "email": "E-mail",
+    "password": "Senha",
+    "signIn": "Entrar",
+    "signingIn": "Entrando…",
+    "signOut": "Sair",
+    "loading": "Carregando…",
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "delete": "Excluir",
+    "edit": "Editar",
+    "search": "Buscar…",
+    "errorDash": "—",
+    "na": "N/D"
+  },
+  "login": {
+    "title": "🔥 FireISP 5.0",
+    "subtitle": "Entre para continuar",
+    "emailLabel": "E-mail",
+    "passwordLabel": "Senha",
+    "totpLabel": "Código de dois fatores",
+    "totpPlaceholder": "Código de 6 dígitos",
+    "totpPrompt": "Insira seu código de autenticação de dois fatores."
+  },
+  "portalLogin": {
+    "subtitle": "Portal da conta do cliente",
+    "hint": "Entre em contato com seu provedor de internet para ativar o acesso ao portal.",
+    "failed": "Falha ao entrar"
+  },
+  "nav": {
+    "dashboard": "📊 Painel",
+    "clients": "👥 Clientes",
+    "contracts": "📄 Contratos",
+    "invoices": "🧾 Faturas",
+    "payments": "💳 Pagamentos",
+    "tickets": "🎫 Tickets",
+    "devices": "🖧 Dispositivos",
+    "inventory": "📦 Inventário",
+    "warehouses": "🏭 Armazéns",
+    "radiusSessions": "📡 Sessões RADIUS",
+    "sessionAccounting": "📈 Contabilidade de sessões",
+    "snmpMetrics": "📶 Métricas SNMP",
+    "snmpTraps": "🚨 Armadilhas SNMP",
+    "coverageZones": "🗺️ Zonas de cobertura",
+    "cfdi": "🏛️ CFDI",
+    "users": "🔑 Usuários",
+    "reports": "📈 Relatórios",
+    "settings": "⚙️ Configurações"
+  },
+  "layout": {
+    "brandName": "🔥 FireISP",
+    "openNav": "Abrir navegação",
+    "closeNav": "Fechar navegação",
+    "orgSwitcherLabel": "Organização ativa",
+    "switchOrgFailed": "Falha ao trocar de organização"
+  },
+  "portalLayout": {
+    "brandName": "🔥 FireISP — Minha conta",
+    "navHome": "🏠 Início",
+    "navInvoices": "🧾 Faturas",
+    "navSupport": "🎫 Suporte",
+    "footer": "© {{year}} FireISP"
+  },
+  "dashboard": {
+    "title": "Painel",
+    "welcome": "Bem-vindo de volta, {{name}}",
+    "kpi": {
+      "activeClients": "Clientes ativos",
+      "totalClients": "{{total}} no total",
+      "mrr": "Receita mensal recorrente",
+      "activeContracts": "{{count}} contratos ativos",
+      "overdueInvoices": "Faturas em atraso",
+      "noneOutstanding": "Nenhuma fatura pendente",
+      "outstanding": "{{amount}} pendente",
+      "openTickets": "Tickets abertos",
+      "totalTickets": "{{total}} no total",
+      "deviceUptime": "Disponibilidade de dispositivos",
+      "deviceCountLatency": "{{count}} dispositivos · {{latency}} ms latência méd.",
+      "deviceCountNoSnapshot": "{{count}} dispositivos (sem snapshots ainda)"
+    },
+    "loadingKpi": "Carregando…",
+    "overdueSection": "⚠️ Faturas em atraso",
+    "overdueLoading": "Carregando…",
+    "overdueError": "Falha ao carregar faturas em atraso.",
+    "overdueEmpty": "🎉 Nenhuma fatura em atraso — ótimas notícias!",
+    "overdueTable": {
+      "invoice": "Fatura #",
+      "client": "Cliente",
+      "amount": "Valor",
+      "dueDate": "Data de vencimento",
+      "daysOverdue": "Dias em atraso",
+      "daysFormat": "{{days}}d"
+    },
+    "overdueMore": "Exibindo as 20 primeiras de {{total}} faturas em atraso."
+  },
+  "drDrill": {
+    "modalTitle": "Aviso de simulação de DR",
+    "neverRun": {
+      "headline": "⚠️ A simulação trimestral de DR nunca foi executada",
+      "detail": "Nenhuma simulação de recuperação de desastres foi registrada ainda. Siga o runbook em docs/dr-drill.md para validar seu procedimento de backup e restauração."
+    },
+    "failed": {
+      "headline": "🚨 A última simulação de DR FALHOU ({{date}})",
+      "detail": "A última simulação automatizada detectou uma ou mais falhas. Seu backup pode não ser recuperável.",
+      "detailWithReason": "Motivo da falha: {{reason}}"
+    },
+    "overdue": {
+      "headline": "⚠️ Simulação de DR atrasada — Última há {{days}} dias ({{date}})",
+      "detail": "A simulação trimestral de recuperação de desastres não foi executada há mais de 90 dias. Agende uma simulação manual conforme docs/dr-drill.md para confirmar a recuperabilidade."
+    },
+    "hint": "Verificações automáticas (backup + consultas de integridade) são executadas trimestralmente. As fases 2–3 (destruição + restauração) devem ser executadas manualmente em uma instância de teste.",
+    "openRunbook": "Abrir runbook de DR ↗",
+    "dismiss": "Reconhecer e dispensar nesta sessão"
+  },
+  "portalDashboard": {
+    "welcome": "Bem-vindo, {{name}}",
+    "subtitle": "Gerencie suas faturas, pagamentos e solicitações de suporte abaixo.",
+    "pendingInvoices": "Faturas pendentes",
+    "openTickets": "Tickets de suporte abertos",
+    "noInvoices": "Nenhuma fatura pendente.",
+    "noTickets": "Nenhum ticket aberto.",
+    "viewAll": "Ver todos →"
+  },
+  "portalInvoices": {
+    "title": "Minhas faturas",
+    "table": {
+      "invoiceNumber": "Fatura #",
+      "amount": "Valor",
+      "status": "Status",
+      "dueDate": "Data de vencimento"
+    },
+    "noInvoices": "Nenhuma fatura encontrada.",
+    "loading": "Carregando…",
+    "error": "Falha ao carregar faturas."
+  },
+  "portalTickets": {
+    "title": "Tickets de suporte",
+    "newTicket": "Novo ticket",
+    "table": {
+      "subject": "Assunto",
+      "status": "Status",
+      "priority": "Prioridade",
+      "created": "Criado em"
+    },
+    "noTickets": "Nenhum ticket encontrado.",
+    "loading": "Carregando…",
+    "error": "Falha ao carregar tickets."
+  },
+  "clientList": {
+    "title": "Clientes",
+    "searchPlaceholder": "Buscar por nome, e-mail ou cidade…",
+    "table": {
+      "name": "Nome",
+      "email": "E-mail",
+      "type": "Tipo",
+      "status": "Status",
+      "city": "Cidade",
+      "created": "Criado em"
+    },
+    "noClients": "Nenhum cliente encontrado.",
+    "loading": "Carregando…",
+    "error": "Falha ao carregar clientes.",
+    "prevPage": "← Anterior",
+    "nextPage": "Próximo →",
+    "pageInfo": "Página {{page}} de {{total}}"
+  },
+  "contractList": {
+    "title": "Contratos",
+    "table": {
+      "id": "ID",
+      "client": "Cliente",
+      "plan": "Plano",
+      "status": "Status",
+      "startDate": "Data de início",
+      "endDate": "Data de encerramento"
+    },
+    "noContracts": "Nenhum contrato encontrado.",
+    "loading": "Carregando…",
+    "error": "Falha ao carregar contratos."
+  },
+  "invoiceList": {
+    "title": "Faturas",
+    "table": {
+      "invoiceNumber": "Fatura #",
+      "total": "Total",
+      "status": "Status",
+      "dueDate": "Data de vencimento",
+      "paidAt": "Data de pagamento"
+    },
+    "noInvoices": "Nenhuma fatura encontrada.",
+    "loading": "Carregando…",
+    "error": "Falha ao carregar faturas."
+  },
+  "paymentList": {
+    "title": "Pagamentos",
+    "table": {
+      "amount": "Valor",
+      "method": "Método",
+      "reference": "Referência",
+      "date": "Data"
+    },
+    "noPayments": "Nenhum pagamento encontrado.",
+    "loading": "Carregando…",
+    "error": "Falha ao carregar pagamentos."
+  },
+  "ticketList": {
+    "title": "Tickets",
+    "filterStatus": "Filtrar por status",
+    "filterPriority": "Filtrar por prioridade",
+    "all": "Todos",
+    "table": {
+      "subject": "Assunto",
+      "client": "Cliente",
+      "status": "Status",
+      "priority": "Prioridade",
+      "category": "Categoria",
+      "created": "Criado em"
+    },
+    "noTickets": "Nenhum ticket encontrado.",
+    "loading": "Carregando…",
+    "error": "Falha ao carregar tickets."
+  },
+  "userList": {
+    "title": "Usuários",
+    "filterRole": "Filtrar por função",
+    "filterStatus": "Filtrar por status",
+    "all": "Todos",
+    "table": {
+      "name": "Nome",
+      "email": "E-mail",
+      "role": "Função",
+      "status": "Status",
+      "lastLogin": "Último acesso"
+    },
+    "noUsers": "Nenhum usuário encontrado.",
+    "loading": "Carregando…",
+    "error": "Falha ao carregar usuários."
+  }
+}

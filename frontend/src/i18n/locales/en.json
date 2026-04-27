@@ -1,0 +1,240 @@
+{
+  "common": {
+    "email": "Email",
+    "password": "Password",
+    "signIn": "Sign In",
+    "signingIn": "Signing in…",
+    "signOut": "Sign out",
+    "loading": "Loading…",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "search": "Search…",
+    "errorDash": "—",
+    "na": "N/A"
+  },
+  "login": {
+    "title": "🔥 FireISP 5.0",
+    "subtitle": "Sign in to continue",
+    "emailLabel": "Email",
+    "passwordLabel": "Password",
+    "totpLabel": "Two-Factor Code",
+    "totpPlaceholder": "6-digit code",
+    "totpPrompt": "Enter your two-factor authentication code."
+  },
+  "portalLogin": {
+    "subtitle": "Client Account Portal",
+    "hint": "Contact your ISP to activate portal access.",
+    "failed": "Login failed"
+  },
+  "nav": {
+    "dashboard": "📊 Dashboard",
+    "clients": "👥 Clients",
+    "contracts": "📄 Contracts",
+    "invoices": "🧾 Invoices",
+    "payments": "💳 Payments",
+    "tickets": "🎫 Tickets",
+    "devices": "🖧 Devices",
+    "inventory": "📦 Inventory",
+    "warehouses": "🏭 Warehouses",
+    "radiusSessions": "📡 RADIUS Sessions",
+    "sessionAccounting": "📈 Session Accounting",
+    "snmpMetrics": "📶 SNMP Metrics",
+    "snmpTraps": "🚨 SNMP Traps",
+    "coverageZones": "🗺️ Coverage Zones",
+    "cfdi": "🏛️ CFDI",
+    "users": "🔑 Users",
+    "reports": "📈 Reports",
+    "settings": "⚙️ Settings"
+  },
+  "layout": {
+    "brandName": "🔥 FireISP",
+    "openNav": "Open navigation",
+    "closeNav": "Close navigation",
+    "orgSwitcherLabel": "Active organization",
+    "switchOrgFailed": "Failed to switch organization"
+  },
+  "portalLayout": {
+    "brandName": "🔥 FireISP — My Account",
+    "navHome": "🏠 Home",
+    "navInvoices": "🧾 Invoices",
+    "navSupport": "🎫 Support",
+    "footer": "© {{year}} FireISP"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "welcome": "Welcome back, {{name}}",
+    "kpi": {
+      "activeClients": "Active Clients",
+      "totalClients": "{{total}} total",
+      "mrr": "Monthly Recurring Revenue",
+      "activeContracts": "{{count}} active contracts",
+      "overdueInvoices": "Overdue Invoices",
+      "noneOutstanding": "None outstanding",
+      "outstanding": "{{amount}} outstanding",
+      "openTickets": "Open Tickets",
+      "totalTickets": "{{total}} total",
+      "deviceUptime": "Device Uptime",
+      "deviceCountLatency": "{{count}} devices · {{latency}} ms avg latency",
+      "deviceCountNoSnapshot": "{{count}} devices (no snapshots yet)"
+    },
+    "loadingKpi": "Loading…",
+    "overdueSection": "⚠️ Overdue Invoices",
+    "overdueLoading": "Loading…",
+    "overdueError": "Failed to load overdue invoices.",
+    "overdueEmpty": "🎉 No overdue invoices — great news!",
+    "overdueTable": {
+      "invoice": "Invoice #",
+      "client": "Client",
+      "amount": "Amount",
+      "dueDate": "Due Date",
+      "daysOverdue": "Days Overdue",
+      "daysFormat": "{{days}}d"
+    },
+    "overdueMore": "Showing top 20 of {{total}} overdue invoices."
+  },
+  "drDrill": {
+    "modalTitle": "DR Drill Warning",
+    "neverRun": {
+      "headline": "⚠️ Quarterly DR Drill Has Never Been Run",
+      "detail": "No disaster-recovery drill has been recorded yet. Please follow the runbook in docs/dr-drill.md to validate your backup and restore procedure."
+    },
+    "failed": {
+      "headline": "🚨 Last DR Drill FAILED ({{date}})",
+      "detail": "The last automated drill detected one or more failures. Your backup may not be recoverable.",
+      "detailWithReason": "Failure reason: {{reason}}"
+    },
+    "overdue": {
+      "headline": "⚠️ DR Drill Overdue — Last Run {{days}} days ago ({{date}})",
+      "detail": "The quarterly disaster-recovery drill has not been run in over 90 days. Please schedule a manual drill per docs/dr-drill.md to confirm recoverability."
+    },
+    "hint": "Automated checks (backup + integrity queries) run every quarter. Phases 2–3 (destroy + restore) must be run manually on a test instance.",
+    "openRunbook": "Open DR Runbook ↗",
+    "dismiss": "Acknowledge & dismiss for this session"
+  },
+  "portalDashboard": {
+    "welcome": "Welcome, {{name}}",
+    "subtitle": "Manage your invoices, payments, and support requests below.",
+    "pendingInvoices": "Pending Invoices",
+    "openTickets": "Open Support Tickets",
+    "noInvoices": "No pending invoices.",
+    "noTickets": "No open tickets.",
+    "viewAll": "View all →"
+  },
+  "portalInvoices": {
+    "title": "My Invoices",
+    "table": {
+      "invoiceNumber": "Invoice #",
+      "amount": "Amount",
+      "status": "Status",
+      "dueDate": "Due Date"
+    },
+    "noInvoices": "No invoices found.",
+    "loading": "Loading…",
+    "error": "Failed to load invoices."
+  },
+  "portalTickets": {
+    "title": "Support Tickets",
+    "newTicket": "New Ticket",
+    "table": {
+      "subject": "Subject",
+      "status": "Status",
+      "priority": "Priority",
+      "created": "Created"
+    },
+    "noTickets": "No tickets found.",
+    "loading": "Loading…",
+    "error": "Failed to load tickets."
+  },
+  "clientList": {
+    "title": "Clients",
+    "searchPlaceholder": "Search by name, email or city…",
+    "table": {
+      "name": "Name",
+      "email": "Email",
+      "type": "Type",
+      "status": "Status",
+      "city": "City",
+      "created": "Created"
+    },
+    "noClients": "No clients found.",
+    "loading": "Loading…",
+    "error": "Failed to load clients.",
+    "prevPage": "← Prev",
+    "nextPage": "Next →",
+    "pageInfo": "Page {{page}} of {{total}}"
+  },
+  "contractList": {
+    "title": "Contracts",
+    "table": {
+      "id": "ID",
+      "client": "Client",
+      "plan": "Plan",
+      "status": "Status",
+      "startDate": "Start Date",
+      "endDate": "End Date"
+    },
+    "noContracts": "No contracts found.",
+    "loading": "Loading…",
+    "error": "Failed to load contracts."
+  },
+  "invoiceList": {
+    "title": "Invoices",
+    "table": {
+      "invoiceNumber": "Invoice #",
+      "total": "Total",
+      "status": "Status",
+      "dueDate": "Due Date",
+      "paidAt": "Paid At"
+    },
+    "noInvoices": "No invoices found.",
+    "loading": "Loading…",
+    "error": "Failed to load invoices."
+  },
+  "paymentList": {
+    "title": "Payments",
+    "table": {
+      "amount": "Amount",
+      "method": "Method",
+      "reference": "Reference",
+      "date": "Date"
+    },
+    "noPayments": "No payments found.",
+    "loading": "Loading…",
+    "error": "Failed to load payments."
+  },
+  "ticketList": {
+    "title": "Tickets",
+    "filterStatus": "Filter by status",
+    "filterPriority": "Filter by priority",
+    "all": "All",
+    "table": {
+      "subject": "Subject",
+      "client": "Client",
+      "status": "Status",
+      "priority": "Priority",
+      "category": "Category",
+      "created": "Created"
+    },
+    "noTickets": "No tickets found.",
+    "loading": "Loading…",
+    "error": "Failed to load tickets."
+  },
+  "userList": {
+    "title": "Users",
+    "filterRole": "Filter by role",
+    "filterStatus": "Filter by status",
+    "all": "All",
+    "table": {
+      "name": "Name",
+      "email": "Email",
+      "role": "Role",
+      "status": "Status",
+      "lastLogin": "Last Login"
+    },
+    "noUsers": "No users found.",
+    "loading": "Loading…",
+    "error": "Failed to load users."
+  }
+}

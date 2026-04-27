@@ -6,10 +6,12 @@
 // =============================================================================
 
 import { Link, NavLink, Outlet } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { usePortalAuth } from '@/auth/PortalAuthContext';
 
 export function PortalLayout() {
   const { client, logout } = usePortalAuth();
+  const { t } = useTranslation();
 
   async function handleLogout() {
     await logout();
@@ -19,31 +21,31 @@ export function PortalLayout() {
     <div style={styles.shell}>
       {/* Top bar */}
       <header className="portal-header">
-        <Link to="/portal" style={styles.logo}>🔥 FireISP — My Account</Link>
+        <Link to="/portal" style={styles.logo}>{t('portalLayout.brandName')}</Link>
         <nav className="portal-nav">
           <NavLink
             to="/portal"
             end
             style={({ isActive }) => ({ ...styles.navLink, ...(isActive ? styles.navLinkActive : {}) })}
           >
-            🏠 Home
+            {t('portalLayout.navHome')}
           </NavLink>
           <NavLink
             to="/portal/invoices"
             style={({ isActive }) => ({ ...styles.navLink, ...(isActive ? styles.navLinkActive : {}) })}
           >
-            🧾 Invoices
+            {t('portalLayout.navInvoices')}
           </NavLink>
           <NavLink
             to="/portal/tickets"
             style={({ isActive }) => ({ ...styles.navLink, ...(isActive ? styles.navLinkActive : {}) })}
           >
-            🎫 Support
+            {t('portalLayout.navSupport')}
           </NavLink>
         </nav>
         <div className="portal-user-area">
           {client && <span style={styles.userName}>{client.name}</span>}
-          <button onClick={handleLogout} style={styles.logoutBtn}>Sign out</button>
+          <button onClick={handleLogout} style={styles.logoutBtn}>{t('common.signOut')}</button>
         </div>
       </header>
 
@@ -53,7 +55,7 @@ export function PortalLayout() {
       </main>
 
       <footer style={styles.footer}>
-        &copy; {new Date().getFullYear()} FireISP
+        {t('portalLayout.footer', { year: new Date().getFullYear() })}
       </footer>
     </div>
   );

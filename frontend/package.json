@@ -12,14 +12,18 @@
     "lint": "npm run gen:api && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "i18n:check": "node scripts/i18n-coverage.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.0",
     "graphql-request": "^7.4.0",
+    "i18next": "^26.0.8",
+    "i18next-browser-languagedetector": "^8.2.1",
     "openapi-fetch": "^0.17.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
+    "react-i18next": "^17.0.6",
     "react-router-dom": "^7.14.2"
   },
   "devDependencies": {

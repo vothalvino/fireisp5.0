@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/api/client';
 
@@ -64,6 +65,7 @@ function setDismissed(): void {
 
 export function DrDrillBanner() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [dismissed, setDismissedState] = useState(() => isDismissed());
 
   // Only fetch for admin users
@@ -105,24 +107,24 @@ export function DrDrillBanner() {
   let accentColor: string;
 
   if (isNeverRun) {
-    headline = '⚠️ Quarterly DR Drill Has Never Been Run';
-    detail = 'No disaster-recovery drill has been recorded yet. Please follow the runbook in docs/dr-drill.md to validate your backup and restore procedure.';
+    headline = t('drDrill.neverRun.headline');
+    detail = t('drDrill.neverRun.detail');
     accentColor = '#d97706'; // amber
   } else if (isFailed) {
     const dateStr = new Date(last_run_at).toLocaleDateString(undefined, {
       year: 'numeric', month: 'short', day: 'numeric',
     });
-    headline = `🚨 Last DR Drill FAILED (${dateStr})`;
+    headline = t('drDrill.failed.headline', { date: dateStr });
     detail = last_error
-      ? `Failure reason: ${last_error}`
-      : 'The last automated drill detected one or more failures. Your backup may not be recoverable.';
+      ? t('drDrill.failed.detailWithReason', { reason: last_error })
+      : t('drDrill.failed.detail');
     accentColor = '#dc2626'; // red
   } else {
     const dateStr = new Date(last_run_at).toLocaleDateString(undefined, {
       year: 'numeric', month: 'short', day: 'numeric',
     });
-    headline = `⚠️ DR Drill Overdue — Last Run ${days_since_drill} days ago (${dateStr})`;
-    detail = 'The quarterly disaster-recovery drill has not been run in over 90 days. Please schedule a manual drill per docs/dr-drill.md to confirm recoverability.';
+    headline = t('drDrill.overdue.headline', { days: days_since_drill, date: dateStr });
+    detail = t('drDrill.overdue.detail');
     accentColor = '#d97706'; // amber
   }
 
@@ -144,15 +146,14 @@ export function DrDrillBanner() {
         </div>
 
         <h2 id="dr-drill-modal-title" style={{ ...styles.title, color: accentColor }}>
-          DR Drill Warning
+          {t('drDrill.modalTitle')}
         </h2>
 
         <p id="dr-drill-modal-desc" style={styles.headline}>{headline}</p>
         <p style={styles.detail}>{detail}</p>
 
         <p style={styles.hint}>
-          {'Automated checks (backup + integrity queries) run every quarter. '}
-          {'Phases 2–3 (destroy + restore) must be run manually on a test instance.'}
+          {t('drDrill.hint')}
         </p>
 
         <div style={styles.actions}>
@@ -162,14 +163,14 @@ export function DrDrillBanner() {
             rel="noopener noreferrer"
             style={styles.docsLink}
           >
-            Open DR Runbook ↗
+            {t('drDrill.openRunbook')}
           </a>
           <button
             type="button"
             onClick={handleDismiss}
             style={styles.dismissBtn}
           >
-            Acknowledge &amp; dismiss for this session
+            {t('drDrill.dismiss')}
           </button>
         </div>
       </div>

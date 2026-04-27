@@ -3,5 +3,6 @@
 // =============================================================================
 import '@testing-library/jest-dom';
 import { toHaveNoViolations } from 'jest-axe';
+import '@/i18n';
 
 expect.extend(toHaveNoViolations);

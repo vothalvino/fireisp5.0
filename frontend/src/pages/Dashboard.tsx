@@ -7,6 +7,7 @@
 // =============================================================================
 
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/api/client';
 
@@ -116,15 +117,16 @@ interface KpiCardProps {
 }
 
 function KpiCard({ label, value, sub, icon, accent = '#e25822', loading, error }: KpiCardProps) {
+  const { t } = useTranslation();
   return (
     <div style={{ ...styles.card, borderTop: `3px solid ${accent}` }}>
       <div style={styles.cardIcon}>{icon}</div>
       <div style={styles.cardBody}>
         <div style={styles.cardLabel}>{label}</div>
         {loading ? (
-          <div style={styles.cardLoading}>Loading…</div>
+          <div style={styles.cardLoading}>{t('dashboard.loadingKpi')}</div>
         ) : error ? (
-          <div style={styles.cardError}>—</div>
+          <div style={styles.cardError}>{t('common.errorDash')}</div>
         ) : (
           <>
             <div style={styles.cardValue}>{value}</div>
@@ -142,6 +144,7 @@ function KpiCard({ label, value, sub, icon, accent = '#e25822', loading, error }
 
 export function Dashboard() {
   const { user } = useAuth();
+  const { t } = useTranslation();
 
   const summaryQ = useQuery({ queryKey: ['dashboard-summary'], queryFn: fetchSummary });
   const mrrQ = useQuery({ queryKey: ['dashboard-mrr'], queryFn: fetchMrr });
@@ -169,9 +172,9 @@ export function Dashboard() {
       {/* Page header */}
       <div style={styles.header}>
         <div>
-          <h1 style={styles.pageTitle}>Dashboard</h1>
+          <h1 style={styles.pageTitle}>{t('dashboard.title')}</h1>
           <p style={styles.welcomeMsg}>
-            Welcome back, <strong>{user?.name ?? user?.email}</strong>
+            {t('dashboard.welcome', { name: user?.name ?? user?.email })}
             {user?.role && (
               <> &nbsp;·&nbsp; <span style={styles.roleBadge}>{user.role}</span></>
             )}
@@ -183,32 +186,32 @@ export function Dashboard() {
       <div style={styles.kpiGrid}>
         <KpiCard
           icon="👥"
-          label="Active Clients"
-          value={summary?.clients.active ?? '—'}
-          sub={summary ? `${summary.clients.total} total` : undefined}
+          label={t('dashboard.kpi.activeClients')}
+          value={summary?.clients.active ?? t('common.errorDash')}
+          sub={summary ? t('dashboard.kpi.totalClients', { total: summary.clients.total }) : undefined}
           accent="#3b82f6"
           loading={summaryQ.isLoading}
           error={!!summaryQ.error}
         />
         <KpiCard
           icon="💰"
-          label="Monthly Recurring Revenue"
-          value={mrrQ.isLoading || mrrQ.error ? '—' : formatCurrency(totalMrr, primaryCurrency)}
-          sub={totalContracts > 0 ? `${totalContracts} active contracts` : undefined}
+          label={t('dashboard.kpi.mrr')}
+          value={mrrQ.isLoading || mrrQ.error ? t('common.errorDash') : formatCurrency(totalMrr, primaryCurrency)}
+          sub={totalContracts > 0 ? t('dashboard.kpi.activeContracts', { count: totalContracts }) : undefined}
           accent="#10b981"
           loading={mrrQ.isLoading}
           error={!!mrrQ.error}
         />
         <KpiCard
           icon="⚠️"
-          label="Overdue Invoices"
-          value={overdueQ.isLoading || overdueQ.error ? '—' : overdue.length}
+          label={t('dashboard.kpi.overdueInvoices')}
+          value={overdueQ.isLoading || overdueQ.error ? t('common.errorDash') : overdue.length}
           sub={
             overdueQ.isLoading || overdueQ.error
               ? undefined
               : overdue.length > 0
-              ? `${formatCurrency(overdueTotal, overdue[0]?.currency)} outstanding`
-              : 'None outstanding'
+              ? t('dashboard.kpi.outstanding', { amount: formatCurrency(overdueTotal, overdue[0]?.currency) })
+              : t('dashboard.kpi.noneOutstanding')
           }
           accent="#ef4444"
           loading={overdueQ.isLoading}
@@ -216,28 +219,31 @@ export function Dashboard() {
         />
         <KpiCard
           icon="🎫"
-          label="Open Tickets"
-          value={summary?.tickets.open_count ?? '—'}
-          sub={summary ? `${summary.tickets.total} total` : undefined}
+          label={t('dashboard.kpi.openTickets')}
+          value={summary?.tickets.open_count ?? t('common.errorDash')}
+          sub={summary ? t('dashboard.kpi.totalTickets', { total: summary.tickets.total }) : undefined}
           accent="#f59e0b"
           loading={summaryQ.isLoading}
           error={!!summaryQ.error}
         />
         <KpiCard
           icon="🖧"
-          label="Device Uptime"
+          label={t('dashboard.kpi.deviceUptime')}
           value={
             healthQ.isLoading || healthQ.error
-              ? '—'
+              ? t('common.errorDash')
               : avgUptime !== null
               ? `${avgUptime}%`
-              : 'N/A'
+              : t('common.na')
           }
           sub={
             latestSnapshot
-              ? `${latestSnapshot.device_count} devices · ${latestSnapshot.avg_latency} ms avg latency`
+              ? t('dashboard.kpi.deviceCountLatency', {
+                  count: latestSnapshot.device_count,
+                  latency: latestSnapshot.avg_latency,
+                })
               : totalDevices > 0
-              ? `${totalDevices} devices (no snapshots yet)`
+              ? t('dashboard.kpi.deviceCountNoSnapshot', { count: totalDevices })
               : undefined
           }
           accent="#8b5cf6"
@@ -248,20 +254,28 @@ export function Dashboard() {
 
       {/* Overdue invoices table */}
       <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>⚠️ Overdue Invoices</h2>
+        <h2 style={styles.sectionTitle}>{t('dashboard.overdueSection')}</h2>
         {overdueQ.isLoading ? (
-          <p style={styles.tableEmpty}>Loading…</p>
+          <p style={styles.tableEmpty}>{t('dashboard.overdueLoading')}</p>
         ) : overdueQ.error ? (
-          <p style={styles.tableError}>Failed to load overdue invoices.</p>
+          <p style={styles.tableError}>{t('dashboard.overdueError')}</p>
         ) : overdue.length === 0 ? (
-          <p style={styles.tableEmpty}>🎉 No overdue invoices — great news!</p>
+          <p style={styles.tableEmpty}>{t('dashboard.overdueEmpty')}</p>
         ) : (
           <div style={styles.tableWrapper}>
             <table style={styles.table}>
               <thead>
                 <tr>
-                  {['Invoice #', 'Client', 'Amount', 'Due Date', 'Days Overdue'].map(h => (
-                    <th key={h} style={styles.th}>{h}</th>
+                  {(
+                    [
+                      'dashboard.overdueTable.invoice',
+                      'dashboard.overdueTable.client',
+                      'dashboard.overdueTable.amount',
+                      'dashboard.overdueTable.dueDate',
+                      'dashboard.overdueTable.daysOverdue',
+                    ] as const
+                  ).map(key => (
+                    <th key={key} style={styles.th}>{t(key)}</th>
                   ))}
                 </tr>
               </thead>
@@ -286,7 +300,7 @@ export function Dashboard() {
                         fontWeight: inv.days_overdue > 60 ? 700 : undefined,
                       }}
                     >
-                      {inv.days_overdue}d
+                      {t('dashboard.overdueTable.daysFormat', { days: inv.days_overdue })}
                     </td>
                   </tr>
                 ))}
@@ -294,7 +308,7 @@ export function Dashboard() {
             </table>
             {overdue.length > 20 && (
               <p style={styles.tableMore}>
-                Showing top 20 of {overdue.length} overdue invoices.
+                {t('dashboard.overdueMore', { total: overdue.length })}
               </p>
             )}
           </div>

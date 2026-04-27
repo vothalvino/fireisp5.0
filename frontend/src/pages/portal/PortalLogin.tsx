@@ -4,12 +4,14 @@
 
 import { type FormEvent, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { usePortalAuth } from '@/auth/PortalAuthContext';
 
 export function PortalLogin() {
   const { login } = usePortalAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation();
   const from = (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? '/portal';
 
   const [email, setEmail] = useState('');
@@ -25,7 +27,7 @@ export function PortalLogin() {
       await login(email, password);
       navigate(from, { replace: true });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(err instanceof Error ? err.message : t('portalLogin.failed'));
     } finally {
       setLoading(false);
     }
@@ -35,12 +37,12 @@ export function PortalLogin() {
     <div style={styles.container}>
       <form style={styles.card} onSubmit={handleSubmit}>
         <h1 style={styles.title}>🔥 FireISP</h1>
-        <p style={styles.subtitle}>Client Account Portal</p>
+        <p style={styles.subtitle}>{t('portalLogin.subtitle')}</p>
 
         {error && <div style={styles.error}>{error}</div>}
 
         <label style={styles.label}>
-          Email
+          {t('common.email')}
           <input
             type="email"
             value={email}
@@ -52,7 +54,7 @@ export function PortalLogin() {
         </label>
 
         <label style={styles.label}>
-          Password
+          {t('common.password')}
           <input
             type="password"
             value={password}
@@ -64,11 +66,11 @@ export function PortalLogin() {
         </label>
 
         <button type="submit" disabled={loading} style={styles.button}>
-          {loading ? 'Signing in…' : 'Sign In'}
+          {loading ? t('common.signingIn') : t('common.signIn')}
         </button>
 
         <p style={styles.hint}>
-          Contact your ISP to activate portal access.
+          {t('portalLogin.hint')}
         </p>
       </form>
     </div>
