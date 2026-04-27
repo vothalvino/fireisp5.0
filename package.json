@@ -22,7 +22,8 @@
     "lint:fix": "eslint src/ --ext .js --fix",
     "test": "jest --detectOpenHandles --forceExit",
     "test:watch": "jest --watch",
-    "test:db": "./tests/run_tests.sh"
+    "test:db": "./tests/run_tests.sh",
+    "prepare": "husky"
   },
   "keywords": [
     "isp",
@@ -67,7 +68,9 @@
     "autocannon": "^7.15.0",
     "eslint": "^10.2.0",
     "fast-check": "^4.7.0",
+    "husky": "^9.1.7",
     "jest": "^30.3.0",
+    "lint-staged": "^16.4.0",
     "nodemon": "^3.1.14",
     "supertest": "^7.2.2"
   },
