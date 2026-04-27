@@ -4,40 +4,42 @@
 
 import { useState, type ChangeEvent } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/auth/AuthContext';
 import { hasRole } from '@/auth/PrivateRoute';
 import { DrDrillBanner } from '@/components/DrDrillBanner';
 
 interface NavItem {
   to: string;
-  label: string;
+  labelKey: string;
   requiredRole?: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: '/', label: '📊 Dashboard' },
-  { to: '/clients', label: '👥 Clients' },
-  { to: '/contracts', label: '📄 Contracts' },
-  { to: '/invoices', label: '🧾 Invoices' },
-  { to: '/payments', label: '💳 Payments' },
-  { to: '/tickets', label: '🎫 Tickets' },
-  { to: '/devices', label: '🖧 Devices' },
-  { to: '/inventory', label: '📦 Inventory', requiredRole: 'technician' },
-  { to: '/warehouses', label: '🏭 Warehouses', requiredRole: 'technician' },
-  { to: '/radius-sessions', label: '📡 RADIUS Sessions', requiredRole: 'technician' },
-  { to: '/session-accounting', label: '📈 Session Accounting', requiredRole: 'technician' },
-  { to: '/snmp-metrics', label: '📶 SNMP Metrics', requiredRole: 'technician' },
-  { to: '/snmp-traps', label: '🚨 SNMP Traps', requiredRole: 'technician' },
-  { to: '/coverage-zones', label: '🗺️ Coverage Zones', requiredRole: 'technician' },
-  { to: '/cfdi', label: '🏛️ CFDI', requiredRole: 'billing' },
+  { to: '/', labelKey: 'nav.dashboard' },
+  { to: '/clients', labelKey: 'nav.clients' },
+  { to: '/contracts', labelKey: 'nav.contracts' },
+  { to: '/invoices', labelKey: 'nav.invoices' },
+  { to: '/payments', labelKey: 'nav.payments' },
+  { to: '/tickets', labelKey: 'nav.tickets' },
+  { to: '/devices', labelKey: 'nav.devices' },
+  { to: '/inventory', labelKey: 'nav.inventory', requiredRole: 'technician' },
+  { to: '/warehouses', labelKey: 'nav.warehouses', requiredRole: 'technician' },
+  { to: '/radius-sessions', labelKey: 'nav.radiusSessions', requiredRole: 'technician' },
+  { to: '/session-accounting', labelKey: 'nav.sessionAccounting', requiredRole: 'technician' },
+  { to: '/snmp-metrics', labelKey: 'nav.snmpMetrics', requiredRole: 'technician' },
+  { to: '/snmp-traps', labelKey: 'nav.snmpTraps', requiredRole: 'technician' },
+  { to: '/coverage-zones', labelKey: 'nav.coverageZones', requiredRole: 'technician' },
+  { to: '/cfdi', labelKey: 'nav.cfdi', requiredRole: 'billing' },
   // Admin-only
-  { to: '/users', label: '🔑 Users', requiredRole: 'admin' },
-  { to: '/reports', label: '📈 Reports', requiredRole: 'billing' },
-  { to: '/settings', label: '⚙️ Settings', requiredRole: 'admin' },
+  { to: '/users', labelKey: 'nav.users', requiredRole: 'admin' },
+  { to: '/reports', labelKey: 'nav.reports', requiredRole: 'billing' },
+  { to: '/settings', labelKey: 'nav.settings', requiredRole: 'admin' },
 ];
 
 export function Layout() {
   const { user, logout, switchOrganization } = useAuth();
+  const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
 
@@ -58,7 +60,7 @@ export function Layout() {
     } catch (err) {
       // Restore the select to the current org and surface the error
       // eslint-disable-next-line no-alert
-      alert(err instanceof Error ? err.message : 'Failed to switch organization');
+      alert(err instanceof Error ? err.message : t('layout.switchOrgFailed'));
     } finally {
       setSwitching(false);
     }
@@ -73,14 +75,14 @@ export function Layout() {
       <button
         className="hamburger-btn"
         onClick={() => setSidebarOpen(v => !v)}
-        aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'}
+        aria-label={sidebarOpen ? t('layout.closeNav') : t('layout.openNav')}
         aria-expanded={sidebarOpen}
       >
         {sidebarOpen ? '✕' : '☰'}
       </button>
 
       {/* Mobile top bar — visible only on mobile via CSS */}
-      <div className="mobile-topbar">🔥 FireISP</div>
+      <div className="mobile-topbar">{t('layout.brandName')}</div>
 
       {/* Backdrop overlay — shown on mobile when sidebar is open */}
       <div
@@ -91,7 +93,7 @@ export function Layout() {
 
       {/* Sidebar */}
       <aside className={`app-sidebar${sidebarOpen ? ' sidebar-open' : ''}`}>
-        <div style={styles.logo}>🔥 FireISP</div>
+        <div style={styles.logo}>{t('layout.brandName')}</div>
 
         <nav style={styles.nav}>
           {NAV_ITEMS.filter(
@@ -107,7 +109,7 @@ export function Layout() {
                 ...(isActive ? styles.navLinkActive : {}),
               })}
             >
-              {item.label}
+              {t(item.labelKey)}
             </NavLink>
           ))}
         </nav>
@@ -120,7 +122,7 @@ export function Layout() {
               <div style={styles.userRole}>{user.role}</div>
               {showOrgSwitcher && (
                 <select
-                  aria-label="Active organization"
+                  aria-label={t('layout.orgSwitcherLabel')}
                   value={user.organization_id ?? ''}
                   onChange={handleOrgChange}
                   disabled={switching}
@@ -136,7 +138,7 @@ export function Layout() {
             </>
           )}
           <button onClick={handleLogout} style={styles.logoutBtn}>
-            Sign out
+            {t('common.signOut')}
           </button>
         </div>
       </aside>

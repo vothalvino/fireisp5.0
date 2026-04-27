@@ -1,0 +1,240 @@
+{
+  "common": {
+    "email": "Correo electrónico",
+    "password": "Contraseña",
+    "signIn": "Iniciar sesión",
+    "signingIn": "Iniciando sesión…",
+    "signOut": "Cerrar sesión",
+    "loading": "Cargando…",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "search": "Buscar…",
+    "errorDash": "—",
+    "na": "N/D"
+  },
+  "login": {
+    "title": "🔥 FireISP 5.0",
+    "subtitle": "Inicia sesión para continuar",
+    "emailLabel": "Correo electrónico",
+    "passwordLabel": "Contraseña",
+    "totpLabel": "Código de doble factor",
+    "totpPlaceholder": "Código de 6 dígitos",
+    "totpPrompt": "Ingresa tu código de autenticación de doble factor."
+  },
+  "portalLogin": {
+    "subtitle": "Portal de cuenta de cliente",
+    "hint": "Contacta a tu proveedor de internet para activar el acceso al portal.",
+    "failed": "Error al iniciar sesión"
+  },
+  "nav": {
+    "dashboard": "📊 Panel",
+    "clients": "👥 Clientes",
+    "contracts": "📄 Contratos",
+    "invoices": "🧾 Facturas",
+    "payments": "💳 Pagos",
+    "tickets": "🎫 Tickets",
+    "devices": "🖧 Dispositivos",
+    "inventory": "📦 Inventario",
+    "warehouses": "🏭 Almacenes",
+    "radiusSessions": "📡 Sesiones RADIUS",
+    "sessionAccounting": "📈 Contabilidad de sesiones",
+    "snmpMetrics": "📶 Métricas SNMP",
+    "snmpTraps": "🚨 Trampas SNMP",
+    "coverageZones": "🗺️ Zonas de cobertura",
+    "cfdi": "🏛️ CFDI",
+    "users": "🔑 Usuarios",
+    "reports": "📈 Reportes",
+    "settings": "⚙️ Configuración"
+  },
+  "layout": {
+    "brandName": "🔥 FireISP",
+    "openNav": "Abrir navegación",
+    "closeNav": "Cerrar navegación",
+    "orgSwitcherLabel": "Organización activa",
+    "switchOrgFailed": "Error al cambiar de organización"
+  },
+  "portalLayout": {
+    "brandName": "🔥 FireISP — Mi cuenta",
+    "navHome": "🏠 Inicio",
+    "navInvoices": "🧾 Facturas",
+    "navSupport": "🎫 Soporte",
+    "footer": "© {{year}} FireISP"
+  },
+  "dashboard": {
+    "title": "Panel",
+    "welcome": "Bienvenido de vuelta, {{name}}",
+    "kpi": {
+      "activeClients": "Clientes activos",
+      "totalClients": "{{total}} en total",
+      "mrr": "Ingreso mensual recurrente",
+      "activeContracts": "{{count}} contratos activos",
+      "overdueInvoices": "Facturas vencidas",
+      "noneOutstanding": "Sin facturas pendientes",
+      "outstanding": "{{amount}} pendiente",
+      "openTickets": "Tickets abiertos",
+      "totalTickets": "{{total}} en total",
+      "deviceUptime": "Disponibilidad de dispositivos",
+      "deviceCountLatency": "{{count}} dispositivos · {{latency}} ms latencia prom.",
+      "deviceCountNoSnapshot": "{{count}} dispositivos (sin instantáneas aún)"
+    },
+    "loadingKpi": "Cargando…",
+    "overdueSection": "⚠️ Facturas vencidas",
+    "overdueLoading": "Cargando…",
+    "overdueError": "Error al cargar facturas vencidas.",
+    "overdueEmpty": "🎉 ¡Sin facturas vencidas — excelentes noticias!",
+    "overdueTable": {
+      "invoice": "Factura #",
+      "client": "Cliente",
+      "amount": "Monto",
+      "dueDate": "Fecha de vencimiento",
+      "daysOverdue": "Días de atraso",
+      "daysFormat": "{{days}}d"
+    },
+    "overdueMore": "Mostrando las primeras 20 de {{total}} facturas vencidas."
+  },
+  "drDrill": {
+    "modalTitle": "Advertencia de simulacro de DR",
+    "neverRun": {
+      "headline": "⚠️ El simulacro trimestral de DR nunca ha sido ejecutado",
+      "detail": "Aún no se ha registrado ningún simulacro de recuperación ante desastres. Sigue el runbook en docs/dr-drill.md para validar tu procedimiento de copia de seguridad y restauración."
+    },
+    "failed": {
+      "headline": "🚨 El último simulacro de DR FALLÓ ({{date}})",
+      "detail": "El último simulacro automático detectó uno o más fallos. Es posible que tu copia de seguridad no sea recuperable.",
+      "detailWithReason": "Motivo del fallo: {{reason}}"
+    },
+    "overdue": {
+      "headline": "⚠️ Simulacro de DR pendiente — Último hace {{days}} días ({{date}})",
+      "detail": "El simulacro trimestral de recuperación ante desastres no se ha ejecutado en más de 90 días. Programa un simulacro manual según docs/dr-drill.md para confirmar la recuperabilidad."
+    },
+    "hint": "Las verificaciones automáticas (copia de seguridad + consultas de integridad) se ejecutan trimestralmente. Las fases 2–3 (destrucción + restauración) deben ejecutarse manualmente en una instancia de prueba.",
+    "openRunbook": "Abrir runbook de DR ↗",
+    "dismiss": "Reconocer y descartar para esta sesión"
+  },
+  "portalDashboard": {
+    "welcome": "Bienvenido, {{name}}",
+    "subtitle": "Administra tus facturas, pagos y solicitudes de soporte a continuación.",
+    "pendingInvoices": "Facturas pendientes",
+    "openTickets": "Tickets de soporte abiertos",
+    "noInvoices": "Sin facturas pendientes.",
+    "noTickets": "Sin tickets abiertos.",
+    "viewAll": "Ver todos →"
+  },
+  "portalInvoices": {
+    "title": "Mis facturas",
+    "table": {
+      "invoiceNumber": "Factura #",
+      "amount": "Monto",
+      "status": "Estado",
+      "dueDate": "Fecha de vencimiento"
+    },
+    "noInvoices": "No se encontraron facturas.",
+    "loading": "Cargando…",
+    "error": "Error al cargar facturas."
+  },
+  "portalTickets": {
+    "title": "Tickets de soporte",
+    "newTicket": "Nuevo ticket",
+    "table": {
+      "subject": "Asunto",
+      "status": "Estado",
+      "priority": "Prioridad",
+      "created": "Creado"
+    },
+    "noTickets": "No se encontraron tickets.",
+    "loading": "Cargando…",
+    "error": "Error al cargar tickets."
+  },
+  "clientList": {
+    "title": "Clientes",
+    "searchPlaceholder": "Buscar por nombre, correo o ciudad…",
+    "table": {
+      "name": "Nombre",
+      "email": "Correo electrónico",
+      "type": "Tipo",
+      "status": "Estado",
+      "city": "Ciudad",
+      "created": "Creado"
+    },
+    "noClients": "No se encontraron clientes.",
+    "loading": "Cargando…",
+    "error": "Error al cargar clientes.",
+    "prevPage": "← Anterior",
+    "nextPage": "Siguiente →",
+    "pageInfo": "Página {{page}} de {{total}}"
+  },
+  "contractList": {
+    "title": "Contratos",
+    "table": {
+      "id": "ID",
+      "client": "Cliente",
+      "plan": "Plan",
+      "status": "Estado",
+      "startDate": "Fecha de inicio",
+      "endDate": "Fecha de fin"
+    },
+    "noContracts": "No se encontraron contratos.",
+    "loading": "Cargando…",
+    "error": "Error al cargar contratos."
+  },
+  "invoiceList": {
+    "title": "Facturas",
+    "table": {
+      "invoiceNumber": "Factura #",
+      "total": "Total",
+      "status": "Estado",
+      "dueDate": "Fecha de vencimiento",
+      "paidAt": "Fecha de pago"
+    },
+    "noInvoices": "No se encontraron facturas.",
+    "loading": "Cargando…",
+    "error": "Error al cargar facturas."
+  },
+  "paymentList": {
+    "title": "Pagos",
+    "table": {
+      "amount": "Monto",
+      "method": "Método",
+      "reference": "Referencia",
+      "date": "Fecha"
+    },
+    "noPayments": "No se encontraron pagos.",
+    "loading": "Cargando…",
+    "error": "Error al cargar pagos."
+  },
+  "ticketList": {
+    "title": "Tickets",
+    "filterStatus": "Filtrar por estado",
+    "filterPriority": "Filtrar por prioridad",
+    "all": "Todos",
+    "table": {
+      "subject": "Asunto",
+      "client": "Cliente",
+      "status": "Estado",
+      "priority": "Prioridad",
+      "category": "Categoría",
+      "created": "Creado"
+    },
+    "noTickets": "No se encontraron tickets.",
+    "loading": "Cargando…",
+    "error": "Error al cargar tickets."
+  },
+  "userList": {
+    "title": "Usuarios",
+    "filterRole": "Filtrar por rol",
+    "filterStatus": "Filtrar por estado",
+    "all": "Todos",
+    "table": {
+      "name": "Nombre",
+      "email": "Correo electrónico",
+      "role": "Rol",
+      "status": "Estado",
+      "lastLogin": "Último acceso"
+    },
+    "noUsers": "No se encontraron usuarios.",
+    "loading": "Cargando…",
+    "error": "Error al cargar usuarios."
+  }
+}
