@@ -260,7 +260,7 @@ jobs:
           output: trivy-results.sarif
           version: v0.70.0
           severity: HIGH,CRITICAL
-          exit-code: ${{ fromJSON(github.event_name == 'pull_request' && '0' || '1') }}
+          exit-code: ${{ github.event_name == 'pull_request' && '0' || '1' }}
           vuln-type: os,library
           ignore-unfixed: true
 
