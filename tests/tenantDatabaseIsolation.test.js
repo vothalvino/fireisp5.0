@@ -193,7 +193,7 @@ describe('tenantDatabaseService connection checks and migrations', () => {
       password: 'secret',
       ssl: {},
     }));
-    expect(mockQuery.mock.calls[1][0]).toMatch(/last_verified_at = NOW/i);
+    expect(mockQuery.mock.calls[1][0]).toMatch(/last_verified_at = NOW\(\)/i);
   });
 
   test('rejects test when no isolated config is enabled', async () => {
