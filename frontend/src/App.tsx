@@ -45,6 +45,7 @@ import { SnmpTraps } from '@/pages/SnmpTraps';
 import { Reports } from '@/pages/Reports';
 import { Settings } from '@/pages/Settings';
 import { NotFound } from '@/pages/NotFound';
+import { DarkModeProvider } from '@/auth/DarkModeContext';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -57,7 +58,8 @@ const queryClient = new QueryClient({
 
 export function App() {
   return (
-    <QueryClientProvider client={queryClient}>
+    <DarkModeProvider>
+      <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <PortalAuthProvider>
           <BrowserRouter>
@@ -130,5 +132,6 @@ export function App() {
         </PortalAuthProvider>
       </AuthProvider>
     </QueryClientProvider>
+    </DarkModeProvider>
   );
 }

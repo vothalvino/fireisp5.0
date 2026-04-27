@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/auth/AuthContext';
 import { hasRole } from '@/auth/PrivateRoute';
 import { DrDrillBanner } from '@/components/DrDrillBanner';
+import { useDarkMode } from '@/auth/DarkModeContext';
 
 interface NavItem {
   to: string;
@@ -40,6 +41,7 @@ const NAV_ITEMS: NavItem[] = [
 export function Layout() {
   const { user, logout, switchOrganization } = useAuth();
   const { t } = useTranslation();
+  const { effectiveTheme, toggleTheme } = useDarkMode();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
 
@@ -137,7 +139,15 @@ export function Layout() {
               )}
             </>
           )}
-          <button onClick={handleLogout} style={styles.logoutBtn}>
+          <button
+              onClick={toggleTheme}
+              style={styles.themeBtn}
+              aria-label={effectiveTheme === 'dark' ? t('darkMode.switchToLight') : t('darkMode.switchToDark')}
+              title={effectiveTheme === 'dark' ? t('darkMode.switchToLight') : t('darkMode.switchToDark')}
+            >
+              {effectiveTheme === 'dark' ? '☀️' : '🌙'}
+            </button>
+            <button onClick={handleLogout} style={styles.logoutBtn}>
             {t('common.signOut')}
           </button>
         </div>
@@ -209,4 +219,14 @@ const styles = {
     fontSize: '0.8rem',
     alignSelf: 'flex-start' as const,
   },
-} as const;
+  themeBtn: {
+    background: 'transparent',
+    border: '1px solid #555',
+    color: '#aaa',
+    padding: '4px 10px',
+    borderRadius: 4,
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+    alignSelf: 'flex-start' as const,
+  },
+};

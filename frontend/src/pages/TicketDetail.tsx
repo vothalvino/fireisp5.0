@@ -511,23 +511,23 @@ const btnPrimary: React.CSSProperties = {
   fontSize: '0.85rem', fontWeight: 600,
 };
 const btnSecondary: React.CSSProperties = {
-  background: '#fff', color: '#374151', border: '1px solid #d1d5db',
+  background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border-strong)',
   padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem',
   width: '100%', textAlign: 'left' as const,
 };
 const card: React.CSSProperties = {
-  background: '#fff', borderRadius: 10, padding: '1.25rem',
+  background: 'var(--bg-card)', borderRadius: 10, padding: '1.25rem',
   boxShadow: '0 1px 3px rgba(0,0,0,.08)',
 };
 const cardTitle: React.CSSProperties = {
-  margin: '0 0 1rem', fontSize: '0.95rem', fontWeight: 700, color: '#111827',
+  margin: '0 0 1rem', fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)',
 };
 const labelStyle: React.CSSProperties = {
   display: 'block', fontSize: '0.78rem', fontWeight: 600,
-  color: '#374151', marginBottom: 3, marginTop: 10,
+  color: 'var(--text-secondary)', marginBottom: 3, marginTop: 10,
 };
 const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '7px 10px', border: '1px solid #d1d5db',
+  width: '100%', padding: '7px 10px', border: '1px solid var(--input-border)',
   borderRadius: 6, fontSize: '0.85rem', boxSizing: 'border-box',
 };
 const errStyle: React.CSSProperties = {

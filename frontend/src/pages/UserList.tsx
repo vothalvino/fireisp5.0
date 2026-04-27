@@ -819,42 +819,42 @@ const btnPrimary: React.CSSProperties = {
   fontSize: '0.85rem', fontWeight: 600,
 };
 const btnSecondary: React.CSSProperties = {
-  background: '#fff', color: '#374151', border: '1px solid #d1d5db',
+  background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border-strong)',
   padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem',
 };
 const filterSelect: React.CSSProperties = {
-  padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db',
-  fontSize: '0.85rem', background: '#fff',
+  padding: '6px 10px', borderRadius: 6, border: '1px solid var(--input-border)',
+  fontSize: '0.85rem', background: 'var(--input-bg)',
 };
 const tableStyle: React.CSSProperties = {
-  width: '100%', borderCollapse: 'collapse', background: '#fff',
+  width: '100%', borderCollapse: 'collapse', background: 'var(--bg-card)',
   borderRadius: 8, overflow: 'hidden',
   boxShadow: '0 1px 3px rgba(0,0,0,.08)',
 };
 const th: React.CSSProperties = {
   padding: '10px 12px', textAlign: 'left', fontSize: '0.78rem',
-  fontWeight: 700, color: '#555', background: '#f9fafb',
-  borderBottom: '1px solid #e5e7eb',
+  fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-body)',
+  borderBottom: '1px solid var(--border)',
 };
 const td: React.CSSProperties = {
-  padding: '10px 12px', fontSize: '0.85rem', color: '#374151',
-  borderBottom: '1px solid #f3f4f6',
+  padding: '10px 12px', fontSize: '0.85rem', color: 'var(--text-secondary)',
+  borderBottom: '1px solid var(--border-subtle)',
 };
 const modalOverlay: React.CSSProperties = {
   position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)',
   display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
 };
 const modalBox: React.CSSProperties = {
-  background: '#fff', borderRadius: 10, padding: '1.5rem',
+  background: 'var(--bg-card)', borderRadius: 10, padding: '1.5rem',
   width: 560, maxHeight: '90vh', overflowY: 'auto',
   boxShadow: '0 8px 32px rgba(0,0,0,.18)',
 };
 const labelStyle: React.CSSProperties = {
   display: 'block', fontSize: '0.78rem', fontWeight: 600,
-  color: '#374151', marginBottom: 3, marginTop: 10,
+  color: 'var(--text-secondary)', marginBottom: 3, marginTop: 10,
 };
 const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '7px 10px', border: '1px solid #d1d5db',
+  width: '100%', padding: '7px 10px', border: '1px solid var(--input-border)',
   borderRadius: 6, fontSize: '0.85rem', boxSizing: 'border-box',
 };
 const errStyle: React.CSSProperties = {

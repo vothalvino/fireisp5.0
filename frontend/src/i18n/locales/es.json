@@ -236,5 +236,9 @@
     "noUsers": "No se encontraron usuarios.",
     "loading": "Cargando…",
     "error": "Error al cargar usuarios."
+  },
+  "darkMode": {
+    "switchToDark": "Cambiar a modo oscuro",
+    "switchToLight": "Cambiar a modo claro"
   }
 }

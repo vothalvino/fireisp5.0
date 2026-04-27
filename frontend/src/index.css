@@ -2,6 +2,50 @@
    FireISP 5.0 — Global base styles & mobile-responsive layout
    ============================================================================= */
 
+/* =============================================================================
+   CSS Custom Properties — light / dark colour tokens
+   ============================================================================= */
+
+:root {
+  color-scheme: light;
+  --bg-body:        #f5f6fa;
+  --bg-page:        #f0f2f5;
+  --bg-card:        #ffffff;
+  --bg-subtle:      #f3f4f6;
+  --bg-muted:       #f9fafb;
+  --text-primary:   #111827;
+  --text-secondary: #374151;
+  --text-muted:     #6b7280;
+  --text-dimmed:    #9ca3af;
+  --text-faint:     #888888;
+  --border:         #e5e7eb;
+  --border-subtle:  #f3f4f6;
+  --border-strong:  #d1d5db;
+  --input-bg:       #ffffff;
+  --input-border:   #d1d5db;
+  --accent:         #e25822;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-body:        #0d1117;
+  --bg-page:        #0d1117;
+  --bg-card:        #161b22;
+  --bg-subtle:      #21262d;
+  --bg-muted:       #1c2128;
+  --text-primary:   #e6edf3;
+  --text-secondary: #cdd9e5;
+  --text-muted:     #8b949e;
+  --text-dimmed:    #6e7681;
+  --text-faint:     #6e7681;
+  --border:         #30363d;
+  --border-subtle:  #21262d;
+  --border-strong:  #3d444e;
+  --input-bg:       #0d1117;
+  --input-border:   #3d444e;
+  --accent:         #e25822;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
 }
@@ -15,8 +59,8 @@ html, body, #root {
 body {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 0.9rem;
-  background: #f5f6fa;
-  color: #111827;
+  background: var(--bg-body);
+  color: var(--text-primary);
 }
 
 /* ---- App shell ---------------------------------------------------------- */
@@ -90,8 +134,8 @@ body {
   align-items: center;
   gap: 1.5rem;
   padding: 0.75rem 1.5rem;
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
 }
 
