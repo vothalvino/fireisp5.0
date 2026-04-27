@@ -16,6 +16,8 @@ const { requestId } = require('./middleware/requestId');
 const { firerelay } = require('./middleware/firerelay');
 const { requireFeature } = require('./middleware/featureFlag');
 const { createIpAllowlist, parseAllowlist } = require('./middleware/ipAllowlist');
+const { authenticate } = require('./middleware/auth');
+const { orgScope } = require('./middleware/orgScope');
 const logger = require('./utils/logger');
 
 // Route imports
@@ -97,6 +99,7 @@ const drDrillRoutes = require('./routes/drDrill');
 const dsarRoutes = require('./routes/dsar');
 const ssoRoutes = require('./routes/sso');
 const queueStatsRoutes = require('./routes/queueStats');
+const graphqlMiddleware = require('./graphql');
 
 const crypto = require('crypto');
 
@@ -410,6 +413,7 @@ v1.use('/dr-drill', adminIpAllowlist, drDrillRoutes);
 v1.use('/dsar', adminIpAllowlist, dsarRoutes);
 v1.use('/sso', ssoRoutes);
 v1.use('/queue-stats', adminIpAllowlist, queueStatsRoutes);
+v1.use('/graphql', authenticate, orgScope, graphqlMiddleware);
 
 // Mount v1 at both /api (backward compat) and /api/v1 (versioned)
 app.use('/api/v1', v1);
