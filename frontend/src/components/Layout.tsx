@@ -140,13 +140,13 @@ export function Layout() {
             </>
           )}
           <button
-              onClick={toggleTheme}
-              style={styles.themeBtn}
-              aria-label={effectiveTheme === 'dark' ? t('darkMode.switchToLight') : t('darkMode.switchToDark')}
-              title={effectiveTheme === 'dark' ? t('darkMode.switchToLight') : t('darkMode.switchToDark')}
-            >
-              {effectiveTheme === 'dark' ? '☀️' : '🌙'}
-            </button>
+            onClick={toggleTheme}
+            style={styles.themeBtn}
+            aria-label={effectiveTheme === 'dark' ? t('darkMode.switchToLight') : t('darkMode.switchToDark')}
+            title={effectiveTheme === 'dark' ? t('darkMode.switchToLight') : t('darkMode.switchToDark')}
+          >
+            {effectiveTheme === 'dark' ? '☀️' : '🌙'}
+          </button>
             <button onClick={handleLogout} style={styles.logoutBtn}>
             {t('common.signOut')}
           </button>
