@@ -6,7 +6,9 @@
 // =============================================================================
 
 const mysql = require('mysql2/promise');
+const { AsyncLocalStorage } = require('async_hooks');
 const { recordDbQuery } = require('../utils/dbMetrics');
+const { decrypt } = require('../utils/encryption');
 
 const parseIntEnv = (key, fallback) => {
   const v = process.env[key];
@@ -38,6 +40,11 @@ const pool = mysql.createPool({
   keepAliveInitialDelay: parseIntEnv('DB_KEEP_ALIVE_MS', 30000),
 });
 
+const tenantContext = new AsyncLocalStorage();
+const tenantConfigCache = new Map();
+const tenantPoolCache = new Map();
+const TENANT_CACHE_TTL_MS = parseIntEnv('TENANT_DB_CONFIG_CACHE_MS', 60000);
+
 /**
  * Read replica pool — created only when DB_REPLICA_HOST is set.
  * Falls back to the primary pool when no replica is configured so that
@@ -62,14 +69,108 @@ const replicaPool = process.env.DB_REPLICA_HOST
   })
   : null;
 
+function withTenantContext(orgId, callback) {
+  return tenantContext.run({ orgId }, callback);
+}
+
+function normalizeTenantConfig(row) {
+  if (!row || row.isolation_mode !== 'isolated') return null;
+  if (!row.db_host || !row.db_name || !row.db_user) {
+    throw new Error(`Tenant ${row.organization_id} has incomplete isolated database configuration`);
+  }
+  return {
+    host: row.db_host,
+    port: row.db_port || 3306,
+    user: row.db_user,
+    password: decrypt(row.db_password_encrypted) || '',
+    database: row.db_name,
+    ssl: row.ssl_enabled ? {} : undefined,
+  };
+}
+
+async function getTenantConnectionConfig(orgId) {
+  if (!orgId) return null;
+  const key = String(orgId);
+  const cached = tenantConfigCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  const [rows] = await pool.execute(
+    `SELECT organization_id, isolation_mode, db_host, db_port, db_name, db_user,
+            db_password_encrypted, ssl_enabled
+       FROM organization_database_configs
+      WHERE organization_id = ?`,
+    [orgId],
+  );
+  const value = normalizeTenantConfig(rows[0]);
+  tenantConfigCache.set(key, { value, expiresAt: Date.now() + TENANT_CACHE_TTL_MS });
+  return value;
+}
+
+async function getTenantPool(orgId) {
+  const config = await getTenantConnectionConfig(orgId);
+  if (!config) return null;
+
+  const key = String(orgId);
+  if (!tenantPoolCache.has(key)) {
+    tenantPoolCache.set(key, mysql.createPool({
+      ...config,
+      charset: 'utf8mb4',
+      timezone: '+00:00',
+      waitForConnections: true,
+      connectionLimit: parseIntEnv('TENANT_DB_POOL_SIZE', 10),
+      queueLimit: parseIntEnv('DB_QUEUE_LIMIT', 0),
+      enableKeepAlive: true,
+      keepAliveInitialDelay: parseIntEnv('DB_KEEP_ALIVE_MS', 30000),
+    }));
+  }
+  return tenantPoolCache.get(key);
+}
+
+async function getCurrentPool({ preferReplica = false } = {}) {
+  const store = tenantContext.getStore();
+  if (store?.orgId) {
+    const tenantPool = await getTenantPool(store.orgId);
+    if (tenantPool) return tenantPool;
+  }
+  return preferReplica ? (replicaPool || pool) : pool;
+}
+
+async function invalidateTenantDbConfig(orgId) {
+  const key = String(orgId);
+  tenantConfigCache.delete(key);
+  const tenantPool = tenantPoolCache.get(key);
+  tenantPoolCache.delete(key);
+  if (tenantPool) await tenantPool.end();
+}
+
+async function testTenantConnection(connectionConfig) {
+  const testPool = mysql.createPool({
+    ...baseConnectionConfig,
+    ...connectionConfig,
+    password: connectionConfig.password || '',
+    charset: 'utf8mb4',
+    timezone: '+00:00',
+    waitForConnections: true,
+    connectionLimit: 1,
+    queueLimit: 0,
+  });
+  try {
+    await testPool.execute('SELECT 1');
+    return true;
+  } finally {
+    await testPool.end();
+  }
+}
+
 /**
  * Run a query and return [rows, fields].
  * Records DB query duration into the Prometheus histogram.
  */
 async function query(sql, params) {
+  const targetPool = await getCurrentPool();
   const start = process.hrtime.bigint();
   try {
-    return await pool.execute(sql, params);
+    return await targetPool.execute(sql, params);
   } finally {
     const durationSeconds = Number(process.hrtime.bigint() - start) / 1e9;
     const op = /^\s*(SELECT|INSERT|UPDATE|DELETE|REPLACE)/i.exec(sql);
@@ -83,7 +184,7 @@ async function query(sql, params) {
  * Use this for all report and dashboard queries.
  */
 async function queryReplica(sql, params) {
-  const targetPool = replicaPool || pool;
+  const targetPool = await getCurrentPool({ preferReplica: true });
   const start = process.hrtime.bigint();
   try {
     return await targetPool.execute(sql, params);
@@ -97,7 +198,8 @@ async function queryReplica(sql, params) {
  * Get a single connection from the pool (for transactions).
  */
 async function getConnection() {
-  return pool.getConnection();
+  const targetPool = await getCurrentPool();
+  return targetPool.getConnection();
 }
 
 /**
@@ -106,7 +208,22 @@ async function getConnection() {
 async function close() {
   const tasks = [pool.end()];
   if (replicaPool) tasks.push(replicaPool.end());
+  for (const tenantPool of tenantPoolCache.values()) tasks.push(tenantPool.end());
+  tenantPoolCache.clear();
+  tenantConfigCache.clear();
   await Promise.all(tasks);
 }
 
-module.exports = { pool, replicaPool, query, queryReplica, getConnection, close, baseConnectionConfig };
+module.exports = {
+  pool,
+  replicaPool,
+  query,
+  queryReplica,
+  getConnection,
+  close,
+  baseConnectionConfig,
+  withTenantContext,
+  getTenantConnectionConfig,
+  invalidateTenantDbConfig,
+  testTenantConnection,
+};

@@ -22,6 +22,8 @@ An open source ISP (Internet Service Provider) management software designed to h
 - Two-factor authentication (TOTP) with backup codes and brute-force account lockout
 - Single sign-on (SSO) — per-organization SAML 2.0 and OIDC IdP configuration, automatic user provisioning on first login, and IdP group-to-FireISP role mappings
 - Per-tenant resource quotas — configurable upper bounds per organization for clients, devices, storage, and scheduled tasks (NULL = unlimited; absence of a quota row = unlimited)
+- Per-tenant database isolation — opt-in physically isolated MySQL/MariaDB database per organization; tenant-aware pool routing via `AsyncLocalStorage` context in `orgScope`; admin API to configure, verify (`POST /test`), and switch between shared and isolated modes; `MIGRATE_ISOLATED_TENANTS=true npm run migrate` applies the same migration set to every enabled isolated tenant database
+- Background job platform (BullMQ) — optional Redis-backed distributed job queues for webhook delivery, SMS dispatch, CFDI stamping retries, config-backup pulls, and scheduled-task execution; inline fallback when `REDIS_URL` is not configured; per-queue stats surfaced at `/api/v1/queue-stats`
 - FireRelay cluster mode for multi-node deployments with client routing
 - Outbound webhooks with HMAC signing, configurable retries, and dead-letter queue for failed deliveries
 - Inbound webhook event deduplication and idempotent payment processing
@@ -47,8 +49,8 @@ An open source ISP (Internet Service Provider) management software designed to h
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 115 tables)
-│   └── migrations/          # Individual numbered migration files (001–166)
+│   ├── schema.sql           # Combined schema (all 116 tables)
+│   └── migrations/          # Individual numbered migration files (001–167)
 ├── src/                     # Application source code
 │   ├── app.js               # Express app setup (middleware, routes, error handling)
 │   ├── server.js            # HTTP server entry point
@@ -57,10 +59,11 @@ fireisp5.0/
 │   ├── locales/             # i18n translation files (en.json, es.json, pt-BR.json)
 │   ├── middleware/           # Authentication, logging, validation, and request middleware
 │   │   └── schemas/         # Joi / Zod validation schemas per route
-│   ├── models/              # Data models / ORM entities (89 models)
-│   ├── routes/              # Route definitions (69 route files)
+│   ├── models/              # Data models / ORM entities (91 models)
+│   ├── routes/              # Route definitions (78 route files)
 │   ├── scripts/             # CLI scripts (migrate, seed, backup, admin, openapi, postman)
-│   ├── services/            # Business logic layer (25 services)
+│   ├── services/            # Business logic layer (39 services)
+│   ├── workers/             # BullMQ worker registry (5 named queues; active only when REDIS_URL is set)
 │   ├── utils/               # Shared helpers (errors, logger, i18n, circuit breaker, OpenAPI)
 │   └── views/               # Email templates (HTML builders for transactional emails)
 ├── storage/                 # User-uploaded and system-generated files
@@ -71,7 +74,7 @@ fireisp5.0/
 │   └── backups/             # System database and config backups
 ├── docs/                    # Project documentation (API guide, architecture, deployment, etc.)
 ├── frontend/                # React + TypeScript SPA (Vite); builds to frontend/dist/
-├── tests/                   # Automated tests (65 test files, 1,363 Jest tests)
+├── tests/                   # Automated tests (123 test files, 2,548 Jest tests)
 ├── LICENSE
 └── README.md
 ```
@@ -213,6 +216,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 113 | `organization_sso_group_mappings` | IdP group-to-role mapping — maps an exact IdP group name to a FireISP role (admin/manager/technician/billing/readonly) for a given SSO config; evaluated at login to assign the highest-ranked matching role |
 | 114 | `sso_auth_states` | Short-lived OIDC authorization state / nonce store — holds the random `state` and `nonce` parameters generated at the start of an OIDC authorization-code flow; rows expire after 10 minutes; prevents CSRF and replay attacks |
 | 115 | `organization_quotas` | Per-tenant resource quota table — stores optional upper bounds for `max_clients`, `max_devices`, `max_storage_mb`, and `max_scheduled_tasks`; a NULL limit means "unlimited"; absence of a row is also treated as unlimited |
+| 116 | `organization_database_configs` | Per-tenant database isolation configuration — stores the `isolation_mode` (`shared` default, `isolated` opt-in) and, for isolated tenants, the target database host/port/name/user, encrypted password, SSL flag, and `last_verified_at` connectivity-check timestamp |
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 
@@ -397,6 +401,8 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > - **`sso_auth_states`** — short-lived OIDC state/nonce store for the authorization-code flow; rows expire after 10 minutes and should be purged by a cleanup task. Unique constraint on `state`.
 
 > **Migration 166 — Per-tenant resource quotas:** `166_create_organization_quotas.sql` creates the `organization_quotas` table that stores optional upper bounds per organization for four resources: `max_clients` (active client records), `max_devices` (active device records), `max_storage_mb` (sum of all org-owned `files.file_size`), and `max_scheduled_tasks` (org-scoped scheduled task rows). A `NULL` value in any limit column means "unlimited" for that resource. A row is created only when a quota is first configured; the absence of a row is also treated as unlimited. The `checkQuota` middleware enforces these limits at the API layer before the relevant creation handlers. Unique constraint on `organization_id`.
+
+> **Migration 167 — Per-tenant database isolation config:** `167_create_organization_database_configs.sql` creates the `organization_database_configs` control-plane table. One row per organization (unique constraint). Stores `isolation_mode` (`shared` default, `isolated` opt-in), isolated database host, port, name, user, AES-256-GCM-encrypted password (`db_password_encrypted`), SSL flag, and `last_verified_at` timestamp. When `isolation_mode = 'isolated'` and a valid connection config is present, `src/config/database.js` routes every DB operation for that organization to a dedicated MySQL pool (cached in memory, invalidated on config update). Admin endpoints: `GET/PUT /api/v1/organizations/:id/database-isolation` (masked config), `POST /api/v1/organizations/:id/database-isolation/test` (connectivity check + records `last_verified_at`). `FK ON DELETE CASCADE` from `organizations`.
 
 ### Venta al Público en General (Factura Pública)
 
@@ -723,7 +729,7 @@ WHERE it.transaction_type = 'sell_to_client'
 GROUP BY ii.id;
 ```
 
-See the [`docs/`](docs/) directory for detailed guides on [API usage](docs/API_GUIDE.md), [architecture](docs/architecture.md), [deployment](docs/deployment.md), [RADIUS setup](docs/radius-setup.md), [backup & restore](docs/backup-restore.md), [RBAC permissions](docs/rbac-permissions.md), [webhook events](docs/webhook-events.md), [FireRelay clustering](docs/firerelay.md), and the [operational runbook](docs/runbook.md).
+See the [`docs/`](docs/) directory for detailed guides on [API usage](docs/API_GUIDE.md), [architecture](docs/architecture.md), [deployment](docs/deployment.md) (includes Helm chart + Argo CD GitOps), [RADIUS setup](docs/radius-setup.md), [backup & restore](docs/backup-restore.md), [RBAC permissions](docs/rbac-permissions.md), [webhook events](docs/webhook-events.md), [FireRelay clustering](docs/firerelay.md), [tenant database isolation](docs/tenant-database-isolation.md), [TLS setup](docs/tls-setup.md), [load testing](docs/load-testing.md), [SLOs & alerting](docs/slo.md), [pen-test guide](docs/pentest.md), [privacy & DSAR](docs/privacy.md), [secrets management](docs/secrets-management.md), [DR drill](docs/dr-drill.md), and the [operational runbook](docs/runbook.md).
 
 ## Getting Started (from Source)
 
@@ -769,6 +775,7 @@ docker compose up -d
 | `npm run lint` | Lint source code (ESLint) |
 | `npm run lint:fix` | Lint and auto-fix source code |
 | `npm run migrate` | Apply pending database migrations |
+| `MIGRATE_ISOLATED_TENANTS=true npm run migrate` | Apply pending migrations to all isolated tenant databases after the primary migration succeeds |
 | `npm run seed` | Seed default data (roles, settings, tax rates) |
 | `npm run openapi` | Generate OpenAPI spec to `docs/openapi.json` |
 | `npm run admin -- create-user --email admin@example.com --password secret --role admin` | Create admin user |

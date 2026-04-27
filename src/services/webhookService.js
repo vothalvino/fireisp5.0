@@ -71,7 +71,7 @@ async function dispatch(organizationId, event, payload) {
   if (process.env.REDIS_URL) {
     const jobQueue = require('./jobQueueService');
     const results = await Promise.all(matching.map(async (webhook) => {
-      const maxRetries = webhook.max_retries != null ? webhook.max_retries : 5;
+      const maxRetries = webhook.max_retries ?? 5;
       const job = await jobQueue.add('webhook-delivery', {
         webhookId: webhook.id,
         event,

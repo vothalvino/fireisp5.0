@@ -9,6 +9,7 @@
 
 const { ForbiddenError } = require('../utils/errors');
 const { tenantApiLimiter } = require('./rateLimit');
+const db = require('../config/database');
 
 /**
  * Extracts and validates the organization context from the authenticated user.
@@ -29,7 +30,10 @@ function orgScope(req, res, next) {
   req.orgId = orgId;
 
   // Apply per-tenant rate limiting now that req.orgId is set
-  tenantApiLimiter(req, res, next);
+  if (typeof db.withTenantContext === 'function') {
+    return db.withTenantContext(orgId, () => tenantApiLimiter(req, res, next));
+  }
+  return tenantApiLimiter(req, res, next);
 }
 
 module.exports = { orgScope };

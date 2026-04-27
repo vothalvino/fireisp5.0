@@ -11,6 +11,11 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createOrganization, updateOrganization, patchOrganization, updateSetting } = require('../middleware/schemas/organizations');
 const { getQuotaWithUsage } = require('../services/quotaService');
+const {
+  getDatabaseIsolation,
+  saveDatabaseIsolation,
+  testDatabaseIsolation,
+} = require('../services/tenantDatabaseService');
 
 const router = Router();
 const ctrl = crudController(Organization);
@@ -76,6 +81,34 @@ router.put('/:id/quota', requirePermission('organizations.update'), async (req, 
     }
     await OrganizationQuota.upsert(req.params.id, body);
     const data = await getQuotaWithUsage(req.params.id);
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Per-tenant database isolation sub-routes
+router.get('/:id/database-isolation', requirePermission('organizations.view'), async (req, res, next) => {
+  try {
+    const data = await getDatabaseIsolation(req.params.id);
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/:id/database-isolation', requirePermission('organizations.update'), async (req, res, next) => {
+  try {
+    const data = await saveDatabaseIsolation(req.params.id, req.body || {});
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:id/database-isolation/test', requirePermission('organizations.update'), async (req, res, next) => {
+  try {
+    const data = await testDatabaseIsolation(req.params.id, req.body && Object.keys(req.body).length ? req.body : null);
     res.json({ data });
   } catch (err) {
     next(err);

@@ -14,8 +14,15 @@ const path = require('path');
 const mysql = require('mysql2/promise');
 const db = require('../config/database');
 const logger = require('../utils/logger').child({ script: 'migrate' });
+const { listIsolatedMigrationTargets } = require('../services/tenantDatabaseService');
 
 const MIGRATIONS_DIR = path.resolve(__dirname, '../../database/migrations');
+
+function parseBoolEnv(key, fallback = false) {
+  const value = process.env[key];
+  if (value === undefined || value === '') return fallback;
+  return value === 'true' || value === '1';
+}
 
 /**
  * Split a SQL migration file into individual executable statements.
@@ -75,16 +82,19 @@ function splitStatements(sql) {
   return statements;
 }
 
-async function runMigrations() {
+function createMigrationPool(connectionConfig) {
   // Migrations may contain multiple SQL statements per file, so we use a
   // dedicated connection with multipleStatements enabled (the main pool
   // intentionally disables this for security).
-  const migrationPool = mysql.createPool({
-    ...db.baseConnectionConfig,
+  return mysql.createPool({
+    ...connectionConfig,
     waitForConnections: true,
     connectionLimit: 1,
     multipleStatements: true,
   });
+}
+
+async function applyMigrations(migrationPool, label = 'primary') {
 
   let conn;
   try {
@@ -116,7 +126,7 @@ async function runMigrations() {
       if (appliedSet.has(file)) continue;
 
       const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
-      logger.info({ file }, 'Applying migration');
+      logger.info({ file, target: label }, 'Applying migration');
 
       try {
         for (const stmt of splitStatements(sql)) {
@@ -134,13 +144,39 @@ async function runMigrations() {
     }
 
     if (count === 0) {
-      logger.info('All migrations are up to date.');
+      logger.info({ target: label }, 'All migrations are up to date.');
     } else {
-      logger.info({ count }, 'Migrations applied');
+      logger.info({ count, target: label }, 'Migrations applied');
     }
   } finally {
     if (conn) conn.release();
-    await migrationPool.end();
+  }
+}
+
+async function runMigrations(options = {}) {
+  const includeIsolatedTenants = options.includeIsolatedTenants
+    ?? parseBoolEnv('MIGRATE_ISOLATED_TENANTS', false);
+  const primaryPool = createMigrationPool(db.baseConnectionConfig);
+
+  try {
+    try {
+      await applyMigrations(primaryPool, db.baseConnectionConfig.database);
+    } finally {
+      await primaryPool.end();
+    }
+
+    if (includeIsolatedTenants) {
+      const targets = await listIsolatedMigrationTargets();
+      for (const target of targets) {
+        const tenantPool = createMigrationPool(target.connectionConfig);
+        try {
+          await applyMigrations(tenantPool, `org:${target.organizationId}:${target.database}`);
+        } finally {
+          await tenantPool.end();
+        }
+      }
+    }
+  } finally {
     await db.close();
   }
 }
@@ -159,4 +195,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { runMigrations, splitStatements };
+module.exports = { runMigrations, splitStatements, createMigrationPool, applyMigrations };
