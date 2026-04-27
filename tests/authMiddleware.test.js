@@ -17,6 +17,7 @@ const { authenticate, optionalAuth } = require('../src/middleware/auth');
 function mockReqRes(overrides = {}) {
   const req = {
     headers: {},
+    cookies: {},
     ip: '127.0.0.1',
     ...overrides,
   };
@@ -37,7 +38,7 @@ describe('auth middleware', () => {
   // authenticate – JWT path
   // =========================================================================
   describe('authenticate – JWT', () => {
-    test('rejects when no Authorization header or X-API-Key', async () => {
+    test('rejects when no Authorization header, no X-API-Key, and no cookie', async () => {
       const { req, res, next } = mockReqRes();
 
       await authenticate(req, res, next);
@@ -194,6 +195,89 @@ describe('auth middleware', () => {
       await authenticate(req, res, next);
 
       expect(jwt.verify).toHaveBeenCalledWith('my-secret-token', 'test-jwt-secret');
+    });
+  });
+
+  // =========================================================================
+  // authenticate – httpOnly cookie path (P3.4)
+  // =========================================================================
+  describe('authenticate – httpOnly cookie', () => {
+    test('succeeds when JWT is provided via fireisp_access cookie', async () => {
+      jwt.verify.mockReturnValue({ sub: 1, orgId: 5 });
+      User.findById.mockResolvedValueOnce({
+        id: 1,
+        email: 'cookie@example.com',
+        role: 'admin',
+        status: 'active',
+        organization_id: 5,
+      });
+
+      const { req, res, next } = mockReqRes({
+        cookies: { fireisp_access: 'cookie-jwt-token' },
+      });
+
+      await authenticate(req, res, next);
+
+      expect(jwt.verify).toHaveBeenCalledWith('cookie-jwt-token', 'test-jwt-secret');
+      expect(next).toHaveBeenCalledWith();
+      expect(req.user).toMatchObject({ id: 1, email: 'cookie@example.com', organizationId: 5 });
+    });
+
+    test('rejects when cookie JWT is invalid', async () => {
+      jwt.verify.mockImplementation(() => { throw new Error('jwt malformed'); });
+
+      const { req, res, next } = mockReqRes({
+        cookies: { fireisp_access: 'bad-cookie-jwt' },
+      });
+
+      await authenticate(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({ statusCode: 401 }),
+      );
+    });
+
+    test('Bearer header takes precedence over cookie when both are present', async () => {
+      jwt.verify.mockReturnValue({ sub: 1 });
+      User.findById.mockResolvedValueOnce({
+        id: 1,
+        email: 'bearer@example.com',
+        role: 'admin',
+        status: 'active',
+        organization_id: 1,
+      });
+
+      const { req, res, next } = mockReqRes({
+        headers: { authorization: 'Bearer bearer-wins' },
+        cookies: { fireisp_access: 'cookie-loses' },
+      });
+
+      await authenticate(req, res, next);
+
+      // Must use the Bearer token string, not the cookie value
+      expect(jwt.verify).toHaveBeenCalledWith('bearer-wins', 'test-jwt-secret');
+      expect(next).toHaveBeenCalledWith();
+    });
+
+    test('optionalAuth delegates to authenticate when only cookie is present', async () => {
+      jwt.verify.mockReturnValue({ sub: 2, orgId: 9 });
+      User.findById.mockResolvedValueOnce({
+        id: 2,
+        email: 'cookie-optional@example.com',
+        role: 'support',
+        status: 'active',
+        organization_id: 9,
+      });
+
+      const { req, res, next } = mockReqRes({
+        cookies: { fireisp_access: 'optional-cookie-jwt' },
+      });
+
+      await optionalAuth(req, res, next);
+
+      expect(jwt.verify).toHaveBeenCalledWith('optional-cookie-jwt', 'test-jwt-secret');
+      expect(next).toHaveBeenCalledWith();
+      expect(req.user).toBeDefined();
     });
   });
 

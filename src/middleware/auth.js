@@ -67,6 +67,7 @@ async function authenticateApiToken(req) {
 /**
  * Require authentication. Attaches req.user with id, email, role, orgId, etc.
  * Supports both Bearer JWT tokens and X-API-Key header.
+ * For the browser SPA, also accepts the JWT from the `fireisp_access` httpOnly cookie.
  */
 async function authenticate(req, _res, next) {
   try {
@@ -74,12 +75,19 @@ async function authenticate(req, _res, next) {
     const apiKeyAuth = await authenticateApiToken(req);
     if (apiKeyAuth) return next();
 
+    // Determine JWT source: Authorization header takes precedence over cookie
+    // so that programmatic API clients (tests, scripts) continue to work
+    // unchanged.  The browser SPA falls back to the httpOnly cookie when no
+    // Bearer header is present.
+    let token;
     const header = req.headers.authorization;
-    if (!header || !header.startsWith('Bearer ')) {
+    if (header && header.startsWith('Bearer ')) {
+      token = header.slice(7);
+    } else if (req.cookies?.fireisp_access) {
+      token = req.cookies.fireisp_access;
+    } else {
       throw new UnauthorizedError('Missing or invalid Authorization header');
     }
-
-    const token = header.slice(7);
     let payload;
     try {
       payload = jwt.verify(token, config.jwt.secret);
@@ -107,11 +115,14 @@ async function authenticate(req, _res, next) {
 
 /**
  * Optional auth — doesn't fail if no token is present.
+ * Delegates to authenticate when a Bearer header, API key, or httpOnly access
+ * cookie is present so that cookie-authenticated SPA users are recognized.
  */
 async function optionalAuth(req, _res, next) {
   const header = req.headers.authorization;
   const apiKey = req.headers['x-api-key'];
-  if (!apiKey && (!header || !header.startsWith('Bearer '))) {
+  const hasCookie = !!req.cookies?.fireisp_access;
+  if (!apiKey && (!header || !header.startsWith('Bearer ')) && !hasCookie) {
     return next();
   }
   return authenticate(req, _res, next);

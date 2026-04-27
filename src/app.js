@@ -6,6 +6,7 @@ const express = require('express');
 const path = require('path');
 const cors = require('cors');
 const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
 const config = require('./config');
 const { AppError } = require('./utils/errors');
 const errorTracking = require('./utils/errorTracking');
@@ -186,6 +187,7 @@ app.use(express.json({
   },
 }));
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 app.use(sanitize);
 app.use(firerelay);
 app.use(requestLogger);

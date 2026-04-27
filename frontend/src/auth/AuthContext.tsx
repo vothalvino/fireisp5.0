@@ -92,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers: tokenStore.getAccess()
           ? { Authorization: `Bearer ${tokenStore.getAccess()}` }
           : {},
+        credentials: 'include',
       });
       if (res.ok) {
         const json = (await res.json()) as { data: AuthUser };
@@ -106,32 +107,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // On mount: attempt silent restore from refresh token stored in localStorage.
+  // On mount: attempt silent session restore by calling the refresh endpoint.
+  // The httpOnly `fireisp_refresh` cookie is sent automatically by the browser
+  // (credentials: 'include'), so no localStorage read is needed.  If the
+  // cookie is absent or expired the server returns 401 and we settle as
+  // logged-out without further network calls.
   const booted = useRef(false);
   useEffect(() => {
     if (booted.current) return;
     booted.current = true;
 
-    const refreshToken = tokenStore.getRefresh();
-    if (!refreshToken) {
-      setState({ user: null, loading: false, initialized: true });
-      return;
-    }
-
-    // Try to get a new access token silently.
     (async () => {
       try {
         const res = await fetch('/api/v1/auth/refresh', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken }),
+          credentials: 'include',
         });
         if (res.ok) {
           const json = (await res.json()) as {
             data: { accessToken: string; refreshToken: string };
           };
           tokenStore.setAccess(json.data.accessToken);
-          tokenStore.setRefresh(json.data.refreshToken);
           await hydrateUser();
         } else {
           tokenStore.clear();
@@ -163,8 +160,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const json = (await res.json()) as { data: LoginResponse };
+      // Access token kept in memory; refresh token is managed as an httpOnly
+      // cookie by the server — no localStorage write needed.
       tokenStore.setAccess(json.data.accessToken);
-      tokenStore.setRefresh(json.data.refreshToken);
 
       setState({ user: json.data.user, loading: false, initialized: true });
     },
@@ -174,15 +172,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     try {
       const accessToken = tokenStore.getAccess();
-      const refreshToken = tokenStore.getRefresh();
       if (accessToken) {
+        // Send credentials so the httpOnly refresh cookie is included for
+        // server-side session revocation.
         await fetch('/api/v1/auth/logout', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${accessToken}`,
           },
-          body: JSON.stringify({ refreshToken }),
+          credentials: 'include',
         });
       }
     } finally {
@@ -191,25 +190,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Switch the active organization for a multi-tenant user.  The backend
-  // mints a new access token whose `orgId` claim is the requested org, and
-  // rotates the refresh token within the same family.  The user must
-  // currently be a member of the target org.
   const switchOrganization = useCallback(
     async (organizationId: number) => {
       const accessToken = tokenStore.getAccess();
-      const refreshToken = tokenStore.getRefresh();
-      if (!accessToken || !refreshToken) {
+      if (!accessToken) {
         throw new Error('Not authenticated');
       }
 
+      // The httpOnly refresh cookie is sent automatically via credentials:'include'.
+      // No need to read it from localStorage or pass it in the request body.
       const res = await fetch('/api/v1/auth/switch-organization', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ organizationId, refreshToken }),
+        credentials: 'include',
+        body: JSON.stringify({ organizationId }),
       });
 
       if (!res.ok) {
@@ -222,8 +219,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const json = (await res.json()) as {
         data: { accessToken: string; refreshToken: string };
       };
+      // Server rotates the httpOnly refresh cookie in the response headers.
       tokenStore.setAccess(json.data.accessToken);
-      tokenStore.setRefresh(json.data.refreshToken);
 
       // Re-hydrate user profile so `organization_id` and any org-scoped state
       // reflects the new context.
