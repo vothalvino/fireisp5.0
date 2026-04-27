@@ -6,6 +6,7 @@ const express = require('express');
 const path = require('path');
 const cors = require('cors');
 const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
 const config = require('./config');
 const { AppError } = require('./utils/errors');
 const errorTracking = require('./utils/errorTracking');
@@ -16,6 +17,7 @@ const { requestId } = require('./middleware/requestId');
 const { firerelay } = require('./middleware/firerelay');
 const { requireFeature } = require('./middleware/featureFlag');
 const { createIpAllowlist, parseAllowlist } = require('./middleware/ipAllowlist');
+const { csrfOriginCheck } = require('./middleware/csrf');
 const { authenticate } = require('./middleware/auth');
 const { orgScope } = require('./middleware/orgScope');
 const logger = require('./utils/logger');
@@ -186,11 +188,16 @@ app.use(express.json({
   },
 }));
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 app.use(sanitize);
 app.use(firerelay);
 app.use(requestLogger);
 app.use(metricsMiddleware);
 app.use('/api/', apiLimiter);
+// CSRF origin check — validates Origin/Referer header on state-changing requests
+// that carry a FireISP auth cookie (browser SPA).  SameSite=Strict on the cookies
+// already prevents CSRF; this is defense-in-depth.
+app.use('/api/', csrfOriginCheck);
 app.use('/api/auth', authLimiter);
 app.use('/api/v1/auth', authLimiter);
 app.use('/api/export', exportLimiter);

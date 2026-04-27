@@ -32,13 +32,15 @@ const verifyEmail = {
   token: { type: 'string', required: true },
 };
 
+// refreshToken is optional in body — browser clients send it via httpOnly cookie instead
 const refreshToken = {
-  refreshToken: { type: 'string', required: true },
+  refreshToken: { type: 'string', required: false },
 };
 
+// refreshToken is optional in body — browser clients send it via httpOnly cookie instead
 const switchOrganization = {
   organizationId: { type: 'number', required: true, min: 1 },
-  refreshToken: { type: 'string', required: true },
+  refreshToken: { type: 'string', required: false },
 };
 
 module.exports = { register, login, requestPasswordReset, resetPassword, changePassword, verifyEmail, refreshToken, switchOrganization };

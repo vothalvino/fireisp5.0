@@ -8,8 +8,53 @@ const { authenticate } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const authSchemas = require('../middleware/schemas/auth');
 const User = require('../models/User');
+const config = require('../config');
 
 const router = Router();
+
+// ---------------------------------------------------------------------------
+// Cookie helpers
+// ---------------------------------------------------------------------------
+
+const COOKIE_BASE = {
+  httpOnly: true,
+  sameSite: 'strict',
+  // Only send over HTTPS in production; allows plain-HTTP in development
+  secure: config.env === 'production',
+};
+
+/**
+ * Set httpOnly SameSite=Strict auth cookies on the response.
+ * - fireisp_access  — short-lived JWT (Path=/api, access token lifetime)
+ * - fireisp_refresh — opaque refresh token (Path=/api/v1/auth/refresh only, refresh token lifetime)
+ *
+ * The narrow Path on the refresh cookie means the browser will only attach it
+ * to the refresh endpoint, limiting its exposure surface.
+ */
+function setAuthCookies(res, accessToken, refreshToken) {
+  res.cookie('fireisp_access', accessToken, {
+    ...COOKIE_BASE,
+    path: '/api',
+    maxAge: authService.ACCESS_SECONDS * 1000,
+  });
+  res.cookie('fireisp_refresh', refreshToken, {
+    ...COOKIE_BASE,
+    path: '/api/v1/auth/refresh',
+    maxAge: authService.REFRESH_SECONDS * 1000,
+  });
+}
+
+/**
+ * Clear both auth cookies from the response.
+ */
+function clearAuthCookies(res) {
+  res.clearCookie('fireisp_access', { ...COOKIE_BASE, path: '/api' });
+  res.clearCookie('fireisp_refresh', { ...COOKIE_BASE, path: '/api/v1/auth/refresh' });
+}
+
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
 
 // POST /api/auth/register
 router.post('/register',
@@ -30,6 +75,8 @@ router.post('/login',
   async (req, res, next) => {
     try {
       const result = await authService.login(req.body);
+      // Set httpOnly cookies for the browser SPA; JSON tokens remain for API clients
+      setAuthCookies(res, result.accessToken, result.refreshToken);
       res.json({ data: result });
     } catch (err) {
       next(err);
@@ -40,10 +87,12 @@ router.post('/login',
 // POST /api/auth/logout
 router.post('/logout', authenticate, async (req, res, next) => {
   try {
-    const { refreshToken } = req.body || {};
+    // Accept refresh token from cookie (browser SPA) or body (API clients)
+    const refreshToken = req.cookies?.fireisp_refresh || req.body?.refreshToken;
     if (refreshToken) {
       await authService.logout(refreshToken);
     }
+    clearAuthCookies(res);
     res.json({ message: 'Logged out' });
   } catch (err) {
     next(err);
@@ -116,11 +165,20 @@ router.post('/verify-email',
 );
 
 // POST /api/auth/refresh — rotate access token using refresh token
+// Accepts the refresh token from the httpOnly cookie (browser SPA) or
+// request body (API clients / programmatic callers).
 router.post('/refresh',
   validate(authSchemas.refreshToken),
   async (req, res, next) => {
     try {
-      const result = await authService.refreshToken(req.body.refreshToken);
+      // Prefer the httpOnly cookie; fall back to explicit body field
+      const tokenValue = req.cookies?.fireisp_refresh || req.body?.refreshToken;
+      if (!tokenValue) {
+        return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Refresh token required' } });
+      }
+      const result = await authService.refreshToken(tokenValue);
+      // Rotate cookies for browser SPA
+      setAuthCookies(res, result.accessToken, result.refreshToken);
       res.json({ data: result });
     } catch (err) {
       next(err);
@@ -136,11 +194,15 @@ router.post('/switch-organization', authenticate,
   validate(authSchemas.switchOrganization),
   async (req, res, next) => {
     try {
+      // Accept refresh token from cookie (browser SPA) or body (API clients)
+      const refreshToken = req.cookies?.fireisp_refresh || req.body?.refreshToken;
       const result = await authService.switchOrganization(
         req.user.id,
         req.body.organizationId,
-        req.body.refreshToken,
+        refreshToken,
       );
+      // Rotate cookies for browser SPA
+      setAuthCookies(res, result.accessToken, result.refreshToken);
       res.json({ data: result });
     } catch (err) {
       next(err);

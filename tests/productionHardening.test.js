@@ -144,7 +144,8 @@ describe('Auth Schema — refreshToken', () => {
   test('auth schema exports refreshToken schema', () => {
     const authSchemas = require('../src/middleware/schemas/auth');
     expect(authSchemas.refreshToken).toBeDefined();
-    expect(authSchemas.refreshToken.refreshToken.required).toBe(true);
+    // refreshToken is optional in body — browser clients send it via httpOnly cookie (P3.4)
+    expect(authSchemas.refreshToken.refreshToken.required).toBe(false);
     expect(authSchemas.refreshToken.refreshToken.type).toBe('string');
   });
 });

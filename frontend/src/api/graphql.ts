@@ -18,6 +18,7 @@ function getClient(): GraphQLClient {
   const token = tokenStore.getAccess();
   return new GraphQLClient(GQL_ENDPOINT, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: 'include',
   });
 }
 

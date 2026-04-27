@@ -466,4 +466,7 @@ module.exports = {
   register, login, logout, refreshToken, switchOrganization,
   requestPasswordReset, resetPassword, changePassword,
   verifyEmail, generateEmailVerificationToken,
+  // Exported for cookie maxAge calculations in auth routes
+  REFRESH_SECONDS,
+  ACCESS_SECONDS,
 };

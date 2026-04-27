@@ -12,39 +12,34 @@
 import createClient, { type Middleware } from 'openapi-fetch';
 import type { paths } from './schema';
 
-// Token storage — access token lives in module scope (memory only, not localStorage).
-// Refresh token lives in localStorage for cross-tab persistence.
+// Access token lives in module scope (memory only).  The refresh token is now
+// stored as an httpOnly SameSite=Strict cookie set by the server, so it is no
+// longer readable or writable from JavaScript — which eliminates the
+// XSS-token-theft attack class on long-lived refresh tokens.
 let _accessToken: string | null = null;
 
 export const tokenStore = {
   getAccess: () => _accessToken,
   setAccess: (token: string | null) => { _accessToken = token; },
-  getRefresh: () => localStorage.getItem('fireisp_refresh_token'),
-  setRefresh: (token: string | null) => {
-    if (token) {
-      localStorage.setItem('fireisp_refresh_token', token);
-    } else {
-      localStorage.removeItem('fireisp_refresh_token');
-    }
-  },
-  clear: () => {
-    _accessToken = null;
-    localStorage.removeItem('fireisp_refresh_token');
-  },
+  // Refresh token lives exclusively in httpOnly cookie — these are no-ops kept
+  // for backward compatibility with test code that calls tokenStore.clear().
+  getRefresh: () => null,
+  setRefresh: (_token: string | null) => { /* managed by server cookie */ },
+  clear: () => { _accessToken = null; },
 };
 
 // Track in-flight refresh so concurrent 401s only fire one refresh request.
 let _refreshPromise: Promise<boolean> | null = null;
 
 async function doRefresh(): Promise<boolean> {
-  const refreshToken = tokenStore.getRefresh();
-  if (!refreshToken) return false;
-
   try {
+    // No body needed — the browser sends the httpOnly `fireisp_refresh` cookie
+    // automatically.  `credentials: 'include'` is required for same-origin
+    // cookie delivery on fetch calls.
     const res = await fetch('/api/v1/auth/refresh', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
+      credentials: 'include',
     });
 
     if (!res.ok) {
@@ -56,8 +51,10 @@ async function doRefresh(): Promise<boolean> {
       data: { accessToken: string; refreshToken: string };
     };
 
+    // Keep the new access token in memory for the Authorization header path
+    // (used by API clients and programmatic test code).  The server has already
+    // rotated the httpOnly refresh cookie in its Set-Cookie response header.
     tokenStore.setAccess(json.data.accessToken);
-    tokenStore.setRefresh(json.data.refreshToken);
     return true;
   } catch {
     tokenStore.clear();
@@ -93,7 +90,7 @@ const refreshMiddleware: Middleware = {
     if (token) {
       request.headers.set('Authorization', `Bearer ${token}`);
     }
-    return fetch(request, options as RequestInit);
+    return fetch(request, { ...(options as RequestInit), credentials: 'include' });
   },
 };
 
