@@ -18,7 +18,9 @@ RUN addgroup -S fireisp && adduser -S fireisp -G fireisp
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm install --production && npm cache clean --force
+RUN npm install --production \
+  && npm cache clean --force \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 COPY . .
 
