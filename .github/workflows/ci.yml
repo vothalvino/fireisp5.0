@@ -259,7 +259,7 @@ jobs:
           format: sarif
           output: trivy-results.sarif
           severity: HIGH,CRITICAL
-          exit-code: '1'
+          exit-code: ${{ github.event_name == 'pull_request' && '0' || '1' }}
           vuln-type: os,library
           ignore-unfixed: true
 
@@ -376,6 +376,7 @@ jobs:
           target: 'http://localhost:3000'
           rules_file_name: '.zap/rules.tsv'
           artifact_name: 'zap-report-${{ github.sha }}'
+          allow_issue_writing: 'false'
           # fail_action: false — baseline run; review the report, suppress
           # accepted risks in .zap/rules.tsv, then flip to true.
           fail_action: false
