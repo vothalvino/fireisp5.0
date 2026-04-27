@@ -63,6 +63,7 @@ describe('OrganizationDatabaseConfig', () => {
   test('upserts isolated config and invalidates tenant DB cache', async () => {
     mockQuery
       .mockResolvedValueOnce([[], []])
+      .mockResolvedValueOnce([[], []])
       .mockResolvedValueOnce([{ affectedRows: 1 }, []])
       .mockResolvedValueOnce([[{
         organization_id: 7,
@@ -84,14 +85,24 @@ describe('OrganizationDatabaseConfig', () => {
     });
 
     expect(cfg.isolation_mode).toBe('isolated');
-    expect(mockQuery).toHaveBeenCalledTimes(3);
-    expect(mockQuery.mock.calls[1][0]).toMatch(/INSERT INTO organization_database_configs/i);
-    expect(mockQuery.mock.calls[1][1]).toContain('secret');
+    expect(mockQuery).toHaveBeenCalledTimes(4);
+    expect(mockQuery.mock.calls[2][0]).toMatch(/INSERT INTO organization_database_configs/i);
+    expect(mockQuery.mock.calls[2][1]).toContain('secret');
     expect(mockInvalidateTenantDbConfig).toHaveBeenCalledWith(7);
   });
 
   test('shared mode clears isolated connection fields', async () => {
     mockQuery
+      .mockResolvedValueOnce([[{
+        organization_id: 7,
+        isolation_mode: 'isolated',
+        db_host: 'tenant-db',
+        db_port: 3306,
+        db_name: 'fireisp_org_7',
+        db_user: 'tenant_user',
+        db_password_encrypted: 'secret',
+        ssl_enabled: 1,
+      }], []])
       .mockResolvedValueOnce([[{
         organization_id: 7,
         isolation_mode: 'isolated',
@@ -116,7 +127,7 @@ describe('OrganizationDatabaseConfig', () => {
 
     const cfg = await saveDatabaseIsolation(7, { isolation_mode: 'shared' });
 
-    const params = mockQuery.mock.calls[1][1];
+    const params = mockQuery.mock.calls[2][1];
     expect(cfg.isolation_mode).toBe('shared');
     expect(params).toEqual(expect.arrayContaining([null, null, null, null]));
   });
