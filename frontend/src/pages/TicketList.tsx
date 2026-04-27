@@ -318,11 +318,11 @@ export function TicketList() {
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', flexWrap: 'wrap' }}>
-        <select style={filterSelect} value={statusFilter} onChange={handleFilterChange(setStatusFilter)}>
+        <select aria-label="Filter by status" style={filterSelect} value={statusFilter} onChange={handleFilterChange(setStatusFilter)}>
           <option value="">All statuses</option>
           {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
         </select>
-        <select style={filterSelect} value={priorityFilter} onChange={handleFilterChange(setPriorityFilter)}>
+        <select aria-label="Filter by priority" style={filterSelect} value={priorityFilter} onChange={handleFilterChange(setPriorityFilter)}>
           <option value="">All priorities</option>
           {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
         </select>

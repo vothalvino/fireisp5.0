@@ -695,11 +695,11 @@ export function UserList() {
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', flexWrap: 'wrap' }}>
-        <select style={filterSelect} value={roleFilter} onChange={handleFilterChange(setRoleFilter)}>
+        <select aria-label="Filter by role" style={filterSelect} value={roleFilter} onChange={handleFilterChange(setRoleFilter)}>
           <option value="">All roles</option>
           {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
-        <select style={filterSelect} value={statusFilter} onChange={handleFilterChange(setStatusFilter)}>
+        <select aria-label="Filter by status" style={filterSelect} value={statusFilter} onChange={handleFilterChange(setStatusFilter)}>
           <option value="">All statuses</option>
           {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
