@@ -47,5 +47,9 @@ const yoga = createYoga({
  * written back to the Node ServerResponse.
  */
 module.exports = function graphqlMiddleware(req, res, next) {
-  Promise.resolve(yoga.requestListener(req, res)).catch(next);
+  try {
+    yoga.requestListener(req, res);
+  } catch (err) {
+    next(err);
+  }
 };

@@ -55,7 +55,10 @@ function sanitizeObject(obj) {
  * the GraphQL parser (e.g. `"10"` becomes `&quot;10&quot;`).
  */
 function sanitize(req, _res, next) {
-  if (req.path?.endsWith('/graphql')) {
+  // GraphQL has its own query validation — skip HTML encoding for GraphQL requests.
+  // Using exact path matching to avoid inadvertently bypassing sanitization for
+  // unrelated paths that happen to end in '/graphql'.
+  if (req.path === '/api/v1/graphql' || req.path === '/api/graphql') {
     return next();
   }
   if (req.body && typeof req.body === 'object') {
