@@ -133,15 +133,15 @@ export function PortalDashboard() {
 }
 
 const styles = {
-  heading: { margin: '0 0 0.25rem', fontSize: '1.5rem', color: '#111827' },
-  sub: { margin: '0 0 1.5rem', color: '#6b7280', fontSize: '0.95rem' },
+  heading: { margin: '0 0 0.25rem', fontSize: '1.5rem', color: 'var(--text-primary)' },
+  sub: { margin: '0 0 1.5rem', color: 'var(--text-muted)', fontSize: '0.95rem' },
   grid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
     gap: '1.5rem',
   },
   card: {
-    background: '#fff',
+    background: 'var(--bg-card)',
     borderRadius: 8,
     padding: '1.25rem',
     boxShadow: '0 1px 4px rgba(0,0,0,.07)',
@@ -152,12 +152,12 @@ const styles = {
     alignItems: 'center',
     marginBottom: '1rem',
   },
-  cardTitle: { margin: 0, fontSize: '1rem', color: '#374151' },
+  cardTitle: { margin: 0, fontSize: '1rem', color: 'var(--text-secondary)' },
   viewAll: { fontSize: '0.85rem', color: '#e25822', textDecoration: 'none' },
-  empty: { color: '#9ca3af', fontSize: '0.9rem', margin: 0 },
+  empty: { color: 'var(--text-dimmed)', fontSize: '0.9rem', margin: 0 },
   table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: '0.875rem' },
-  th: { textAlign: 'left' as const, padding: '0.4rem 0.5rem', color: '#6b7280', fontWeight: 600, borderBottom: '1px solid #f3f4f6' },
-  td: { padding: '0.5rem', borderBottom: '1px solid #f9fafb', color: '#374151' },
+  th: { textAlign: 'left' as const, padding: '0.4rem 0.5rem', color: 'var(--text-muted)', fontWeight: 600, borderBottom: '1px solid var(--border-subtle)' },
+  td: { padding: '0.5rem', borderBottom: '1px solid #f9fafb', color: 'var(--text-secondary)' },
   payLink: { color: '#e25822', fontWeight: 600, textDecoration: 'none' },
   ticketLink: { color: '#1d4ed8', textDecoration: 'none' },
   newTicketBtn: {
@@ -170,4 +170,4 @@ const styles = {
     fontSize: '0.875rem',
     fontWeight: 600,
   },
-} as const;
+};

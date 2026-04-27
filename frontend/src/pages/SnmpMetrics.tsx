@@ -583,13 +583,13 @@ const cs: Record<string, CSSProperties> = {
   controlGroup: { display: 'flex', flexDirection: 'column', gap: 4 },
   controlLabel: { fontSize: '0.75rem', fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.04em' },
   select: {
-    padding: '6px 10px', border: '1px solid #ccc', borderRadius: 4,
-    fontSize: '0.85rem', minWidth: 200, background: '#fff',
+    padding: '6px 10px', border: '1px solid var(--input-border)', borderRadius: 4,
+    fontSize: '0.85rem', minWidth: 200, background: 'var(--input-bg)',
   },
   rangeGroup: { display: 'flex', gap: 4 },
   rangeBtn: {
-    padding: '6px 12px', background: '#eee', border: '1px solid #ccc',
-    borderRadius: 4, cursor: 'pointer', fontSize: '0.82rem', color: '#333',
+    padding: '6px 12px', background: 'var(--bg-subtle)', border: '1px solid var(--border)',
+    borderRadius: 4, cursor: 'pointer', fontSize: '0.82rem', color: 'var(--text-secondary)',
   },
   rangeActive: {
     padding: '6px 12px', background: '#e25822', border: '1px solid #e25822',
@@ -601,28 +601,28 @@ const cs: Record<string, CSSProperties> = {
     padding: '0.75rem 1rem', color: '#c0392b', marginBottom: '1rem',
   },
   empty: {
-    background: '#fff', borderRadius: 8, padding: '3rem 2rem',
-    textAlign: 'center', color: '#888', fontStyle: 'italic',
+    background: 'var(--bg-card)', borderRadius: 8, padding: '3rem 2rem',
+    textAlign: 'center', color: 'var(--text-faint)', fontStyle: 'italic',
     boxShadow: '0 1px 4px rgba(0,0,0,.08)', lineHeight: 1.8,
   },
 
   summaryBar: { display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap' },
   summaryCard: {
-    flex: '1 1 120px', background: '#fff', borderRadius: 8,
+    flex: '1 1 120px', background: 'var(--bg-card)', borderRadius: 8,
     padding: '0.8rem 1rem', boxShadow: '0 1px 4px rgba(0,0,0,.08)', minWidth: 100,
   },
   summaryValue: { fontSize: '1.4rem', fontWeight: 700 },
-  summaryLabel: { fontSize: '0.72rem', color: '#888', marginTop: 2 },
+  summaryLabel: { fontSize: '0.72rem', color: 'var(--text-faint)', marginTop: 2 },
 
   chartsGrid: { display: 'flex', flexDirection: 'column', gap: '1rem' },
 
   chartBox: {
-    background: '#fff', borderRadius: 8, padding: '1rem 1.25rem',
+    background: 'var(--bg-card)', borderRadius: 8, padding: '1rem 1.25rem',
     boxShadow: '0 1px 4px rgba(0,0,0,.08)',
   },
   chartTitle: { fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.4rem', color: '#1a1a2e' },
-  chartEmpty: { color: '#aaa', fontStyle: 'italic', fontSize: '0.85rem', padding: '1rem 0' },
+  chartEmpty: { color: 'var(--text-faint)', fontStyle: 'italic', fontSize: '0.85rem', padding: '1rem 0' },
   legend: { display: 'flex', gap: '1rem', marginBottom: '0.5rem', flexWrap: 'wrap' },
-  legendItem: { display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: '#555' },
+  legendItem: { display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-muted)' },
   legendDot: { width: 10, height: 10, borderRadius: '50%', flexShrink: 0 },
 };

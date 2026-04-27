@@ -152,18 +152,18 @@ function badgeColor(status: string): React.CSSProperties {
 
 const styles = {
   header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' },
-  heading: { margin: 0, fontSize: '1.4rem', color: '#111827' },
-  select: { padding: '0.4rem 0.6rem', border: '1px solid #d1d5db', borderRadius: 4, fontSize: '0.9rem' },
-  info: { color: '#6b7280' },
+  heading: { margin: 0, fontSize: '1.4rem', color: 'var(--text-primary)' },
+  select: { padding: '0.4rem 0.6rem', border: '1px solid var(--input-border)', borderRadius: 4, fontSize: '0.9rem' },
+  info: { color: 'var(--text-muted)' },
   error: { color: '#b91c1c' },
-  card: { background: '#fff', borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,.07)', overflow: 'auto' },
+  card: { background: 'var(--bg-card)', borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,.07)', overflow: 'auto' },
   table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: '0.875rem' },
-  th: { textAlign: 'left' as const, padding: '0.6rem 0.75rem', color: '#6b7280', fontWeight: 600, borderBottom: '2px solid #f3f4f6' },
-  td: { padding: '0.6rem 0.75rem', borderBottom: '1px solid #f9fafb', color: '#374151' },
+  th: { textAlign: 'left' as const, padding: '0.6rem 0.75rem', color: 'var(--text-muted)', fontWeight: 600, borderBottom: '2px solid var(--border-subtle)' },
+  td: { padding: '0.6rem 0.75rem', borderBottom: '1px solid #f9fafb', color: 'var(--text-secondary)' },
   link: { color: '#1d4ed8', textDecoration: 'none', fontWeight: 500 },
   badge: { display: 'inline-block', padding: '0.2rem 0.5rem', borderRadius: 12, fontSize: '0.78rem', fontWeight: 600 },
   payBtn: { color: '#e25822', fontWeight: 600, textDecoration: 'none', fontSize: '0.875rem' },
   pagination: { display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '1rem', justifyContent: 'center' },
-  pageBtn: { padding: '0.4rem 0.8rem', border: '1px solid #d1d5db', borderRadius: 4, cursor: 'pointer', background: '#fff', fontSize: '0.875rem' },
-  pageInfo: { color: '#6b7280', fontSize: '0.875rem' },
-} as const;
+  pageBtn: { padding: '0.4rem 0.8rem', border: '1px solid var(--border-strong)', borderRadius: 4, cursor: 'pointer', background: 'var(--bg-card)', fontSize: '0.875rem' },
+  pageInfo: { color: 'var(--text-muted)', fontSize: '0.875rem' },
+};

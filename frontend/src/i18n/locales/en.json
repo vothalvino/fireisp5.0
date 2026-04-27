@@ -236,5 +236,9 @@
     "noUsers": "No users found.",
     "loading": "Loading…",
     "error": "Failed to load users."
+  },
+  "darkMode": {
+    "switchToDark": "Switch to dark mode",
+    "switchToLight": "Switch to light mode"
   }
 }

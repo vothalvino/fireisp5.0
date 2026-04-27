@@ -8,10 +8,12 @@
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { usePortalAuth } from '@/auth/PortalAuthContext';
+import { useDarkMode } from '@/auth/DarkModeContext';
 
 export function PortalLayout() {
   const { client, logout } = usePortalAuth();
   const { t } = useTranslation();
+  const { effectiveTheme, toggleTheme } = useDarkMode();
 
   async function handleLogout() {
     await logout();
@@ -45,6 +47,14 @@ export function PortalLayout() {
         </nav>
         <div className="portal-user-area">
           {client && <span style={styles.userName}>{client.name}</span>}
+          <button
+            onClick={toggleTheme}
+            style={styles.themeBtn}
+            aria-label={effectiveTheme === 'dark' ? t('darkMode.switchToLight') : t('darkMode.switchToDark')}
+            title={effectiveTheme === 'dark' ? t('darkMode.switchToLight') : t('darkMode.switchToDark')}
+          >
+            {effectiveTheme === 'dark' ? '☀️' : '🌙'}
+          </button>
           <button onClick={handleLogout} style={styles.logoutBtn}>{t('common.signOut')}</button>
         </div>
       </header>
@@ -67,7 +77,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column' as const,
     fontFamily: 'system-ui, sans-serif',
-    background: '#f5f7fa',
+    background: 'var(--bg-body)',
   },
   logo: {
     fontWeight: 700,
@@ -80,26 +90,35 @@ const styles = {
     padding: '0.4rem 0.8rem',
     borderRadius: 4,
     textDecoration: 'none',
-    color: '#374151',
+    color: 'var(--text-secondary)',
     fontSize: '0.9rem',
   },
   navLinkActive: {
-    background: '#fff0eb',
-    color: '#e25822',
+    background: 'var(--bg-subtle)',
+    color: 'var(--accent)',
     fontWeight: 600,
   },
   userName: {
     fontSize: '0.85rem',
-    color: '#6b7280',
+    color: 'var(--text-muted)',
   },
   logoutBtn: {
     padding: '0.35rem 0.75rem',
     background: 'transparent',
-    border: '1px solid #d1d5db',
+    border: '1px solid var(--border-strong)',
     borderRadius: 4,
     cursor: 'pointer',
     fontSize: '0.85rem',
-    color: '#374151',
+    color: 'var(--text-secondary)',
+  },
+  themeBtn: {
+    background: 'transparent',
+    border: '1px solid var(--border-strong)',
+    color: 'var(--text-muted)',
+    padding: '0.35rem 0.75rem',
+    borderRadius: 4,
+    cursor: 'pointer',
+    fontSize: '0.85rem',
   },
   main: {
     flex: 1,
@@ -112,7 +131,7 @@ const styles = {
     textAlign: 'center' as const,
     padding: '1rem',
     fontSize: '0.8rem',
-    color: '#9ca3af',
-    borderTop: '1px solid #e5e7eb',
+    color: 'var(--text-dimmed)',
+    borderTop: '1px solid var(--border)',
   },
-} as const;
+};

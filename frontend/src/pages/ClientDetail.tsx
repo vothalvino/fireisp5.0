@@ -556,8 +556,8 @@ const styles = {
     fontSize: '0.85rem',
   },
   breadcrumbLink: { color: '#e25822', textDecoration: 'none', fontWeight: 500 },
-  breadcrumbSep:     { color: '#9ca3af' },
-  breadcrumbCurrent: { color: '#374151' },
+  breadcrumbSep:     { color: 'var(--text-dimmed)' },
+  breadcrumbCurrent: { color: 'var(--text-secondary)' },
   backLink: { color: '#e25822', textDecoration: 'none', fontWeight: 500, fontSize: '0.85rem' },
 
   clientHeader: {
@@ -566,12 +566,12 @@ const styles = {
     justifyContent: 'space-between',
     marginBottom: '1rem',
   },
-  clientName: { margin: '0 0 0.35rem', color: '#111827', fontSize: '1.6rem', fontWeight: 700 },
+  clientName: { margin: '0 0 0.35rem', color: 'var(--text-primary)', fontSize: '1.6rem', fontWeight: 700 },
   headerMeta: { display: 'flex', alignItems: 'center', gap: '0.75rem' },
-  clientId: { color: '#9ca3af', fontSize: '0.8rem' },
+  clientId: { color: 'var(--text-dimmed)', fontSize: '0.8rem' },
 
   infoCard: {
-    background: '#fff',
+    background: 'var(--bg-card)',
     borderRadius: 8,
     boxShadow: '0 1px 3px rgba(0,0,0,.08)',
     padding: '1rem 1.25rem',
@@ -583,15 +583,15 @@ const styles = {
     gap: '0.5rem 1.5rem',
   },
   infoRow: { display: 'flex', gap: '0.5rem', alignItems: 'baseline', fontSize: '0.85rem' },
-  infoLabel: { color: '#9ca3af', fontSize: '0.75rem', textTransform: 'uppercase' as const, letterSpacing: '0.04em', minWidth: 60 },
-  infoValue: { color: '#374151' },
-  notesRow: { marginTop: '0.75rem', fontSize: '0.82rem', color: '#6b7280', borderTop: '1px solid #f3f4f6', paddingTop: '0.75rem' },
-  noteLabel: { fontWeight: 600, color: '#374151' },
+  infoLabel: { color: 'var(--text-dimmed)', fontSize: '0.75rem', textTransform: 'uppercase' as const, letterSpacing: '0.04em', minWidth: 60 },
+  infoValue: { color: 'var(--text-secondary)' },
+  notesRow: { marginTop: '0.75rem', fontSize: '0.82rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)', paddingTop: '0.75rem' },
+  noteLabel: { fontWeight: 600, color: 'var(--text-secondary)' },
 
   tabBar: {
     display: 'flex',
     gap: '0.25rem',
-    borderBottom: '2px solid #e5e7eb',
+    borderBottom: '2px solid var(--border)',
     marginBottom: '0',
   },
   tabBtn: {
@@ -600,7 +600,7 @@ const styles = {
     background: 'transparent',
     cursor: 'pointer',
     fontSize: '0.85rem',
-    color: '#6b7280',
+    color: 'var(--text-muted)',
     borderBottom: '2px solid transparent',
     marginBottom: '-2px',
     fontFamily: 'system-ui, sans-serif',
@@ -614,7 +614,7 @@ const styles = {
     fontWeight: 600,
   },
   tabContent: {
-    background: '#fff',
+    background: 'var(--bg-card)',
     borderRadius: '0 0 8px 8px',
     boxShadow: '0 1px 3px rgba(0,0,0,.08)',
     minHeight: 200,
@@ -624,16 +624,15 @@ const styles = {
   th: {
     padding: '0.6rem 0.75rem',
     textAlign: 'left' as const,
-    color: '#6b7280',
+    color: 'var(--text-muted)',
     fontSize: '0.75rem',
     textTransform: 'uppercase' as const,
     letterSpacing: '0.04em',
-    borderBottom: '2px solid #f3f4f6',
+    borderBottom: '2px solid var(--border-subtle)',
     whiteSpace: 'nowrap' as const,
   },
-  tr: { borderBottom: '1px solid #f3f4f6' },
-  td: { padding: '0.65rem 0.75rem', color: '#374151', verticalAlign: 'middle' as const },
-  msg:      { padding: '2rem 1.5rem', color: '#6b7280', fontStyle: 'italic' as const, margin: 0 },
+  tr: { borderBottom: '1px solid var(--border-subtle)' },
+  td: { padding: '0.65rem 0.75rem', color: 'var(--text-secondary)', verticalAlign: 'middle' as const },
+  msg:      { padding: '2rem 1.5rem', color: 'var(--text-muted)', fontStyle: 'italic' as const, margin: 0 },
   msgError: { padding: '2rem 1.5rem', color: '#ef4444', margin: 0 },
-} as const;
-
+};

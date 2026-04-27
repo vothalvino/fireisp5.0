@@ -498,20 +498,20 @@ const overlay: CSSProperties = {
 };
 
 const modalBox: CSSProperties = {
-  background: '#fff', borderRadius: 8, padding: '1.5rem',
+  background: 'var(--bg-card)', borderRadius: 8, padding: '1.5rem',
   width: '92vw', maxWidth: 480, maxHeight: '90vh', overflowY: 'auto',
   boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
 };
 
 const inputStyle: CSSProperties = {
   width: '100%', boxSizing: 'border-box', padding: '0.45rem 0.6rem',
-  border: '1px solid #d1d5db', borderRadius: 4, fontSize: '0.85rem',
+  border: '1px solid var(--input-border)', borderRadius: 4, fontSize: '0.85rem',
   fontFamily: 'system-ui, sans-serif', marginBottom: '0.75rem',
 };
 
 const labelStyle: CSSProperties = {
   display: 'block', marginBottom: 3, fontSize: '0.8rem',
-  color: '#374151', fontWeight: 600,
+  color: 'var(--text-secondary)', fontWeight: 600,
 };
 
 const errorBox: CSSProperties = {
@@ -525,7 +525,7 @@ const submitBtn: CSSProperties = {
 };
 
 const cancelBtn: CSSProperties = {
-  background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db',
+  background: 'var(--bg-subtle)', color: 'var(--text-secondary)', border: '1px solid var(--border-strong)',
   borderRadius: 4, padding: '0.45rem 1rem', cursor: 'pointer', fontSize: '0.85rem',
 };
 
@@ -535,7 +535,7 @@ const primaryBtn: CSSProperties = {
 };
 
 const filterBtn: CSSProperties = {
-  background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb',
+  background: 'var(--bg-subtle)', color: 'var(--text-secondary)', border: '1px solid var(--border)',
   borderRadius: 4, padding: '3px 10px', cursor: 'pointer', fontSize: '0.78rem',
 };
 
@@ -544,27 +544,27 @@ const filterBtnActive: CSSProperties = {
 };
 
 const actionBtn: CSSProperties = {
-  background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb',
+  background: 'var(--bg-subtle)', color: 'var(--text-secondary)', border: '1px solid var(--border)',
   borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: '0.78rem',
 };
 
 const pageBtn: CSSProperties = {
-  background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb',
+  background: 'var(--bg-subtle)', color: 'var(--text-secondary)', border: '1px solid var(--border)',
   borderRadius: 4, padding: '4px 12px', cursor: 'pointer', fontSize: '0.8rem',
 };
 
 const tbl: CSSProperties = {
   width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem',
-  background: '#fff', borderRadius: 6, overflow: 'hidden',
+  background: 'var(--bg-card)', borderRadius: 6, overflow: 'hidden',
   boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
 };
 
 const th: CSSProperties = {
   textAlign: 'left', padding: '0.6rem 0.75rem',
-  background: '#f9fafb', color: '#374151', fontWeight: 600,
-  borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap', fontSize: '0.8rem',
+  background: 'var(--bg-body)', color: 'var(--text-secondary)', fontWeight: 600,
+  borderBottom: '2px solid var(--border)', whiteSpace: 'nowrap', fontSize: '0.8rem',
 };
 
 const td: CSSProperties = {
-  padding: '0.55rem 0.75rem', color: '#374151', verticalAlign: 'middle',
+  padding: '0.55rem 0.75rem', color: 'var(--text-secondary)', verticalAlign: 'middle',
 };

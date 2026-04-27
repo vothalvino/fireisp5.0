@@ -430,8 +430,8 @@ const s: Record<string, CSSProperties> = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' },
   title: { margin: 0, fontSize: '1.4rem' },
   headerRight: { display: 'flex', alignItems: 'center', gap: '0.75rem' },
-  refreshedAt: { color: '#888', fontSize: '0.8rem' },
-  autoRefreshLabel: { display: 'flex', alignItems: 'center', color: '#555', fontSize: '0.85rem', cursor: 'pointer' },
+  refreshedAt: { color: 'var(--text-faint)', fontSize: '0.8rem' },
+  autoRefreshLabel: { display: 'flex', alignItems: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', cursor: 'pointer' },
   refreshBtn: {
     padding: '6px 14px', background: '#1a1a2e', color: '#fff',
     border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem',
@@ -439,16 +439,16 @@ const s: Record<string, CSSProperties> = {
 
   summaryBar: { display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' },
   summaryCard: {
-    flex: '1 1 140px', background: '#fff', borderRadius: 8,
+    flex: '1 1 140px', background: 'var(--bg-card)', borderRadius: 8,
     padding: '0.9rem 1.2rem', boxShadow: '0 1px 4px rgba(0,0,0,.08)',
     minWidth: 120,
   },
   summaryValue: { fontSize: '1.5rem', fontWeight: 700, color: '#1a1a2e' },
-  summaryLabel: { fontSize: '0.75rem', color: '#888', marginTop: 2 },
+  summaryLabel: { fontSize: '0.75rem', color: 'var(--text-faint)', marginTop: 2 },
 
   filterBar: { display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' },
   filterInput: {
-    padding: '6px 10px', border: '1px solid #ccc', borderRadius: 4,
+    padding: '6px 10px', border: '1px solid var(--input-border)', borderRadius: 4,
     fontSize: '0.85rem', minWidth: 140,
   },
   applyBtn: {
@@ -456,11 +456,11 @@ const s: Record<string, CSSProperties> = {
     border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem',
   },
   clearBtn: {
-    padding: '6px 14px', background: '#eee', color: '#333',
-    border: '1px solid #ccc', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem',
+    padding: '6px 14px', background: 'var(--bg-subtle)', color: 'var(--text-secondary)',
+    border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem',
   },
 
-  tableWrap: { overflowX: 'auto', background: '#fff', borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,.08)' },
+  tableWrap: { overflowX: 'auto', background: 'var(--bg-card)', borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,.08)' },
   table: { width: '100%', borderCollapse: 'collapse' },
   th: {
     padding: '0.65rem 0.9rem', background: '#f0f2f8', borderBottom: '2px solid #e0e3ef',
@@ -471,7 +471,7 @@ const s: Record<string, CSSProperties> = {
     padding: '0.6rem 0.9rem', borderBottom: '1px solid #f0f2f8',
     verticalAlign: 'middle', whiteSpace: 'nowrap',
   },
-  emptyCell: { padding: '2rem', textAlign: 'center', color: '#888', fontStyle: 'italic' },
+  emptyCell: { padding: '2rem', textAlign: 'center', color: 'var(--text-faint)', fontStyle: 'italic' },
 
   disconnectBtn: {
     padding: '4px 10px', background: 'transparent',
@@ -481,24 +481,24 @@ const s: Record<string, CSSProperties> = {
 
   pagination: { display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1rem', marginTop: '1rem' },
   pageBtn: {
-    padding: '6px 14px', background: '#eee', border: '1px solid #ccc',
+    padding: '6px 14px', background: 'var(--bg-subtle)', border: '1px solid var(--border)',
     borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem',
   },
-  pageInfo: { color: '#555', fontSize: '0.85rem' },
+  pageInfo: { color: 'var(--text-muted)', fontSize: '0.85rem' },
 
   overlay: {
     position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)',
     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
   },
   dialog: {
-    background: '#fff', borderRadius: 8, padding: '1.5rem 2rem',
+    background: 'var(--bg-card)', borderRadius: 8, padding: '1.5rem 2rem',
     width: 420, maxWidth: '90vw', boxShadow: '0 8px 32px rgba(0,0,0,.2)',
   },
   dialogTitle: { margin: '0 0 1rem', fontSize: '1.1rem' },
   dialogBody: { margin: '0 0 1rem', lineHeight: 1.5 },
   dialogActions: { display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' },
   cancelBtn: {
-    padding: '7px 16px', background: '#eee', border: '1px solid #ccc',
+    padding: '7px 16px', background: 'var(--bg-subtle)', border: '1px solid var(--border)',
     borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem',
   },
   confirmBtn: {

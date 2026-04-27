@@ -563,7 +563,7 @@ function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
 // ---------------------------------------------------------------------------
 
 const card: React.CSSProperties = {
-  background: '#fff', borderRadius: 8, padding: '1rem',
+  background: 'var(--bg-card)', borderRadius: 8, padding: '1rem',
   boxShadow: '0 1px 4px rgba(0,0,0,.08)', marginBottom: '0.25rem',
 };
 const metaGrid: React.CSSProperties = {
@@ -575,7 +575,7 @@ const overlay: React.CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
 };
 const modalBox: React.CSSProperties = {
-  background: '#fff', borderRadius: 10, padding: '1.5rem',
+  background: 'var(--bg-card)', borderRadius: 10, padding: '1.5rem',
   width: 440, maxWidth: '92vw', boxShadow: '0 8px 32px rgba(0,0,0,.18)',
 };
 const errorBox: React.CSSProperties = {
@@ -584,11 +584,11 @@ const errorBox: React.CSSProperties = {
 };
 const labelStyle: React.CSSProperties = {
   display: 'block', fontWeight: 600, fontSize: '0.8rem',
-  color: '#374151', marginBottom: 4, marginTop: 12,
+  color: 'var(--text-secondary)', marginBottom: 4, marginTop: 12,
 };
 const inputStyle: React.CSSProperties = {
   width: '100%', boxSizing: 'border-box', padding: '7px 10px',
-  border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.875rem',
+  border: '1px solid var(--input-border)', borderRadius: 6, fontSize: '0.875rem',
 };
 const submitBtn: React.CSSProperties = {
   background: '#e25822', color: '#fff', border: 'none',
@@ -596,7 +596,7 @@ const submitBtn: React.CSSProperties = {
   fontWeight: 600, fontSize: '0.875rem',
 };
 const cancelBtn: React.CSSProperties = {
-  background: '#fff', color: '#374151', border: '1px solid #d1d5db',
+  background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border-strong)',
   padding: '7px 18px', borderRadius: 6, cursor: 'pointer',
   fontWeight: 600, fontSize: '0.875rem',
 };

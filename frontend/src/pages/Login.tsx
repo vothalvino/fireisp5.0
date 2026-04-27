@@ -106,11 +106,11 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: '100vh',
-    background: '#f0f2f5',
+    background: 'var(--bg-body)',
     fontFamily: 'system-ui, sans-serif',
   },
   card: {
-    background: '#fff',
+    background: 'var(--bg-card)',
     padding: '2rem',
     borderRadius: 8,
     boxShadow: '0 2px 16px rgba(0,0,0,.1)',
@@ -135,11 +135,11 @@ const styles = {
     flexDirection: 'column' as const,
     gap: 4,
     fontSize: '0.9rem',
-    color: '#333',
+    color: 'var(--text-secondary)',
   },
   input: {
     padding: '0.5rem 0.75rem',
-    border: '1px solid #d1d5db',
+    border: '1px solid var(--input-border)',
     borderRadius: 4,
     fontSize: '1rem',
   },
@@ -153,4 +153,4 @@ const styles = {
     cursor: 'pointer',
     marginTop: '0.5rem',
   },
-} as const;
+};

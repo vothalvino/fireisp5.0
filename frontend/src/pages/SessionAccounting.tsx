@@ -489,12 +489,12 @@ export function SessionAccounting() {
 const s: Record<string, CSSProperties> = {
   page: { padding: '1.5rem', fontFamily: 'system-ui, sans-serif', fontSize: '0.9rem' },
   title: { margin: '0 0 0.25rem', fontSize: '1.4rem' },
-  subtitle: { margin: '0 0 1rem', color: '#888', fontSize: '0.85rem' },
+  subtitle: { margin: '0 0 1rem', color: 'var(--text-faint)', fontSize: '0.85rem' },
 
   filterBar: { display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' },
-  filterLabel: { color: '#555', fontSize: '0.85rem' },
+  filterLabel: { color: 'var(--text-muted)', fontSize: '0.85rem' },
   filterInput: {
-    padding: '6px 10px', border: '1px solid #ccc', borderRadius: 4,
+    padding: '6px 10px', border: '1px solid var(--input-border)', borderRadius: 4,
     fontSize: '0.85rem',
   },
   applyBtn: {
@@ -502,25 +502,25 @@ const s: Record<string, CSSProperties> = {
     border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem',
   },
   clearBtn: {
-    padding: '6px 14px', background: '#eee', color: '#333',
-    border: '1px solid #ccc', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem',
+    padding: '6px 14px', background: 'var(--bg-subtle)', color: 'var(--text-secondary)',
+    border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem',
   },
 
   summaryBar: { display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap' },
   summaryCard: {
-    flex: '1 1 120px', background: '#fff', borderRadius: 8,
+    flex: '1 1 120px', background: 'var(--bg-card)', borderRadius: 8,
     padding: '0.9rem 1.2rem', boxShadow: '0 1px 4px rgba(0,0,0,.08)',
     minWidth: 110,
   },
   summaryValue: { fontSize: '1.4rem', fontWeight: 700, color: '#1a1a2e' },
-  summaryLabel: { fontSize: '0.73rem', color: '#888', marginTop: 2 },
+  summaryLabel: { fontSize: '0.73rem', color: 'var(--text-faint)', marginTop: 2 },
 
   chartCard: {
-    background: '#fff', borderRadius: 8, padding: '1rem 1.25rem',
+    background: 'var(--bg-card)', borderRadius: 8, padding: '1rem 1.25rem',
     boxShadow: '0 1px 4px rgba(0,0,0,.08)', marginBottom: '1.25rem',
   },
   card: {
-    background: '#fff', borderRadius: 8, padding: '1rem 1.25rem',
+    background: 'var(--bg-card)', borderRadius: 8, padding: '1rem 1.25rem',
     boxShadow: '0 1px 4px rgba(0,0,0,.08)', marginBottom: '1.25rem',
   },
   sectionTitle: { margin: '0 0 0.75rem', fontSize: '1rem', fontWeight: 600 },
@@ -536,13 +536,13 @@ const s: Record<string, CSSProperties> = {
     padding: '0.55rem 0.85rem', borderBottom: '1px solid #f0f2f8',
     verticalAlign: 'middle', whiteSpace: 'nowrap', fontSize: '0.85rem',
   },
-  emptyCell: { padding: '1.5rem', textAlign: 'center', color: '#888', fontStyle: 'italic' },
-  empty: { color: '#888', fontSize: '0.85rem', fontStyle: 'italic', margin: '0.5rem 0' },
+  emptyCell: { padding: '1.5rem', textAlign: 'center', color: 'var(--text-faint)', fontStyle: 'italic' },
+  empty: { color: 'var(--text-faint)', fontSize: '0.85rem', fontStyle: 'italic', margin: '0.5rem 0' },
 
   pagination: { display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1rem', marginTop: '0.75rem' },
   pageBtn: {
-    padding: '5px 12px', background: '#eee', border: '1px solid #ccc',
+    padding: '5px 12px', background: 'var(--bg-subtle)', border: '1px solid var(--border)',
     borderRadius: 4, cursor: 'pointer', fontSize: '0.83rem',
   },
-  pageInfo: { color: '#555', fontSize: '0.83rem' },
+  pageInfo: { color: 'var(--text-muted)', fontSize: '0.83rem' },
 };

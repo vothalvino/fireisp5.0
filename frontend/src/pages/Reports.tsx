@@ -629,7 +629,7 @@ function IftTab() {
 
           {selected.subscribers_by_technology && (
             <>
-              <h4 style={{ marginTop: 16, marginBottom: 6, fontSize: '0.85rem', color: '#555', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Subscribers by Technology</h4>
+              <h4 style={{ marginTop: 16, marginBottom: 6, fontSize: '0.85rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Subscribers by Technology</h4>
               <table style={{ ...styles.table, marginBottom: 0 }}>
                 <thead><tr><th style={styles.th}>Technology</th><th style={styles.th}>Subscribers</th></tr></thead>
                 <tbody>
@@ -867,7 +867,7 @@ const styles = {
   tabs: {
     display: 'flex',
     gap: 4,
-    borderBottom: '2px solid #e0e0e0',
+    borderBottom: '2px solid var(--border)',
     marginBottom: 20,
   } as CSSProperties,
   tabBtn: {
@@ -876,19 +876,19 @@ const styles = {
     background: 'transparent',
     cursor: 'pointer',
     fontSize: '0.9rem',
-    color: '#555',
+    color: 'var(--text-muted)',
     borderRadius: '4px 4px 0 0',
     transition: 'background 0.1s',
   } as CSSProperties,
   tabBtnActive: {
-    background: '#fff',
+    background: 'var(--bg-card)',
     color: '#e25822',
     fontWeight: 600,
     borderBottom: '2px solid #e25822',
     marginBottom: -2,
   } as CSSProperties,
   tabContent: {
-    background: '#fff',
+    background: 'var(--bg-card)',
     borderRadius: 8,
     padding: '1.25rem',
     boxShadow: '0 1px 4px rgba(0,0,0,.06)',
@@ -902,12 +902,12 @@ const styles = {
   } as CSSProperties,
   label: {
     fontSize: '0.85rem',
-    color: '#555',
+    color: 'var(--text-muted)',
     fontWeight: 600,
   } as CSSProperties,
   input: {
     padding: '6px 10px',
-    border: '1px solid #ddd',
+    border: '1px solid var(--input-border)',
     borderRadius: 4,
     fontSize: '0.9rem',
     fontFamily: 'system-ui, sans-serif',
@@ -915,7 +915,7 @@ const styles = {
   btn: {
     padding: '6px 14px',
     background: '#f0f0f0',
-    border: '1px solid #ddd',
+    border: '1px solid var(--border)',
     borderRadius: 4,
     cursor: 'pointer',
     fontSize: '0.9rem',
@@ -933,7 +933,7 @@ const styles = {
   btnSm: {
     padding: '5px 12px',
     background: '#f5f5f5',
-    border: '1px solid #ddd',
+    border: '1px solid var(--border)',
     borderRadius: 4,
     cursor: 'pointer',
     fontSize: '0.85rem',
@@ -945,8 +945,8 @@ const styles = {
     marginBottom: 20,
   } as CSSProperties,
   kpiCard: {
-    background: '#fafafa',
-    border: '1px solid #eee',
+    background: 'var(--bg-muted)',
+    border: '1px solid var(--border)',
     borderRadius: 6,
     padding: '12px 14px',
   } as CSSProperties,
@@ -954,7 +954,7 @@ const styles = {
     margin: '16px 0 10px',
     fontSize: '0.9rem',
     fontWeight: 700,
-    color: '#333',
+    color: 'var(--text-secondary)',
     textTransform: 'uppercase' as const,
     letterSpacing: '0.05em',
   } as CSSProperties,
@@ -969,7 +969,7 @@ const styles = {
     background: '#f5f5f5',
     borderBottom: '2px solid #e0e0e0',
     fontWeight: 600,
-    color: '#444',
+    color: 'var(--text-secondary)',
     fontSize: '0.82rem',
     textTransform: 'uppercase' as const,
     letterSpacing: '0.04em',
@@ -978,7 +978,7 @@ const styles = {
   td: {
     padding: '8px 10px',
     borderBottom: '1px solid #f0f0f0',
-    color: '#333',
+    color: 'var(--text-secondary)',
     verticalAlign: 'middle' as const,
   } as CSSProperties,
   badge: {
@@ -990,7 +990,7 @@ const styles = {
     fontWeight: 600,
   } as CSSProperties,
   muted: {
-    color: '#888',
+    color: 'var(--text-faint)',
     fontSize: '0.85rem',
   } as CSSProperties,
   error: {
@@ -1008,7 +1008,7 @@ const styles = {
     zIndex: 1000,
   } as CSSProperties,
   modal: {
-    background: '#fff',
+    background: 'var(--bg-card)',
     borderRadius: 8,
     width: 560,
     maxWidth: '95vw',
@@ -1022,7 +1022,7 @@ const styles = {
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '14px 18px',
-    borderBottom: '1px solid #eee',
+    borderBottom: '1px solid var(--border)',
   } as CSSProperties,
   modalBody: {
     padding: '16px 18px',
@@ -1034,6 +1034,6 @@ const styles = {
     border: 'none',
     fontSize: '1rem',
     cursor: 'pointer',
-    color: '#888',
+    color: 'var(--text-faint)',
   } as CSSProperties,
-} as const;
+};
