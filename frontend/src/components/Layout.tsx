@@ -221,8 +221,8 @@ const styles = {
   },
   themeBtn: {
     background: 'transparent',
-    border: '1px solid #555',
-    color: '#aaa',
+    border: '1px solid var(--border-strong)',
+    color: 'var(--text-muted)',
     padding: '4px 10px',
     borderRadius: 4,
     cursor: 'pointer',
