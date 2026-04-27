@@ -18,6 +18,8 @@ RUN addgroup -S fireisp && adduser -S fireisp -G fireisp
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
+# The runtime image starts with node directly, so npm/npx are removed after
+# installing production dependencies to avoid shipping npm's bundled packages.
 RUN npm install --production \
   && npm cache clean --force \
   && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
