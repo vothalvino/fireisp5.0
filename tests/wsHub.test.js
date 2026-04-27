@@ -152,10 +152,8 @@ describe('WsHub', () => {
     });
 
     it('closes with 4001 if no auth message arrives within timeout', async () => {
-      // Patch timeout to something very short for this test
-      const origTimeout = hub.constructor.name; // just access hub
-      // Send no auth — wait for server-side auth timeout
-      // (We override AUTH_TIMEOUT_MS indirectly by patching _handleConnection)
+      // Send a non-auth message (wrong protocol) before authenticating —
+      // the server responds with auth_fail immediately.
       const ws = connectWs(port);
       await waitForOpen(ws);
       // Trigger auth timeout by sending a non-auth message first
