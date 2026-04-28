@@ -17,6 +17,8 @@
     "firerelay:agent": "node src/scripts/firerelay-agent.js",
     "admin": "node src/scripts/admin.js",
     "openapi": "node src/scripts/openapi.js",
+    "spec:check": "node src/scripts/spec-drift.js",
+    "spec:gen": "node src/scripts/gen-route.js",
     "postman": "node src/scripts/postman.js",
     "lint": "eslint src/ --ext .js",
     "lint:fix": "eslint src/ --ext .js --fix",

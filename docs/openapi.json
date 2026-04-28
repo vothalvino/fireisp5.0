@@ -3,7 +3,7 @@
   "info": {
     "title": "FireISP 5.0 API",
     "version": "5.0.0",
-    "description": "Open source ISP management \u2014 customers, plans, billing, network monitoring, and Mexican fiscal compliance (CFDI 4.0).",
+    "description": "Open source ISP management — customers, plans, billing, network monitoring, and Mexican fiscal compliance (CFDI 4.0).",
     "license": {
       "name": "MIT",
       "url": "https://opensource.org/licenses/MIT"
@@ -70,7 +70,7 @@
     },
     {
       "name": "Billing",
-      "description": "Billing workflow \u2014 periods, invoices, payments"
+      "description": "Billing workflow — periods, invoices, payments"
     },
     {
       "name": "Bulk",
@@ -78,7 +78,7 @@
     },
     {
       "name": "CFDI",
-      "description": "Mexican fiscal compliance \u2014 XML generation, PAC stamping, cancellation"
+      "description": "Mexican fiscal compliance — XML generation, PAC stamping, cancellation"
     },
     {
       "name": "CFDI Documents",
@@ -90,7 +90,7 @@
     },
     {
       "name": "Facturas Publicas",
-      "description": "Public invoice (factura p\u00fablica) management"
+      "description": "Public invoice (factura pública) management"
     },
     {
       "name": "CSD Certificates",
@@ -574,16 +574,10 @@
         ],
         "requestBody": {
           "description": "auth_switchOrganization",
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": ["organizationId", "refreshToken"],
-                "properties": {
-                  "organizationId": { "type": "integer", "minimum": 1 },
-                  "refreshToken": { "type": "string" }
-                }
+                "type": "object"
               }
             }
           }
@@ -2344,20 +2338,11 @@
           }
         ],
         "requestBody": {
+          "description": "rule_id + invoice_id",
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "rule_id": {
-                    "type": "integer",
-                    "description": "Optional suspension rule ID"
-                  },
-                  "invoice_id": {
-                    "type": "integer",
-                    "description": "Optional overdue invoice ID triggering the suspension"
-                  }
-                }
+                "type": "object"
               }
             }
           }
@@ -2368,21 +2353,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "contract_id": {
-                          "type": "integer"
-                        },
-                        "status": {
-                          "type": "string",
-                          "example": "suspended"
-                        }
-                      }
-                    }
-                  }
+                  "type": "object"
                 }
               }
             }
@@ -2419,16 +2390,11 @@
           }
         ],
         "requestBody": {
+          "description": "invoice_id",
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "invoice_id": {
-                    "type": "integer",
-                    "description": "Optional invoice ID being settled"
-                  }
-                }
+                "type": "object"
               }
             }
           }
@@ -2439,21 +2405,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "contract_id": {
-                          "type": "integer"
-                        },
-                        "status": {
-                          "type": "string",
-                          "example": "active"
-                        }
-                      }
-                    }
-                  }
+                  "type": "object"
                 }
               }
             }
@@ -6743,6 +6695,32 @@
         }
       }
     },
+    "/connection-logs": {
+      "get": {
+        "tags": [
+          "Connection Logs"
+        ],
+        "summary": "List connection logs",
+        "operationId": "listConnectionLogs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ConnectionLog[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/connection-logs/active": {
       "get": {
         "tags": [
@@ -6755,48 +6733,9 @@
             "bearerAuth": []
           }
         ],
-        "parameters": [
-          {
-            "name": "username",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "ip_address",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "nas_ip_address",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "page",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "default": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "default": 50
-            }
-          }
-        ],
         "responses": {
           "200": {
-            "description": "Active session list",
+            "description": "Session[]",
             "content": {
               "application/json": {
                 "schema": {
@@ -6820,57 +6759,9 @@
             "bearerAuth": []
           }
         ],
-        "parameters": [
-          {
-            "name": "client_id",
-            "in": "query",
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "name": "contract_id",
-            "in": "query",
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "name": "date_from",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "date_to",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "page",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "default": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "default": 50
-            }
-          }
-        ],
         "responses": {
           "200": {
-            "description": "Daily usage per client",
+            "description": "DailyUsage[]",
             "content": {
               "application/json": {
                 "schema": {
@@ -6894,61 +6785,9 @@
             "bearerAuth": []
           }
         ],
-        "parameters": [
-          {
-            "name": "date_from",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "date_to",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "default": 10
-            }
-          }
-        ],
         "responses": {
           "200": {
-            "description": "Top consumers list",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/connection-logs": {
-      "get": {
-        "tags": [
-          "Connection Logs"
-        ],
-        "summary": "List connection logs",
-        "operationId": "listConnectionLogs",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "ConnectionLog[]",
+            "description": "TopConsumer[]",
             "content": {
               "application/json": {
                 "schema": {
@@ -8679,6 +8518,110 @@
         ],
         "summary": "Usage report",
         "operationId": "usageReport",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/financial": {
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Financial summary report",
+        "operationId": "financialReport",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/aging": {
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Accounts receivable aging report",
+        "operationId": "agingReport",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/subscriber-growth": {
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Subscriber growth and churn report",
+        "operationId": "subscriberGrowthReport",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/technicians": {
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Technician productivity report",
+        "operationId": "technicianReport",
         "security": [
           {
             "bearerAuth": []
@@ -11454,172 +11397,6 @@
           }
         }
       }
-    },
-    "/reports/financial": {
-      "get": {
-        "tags": [
-          "Reports"
-        ],
-        "summary": "Financial summary report",
-        "operationId": "financialReport",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "from",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "to",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "currency",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Financial summary",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/reports/aging": {
-      "get": {
-        "tags": [
-          "Reports"
-        ],
-        "summary": "Accounts receivable aging report",
-        "operationId": "agingReport",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "currency",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "AR aging buckets",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/reports/subscriber-growth": {
-      "get": {
-        "tags": [
-          "Reports"
-        ],
-        "summary": "Subscriber growth and churn report",
-        "operationId": "subscriberGrowthReport",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "months",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "default": 12
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Monthly subscriber growth",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/reports/technicians": {
-      "get": {
-        "tags": [
-          "Reports"
-        ],
-        "summary": "Technician productivity report",
-        "operationId": "technicianReport",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "from",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "to",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Technician productivity",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      }
     }
   },
   "components": {
@@ -11663,6 +11440,9 @@
           "auto_create_outage": {
             "type": "boolean"
           },
+          "auto_create_ticket": {
+            "type": "boolean"
+          },
           "is_enabled": {
             "type": "boolean"
           }
@@ -11703,6 +11483,9 @@
             "type": "string"
           },
           "auto_create_outage": {
+            "type": "boolean"
+          },
+          "auto_create_ticket": {
             "type": "boolean"
           },
           "is_enabled": {
@@ -11890,9 +11673,21 @@
           "refreshToken": {
             "type": "string"
           }
+        }
+      },
+      "auth_switchOrganization": {
+        "type": "object",
+        "properties": {
+          "organizationId": {
+            "type": "number",
+            "minimum": 1
+          },
+          "refreshToken": {
+            "type": "string"
+          }
         },
         "required": [
-          "refreshToken"
+          "organizationId"
         ]
       },
       "billing_generatePeriod": {
@@ -13940,6 +13735,33 @@
           }
         }
       },
+      "firerelay_firerelayTunnelCommand": {
+        "type": "object",
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "method": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 128
+          },
+          "params": {
+            "type": "string"
+          },
+          "timeout_ms": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 60000
+          }
+        },
+        "required": [
+          "node_id",
+          "method"
+        ]
+      },
       "iftStatisticalReports_createIftStatisticalReport": {
         "type": "object",
         "properties": {
@@ -13949,9 +13771,18 @@
           },
           "report_period": {
             "type": "string",
-            "maximum": 20
+            "maximum": 10,
+            "pattern": {}
           },
-          "subscribers_count": {
+          "period_start": {
+            "type": "string",
+            "pattern": {}
+          },
+          "period_end": {
+            "type": "string",
+            "pattern": {}
+          },
+          "total_subscribers": {
             "type": "number",
             "minimum": 0
           },
@@ -13959,17 +13790,53 @@
             "type": "string",
             "maximum": 5000
           },
-          "avg_download_speed": {
+          "subscribers_by_state": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "subscribers_by_municipality": {
+            "type": "string",
+            "maximum": 10000
+          },
+          "subscribers_by_technology": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "subscribers_by_customer_type": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "subscribers_by_payment_modality": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "coverage_localities": {
+            "type": "string",
+            "maximum": 20000
+          },
+          "coverage_municipalities": {
             "type": "number",
             "minimum": 0
           },
-          "avg_upload_speed": {
+          "avg_download_speed_mbps": {
             "type": "number",
             "minimum": 0
           },
-          "revenue": {
+          "avg_upload_speed_mbps": {
             "type": "number",
             "minimum": 0
+          },
+          "revenue_total": {
+            "type": "number",
+            "minimum": 0
+          },
+          "filing_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "filed_at": {
+            "type": "string",
+            "maximum": 32
           },
           "notes": {
             "type": "string",
@@ -13985,17 +13852,32 @@
           }
         },
         "required": [
-          "report_period"
+          "report_period",
+          "period_start",
+          "period_end"
         ]
       },
       "iftStatisticalReports_updateIftStatisticalReport": {
         "type": "object",
         "properties": {
+          "concession_title_id": {
+            "type": "number",
+            "minimum": 1
+          },
           "report_period": {
             "type": "string",
-            "maximum": 20
+            "maximum": 10,
+            "pattern": {}
           },
-          "subscribers_count": {
+          "period_start": {
+            "type": "string",
+            "pattern": {}
+          },
+          "period_end": {
+            "type": "string",
+            "pattern": {}
+          },
+          "total_subscribers": {
             "type": "number",
             "minimum": 0
           },
@@ -14003,17 +13885,53 @@
             "type": "string",
             "maximum": 5000
           },
-          "avg_download_speed": {
+          "subscribers_by_state": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "subscribers_by_municipality": {
+            "type": "string",
+            "maximum": 10000
+          },
+          "subscribers_by_technology": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "subscribers_by_customer_type": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "subscribers_by_payment_modality": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "coverage_localities": {
+            "type": "string",
+            "maximum": 20000
+          },
+          "coverage_municipalities": {
             "type": "number",
             "minimum": 0
           },
-          "avg_upload_speed": {
+          "avg_download_speed_mbps": {
             "type": "number",
             "minimum": 0
           },
-          "revenue": {
+          "avg_upload_speed_mbps": {
             "type": "number",
             "minimum": 0
+          },
+          "revenue_total": {
+            "type": "number",
+            "minimum": 0
+          },
+          "filing_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "filed_at": {
+            "type": "string",
+            "maximum": 32
           },
           "notes": {
             "type": "string",
@@ -17172,6 +17090,109 @@
             "maximum": 5000
           }
         }
+      },
+      "sso_samlConfig": {
+        "type": "object",
+        "properties": {
+          "is_enabled": {
+            "type": "boolean"
+          },
+          "saml_entity_id": {
+            "type": "string",
+            "maximum": 500
+          },
+          "saml_sso_url": {
+            "type": "string",
+            "maximum": 500
+          },
+          "saml_slo_url": {
+            "type": "string",
+            "maximum": 500
+          },
+          "saml_x509_cert": {
+            "type": "string"
+          },
+          "saml_sign_requests": {
+            "type": "boolean"
+          },
+          "saml_sp_private_key": {
+            "type": "string"
+          },
+          "attribute_mapping": {
+            "type": "string"
+          },
+          "idp_group_attribute": {
+            "type": "string",
+            "maximum": 255
+          },
+          "auto_provision": {
+            "type": "boolean"
+          },
+          "default_role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "manager",
+              "technician",
+              "billing",
+              "readonly"
+            ]
+          }
+        }
+      },
+      "sso_oidcConfig": {
+        "type": "object",
+        "properties": {
+          "is_enabled": {
+            "type": "boolean"
+          },
+          "oidc_issuer": {
+            "type": "string",
+            "maximum": 500
+          },
+          "oidc_client_id": {
+            "type": "string",
+            "maximum": 255
+          },
+          "oidc_client_secret": {
+            "type": "string"
+          },
+          "oidc_scopes": {
+            "type": "string",
+            "maximum": 500
+          },
+          "attribute_mapping": {
+            "type": "string"
+          },
+          "idp_group_attribute": {
+            "type": "string",
+            "maximum": 255
+          },
+          "auto_provision": {
+            "type": "boolean"
+          },
+          "default_role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "manager",
+              "technician",
+              "billing",
+              "readonly"
+            ]
+          }
+        }
+      },
+      "sso_groupMappings": {
+        "type": "object",
+        "properties": {
+          "mappings": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mappings"
+        ]
       },
       "suspension_suspend": {
         "type": "object",
