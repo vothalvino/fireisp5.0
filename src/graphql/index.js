@@ -20,6 +20,7 @@
 const { createYoga, createSchema } = require('graphql-yoga');
 const typeDefs = require('./typeDefs');
 const resolvers = require('./resolvers');
+const { pubsub } = require('../services/pubsub');
 
 const yoga = createYoga({
   schema: createSchema({ typeDefs, resolvers }),
@@ -31,6 +32,7 @@ const yoga = createYoga({
   context: ({ req }) => ({
     user: req.user,
     orgId: req.orgId,
+    pubsub,
   }),
 
   // Express handles routing — this entry-point covers all sub-paths.

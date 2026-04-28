@@ -1,0 +1,37 @@
+[
+  {
+    "id": "p3.7",
+    "date": "2025-01-15T00:00:00.000Z",
+    "title": "Real-time ticket comments via WebSocket",
+    "body": "Ticket detail pages now receive live comment updates through the WebSocket hub without requiring a page refresh. The system uses per-ticket channels (ticket:<id>) for targeted delivery.",
+    "tags": ["tickets", "realtime", "websocket"]
+  },
+  {
+    "id": "p3.6",
+    "date": "2025-01-10T00:00:00.000Z",
+    "title": "SNMP trap ingestion and alerting",
+    "body": "SNMP v2c/v3 trap ingestion is now available. Traps are stored, decoded, and can trigger alerts through the configured notification channels. Community strings and OID mappings are configurable per NAS device.",
+    "tags": ["snmp", "monitoring", "alerts"]
+  },
+  {
+    "id": "p3.5",
+    "date": "2025-01-05T00:00:00.000Z",
+    "title": "IP pool and address management",
+    "body": "Operators can now define IPv4/IPv6 address pools, track allocations per contract, and view utilisation dashboards. Automatic assignment is supported when creating contracts.",
+    "tags": ["ipam", "networking"]
+  },
+  {
+    "id": "p3.4",
+    "date": "2024-12-20T00:00:00.000Z",
+    "title": "DR drill mode and disaster-recovery runbooks",
+    "body": "A dedicated DR drill mode lets operators rehearse failover procedures without affecting live data. An in-app banner indicates when a drill is active, and drill outcomes are logged for audit purposes.",
+    "tags": ["dr", "reliability", "audit"]
+  },
+  {
+    "id": "p3.1",
+    "date": "2024-12-01T00:00:00.000Z",
+    "title": "GraphQL API for client and invoice detail pages",
+    "body": "A GraphQL endpoint at /api/v1/graphql replaces the per-field REST round-trips on the client and invoice detail pages. A single query now returns the client with contracts, invoices, payments, and devices in one request.",
+    "tags": ["graphql", "api", "performance"]
+  }
+]

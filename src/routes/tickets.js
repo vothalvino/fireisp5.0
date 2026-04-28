@@ -11,6 +11,7 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createTicket, updateTicket, patchTicket, createComment } = require('../middleware/schemas/tickets');
 const db = require('../config/database');
+const { pubsub } = require('../services/pubsub');
 
 const router = Router();
 const ctrl = crudController(Ticket);
@@ -45,6 +46,7 @@ router.post('/:id/comments', requirePermission('tickets.update'), validate(creat
       [req.params.id, req.user.id, body, is_internal || false],
     );
     const [rows] = await db.query('SELECT * FROM ticket_comments WHERE id = ?', [result.insertId]);
+    pubsub.publish('TICKET_COMMENT_ADDED', { ticketCommentAdded: rows[0], ticketId: req.params.id });
     res.status(201).json({ data: rows[0] });
   } catch (err) { next(err); }
 });

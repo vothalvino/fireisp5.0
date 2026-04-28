@@ -14,6 +14,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, tokenStore } from '@/api/client';
 import { useWebSocket } from '@/api/useWebSocket';
+import { useGraphQLSubscription } from '@/api/useGraphQLSubscription';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -403,6 +404,19 @@ export function TicketDetail() {
 
   // ── Live ticket updates via WebSocket ──────────────────────────────────────
   const { lastMessage: liveEvent } = useWebSocket(id ? `ticket:${id}` : 'notifications');
+
+  // ── GraphQL subscription for new comments (P3.9) ─────────────────────────
+  const { data: gqlCommentEvent } = useGraphQLSubscription<{ ticketCommentAdded: { id: number } }>(
+    `subscription($ticketId: ID!) { ticketCommentAdded(ticketId: $ticketId) { id } }`,
+    id ? { ticketId: id } : {},
+  );
+
+  useEffect(() => {
+    if (gqlCommentEvent?.ticketCommentAdded && id) {
+      void refetchComments();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gqlCommentEvent]);
 
   useEffect(() => {
     if (!liveEvent || !id) return;

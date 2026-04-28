@@ -101,6 +101,7 @@ const drDrillRoutes = require('./routes/drDrill');
 const dsarRoutes = require('./routes/dsar');
 const ssoRoutes = require('./routes/sso');
 const queueStatsRoutes = require('./routes/queueStats');
+const changelogRoutes = require('./routes/changelog');
 const graphqlMiddleware = require('./graphql');
 
 const crypto = require('crypto');
@@ -420,6 +421,7 @@ v1.use('/dr-drill', adminIpAllowlist, drDrillRoutes);
 v1.use('/dsar', adminIpAllowlist, dsarRoutes);
 v1.use('/sso', ssoRoutes);
 v1.use('/queue-stats', adminIpAllowlist, queueStatsRoutes);
+v1.use('/changelog', changelogRoutes);
 v1.use('/graphql', authenticate, orgScope, graphqlMiddleware);
 
 // Mount v1 at both /api (backward compat) and /api/v1 (versioned)
