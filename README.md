@@ -34,7 +34,16 @@ An open source ISP (Internet Service Provider) management software designed to h
 - Speed test recording from client portal, technician tools, automated probes, and external services
 - IFT/CRT regulatory compliance — concession titles, periodic filings, statistical reports, and registered contract templates (Carta de Adhesión)
 - Internationalization (i18n) — English, Spanish, and Brazilian Portuguese locale support
-- RESTful API with 184 endpoints, interactive Swagger UI documentation (`/api/docs`), and static OpenAPI spec (`docs/openapi.json`)
+- RESTful API with 199 endpoints, interactive Swagger UI documentation (`/api/docs`), and static OpenAPI spec (`docs/openapi.json`)
+- GraphQL gateway (`/api/v1/graphql`) powered by graphql-yoga v5 — single-request multi-entity fetches, real-time subscriptions via SSE (PubSub), and a live ClientDetail query replacing multiple REST round-trips
+- Real-time event hub (WebSocket + SSE dual-broadcast) — live Dashboard device-status indicator, live TicketDetail comment stream, and a useWebSocket React hook for all frontend consumers
+- httpOnly SameSite=Strict cookie authentication — access token in memory, refresh token in httpOnly cookie, Origin-based CSRF guard; eliminates localStorage token exposure
+- Dark mode — CSS custom-property token system, per-user preference persisted in localStorage, toggle in Layout and PortalLayout
+- PROFECO complaint management — complaint register for ISPs subject to CONCILIANET obligations: intake, lifecycle tracking, staff attribution, quarterly export for regulatory filing
+- Spec-driven development — `spec:check` drift scanner detects route/schema gaps against the OpenAPI spec in CI; `spec:gen` scaffolds new route stubs from the spec
+- OWASP ZAP DAST scan in CI — automated active scan against a live test instance on every push; ZAP HTML report uploaded as a workflow artifact
+- WCAG 2.1 AA accessibility — jest-axe audit on all major pages; aria-label fixes across TicketList, UserList, and other interactive components
+- In-app changelog panel — paginated, filterable release history surfaced in the admin sidebar for operators who need to track what changed without leaving the UI
 - Kubernetes-ready health probes — `/health/live` (liveness), `/health/ready` (readiness with DB + Redis checks), `/health?detail=true` (detailed)
 - CSP nonce-based inline style protection (per-request nonce replaces `unsafe-inline`)
 - API versioning with deprecation headers (`Deprecation`, `Sunset`, `Link`) on unversioned `/api/` routes
@@ -49,8 +58,8 @@ An open source ISP (Internet Service Provider) management software designed to h
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 116 tables)
-│   └── migrations/          # Individual numbered migration files (001–167)
+│   ├── schema.sql           # Combined schema (all 117 tables)
+│   └── migrations/          # Individual numbered migration files (001–168)
 ├── src/                     # Application source code
 │   ├── app.js               # Express app setup (middleware, routes, error handling)
 │   ├── server.js            # HTTP server entry point
@@ -59,10 +68,10 @@ fireisp5.0/
 │   ├── locales/             # i18n translation files (en.json, es.json, pt-BR.json)
 │   ├── middleware/           # Authentication, logging, validation, and request middleware
 │   │   └── schemas/         # Joi / Zod validation schemas per route
-│   ├── models/              # Data models / ORM entities (91 models)
-│   ├── routes/              # Route definitions (78 route files)
-│   ├── scripts/             # CLI scripts (migrate, seed, backup, admin, openapi, postman)
-│   ├── services/            # Business logic layer (39 services)
+│   ├── models/              # Data models / ORM entities (92 models)
+│   ├── routes/              # Route definitions (80 route files)
+│   ├── scripts/             # CLI scripts (migrate, seed, backup, admin, openapi, postman, spec)
+│   ├── services/            # Business logic layer (42 services)
 │   ├── workers/             # BullMQ worker registry (5 named queues; active only when REDIS_URL is set)
 │   ├── utils/               # Shared helpers (errors, logger, i18n, circuit breaker, OpenAPI)
 │   └── views/               # Email templates (HTML builders for transactional emails)
@@ -74,7 +83,7 @@ fireisp5.0/
 │   └── backups/             # System database and config backups
 ├── docs/                    # Project documentation (API guide, architecture, deployment, etc.)
 ├── frontend/                # React + TypeScript SPA (Vite); builds to frontend/dist/
-├── tests/                   # Automated tests (123 test files, 2,548 Jest tests)
+├── tests/                   # Automated tests (131 test files, 2,679 Jest tests)
 ├── LICENSE
 └── README.md
 ```
@@ -217,6 +226,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 114 | `sso_auth_states` | Short-lived OIDC authorization state / nonce store — holds the random `state` and `nonce` parameters generated at the start of an OIDC authorization-code flow; rows expire after 10 minutes; prevents CSRF and replay attacks |
 | 115 | `organization_quotas` | Per-tenant resource quota table — stores optional upper bounds for `max_clients`, `max_devices`, `max_storage_mb`, and `max_scheduled_tasks`; a NULL limit means "unlimited"; absence of a row is also treated as unlimited |
 | 116 | `organization_database_configs` | Per-tenant database isolation configuration — stores the `isolation_mode` (`shared` default, `isolated` opt-in) and, for isolated tenants, the target database host/port/name/user, encrypted password, SSL flag, and `last_verified_at` connectivity-check timestamp |
+| 117 | `profeco_complaints` | PROFECO / CONCILIANET complaint register — one row per consumer complaint folio filed with Mexico's Procuraduría Federal del Consumidor; captures folio number, ISP–consumer resolution status, complaint category, service type, intake and resolution dates, staff attribution, and optional links to existing client and support-ticket records; enables quarterly regulatory filing |
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 
@@ -403,6 +413,8 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 166 — Per-tenant resource quotas:** `166_create_organization_quotas.sql` creates the `organization_quotas` table that stores optional upper bounds per organization for four resources: `max_clients` (active client records), `max_devices` (active device records), `max_storage_mb` (sum of all org-owned `files.file_size`), and `max_scheduled_tasks` (org-scoped scheduled task rows). A `NULL` value in any limit column means "unlimited" for that resource. A row is created only when a quota is first configured; the absence of a row is also treated as unlimited. The `checkQuota` middleware enforces these limits at the API layer before the relevant creation handlers. Unique constraint on `organization_id`.
 
 > **Migration 167 — Per-tenant database isolation config:** `167_create_organization_database_configs.sql` creates the `organization_database_configs` control-plane table. One row per organization (unique constraint). Stores `isolation_mode` (`shared` default, `isolated` opt-in), isolated database host, port, name, user, AES-256-GCM-encrypted password (`db_password_encrypted`), SSL flag, and `last_verified_at` timestamp. When `isolation_mode = 'isolated'` and a valid connection config is present, `src/config/database.js` routes every DB operation for that organization to a dedicated MySQL pool (cached in memory, invalidated on config update). Admin endpoints: `GET/PUT /api/v1/organizations/:id/database-isolation` (masked config), `POST /api/v1/organizations/:id/database-isolation/test` (connectivity check + records `last_verified_at`). `FK ON DELETE CASCADE` from `organizations`.
+
+> **Migration 168 — PROFECO complaint tracking:** `168_create_profeco_complaints_table.sql` creates the `profeco_complaints` table for ISPs subject to Mexico's PROFECO (Procuraduría Federal del Consumidor) CONCILIANET obligations. One row per complaint folio. Stores `folio_profeco` (official CONCILIANET folio, nullable until assigned), `consumer_name`, `consumer_email/phone`, `service_type`, `complaint_category`, `description`, `status` (`received` → `in_process` → `resolved` / `escalated`), `resolution_notes`, `received_at`, `response_deadline`, `resolved_at`, `submitted_by` (FK to users), and optional FKs to `clients` and `tickets`. Unique constraint on `(organization_id, folio_profeco)`. Supports quarterly export for regulatory filing.
 
 ### Venta al Público en General (Factura Pública)
 
@@ -742,15 +754,15 @@ cd fireisp5.0
 cp .env.example .env
 # Edit .env — set DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, and a strong JWT_SECRET
 
-# 3. Install dependencies
-npm ci
+# 3. Install dependencies (pnpm required; install with: npm install -g pnpm)
+pnpm install
 
 # 4. Set up the database (MySQL 8.0+ required)
-npm run migrate
-npm run seed
+pnpm run migrate
+pnpm run seed
 
 # 5. Start the development server
-npm run dev
+pnpm run dev
 ```
 
 The admin dashboard is available at `http://localhost:3000` and the API at `http://localhost:3000/api/v1/`. Interactive API docs are served at `http://localhost:3000/api/docs`.
@@ -767,19 +779,21 @@ docker compose up -d
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start with auto-reload (nodemon) |
-| `npm start` | Production start |
-| `npm test` | Run test suite (Jest) |
-| `npm run test:watch` | Run tests in watch mode |
-| `npm run test:db` | Run database-level SQL tests (triggers, constraints, referential integrity) |
-| `npm run lint` | Lint source code (ESLint) |
-| `npm run lint:fix` | Lint and auto-fix source code |
-| `npm run migrate` | Apply pending database migrations |
-| `MIGRATE_ISOLATED_TENANTS=true npm run migrate` | Apply pending migrations to all isolated tenant databases after the primary migration succeeds |
-| `npm run seed` | Seed default data (roles, settings, tax rates) |
-| `npm run openapi` | Generate OpenAPI spec to `docs/openapi.json` |
-| `npm run admin -- create-user --email admin@example.com --password secret --role admin` | Create admin user |
-| `npm run backup` | Back up the database |
+| `pnpm run dev` | Start with auto-reload (nodemon) |
+| `pnpm start` | Production start |
+| `pnpm test` | Run test suite (Jest) |
+| `pnpm run test:watch` | Run tests in watch mode |
+| `pnpm run test:db` | Run database-level SQL tests (triggers, constraints, referential integrity) |
+| `pnpm run lint` | Lint source code (ESLint) |
+| `pnpm run lint:fix` | Lint and auto-fix source code |
+| `pnpm run migrate` | Apply pending database migrations |
+| `MIGRATE_ISOLATED_TENANTS=true pnpm run migrate` | Apply pending migrations to all isolated tenant databases after the primary migration succeeds |
+| `pnpm run seed` | Seed default data (roles, settings, tax rates) |
+| `pnpm run openapi` | Generate OpenAPI spec to `docs/openapi.json` |
+| `pnpm run spec:check` | Check for OpenAPI ↔ route drift (run in CI) |
+| `pnpm run spec:gen` | Scaffold a new route stub from the OpenAPI spec |
+| `pnpm run admin -- create-user --email admin@example.com --password secret --role admin` | Create admin user |
+| `pnpm run backup` | Back up the database |
 
 ## Contributing
 
