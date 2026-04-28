@@ -17,14 +17,14 @@ FireRelay uses the same FireISP codebase on every node. Promote the first node t
 
 Narration:
 
-> Start from a healthy standalone FireISP node. Add FireRelay only when the ~30,000-client capacity threshold is reached.
+> Start from a healthy standalone FireISP node. Plan FireRelay when the deployment is approaching the ~30,000-client capacity threshold.
 
 On-screen checklist:
 
 - Current node healthy
 - Backups current
 - TLS and DNS ready for both nodes
-- ~30,000-client capacity threshold reached
+- Approaching the ~30,000-client capacity threshold
 
 ### 2. Promote Node 1 to master
 
@@ -46,7 +46,7 @@ FIRERELAY_MAX_RETRIES=3
 
 Narration:
 
-> Provision the second server exactly like a normal FireISP installation. Use the same repository, run the database migrations, and point the worker back to the master.
+> Provision the second server exactly like a normal FireISP installation. Use the same repository and run the database migrations before starting the service.
 
 On-screen command sequence:
 

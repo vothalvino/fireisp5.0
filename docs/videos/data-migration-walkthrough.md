@@ -63,7 +63,7 @@ curl -X POST http://localhost:3000/api/import/clients/upload \
 
 Narration:
 
-> Import endpoints report row-level errors without aborting the entire batch. Review the response, correct only the failed rows in the source file, and re-run those rows after confirming they will not duplicate successful imports.
+> Import endpoints report row-level errors without aborting the entire batch. Review the response, correct only the failed rows in the source file, and re-run those rows after confirming existing records by unique fields such as client email or invoice number through the API or database.
 
 On-screen response:
 
