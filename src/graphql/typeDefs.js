@@ -192,4 +192,12 @@ module.exports = /* GraphQL */ `
     isInternal: Boolean!
     createdAt: String!
   }
+
+  type Subscription {
+    """New comment posted on a specific ticket."""
+    ticketCommentAdded(ticketId: ID!): TicketComment!
+
+    """Device status updated within an organisation."""
+    deviceStatusChanged(orgId: ID!): Device!
+  }
 `;

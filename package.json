@@ -23,7 +23,7 @@
     "test": "jest --detectOpenHandles --forceExit",
     "test:watch": "jest --watch",
     "test:db": "./tests/run_tests.sh",
-    "prepare": "husky"
+    "prepare": "if [ -f node_modules/.bin/husky ]; then husky; fi"
   },
   "keywords": [
     "isp",

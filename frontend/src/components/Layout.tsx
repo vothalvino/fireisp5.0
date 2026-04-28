@@ -9,6 +9,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { hasRole } from '@/auth/PrivateRoute';
 import { DrDrillBanner } from '@/components/DrDrillBanner';
 import { useDarkMode } from '@/auth/DarkModeContext';
+import { ChangelogPanel } from '@/components/ChangelogPanel';
 
 interface NavItem {
   to: string;
@@ -147,6 +148,7 @@ export function Layout() {
           >
             {effectiveTheme === 'dark' ? '☀️' : '🌙'}
           </button>
+          <ChangelogPanel />
             <button onClick={handleLogout} style={styles.logoutBtn}>
             {t('common.signOut')}
           </button>

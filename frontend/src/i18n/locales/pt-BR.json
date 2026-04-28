@@ -243,5 +243,12 @@
   "darkMode": {
     "switchToDark": "Mudar para modo escuro",
     "switchToLight": "Mudar para modo claro"
+  },
+  "changelog": {
+    "title": "Novidades",
+    "markAllRead": "Marcar tudo como lido",
+    "close": "Fechar",
+    "noEntries": "Nenhum anúncio ainda.",
+    "newBadge": "Novo"
   }
 }

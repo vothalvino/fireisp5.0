@@ -13,6 +13,7 @@ const db = require('../config/database');
 const Client = require('../models/Client');
 const Invoice = require('../models/Invoice');
 const Ticket = require('../models/Ticket');
+const { pubsub } = require('../services/pubsub');
 
 /** Clamp pagination params to safe bounds. */
 function clamp(val, defaultVal, max) {
@@ -227,6 +228,33 @@ const resolvers = {
     userId: (c) => c.user_id,
     isInternal: (c) => Boolean(c.is_internal),
     createdAt: (c) => c.created_at,
+  },
+
+  // ---------------------------------------------------------------------------
+  // Subscription resolvers (P3.9)
+  // ---------------------------------------------------------------------------
+  Subscription: {
+    ticketCommentAdded: {
+      subscribe: async function* (_parent, { ticketId }) {
+        for await (const event of pubsub.subscribe('TICKET_COMMENT_ADDED')) {
+          if (String(event.ticketId) === String(ticketId)) {
+            yield event;
+          }
+        }
+      },
+      resolve: (payload) => payload.ticketCommentAdded,
+    },
+
+    deviceStatusChanged: {
+      subscribe: async function* (_parent, { orgId }) {
+        for await (const event of pubsub.subscribe('DEVICE_STATUS_CHANGED')) {
+          if (String(event.orgId) === String(orgId)) {
+            yield event;
+          }
+        }
+      },
+      resolve: (payload) => payload.deviceStatusChanged,
+    },
   },
 };
 
