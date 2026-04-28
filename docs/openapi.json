@@ -283,6 +283,10 @@
     {
       "name": "Regulatory",
       "description": "Regulatory compliance filings"
+    },
+    {
+      "name": "PROFECO Complaints",
+      "description": "PROFECO consumer complaint register and export"
     }
   ],
   "paths": {
@@ -11397,6 +11401,249 @@
           }
         }
       }
+    },
+    "/profeco-complaints": {
+      "get": {
+        "tags": [
+          "PROFECO Complaints"
+        ],
+        "summary": "List profeco-complaints",
+        "operationId": "listProfecoComplaints",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ProfecoComplaint[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "PROFECO Complaints"
+        ],
+        "summary": "Create a ProfecoComplaint",
+        "operationId": "createProfecoComplaint",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "ProfecoComplaint",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ProfecoComplaint",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/profeco-complaints/{id}": {
+      "get": {
+        "tags": [
+          "PROFECO Complaints"
+        ],
+        "summary": "Get a ProfecoComplaint",
+        "operationId": "getProfecoComplaint",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ProfecoComplaint",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "PROFECO Complaints"
+        ],
+        "summary": "Update a ProfecoComplaint",
+        "operationId": "updateProfecoComplaint",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "ProfecoComplaint",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ProfecoComplaint",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "PROFECO Complaints"
+        ],
+        "summary": "Delete a ProfecoComplaint",
+        "operationId": "deleteProfecoComplaint",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/profeco-complaints/export": {
+      "get": {
+        "tags": [
+          "PROFECO Complaints"
+        ],
+        "summary": "Export complaints as JSON or CSV",
+        "operationId": "exportProfecoComplaints",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "date_from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Start date (inclusive)"
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "End date (inclusive)"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "recibida",
+                "en_tramite",
+                "resuelta",
+                "archivada"
+              ]
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "csv"
+              ]
+            },
+            "description": "Output format (default: json)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Complaint export",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -15867,6 +16114,247 @@
           "addon_type",
           "price"
         ]
+      },
+      "profeco_createProfecoComplaint": {
+        "type": "object",
+        "properties": {
+          "consumer_name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "ticket_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "folio_profeco": {
+            "type": "string",
+            "maximum": 50
+          },
+          "consumer_email": {
+            "type": "string",
+            "maximum": 255
+          },
+          "consumer_phone": {
+            "type": "string",
+            "maximum": 30
+          },
+          "service_type": {
+            "type": "string",
+            "enum": [
+              "internet",
+              "telefonia",
+              "television",
+              "paquete"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "facturacion",
+              "calidad_servicio",
+              "contrato",
+              "suspension_indebida",
+              "cobros_no_autorizados",
+              "atencion_cliente",
+              "otro"
+            ]
+          },
+          "resolution_requested": {
+            "type": "string",
+            "maximum": 10000
+          },
+          "company_response": {
+            "type": "string",
+            "maximum": 10000
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "recibida",
+              "en_tramite",
+              "resuelta",
+              "archivada"
+            ]
+          },
+          "reported_at": {
+            "type": "string"
+          },
+          "resolved_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "consumer_name",
+          "description"
+        ]
+      },
+      "profeco_updateProfecoComplaint": {
+        "type": "object",
+        "properties": {
+          "consumer_name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "ticket_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "folio_profeco": {
+            "type": "string",
+            "maximum": 50
+          },
+          "consumer_email": {
+            "type": "string",
+            "maximum": 255
+          },
+          "consumer_phone": {
+            "type": "string",
+            "maximum": 30
+          },
+          "service_type": {
+            "type": "string",
+            "enum": [
+              "internet",
+              "telefonia",
+              "television",
+              "paquete"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "facturacion",
+              "calidad_servicio",
+              "contrato",
+              "suspension_indebida",
+              "cobros_no_autorizados",
+              "atencion_cliente",
+              "otro"
+            ]
+          },
+          "resolution_requested": {
+            "type": "string",
+            "maximum": 10000
+          },
+          "company_response": {
+            "type": "string",
+            "maximum": 10000
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "recibida",
+              "en_tramite",
+              "resuelta",
+              "archivada"
+            ]
+          },
+          "reported_at": {
+            "type": "string"
+          },
+          "resolved_at": {
+            "type": "string"
+          }
+        }
+      },
+      "profeco_patchProfecoComplaint": {
+        "type": "object",
+        "properties": {
+          "consumer_name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "ticket_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "folio_profeco": {
+            "type": "string",
+            "maximum": 50
+          },
+          "consumer_email": {
+            "type": "string",
+            "maximum": 255
+          },
+          "consumer_phone": {
+            "type": "string",
+            "maximum": 30
+          },
+          "service_type": {
+            "type": "string",
+            "enum": [
+              "internet",
+              "telefonia",
+              "television",
+              "paquete"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "facturacion",
+              "calidad_servicio",
+              "contrato",
+              "suspension_indebida",
+              "cobros_no_autorizados",
+              "atencion_cliente",
+              "otro"
+            ]
+          },
+          "resolution_requested": {
+            "type": "string",
+            "maximum": 10000
+          },
+          "company_response": {
+            "type": "string",
+            "maximum": 10000
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "recibida",
+              "en_tramite",
+              "resuelta",
+              "archivada"
+            ]
+          },
+          "reported_at": {
+            "type": "string"
+          },
+          "resolved_at": {
+            "type": "string"
+          }
+        }
       },
       "quotes_createQuote": {
         "type": "object",

@@ -12,7 +12,8 @@
     "edit": "Editar",
     "search": "Buscar…",
     "errorDash": "—",
-    "na": "N/D"
+    "na": "N/D",
+    "saving": "Guardando…"
   },
   "login": {
     "title": "🔥 FireISP 5.0",
@@ -46,7 +47,8 @@
     "cfdi": "🏛️ CFDI",
     "users": "🔑 Usuarios",
     "reports": "📈 Reportes",
-    "settings": "⚙️ Configuración"
+    "settings": "⚙️ Configuración",
+    "profecoComplaints": "🏛️ PROFECO"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -250,5 +252,57 @@
     "close": "Cerrar",
     "noEntries": "Sin anuncios aún.",
     "newBadge": "Nuevo"
+  },
+  "profecoComplaints": {
+    "title": "🏛️ Quejas PROFECO",
+    "newComplaint": "Nueva Queja",
+    "exportCsv": "Exportar CSV",
+    "exportJson": "Exportar JSON",
+    "filterStatus": "Filtrar por estado",
+    "filterCategory": "Filtrar por categoría",
+    "allStatuses": "Todos los estados",
+    "allCategories": "Todas las categorías",
+    "loading": "Cargando…",
+    "error": "Error al cargar las quejas.",
+    "noComplaints": "No se encontraron quejas.",
+    "errorCreate": "Error al crear la queja.",
+    "errorRequired": "El nombre del consumidor y la descripción son obligatorios.",
+    "table": {
+      "folio": "Folio PROFECO",
+      "consumer": "Consumidor",
+      "serviceType": "Servicio",
+      "category": "Categoría",
+      "status": "Estado",
+      "reportedAt": "Reportada"
+    },
+    "status": {
+      "recibida": "Recibida",
+      "en_tramite": "En trámite",
+      "resuelta": "Resuelta",
+      "archivada": "Archivada"
+    },
+    "category": {
+      "facturacion": "Facturación",
+      "calidad_servicio": "Calidad del servicio",
+      "contrato": "Contrato",
+      "suspension_indebida": "Suspensión indebida",
+      "cobros_no_autorizados": "Cobros no autorizados",
+      "atencion_cliente": "Atención al cliente",
+      "otro": "Otro"
+    },
+    "serviceType": {
+      "internet": "Internet",
+      "telefonia": "Telefonía",
+      "television": "Televisión",
+      "paquete": "Paquete"
+    },
+    "form": {
+      "consumerName": "Nombre del consumidor",
+      "serviceType": "Tipo de servicio",
+      "category": "Categoría",
+      "description": "Descripción",
+      "resolutionRequested": "Resolución solicitada",
+      "folioProfeco": "Folio PROFECO"
+    }
   }
 }

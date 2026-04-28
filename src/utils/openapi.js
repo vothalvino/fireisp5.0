@@ -105,6 +105,7 @@ function generateSpec() {
       { name: 'Metrics', description: 'Prometheus metrics' },
       { name: 'FireRelay', description: 'Multi-node cluster management' },
       { name: 'Regulatory', description: 'Regulatory compliance filings' },
+      { name: 'PROFECO Complaints', description: 'PROFECO consumer complaint register and export' },
     ],
     paths: {
       // ---- Auth ----
@@ -435,6 +436,32 @@ function generateSpec() {
       ...crudPaths('concession-titles', 'Regulatory', 'ConcessionTitle'),
       ...crudPaths('regulatory-filings', 'Regulatory', 'RegulatoryFiling'),
       ...crudPaths('ift-statistical-reports', 'Regulatory', 'IftStatisticalReport'),
+
+      // ---- PROFECO Complaints ----
+      ...crudPaths('profeco-complaints', 'PROFECO Complaints', 'ProfecoComplaint'),
+      '/profeco-complaints/export': {
+        get: {
+          tags: ['PROFECO Complaints'],
+          summary: 'Export complaints as JSON or CSV',
+          operationId: 'exportProfecoComplaints',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'date_from', in: 'query', schema: { type: 'string', format: 'date' }, description: 'Start date (inclusive)' },
+            { name: 'date_to',   in: 'query', schema: { type: 'string', format: 'date' }, description: 'End date (inclusive)' },
+            { name: 'status',    in: 'query', schema: { type: 'string', enum: ['recibida', 'en_tramite', 'resuelta', 'archivada'] } },
+            { name: 'format',    in: 'query', schema: { type: 'string', enum: ['json', 'csv'] }, description: 'Output format (default: json)' },
+          ],
+          responses: {
+            200: {
+              description: 'Complaint export',
+              content: {
+                'application/json': { schema: { type: 'object' } },
+                'text/csv':         { schema: { type: 'string' } },
+              },
+            },
+          },
+        },
+      },
     },
     components: {
       securitySchemes: {

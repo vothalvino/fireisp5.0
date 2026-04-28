@@ -44,6 +44,7 @@ import { SnmpMetrics } from '@/pages/SnmpMetrics';
 import { SnmpTraps } from '@/pages/SnmpTraps';
 import { Reports } from '@/pages/Reports';
 import { Settings } from '@/pages/Settings';
+import { ProfecoComplaints } from '@/pages/ProfecoComplaints';
 import { NotFound } from '@/pages/NotFound';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
 
@@ -113,6 +114,7 @@ export function App() {
               <Route element={<Layout />}>
                 <Route path="cfdi" element={<CfdiList />} />
                 <Route path="reports" element={<Reports />} />
+                <Route path="profeco-complaints" element={<ProfecoComplaints />} />
               </Route>
             </Route>
 

@@ -33,6 +33,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/snmp-traps', labelKey: 'nav.snmpTraps', requiredRole: 'technician' },
   { to: '/coverage-zones', labelKey: 'nav.coverageZones', requiredRole: 'technician' },
   { to: '/cfdi', labelKey: 'nav.cfdi', requiredRole: 'billing' },
+  { to: '/profeco-complaints', labelKey: 'nav.profecoComplaints', requiredRole: 'billing' },
   // Admin-only
   { to: '/users', labelKey: 'nav.users', requiredRole: 'admin' },
   { to: '/reports', labelKey: 'nav.reports', requiredRole: 'billing' },
