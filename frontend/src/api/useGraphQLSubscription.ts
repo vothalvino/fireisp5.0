@@ -6,7 +6,7 @@
 // up on unmount.
 // =============================================================================
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { tokenStore } from '@/api/client';
 
 const GQL_ENDPOINT = '/api/v1/graphql';
@@ -24,11 +24,13 @@ export function useGraphQLSubscription<T>(
   const [error, setError] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
 
+  const serializedVars = useMemo(() => JSON.stringify(variables), [variables]);
+
   useEffect(() => {
     const params = new URLSearchParams();
     params.set('query', query);
     if (Object.keys(variables).length > 0) {
-      params.set('variables', JSON.stringify(variables));
+      params.set('variables', serializedVars);
     }
     const token = tokenStore.getAccess();
     if (token) {
@@ -61,7 +63,7 @@ export function useGraphQLSubscription<T>(
       esRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, JSON.stringify(variables)]);
+  }, [query, serializedVars]);
 
   return { data, error };
 }

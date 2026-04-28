@@ -4,7 +4,7 @@
 // Bell icon with unread badge + slide-in "What's New" panel.
 // =============================================================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 
@@ -51,12 +51,20 @@ export function ChangelogPanel() {
     staleTime: 1000 * 60 * 10,
   });
 
-  const unreadCount = entries.filter((e) => {
-    if (!seenId) return true;
-    const seenEntry = entries.find((x) => x.id === seenId);
-    if (!seenEntry) return true;
-    return new Date(e.date) > new Date(seenEntry.date);
-  }).length;
+  const seenEntry = useMemo(
+    () => entries.find((x) => x.id === seenId) ?? null,
+    [entries, seenId],
+  );
+
+  const isEntryNew = useCallback(
+    (entry: ChangelogEntry) => {
+      if (!seenId || !seenEntry) return true;
+      return new Date(entry.date) > new Date(seenEntry.date);
+    },
+    [seenId, seenEntry],
+  );
+
+  const unreadCount = entries.filter(isEntryNew).length;
 
   const markAllRead = useCallback(() => {
     if (entries.length > 0) {
@@ -147,7 +155,7 @@ export function ChangelogPanel() {
                 <span style={styles.entryDate}>
                   {new Date(entry.date).toLocaleDateString()}
                 </span>
-                {!seenId || (entries.find((x) => x.id === seenId) && new Date(entry.date) > new Date(entries.find((x) => x.id === seenId)!.date)) ? (
+                {isEntryNew(entry) ? (
                   <span style={styles.newBadge}>{t('changelog.newBadge')}</span>
                 ) : null}
               </div>
