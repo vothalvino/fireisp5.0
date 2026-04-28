@@ -50,9 +50,12 @@
   <g id="s2" class="scene">
     <text x="64" y="196" class="title">Prepare clean CSV inputs</text>
     <text x="64" y="260" class="body">Normalize encoding, dates, and required columns first.</text>
-    <rect x="88" y="324" width="1090" height="220" class="panel"/>
-    <text x="130" y="386" class="code">clients.csv   devices.csv   contracts.csv</text>
-    <text x="130" y="436" class="code">invoices.csv  payments.csv</text>
+    <rect x="88" y="310" width="1090" height="270" class="panel"/>
+    <text x="130" y="365" class="code">clients.csv</text>
+    <text x="420" y="365" class="code">devices.csv</text>
+    <text x="710" y="365" class="code">contracts.csv</text>
+    <text x="130" y="425" class="code">invoices.csv</text>
+    <text x="420" y="425" class="code">payments.csv</text>
     <text x="130" y="498" class="small">UTF-8 • YYYY-MM-DD • max 10 MB • max 10,000 rows</text>
   </g>
 
@@ -91,4 +94,3 @@
     <text x="220" y="450" class="small">Restore, verify counts, then re-enable MySQL event scheduler.</text>
   </g>
 </svg>
-

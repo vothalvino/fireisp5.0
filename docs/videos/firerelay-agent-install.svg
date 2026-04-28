@@ -49,10 +49,12 @@
   <g id="s2" class="scene">
     <text x="64" y="196" class="title">Promote Node 1 to master</text>
     <text x="64" y="260" class="body">It keeps serving local clients and starts routing.</text>
-    <rect x="105" y="330" width="1070" height="175" class="panel"/>
-    <text x="145" y="386" class="code">FIRERELAY_MODE=master</text>
-    <text x="145" y="430" class="code">FIRERELAY_NODES=["https://node2.fireisp.com"]</text>
-    <text x="145" y="474" class="code">FIRERELAY_HEALTH_INTERVAL=30000</text>
+    <rect x="105" y="300" width="1070" height="250" class="panel"/>
+    <text x="145" y="352" class="code">FIRERELAY_MODE=master</text>
+    <text x="145" y="394" class="code">FIRERELAY_NODES=["https://node2.fireisp.com"]</text>
+    <text x="145" y="436" class="code">FIRERELAY_HEALTH_INTERVAL=30000</text>
+    <text x="145" y="478" class="code">FIRERELAY_REQUEST_TIMEOUT=5000</text>
+    <text x="145" y="520" class="code">FIRERELAY_MAX_RETRIES=3</text>
   </g>
 
   <g id="s3" class="scene">
@@ -67,11 +69,13 @@
   <g id="s4" class="scene">
     <text x="64" y="196" class="title">Configure Node 2 as worker</text>
     <text x="64" y="260" class="body">Set master URL, node ID, and a unique ID range.</text>
-    <rect x="96" y="316" width="1088" height="225" class="panel"/>
-    <text x="135" y="372" class="code">FIRERELAY_MODE=worker</text>
-    <text x="135" y="416" class="code">FIRERELAY_MASTER_URL=https://node1.fireisp.com</text>
-    <text x="135" y="460" class="code">FIRERELAY_NODE_ID=node2</text>
-    <text x="135" y="504" class="code">FIRERELAY_AUTO_INCREMENT_OFFSET=10000001</text>
+    <rect x="96" y="285" width="1088" height="300" class="panel"/>
+    <text x="135" y="337" class="code">FIRERELAY_MODE=worker</text>
+    <text x="135" y="379" class="code">FIRERELAY_MASTER_URL=https://node1.fireisp.com</text>
+    <text x="135" y="421" class="code">FIRERELAY_NODE_ID=node2</text>
+    <text x="135" y="463" class="code">FIRERELAY_AUTO_INCREMENT_OFFSET=10000001</text>
+    <text x="135" y="505" class="code">FIRERELAY_MAX_CLIENTS=10000</text>
+    <text x="135" y="547" class="code">FIRERELAY_MAX_DEVICES=3000</text>
   </g>
 
   <g id="s5" class="scene">
@@ -95,4 +99,3 @@
     <text x="190" y="528" class="small">offline — recover node, do not auto-reassign data</text>
   </g>
 </svg>
-

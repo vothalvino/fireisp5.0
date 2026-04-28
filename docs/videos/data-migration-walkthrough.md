@@ -41,7 +41,8 @@ On-screen checklist:
 - `invoices.csv`
 - `payments.csv`
 - UTF-8 encoding
-- Valid dates
+- Dates normalized to `YYYY-MM-DD`
+- Files split below 10 MB and 10,000 rows
 
 ### 3. Import in dependency order
 
@@ -102,4 +103,3 @@ On-screen checklist:
 - Restore command documented
 - Event scheduler re-enabled after restore
 - Production sign-off captured
-
