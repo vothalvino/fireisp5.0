@@ -2,6 +2,8 @@
 // FireISP 5.0 — Application Configuration
 // =============================================================================
 
+const { URL } = require('url');
+
 const parseIntEnv = (key, fallback) => {
   const v = process.env[key];
   if (v === undefined || v === '') return fallback;
@@ -15,10 +17,20 @@ const parseBoolEnv = (key, fallback) => {
   return v === 'true' || v === '1';
 };
 
+const parseTrustProxyEnv = (value) => {
+  if (value === undefined || value === '') return false;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  const n = parseInt(value, 10);
+  if (!Number.isNaN(n) && String(n) === value) return n;
+  return value;
+};
+
 const config = {
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '3000', 10),
   appUrl: process.env.APP_URL || 'http://localhost:3000',
+  trustProxy: parseTrustProxyEnv(process.env.TRUST_PROXY),
 
   jwt: {
     secret: process.env.JWT_SECRET || 'change-me-to-a-random-64-char-string',
@@ -98,11 +110,47 @@ function validateEnv(logger) {
   }
 
   // Database config: required in production
-  const requiredDbVars = ['DB_HOST', 'DB_NAME'];
+  const requiredDbVars = ['DB_HOST', 'DB_NAME', 'DB_PASSWORD'];
   for (const key of requiredDbVars) {
     if (!process.env[key]) {
       const msg = `${key} environment variable is not set`;
       if (isProduction) errors.push(msg); else warnings.push(msg);
+    }
+  }
+
+  if (isProduction) {
+    if (!config.appUrl.startsWith('https://')) {
+      errors.push('APP_URL must use https:// in production');
+    }
+
+    if ((process.env.DB_USER || '').toLowerCase() === 'root') {
+      errors.push('DB_USER must not be root in production — use a least-privilege application user');
+    }
+
+    const requiredSmtpVars = ['SMTP_HOST', 'SMTP_FROM', 'SMTP_USER', 'SMTP_PASS'];
+    for (const key of requiredSmtpVars) {
+      if (!process.env[key]) {
+        errors.push(`${key} environment variable is required in production for notifications`);
+      }
+    }
+
+    if (process.env.REDIS_URL) {
+      try {
+        const redisUrl = new URL(process.env.REDIS_URL);
+        if (!redisUrl.password) {
+          errors.push('REDIS_URL must include a password in production');
+        }
+      } catch {
+        errors.push('REDIS_URL is not a valid URL');
+      }
+    }
+
+    if (!config.adminIpAllowlist && process.env.ALLOW_PUBLIC_ADMIN !== 'true') {
+      errors.push('ADMIN_IP_ALLOWLIST must be set in production, or explicitly set ALLOW_PUBLIC_ADMIN=true');
+    }
+
+    if (config.features.sso) {
+      errors.push('FEATURE_SSO must remain disabled in production until SSO callback cookie-auth is implemented');
     }
   }
 
@@ -119,5 +167,6 @@ function validateEnv(logger) {
 }
 
 config.validateEnv = validateEnv;
+config.parseTrustProxyEnv = parseTrustProxyEnv;
 
 module.exports = config;

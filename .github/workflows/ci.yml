@@ -221,9 +221,112 @@ jobs:
       - name: Run frontend type-check
         run: pnpm --filter fireisp-frontend run lint
 
-  container-scan:
+  e2e:
+    name: Playwright E2E smoke
     runs-on: ubuntu-latest
     needs: [lint-and-test, frontend-test]
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: e2epassword
+          MYSQL_DATABASE: fireisp_e2e
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser
+        run: pnpm --filter fireisp-e2e exec playwright install --with-deps chromium
+
+      - name: Wait for MySQL
+        run: |
+          until mysqladmin ping -h 127.0.0.1 --silent; do
+            sleep 2
+          done
+
+      - name: Run migrations and seed
+        env:
+          NODE_ENV: test
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_USER: root
+          DB_PASSWORD: e2epassword
+          DB_NAME: fireisp_e2e
+          JWT_SECRET: e2e-test-jwt-secret-for-github-actions-only-not-for-production
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY || '0000000000000000000000000000000000000000000000000000000000000000' }}
+        run: |
+          pnpm run migrate
+          pnpm run seed
+
+      - name: Build frontend
+        run: pnpm --filter fireisp-frontend run build
+
+      - name: Start backend server
+        env:
+          NODE_ENV: test
+          PORT: 3000
+          APP_URL: http://localhost:3000
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_USER: root
+          DB_PASSWORD: e2epassword
+          DB_NAME: fireisp_e2e
+          JWT_SECRET: e2e-test-jwt-secret-for-github-actions-only-not-for-production
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY || '0000000000000000000000000000000000000000000000000000000000000000' }}
+          LOG_LEVEL: warn
+        run: nohup node src/server.js > /tmp/fireisp-e2e.log 2>&1 &
+
+      - name: Wait for backend to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/health/live > /dev/null 2>&1; then
+              echo "Backend is ready"
+              exit 0
+            fi
+            echo "Waiting for backend... attempt $i"
+            sleep 2
+          done
+          cat /tmp/fireisp-e2e.log || true
+          echo "Backend did not start in time"
+          exit 1
+
+      - name: Run Playwright smoke tests
+        env:
+          BASE_URL: http://localhost:3000
+          CI: "true"
+        run: pnpm --filter fireisp-e2e test
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-${{ github.sha }}
+          path: e2e/playwright-report/
+          retention-days: 30
+
+  container-scan:
+    runs-on: ubuntu-latest
+    needs: [lint-and-test, frontend-test, e2e]
     permissions:
       contents: read
       security-events: write  # upload Trivy SARIF to GitHub Security tab
@@ -312,9 +415,7 @@ jobs:
   # Runs a read-only spider + passive scanner against a live backend instance.
   # Does NOT perform active attacks (form submission, injection, fuzzing) —
   # those require a scheduled full-scan on a dedicated staging environment.
-  # fail_action is set to false so the first run collects findings without
-  # blocking CI; review the uploaded report and tighten rules in .zap/rules.tsv
-  # before switching to fail_action: true.
+  # Baseline findings now block CI; tune accepted risks in .zap/rules.tsv.
   # ---------------------------------------------------------------------------
   dast:
     runs-on: ubuntu-latest
@@ -403,9 +504,7 @@ jobs:
           rules_file_name: '.zap/rules.tsv'
           artifact_name: 'zap-report-${{ github.sha }}'
           allow_issue_writing: 'false'
-          # fail_action: false — baseline run; review the report, suppress
-          # accepted risks in .zap/rules.tsv, then flip to true.
-          fail_action: false
+          fail_action: true
 
       - name: Upload ZAP report
         uses: actions/upload-artifact@v4

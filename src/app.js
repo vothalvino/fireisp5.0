@@ -109,6 +109,8 @@ const crypto = require('crypto');
 
 const app = express();
 
+app.set('trust proxy', config.trustProxy);
+
 // ---------------------------------------------------------------------------
 // Global middleware
 // ---------------------------------------------------------------------------

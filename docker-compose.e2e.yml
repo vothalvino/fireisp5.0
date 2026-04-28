@@ -73,13 +73,17 @@ services:
     depends_on:
       app:
         condition: service_healthy
-    working_dir: /e2e
+    working_dir: /workspace
     volumes:
-      - ./e2e:/e2e
+      - .:/workspace
     environment:
       BASE_URL: http://app:3000
       CI: 'true'
     command: >
-      sh -c "npm ci && npx playwright install --with-deps chromium && npx playwright test"
+      sh -c "corepack enable &&
+             corepack prepare pnpm@10.33.2 --activate &&
+             pnpm install --frozen-lockfile &&
+             pnpm --filter fireisp-e2e exec playwright install --with-deps chromium &&
+             pnpm --filter fireisp-e2e test"
 
 volumes: {}

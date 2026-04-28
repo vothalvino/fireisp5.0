@@ -11,8 +11,10 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: fireisp
-  minReplicas: 2
-  maxReplicas: 10
+  # Default PVC is ReadWriteOnce; keep single-pod scaling unless storage is
+  # changed to ReadWriteMany or uploads move to object storage.
+  minReplicas: 1
+  maxReplicas: 1
   metrics:
     - type: Resource
       resource:

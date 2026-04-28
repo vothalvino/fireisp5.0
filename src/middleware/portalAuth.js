@@ -21,11 +21,12 @@ const { UnauthorizedError } = require('../utils/errors');
 async function portalAuthenticate(req, _res, next) {
   try {
     const header = req.headers.authorization;
-    if (!header || !header.startsWith('Bearer ')) {
+    const cookieToken = req.cookies?.fireisp_portal_access;
+    if ((!header || !header.startsWith('Bearer ')) && !cookieToken) {
       throw new UnauthorizedError('Missing or invalid Authorization header');
     }
 
-    const token = header.slice(7);
+    const token = header && header.startsWith('Bearer ') ? header.slice(7) : cookieToken;
     let payload;
     try {
       payload = jwt.verify(token, config.jwt.secret);

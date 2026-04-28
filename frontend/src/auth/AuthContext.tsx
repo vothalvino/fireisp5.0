@@ -2,7 +2,7 @@
 // FireISP 5.0 — Auth Context
 // =============================================================================
 // Manages:
-//   • Login  — POST /auth/login → store access token in memory, refresh in localStorage
+//   • Login  — POST /auth/login → store access token in memory; refresh token stays in httpOnly cookie
 //   • Logout — POST /auth/logout → clear tokens
 //   • me()   — GET /auth/me → hydrate user profile + roles on mount
 //   • Silent refresh is handled transparently by the API client middleware

@@ -209,4 +209,4 @@ async function setPassword(clientId, newPassword) {
   );
 }
 
-module.exports = { login, refreshToken, logout, setPassword };
+module.exports = { login, refreshToken, logout, setPassword, ACCESS_SECONDS, REFRESH_SECONDS };

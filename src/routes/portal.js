@@ -27,6 +27,7 @@ const { authLimiter, apiLimiter } = require('../middleware/rateLimit');
 const portalAuthService = require('../services/portalAuthService');
 const checkoutService = require('../services/checkoutService');
 const db = require('../config/database');
+const config = require('../config');
 const { NotFoundError, ValidationError } = require('../utils/errors');
 
 const router = Router();
@@ -41,7 +42,7 @@ const portalLoginSchema = {
 };
 
 const portalRefreshSchema = {
-  refreshToken: { type: 'string', required: true },
+  refreshToken: { type: 'string', required: false },
 };
 
 const portalPasswordSchema = {
@@ -64,10 +65,35 @@ const createCommentSchema = {
 // AUTH — public endpoints
 // ---------------------------------------------------------------------------
 
+const PORTAL_COOKIE_BASE = {
+  httpOnly: true,
+  sameSite: 'strict',
+  secure: config.env === 'production',
+};
+
+function setPortalCookies(res, accessToken, refreshToken) {
+  res.cookie('fireisp_portal_access', accessToken, {
+    ...PORTAL_COOKIE_BASE,
+    path: '/api/v1/portal',
+    maxAge: portalAuthService.ACCESS_SECONDS * 1000,
+  });
+  res.cookie('fireisp_portal_refresh', refreshToken, {
+    ...PORTAL_COOKIE_BASE,
+    path: '/api/v1/portal/auth/refresh',
+    maxAge: portalAuthService.REFRESH_SECONDS * 1000,
+  });
+}
+
+function clearPortalCookies(res) {
+  res.clearCookie('fireisp_portal_access', { ...PORTAL_COOKIE_BASE, path: '/api/v1/portal' });
+  res.clearCookie('fireisp_portal_refresh', { ...PORTAL_COOKIE_BASE, path: '/api/v1/portal/auth/refresh' });
+}
+
 // POST /portal/auth/login
 router.post('/auth/login', authLimiter, validate(portalLoginSchema), async (req, res, next) => {
   try {
     const result = await portalAuthService.login(req.body);
+    setPortalCookies(res, result.accessToken, result.refreshToken);
     res.json({ data: result });
   } catch (err) {
     next(err);
@@ -77,7 +103,12 @@ router.post('/auth/login', authLimiter, validate(portalLoginSchema), async (req,
 // POST /portal/auth/refresh
 router.post('/auth/refresh', authLimiter, validate(portalRefreshSchema), async (req, res, next) => {
   try {
-    const result = await portalAuthService.refreshToken(req.body.refreshToken);
+    const tokenValue = req.cookies?.fireisp_portal_refresh || req.body?.refreshToken;
+    if (!tokenValue) {
+      return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Refresh token required' } });
+    }
+    const result = await portalAuthService.refreshToken(tokenValue);
+    setPortalCookies(res, result.accessToken, result.refreshToken);
     res.json({ data: result });
   } catch (err) {
     next(err);
@@ -87,8 +118,9 @@ router.post('/auth/refresh', authLimiter, validate(portalRefreshSchema), async (
 // POST /portal/auth/logout
 router.post('/auth/logout', async (req, res, next) => {
   try {
-    const { refreshToken } = req.body || {};
+    const refreshToken = req.cookies?.fireisp_portal_refresh || req.body?.refreshToken;
     await portalAuthService.logout(refreshToken);
+    clearPortalCookies(res);
     res.json({ message: 'Logged out' });
   } catch (err) {
     next(err);

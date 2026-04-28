@@ -22,7 +22,8 @@ This guide covers deploying FireISP 5.0 in production environments. Choose the d
 
 ## Prerequisites
 
-- **Node.js** 18+ (LTS recommended)
+- **Node.js** 22+ (LTS recommended)
+- **pnpm** 10+ (the repo declares `packageManager: pnpm@10.33.2`)
 - **MySQL** 8.0+ or MariaDB 10.6+ with Event Scheduler enabled
 - **RAM**: 2 GB minimum (4 GB recommended for >5,000 clients)
 - **Disk**: 20 GB minimum (SSD recommended for SNMP metrics tables)
@@ -43,6 +44,7 @@ cp .env.example .env
 NODE_ENV=production
 PORT=3000
 APP_URL=https://isp.example.com
+TRUST_PROXY=1
 
 # IMPORTANT: Generate a strong random secret (64+ chars)
 JWT_SECRET=$(openssl rand -base64 48)
@@ -65,6 +67,9 @@ SMTP_FROM=noreply@example.com
 
 # Logging
 LOG_LEVEL=info
+
+# Admin IP allowlist
+ADMIN_IP_ALLOWLIST=10.0.0.0/8,203.0.113.5
 ```
 
 ---
@@ -74,8 +79,10 @@ LOG_LEVEL=info
 ### 1. Install Node.js
 
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt-get install -y nodejs
+corepack enable
+corepack prepare pnpm@10.33.2 --activate
 ```
 
 ### 2. Install MySQL 8.0
@@ -114,17 +121,17 @@ FLUSH PRIVILEGES;
 cd /opt/fireisp
 
 # Install production dependencies
-npm ci --production
+pnpm install --frozen-lockfile --prod
 
 # Run migrations
-npm run migrate
+pnpm run migrate
 
 # Seed default data (roles, permissions, settings, tax rates)
 # Only needed on first install
-npm run seed
+pnpm run seed
 
 # Start the server
-npm start
+pnpm start
 ```
 
 ### 5. Run as a System Service (systemd)
@@ -177,10 +184,10 @@ cp .env.example .env
 docker compose up -d
 
 # Run migrations (first time only)
-docker compose exec app npm run migrate
+docker compose exec app pnpm run migrate
 
 # Seed defaults (first time only)
-docker compose exec app npm run seed
+docker compose exec app pnpm run seed
 
 # View logs
 docker compose logs -f app
@@ -507,8 +514,8 @@ Available metrics:
 - [ ] `NODE_ENV=production` is set
 - [ ] `JWT_SECRET` is a strong random value (64+ chars)
 - [ ] MySQL Event Scheduler is `ON` (`CALL preflight_check_event_scheduler();`)
-- [ ] All migrations applied (`npm run migrate`)
-- [ ] Default roles, permissions, and settings seeded (`npm run seed`)
+- [ ] All migrations applied (`pnpm run migrate`)
+- [ ] Default roles, permissions, and settings seeded (`pnpm run seed`)
 - [ ] SMTP configured and tested
 - [ ] TLS/HTTPS enabled
 - [ ] Reverse proxy configured with security headers
@@ -519,7 +526,24 @@ Available metrics:
 - [ ] Database user has minimal required privileges
 - [ ] File upload directory permissions correct (`storage/`)
 - [ ] Rate limiting verified
-- [ ] `ADMIN_IP_ALLOWLIST` configured (optional — restricts admin routes to trusted IPs/CIDRs)
+- [ ] `TRUST_PROXY=1` set when behind Nginx / a load balancer
+- [ ] `ADMIN_IP_ALLOWLIST` configured, or `ALLOW_PUBLIC_ADMIN=true` explicitly accepted
+- [ ] `FEATURE_SSO=false` unless SSO cookie callback has been implemented and tested
+
+### Release Gate / Go-No-Go Checklist
+
+Before routing real customer traffic to a new release:
+
+- [ ] CI is green, including backend tests, frontend tests, database tests, container scan, Helm lint, DAST, and Playwright E2E smoke tests
+- [ ] Migration rehearsal completed on a staging copy of production data
+- [ ] Rollback / forward-fix plan reviewed for every migration in the release
+- [ ] Restore drill completed from a real backup and recorded in `docs/dr-drill.md`
+- [ ] Container image built from the release commit, pushed to the intended registry, and signed with cosign
+- [ ] Branch protection requires all CI jobs before merge to `main`
+- [ ] Staging soak test completed within the budgets in `docs/load-testing.md`
+- [ ] ZAP baseline CI is passing and the latest quarterly active full scan has no open Critical/High findings
+- [ ] On-call engineer has reviewed `docs/runbook.md`, alert routing, and escalation contacts
+- [ ] Go/no-go approval recorded with release tag, operator, and timestamp
 
 ---
 
@@ -590,7 +614,7 @@ metadata:
   labels:
     app: fireisp
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: fireisp
@@ -711,8 +735,11 @@ spec:
 ```
 
 > **Note:** Use a `ReadWriteMany` access mode (e.g., NFS or a cloud file share) when running multiple replicas so all pods can access the same storage volume.
+> The default manifests and Helm values intentionally run one replica with `ReadWriteOnce` storage. Do not enable HPA or multiple replicas until storage is `ReadWriteMany` or file storage is externalized.
 
 ### Horizontal Pod Autoscaler (HPA)
+
+Only enable HPA when `storage/` is backed by `ReadWriteMany` storage or when uploads/generated documents have been moved to object storage.
 
 ```yaml
 apiVersion: autoscaling/v2
@@ -725,8 +752,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: fireisp
-  minReplicas: 2
-  maxReplicas: 10
+  minReplicas: 1
+  maxReplicas: 1
   metrics:
     - type: Resource
       resource:
@@ -1018,7 +1045,7 @@ Run migrations before switching traffic:
 ```bash
 # Deploy Green and run migrations
 cd /opt/fireisp-green
-npm run migrate
+pnpm run migrate
 ```
 
 ### Traffic Switching with Nginx
@@ -1220,7 +1247,7 @@ helm install fireisp . \
 Create a `my-values.yaml` that overrides only what you need:
 
 ```yaml
-replicaCount: 3
+replicaCount: 1
 
 image:
   repository: ghcr.io/vothalvino/fireisp5.0
@@ -1234,7 +1261,7 @@ ingress:
 
 config:
   LOG_LEVEL: "info"
-  FEATURE_SSO: "true"
+  FEATURE_SSO: "false"
 
 secrets:
   JWT_SECRET: ""          # populated by Sealed Secret / ESO
@@ -1258,7 +1285,7 @@ cosignPolicy:
 Run migrations once after the first install (or after upgrading):
 
 ```bash
-kubectl exec -n fireisp deploy/fireisp -- npm run migrate
+kubectl exec -n fireisp deploy/fireisp -- pnpm run migrate
 ```
 
 ### Upgrading

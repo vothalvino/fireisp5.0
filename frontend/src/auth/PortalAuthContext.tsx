@@ -3,7 +3,7 @@
 // =============================================================================
 // Manages authentication state for the client self-service portal.
 // Completely separate from the staff AuthContext — uses /portal/* endpoints
-// and stores the portal refresh token in localStorage under a distinct key.
+// and relies on httpOnly SameSite cookies for refresh-token storage.
 // =============================================================================
 
 import {
@@ -18,7 +18,7 @@ import {
 } from 'react';
 
 // ---------------------------------------------------------------------------
-// Token storage (portal-specific localStorage key)
+// Token storage (access token in memory; refresh token stays in httpOnly cookie)
 // ---------------------------------------------------------------------------
 
 const PORTAL_REFRESH_KEY = 'fireisp_portal_refresh_token';
@@ -28,11 +28,9 @@ let _portalAccessToken: string | null = null;
 export const portalTokenStore = {
   getAccess: () => _portalAccessToken,
   setAccess: (token: string | null) => { _portalAccessToken = token; },
-  getRefresh: () => localStorage.getItem(PORTAL_REFRESH_KEY),
+  getRefresh: () => null,
   setRefresh: (token: string | null) => {
-    if (token) {
-      localStorage.setItem(PORTAL_REFRESH_KEY, token);
-    } else {
+    if (!token) {
       localStorage.removeItem(PORTAL_REFRESH_KEY);
     }
   },
@@ -85,6 +83,7 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
     setState(s => ({ ...s, loading: true }));
     try {
       const res = await fetch('/api/v1/portal/auth/me', {
+        credentials: 'include',
         headers: portalTokenStore.getAccess()
           ? { Authorization: `Bearer ${portalTokenStore.getAccess()}` }
           : {},
@@ -107,18 +106,13 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
     if (booted.current) return;
     booted.current = true;
 
-    const refreshToken = portalTokenStore.getRefresh();
-    if (!refreshToken) {
-      setState({ client: null, loading: false, initialized: true });
-      return;
-    }
-
     (async () => {
       try {
         const res = await fetch('/api/v1/portal/auth/refresh', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken }),
+          credentials: 'include',
+          body: JSON.stringify({}),
         });
         if (res.ok) {
           const json = (await res.json()) as {
@@ -142,6 +136,7 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
     const res = await fetch('/api/v1/portal/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ email, password }),
     });
     if (!res.ok) {
@@ -152,20 +147,17 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
       data: { accessToken: string; refreshToken: string; client: PortalClient };
     };
     portalTokenStore.setAccess(json.data.accessToken);
-    portalTokenStore.setRefresh(json.data.refreshToken);
     setState({ client: json.data.client, loading: false, initialized: true });
   }, []);
 
   const logout = useCallback(async () => {
     try {
-      const refreshToken = portalTokenStore.getRefresh();
-      if (refreshToken) {
-        await fetch('/api/v1/portal/auth/logout', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken }),
-        });
-      }
+      await fetch('/api/v1/portal/auth/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({}),
+      });
     } finally {
       portalTokenStore.clear();
       setState({ client: null, loading: false, initialized: true });

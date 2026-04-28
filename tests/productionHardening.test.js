@@ -151,6 +151,84 @@ describe('Auth Schema — refreshToken', () => {
 });
 
 // =============================================================================
+// Production startup validation
+// =============================================================================
+describe('Production startup validation', () => {
+  const ORIGINAL_ENV = { ...process.env };
+
+  afterEach(() => {
+    process.env = ORIGINAL_ENV;
+    jest.resetModules();
+  });
+
+  test('parseTrustProxyEnv handles common Express trust proxy values', () => {
+    jest.isolateModules(() => {
+      const config = require('../src/config');
+      expect(config.parseTrustProxyEnv(undefined)).toBe(false);
+      expect(config.parseTrustProxyEnv('')).toBe(false);
+      expect(config.parseTrustProxyEnv('true')).toBe(true);
+      expect(config.parseTrustProxyEnv('false')).toBe(false);
+      expect(config.parseTrustProxyEnv('1')).toBe(1);
+      expect(config.parseTrustProxyEnv('loopback')).toBe('loopback');
+    });
+  });
+
+  test('fails production startup for unsafe deployment configuration', () => {
+    process.env = {
+      ...ORIGINAL_ENV,
+      NODE_ENV: 'production',
+      APP_URL: 'http://isp.example.com',
+      JWT_SECRET: 'x'.repeat(64),
+      ENCRYPTION_KEY: '0'.repeat(64),
+      DB_HOST: '127.0.0.1',
+      DB_NAME: 'fireisp',
+      DB_USER: 'root',
+      DB_PASSWORD: '',
+      SMTP_HOST: '',
+      SMTP_FROM: '',
+      SMTP_USER: '',
+      SMTP_PASS: '',
+      REDIS_URL: 'redis://redis:6379',
+      ADMIN_IP_ALLOWLIST: '',
+      FEATURE_SSO: 'true',
+    };
+
+    jest.isolateModules(() => {
+      const config = require('../src/config');
+      expect(() => config.validateEnv()).toThrow(/APP_URL must use https/);
+      expect(() => config.validateEnv()).toThrow(/DB_USER must not be root/);
+      expect(() => config.validateEnv()).toThrow(/FEATURE_SSO must remain disabled/);
+    });
+  });
+
+  test('accepts hardened production configuration', () => {
+    process.env = {
+      ...ORIGINAL_ENV,
+      NODE_ENV: 'production',
+      APP_URL: 'https://isp.example.com',
+      JWT_SECRET: 'x'.repeat(64),
+      ENCRYPTION_KEY: '0'.repeat(64),
+      DB_HOST: '127.0.0.1',
+      DB_NAME: 'fireisp',
+      DB_USER: 'fireisp',
+      DB_PASSWORD: 'strong-db-password',
+      SMTP_HOST: 'smtp.example.com',
+      SMTP_FROM: 'noreply@example.com',
+      SMTP_USER: 'smtp-user',
+      SMTP_PASS: 'smtp-pass',
+      REDIS_URL: 'redis://:redis-pass@redis:6379',
+      ADMIN_IP_ALLOWLIST: '10.0.0.0/8',
+      FEATURE_SSO: 'false',
+    };
+
+    jest.isolateModules(() => {
+      const config = require('../src/config');
+      expect(() => config.validateEnv()).not.toThrow();
+    });
+  });
+});
+
+// =============================================================================
 // Webhook HMAC Signing
 // =============================================================================
 describe('Webhook HMAC Signing', () => {

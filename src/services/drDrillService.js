@@ -78,7 +78,7 @@ async function runDrill() {
       rowCounts[tbl] = cnt;
     }
     checks.row_counts = rowCounts;
-    // schema_migrations must equal at least 1 (should be 164 at this point)
+    // schema_migrations must equal the applied migration count for the release
     checks.schema_migrations_present = rowCounts.schema_migrations >= 1;
 
     // ------------------------------------------------------------------

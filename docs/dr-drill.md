@@ -41,7 +41,7 @@
 | `mysqldump` and `mysql` CLI in `PATH` | `mysqldump --version` |
 | MySQL/MariaDB root or admin credentials | `.env` → `DB_ROOT_PASSWORD` or `DB_PASSWORD` |
 | Enough disk space for the dump (≥ current DB size × 1.5) | `df -h` |
-| FireISP application **stopped** or in maintenance mode during restore | `npm run stop` / `docker compose stop app` |
+| FireISP application **stopped** or in maintenance mode during restore | `docker compose stop app` / `systemctl stop fireisp` |
 | Storage files backed up (optional but recommended) | `tar czf storage-$(date +%Y%m%d).tar.gz storage/` |
 
 Set shell variables before starting to avoid typos across commands:
@@ -64,7 +64,7 @@ read -s -p "MySQL password: " DB_PASS; export DB_PASS
 ### 1a. Automated backup (recommended)
 
 ```bash
-npm run backup
+pnpm run backup
 # Output example:
 # {"level":"info","filename":"fireisp_2026-04-23T02-00-00.sql.gz","script":"backup","msg":"Backup created","sizeKB":"42312.8"}
 ```
@@ -76,7 +76,7 @@ BACKUP_FILE=$(ls -t storage/backups/*.sql.gz | head -1)
 echo "Backup: $BACKUP_FILE"
 ```
 
-### 1b. Manual backup (if `npm run backup` is unavailable)
+### 1b. Manual backup (if `pnpm run backup` is unavailable)
 
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
@@ -201,8 +201,9 @@ SELECT 'schema_migrations',   COUNT(*) FROM schema_migrations;
 ```
 
 All `rows` values must be **≥ the pre-drill count** (or ≥ 1 for a
-freshly-seeded drill environment).  The `schema_migrations` count must be
-**164** (as of FireISP 5.0.x).
+freshly-seeded drill environment).  The `schema_migrations` count must match
+the number of files in `database/migrations/` (currently **168** for this
+release).
 
 ### 4b. Referential integrity — orphaned child rows
 
@@ -283,7 +284,7 @@ mysql \
 
 ```bash
 # Alternatively — start the application and call the health endpoint
-npm start &
+pnpm start &
 APP_PID=$!
 sleep 5
 curl -sf http://localhost:3000/health/ready && echo "READY" || echo "NOT READY"

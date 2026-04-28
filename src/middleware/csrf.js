@@ -7,7 +7,7 @@
 // prevents the browser from sending them on any cross-origin request.
 //
 // Secondary protection (this file): for state-changing requests (POST / PUT /
-// PATCH / DELETE) that arrive with a fireisp_access or fireisp_refresh cookie,
+// PATCH / DELETE) that arrive with a FireISP browser auth cookie,
 // the Origin or Referer header must match the configured APP_URL host.  This
 // satisfies the "Verifying Origin With Standard Headers" CSRF mitigation from
 // OWASP and suppresses the CodeQL js/missing-token-validation alert.
@@ -53,7 +53,12 @@ function csrfOriginCheck(req, res, next) {
   if (safeMethods.includes(method)) return next();
 
   // Only enforce when the request carries a FireISP auth cookie
-  const hasCookie = !!(req.cookies?.fireisp_access || req.cookies?.fireisp_refresh);
+  const hasCookie = !!(
+    req.cookies?.fireisp_access ||
+    req.cookies?.fireisp_refresh ||
+    req.cookies?.fireisp_portal_access ||
+    req.cookies?.fireisp_portal_refresh
+  );
   if (!hasCookie) return next();
 
   // Prefer Origin header; fall back to Referer

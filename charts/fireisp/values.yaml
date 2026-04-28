@@ -2,7 +2,9 @@
 # Override these in a values file or with --set flags.
 
 ## Number of application replicas.
-replicaCount: 2
+## Default storage is ReadWriteOnce, so keep one replica unless persistence is
+## changed to ReadWriteMany or uploads/generated files move to object storage.
+replicaCount: 1
 
 image:
   repository: fireisp/fireisp
@@ -85,9 +87,10 @@ resources:
 
 ## Horizontal Pod Autoscaler
 hpa:
-  enabled: true
-  minReplicas: 2
-  maxReplicas: 10
+  ## Enable only with ReadWriteMany storage or external object storage.
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
 

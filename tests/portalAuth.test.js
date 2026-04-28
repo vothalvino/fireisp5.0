@@ -194,6 +194,103 @@ describe('portalAuthService.logout()', () => {
 });
 
 // ---------------------------------------------------------------------------
+// portal routes — httpOnly cookie auth
+// ---------------------------------------------------------------------------
+
+describe('portal auth routes — httpOnly cookies', () => {
+  const request = require('supertest');
+  const express = require('express');
+  const cookieParser = require('cookie-parser');
+  const portalRoutes = require('../src/routes/portal');
+
+  function buildApp() {
+    const app = express();
+    app.use(express.json());
+    app.use(cookieParser());
+    app.use('/api/v1/portal', portalRoutes);
+    app.use((err, _req, res, _next) => {
+      res.status(err.statusCode || 500).json({ error: { message: err.message } });
+    });
+    return app;
+  }
+
+  let app;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    app = buildApp();
+  });
+
+  test('login sets portal access and refresh cookies', async () => {
+    jest.spyOn(portalAuthService, 'login').mockResolvedValueOnce({
+      accessToken: 'portal-access-token',
+      refreshToken: 'portal-refresh-token',
+      expiresIn: 900,
+      client: { id: 1, name: 'Alice', email: 'alice@example.com', organization_id: 1 },
+    });
+
+    const res = await request(app)
+      .post('/api/v1/portal/auth/login')
+      .send({ email: 'alice@example.com', password: 'correct-password' });
+
+    expect(res.status).toBe(200);
+    const cookies = res.headers['set-cookie'];
+    expect(cookies.find(c => c.startsWith('fireisp_portal_access='))).toMatch(/HttpOnly/i);
+    expect(cookies.find(c => c.startsWith('fireisp_portal_access='))).toMatch(/SameSite=Strict/i);
+    expect(cookies.find(c => c.startsWith('fireisp_portal_refresh='))).toMatch(/Path=\/api\/v1\/portal\/auth\/refresh/);
+  });
+
+  test('refresh accepts portal refresh token from cookie and rotates cookies', async () => {
+    jest.spyOn(portalAuthService, 'refreshToken').mockResolvedValueOnce({
+      accessToken: 'new-portal-access',
+      refreshToken: 'new-portal-refresh',
+      expiresIn: 900,
+    });
+
+    const res = await request(app)
+      .post('/api/v1/portal/auth/refresh')
+      .set('Cookie', 'fireisp_portal_refresh=old-cookie-refresh')
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(portalAuthService.refreshToken).toHaveBeenCalledWith('old-cookie-refresh');
+    const cookies = res.headers['set-cookie'];
+    expect(cookies.find(c => c.startsWith('fireisp_portal_access='))).toContain('new-portal-access');
+    expect(cookies.find(c => c.startsWith('fireisp_portal_refresh='))).toContain('new-portal-refresh');
+  });
+
+  test('refresh still accepts body refresh token for API clients', async () => {
+    jest.spyOn(portalAuthService, 'refreshToken').mockResolvedValueOnce({
+      accessToken: 'new-portal-access',
+      refreshToken: 'new-portal-refresh',
+      expiresIn: 900,
+    });
+
+    const res = await request(app)
+      .post('/api/v1/portal/auth/refresh')
+      .send({ refreshToken: 'body-refresh' });
+
+    expect(res.status).toBe(200);
+    expect(portalAuthService.refreshToken).toHaveBeenCalledWith('body-refresh');
+  });
+
+  test('logout revokes cookie refresh token and clears cookies', async () => {
+    jest.spyOn(portalAuthService, 'logout').mockResolvedValueOnce();
+
+    const res = await request(app)
+      .post('/api/v1/portal/auth/logout')
+      .set('Cookie', 'fireisp_portal_refresh=revoke-cookie')
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(portalAuthService.logout).toHaveBeenCalledWith('revoke-cookie');
+    const cookies = res.headers['set-cookie'];
+    expect(cookies.find(c => c.startsWith('fireisp_portal_access='))).toMatch(/Expires=/i);
+    expect(cookies.find(c => c.startsWith('fireisp_portal_refresh='))).toMatch(/Expires=/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // portalAuthService.setPassword
 // ---------------------------------------------------------------------------
 
@@ -263,6 +360,20 @@ describe('portalAuth middleware', () => {
     const req = { headers: { authorization: 'Bearer portal.valid' } };
     const next = jest.fn(() => {
       expect(req.client).toMatchObject({ id: 1, name: 'Alice' });
+      done();
+    });
+    portalAuthenticate(req, {}, next);
+  });
+
+  test('accepts portal access token from httpOnly cookie', done => {
+    jwt.verify.mockReturnValue({ sub: 1, orgId: 1, type: 'portal' });
+    db.query.mockResolvedValueOnce([[{
+      id: 1, organization_id: 1, name: 'Alice', email: 'alice@example.com', status: 'active',
+    }]]);
+    const req = { headers: {}, cookies: { fireisp_portal_access: 'portal.cookie.token' } };
+    const next = jest.fn(() => {
+      expect(req.client).toMatchObject({ id: 1, name: 'Alice' });
+      expect(jwt.verify).toHaveBeenCalledWith('portal.cookie.token', expect.any(String));
       done();
     });
     portalAuthenticate(req, {}, next);
