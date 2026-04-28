@@ -51,6 +51,14 @@ export function ChangelogPanel() {
     staleTime: 1000 * 60 * 10,
   });
 
+  // Clear stale seenId once entries are loaded (e.g., if an old entry was deleted).
+  useEffect(() => {
+    if (entries.length > 0 && seenId && !entries.find((x) => x.id === seenId)) {
+      setSeenId('');
+      setSeenIdState('');
+    }
+  }, [entries, seenId]);
+
   const seenEntry = useMemo(
     () => entries.find((x) => x.id === seenId) ?? null,
     [entries, seenId],

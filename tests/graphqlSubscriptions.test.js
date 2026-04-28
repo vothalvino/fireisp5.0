@@ -122,6 +122,9 @@ describe('subscription resolver filtering', () => {
     expect(String(value.ticketId)).toBe('77');
   });
 
+  // Extended timeout (10 s): the async iterator must skip the non-matching
+  // event before yielding the matching one; in slow CI environments the
+  // iterator's internal queue flush can take longer than the default 5 s.
   it('deviceStatusChanged skips non-matching orgId and delivers matching', async () => {
     const device = { id: 99, name: 'Device-99', status: 'online' };
     const subscribeFn = resolvers.Subscription.deviceStatusChanged.subscribe;

@@ -49,8 +49,8 @@ export function useGraphQLSubscription<T>(
         } else if (parsed.data !== undefined) {
           setData(parsed.data);
         }
-      } catch {
-        setError('Failed to parse subscription event');
+      } catch (parseErr) {
+        setError(`Failed to parse subscription event: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
       }
     });
 

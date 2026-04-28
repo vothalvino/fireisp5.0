@@ -39,7 +39,9 @@ router.put('/:id', requirePermission('devices.update'), validate(updateDevice), 
       newValues: req.body,
     });
     await bustCache(req.orgId, 'devices');
-    pubsub.publish('DEVICE_STATUS_CHANGED', { deviceStatusChanged: record, orgId: req.orgId });
+    if (req.body.status !== undefined && req.body.status !== old.status) {
+      pubsub.publish('DEVICE_STATUS_CHANGED', { deviceStatusChanged: record, orgId: req.orgId });
+    }
     res.json({ data: record });
   } catch (err) { next(err); }
 });

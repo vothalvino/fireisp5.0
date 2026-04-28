@@ -46,7 +46,7 @@ router.post('/:id/comments', requirePermission('tickets.update'), validate(creat
       [req.params.id, req.user.id, body, is_internal || false],
     );
     const [rows] = await db.query('SELECT * FROM ticket_comments WHERE id = ?', [result.insertId]);
-    pubsub.publish('TICKET_COMMENT_ADDED', { ticketCommentAdded: rows[0], ticketId: req.params.id });
+    pubsub.publish('TICKET_COMMENT_ADDED', { ticketCommentAdded: rows[0], ticketId: String(req.params.id) });
     res.status(201).json({ data: rows[0] });
   } catch (err) { next(err); }
 });
