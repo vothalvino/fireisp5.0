@@ -324,7 +324,6 @@ tenant)**, and **P3 (continuous improvement)**.
 - ✅ `tests/specDrift.test.js` added — 38 tests: `toExpressPath` (3 tests), `normaliseSpec` (3 tests), `findDuplicateOperationIds` (4 tests), `findPathDrift` (5 tests), `findMetaDrift` (3 tests), `generateSpec()` live integrity checks (4 tests including the key "committed spec is in sync with generator" regression guard), `toPascal/toCamel` (4 tests), `extractResourcePaths` (4 tests), `generateRouteFile` (4 tests), `generateSchemaFile` (1 test), `generateTestFile` (2 tests); 2661 Jest tests pass (38 new + 2623 pre-existing)
 
 - Docs: video walkthroughs of the data-migration flow and the FireRelay agent install
-- Compliance MX: integrate with Buró de Crédito for credit-decision automation on plan upgrades
 
 ### P3.12 — PROFECO complaint export tool
 - ✅ `database/migrations/168_create_profeco_complaints_table.sql` added — `profeco_complaints` table: `folio_profeco`, `consumer_name/email/phone`, `service_type` (internet/telefonia/television/paquete), `category` (facturacion/calidad\_servicio/contrato/suspension\_indebida/cobros\_no\_autorizados/atencion\_cliente/otro), `description`, `resolution_requested`, `company_response`, `status` (recibida/en\_tramite/resuelta/archivada), `reported_at`, `resolved_at`, FK to organizations/clients/tickets/users; soft-delete; all indexes
