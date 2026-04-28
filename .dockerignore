@@ -1,5 +1,6 @@
 node_modules
 npm-debug.log*
+pnpm-debug.log*
 .git
 .github
 .gitignore
@@ -16,3 +17,7 @@ docs/*
 .DS_Store
 Thumbs.db
 storage/logs/*
+# npm lockfiles are replaced by pnpm-lock.yaml
+package-lock.json
+frontend/package-lock.json
+e2e/package-lock.json

@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# npm lockfiles superseded by pnpm-lock.yaml
+package-lock.json
+
 # Environment
 .env
 .env.prod
@@ -14,6 +17,7 @@ nginx/letsencrypt/
 # Logs
 *.log
 npm-debug.log*
+pnpm-debug.log*
 
 # Coverage
 coverage/
