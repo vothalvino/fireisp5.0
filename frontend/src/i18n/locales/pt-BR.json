@@ -92,7 +92,10 @@
       "daysOverdue": "Dias em atraso",
       "daysFormat": "{{days}}d"
     },
-    "overdueMore": "Exibindo as 20 primeiras de {{total}} faturas em atraso."
+    "overdueMore": "Exibindo as 20 primeiras de {{total}} faturas em atraso.",
+    "liveConnected": "Ao vivo",
+    "liveDisconnected": "Offline",
+    "liveEvents": "{{count}} novos eventos"
   },
   "drDrill": {
     "modalTitle": "Aviso de simulação de DR",

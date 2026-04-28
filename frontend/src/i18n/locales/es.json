@@ -92,7 +92,10 @@
       "daysOverdue": "Días de atraso",
       "daysFormat": "{{days}}d"
     },
-    "overdueMore": "Mostrando las primeras 20 de {{total}} facturas vencidas."
+    "overdueMore": "Mostrando las primeras 20 de {{total}} facturas vencidas.",
+    "liveConnected": "En vivo",
+    "liveDisconnected": "Sin conexión",
+    "liveEvents": "{{count}} eventos nuevos"
   },
   "drDrill": {
     "modalTitle": "Advertencia de simulacro de DR",

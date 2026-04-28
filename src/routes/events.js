@@ -15,6 +15,12 @@ const { Router } = require('express');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const logger = require('../utils/logger');
+// Lazy-required to avoid circular-module issues at startup
+let _wsHub;
+function getWsHub() {
+  if (!_wsHub) _wsHub = require('../services/wsHub').wsHub;
+  return _wsHub;
+}
 
 const router = Router();
 
@@ -43,15 +49,22 @@ function getChannel(name) {
  */
 function broadcast(channel, event, data) {
   const clients = channels.get(channel);
-  if (!clients || clients.size === 0) return;
-
-  const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const res of clients) {
-    try {
-      res.write(message);
-    } catch (_err) {
-      clients.delete(res);
+  if (clients && clients.size > 0) {
+    const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    for (const res of clients) {
+      try {
+        res.write(message);
+      } catch (_err) {
+        clients.delete(res);
+      }
     }
+  }
+
+  // Also push to WebSocket clients on the same channel
+  try {
+    getWsHub().broadcastWs(channel, event, data);
+  } catch (_err) {
+    // wsHub may not be attached in test environments — ignore
   }
 }
 

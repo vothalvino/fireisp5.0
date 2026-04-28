@@ -10,6 +10,7 @@ const scheduler = require('./services/scheduler');
 const jobQueue = require('./services/jobQueueService');
 const workers = require('./workers');
 const { tunnelServer } = require('./services/firerelayTunnel');
+const { wsHub } = require('./services/wsHub');
 const snmpTrapReceiver = require('./services/snmpTrapReceiver');
 const logger = require('./utils/logger');
 
@@ -79,6 +80,13 @@ async function start() {
     logger.warn({ err }, 'FireRelay tunnel failed to attach');
   }
 
+  // Attach the WebSocket hub for real-time browser clients
+  try {
+    wsHub.attach(server);
+  } catch (err) {
+    logger.warn({ err }, 'WsHub failed to attach');
+  }
+
   // Start the SNMP trap receiver (UDP listener for unsolicited device alerts)
   try {
     snmpTrapReceiver.start();
@@ -98,6 +106,7 @@ async function start() {
     server.close(async () => {
       logger.info('HTTP server closed');
       await tunnelServer.close();
+      await wsHub.close().catch(() => {});
       snmpTrapReceiver.stop();
       scheduler.stop();
       await jobQueue.close().catch(() => {});

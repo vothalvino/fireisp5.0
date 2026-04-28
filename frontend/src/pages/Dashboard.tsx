@@ -6,10 +6,12 @@
 // and /dashboard/overdue.
 // =============================================================================
 
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/api/client';
+import { useWebSocket } from '@/api/useWebSocket';
 
 // ---------------------------------------------------------------------------
 // Response shapes (the OpenAPI spec uses generic `object` — cast at runtime)
@@ -145,11 +147,29 @@ function KpiCard({ label, value, sub, icon, accent = '#e25822', loading, error }
 export function Dashboard() {
   const { user } = useAuth();
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
 
   const summaryQ = useQuery({ queryKey: ['dashboard-summary'], queryFn: fetchSummary });
   const mrrQ = useQuery({ queryKey: ['dashboard-mrr'], queryFn: fetchMrr });
   const healthQ = useQuery({ queryKey: ['dashboard-device-health'], queryFn: fetchDeviceHealth });
   const overdueQ = useQuery({ queryKey: ['dashboard-overdue'], queryFn: fetchOverdue });
+
+  // ── Live notifications via WebSocket ───────────────────────────────────────
+  const { lastMessage: liveEvent, connected: wsConnected } = useWebSocket('notifications');
+  const [liveCount, setLiveCount] = useState(0);
+
+  useEffect(() => {
+    if (!liveEvent) return;
+    setLiveCount(n => n + 1);
+    // Refresh KPIs silently when a relevant event arrives
+    const ev = liveEvent.event;
+    if (ev === 'invoice' || ev === 'payment' || ev === 'overdue') {
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-overdue'] });
+    } else if (ev === 'ticket') {
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+    }
+  }, [liveEvent, queryClient]);
 
   const summary  = summaryQ.data;
   const mrrRows  = mrrQ.data ?? [];
@@ -179,6 +199,23 @@ export function Dashboard() {
               <> &nbsp;·&nbsp; <span style={styles.roleBadge}>{user.role}</span></>
             )}
           </p>
+        </div>
+        <div style={styles.liveArea}>
+          <span
+            style={{
+              ...styles.liveDot,
+              background: wsConnected ? '#10b981' : '#9ca3af',
+            }}
+            title={wsConnected ? t('dashboard.liveConnected') : t('dashboard.liveDisconnected')}
+          />
+          <span style={styles.liveLabel}>
+            {wsConnected ? t('dashboard.liveConnected') : t('dashboard.liveDisconnected')}
+          </span>
+          {liveCount > 0 && (
+            <span style={styles.liveBadge} title={t('dashboard.liveEvents', { count: liveCount })}>
+              {liveCount}
+            </span>
+          )}
         </div>
       </div>
 
@@ -330,6 +367,11 @@ const styles = {
   },
   header: {
     marginBottom: '1.5rem',
+    display: 'flex' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    flexWrap: 'wrap' as const,
+    gap: '0.5rem',
   },
   pageTitle: { margin: 0, color: 'var(--text-primary)', fontSize: '1.5rem', fontWeight: 700 },
   welcomeMsg: { margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' },
@@ -392,4 +434,28 @@ const styles = {
   tableEmpty: { color: 'var(--text-muted)', fontStyle: 'italic' as const, margin: 0 },
   tableError: { color: '#ef4444', margin: 0 },
   tableMore: { color: 'var(--text-dimmed)', fontSize: '0.8rem', marginTop: '0.5rem', margin: '0.5rem 0 0' },
+  liveArea: {
+    display: 'flex' as const,
+    alignItems: 'center' as const,
+    gap: '0.4rem',
+    fontSize: '0.78rem',
+    color: 'var(--text-muted)',
+  },
+  liveDot: {
+    display: 'inline-block' as const,
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    flexShrink: 0,
+  },
+  liveLabel: { color: 'var(--text-muted)' },
+  liveBadge: {
+    background: '#e25822',
+    color: '#fff',
+    borderRadius: 10,
+    padding: '0 6px',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    lineHeight: '1.4',
+  },
 };
