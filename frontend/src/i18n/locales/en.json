@@ -12,7 +12,8 @@
     "edit": "Edit",
     "search": "Search…",
     "errorDash": "—",
-    "na": "N/A"
+    "na": "N/A",
+    "saving": "Saving…"
   },
   "login": {
     "title": "🔥 FireISP 5.0",
@@ -46,7 +47,8 @@
     "cfdi": "🏛️ CFDI",
     "users": "🔑 Users",
     "reports": "📈 Reports",
-    "settings": "⚙️ Settings"
+    "settings": "⚙️ Settings",
+    "profecoComplaints": "🏛️ PROFECO"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -250,5 +252,57 @@
     "close": "Close",
     "noEntries": "No announcements yet.",
     "newBadge": "New"
+  },
+  "profecoComplaints": {
+    "title": "🏛️ PROFECO Complaints",
+    "newComplaint": "New Complaint",
+    "exportCsv": "Export CSV",
+    "exportJson": "Export JSON",
+    "filterStatus": "Filter by status",
+    "filterCategory": "Filter by category",
+    "allStatuses": "All statuses",
+    "allCategories": "All categories",
+    "loading": "Loading…",
+    "error": "Failed to load complaints.",
+    "noComplaints": "No complaints found.",
+    "errorCreate": "Failed to create complaint.",
+    "errorRequired": "Consumer name and description are required.",
+    "table": {
+      "folio": "Folio PROFECO",
+      "consumer": "Consumer",
+      "serviceType": "Service",
+      "category": "Category",
+      "status": "Status",
+      "reportedAt": "Reported"
+    },
+    "status": {
+      "recibida": "Received",
+      "en_tramite": "In Process",
+      "resuelta": "Resolved",
+      "archivada": "Archived"
+    },
+    "category": {
+      "facturacion": "Billing",
+      "calidad_servicio": "Service Quality",
+      "contrato": "Contract",
+      "suspension_indebida": "Improper Suspension",
+      "cobros_no_autorizados": "Unauthorized Charges",
+      "atencion_cliente": "Customer Service",
+      "otro": "Other"
+    },
+    "serviceType": {
+      "internet": "Internet",
+      "telefonia": "Telephony",
+      "television": "Television",
+      "paquete": "Bundle"
+    },
+    "form": {
+      "consumerName": "Consumer Name",
+      "serviceType": "Service Type",
+      "category": "Category",
+      "description": "Description",
+      "resolutionRequested": "Resolution Requested",
+      "folioProfeco": "Folio PROFECO"
+    }
   }
 }
