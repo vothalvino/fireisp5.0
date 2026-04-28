@@ -741,7 +741,7 @@ WHERE it.transaction_type = 'sell_to_client'
 GROUP BY ii.id;
 ```
 
-See the [`docs/`](docs/) directory for detailed guides on [API usage](docs/API_GUIDE.md), [architecture](docs/architecture.md), [deployment](docs/deployment.md) (includes Helm chart + Argo CD GitOps), [RADIUS setup](docs/radius-setup.md), [backup & restore](docs/backup-restore.md), [RBAC permissions](docs/rbac-permissions.md), [webhook events](docs/webhook-events.md), [FireRelay clustering](docs/firerelay.md), [tenant database isolation](docs/tenant-database-isolation.md), [TLS setup](docs/tls-setup.md), [load testing](docs/load-testing.md), [SLOs & alerting](docs/slo.md), [pen-test guide](docs/pentest.md), [privacy & DSAR](docs/privacy.md), [secrets management](docs/secrets-management.md), [DR drill](docs/dr-drill.md), and the [operational runbook](docs/runbook.md).
+See the [`docs/`](docs/) directory for detailed guides on [API usage](docs/API_GUIDE.md), [architecture](docs/architecture.md), [deployment](docs/deployment.md) (includes Helm chart + Argo CD GitOps), [RADIUS setup](docs/radius-setup.md), [backup & restore](docs/backup-restore.md), [RBAC permissions](docs/rbac-permissions.md), [webhook events](docs/webhook-events.md), [FireRelay clustering](docs/firerelay.md), [tenant database isolation](docs/tenant-database-isolation.md), [TLS setup](docs/tls-setup.md), [load testing](docs/load-testing.md), [SLOs & alerting](docs/slo.md), [pen-test guide](docs/pentest.md), [privacy & DSAR](docs/privacy.md), [secrets management](docs/secrets-management.md), [DR drill](docs/dr-drill.md), the [operational runbook](docs/runbook.md), and [video walkthroughs](docs/videos/) for data migration and FireRelay installation.
 
 ## Getting Started (from Source)
 

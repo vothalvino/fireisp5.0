@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 1280 720">
+  <title id="title">FireRelay agent install video walkthrough</title>
+  <desc id="desc">Animated six-scene walkthrough covering the FireRelay scaling trigger, master promotion, worker install, worker environment, health checks, and safe operations.</desc>
+  <style>
+    svg { font-family: Inter, "Segoe UI", Arial, sans-serif; background: #07111f; }
+    .brand { fill: #ff7a18; font-weight: 800; letter-spacing: 1px; }
+    .muted { fill: #9fb2cc; font-size: 28px; }
+    .title { fill: #f8fbff; font-size: 56px; font-weight: 800; }
+    .body { fill: #dce8f8; font-size: 34px; font-weight: 600; }
+    .small { fill: #c8d7ea; font-size: 25px; }
+    .code { fill: #c7f9cc; font: 24px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .panel { fill: #0f2035; stroke: #24496f; stroke-width: 3; rx: 24; }
+    .node { fill: #122a44; stroke: #38bdf8; stroke-width: 4; rx: 22; }
+    .line { stroke: #ff7a18; stroke-width: 6; stroke-linecap: round; }
+    .scene { opacity: 0; }
+    #s1 { animation: show1 48s infinite; }
+    #s2 { animation: show2 48s infinite; }
+    #s3 { animation: show3 48s infinite; }
+    #s4 { animation: show4 48s infinite; }
+    #s5 { animation: show5 48s infinite; }
+    #s6 { animation: show6 48s infinite; }
+    #progress { animation: progress 48s linear infinite; transform-origin: 120px 662px; }
+    @keyframes show1 { 0%,15%{opacity:1} 16%,100%{opacity:0} }
+    @keyframes show2 { 0%,15%{opacity:0} 16%,31%{opacity:1} 32%,100%{opacity:0} }
+    @keyframes show3 { 0%,31%{opacity:0} 32%,47%{opacity:1} 48%,100%{opacity:0} }
+    @keyframes show4 { 0%,47%{opacity:0} 48%,63%{opacity:1} 64%,100%{opacity:0} }
+    @keyframes show5 { 0%,63%{opacity:0} 64%,79%{opacity:1} 80%,100%{opacity:0} }
+    @keyframes show6 { 0%,79%{opacity:0} 80%,100%{opacity:1} }
+    @keyframes progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  </style>
+  <rect width="1280" height="720" fill="#07111f"/>
+  <text x="64" y="74" class="brand">FIREISP 5.0</text>
+  <text x="64" y="118" class="muted">Production docs walkthrough</text>
+  <rect x="64" y="640" width="1152" height="44" rx="22" fill="#0f2035" stroke="#24496f" stroke-width="2"/>
+  <rect id="progress" x="120" y="662" width="1040" height="8" rx="4" fill="#ff7a18"/>
+
+  <g id="s1" class="scene">
+    <text x="64" y="196" class="title">FireRelay: add capacity</text>
+    <text x="64" y="260" class="body">Start from a healthy standalone node.</text>
+    <rect x="760" y="290" width="290" height="150" class="node"/>
+    <text x="812" y="354" class="body">Node 1</text>
+    <text x="810" y="402" class="small">standalone</text>
+    <rect x="130" y="305" width="530" height="235" class="panel"/>
+    <text x="170" y="360" class="small">✓ Current node healthy</text>
+    <text x="170" y="410" class="small">✓ Backups current</text>
+    <text x="170" y="460" class="small">✓ TLS and DNS ready</text>
+    <text x="170" y="510" class="small">✓ Approaching ~30,000-client threshold</text>
+  </g>
+
+  <g id="s2" class="scene">
+    <text x="64" y="196" class="title">Promote Node 1 to master</text>
+    <text x="64" y="260" class="body">It keeps serving local clients and starts routing.</text>
+    <rect x="105" y="300" width="1070" height="250" class="panel"/>
+    <text x="145" y="352" class="code">FIRERELAY_MODE=master</text>
+    <text x="145" y="394" class="code">FIRERELAY_NODES=["https://node2.fireisp.com"]</text>
+    <text x="145" y="436" class="code">FIRERELAY_HEALTH_INTERVAL=30000</text>
+    <text x="145" y="478" class="code">FIRERELAY_REQUEST_TIMEOUT=5000</text>
+    <text x="145" y="520" class="code">FIRERELAY_MAX_RETRIES=3</text>
+  </g>
+
+  <g id="s3" class="scene">
+    <text x="64" y="196" class="title">Install the worker</text>
+    <text x="64" y="260" class="body">Use the same FireISP codebase on Node 2.</text>
+    <rect x="150" y="334" width="980" height="168" class="panel"/>
+    <text x="200" y="390" class="code">pnpm install --frozen-lockfile</text>
+    <text x="200" y="434" class="code">pnpm run migrate</text>
+    <text x="200" y="478" class="code">pnpm start</text>
+  </g>
+
+  <g id="s4" class="scene">
+    <text x="64" y="196" class="title">Configure Node 2 as worker</text>
+    <text x="64" y="260" class="body">Set master URL, node ID, and a unique ID range.</text>
+    <rect x="96" y="285" width="1088" height="300" class="panel"/>
+    <text x="135" y="337" class="code">FIRERELAY_MODE=worker</text>
+    <text x="135" y="379" class="code">FIRERELAY_MASTER_URL=https://node1.fireisp.com</text>
+    <text x="135" y="421" class="code">FIRERELAY_NODE_ID=node2</text>
+    <text x="135" y="463" class="code">FIRERELAY_AUTO_INCREMENT_OFFSET=10000001</text>
+    <text x="135" y="505" class="code">FIRERELAY_MAX_CLIENTS=10000</text>
+    <text x="135" y="547" class="code">FIRERELAY_MAX_DEVICES=3000</text>
+  </g>
+
+  <g id="s5" class="scene">
+    <text x="64" y="196" class="title">Verify health and routing</text>
+    <text x="64" y="260" class="body">Master sees the worker, then routes new clients.</text>
+    <rect x="170" y="335" width="250" height="130" class="node"/>
+    <text x="224" y="410" class="small">Master</text>
+    <line x1="430" y1="400" x2="825" y2="400" class="line"/>
+    <rect x="835" y="335" width="270" height="130" class="node"/>
+    <text x="904" y="410" class="small">Worker</text>
+    <text x="262" y="530" class="code">GET /api/firerelay/health → active</text>
+  </g>
+
+  <g id="s6" class="scene">
+    <text x="64" y="196" class="title">Operate safely</text>
+    <text x="64" y="260" class="body">Use lifecycle states before maintenance.</text>
+    <rect x="140" y="318" width="1000" height="238" class="panel"/>
+    <text x="190" y="378" class="small">active — accepts new clients</text>
+    <text x="190" y="428" class="small">draining — existing clients only</text>
+    <text x="190" y="478" class="small">maintenance — skipped for new assignments</text>
+    <text x="190" y="528" class="small">offline — recover node, do not auto-reassign data</text>
+  </g>
+</svg>
