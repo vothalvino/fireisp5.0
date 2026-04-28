@@ -68,7 +68,7 @@ function extractResourcePaths(spec, resource) {
   const result = [];
 
   for (const [specPath, pathObj] of Object.entries(spec.paths || {})) {
-    if (specPath === prefix || specPath.startsWith(prefix + '/') || specPath.startsWith(prefix + '{')) {
+    if (specPath === prefix || specPath.startsWith(prefix + '/') || specPath.startsWith(prefix + '/{')) {
       const methods = [];
       for (const [method, op] of Object.entries(pathObj)) {
         if (['get', 'post', 'put', 'patch', 'delete'].includes(method)) {
