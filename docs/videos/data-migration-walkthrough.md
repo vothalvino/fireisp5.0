@@ -31,7 +31,7 @@ On-screen checklist:
 
 Narration:
 
-> Export each legacy dataset as UTF-8 CSV. Normalize dates to `YYYY-MM-DD`, validate required columns, and split files larger than 10 MiB or 10,000 rows.
+> Export each legacy dataset as UTF-8 CSV. Normalize dates to `YYYY-MM-DD`, validate required columns, and split files larger than the API-enforced 10 MiB or 10,000-row limits.
 
 On-screen checklist:
 
@@ -42,7 +42,7 @@ On-screen checklist:
 - `payments.csv`
 - UTF-8 encoding
 - Dates normalized to `YYYY-MM-DD`
-- Files split below 10 MiB and 10,000 rows
+- Files split below the API-enforced 10 MiB and 10,000-row limits
 
 ### 3. Import in dependency order
 

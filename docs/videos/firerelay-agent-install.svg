@@ -44,7 +44,7 @@
     <text x="170" y="360" class="small">✓ Current node healthy</text>
     <text x="170" y="410" class="small">✓ Backups current</text>
     <text x="170" y="460" class="small">✓ TLS and DNS ready</text>
-    <text x="170" y="510" class="small">✓ ~30K-client capacity threshold</text>
+    <text x="170" y="510" class="small">✓ ~30,000-client capacity threshold</text>
   </g>
 
   <g id="s2" class="scene">
