@@ -6,10 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run gen:api && tsc --noEmit && vite build",
+    "build": "pnpm run gen:api && tsc --noEmit && vite build",
     "preview": "vite preview",
     "gen:api": "openapi-typescript ../docs/openapi.json -o src/api/schema.d.ts",
-    "lint": "npm run gen:api && tsc --noEmit",
+    "lint": "pnpm run gen:api && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

@@ -18,5 +18,5 @@
 module.exports = {
   'src/**/*.js': 'eslint --fix',
   'frontend/src/**/*.{ts,tsx}': () =>
-    'npm --prefix frontend run gen:api && npx --prefix frontend tsc --noEmit',
+    'pnpm --dir frontend run gen:api && pnpm --dir frontend exec tsc --noEmit',
 };

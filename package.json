@@ -35,13 +35,20 @@
   ],
   "license": "MIT",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.0.0",
+    "pnpm": ">=10.0.0"
   },
-  "overrides": {
-    "glob": "^13.0.6",
-    "test-exclude": {
-      "glob": "^7.2.0"
-    }
+  "packageManager": "pnpm@10.33.2",
+  "pnpm": {
+    "overrides": {
+      "glob": "^13.0.6",
+      "test-exclude>glob": "^7.2.0"
+    },
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "msgpackr-extract",
+      "unrs-resolver"
+    ]
   },
   "dependencies": {
     "@node-saml/node-saml": "^5.1.0",

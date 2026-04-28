@@ -17,27 +17,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: npx eslint src/
+        run: pnpm exec eslint src/
 
       - name: Security audit
-        run: npm audit --audit-level=high
+        run: pnpm audit --audit-level=high
 
       - name: Run tests with coverage
-        run: npx jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=text --coverageReporters=lcov
+        run: pnpm exec jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=text --coverageReporters=lcov
 
       - name: Check coverage threshold
         run: |
-          npx jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=json-summary >/dev/null
+          pnpm exec jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=json-summary >/dev/null
           COVERAGE=$(node -e "const s=require('./coverage/coverage-summary.json'); console.log(s.total.lines.pct);")
           echo "Line coverage: ${COVERAGE}%"
           node -e "const pct=parseFloat(process.argv[1]); if (pct < 70) { console.error('Coverage below 70% threshold'); process.exit(1); }" "$COVERAGE"
@@ -197,21 +200,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache: pnpm
 
-      - name: Install frontend dependencies
-        run: npm --prefix frontend ci
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Run frontend tests
-        run: npm --prefix frontend test
+        run: pnpm --filter fireisp-frontend test
 
       - name: Run frontend type-check
-        run: npm --prefix frontend run lint
+        run: pnpm --filter fireisp-frontend run lint
 
   container-scan:
     runs-on: ubuntu-latest
@@ -329,14 +334,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Wait for MySQL
         run: |
@@ -355,8 +363,8 @@ jobs:
           JWT_SECRET: zap-dast-ci-jwt-secret-for-github-actions-only-not-for-production
           ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY || '0000000000000000000000000000000000000000000000000000000000000000' }}
         run: |
-          npm run migrate
-          npm run seed
+          pnpm run migrate
+          pnpm run seed
 
       - name: Start backend server
         env:
