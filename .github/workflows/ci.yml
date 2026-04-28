@@ -32,6 +32,9 @@ jobs:
       - name: Lint
         run: pnpm exec eslint src/
 
+      - name: Spec drift check
+        run: node src/scripts/spec-drift.js
+
       - name: Security audit
         run: pnpm audit --audit-level=high
 
