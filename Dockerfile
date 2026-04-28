@@ -11,7 +11,7 @@ COPY frontend/package.json ./frontend/
 RUN pnpm install --frozen-lockfile --filter fireisp-frontend
 
 COPY frontend/ ./frontend/
-COPY docs/openapi.json /docs/openapi.json
+COPY docs/openapi.json ./docs/openapi.json
 RUN pnpm --filter fireisp-frontend run build
 
 # ── Stage 2: production API server ────────────────────────────────────────────
