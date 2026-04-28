@@ -31,7 +31,7 @@ On-screen checklist:
 
 Narration:
 
-> Export each legacy dataset as UTF-8 CSV. Normalize dates to `YYYY-MM-DD`, validate required columns, and split files larger than 10 MB or 10,000 rows.
+> Export each legacy dataset as UTF-8 CSV. Normalize dates to `YYYY-MM-DD`, validate required columns, and split files larger than 10 MiB or 10,000 rows.
 
 On-screen checklist:
 

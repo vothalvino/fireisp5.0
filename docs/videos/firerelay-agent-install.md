@@ -17,14 +17,14 @@ FireRelay uses the same FireISP codebase on every node. Promote the first node t
 
 Narration:
 
-> Start from a healthy standalone FireISP node. Add FireRelay only when capacity requires it, typically around the 30,000-client capacity threshold or another configured capacity threshold.
+> Start from a healthy standalone FireISP node. Add FireRelay only when the ~30,000-client capacity threshold is reached.
 
 On-screen checklist:
 
 - Current node healthy
 - Backups current
 - TLS and DNS ready for both nodes
-- Approximately 30,000-client capacity threshold reached
+- ~30,000-client capacity threshold reached
 
 ### 2. Promote Node 1 to master
 
