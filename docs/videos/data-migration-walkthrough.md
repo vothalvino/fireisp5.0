@@ -42,7 +42,7 @@ On-screen checklist:
 - `payments.csv`
 - UTF-8 encoding
 - Dates normalized to `YYYY-MM-DD`
-- Files split below 10 MB and 10,000 rows
+- Files split below 10 MiB and 10,000 rows
 
 ### 3. Import in dependency order
 
@@ -97,7 +97,7 @@ Narration:
 
 > Keep the pre-migration backup until business sign-off is complete. If the migration must be reverted, restore the backup, verify row counts, and re-enable the MySQL event scheduler.
 
-On-screen checklist:
+On-screen content:
 
 - Backup filename recorded
 - Restore command documented

@@ -40,10 +40,11 @@
     <rect x="760" y="290" width="290" height="150" class="node"/>
     <text x="812" y="354" class="body">Node 1</text>
     <text x="810" y="402" class="small">standalone</text>
-    <rect x="130" y="332" width="470" height="165" class="panel"/>
-    <text x="170" y="388" class="small">✓ Backups current</text>
-    <text x="170" y="438" class="small">✓ TLS and DNS ready</text>
-    <text x="170" y="488" class="small">✓ Capacity threshold reached</text>
+    <rect x="130" y="305" width="530" height="235" class="panel"/>
+    <text x="170" y="360" class="small">✓ Current node healthy</text>
+    <text x="170" y="410" class="small">✓ Backups current</text>
+    <text x="170" y="460" class="small">✓ TLS and DNS ready</text>
+    <text x="170" y="510" class="small">✓ ~30K-client capacity trigger</text>
   </g>
 
   <g id="s2" class="scene">

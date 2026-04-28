@@ -24,7 +24,7 @@ On-screen checklist:
 - Current node healthy
 - Backups current
 - TLS and DNS ready for both nodes
-- Capacity threshold reached
+- Approximately 30,000-client capacity threshold reached
 
 ### 2. Promote Node 1 to master
 
@@ -98,4 +98,3 @@ On-screen states:
 - `draining` — existing clients only
 - `maintenance` — skipped for new assignments
 - `offline` — unreachable until recovered
-
