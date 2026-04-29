@@ -15,6 +15,7 @@ services:
       --event-scheduler=ON
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
+      --host-cache-size=0
     healthcheck:
       test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
       interval: 10s

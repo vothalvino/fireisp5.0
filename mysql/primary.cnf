@@ -25,7 +25,10 @@ collation-server       = utf8mb4_unicode_ci
 # --- Connection / InnoDB tuning ---
 # default-authentication-plugin was removed: caching_sha2_password is the
 # MySQL 8.0 default and the only non-deprecated option going forward.
+# host_cache_size=0 replaces the deprecated --skip-host-cache flag that was
+# previously injected by the MySQL Docker image entrypoint.
 event-scheduler    = ON
+host-cache-size    = 0
 max-connections    = 300
 innodb-buffer-pool-size = 512M
 innodb-log-file-size    = 128M
