@@ -12,6 +12,9 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Silence DEP0040: built-in `punycode` is deprecated in Node.js 24; the
+  # warning comes from transitive deps (uri-js, tr46) that we don't control.
+  NODE_OPTIONS: --disable-warning=DEP0040
 
 jobs:
   lint-and-test:
