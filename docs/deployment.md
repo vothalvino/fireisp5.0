@@ -144,7 +144,7 @@ curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 sudo apt-get install -y nodejs
 ```
 
-### 2. Install MySQL 8.0
+### 2. Install MySQL 8.4
 
 ```bash
 sudo apt-get install -y mysql-server
@@ -293,7 +293,7 @@ services:
       retries: 3
 
   db:
-    image: mysql:8.0
+    image: mysql:8.4.9
     deploy:
       placement:
         constraints:

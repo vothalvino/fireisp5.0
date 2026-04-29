@@ -13,10 +13,10 @@ version: '3.8'
 
 services:
   # ---------------------------------------------------------------------------
-  # MySQL 8 — ephemeral, RAM-disk backed for speed
+  # MySQL 8.4 — ephemeral, RAM-disk backed for speed
   # ---------------------------------------------------------------------------
   e2e-db:
-    image: mysql:8.0
+    image: mysql:8.4.9
     environment:
       MYSQL_ROOT_PASSWORD: e2epassword
       MYSQL_DATABASE: fireisp_e2e

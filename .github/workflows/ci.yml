@@ -113,7 +113,7 @@ jobs:
 
     services:
       mysql:
-        image: mysql:8.0
+        image: mysql:8.4.9
         env:
           MYSQL_ROOT_PASSWORD: fireisp_test
           MYSQL_DATABASE: fireisp_test
@@ -322,7 +322,7 @@ jobs:
 
     services:
       mysql:
-        image: mysql:8.0
+        image: mysql:8.4.9
         env:
           MYSQL_ROOT_PASSWORD: zaptest
           MYSQL_DATABASE: fireisp_dast

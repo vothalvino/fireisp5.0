@@ -9,14 +9,16 @@ server-id          = 1
 log-bin            = mysql-bin
 binlog-format      = ROW
 binlog-row-image   = FULL
-expire-logs-days   = 7
+# expire-logs-days was removed in MySQL 8.4; use binlog-expire-logs-seconds instead
+binlog-expire-logs-seconds = 604800
 max-binlog-size    = 256M
 sync-binlog        = 1
 
 # --- GTID replication ---
 gtid-mode          = ON
 enforce-gtid-consistency = ON
-log-slave-updates  = ON
+# log-slave-updates was removed in MySQL 8.4; use log-replica-updates
+log-replica-updates = ON
 
 # --- Character set ---
 character-set-server   = utf8mb4
@@ -24,14 +26,16 @@ collation-server       = utf8mb4_unicode_ci
 
 # --- Connection / InnoDB tuning ---
 # default-authentication-plugin was removed: caching_sha2_password is the
-# MySQL 8.0 default and the only non-deprecated option going forward.
+# MySQL 8.4 default and the only non-deprecated option going forward.
 # host_cache_size=0 replaces the deprecated --skip-host-cache flag that was
 # previously injected by the MySQL Docker image entrypoint.
 event-scheduler    = ON
 host-cache-size    = 0
 max-connections    = 300
 innodb-buffer-pool-size = 512M
-innodb-log-file-size    = 128M
+# innodb-log-file-size was removed in MySQL 8.4; use innodb-redo-log-capacity
+# (256M = 2 × 128M that was previously configured via innodb-log-file-size)
+innodb-redo-log-capacity = 268435456
 innodb-flush-log-at-trx-commit = 1
 innodb-flush-method = O_DIRECT
 

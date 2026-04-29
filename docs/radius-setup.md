@@ -37,7 +37,7 @@ FireISP manages RADIUS subscriber accounts in the `radius` table. Each row repre
 ## Prerequisites
 
 - FreeRADIUS 3.x installed (`apt install freeradius freeradius-mysql`)
-- MySQL 8.0+ with the FireISP `radius` table populated
+- MySQL 8.4+ with the FireISP `radius` table populated
 - Network connectivity between FreeRADIUS and the MySQL server
 
 ---

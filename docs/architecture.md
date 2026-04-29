@@ -61,7 +61,7 @@
 │                       Data Layer                                    │
 │                                                                     │
 │  ┌────────────────┐  ┌──────────────┐  ┌───────────────────────┐   │
-│  │  MySQL 8.0     │  │   Models     │  │  Migrations (150)     │   │
+│  │  MySQL 8.4     │  │   Models     │  │  Migrations (150)     │   │
 │  │  (mysql2 pool) │  │  BaseModel   │  │  Triggers & Events    │   │
 │  │                │  │  89 entities │  │  Stored Procedures    │   │
 │  └────────────────┘  └──────────────┘  └───────────────────────┘   │
@@ -207,7 +207,7 @@ queue for background processing).
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Framework | Express 5 | Mature, huge ecosystem, async error handling |
-| Database | MySQL 8.0 | Triggers, events, partitioning, RADIUS compat |
+| Database | MySQL 8.4 | Triggers, events, partitioning, RADIUS compat |
 | Auth | JWT + refresh rotation | Stateless, scalable, secure rotation |
 | Real-time | SSE (not WebSocket) | Simpler, works through proxies, one-way push |
 | PDF | PDFKit | No external deps, full control, CFDI compliance |
@@ -331,7 +331,7 @@ queue for background processing).
      │  │        │   │            ▼                        ▼
      │  │        │   │     ┌────────────┐          ┌────────────┐
      │  │        │   │     │ snmpPoller │          │    db      │
-     │  │        │   │     │ (metrics)  │          │ (MySQL 8)  │
+     │  │        │   │     │ (metrics)  │          │ (MySQL 8.4)│
      │  │        │   │     └────────────┘          └────────────┘
      │  │        │   │                                    ▲
      │  │        │   └──────────────────────────┐         │
