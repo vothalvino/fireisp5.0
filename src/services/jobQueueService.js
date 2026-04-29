@@ -16,7 +16,7 @@ const logger = require('../utils/logger');
 // ---------------------------------------------------------------------------
 // Well-known queue names — used for stats even before any jobs are added
 // ---------------------------------------------------------------------------
-const QUEUE_NAMES = ['scheduled-task', 'webhook-delivery', 'sms-send', 'cfdi-stamp', 'config-backup', 'ai-triage'];
+const QUEUE_NAMES = ['scheduled-task', 'webhook-delivery', 'sms-send', 'cfdi-stamp', 'config-backup', 'ai-triage', 'ai-backfill-embeddings', 'ai-cost-rollup'];
 
 // ---------------------------------------------------------------------------
 // In-process queue (fallback when BullMQ is not available)
