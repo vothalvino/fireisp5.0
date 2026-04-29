@@ -53,6 +53,8 @@
     ]
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.91.1",
+    "@google/generative-ai": "^0.24.1",
     "@node-saml/node-saml": "^5.1.0",
     "@sentry/node": "^10.49.0",
     "bcryptjs": "^3.0.3",
@@ -70,6 +72,7 @@
     "net-snmp": "^3.26.1",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.5",
+    "openai": "^6.35.0",
     "openid-client": "^5.7.1",
     "pdfkit": "^0.18.0",
     "pino": "^10.3.1",
