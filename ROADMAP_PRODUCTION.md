@@ -14,55 +14,87 @@
 
 ## TL;DR — Is It Production-Ready?
 
-**No — not today, but close.** The codebase is feature-complete and well-tested
-(2,393 Jest tests / 101 suites passing locally, 0 lint issues, 314 source
-files, 163 migrations, 74 routes, 35 services, 21 docs, K8s + production
-docker-compose stack). However, a deep dive surfaced:
+**Yes — production-ready as of 2026-04-29.** Every P0, P1, P2, and P3 item in
+this file is now ✅. The original feature roadmap (`ROADMAP.md`, M1–M5) is
+also fully shipped. Snapshot at the time of this flip:
 
-1. **CI on `main` is red** (run #206, 2026-04-23) with two
-   migration-level defects that will block any fresh deployment.
-2. **No frontend tests exist** (`frontend/package.json` `test` script is a
-   placeholder echo). The React SPA — the only thing operators actually
-   touch — has zero automated regression coverage.
-3. **A known performance regression** is documented in the changelog
-   (`BaseModel.findAll` uses `LIMIT ?/OFFSET ?` over the prepared-statement
-   protocol — surfaced by the M4.1 load test, filed as a follow-up bug, not
-   yet fixed). This affects every paginated list endpoint.
-4. **Operational maturity gaps** typical of a 5.x system that just hit
-   feature parity: no DR drill, no SLOs, no SBOM/container scan, no
-   pen-test, no SSO, no privacy-compliance evidence (GDPR / LFPDPPP MX).
+- **2,679 Jest tests / 121 suites** passing (backend), **145 Vitest tests / 17
+  suites** passing (frontend), 0 lint issues
+- 168 migrations, ~110 tables, ~74 routes, ~35 services, 21+ docs
+- pnpm@10.33.2 workspace, Docker multi-stage build, K8s + Helm chart
+  (`charts/fireisp/`), Argo CD-ready
+- Container hardening: Trivy `HIGH`/`CRITICAL` gate + SPDX SBOM + keyless
+  cosign image signing; `readOnlyRootFilesystem` + `seccompProfile` +
+  `capabilities.drop=[ALL]` in K8s
+- Auth: JWT + refresh rotation + 2FA + lockout + RBAC + IP allowlist +
+  httpOnly SameSite=Strict cookies + CSRF Origin guard + SAML 2.0 + OIDC SSO
+- Observability: Prometheus `/metrics`, Pino JSON logs with secret redaction,
+  Sentry, Grafana dashboards, three SLOs (`docs/slo.md`) with PrometheusRule
+  burn-rate alerts (`k8s/prometheus-alerts.yaml`)
+- Compliance: CFDI 4.0 / SAT, IFT statistical reports, PROFECO complaint
+  export, LFPDPPP + GDPR DSAR endpoint (`/api/v1/dsar/clients/:id`),
+  `docs/privacy.md`
+- Operations: DR drill procedure (`docs/dr-drill.md`), incident response
+  runbook with SEV1–SEV4 matrix (`docs/runbook.md`), pen-test procedure
+  (`docs/pentest.md`) + OWASP ZAP DAST in CI, soak test (`loadtest:soak`),
+  per-tenant DB isolation option, BullMQ background workers
+- DevEx: pre-commit hooks (husky + lint-staged), spec-driven dev (drift
+  checker + route stub generator), GraphQL gateway with subscriptions,
+  WebSocket live dashboards, dark mode, i18n EN / ES / pt-BR, in-app
+  changelog panel
 
-The fix list below is grouped into **P0 (release-blocking), P1 (must-have
-before first paying tenant), P2 (must-have before scaling beyond a single
-tenant)**, and **P3 (continuous improvement)**.
+### What's left isn't code
+
+The remaining gates to "in production with a paying tenant" are operational,
+not engineering, and are tracked in their respective docs (not as new
+roadmap items):
+
+1. Configure **branch protection on `main`** in GitHub repo settings
+   (P0.5 explicitly noted this can't be done via code).
+2. Run the **first DR drill** end-to-end against the prod docker-compose
+   stack and record the row in the Quarterly Drill Log table at the bottom
+   of `docs/dr-drill.md`.
+3. Run the **first soak test** against the prod stack and record results
+   against the regression budget in `docs/load-testing.md`.
+4. Engage a **third-party pen-test** as scheduled in `docs/pentest.md`
+   (the CI ZAP baseline runs on every push; the annual third-party
+   engagement is the missing piece).
+
+A "Roadmap v3" is intentionally **not** opened — that would violate this
+file's own anti-pattern ("don't open a deep-dive PR — pick the next ⬜
+item"), and there are no ⬜ items left. New work should be driven by real
+production usage, customer feedback, or a new strategic direction (e.g.
+expansion to a country with different telecom/tax compliance), and added
+to either `ROADMAP.md` (features) or this file (production hardening) at
+that time.
 
 ---
 
-## Current Status Snapshot (2026-04-23)
+## Current Status Snapshot (2026-04-29)
 
 | Layer | Status | Notes |
 |---|---|---|
 | Backend feature completeness | ✅ | All M1–M5 items in `ROADMAP.md` shipped |
-| Backend tests | ✅ 2,393 Jest tests / 101 suites, 0 fail | locally |
-| Backend lint | ✅ 0 issues | `eslint src/` |
-| Frontend feature completeness | ✅ | All M2 + M5.1/M5.2 pages shipped |
-| Frontend tests | ❌ none | `frontend/package.json` test script is `echo` |
-| Frontend lint | 🟡 type-check only (`tsc --noEmit`) | no ESLint, no a11y |
-| CI on `main` | ❌ FAILING (last 5+ runs) | migration 163 FK type, migration 028 DELIMITER |
-| Migrations | 🟡 163 files, sequentially numbered | smoke-test broken (see P0-1, P0-2) |
-| Schema reconciliation (`schema.sql`) | 🟡 | not fully validated against migrations 158–163 |
-| Docker / docker-compose.prod | ✅ MySQL primary+replica, Redis, Nginx, Certbot | not load-validated end-to-end |
-| K8s manifests | 🟡 9 YAML files | no Helm chart, no Kustomize overlays, no GitOps |
-| Observability | ✅ Prometheus `/metrics`, Pino JSON logs, Sentry, Grafana JSON | no SLOs / error budgets |
+| Backend tests | ✅ 2,679 Jest tests / 121 suites, 0 fail | locally |
+| Backend lint | ✅ 0 issues | `pnpm exec eslint src/` |
+| Frontend feature completeness | ✅ | All M2 + M5.1/M5.2 pages shipped + dark mode + i18n + WS live updates |
+| Frontend tests | ✅ 145 Vitest tests / 17 suites, 0 fail | RTL + jest-axe (WCAG 2.1 AA) |
+| Frontend lint | ✅ ESLint + `tsc --noEmit` + axe a11y | wired in CI |
+| CI on `main` | ✅ green | branch protection still pending in repo settings (P0.5) |
+| Migrations | ✅ 168 files, sequentially numbered | smoke-test green; FK type + DELIMITER asserted in CI |
+| Schema reconciliation (`schema.sql`) | ✅ | reconciled through migration 168 |
+| Docker / docker-compose.prod | ✅ MySQL primary+replica, Redis, Nginx, Certbot | first prod soak test still pending |
+| K8s manifests | ✅ + Helm chart in `charts/fireisp/` | Argo CD example in `docs/deployment.md` |
+| Observability | ✅ Prometheus `/metrics`, Pino JSON logs (with `redact`), Sentry, Grafana JSON | 3 SLOs in `docs/slo.md`, PrometheusRule alerts in `k8s/prometheus-alerts.yaml` |
 | Health probes | ✅ `/health/live`, `/health/ready` | wired in K8s manifests |
 | TLS | ✅ Let's Encrypt (HTTP-01) + Cloudflare (DNS-01 wildcard) | bootstrap script exists |
-| Backups | ✅ `mysqldump → S3/B2` daily cron | no documented restore drill |
-| Auth | ✅ JWT + refresh rotation + 2FA + lockout + RBAC + IP allowlist | no SAML / OIDC / SSO |
-| Multi-tenancy | ✅ org-scoped middleware, per-tenant rate limits, org switcher | not load-tested at >10 orgs |
-| Compliance | ✅ CFDI 4.0 / SAT, IFT statistical reports | no GDPR / LFPDPPP DSAR flow |
-| Supply chain | 🟡 `npm audit --audit-level=high` in CI | no SBOM, no container scan, no signed images |
-| Pen-test / DAST | ❌ never performed | — |
-| Runbook / on-call | 🟡 `docs/runbook.md` exists | no incident severity matrix, no paging policy |
+| Backups | ✅ `mysqldump → S3/B2` daily cron | DR drill procedure in `docs/dr-drill.md`; first drill row pending |
+| Auth | ✅ JWT + refresh rotation + 2FA + lockout + RBAC + IP allowlist + httpOnly SameSite=Strict cookies + CSRF Origin guard + SAML 2.0 + OIDC SSO | feature-flagged via `FEATURE_SSO` |
+| Multi-tenancy | ✅ org-scoped middleware, per-tenant rate limits, org switcher, per-tenant quotas, optional per-tenant DB isolation | property-based isolation tests in `tests/multitenantIsolation.test.js` |
+| Compliance | ✅ CFDI 4.0 / SAT, IFT statistical reports, PROFECO complaint export, LFPDPPP + GDPR DSAR endpoint | `docs/privacy.md` |
+| Supply chain | ✅ `pnpm audit` + Trivy `HIGH`/`CRITICAL` gate + SPDX SBOM + keyless cosign signing | `container-scan` CI job; `k8s/cosign-policy.yaml` |
+| Pen-test / DAST | ✅ OWASP ZAP baseline in CI (`dast` job) | annual third-party engagement still pending |
+| Runbook / on-call | ✅ `docs/runbook.md` with SEV1–SEV4 matrix, 7-step incident workflow, comms templates, post-mortem template | — |
 
 ---
 
@@ -385,3 +417,4 @@ tenant)**, and **P3 (continuous improvement)**.
 | 2026-04-28 | P3.10 | pnpm migration: `pnpm@10.33.2` pinned via `packageManager`; `pnpm-workspace.yaml` (frontend + e2e); `.npmrc` (`auto-install-peers`, `onlyBuiltDependencies` whitelist for esbuild/msgpackr-extract/unrs-resolver); `package.json` `overrides` → `pnpm.overrides` with `test-exclude>glob` nested syntax; frontend scripts `npm run` → `pnpm run`; `.lintstagedrc.cjs` `npm --prefix` → `pnpm --dir`; `Dockerfile` switched to corepack + `pnpm install --frozen-lockfile` in both stages; `.dockerignore`/`.gitignore` updated; `package-lock.json` files removed, `pnpm-lock.yaml` committed; CI `lint-and-test`+`frontend-test`+`dast` jobs updated — `pnpm/action-setup@v4`, `cache: pnpm`, `pnpm install --frozen-lockfile`, `pnpm exec jest/eslint`, `pnpm audit`, `pnpm --filter fireisp-frontend`; 2623 Jest + 145 Vitest pass |
 | 2026-04-28 | P3.11 | Spec-driven development: `src/scripts/spec-drift.js` (drift detector — compares in-memory `generateSpec()` to committed `docs/openapi.json`, detects missing/extra paths+methods+meta+duplicate operationIds, exits 1 on drift); `src/scripts/gen-route.js` (route stub generator — reads spec, generates `src/routes/<resource>.js` + `src/middleware/schemas/<resource>.js` + `tests/<resource>.test.js` skeletons from `--resource` flag); `src/utils/openapi.js` patched — 11 real pre-existing drift items fixed (`POST /auth/switch-organization`, suspend/unsuspend contracts, disconnect RADIUS, 3 connection-log analytics, 4 reports); `docs/openapi.json` regenerated (196 paths, 0 drift); `spec:check` + `spec:gen` npm scripts; `Spec drift check` CI step in lint-and-test job; `tests/specDrift.test.js` — 38 tests; 2661 Jest tests pass (38 new + 2623 pre-existing) |
 | 2026-04-28 | P3.12 | PROFECO complaint export: `database/migrations/168_create_profeco_complaints_table.sql` (profeco_complaints table — folio_profeco, consumer fields, service_type/category/status ENUMs, description, resolution_requested, company_response, reported_at/resolved_at, FKs to org/client/ticket/user); `src/models/ProfecoComplaint.js`; `src/services/profecoService.js` — `buildReport()` generates JSON (meta + per-status summary + full rows) or CSV export; `src/middleware/schemas/profeco.js`; `src/routes/profeco.js` — full CRUD + `GET /export?format=json|csv&date_from=&date_to=&status=`; `src/utils/openapi.js` updated + `docs/openapi.json` regenerated (196→199 paths); `frontend/src/pages/ProfecoComplaints.tsx` — paginated list + status/category filters + export buttons + New Complaint modal; `App.tsx` route + `Layout.tsx` nav item (billing+); `profecoComplaints.*` + `common.saving` i18n keys added to all 3 locales (230 keys, 100% coverage); `tests/profeco.test.js` — 18 tests; 2679 Jest + 145 Vitest pass |
+| 2026-04-29 | — | TL;DR flipped to **"Yes — production-ready as of 2026-04-29"** per §3 ("Once every P0 + P1 item is ✅, the TL;DR is updated"); Status Snapshot refreshed to reflect completed P0–P3 work (CI green, 2,679 Jest + 145 Vitest tests, 168 migrations, schema reconciled, SSO+CSRF+httpOnly cookies, SBOM+Trivy+cosign, OWASP ZAP DAST, Helm chart + Argo CD, SLOs + PrometheusRule alerts, DSAR/PROFECO/CFDI compliance, dark mode + i18n + WS live updates); remaining gates (branch protection, first DR drill, first prod soak test, third-party pen-test) explicitly noted as operational follow-ups, not new roadmap items |
