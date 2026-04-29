@@ -36,6 +36,27 @@ const { NotFoundError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ service: 'phraseLibraryService' });
 
 // =============================================================================
+// Internal pagination helper
+// =============================================================================
+
+/**
+ * Clamp and parse pagination parameters.
+ * - limit 0 or NaN → 50 (default)
+ * - limit < 1      → 1  (minimum)
+ * - page  < 1      → 1  (minimum)
+ *
+ * @param {number|string} limit
+ * @param {number|string} page
+ * @returns {{ safeLimit: number, offset: number }}
+ */
+function _parsePagination(limit, page) {
+  const parsedLimit = parseInt(limit, 10);
+  const safeLimit   = Number.isFinite(parsedLimit) ? Math.max(1, parsedLimit) : 50;
+  const safePage    = Math.max(1, parseInt(page, 10) || 1);
+  return { safeLimit, offset: (safePage - 1) * safeLimit };
+}
+
+// =============================================================================
 // Phrase Library — CRUD
 // =============================================================================
 
@@ -55,9 +76,7 @@ async function listPhrases(orgId, { locale, category, page = 1, limit = 50 } = {
   if (locale)   where.locale   = locale;
   if (category) where.category = category;
 
-  const safeLimit  = (() => { const p = parseInt(limit, 10); return Number.isFinite(p) ? Math.max(1, p) : 50; })();
-  const safePage   = Math.max(1, parseInt(page,  10) || 1);
-  const offset     = (safePage - 1) * safeLimit;
+  const { safeLimit, offset } = _parsePagination(limit, page);
 
   const [data, total] = await Promise.all([
     AiPhrase.findAll({ where, orgId, orderBy: 'id', order: 'ASC', limit: safeLimit, offset }),
@@ -183,9 +202,7 @@ async function listForbiddenTerms(orgId, { locale, page = 1, limit = 50 } = {}) 
   const where = {};
   if (locale) where.locale = locale;
 
-  const safeLimit  = (() => { const p = parseInt(limit, 10); return Number.isFinite(p) ? Math.max(1, p) : 50; })();
-  const safePage   = Math.max(1, parseInt(page,  10) || 1);
-  const offset     = (safePage - 1) * safeLimit;
+  const { safeLimit, offset } = _parsePagination(limit, page);
 
   const [data, total] = await Promise.all([
     AiForbiddenTerm.findAll({ where, orgId, orderBy: 'id', order: 'ASC', limit: safeLimit, offset }),

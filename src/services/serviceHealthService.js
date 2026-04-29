@@ -88,16 +88,22 @@ async function getLastConnectionLog(contractId) {
  */
 async function getSnmpMetrics(deviceIds) {
   if (!deviceIds.length) return [];
+  // Only pass numeric IDs to the query to prevent any injection risk if the
+  // array originates from JSON deserialization rather than a direct DB lookup.
+  const safeIds = deviceIds.map(Number).filter(n => Number.isFinite(n) && n > 0);
+  if (!safeIds.length) return [];
   try {
-    const placeholders = deviceIds.map(() => '?').join(', ');
+    const placeholders = safeIds.map(() => '?').join(', ');
     const [rows] = await db.query(
       `SELECT sm.device_id, spo.oid_name, sm.value_gauge, sm.value_counter, sm.value_string, sm.polled_at
        FROM snmp_metrics sm
        JOIN snmp_profile_oids spo ON spo.id = sm.profile_oid_id
        WHERE sm.device_id IN (${placeholders})
          AND sm.polled_at >= NOW() - INTERVAL 15 MINUTE
+         -- 15-minute window: SNMP poller default interval is ≤5 min; 15 min
+         -- gives 3 poll cycles of headroom before data is considered stale.
        ORDER BY sm.device_id, spo.oid_name, sm.polled_at DESC`,
-      deviceIds,
+      safeIds,
     );
     return rows.map(r => ({
       deviceId:  r.device_id,

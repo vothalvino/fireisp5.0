@@ -85,6 +85,13 @@ class ContractTopologyPath extends BaseModel {
     );
     // Also invalidate any path that references this device inside the JSON
     // (the device may be a hop, not only the CPE).
+    //
+    // NOTE: JSON_SEARCH does not use a B-tree index on the `path` column.
+    // This is acceptable because: (a) invalidation is infrequent (topology
+    // changes), (b) the table is bounded per org to O(active contracts), and
+    // (c) adding a generated + indexed column would require MySQL 5.7.8+
+    // and complicates the schema.  If this becomes a hot path, introduce a
+    // separate `contract_topology_path_devices` junction table.
     await db.query(
       `DELETE FROM contract_topology_paths
        WHERE JSON_SEARCH(path, 'one', CAST(? AS CHAR), NULL, '$[*].device_id') IS NOT NULL`,

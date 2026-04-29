@@ -216,7 +216,12 @@ async function summarize(contractId) {
   }
 
   // Enrich path with device details
-  const deviceIds = [...new Set(path.map(h => h.device_id).filter(Boolean))];
+  // deviceIds are sourced from the cache / BFS output, which contains only
+  // integer IDs — filter defensively to ensure only positive integers reach
+  // the IN-clause and prevent any injection if the path JSON was tampered.
+  const deviceIds = [...new Set(
+    path.map(h => h.device_id).filter(id => Number.isFinite(Number(id)) && Number(id) > 0),
+  )].map(Number);
   let devices = [];
   if (deviceIds.length > 0) {
     const placeholders = deviceIds.map(() => '?').join(', ');
