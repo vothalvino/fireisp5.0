@@ -125,7 +125,7 @@ const resolvers = {
       const result = await aiReplyService.generate({
         orgId:       ctx.orgId,
         ticketId:    Number(ticketId),
-        channel:     channel || 'portal',
+        channel,
         inboundText,
         contractId:  contractId ? Number(contractId) : null,
       });
