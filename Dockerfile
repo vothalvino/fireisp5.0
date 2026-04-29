@@ -1,5 +1,5 @@
 # ── Stage 1: build the React frontend ─────────────────────────────────────────
-FROM node:22-bookworm-slim AS frontend-build
+FROM node:24-bookworm-slim AS frontend-build
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ COPY docs/openapi.json ./docs/openapi.json
 RUN pnpm --filter fireisp-frontend run build
 
 # ── Stage 2: production API server ────────────────────────────────────────────
-FROM node:22-alpine
+FROM node:24-alpine
 
 RUN addgroup -S fireisp && adduser -S fireisp -G fireisp
 

@@ -3,8 +3,8 @@
 # =============================================================================
 #
 # Services:
-#   • db-primary  — MySQL 8.0 write node (with binary log + GTID)
-#   • db-replica  — MySQL 8.0 read replica (async streaming replication)
+#   • db-primary  — MySQL 8.4 write node (with binary log + GTID)
+#   • db-replica  — MySQL 8.4 read replica (async streaming replication)
 #   • redis       — Redis 7 (AOF persistence, password-protected)
 #   • app         — FireISP Node.js API + React SPA (can be scaled with
 #                   `docker compose -f docker-compose.prod.yml up --scale app=3`)
@@ -57,7 +57,7 @@ services:
 
   # ── MySQL primary (write node) ──────────────────────────────────────────────
   db-primary:
-    image: mysql:8.0
+    image: mysql:8.4.9
     restart: unless-stopped
     networks:
       - backend
@@ -69,6 +69,7 @@ services:
     volumes:
       - db_primary_data:/var/lib/mysql
       - ./mysql/primary.cnf:/etc/mysql/conf.d/primary.cnf:ro
+    command: mysqld --host-cache-size=0
     healthcheck:
       test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost',
              '-u', 'root', '--password=${DB_ROOT_PASSWORD}']
@@ -88,7 +89,7 @@ services:
 
   # ── MySQL replica (read node) ───────────────────────────────────────────────
   db-replica:
-    image: mysql:8.0
+    image: mysql:8.4.9
     restart: unless-stopped
     networks:
       - backend
@@ -107,6 +108,7 @@ services:
       - db_replica_data:/var/lib/mysql
       - ./mysql/replica.cnf:/etc/mysql/conf.d/replica.cnf:ro
       - ./mysql/init-replica.sh:/docker-entrypoint-initdb.d/init-replica.sh:ro
+    command: mysqld --host-cache-size=0
     healthcheck:
       test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost',
              '-u', 'root', '--password=${DB_ROOT_PASSWORD}']

@@ -2,6 +2,51 @@
 
 An open source ISP (Internet Service Provider) management software designed to help ISPs manage their customers, plans, billing, and network infrastructure.
 
+## Quick Install
+
+Deploy FireISP 5.0 on any Linux server with Docker in a single command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vothalvino/fireisp5.0/main/install.sh | bash
+```
+
+The installer will prompt for your domain name and email, then automatically:
+
+- Clone the repository to `/opt/fireisp`
+- Generate strong random passwords and secrets
+- Obtain a free TLS certificate via Let's Encrypt
+- Build and start all containers (MySQL, Redis, app, Nginx)
+- Run database migrations and seed default data
+
+**Prerequisites:** Docker 24+, Docker Compose v2, Git, OpenSSL — all on a server where the domain already resolves.
+
+### Options
+
+Pass variables before the pipe to skip interactive prompts:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vothalvino/fireisp5.0/main/install.sh \
+  | DOMAIN=isp.example.com EMAIL=admin@example.com bash
+```
+
+| Variable | Default | Description |
+|---|---|---|
+| `DOMAIN` | *(prompted)* | Public domain name pointing to this server |
+| `EMAIL` | *(prompted)* | Admin email — used for Let's Encrypt and first login |
+| `INSTALL_DIR` | `/opt/fireisp` | Installation directory |
+| `SKIP_TLS` | `0` | Set to `1` to use a self-signed certificate (dev/testing) |
+| `CF_API_TOKEN` | — | Cloudflare API token — enables DNS-01 wildcard certificates |
+| `DB_PASSWORD` | *(auto-generated)* | MySQL application user password |
+| `DB_ROOT_PASSWORD` | *(auto-generated)* | MySQL root password |
+| `MYSQL_REPL_PASSWORD` | *(auto-generated)* | MySQL replication password |
+| `REDIS_PASSWORD` | *(auto-generated)* | Redis password |
+| `JWT_SECRET` | *(auto-generated)* | JWT signing secret (64 chars) |
+| `ENCRYPTION_KEY` | *(auto-generated)* | AES-256 key for secrets stored at rest |
+
+All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
+
+> **Full deployment guide:** [`docs/deployment.md`](docs/deployment.md) covers bare-metal, Docker Compose, Kubernetes, TLS setup, MySQL tuning, and a production checklist.
+
 ## Features
 
 - Customer management

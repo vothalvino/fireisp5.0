@@ -6,17 +6,83 @@ This guide covers deploying FireISP 5.0 in production environments. Choose the d
 
 ## Table of Contents
 
-1. [Prerequisites](#prerequisites)
-2. [Environment Configuration](#environment-configuration)
-3. [Bare-Metal / VM Deployment](#bare-metal--vm-deployment)
-4. [Docker Deployment](#docker-deployment)
-5. [Docker Swarm](#docker-swarm)
-6. [MySQL Tuning](#mysql-tuning)
-7. [Reverse Proxy (Nginx)](#reverse-proxy-nginx)
-8. [TLS / HTTPS](#tls--https)
-9. [Admin IP Allowlist](#admin-ip-allowlist)
-10. [Monitoring](#monitoring)
-11. [Production Checklist](#production-checklist)
+1. [One-Line Installer (recommended)](#one-line-installer-recommended)
+2. [Prerequisites](#prerequisites)
+3. [Environment Configuration](#environment-configuration)
+4. [Bare-Metal / VM Deployment](#bare-metal--vm-deployment)
+5. [Docker Deployment](#docker-deployment)
+6. [Docker Swarm](#docker-swarm)
+7. [MySQL Tuning](#mysql-tuning)
+8. [Reverse Proxy (Nginx)](#reverse-proxy-nginx)
+9. [TLS / HTTPS](#tls--https)
+10. [Admin IP Allowlist](#admin-ip-allowlist)
+11. [Monitoring](#monitoring)
+12. [Production Checklist](#production-checklist)
+
+---
+
+## One-Line Installer (recommended)
+
+The fastest way to deploy FireISP 5.0 on a fresh Ubuntu/Debian server:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vothalvino/fireisp5.0/main/install.sh | bash
+```
+
+The script will interactively prompt for your domain name and email address, then:
+
+1. Verify Docker, Docker Compose v2, Git, and OpenSSL are present
+2. Clone the repository to `/opt/fireisp`
+3. Auto-generate strong random passwords and cryptographic secrets
+4. Write `/opt/fireisp/.env.prod` (mode `600`) with all generated values
+5. Obtain a TLS certificate via Let's Encrypt HTTP-01 challenge
+6. Build and start the full production stack (MySQL primary + replica, Redis, app, Nginx, Certbot)
+7. Run database migrations (`node src/scripts/migrate.js`)
+8. Seed default data — roles, permissions, settings, tax rates (`node src/scripts/seed.js`)
+
+### Non-interactive (CI / cloud-init)
+
+Pass all required values as environment variables to skip prompts:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vothalvino/fireisp5.0/main/install.sh \
+  | DOMAIN=isp.example.com EMAIL=admin@example.com bash
+```
+
+### Installer options
+
+| Variable | Default | Description |
+|---|---|---|
+| `DOMAIN` | *(prompted)* | Public domain pointing to this server |
+| `EMAIL` | *(prompted)* | Admin email — Let's Encrypt notifications + first login |
+| `INSTALL_DIR` | `/opt/fireisp` | Destination directory |
+| `SKIP_TLS` | `0` | Set to `1` to create a self-signed cert (dev / air-gapped) |
+| `CF_API_TOKEN` | — | Cloudflare API token — switches to DNS-01 wildcard challenge |
+| `DB_PASSWORD` | *(auto-generated)* | MySQL app user password |
+| `DB_ROOT_PASSWORD` | *(auto-generated)* | MySQL root password |
+| `MYSQL_REPL_PASSWORD` | *(auto-generated)* | MySQL replication password |
+| `REDIS_PASSWORD` | *(auto-generated)* | Redis password |
+| `JWT_SECRET` | *(auto-generated)* | JWT signing secret (64 chars) |
+| `ENCRYPTION_KEY` | *(auto-generated)* | AES-256 key for secrets at rest |
+
+### After install
+
+```bash
+# View running services
+docker compose -f /opt/fireisp/docker-compose.prod.yml --env-file /opt/fireisp/.env.prod ps
+
+# Follow application logs
+docker compose -f /opt/fireisp/docker-compose.prod.yml --env-file /opt/fireisp/.env.prod logs -f app
+
+# Update to the latest version
+git -C /opt/fireisp pull
+docker compose -f /opt/fireisp/docker-compose.prod.yml --env-file /opt/fireisp/.env.prod \
+  up -d --build
+```
+
+> **Note:** After install, open `https://<DOMAIN>` in your browser to create your admin account. Then configure SMTP in **Settings → Organization → Email** so notifications are delivered.
+
+---
 
 ---
 
@@ -78,7 +144,7 @@ curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 sudo apt-get install -y nodejs
 ```
 
-### 2. Install MySQL 8.0
+### 2. Install MySQL 8.4
 
 ```bash
 sudo apt-get install -y mysql-server
@@ -227,7 +293,7 @@ services:
       retries: 3
 
   db:
-    image: mysql:8.0
+    image: mysql:8.4.9
     deploy:
       placement:
         constraints:

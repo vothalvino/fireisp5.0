@@ -1,6 +1,6 @@
 # FireISP 5.0 — Entity-Relationship Diagram
 
-> Auto-generated from `database/schema.sql` (101 tables, MySQL 8.0+ / MariaDB 10.6+).
+> Auto-generated from `database/schema.sql` (101 tables, MySQL 8.4+ / MariaDB 10.6+).
 >
 > The Mermaid diagram below shows the **~40 most important tables** and their
 > foreign-key relationships. Columns are limited to PKs, key FKs, and a handful
