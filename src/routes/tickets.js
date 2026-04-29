@@ -38,7 +38,7 @@ router.post('/', requirePermission('tickets.create'), validate(createTicket), as
         channel:     req.body.channel || 'portal',
         inboundText: record.description,
         contractId:  record.contract_id || null,
-      }).catch(err => logger.warn({ err: err.message, ticketId: record.id }, 'aiTriage enqueue failed on ticket create'));
+      }).catch(err => logger.warn({ err: err.message, ticketId: record.id }, 'aiTriage enqueue failed on ticket create — AI reply will not be generated'));
     }
 
     res.status(201).json({ data: record });

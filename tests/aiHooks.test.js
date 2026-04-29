@@ -55,7 +55,8 @@ describe('workers/index.js — ai-triage handler', () => {
 
     workers.registerWorkers();
 
-    // Extract the registered handler for 'ai-triage'
+    // Extract the registered handler for 'ai-triage'.
+    // jobQueue.process(name, handler) stores: call[0]=name, call[1]=handler.
     const processCall = jobQueue.process.mock.calls.find(([name]) => name === 'ai-triage');
     expect(processCall).toBeDefined();
     const handler = processCall[1];
