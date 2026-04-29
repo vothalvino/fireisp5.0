@@ -96,7 +96,7 @@ async function getSnmpMetrics(deviceIds) {
        JOIN snmp_profile_oids spo ON spo.id = sm.profile_oid_id
        WHERE sm.device_id IN (${placeholders})
          AND sm.polled_at >= NOW() - INTERVAL 15 MINUTE
-       ORDER BY sm.device_id, sm.polled_at DESC`,
+       ORDER BY sm.device_id, spo.oid_name, sm.polled_at DESC`,
       deviceIds,
     );
     return rows.map(r => ({

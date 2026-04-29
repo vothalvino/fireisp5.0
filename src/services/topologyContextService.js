@@ -206,13 +206,13 @@ async function getPath(contractId) {
  * Return a clean context snapshot suitable for inclusion in an LLM prompt.
  *
  * @param {number} contractId
- * @returns {Promise<{cpe, accessDevice, backhauls: Array, pop, activeOutages: Array}>}
+ * @returns {Promise<{cpe, accessDevice, backhauls: Array, coreDevice, activeOutages: Array}>}
  */
 async function summarize(contractId) {
   const path = await getPath(contractId);
 
   if (path.length === 0) {
-    return { cpe: null, accessDevice: null, backhauls: [], pop: null, activeOutages: [] };
+    return { cpe: null, accessDevice: null, backhauls: [], coreDevice: null, activeOutages: [] };
   }
 
   // Enrich path with device details
@@ -230,7 +230,7 @@ async function summarize(contractId) {
 
   const cpe         = deviceIndex.get(path[0].device_id) || null;
   const accessDevice = path.length > 1 ? (deviceIndex.get(path[1].device_id) || null) : null;
-  const pop         = path.length > 1 ? (deviceIndex.get(path[path.length - 1].device_id) || null) : null;
+  const coreDevice  = path.length > 1 ? (deviceIndex.get(path[path.length - 1].device_id) || null) : null;
   const backhauls   = path.slice(1, -1).map(h => ({
     device: deviceIndex.get(h.device_id) || { id: h.device_id },
     medium: h.medium,
@@ -252,7 +252,7 @@ async function summarize(contractId) {
     activeOutages = outageRows;
   }
 
-  return { cpe, accessDevice, backhauls, pop, activeOutages };
+  return { cpe, accessDevice, backhauls, coreDevice, activeOutages };
 }
 
 /**

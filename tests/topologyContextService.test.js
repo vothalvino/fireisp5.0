@@ -166,7 +166,7 @@ describe('topologyContextService.summarize', () => {
 
     const snap = await service.summarize(100);
     expect(snap).toEqual({
-      cpe: null, accessDevice: null, backhauls: [], pop: null, activeOutages: [],
+      cpe: null, accessDevice: null, backhauls: [], coreDevice: null, activeOutages: [],
     });
   });
 
@@ -192,7 +192,7 @@ describe('topologyContextService.summarize', () => {
 
     expect(snap.cpe.id).toBe(1);
     expect(snap.accessDevice.id).toBe(2);
-    expect(snap.pop.id).toBe(3);
+    expect(snap.coreDevice.id).toBe(3);
     expect(snap.backhauls).toHaveLength(1);
     expect(snap.backhauls[0].device.id).toBe(2);
     expect(snap.backhauls[0].medium).toBe('fiber');
