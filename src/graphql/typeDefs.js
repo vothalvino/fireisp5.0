@@ -200,4 +200,114 @@ module.exports = /* GraphQL */ `
     """Device status updated within an organisation."""
     deviceStatusChanged(orgId: ID!): Device!
   }
+
+  # ===========================================================================
+  # AI Reply Assistant — types, queries, and mutation (§5.2)
+  # ===========================================================================
+
+  """AI Reply Assistant policy for an organisation."""
+  type AiPolicy {
+    organizationId: ID!
+    enabled: Boolean!
+    enabledChannels: AiChannels!
+    mode: String!
+    autoSendConfidence: String!
+    defaultLocale: String!
+    tone: String!
+    redactPiiBeforeLlm: Boolean!
+    activeProviderId: ID
+  }
+
+  """Per-channel on/off switches."""
+  type AiChannels {
+    portal: Boolean!
+    email: Boolean!
+    whatsapp: Boolean!
+    sms: Boolean!
+  }
+
+  """Registered LLM provider (api key is never exposed)."""
+  type AiProvider {
+    id: ID!
+    organizationId: ID!
+    name: String!
+    kind: String!
+    model: String!
+    endpointUrl: String
+    temperature: String
+    maxTokens: Int
+    timeoutMs: Int
+    enabled: Boolean!
+    priority: Int!
+    createdAt: String!
+    updatedAt: String!
+  }
+
+  """Curated phrase from the phrase library."""
+  type AiPhrase {
+    id: ID!
+    organizationId: ID!
+    locale: String!
+    category: String!
+    text: String!
+    isRequired: Boolean!
+    createdAt: String
+    updatedAt: String
+  }
+
+  """Audit log entry for an AI draft/send action."""
+  type AiReplyLog {
+    id: ID!
+    ticketId: ID!
+    providerId: ID
+    classification: String
+    confidence: String
+    draftText: String
+    finalText: String
+    action: String
+    reviewerUserId: ID
+    promptTokens: Int
+    completionTokens: Int
+    costUsd: String
+    durationMs: Int
+    error: String
+    createdAt: String!
+  }
+
+  """Result of the aiDraftReply mutation."""
+  type AiDraftReplyResult {
+    skipped: Boolean!
+    reason: String
+    logId: ID
+    draftText: String
+    action: String
+  }
+
+  extend type Query {
+    """Fetch the AI policy for the current org."""
+    aiPolicy: AiPolicy
+
+    """List all enabled AI providers for the current org (no keys)."""
+    aiProviders: [AiProvider!]!
+
+    """List phrases in the phrase library (optionally filtered)."""
+    aiPhrases(locale: String, category: String, limit: Int, offset: Int): [AiPhrase!]!
+
+    """Paginated AI reply log for a specific ticket."""
+    aiReplyLogs(ticketId: ID!, limit: Int, offset: Int): [AiReplyLog!]!
+  }
+
+  type Mutation {
+    """
+    Force-generate a draft reply for a ticket.
+    Equivalent to POST /api/v1/ai/reply/draft — always returns the draft
+    text rather than auto-sending, regardless of the policy mode.
+    """
+    aiDraftReply(
+      ticketId: ID!
+      inboundText: String!
+      channel: String
+      contractId: ID
+    ): AiDraftReplyResult!
+  }
 `;

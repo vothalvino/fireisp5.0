@@ -13,6 +13,10 @@ const db = require('../config/database');
 const Client = require('../models/Client');
 const Invoice = require('../models/Invoice');
 const Ticket = require('../models/Ticket');
+const AiPolicy = require('../models/AiPolicy');
+const AiProvider = require('../models/AiProvider');
+const AiPhrase = require('../models/AiPhrase');
+const aiReplyService = require('../services/aiReplyService');
 const { pubsub } = require('../services/pubsub');
 
 /** Clamp pagination params to safe bounds. */
@@ -57,6 +61,76 @@ const resolvers = {
         limit: clamp(limit, 50, MAX_LIMIT),
         offset: clamp(offset, 0, 1e6),
       }),
+
+    // ---- AI Reply Assistant queries (§5.2) ---------------------------------
+
+    aiPolicy: (_parent, _args, ctx) =>
+      AiPolicy.findByOrgId(ctx.orgId),
+
+    aiProviders: async (_parent, _args, ctx) => {
+      const [rows] = await db.query(
+        `SELECT id, organization_id, name, kind, model, endpoint_url,
+                temperature, max_tokens, timeout_ms, enabled, priority,
+                created_at, updated_at
+         FROM ai_providers
+         WHERE organization_id = ? AND deleted_at IS NULL
+         ORDER BY priority ASC, id ASC`,
+        [ctx.orgId],
+      );
+      return rows;
+    },
+
+    aiPhrases: async (_parent, { locale, category, limit, offset }, ctx) => {
+      const safeLimit  = clamp(limit,  50, MAX_LIMIT);
+      const safeOffset = clamp(offset, 0, 1e6);
+
+      const conditions = ['organization_id = ?', 'deleted_at IS NULL'];
+      const params = [ctx.orgId];
+
+      if (locale)   { conditions.push('locale = ?');   params.push(locale); }
+      if (category) { conditions.push('category = ?'); params.push(category); }
+
+      const [rows] = await db.query(
+        `SELECT * FROM ai_phrase_library WHERE ${conditions.join(' AND ')}
+         ORDER BY id ASC LIMIT ? OFFSET ?`,
+        [...params, safeLimit, safeOffset],
+      );
+      return rows;
+    },
+
+    aiReplyLogs: async (_parent, { ticketId, limit, offset }, ctx) => {
+      const safeLimit  = clamp(limit,  50, MAX_LIMIT);
+      const safeOffset = clamp(offset, 0, 1e6);
+
+      const [rows] = await db.query(
+        `SELECT id, ticket_id, provider_id, classification, confidence,
+                draft_text, final_text, action, reviewer_user_id,
+                prompt_tokens, completion_tokens, cost_usd, duration_ms,
+                error, created_at
+         FROM ai_reply_logs
+         WHERE organization_id = ? AND ticket_id = ?
+         ORDER BY created_at DESC
+         LIMIT ? OFFSET ?`,
+        [ctx.orgId, ticketId, safeLimit, safeOffset],
+      );
+      return rows;
+    },
+  },
+
+  // ---------------------------------------------------------------------------
+  // Mutation resolvers (§5.2 — aiDraftReply)
+  // ---------------------------------------------------------------------------
+  Mutation: {
+    aiDraftReply: async (_parent, { ticketId, inboundText, channel = 'portal', contractId }, ctx) => {
+      const result = await aiReplyService.generate({
+        orgId:       ctx.orgId,
+        ticketId:    Number(ticketId),
+        channel:     channel || 'portal',
+        inboundText,
+        contractId:  contractId ? Number(contractId) : null,
+      });
+      return result;
+    },
   },
 
   // ---------------------------------------------------------------------------
@@ -228,6 +302,72 @@ const resolvers = {
     userId: (c) => c.user_id,
     isInternal: (c) => Boolean(c.is_internal),
     createdAt: (c) => c.created_at,
+  },
+
+  // ---------------------------------------------------------------------------
+  // AI field resolvers (§5.2)
+  // ---------------------------------------------------------------------------
+
+  AiPolicy: {
+    organizationId: (p) => p.organization_id,
+    enabled: (p) => Boolean(p.enabled),
+    enabledChannels: (p) => {
+      const ch = typeof p.enabled_channels === 'string'
+        ? JSON.parse(p.enabled_channels)
+        : (p.enabled_channels || {});
+      return {
+        portal:   Boolean(ch.portal),
+        email:    Boolean(ch.email),
+        whatsapp: Boolean(ch.whatsapp),
+        sms:      Boolean(ch.sms),
+      };
+    },
+    mode: (p) => p.mode,
+    autoSendConfidence: (p) => String(p.auto_send_confidence),
+    defaultLocale: (p) => p.default_locale,
+    tone: (p) => p.tone,
+    redactPiiBeforeLlm: (p) => Boolean(p.redact_pii_before_llm),
+    activeProviderId: (p) => p.active_provider_id || null,
+  },
+
+  AiProvider: {
+    organizationId: (p) => p.organization_id,
+    endpointUrl: (p) => p.endpoint_url || null,
+    maxTokens: (p) => p.max_tokens || null,
+    timeoutMs: (p) => p.timeout_ms || null,
+    temperature: (p) => p.temperature !== null && p.temperature !== undefined ? String(p.temperature) : null,
+    enabled: (p) => Boolean(p.enabled),
+    priority: (p) => p.priority ?? 100,
+    createdAt: (p) => p.created_at,
+    updatedAt: (p) => p.updated_at,
+  },
+
+  AiPhrase: {
+    organizationId: (p) => p.organization_id,
+    isRequired: (p) => Boolean(p.is_required),
+    createdAt: (p) => p.created_at || null,
+    updatedAt: (p) => p.updated_at || null,
+  },
+
+  AiReplyLog: {
+    ticketId: (l) => l.ticket_id,
+    providerId: (l) => l.provider_id || null,
+    reviewerUserId: (l) => l.reviewer_user_id || null,
+    draftText: (l) => l.draft_text || null,
+    finalText: (l) => l.final_text || null,
+    promptTokens: (l) => l.prompt_tokens || null,
+    completionTokens: (l) => l.completion_tokens || null,
+    costUsd: (l) => l.cost_usd !== null && l.cost_usd !== undefined ? String(l.cost_usd) : null,
+    durationMs: (l) => l.duration_ms || null,
+    createdAt: (l) => l.created_at,
+  },
+
+  AiDraftReplyResult: {
+    skipped: (r) => Boolean(r.skipped),
+    reason: (r) => r.reason || null,
+    logId: (r) => r.logId || null,
+    draftText: (r) => r.draftText || null,
+    action: (r) => r.action || null,
   },
 
   // ---------------------------------------------------------------------------
