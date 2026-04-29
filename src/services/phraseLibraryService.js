@@ -325,7 +325,8 @@ async function validateDraft(orgId, locale, draftText) {
   const lowerDraft = draftText.toLowerCase();
 
   // --- Required phrases: must appear somewhere in the draft ---
-  const requiredPhrases = phrases.filter(p => p.is_required == 1 || p.is_required === true);
+  // Normalise is_required: MySQL TINYINT returns 1/0, JS boolean true/false both accepted.
+  const requiredPhrases = phrases.filter(p => Number(p.is_required) === 1);
   const missingRequired = requiredPhrases
     .filter(p => !lowerDraft.includes(p.text.toLowerCase()))
     .map(p => p.text);

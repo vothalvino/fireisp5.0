@@ -81,6 +81,9 @@ const PRICE_TABLE = {
  * Compute cost_usd from the price table.
  * Falls back to 0 with a warning when the model is not listed.
  */
+// Multiplier for rounding cost to 6 decimal places (USD micro-cent precision)
+const COST_PRECISION_MULTIPLIER = 1e6;
+
 function _computeCost(kind, model, promptTokens, completionTokens) {
   const normalised = model ? model.toLowerCase() : '';
   const pricePerK  = PRICE_TABLE[normalised];
@@ -91,7 +94,7 @@ function _computeCost(kind, model, promptTokens, completionTokens) {
   }
 
   const totalTokens = (promptTokens || 0) + (completionTokens || 0);
-  return Math.round((totalTokens / 1000) * pricePerK * 1e6) / 1e6; // 6 decimal places
+  return Math.round((totalTokens / 1000) * pricePerK * COST_PRECISION_MULTIPLIER) / COST_PRECISION_MULTIPLIER;
 }
 
 /**

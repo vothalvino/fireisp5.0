@@ -79,14 +79,14 @@ async function loadGraph(orgId) {
 /**
  * Walk from `startDeviceId` toward a 'core' or 'backhaul' device using BFS.
  * Returns the ordered path as [{device_id, role, link_id, medium}].
- * Returns null when no edge device is reachable or a loop is detected.
+ * Returns null when no core/backhaul device is reachable or a loop is detected.
  *
  * @param {number}  startDeviceId
  * @param {Map}     deviceMap
  * @param {Map}     linksByDevice
  * @returns {Array|null}
  */
-function traverseToEdge(startDeviceId, deviceMap, linksByDevice) {
+function traverseToCore(startDeviceId, deviceMap, linksByDevice) {
   const visited = new Set();
   const queue = [{ deviceId: startDeviceId, path: [] }];
 
@@ -177,7 +177,7 @@ async function buildPath(contractId) {
 
   const { deviceMap, linksByDevice } = await loadGraph(contractRow.organization_id);
 
-  const path = traverseToEdge(contractRow.cpe_device_id, deviceMap, linksByDevice);
+  const path = traverseToCore(contractRow.cpe_device_id, deviceMap, linksByDevice);
   const finalPath = path || [{ device_id: contractRow.cpe_device_id, role: null, link_id: null, medium: null }];
 
   await ContractTopologyPath.upsertPath(contractId, finalPath);
