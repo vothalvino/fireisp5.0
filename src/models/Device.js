@@ -13,7 +13,7 @@ class Device extends BaseModel {
       'manufacturer', 'model', 'serial_number', 'mac_address',
       'ip_address', 'ipv6_address', 'snmp_enabled', 'snmp_community',
       'snmp_version', 'snmp_port', 'snmp_profile_id',
-      'firmware_version', 'status', 'notes',
+      'firmware_version', 'status', 'notes', 'role',
     ];
   }
 

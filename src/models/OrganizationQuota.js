@@ -8,7 +8,7 @@ class OrganizationQuota extends BaseModel {
   static get tableName() { return 'organization_quotas'; }
 
   static get fillable() {
-    return ['organization_id', 'max_clients', 'max_devices', 'max_storage_mb', 'max_scheduled_tasks'];
+    return ['organization_id', 'max_clients', 'max_devices', 'max_storage_mb', 'max_scheduled_tasks', 'max_ai_tokens_month'];
   }
 
   /** Not org-scoped — this table IS the quota config, keyed by organization_id. */
@@ -29,6 +29,7 @@ class OrganizationQuota extends BaseModel {
       max_devices: null,
       max_storage_mb: null,
       max_scheduled_tasks: null,
+      max_ai_tokens_month: null,
     };
   }
 
@@ -37,7 +38,7 @@ class OrganizationQuota extends BaseModel {
    */
   static async upsert(orgId, fields) {
     const db = require('../config/database');
-    const allowed = ['max_clients', 'max_devices', 'max_storage_mb', 'max_scheduled_tasks'];
+    const allowed = ['max_clients', 'max_devices', 'max_storage_mb', 'max_scheduled_tasks', 'max_ai_tokens_month'];
     const updates = {};
     for (const key of allowed) {
       if (Object.prototype.hasOwnProperty.call(fields, key)) {
