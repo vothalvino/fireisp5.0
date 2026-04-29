@@ -12,9 +12,10 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # Silence DEP0040: built-in `punycode` is deprecated in Node.js 24; the
-  # warning comes from transitive deps (uri-js, tr46) that we don't control.
-  NODE_OPTIONS: --disable-warning=DEP0040
+  # Silence DEP0040 (punycode) and DEP0169 (url.parse): both come from
+  # transitive dependencies (uri-js, tr46, openid-client) that we don't control.
+  # The project itself uses only the WHATWG URL API.
+  NODE_OPTIONS: --disable-warning=DEP0040 --disable-warning=DEP0169
 
 jobs:
   lint-and-test:
