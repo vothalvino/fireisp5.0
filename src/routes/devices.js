@@ -15,6 +15,8 @@ const { quotaCheck } = require('../middleware/checkQuota');
 const db = require('../config/database');
 const auditLog = require('../services/auditLog');
 const { pubsub } = require('../services/pubsub');
+const topologyContextService = require('../services/topologyContextService');
+const logger = require('../utils/logger').child({ service: 'routes/devices' });
 
 const router = Router();
 const ctrl = crudController(Device, { cacheResource: 'devices' });
@@ -42,12 +44,31 @@ router.put('/:id', requirePermission('devices.update'), validate(updateDevice), 
     if (req.body.status !== undefined && req.body.status !== old.status) {
       pubsub.publish('DEVICE_STATUS_CHANGED', { deviceStatusChanged: record, orgId: req.orgId });
     }
+    topologyContextService.invalidate(record.id, 'device')
+      .catch(err => logger.warn({ err: err.message, deviceId: record.id }, 'topology invalidate failed on device update'));
     res.json({ data: record });
   } catch (err) { next(err); }
 });
 router.patch('/:id', requirePermission('devices.update'), validate(patchDevice), ctrl.partialUpdate);
-router.delete('/:id', requirePermission('devices.delete'), ctrl.destroy);
-router.post('/:id/restore', requirePermission('devices.update'), ctrl.restore);
+router.delete('/:id', requirePermission('devices.delete'), async (req, res, next) => {
+  try {
+    const old = await Device.findByIdOrFail(req.params.id, req.orgId);
+    await Device.delete(req.params.id, req.orgId);
+    topologyContextService.invalidate(old.id, 'device')
+      .catch(err => logger.warn({ err: err.message, deviceId: old.id }, 'topology invalidate failed on device delete'));
+    await bustCache(req.orgId, 'devices');
+    res.status(204).send();
+  } catch (err) { next(err); }
+});
+router.post('/:id/restore', requirePermission('devices.update'), async (req, res, next) => {
+  try {
+    const record = await Device.restore(req.params.id, req.orgId);
+    topologyContextService.invalidate(record.id, 'device')
+      .catch(err => logger.warn({ err: err.message, deviceId: record.id }, 'topology invalidate failed on device restore'));
+    await bustCache(req.orgId, 'devices');
+    res.json({ data: record });
+  } catch (err) { next(err); }
+});
 
 // Device SNMP metrics
 router.get('/:id/snmp-metrics', requirePermission('devices.view'), async (req, res, next) => {

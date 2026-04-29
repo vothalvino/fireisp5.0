@@ -63,6 +63,14 @@ function registerWorkers() {
     return configBackupService.runNightlyBackups(organizationId);
   });
 
+  // ---- AI triage ----------------------------------------------------------
+  jobQueue.process('ai-triage', async (job) => {
+    const aiReplyService = require('../services/aiReplyService');
+    const { orgId, ticketId, channel, inboundText, contractId } = job.data;
+    logger.info({ orgId, ticketId, channel }, 'Worker: running AI triage');
+    return aiReplyService.generate({ orgId, ticketId, channel, inboundText, contractId });
+  });
+
   logger.info('Job workers registered');
 }
 
