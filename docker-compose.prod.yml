@@ -69,6 +69,7 @@ services:
     volumes:
       - db_primary_data:/var/lib/mysql
       - ./mysql/primary.cnf:/etc/mysql/conf.d/primary.cnf:ro
+    command: mysqld --host-cache-size=0
     healthcheck:
       test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost',
              '-u', 'root', '--password=${DB_ROOT_PASSWORD}']
@@ -107,6 +108,7 @@ services:
       - db_replica_data:/var/lib/mysql
       - ./mysql/replica.cnf:/etc/mysql/conf.d/replica.cnf:ro
       - ./mysql/init-replica.sh:/docker-entrypoint-initdb.d/init-replica.sh:ro
+    command: mysqld --host-cache-size=0
     healthcheck:
       test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost',
              '-u', 'root', '--password=${DB_ROOT_PASSWORD}']

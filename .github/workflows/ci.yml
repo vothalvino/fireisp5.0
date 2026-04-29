@@ -114,22 +114,20 @@ jobs:
   database-tests:
     runs-on: ubuntu-latest
 
-    services:
-      mysql:
-        image: mysql:8.4.9
-        env:
-          MYSQL_ROOT_PASSWORD: fireisp_test
-          MYSQL_DATABASE: fireisp_test
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h localhost"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
     steps:
       - uses: actions/checkout@v4
+
+      - name: Start MySQL
+        run: |
+          docker run -d --name ci-mysql \
+            -e MYSQL_ROOT_PASSWORD=fireisp_test \
+            -e MYSQL_DATABASE=fireisp_test \
+            -p 3306:3306 \
+            mysql:8.4.9 \
+            mysqld \
+            --character-set-server=utf8mb4 \
+            --collation-server=utf8mb4_unicode_ci \
+            --host-cache-size=0
 
       - name: Wait for MySQL
         run: |
@@ -323,22 +321,20 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint-and-test]
 
-    services:
-      mysql:
-        image: mysql:8.4.9
-        env:
-          MYSQL_ROOT_PASSWORD: zaptest
-          MYSQL_DATABASE: fireisp_dast
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h localhost"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
     steps:
       - uses: actions/checkout@v4
+
+      - name: Start MySQL
+        run: |
+          docker run -d --name ci-mysql-dast \
+            -e MYSQL_ROOT_PASSWORD=zaptest \
+            -e MYSQL_DATABASE=fireisp_dast \
+            -p 3306:3306 \
+            mysql:8.4.9 \
+            mysqld \
+            --character-set-server=utf8mb4 \
+            --collation-server=utf8mb4_unicode_ci \
+            --host-cache-size=0
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
