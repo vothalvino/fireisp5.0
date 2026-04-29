@@ -232,9 +232,11 @@ describe('aiCostRollupWorker (ai-cost-rollup)', () => {
     const handler = getHandler(jobQueue, 'ai-cost-rollup');
     const result  = await handler(makeJob({ organizationId: null }));
 
+    const now = new Date();
+    const expectedMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+
     expect(result.updated).toBe(0);
-    expect(typeof result.month).toBe('string');
-    expect(result.month).toMatch(/^\d{4}-\d{2}$/);
+    expect(result.month).toBe(expectedMonth);
     // Only the SELECT was called, no upsert
     expect(mockDbQuery).toHaveBeenCalledTimes(1);
   });
@@ -257,10 +259,13 @@ describe('aiCostRollupWorker (ai-cost-rollup)', () => {
     expect(result.updated).toBe(2);
     // SELECT + 2 upserts = 3 total DB calls
     expect(mockDbQuery).toHaveBeenCalledTimes(3);
-    // Verify the upsert SQL includes ai_cost_month_usd
+    // Verify the upsert SQL includes ai_cost_month_usd and ON DUPLICATE KEY
     const upsertCall = mockDbQuery.mock.calls[1];
     expect(upsertCall[0]).toContain('ai_cost_month_usd');
     expect(upsertCall[0]).toContain('ON DUPLICATE KEY UPDATE');
+    // Params: [org_id, total_cost_usd, currentMonth] — simple overwrite, no IF logic
+    expect(upsertCall[1]).toHaveLength(3);
+    expect(upsertCall[1][1]).toBeCloseTo(0.003400, 5);
   });
 
   it('scopes the SELECT to a single org when organizationId is provided', async () => {
@@ -280,11 +285,13 @@ describe('aiCostRollupWorker (ai-cost-rollup)', () => {
     expect(selectCall[1]).toContain(5);
   });
 
-  it('resets cost to zero at month boundary (old month in quotas row)', async () => {
-    // The UPSERT SQL handles this via IF(ai_cost_rollup_month = ?, ...) logic.
-    // Verify the upsert params include currentMonth twice (for comparison + reset).
+  it('resets cost to zero at month boundary (overwrites with new month aggregate)', async () => {
+    // Since total_cost_usd is a full month aggregate from the SELECT, a simple
+    // overwrite correctly handles month-boundary reset: the new month's total
+    // replaces the old month's total without double-counting.
+    const newMonthCost = 0.0010;
     mockDbQuery
-      .mockResolvedValueOnce([[{ organization_id: 3, total_cost_usd: 0.0010 }]])
+      .mockResolvedValueOnce([[{ organization_id: 3, total_cost_usd: newMonthCost }]])
       .mockResolvedValue([{ affectedRows: 1 }]);
 
     const jobQueue = require('../../src/services/jobQueueService');
@@ -294,10 +301,15 @@ describe('aiCostRollupWorker (ai-cost-rollup)', () => {
     const handler = getHandler(jobQueue, 'ai-cost-rollup');
     const result  = await handler(makeJob({ organizationId: null }));
 
+    // Verify the upsert uses VALUES() overwrite — no IF/addition logic
+    const upsertSql = mockDbQuery.mock.calls[1][0];
+    expect(upsertSql).toContain('VALUES(ai_cost_month_usd)');
+    expect(upsertSql).toContain('VALUES(ai_cost_rollup_month)');
+
+    // Params are simple: [org_id, cost, month]
     const upsertParams = mockDbQuery.mock.calls[1][1];
-    // currentMonth should appear multiple times in params (comparison + set)
-    const monthOccurrences = upsertParams.filter(p => typeof p === 'string' && /^\d{4}-\d{2}$/.test(p));
-    expect(monthOccurrences.length).toBeGreaterThanOrEqual(2);
+    expect(upsertParams).toHaveLength(3);
+    expect(upsertParams[1]).toBeCloseTo(newMonthCost, 6);
     expect(result.updated).toBe(1);
   });
 });

@@ -147,24 +147,18 @@ function registerWorkers() {
       return { updated: 0, month: currentMonth };
     }
 
-    // Upsert each org's monthly cost total
+    // Upsert each org's monthly cost total.
+    // total_cost_usd is the full month aggregate from the SELECT above, so we
+    // always overwrite (no addition needed — this handles both same-month
+    // refresh and month-boundary reset correctly).
     for (const row of rows) {
       await db.query(
         `INSERT INTO organization_quotas (organization_id, ai_cost_month_usd, ai_cost_rollup_month)
          VALUES (?, ?, ?)
          ON DUPLICATE KEY UPDATE
-           ai_cost_month_usd   = IF(ai_cost_rollup_month = ?, ?, 0) + ?,
-           ai_cost_rollup_month = ?`,
-        [
-          row.organization_id,
-          row.total_cost_usd,
-          currentMonth,
-          // ON DUPLICATE KEY params:
-          currentMonth,
-          row.total_cost_usd,
-          row.total_cost_usd,
-          currentMonth,
-        ],
+           ai_cost_month_usd    = VALUES(ai_cost_month_usd),
+           ai_cost_rollup_month = VALUES(ai_cost_rollup_month)`,
+        [row.organization_id, row.total_cost_usd, currentMonth],
       );
     }
 
