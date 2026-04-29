@@ -12,7 +12,6 @@ services:
     volumes:
       - db_data:/var/lib/mysql
     command: >
-      --default-authentication-plugin=mysql_native_password
       --event-scheduler=ON
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci

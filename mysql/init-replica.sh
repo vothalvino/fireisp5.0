@@ -34,7 +34,7 @@ echo "[init-replica] Creating replication user '${REPL_USER}' on primary ..."
 mysql -h "${PRIMARY_HOST}" -P "${PRIMARY_PORT}" \
       -u root -p"${MYSQL_ROOT_PASSWORD}" --protocol=TCP <<-SQL
   CREATE USER IF NOT EXISTS '${REPL_USER}'@'%'
-    IDENTIFIED WITH mysql_native_password BY '${REPL_PASS}';
+    IDENTIFIED WITH caching_sha2_password BY '${REPL_PASS}';
   GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'%';
   FLUSH PRIVILEGES;
 SQL
