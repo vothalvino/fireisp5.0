@@ -217,7 +217,7 @@ describe('aiReplyService._validateOutput', () => {
   it('fails when URL is present and no allowlist configured', () => {
     const r = svc._validateOutput('Visit https://external.com for details', { phraseValidation: okValidation });
     expect(r.valid).toBe(false);
-    expect(r.errors.some(e => e.includes('https://external.com'))).toBe(true);
+    expect(r.errors[0]).toMatch(/External URL not allowed/);
   });
 
   it('passes when URL is in the allowlist', () => {
@@ -378,6 +378,25 @@ describe('aiReplyService.generate — draft_only', () => {
     await svc.generate({ ...GENERATE_ARGS, contractId: null });
     expect(mockTopologySummarize).not.toHaveBeenCalled();
     expect(mockHealthSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('includes only the last 10 comments in the prompt', async () => {
+    const manyComments = Array.from({ length: 15 }, (_, i) => ({
+      created_at:  `2026-04-29T${String(i).padStart(2, '0')}:00:00Z`,
+      is_internal: false,
+      body:        `Comment number ${i + 1}`,
+    }));
+    mockTicketGetComments.mockResolvedValue(manyComments);
+
+    await svc.generate(GENERATE_ARGS);
+
+    // The system prompt is in the first element of the messages array passed to chat
+    const generateCall = mockLlmChat.mock.calls[1]; // call 0=classify, call 1=generate
+    const systemContent = generateCall[0].messages[0].content;
+
+    // Should include the LAST 10 (comments 6–15), not the first 5
+    expect(systemContent).toContain('Comment number 15');
+    expect(systemContent).not.toContain('Comment number 1\n'); // first comment excluded
   });
 });
 

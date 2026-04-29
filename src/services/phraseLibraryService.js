@@ -257,7 +257,11 @@ async function updateForbiddenTerm(orgId, termId, fields) {
 
   const allowed = {};
   if (fields.locale      !== undefined) allowed.locale      = fields.locale;
-  if (fields.term        !== undefined) allowed.term        = fields.term.trim();
+  if (fields.term !== undefined) {
+    const trimmedTerm = fields.term.trim();
+    if (trimmedTerm.length === 0) throw new ValidationError('term cannot be empty');
+    allowed.term = trimmedTerm;
+  }
   if (fields.replacement !== undefined) allowed.replacement = fields.replacement;
 
   if (Object.keys(allowed).length === 0) {

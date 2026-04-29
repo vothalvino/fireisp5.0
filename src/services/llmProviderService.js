@@ -81,7 +81,8 @@ const PRICE_TABLE = {
  * Compute cost_usd from the price table.
  * Falls back to 0 with a warning when the model is not listed.
  */
-// Multiplier for rounding cost to 6 decimal places (USD micro-cent precision)
+// Module-scope so other functions added in the future can reuse
+// the same 6-decimal (USD micro-cent) rounding precision.
 const COST_PRECISION_MULTIPLIER = 1e6;
 
 function _computeCost(kind, model, promptTokens, completionTokens) {

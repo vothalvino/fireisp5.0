@@ -220,8 +220,8 @@ async function summarize(contractId) {
   // integer IDs — filter defensively to ensure only positive integers reach
   // the IN-clause and prevent any injection if the path JSON was tampered.
   const deviceIds = [...new Set(
-    path.map(h => h.device_id).filter(id => Number.isFinite(Number(id)) && Number(id) > 0),
-  )].map(Number);
+    path.map(h => Number(h.device_id)).filter(id => Number.isFinite(id) && id > 0),
+  )];
   let devices = [];
   if (deviceIds.length > 0) {
     const placeholders = deviceIds.map(() => '?').join(', ');
