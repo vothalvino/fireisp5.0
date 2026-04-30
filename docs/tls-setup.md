@@ -57,11 +57,20 @@ DOMAIN=isp.example.com EMAIL=admin@example.com ./nginx/init-letsencrypt.sh
 ```
 
 What it does:
-1. Creates a temporary self-signed certificate in `./nginx/certs/`.
-2. Starts the nginx container with the dummy cert.
-3. Runs Certbot (`certonly --webroot`) to issue the real certificate.
-4. Copies `fullchain.pem` + `privkey.pem` into `./nginx/certs/`.
-5. Sends `nginx -s reload` so nginx uses the real certificate immediately.
+1. Creates a temporary self-signed certificate in `./nginx/certs/` (so the
+   production nginx config can later start without missing-file errors).
+2. Temporarily swaps `nginx/nginx.conf` for `nginx/nginx.bootstrap.conf` —
+   a stripped-down config that only listens on port 80 and serves the ACME
+   challenge. This avoids the
+   `[emerg] host not found in upstream "app:3000"` failure that the full
+   config would hit when started with `--no-deps`.
+3. Starts the nginx container with the bootstrap config.
+4. Runs Certbot (`certonly --webroot`) to issue the real certificate.
+5. Copies `fullchain.pem` + `privkey.pem` into `./nginx/certs/`.
+6. Restores `nginx/nginx.conf`, stops the bootstrap nginx container, and
+   leaves the stack ready for the next step. The full nginx config — with
+   the `app` upstream and TLS server — comes up in step 3 below alongside
+   the rest of the stack.
 
 ### 3. Start the full stack
 
@@ -261,6 +270,20 @@ nginx: [emerg] cannot load certificate "/etc/nginx/certs/fullchain.pem"
 
 Run `nginx/init-letsencrypt.sh` to bootstrap the certificate before starting
 the full stack.
+
+### `init-letsencrypt.sh` exits with `[ERROR] nginx is not running`
+
+The script now prints the actual `nginx -t` output and the last 50 lines of
+the nginx container logs before exiting. The most common causes are:
+
+- **`[emerg] host not found in upstream "app:3000"`** — you are running an
+  older version of the script that mounted the production `nginx.conf`
+  during bootstrap. Pull the latest `nginx/init-letsencrypt.sh` and
+  `nginx/nginx.bootstrap.conf` from the repo and re-run.
+- **Port 80 already in use** — another service (Apache, system nginx,
+  Caddy) is bound to port 80. Stop it before re-running.
+- **Bad edit to `nginx/nginx.conf`** — the printed `nginx -t` output points
+  at the offending file/line.
 
 ### Certbot ACME challenge fails (HTTP-01)
 

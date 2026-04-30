@@ -7,11 +7,17 @@
 # but Certbot needs a running nginx to answer the HTTP-01 ACME challenge.
 #
 # Strategy:
-#   1. Create a dummy self-signed certificate so nginx can start.
-#   2. Bring up only the nginx container.
-#   3. Use Certbot (via Docker) to issue the real certificate.
-#   4. Certbot's deploy hook copies the certs to ./nginx/certs/.
-#   5. Reload nginx so it picks up the real certificate.
+#   1. Create a dummy self-signed certificate so nginx can start with the
+#      production config later (it requires the cert files to exist).
+#   2. Temporarily swap nginx.conf → nginx.bootstrap.conf so nginx can start
+#      WITHOUT the `app` upstream container (open-source nginx resolves
+#      `upstream { server app:3000; }` at startup, which fails with
+#      `[emerg] host not found in upstream "app:3000"` when --no-deps is used).
+#   3. Bring up only the nginx container.
+#   4. Use Certbot (via Docker) to issue the real certificate.
+#   5. Certbot's deploy hook copies the certs to ./nginx/certs/.
+#   6. Restore the production nginx.conf and reload nginx so it picks up the
+#      real certificate and the full upstream/TLS configuration.
 #
 # Usage:
 #   chmod +x nginx/init-letsencrypt.sh
@@ -54,6 +60,9 @@ CERTS_DIR="$SCRIPT_DIR/certs"
 LE_DIR="$SCRIPT_DIR/letsencrypt"   # bind-mounted as /etc/letsencrypt in certbot containers
 COMPOSE_FILE="$REPO_ROOT/docker-compose.prod.yml"
 ENV_FILE="$REPO_ROOT/.env.prod"
+NGINX_CONF="$SCRIPT_DIR/nginx.conf"
+BOOTSTRAP_CONF="$SCRIPT_DIR/nginx.bootstrap.conf"
+NGINX_CONF_BACKUP="$SCRIPT_DIR/.nginx.conf.bootstrap-backup"
 
 DOCKER_COMPOSE_CMD="docker compose -f $COMPOSE_FILE"
 [[ -f "$ENV_FILE" ]] && DOCKER_COMPOSE_CMD="$DOCKER_COMPOSE_CMD --env-file $ENV_FILE"
@@ -62,9 +71,21 @@ DOCKER_COMPOSE_CMD="docker compose -f $COMPOSE_FILE"
 log()  { echo "[$(date '+%H:%M:%S')] $*"; }
 die()  { echo "[ERROR] $*" >&2; exit 1; }
 
+# Restore the production nginx.conf if we swapped in the bootstrap one.
+# Idempotent — safe to call multiple times and from the EXIT trap.
+restore_nginx_conf() {
+  if [[ -f "$NGINX_CONF_BACKUP" ]]; then
+    mv -f "$NGINX_CONF_BACKUP" "$NGINX_CONF"
+    log "Restored production nginx.conf."
+  fi
+}
+
 # ── Pre-flight checks ─────────────────────────────────────────────────────────
 command -v docker >/dev/null 2>&1 || die "docker is not installed."
 docker info >/dev/null 2>&1       || die "Docker daemon is not running."
+
+[[ -f "$NGINX_CONF" ]]     || die "Missing $NGINX_CONF"
+[[ -f "$BOOTSTRAP_CONF" ]] || die "Missing $BOOTSTRAP_CONF — required for first-time TLS bootstrap."
 
 mkdir -p "$CERTS_DIR" "$LE_DIR"
 
@@ -77,19 +98,38 @@ openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
   2>/dev/null
 log "Dummy certificate created."
 
-# ── Step 2: Start nginx with the dummy certificate ───────────────────────────
-# Use --no-deps so Docker Compose does not pull in the app/db/redis chain.
-# Nginx can start without the upstream app; it only needs port 80 to answer
-# the ACME HTTP-01 challenge from the /var/www/certbot webroot.
-log "Starting nginx ..."
-$DOCKER_COMPOSE_CMD up --no-deps -d nginx
+# ── Step 2: Swap in the bootstrap nginx.conf and start nginx ─────────────────
+# The production nginx.conf declares `upstream app { server app:3000; }`,
+# which open-source nginx resolves at startup. With `--no-deps` the `app`
+# container is not running, so nginx would abort with
+#   [emerg] host not found in upstream "app:3000"
+# We swap in a minimal config that only listens on :80 and serves the ACME
+# challenge — no upstream, no TLS server. A trap restores the production
+# config even if this script aborts unexpectedly.
+log "Swapping in bootstrap nginx config ..."
+cp "$NGINX_CONF" "$NGINX_CONF_BACKUP"
+trap 'restore_nginx_conf' EXIT
+cp "$BOOTSTRAP_CONF" "$NGINX_CONF"
+
+# Use --no-deps so Docker Compose does not pull in the app/db/redis chain,
+# and --force-recreate so nginx picks up the swapped config if a previous
+# (failed) bootstrap left a container running with the old conf mounted.
+log "Starting nginx with bootstrap config ..."
+$DOCKER_COMPOSE_CMD up --no-deps -d --force-recreate nginx
 sleep 3  # give nginx a moment to accept connections
 
-# Verify nginx is up
-if ! $DOCKER_COMPOSE_CMD exec -T nginx nginx -t >/dev/null 2>&1; then
-  die "nginx failed to start — check nginx.conf for syntax errors."
+# Verify nginx is up. Capture nginx -t output so we can surface the real
+# error (e.g. a syntax mistake or missing file) instead of the misleading
+# "check nginx.conf for syntax errors" message that masked the original
+# upstream-resolution failure for a long time.
+if ! NGINX_TEST_OUT="$($DOCKER_COMPOSE_CMD exec -T nginx nginx -t 2>&1)"; then
+  echo "[ERROR] nginx failed the configuration test. Output of 'nginx -t':" >&2
+  printf '%s\n' "$NGINX_TEST_OUT" | sed 's/^/  /' >&2
+  echo "[ERROR] Recent nginx container logs:" >&2
+  $DOCKER_COMPOSE_CMD logs --tail=50 nginx 2>&1 | sed 's/^/  /' >&2 || true
+  die "nginx is not running — see output above."
 fi
-log "nginx is running."
+log "nginx is running with bootstrap config."
 
 # ── Step 3: Obtain the real Let's Encrypt certificate ────────────────────────
 STAGING_FLAG=""
@@ -149,9 +189,28 @@ cp "$LIVE_DIR/privkey.pem"   "$CERTS_DIR/privkey.pem"
 chmod 644 "$CERTS_DIR/fullchain.pem"
 chmod 640 "$CERTS_DIR/privkey.pem"
 
-# ── Step 5: Reload nginx with the real certificate ───────────────────────────
-log "Reloading nginx with the real certificate ..."
-$DOCKER_COMPOSE_CMD exec -T nginx nginx -s reload
+# ── Step 5: Restore production nginx.conf and reload nginx ──────────────────
+# Move the production config back into place, then recreate the nginx
+# container so the full TLS server block, upstream pool, and security
+# headers take effect with the freshly issued certificate.
+log "Restoring production nginx.conf and reloading ..."
+restore_nginx_conf
+# Safe to drop the trap now: restore_nginx_conf has already moved the
+# backup back into place and removed it, so a re-fire on EXIT would be
+# an idempotent no-op anyway.
+trap - EXIT
+
+# `up -d --force-recreate` rather than `nginx -s reload` because the
+# container was started with `--no-deps` and we now need it linked to
+# the full stack lifecycle. The `app` service may still be down at this
+# point (the operator brings it up in step 6 of tls-setup.md), so keep
+# --no-deps here too — the nginx container will start, fail to resolve
+# `app`, and Docker will restart it once `app` comes online via
+# `docker compose up -d`. To avoid that flapping window we instead simply
+# stop the bootstrap nginx; the operator's `docker compose up -d` will
+# bring nginx back up alongside `app` with the production config.
+$DOCKER_COMPOSE_CMD stop nginx >/dev/null 2>&1 || true
+$DOCKER_COMPOSE_CMD rm -f nginx >/dev/null 2>&1 || true
 
 log ""
 log "✅  TLS bootstrap complete!"
