@@ -16,6 +16,7 @@
 - [Data Controller](#data-controller)
 - [Lawful Basis Summary](#lawful-basis-summary)
 - [PII Field Inventory](#pii-field-inventory)
+- [AI Reply Assistant — prompt-forwarding notice](#ai-reply-assistant--prompt-forwarding-notice)
 - [Data-Subject Access Request (DSAR) procedure](#data-subject-access-request-dsar-procedure)
 - [Erasure procedure](#erasure-procedure)
 - [Retention periods](#retention-periods)
@@ -125,6 +126,20 @@ ISP company, not the FireISP project itself.
 |---|---|---|---|
 | `subject`, `description` | Support ticket content | Contractual | Life of contract + 1 year |
 
+### Table: `ai_reply_logs` (AI Reply Assistant)
+
+| Column | Description | Lawful basis | Retention |
+|---|---|---|---|
+| `draft_text` | AI-generated draft reply for the client's ticket | Contractual (support service) | Life of ticket + 1 year |
+| `final_text` | Edited or approved reply sent to the client | Contractual (support service) | Life of ticket + 1 year |
+| `action` | Disposition: proposed / sent / edited / discarded / auto_sent | Contractual | Life of ticket + 1 year |
+| `classification`, `confidence` | Issue category + model confidence score | Legitimate interest (service quality) | Life of ticket + 1 year |
+
+> **Note on prompt data:** `context_snapshot` (network topology and health snapshot
+> forwarded to the LLM) and `prompt_hash` are **internal operational metadata**,
+> not personal data of the data subject.  They are excluded from DSAR exports
+> (see §DSAR procedure below).
+
 ### Table: `users` (operator/admin accounts, not end-subscribers)
 
 | Column | Description | Lawful basis | Retention |
@@ -139,6 +154,43 @@ ISP company, not the FireISP project itself.
 | Column | Description | Lawful basis | Retention |
 |---|---|---|---|
 | `user_id`, `ip_address`, `action`, `entity_type`, `entity_id` | Security audit trail | Legal obligation / legitimate interest | **5 years** |
+
+---
+
+## AI Reply Assistant — prompt-forwarding notice
+
+When the **AI Reply Assistant** is enabled (`ai_policies.enabled = 1`), FireISP
+constructs a prompt for each inbound support ticket and sends it to the
+configured LLM provider.  The prompt includes:
+
+- The ticket subject and description (may contain client-authored PII).
+- A network context snapshot (device names, topology path, active outages).
+- The relevant section of the operator's phrase library (no client PII).
+
+### PII in prompts
+
+| `redact_pii_before_llm` setting | Behaviour |
+|---|---|
+| **`1` (default, recommended)** | IP addresses, MAC addresses, phone numbers, email addresses, and postal addresses are replaced with placeholder tokens before the prompt is sent. The original values are rehydrated in the final draft after the LLM responds. **No PII is forwarded to the external provider.** |
+| `0` (disabled) | The full ticket text, including any PII the client wrote, is forwarded verbatim to the provider. Use only when the configured provider is an on-prem Ollama instance where data does not leave the server. |
+
+### On-prem option
+
+Configuring an **Ollama** provider (`kind = 'ollama'`, `endpoint_url` pointing
+to an internal host) means all LLM inference runs locally.  No prompt data
+reaches any external third party regardless of the `redact_pii_before_llm`
+setting.
+
+### Operator obligation
+
+Operators must:
+
+1. Disclose the use of AI drafting (and any external LLM provider) in their
+   **privacy notice** to subscribers.
+2. Sign a **Data Processing Agreement (DPA)** with every external LLM provider
+   used (OpenAI, Azure OpenAI, Anthropic, Google).
+3. Enable `redact_pii_before_llm = 1` **or** use an on-prem Ollama provider
+   when processing data of EU/EEA data subjects under GDPR Art. 44–46.
 
 ---
 
@@ -162,7 +214,8 @@ ISP company, not the FireISP project itself.
    ```
 
    The response includes: client record, contacts, MX profile, contracts,
-   invoices, payments, tickets, connection logs (last 500), and IP assignments.
+   invoices, payments, tickets, connection logs (last 500), IP assignments,
+   and AI reply log drafts/finals (last 200, internal prompts excluded).
 
 4. Deliver the JSON export to the data subject (encrypted email or secure download).
 
@@ -229,6 +282,13 @@ WHERE client_id = :client_id
 UPDATE tickets SET subject = '[ERASED]', description = '[ERASED]'
 WHERE client_id = :client_id;
 
+-- 6. Anonymise AI reply log drafts linked to this client's tickets
+--    (draft_text / final_text may reproduce client-authored message content)
+UPDATE ai_reply_logs arl
+JOIN   tickets t ON t.id = arl.ticket_id
+SET    arl.draft_text = '[ERASED]', arl.final_text = '[ERASED]'
+WHERE  t.client_id = :client_id;
+
 COMMIT;
 ```
 
@@ -248,6 +308,7 @@ communicate completion to the data subject.
 | Operator audit logs | 5 years | 5-year anniversary |
 | 2FA secrets | Active account only | Account deactivation |
 | Backups | 30 days (default) | Automated deletion by backup service |
+| AI reply log draft/final text | Life of ticket + 1 year | Ticket closure + 1 year |
 
 ---
 
@@ -261,6 +322,8 @@ communicate completion to the data subject.
 | AWS S3 / Cloudflare R2 (optional backup) | Database backups | All database data (encrypted at rest) | AWS DPA / Cloudflare DPA |
 | Stripe / Conekta (optional) | Payment processing | Name, email, amount | Their own compliance (PCI-DSS) |
 | Twilio (optional) | SMS | Phone number | Twilio DPA |
+| **LLM provider** (OpenAI / Azure OpenAI / Anthropic / Google Gemini) | AI reply draft generation | Support ticket text + network context snapshot; **optionally** client PII if `redact_pii_before_llm = false` | Provider DPA (OpenAI, Microsoft, Anthropic, Google); **enable `redact_pii_before_llm`** or use an on-prem Ollama provider to avoid external transfer |
+| **Ollama** (on-prem, optional) | AI reply draft generation (self-hosted) | Same as above but **no data leaves the server** | No third-party transfer |
 
 ---
 

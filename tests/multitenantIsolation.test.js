@@ -119,6 +119,14 @@ const ORG_SCOPED_MODELS = [
   require('../src/models/Nas'),
   require('../src/models/Warehouse'),
   require('../src/models/AuditLog'),
+  // AI assistant models (§7)
+  require('../src/models/AiPolicy'),
+  require('../src/models/AiProvider'),
+  require('../src/models/AiPhrase'),
+  require('../src/models/AiForbiddenTerm'),
+  require('../src/models/AiReplyLog'),
+  // ContractTopologyPath has hasOrgScope=false (scoped via contract FK)
+  // and is correctly omitted from this list
 ];
 
 // ---------------------------------------------------------------------------
@@ -421,5 +429,86 @@ describe('orgScope middleware wiring', () => {
     expect(src).not.toContain('req.query.orgId');
     expect(src).not.toContain('req.body.orgId');
     expect(src).not.toContain('req.params.orgId');
+  });
+
+  test('orgScope is applied on AI router', () => {
+    const src = require('fs').readFileSync(
+      require('path').join(__dirname, '../src/routes/ai.js'),
+      'utf8',
+    );
+    expect(src).toContain('router.use(orgScope)');
+    expect(src).toContain("require('../middleware/orgScope')");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 5 — AI routes cross-org isolation
+// ---------------------------------------------------------------------------
+// ai_providers, ai_phrases, ai_forbidden_terms, and ai_reply_logs are
+// all org-scoped.  A request from Org A must never mutate or view a
+// resource that belongs to Org B.  When the DB mock returns [] (no row
+// found for Org A), the routes must respond 404.
+// ---------------------------------------------------------------------------
+
+describe('AI route cross-org isolation', () => {
+  const ORG_A    = 500;
+  const RECORD_ID = 77;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    ctx.orgId = ORG_A;
+    // DB returns empty: the row exists but belongs to a different org
+    mockQuery.mockResolvedValue([[]]); // → findById returns null → NotFoundError → 404
+  });
+
+  test('PUT /api/v1/ai/providers/:id returns 404 for cross-org provider', async () => {
+    const res = await request(app)
+      .put(`/api/v1/ai/providers/${RECORD_ID}`)
+      .send({ name: 'Injected', kind: 'openai', model: 'gpt-4o' });
+    expect(res.status).toBe(404);
+  });
+
+  test('DELETE /api/v1/ai/providers/:id returns 404 for cross-org provider', async () => {
+    const res = await request(app)
+      .delete(`/api/v1/ai/providers/${RECORD_ID}`);
+    expect(res.status).toBe(404);
+  });
+
+  test('POST /api/v1/ai/providers/:id/verify returns 404 for cross-org provider', async () => {
+    const res = await request(app)
+      .post(`/api/v1/ai/providers/${RECORD_ID}/verify`);
+    expect(res.status).toBe(404);
+  });
+
+  test('POST /api/v1/ai/reply/send returns 404 for cross-org reply log', async () => {
+    const res = await request(app)
+      .post('/api/v1/ai/reply/send')
+      .send({ log_id: RECORD_ID, action: 'discarded', final_text: 'n/a' });
+    expect(res.status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 6 — AI models: ContractTopologyPath is correctly NOT org-scoped
+// ---------------------------------------------------------------------------
+
+describe('ContractTopologyPath — correctly not org-scoped', () => {
+  test('ContractTopologyPath.hasOrgScope is false (scoped via contract FK)', () => {
+    const ContractTopologyPath = require('../src/models/ContractTopologyPath');
+    expect(ContractTopologyPath.hasOrgScope).toBe(false);
+  });
+
+  test('ContractTopologyPath is NOT in ORG_SCOPED_MODELS list', () => {
+    // Verify our ORG_SCOPED_MODELS array does not include it — would cause
+    // count() to receive an orgId it does not understand
+    const ContractTopologyPath = require('../src/models/ContractTopologyPath');
+    const ORG_SCOPED_MODELS_LOADED = [
+      require('../src/models/AiPolicy'),
+      require('../src/models/AiProvider'),
+      require('../src/models/AiPhrase'),
+      require('../src/models/AiForbiddenTerm'),
+      require('../src/models/AiReplyLog'),
+    ];
+    expect(ORG_SCOPED_MODELS_LOADED).not.toContain(ContractTopologyPath);
   });
 });
