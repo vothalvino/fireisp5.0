@@ -78,8 +78,11 @@ openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
 log "Dummy certificate created."
 
 # ── Step 2: Start nginx with the dummy certificate ───────────────────────────
+# Use --no-deps so Docker Compose does not pull in the app/db/redis chain.
+# Nginx can start without the upstream app; it only needs port 80 to answer
+# the ACME HTTP-01 challenge from the /var/www/certbot webroot.
 log "Starting nginx ..."
-$DOCKER_COMPOSE_CMD up -d nginx
+$DOCKER_COMPOSE_CMD up -d --no-deps nginx
 sleep 3  # give nginx a moment to accept connections
 
 # Verify nginx is up
@@ -120,9 +123,11 @@ if [[ "$USE_CLOUDFLARE" == "1" ]]; then
   rm -f "$CF_INI"
 else
   # ── HTTP-01 challenge via webroot ─────────────────────────────────────────
-  # docker compose run uses the same volumes as the certbot service, ensuring
-  # the certificate is stored in the ./nginx/letsencrypt bind-mount.
-  $DOCKER_COMPOSE_CMD run --rm certbot certonly \
+  # -T disables pseudo-TTY allocation so the command does not try to attach
+  # to the current terminal — without this flag Docker Compose will attempt
+  # to allocate a PTY, which disrupts the SSH session when the installer is
+  # run over a pipe (curl … | bash) or from a non-interactive terminal.
+  $DOCKER_COMPOSE_CMD run --rm -T certbot certonly \
     --webroot \
     --webroot-path /var/www/certbot \
     -d "$DOMAIN" \
