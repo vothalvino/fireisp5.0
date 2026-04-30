@@ -550,6 +550,121 @@ async function chat({ providerId, messages, jsonSchema = null, signal = null } =
 }
 
 // =============================================================================
+// Public API — embed
+// =============================================================================
+
+// Default embedding models per provider kind
+const EMBED_DEFAULT_MODELS = {
+  openai:       'text-embedding-3-small',
+  azure_openai: 'text-embedding-3-small',
+  gemini:       'embedding-001',
+  ollama:       'nomic-embed-text',
+};
+
+/**
+ * Embed a text string using the given provider's embedding model.
+ * Returns a number[] (the raw embedding vector).
+ *
+ * @param {string} text
+ * @param {number} providerId
+ * @returns {Promise<number[]>}
+ */
+async function embed(text, providerId) {
+  if (!providerId) throw new AppError('providerId is required', 400, 'LLM_MISSING_PROVIDER');
+
+  const provider = await AiProvider.findById(providerId);
+  if (!provider) {
+    throw new AppError(`Provider ${providerId} not found`, 404, 'LLM_PROVIDER_NOT_FOUND');
+  }
+
+  const apiKey = decrypt(provider.api_key_encrypted) || null;
+
+  switch (provider.kind) {
+    case 'openai':
+    case 'azure_openai':
+      return _embedOpenAI(provider, apiKey, text);
+    case 'gemini':
+      return _embedGemini(provider, apiKey, text);
+    case 'ollama':
+      return _embedOllama(provider, text);
+    case 'anthropic':
+      throw new AppError('Anthropic does not support embeddings', 400, 'LLM_EMBED_NOT_SUPPORTED');
+    case 'custom':
+      throw new AppError('Custom providers do not support embeddings', 400, 'LLM_EMBED_NOT_SUPPORTED');
+    default:
+      throw new AppError(`Unknown provider kind: ${provider.kind}`, 500, 'LLM_UNKNOWN_KIND');
+  }
+}
+
+/**
+ * Generate embeddings via OpenAI (or Azure OpenAI).
+ */
+async function _embedOpenAI(provider, apiKey, text) {
+  const { OpenAI } = require('openai');
+  const model = provider.embedding_model || EMBED_DEFAULT_MODELS[provider.kind];
+
+  const opts = { apiKey, timeout: provider.timeout_ms || 20000 };
+
+  if (provider.kind === 'azure_openai') {
+    const cfg = _parseExtraConfig(provider.extra_config);
+    opts.baseURL            = provider.endpoint_url;
+    opts.defaultHeaders     = { 'api-key': apiKey };
+    opts.defaultQuery       = { 'api-version': cfg.api_version || '2024-02-01' };
+    opts.apiKey             = undefined;
+    opts.dangerouslyAllowBrowser = false;
+  }
+
+  const client = new OpenAI(opts);
+  const r = await client.embeddings.create({ model, input: text });
+  return r.data[0].embedding;
+}
+
+/**
+ * Generate embeddings via Google Gemini.
+ */
+async function _embedGemini(provider, apiKey, text) {
+  const { GoogleGenerativeAI } = require('@google/generative-ai');
+  const model = provider.embedding_model || EMBED_DEFAULT_MODELS.gemini;
+
+  const client = new GoogleGenerativeAI(apiKey);
+  const m = client.getGenerativeModel({ model });
+  const r = await m.embedContent(text);
+  return r.embedding.values;
+}
+
+/**
+ * Generate embeddings via a local Ollama instance.
+ * Tries the v0.3+ /api/embed endpoint first; falls back to the legacy /api/embeddings.
+ */
+async function _embedOllama(provider, text) {
+  const baseUrl = (provider.endpoint_url || 'http://localhost:11434').replace(/\/$/, '');
+  const model   = provider.embedding_model || EMBED_DEFAULT_MODELS.ollama;
+
+  try {
+    const res = await fetch(`${baseUrl}/api/embed`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ model, input: text }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data.embeddings[0];
+  } catch {
+    // Fallback to legacy endpoint
+    const res = await fetch(`${baseUrl}/api/embeddings`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ model, prompt: text }),
+    });
+    if (!res.ok) {
+      throw new Error(`Ollama /api/embeddings returned HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    return data.embedding;
+  }
+}
+
+// =============================================================================
 // Public API — verify
 // =============================================================================
 
@@ -594,6 +709,7 @@ async function verify(providerId) {
 module.exports = {
   chat,
   verify,
+  embed,
   // Exported for testing
   _computeCost,
   _parseJson,
@@ -602,4 +718,7 @@ module.exports = {
   _callGemini,
   _callOllama,
   _callCustom,
+  _embedOpenAI,
+  _embedGemini,
+  _embedOllama,
 };

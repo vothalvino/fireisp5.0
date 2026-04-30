@@ -47,6 +47,7 @@ const mockGetPhrasesByCategory = jest.fn();
 const mockGetTermsByLocale     = jest.fn();
 const mockValidateDraft        = jest.fn();
 const mockLlmChat              = jest.fn();
+const mockPhraseSearch         = jest.fn().mockResolvedValue([]);
 
 jest.mock('../src/services/topologyContextService', () => ({
   summarize: mockTopologySummarize,
@@ -58,6 +59,7 @@ jest.mock('../src/services/phraseLibraryService', () => ({
   getPhrasesByCategory: mockGetPhrasesByCategory,
   getTermsByLocale:     mockGetTermsByLocale,
   validateDraft:        mockValidateDraft,
+  search:               mockPhraseSearch,
 }));
 jest.mock('../src/services/llmProviderService', () => ({
   chat: mockLlmChat,

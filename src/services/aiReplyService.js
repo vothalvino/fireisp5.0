@@ -170,9 +170,10 @@ Respond with only valid JSON — no markdown fences, no extra text.`,
  * @param {object[]} opts.forbiddenTerms    — [{term, replacement}]
  * @param {string}   opts.contextJson       — already-redacted context JSON string
  * @param {object[]} opts.ticketHistory     — last N ticket comment rows
+ * @param {string[]} [opts.ragChunks]       — semantically retrieved phrase texts
  * @returns {string}
  */
-function _renderSystemPrompt({ tone, category, phrasesByCategory, forbiddenTerms, contextJson, ticketHistory }) {
+function _renderSystemPrompt({ tone, category, phrasesByCategory, forbiddenTerms, contextJson, ticketHistory, ragChunks = [] }) {
   const phrases      = phrasesByCategory[category] || phrasesByCategory['general'] || [];
   const required     = phrases.filter(p => Number(p.is_required) === 1).map(p => `- "${p.text}"`);
   const suggested    = phrases.filter(p => Number(p.is_required) !== 1).map(p => `- "${p.text}"`);
@@ -201,6 +202,9 @@ function _renderSystemPrompt({ tone, category, phrasesByCategory, forbiddenTerms
     '',
     '## Ticket history (oldest → newest)',
     historyLines,
+    '',
+    '## Relevant retrieved phrases (semantic search)',
+    ragChunks.length ? ragChunks.map(c => `- "${c}"`).join('\n') : '(none)',
     '',
     'Reply ONLY with the customer-facing response text. No preamble, no metadata.',
   ].join('\n');
@@ -353,10 +357,11 @@ async function generate({ orgId, ticketId, channel = 'portal', inboundText, cont
   }
 
   // ── Step 5: Render system prompt ────────────────────────────────────────────
-  const [phrasesByCategory, forbiddenTerms, ticketHistory] = await Promise.all([
+  const [phrasesByCategory, forbiddenTerms, ticketHistory, ragChunks] = await Promise.all([
     phraseLibraryService.getPhrasesByCategory(orgId, locale),
     phraseLibraryService.getTermsByLocale(orgId, locale),
     Ticket.getComments(ticketId),
+    phraseLibraryService.search(orgId, locale, workingInbound, 5),
   ]);
 
   const systemPrompt = _renderSystemPrompt({
@@ -366,6 +371,7 @@ async function generate({ orgId, ticketId, channel = 'portal', inboundText, cont
     forbiddenTerms,
     contextJson:       workingContextStr,
     ticketHistory:     ticketHistory.slice(-HISTORY_WINDOW),
+    ragChunks,
   });
 
   const promptHash = crypto.createHash('sha256').update(systemPrompt).digest('hex');

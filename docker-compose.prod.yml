@@ -51,6 +51,7 @@ volumes:
   redis_data:
   nginx_certs:
   certbot_www:
+  chroma_data:
 
 # ── Services ──────────────────────────────────────────────────────────────────
 services:
@@ -241,7 +242,32 @@ services:
           memory: 32M
     logging: *default-logging
 
-  # ── Certbot (Let's Encrypt certificate renewal) ───────────────────────────
+  # ── ChromaDB vector store (optional — enable with --profile rag) ─────────
+  chromadb:
+    image: chromadb/chroma:1.0.4
+    profiles: ['rag']
+    restart: unless-stopped
+    networks:
+      - backend
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      IS_PERSISTENT: 'TRUE'
+      ANONYMIZED_TELEMETRY: 'FALSE'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:8000/api/v1/heartbeat || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    logging: *default-logging
   # This service checks for certificate renewal every 12 hours.
   # Let's Encrypt renews certs that are within 30 days of expiry.
   #
