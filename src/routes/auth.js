@@ -26,12 +26,16 @@ const COOKIE_BASE = {
 
 /**
  * Set httpOnly SameSite=Strict auth cookies on the response.
- * - fireisp_access  — short-lived JWT (Path=/api, access token lifetime)
- * - fireisp_refresh — opaque refresh token (Path=/api/v1/auth/refresh only, refresh token lifetime)
- * - fireisp_csrf    — double-submit CSRF token readable by JavaScript (Path=/api, access token lifetime)
+ * - fireisp_access        — short-lived JWT (Path=/api, access token lifetime)
+ * - fireisp_refresh       — opaque refresh token (Path=/api/v1/auth/refresh only, refresh token lifetime)
+ * - fireisp_csrf_secret   — CSRF secret (httpOnly, server-only, Path=/api)
+ * - fireisp_csrf          — CSRF token derived from secret (NOT httpOnly, SPA-readable, Path=/api)
  *
  * The narrow Path on the refresh cookie means the browser will only attach it
  * to the refresh endpoint, limiting its exposure surface.
+ *
+ * The SPA reads `fireisp_csrf` and sends it as the `X-CSRF-Token` header on
+ * every state-changing request.  The server verifies it against the secret.
  */
 function setAuthCookies(res, accessToken, refreshToken) {
   res.cookie('fireisp_access', accessToken, {
