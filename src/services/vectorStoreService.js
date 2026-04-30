@@ -171,12 +171,24 @@ async function deleteDocuments({ collection, ids }) {
   logger.debug({ collection, count: ids.length }, 'vectorStoreService: deleted documents');
 }
 
+/**
+ * Returns the canonical ChromaDB collection name for an org's phrase library.
+ *
+ * @param {number} orgId
+ * @param {string} locale  e.g. "es-MX"
+ * @returns {string}
+ */
+function phraseCollectionName(orgId, locale) {
+  return `phrases_${orgId}_${locale.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+}
+
 module.exports = {
   isEnabled,
   ensureCollection,
   upsertDocuments,
   queryDocuments,
   deleteDocuments,
+  phraseCollectionName,
   // Exported for testing
   _collectionCache,
 };

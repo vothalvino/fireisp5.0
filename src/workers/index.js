@@ -102,6 +102,7 @@ function registerWorkers() {
 
     // Actual vector upsert using ChromaDB.
     const vectorStoreService = require('../services/vectorStoreService');
+    const { phraseCollectionName } = vectorStoreService;
     const llmProviderService = require('../services/llmProviderService');
 
     // Get active provider for this org
@@ -123,8 +124,7 @@ function registerWorkers() {
     }
 
     for (const [locale, localePhrases] of Object.entries(phrasesByLocale)) {
-      const collection = `phrases_${orgId}_${locale.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-      await vectorStoreService.ensureCollection(collection);
+      const collection = phraseCollectionName(orgId, locale);      await vectorStoreService.ensureCollection(collection);
 
       const ids = [], embeddings = [], documents = [], metadatas = [];
       for (const phrase of localePhrases) {

@@ -644,6 +644,7 @@ async function _embedOllama(provider, text) {
     const res = await fetch(`${baseUrl}/api/embed`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
+    // /api/embed uses `input` (v0.3+ field name, not the legacy `prompt`)
       body:    JSON.stringify({ model, input: text }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

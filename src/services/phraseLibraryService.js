@@ -378,7 +378,7 @@ async function search(orgId, locale, query, k = 5) {
     return [];
   }
 
-  const collection = `phrases_${orgId}_${locale.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  const collection = vectorStoreService.phraseCollectionName(orgId, locale);
   const results = await vectorStoreService.queryDocuments({ collection, queryEmbedding: embedding, k });
   return results.documents;
 }

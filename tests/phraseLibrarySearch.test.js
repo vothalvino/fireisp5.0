@@ -20,11 +20,12 @@ const mockFindByOrgId   = jest.fn();
 const mockEmbed         = jest.fn();
 
 jest.mock('../src/services/vectorStoreService', () => ({
-  isEnabled:       mockIsEnabled,
-  ensureCollection: jest.fn().mockResolvedValue('col-id'),
-  upsertDocuments: jest.fn().mockResolvedValue(undefined),
-  queryDocuments:  mockQueryDocs,
-  deleteDocuments: jest.fn().mockResolvedValue(undefined),
+  isEnabled:            mockIsEnabled,
+  ensureCollection:     jest.fn().mockResolvedValue('col-id'),
+  upsertDocuments:      jest.fn().mockResolvedValue(undefined),
+  phraseCollectionName: (orgId, locale) => `phrases_${orgId}_${locale.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+  queryDocuments:       mockQueryDocs,
+  deleteDocuments:      jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../src/models/AiPolicy', () => ({ findByOrgId: mockFindByOrgId }));

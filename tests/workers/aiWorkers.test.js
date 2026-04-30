@@ -130,9 +130,10 @@ describe('aiBackfillEmbeddingsWorker (ai-backfill-embeddings)', () => {
     jest.mock('../../src/services/phraseLibraryService', () => ({ listPhrases: mockListPhrases }));
     jest.mock('../../src/models/AiPolicy', () => ({ findByOrgId: mockFindByOrgId }));
     jest.mock('../../src/services/vectorStoreService', () => ({
-      isEnabled:        mockVsIsEnabled,
-      ensureCollection: mockVsEnsureCollection,
-      upsertDocuments:  mockVsUpsert,
+      isEnabled:           mockVsIsEnabled,
+      ensureCollection:    mockVsEnsureCollection,
+      upsertDocuments:     mockVsUpsert,
+      phraseCollectionName: (orgId, locale) => `phrases_${orgId}_${locale.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
       queryDocuments:   jest.fn().mockResolvedValue({ ids: [], documents: [], metadatas: [], distances: [] }),
       deleteDocuments:  jest.fn().mockResolvedValue(undefined),
     }));
