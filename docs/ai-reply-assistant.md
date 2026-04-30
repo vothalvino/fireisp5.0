@@ -437,21 +437,21 @@ Each phase = one PR, each PR keeps the test suite green.
 
 A PR series is "done" when:
 
-- [ ] An admin can open **Settings → AI Assistant** and toggle the
+- [x] An admin can open **Settings → AI Assistant** and toggle the
       chatbot **off**; within one request, no further AI drafts are
       generated for that org (verified by integration test).
-- [ ] An admin can register an OpenAI, Azure OpenAI, Anthropic, Gemini
+- [x] An admin can register an OpenAI, Azure OpenAI, Anthropic, Gemini
       and Ollama provider, click **Test connection**, and the call
       succeeds end-to-end.
-- [ ] Switching the **active provider** in the UI causes the next ticket
+- [x] Switching the **active provider** in the UI causes the next ticket
       draft to be produced by the new provider (verified by inspecting
       `ai_reply_logs.provider_id`).
-- [ ] If the active provider returns an error, the next provider in
+- [x] If the active provider returns an error, the next provider in
       `priority` order is used and the failure is recorded.
-- [ ] A draft generated for a ticket includes references to the
+- [x] A draft generated for a ticket includes references to the
       contract's actual access device and backhaul medium (fiber /
       wireless), pulled from `topologyContextService`.
-- [ ] No draft is ever sent that contains a forbidden term or that
+- [x] No draft is ever sent that contains a forbidden term or that
       omits a required phrase.
-- [ ] Backend test suite passes with 0 failures; frontend test suite
+- [x] Backend test suite passes with 0 failures; frontend test suite
       passes with 0 failures; OpenAPI spec is in sync.
