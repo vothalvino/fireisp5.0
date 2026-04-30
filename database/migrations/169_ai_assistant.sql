@@ -215,11 +215,11 @@ CREATE TABLE IF NOT EXISTS contract_topology_paths (
 -- ---------------------------------------------------------------------------
 
 ALTER TABLE network_links
-    ADD COLUMN IF NOT EXISTS medium
+    ADD COLUMN medium
         ENUM('fiber','wireless','copper') NULL
         COMMENT 'Physical medium of the link'
         AFTER capacity_mbps,
-    ADD COLUMN IF NOT EXISTS role
+    ADD COLUMN role
         ENUM('access','distribution','backhaul','core') NULL
         COMMENT 'Logical role in the network topology'
         AFTER medium;
@@ -229,7 +229,7 @@ ALTER TABLE network_links
 -- ---------------------------------------------------------------------------
 
 ALTER TABLE devices
-    ADD COLUMN IF NOT EXISTS role
+    ADD COLUMN role
         ENUM('access','distribution','backhaul','core') NULL
         COMMENT 'Logical role of this device in the network topology'
         AFTER firerelay_node_id;
@@ -239,7 +239,7 @@ ALTER TABLE devices
 -- ---------------------------------------------------------------------------
 
 ALTER TABLE organization_quotas
-    ADD COLUMN IF NOT EXISTS max_ai_tokens_month
+    ADD COLUMN max_ai_tokens_month
         INT UNSIGNED NULL
         COMMENT 'Max AI tokens consumed per calendar month; NULL = unlimited'
         AFTER max_scheduled_tasks;
