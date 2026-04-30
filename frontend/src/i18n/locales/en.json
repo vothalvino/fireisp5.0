@@ -13,7 +13,8 @@
     "search": "Search…",
     "errorDash": "—",
     "na": "N/A",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "deleting": "Deleting…"
   },
   "login": {
     "title": "🔥 FireISP 5.0",
@@ -326,7 +327,9 @@
       "redactPii": "Redact PII before sending to provider",
       "save": "Save Settings",
       "saving": "Saving…",
-      "saved": "✓ Saved"
+      "saved": "✓ Saved",
+      "loading": "Loading policy…",
+      "loadError": "Failed to load AI policy."
     },
     "providers": {
       "sectionTitle": "LLM Providers",
@@ -377,7 +380,11 @@
       "add": "Add",
       "update": "Update",
       "addTitle": "Add Phrase",
-      "editTitle": "Edit Phrase"
+      "editTitle": "Edit Phrase",
+      "cols": {
+        "phrase": "Phrase",
+        "variables": "Variables"
+      }
     },
     "forbiddenTerms": {
       "sectionTitle": "Forbidden Terms",
@@ -399,7 +406,9 @@
       },
       "add": "Add",
       "adding": "Adding…",
-      "addTitle": "Add Forbidden Term"
+      "addTitle": "Add Forbidden Term",
+      "remove": "Remove",
+      "removing": "Removing…"
     },
     "audit": {
       "sectionTitle": "Audit & Metrics",
@@ -435,7 +444,8 @@
       "nameRequired": "Name is required",
       "phraseRequired": "Phrase text is required",
       "termRequired": "Term is required"
-    }
+    },
+    "confirmTitle": "Confirm deletion"
   },
   "aiSuggestedReply": {
     "panelLabel": "AI Suggested Reply",

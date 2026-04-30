@@ -13,6 +13,7 @@
 import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { tokenStore } from '@/api/client';
 
 // ---------------------------------------------------------------------------
@@ -157,6 +158,7 @@ const EMPTY_POLICY: Partial<AiPolicy> = {
 };
 
 function GeneralTab() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const [saveError, setSaveError] = useState('');
   const [saveOk, setSaveOk] = useState(false);
@@ -219,15 +221,15 @@ function GeneralTab() {
     setForm(f => ({ ...f, enabled_channels: { ...(f.enabled_channels ?? policy.enabled_channels), [ch]: val } }));
   }
 
-  if (isLoading) return <p style={sty.muted}>Loading policy…</p>;
-  if (error) return <p style={sty.errorText}>Failed to load AI policy.</p>;
+  if (isLoading) return <p style={sty.muted}>{t('aiAssistantSettings.general.loading')}</p>;
+  if (error) return <p style={sty.errorText}>{t('aiAssistantSettings.general.loadError')}</p>;
 
   const channels = current.enabled_channels ?? { portal: false, email: false, whatsapp: false, sms: false };
 
   return (
     <div>
       <div style={sty.tabBar}>
-        <h3 style={sty.sectionTitle}>General Settings</h3>
+        <h3 style={sty.sectionTitle}>{t('aiAssistantSettings.general.sectionTitle')}</h3>
       </div>
 
       <form onSubmit={handleSave} style={sty.form}>
@@ -235,11 +237,11 @@ function GeneralTab() {
         <fieldset style={sty.fieldset}>
           <legend style={sty.legend}>Chatbot</legend>
           <label style={sty.switchRow}>
-            <span>AI Reply Assistant enabled</span>
+            <span>{t('aiAssistantSettings.general.enabled')}</span>
             <input
               type="checkbox"
               role="switch"
-              aria-label="AI Reply Assistant enabled"
+              aria-label={t('aiAssistantSettings.general.enabled')}
               checked={!!current.enabled}
               onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))}
             />
@@ -248,7 +250,7 @@ function GeneralTab() {
 
         {/* Per-channel toggles */}
         <fieldset style={sty.fieldset}>
-          <legend style={sty.legend}>Active channels</legend>
+          <legend style={sty.legend}>{t('aiAssistantSettings.general.channels')}</legend>
           {(['portal', 'email', 'whatsapp', 'sms'] as (keyof AiChannels)[]).map(ch => (
             <label key={ch} style={sty.switchRow}>
               <span style={{ textTransform: 'capitalize' }}>{ch}</span>
@@ -265,7 +267,7 @@ function GeneralTab() {
 
         {/* Mode */}
         <fieldset style={sty.fieldset}>
-          <legend style={sty.legend}>Reply mode</legend>
+          <legend style={sty.legend}>{t('aiAssistantSettings.general.mode')}</legend>
           {AI_MODES.map(m => (
             <label key={m} style={{ ...sty.switchRow, cursor: 'pointer' }}>
               <span style={{ textTransform: 'capitalize' }}>{m.replace(/_/g, ' ')}</span>
@@ -284,13 +286,13 @@ function GeneralTab() {
         {/* Confidence slider — only relevant for auto_send */}
         {current.mode === 'auto_send' && (
           <label style={sty.label}>
-            Auto-send confidence threshold: <strong>{current.auto_send_confidence}%</strong>
+            {t('aiAssistantSettings.general.confidence')}: <strong>{current.auto_send_confidence}%</strong>
             <input
               type="range"
               min={50}
               max={100}
               step={1}
-              aria-label="Auto-send confidence threshold"
+              aria-label={t('aiAssistantSettings.general.confidence')}
               value={current.auto_send_confidence ?? 90}
               onChange={e => setForm(f => ({ ...f, auto_send_confidence: Number(e.target.value) }))}
               style={{ width: '100%', marginTop: 4 }}
@@ -301,10 +303,10 @@ function GeneralTab() {
         {/* Locale + tone */}
         <div style={sty.row2}>
           <label style={sty.label}>
-            Default locale
+            {t('aiAssistantSettings.general.locale')}
             <select
               style={sty.select}
-              aria-label="Default locale"
+              aria-label={t('aiAssistantSettings.general.locale')}
               value={current.default_locale ?? 'en'}
               onChange={e => setForm(f => ({ ...f, default_locale: e.target.value }))}
             >
@@ -312,36 +314,36 @@ function GeneralTab() {
             </select>
           </label>
           <label style={sty.label}>
-            Tone
+            {t('aiAssistantSettings.general.tone')}
             <select
               style={sty.select}
-              aria-label="Tone"
+              aria-label={t('aiAssistantSettings.general.tone')}
               value={current.tone ?? 'professional'}
               onChange={e => setForm(f => ({ ...f, tone: e.target.value }))}
             >
-              {TONES.map(t => <option key={t} value={t} style={{ textTransform: 'capitalize' }}>{t}</option>)}
+              {TONES.map(tone => <option key={tone} value={tone} style={{ textTransform: 'capitalize' }}>{tone}</option>)}
             </select>
           </label>
         </div>
 
         {/* Redact PII */}
         <label style={sty.switchRow}>
-          <span>Redact PII before sending to provider</span>
+          <span>{t('aiAssistantSettings.general.redactPii')}</span>
           <input
             type="checkbox"
             role="switch"
-            aria-label="Redact PII before sending to provider"
+            aria-label={t('aiAssistantSettings.general.redactPii')}
             checked={!!current.redact_pii_before_llm}
             onChange={e => setForm(f => ({ ...f, redact_pii_before_llm: e.target.checked }))}
           />
         </label>
 
         {saveError && <p style={sty.errorText}>{saveError}</p>}
-        {saveOk && <p style={sty.successText}>✓ Saved</p>}
+        {saveOk && <p style={sty.successText}>{t('aiAssistantSettings.general.saved')}</p>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
           <button type="submit" style={sty.btnPrimary} disabled={saveMutation.isPending}>
-            {saveMutation.isPending ? 'Saving…' : 'Save Settings'}
+            {saveMutation.isPending ? t('aiAssistantSettings.general.saving') : t('aiAssistantSettings.general.save')}
           </button>
         </div>
       </form>
@@ -369,6 +371,7 @@ const KIND_FIELDS: Record<string, string[]> = {
 };
 
 function ProvidersTab() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<AiProvider | null>(null);
@@ -442,7 +445,7 @@ function ProvidersTab() {
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError('');
-    if (!form.name.trim()) { setFormError('Name is required'); return; }
+    if (!form.name.trim()) { setFormError(t('aiAssistantSettings.errors.nameRequired')); return; }
     const body: Record<string, unknown> = {
       name: form.name, kind: form.kind,
       priority: Number(form.priority),
@@ -485,21 +488,30 @@ function ProvidersTab() {
   return (
     <div>
       <div style={sty.tabBar}>
-        <h3 style={sty.sectionTitle}>LLM Providers</h3>
-        <button style={sty.btnPrimary} onClick={openNew}>+ Add Provider</button>
+        <h3 style={sty.sectionTitle}>{t('aiAssistantSettings.providers.sectionTitle')}</h3>
+        <button style={sty.btnPrimary} onClick={openNew}>{t('aiAssistantSettings.providers.addProvider')}</button>
       </div>
 
-      {isLoading && <p style={sty.muted}>Loading providers…</p>}
-      {error && <p style={sty.errorText}>Failed to load providers.</p>}
+      {isLoading && <p style={sty.muted}>{t('aiAssistantSettings.providers.loading')}</p>}
+      {error && <p style={sty.errorText}>{t('aiAssistantSettings.providers.error')}</p>}
       {!isLoading && providers.length === 0 && (
-        <p style={sty.muted}>No providers configured. Add one to enable AI replies.</p>
+        <p style={sty.muted}>{t('aiAssistantSettings.providers.empty')}</p>
       )}
 
       {providers.length > 0 && (
         <table style={sty.table}>
           <thead>
             <tr>
-              {['Active', 'Priority', 'Name', 'Kind', 'Model', 'Enabled', 'Status', ''].map(h => (
+              {[
+                t('aiAssistantSettings.providers.cols.active'),
+                t('aiAssistantSettings.providers.cols.priority'),
+                t('aiAssistantSettings.providers.cols.name'),
+                t('aiAssistantSettings.providers.cols.kind'),
+                t('aiAssistantSettings.providers.cols.model'),
+                t('aiAssistantSettings.providers.cols.enabled'),
+                t('aiAssistantSettings.providers.cols.status'),
+                '',
+              ].map(h => (
                 <th key={h} style={sty.th}>{h}</th>
               ))}
             </tr>
@@ -554,10 +566,10 @@ function ProvidersTab() {
                       onClick={() => handleVerify(p.id)}
                       aria-label={`Test connection for ${p.name}`}
                     >
-                      {verifyingId === p.id ? 'Testing…' : '🔗 Test'}
+                      {verifyingId === p.id ? t('aiAssistantSettings.providers.testing') : t('aiAssistantSettings.providers.test')}
                     </button>
-                    <button style={sty.btnGhost} onClick={() => openEdit(p)}>Edit</button>
-                    <button style={sty.btnDanger} onClick={() => setDeleteId(p.id)}>Delete</button>
+                    <button style={sty.btnGhost} onClick={() => openEdit(p)}>{t('common.edit')}</button>
+                    <button style={sty.btnDanger} onClick={() => setDeleteId(p.id)}>{t('common.delete')}</button>
                   </span>
                   {verifyResult?.id === p.id && (
                     <p style={{ ...sty.verifyMsg, color: verifyResult.ok ? '#16a34a' : '#dc2626' }}>
@@ -572,13 +584,13 @@ function ProvidersTab() {
       )}
 
       {showModal && (
-        <Modal title={editing ? 'Edit Provider' : 'Add Provider'} onClose={closeModal}>
+        <Modal title={editing ? t('aiAssistantSettings.providers.editTitle') : t('aiAssistantSettings.providers.addTitle')} onClose={closeModal}>
           <form onSubmit={handleSubmit} style={sty.form}>
-            <label style={sty.label}>Name *
+            <label style={sty.label}>{t('aiAssistantSettings.providers.form.name')} *
               <input style={sty.input} value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required />
             </label>
-            <label style={sty.label}>Provider kind *
+            <label style={sty.label}>{t('aiAssistantSettings.providers.form.kind')} *
               <select style={sty.select} value={form.kind}
                 onChange={e => setForm(f => ({ ...f, kind: e.target.value }))}>
                 {PROVIDER_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
@@ -586,39 +598,39 @@ function ProvidersTab() {
             </label>
 
             {fields.includes('model') && (
-              <label style={sty.label}>Model (e.g. gpt-4o, claude-3-opus)
+              <label style={sty.label}>{t('aiAssistantSettings.providers.form.model')}
                 <input style={sty.input} value={form.model}
                   onChange={e => setForm(f => ({ ...f, model: e.target.value }))} />
               </label>
             )}
             {fields.includes('endpoint') && (
-              <label style={sty.label}>Endpoint URL
+              <label style={sty.label}>{t('aiAssistantSettings.providers.form.endpoint')}
                 <input style={sty.input} type="url" value={form.endpoint}
                   onChange={e => setForm(f => ({ ...f, endpoint: e.target.value }))} />
               </label>
             )}
             {fields.includes('deployment') && (
-              <label style={sty.label}>Azure deployment name
+              <label style={sty.label}>{t('aiAssistantSettings.providers.form.deployment')}
                 <input style={sty.input} value={form.deployment}
                   onChange={e => setForm(f => ({ ...f, deployment: e.target.value }))} />
               </label>
             )}
             {fields.includes('api_key') && (
               <label style={sty.label}>
-                API key {editing && <span style={sty.hint}>(leave blank to keep existing key)</span>}
+                {t('aiAssistantSettings.providers.form.apiKey')} {editing && <span style={sty.hint}>{t('aiAssistantSettings.providers.form.apiKeyKeep')}</span>}
                 <input style={sty.input} type="password" autoComplete="new-password"
                   value={form.api_key} placeholder={editing ? '••••••••' : ''}
                   onChange={e => setForm(f => ({ ...f, api_key: e.target.value }))} />
               </label>
             )}
             <div style={sty.row2}>
-              <label style={sty.label}>Priority (lower = higher priority)
+              <label style={sty.label}>{t('aiAssistantSettings.providers.form.priority')}
                 <input style={sty.input} type="number" min={1} max={100} value={form.priority}
                   onChange={e => setForm(f => ({ ...f, priority: Number(e.target.value) }))} />
               </label>
               <label style={{ ...sty.label, justifyContent: 'flex-end' }}>
                 <span style={sty.switchRow}>
-                  <span>Enabled</span>
+                  <span>{t('aiAssistantSettings.providers.form.providerEnabled')}</span>
                   <input type="checkbox" aria-label="Provider enabled"
                     checked={form.is_enabled}
                     onChange={e => setForm(f => ({ ...f, is_enabled: e.target.checked }))} />
@@ -628,9 +640,9 @@ function ProvidersTab() {
 
             {formError && <p style={sty.errorText}>{formError}</p>}
             <div style={sty.modalFooter}>
-              <button type="button" style={sty.btnGhost} onClick={closeModal}>Cancel</button>
+              <button type="button" style={sty.btnGhost} onClick={closeModal}>{t('common.cancel')}</button>
               <button type="submit" style={sty.btnPrimary} disabled={saveMutation.isPending}>
-                {saveMutation.isPending ? 'Saving…' : editing ? 'Update' : 'Add'}
+                {saveMutation.isPending ? t('common.saving') : editing ? t('aiAssistantSettings.providers.update') : t('aiAssistantSettings.providers.add')}
               </button>
             </div>
           </form>
@@ -638,15 +650,15 @@ function ProvidersTab() {
       )}
 
       {deleteId !== null && (
-        <Modal title="Confirm deletion" onClose={() => setDeleteId(null)}>
-          <p>Delete this provider? This cannot be undone.</p>
+        <Modal title={t('aiAssistantSettings.confirmTitle')} onClose={() => setDeleteId(null)}>
+          <p>{t('aiAssistantSettings.confirm.deleteProvider')}</p>
           <div style={sty.modalFooter}>
             <button style={sty.btnGhost} onClick={() => setDeleteId(null)}
-              disabled={deleteMutation.isPending}>Cancel</button>
+              disabled={deleteMutation.isPending}>{t('common.cancel')}</button>
             <button style={sty.btnDanger}
               onClick={() => deleteMutation.mutate(deleteId!)}
               disabled={deleteMutation.isPending}>
-              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+              {deleteMutation.isPending ? t('common.deleting') : t('common.delete')}
             </button>
           </div>
         </Modal>
@@ -663,6 +675,7 @@ const PHRASE_CATEGORIES = ['greeting', 'closing', 'apology', 'escalation', 'reso
 const EMPTY_PHRASE = { category: 'greeting', locale: 'en', phrase: '', variables: '' };
 
 function PhrasesTab() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const [locale, setLocale] = useState('en');
   const [showModal, setShowModal] = useState(false);
@@ -712,7 +725,7 @@ function PhrasesTab() {
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError('');
-    if (!form.phrase.trim()) { setFormError('Phrase text is required'); return; }
+    if (!form.phrase.trim()) { setFormError(t('aiAssistantSettings.errors.phraseRequired')); return; }
     saveMutation.mutate({
       category: form.category, locale: form.locale,
       phrase: form.phrase,
@@ -729,7 +742,7 @@ function PhrasesTab() {
   return (
     <div>
       <div style={sty.tabBar}>
-        <h3 style={sty.sectionTitle}>Phrase Library</h3>
+        <h3 style={sty.sectionTitle}>{t('aiAssistantSettings.phrases.sectionTitle')}</h3>
         <div style={sty.rowActions}>
           <select
             style={{ ...sty.select, width: 'auto' }}
@@ -739,13 +752,13 @@ function PhrasesTab() {
           >
             {LOCALES.map(l => <option key={l} value={l}>{l}</option>)}
           </select>
-          <button style={sty.btnPrimary} onClick={openNew}>+ Add Phrase</button>
+          <button style={sty.btnPrimary} onClick={openNew}>{t('aiAssistantSettings.phrases.addPhrase')}</button>
         </div>
       </div>
 
-      {isLoading && <p style={sty.muted}>Loading phrases…</p>}
-      {error && <p style={sty.errorText}>Failed to load phrase library.</p>}
-      {!isLoading && phrases.length === 0 && <p style={sty.muted}>No phrases for locale "{locale}".</p>}
+      {isLoading && <p style={sty.muted}>{t('aiAssistantSettings.phrases.loading')}</p>}
+      {error && <p style={sty.errorText}>{t('aiAssistantSettings.phrases.error')}</p>}
+      {!isLoading && phrases.length === 0 && <p style={sty.muted}>{t('aiAssistantSettings.phrases.empty', { locale })}</p>}
 
       {PHRASE_CATEGORIES.map(cat => {
         const catPhrases = byCategory[cat];
@@ -755,7 +768,7 @@ function PhrasesTab() {
             <h4 style={sty.catTitle}>{cat.replace(/_/g, ' ')}</h4>
             <table style={sty.table}>
               <thead>
-                <tr>{['Phrase', 'Variables', ''].map(h => <th key={h} style={sty.th}>{h}</th>)}</tr>
+                <tr>{[t('aiAssistantSettings.phrases.cols.phrase'), t('aiAssistantSettings.phrases.cols.variables'), ''].map(h => <th key={h} style={sty.th}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {catPhrases.map(p => (
@@ -768,8 +781,8 @@ function PhrasesTab() {
                     </td>
                     <td style={sty.td}>
                       <span style={sty.rowActions}>
-                        <button style={sty.btnGhost} onClick={() => openEdit(p)}>Edit</button>
-                        <button style={sty.btnDanger} onClick={() => setDeleteId(p.id)}>Delete</button>
+                        <button style={sty.btnGhost} onClick={() => openEdit(p)}>{t('common.edit')}</button>
+                        <button style={sty.btnDanger} onClick={() => setDeleteId(p.id)}>{t('common.delete')}</button>
                       </span>
                     </td>
                   </tr>
@@ -781,16 +794,16 @@ function PhrasesTab() {
       })}
 
       {showModal && (
-        <Modal title={editing ? 'Edit Phrase' : 'Add Phrase'} onClose={closeModal}>
+        <Modal title={editing ? t('aiAssistantSettings.phrases.editTitle') : t('aiAssistantSettings.phrases.addTitle')} onClose={closeModal}>
           <form onSubmit={handleSubmit} style={sty.form}>
             <div style={sty.row2}>
-              <label style={sty.label}>Category
+              <label style={sty.label}>{t('aiAssistantSettings.phrases.form.category')}
                 <select style={sty.select} value={form.category}
                   onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
                   {PHRASE_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
                 </select>
               </label>
-              <label style={sty.label}>Locale
+              <label style={sty.label}>{t('aiAssistantSettings.phrases.form.locale')}
                 <select style={sty.select} value={form.locale}
                   onChange={e => setForm(f => ({ ...f, locale: e.target.value }))}>
                   {LOCALES.map(l => <option key={l} value={l}>{l}</option>)}
@@ -798,7 +811,7 @@ function PhrasesTab() {
               </label>
             </div>
             <label style={sty.label}>
-              Phrase * <span style={sty.hint}>(use {'{{variable}}'} placeholders)</span>
+              {t('aiAssistantSettings.phrases.form.phrase')} * <span style={sty.hint}>(use {'{{variable}}'} placeholders)</span>
               <textarea
                 style={{ ...sty.input, height: 100, resize: 'vertical' }}
                 value={form.phrase}
@@ -806,16 +819,16 @@ function PhrasesTab() {
                 required
               />
             </label>
-            <label style={sty.label}>Variables (comma-separated)
+            <label style={sty.label}>{t('aiAssistantSettings.phrases.form.variables')}
               <input style={sty.input} value={form.variables}
                 placeholder="e.g. client_name, ticket_id"
                 onChange={e => setForm(f => ({ ...f, variables: e.target.value }))} />
             </label>
             {formError && <p style={sty.errorText}>{formError}</p>}
             <div style={sty.modalFooter}>
-              <button type="button" style={sty.btnGhost} onClick={closeModal}>Cancel</button>
+              <button type="button" style={sty.btnGhost} onClick={closeModal}>{t('common.cancel')}</button>
               <button type="submit" style={sty.btnPrimary} disabled={saveMutation.isPending}>
-                {saveMutation.isPending ? 'Saving…' : editing ? 'Update' : 'Add'}
+                {saveMutation.isPending ? t('common.saving') : editing ? t('aiAssistantSettings.phrases.update') : t('aiAssistantSettings.phrases.add')}
               </button>
             </div>
           </form>
@@ -823,15 +836,15 @@ function PhrasesTab() {
       )}
 
       {deleteId !== null && (
-        <Modal title="Confirm deletion" onClose={() => setDeleteId(null)}>
-          <p>Delete this phrase? This cannot be undone.</p>
+        <Modal title={t('aiAssistantSettings.confirmTitle')} onClose={() => setDeleteId(null)}>
+          <p>{t('aiAssistantSettings.confirm.deletePhrase')}</p>
           <div style={sty.modalFooter}>
             <button style={sty.btnGhost} onClick={() => setDeleteId(null)}
-              disabled={deleteMutation.isPending}>Cancel</button>
+              disabled={deleteMutation.isPending}>{t('common.cancel')}</button>
             <button style={sty.btnDanger}
               onClick={() => deleteMutation.mutate(deleteId!)}
               disabled={deleteMutation.isPending}>
-              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+              {deleteMutation.isPending ? t('common.deleting') : t('common.delete')}
             </button>
           </div>
         </Modal>
@@ -847,6 +860,7 @@ function PhrasesTab() {
 const EMPTY_TERM = { term: '', locale: '' };
 
 function ForbiddenTermsTab() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_TERM });
@@ -877,7 +891,7 @@ function ForbiddenTermsTab() {
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError('');
-    if (!form.term.trim()) { setFormError('Term is required'); return; }
+    if (!form.term.trim()) { setFormError(t('aiAssistantSettings.errors.termRequired')); return; }
     addMutation.mutate({ term: form.term, locale: form.locale || undefined });
   }
 
@@ -886,33 +900,38 @@ function ForbiddenTermsTab() {
   return (
     <div>
       <div style={sty.tabBar}>
-        <h3 style={sty.sectionTitle}>Forbidden Terms</h3>
+        <h3 style={sty.sectionTitle}>{t('aiAssistantSettings.forbiddenTerms.sectionTitle')}</h3>
         <button style={sty.btnPrimary} onClick={() => { setForm({ ...EMPTY_TERM }); setFormError(''); setShowModal(true); }}>
-          + Add Term
+          {t('aiAssistantSettings.forbiddenTerms.addTerm')}
         </button>
       </div>
 
       <p style={{ fontSize: '0.85rem', color: '#555', marginTop: 0 }}>
-        Replies containing these terms will be rejected and not sent to clients.
+        {t('aiAssistantSettings.forbiddenTerms.description')}
       </p>
 
-      {isLoading && <p style={sty.muted}>Loading forbidden terms…</p>}
-      {error && <p style={sty.errorText}>Failed to load forbidden terms.</p>}
-      {!isLoading && terms.length === 0 && <p style={sty.muted}>No forbidden terms configured.</p>}
+      {isLoading && <p style={sty.muted}>{t('aiAssistantSettings.forbiddenTerms.loading')}</p>}
+      {error && <p style={sty.errorText}>{t('aiAssistantSettings.forbiddenTerms.error')}</p>}
+      {!isLoading && terms.length === 0 && <p style={sty.muted}>{t('aiAssistantSettings.forbiddenTerms.empty')}</p>}
 
       {terms.length > 0 && (
         <table style={sty.table}>
           <thead>
-            <tr>{['Term', 'Locale', 'Added', ''].map(h => <th key={h} style={sty.th}>{h}</th>)}</tr>
+            <tr>{[
+              t('aiAssistantSettings.forbiddenTerms.cols.term'),
+              t('aiAssistantSettings.forbiddenTerms.cols.locale'),
+              t('aiAssistantSettings.forbiddenTerms.cols.added'),
+              '',
+            ].map(h => <th key={h} style={sty.th}>{h}</th>)}</tr>
           </thead>
           <tbody>
-            {terms.map(t => (
-              <tr key={t.id}>
-                <td style={sty.td}><code style={sty.code}>{t.term}</code></td>
-                <td style={sty.td}>{t.locale ?? <em style={sty.muted}>all</em>}</td>
-                <td style={sty.td}>{t.created_at.slice(0, 10)}</td>
+            {terms.map(term => (
+              <tr key={term.id}>
+                <td style={sty.td}><code style={sty.code}>{term.term}</code></td>
+                <td style={sty.td}>{term.locale ?? <em style={sty.muted}>all</em>}</td>
+                <td style={sty.td}>{term.created_at.slice(0, 10)}</td>
                 <td style={sty.td}>
-                  <button style={sty.btnDanger} onClick={() => setDeleteId(t.id)}>Delete</button>
+                  <button style={sty.btnDanger} onClick={() => setDeleteId(term.id)}>{t('common.delete')}</button>
                 </td>
               </tr>
             ))}
@@ -921,25 +940,25 @@ function ForbiddenTermsTab() {
       )}
 
       {showModal && (
-        <Modal title="Add Forbidden Term" onClose={() => setShowModal(false)}>
+        <Modal title={t('aiAssistantSettings.forbiddenTerms.addTitle')} onClose={() => setShowModal(false)}>
           <form onSubmit={handleSubmit} style={sty.form}>
-            <label style={sty.label}>Term *
+            <label style={sty.label}>{t('aiAssistantSettings.forbiddenTerms.form.term')} *
               <input style={sty.input} value={form.term} autoFocus
                 onChange={e => setForm(f => ({ ...f, term: e.target.value }))} required />
             </label>
             <label style={sty.label}>
-              Locale <span style={sty.hint}>(leave blank for all locales)</span>
+              {t('aiAssistantSettings.forbiddenTerms.form.locale')} <span style={sty.hint}>{t('aiAssistantSettings.forbiddenTerms.form.localeHint')}</span>
               <select style={sty.select} value={form.locale}
                 onChange={e => setForm(f => ({ ...f, locale: e.target.value }))}>
-                <option value="">— all locales —</option>
+                <option value="">{t('aiAssistantSettings.forbiddenTerms.allLocales')}</option>
                 {LOCALES.map(l => <option key={l} value={l}>{l}</option>)}
               </select>
             </label>
             {formError && <p style={sty.errorText}>{formError}</p>}
             <div style={sty.modalFooter}>
-              <button type="button" style={sty.btnGhost} onClick={() => setShowModal(false)}>Cancel</button>
+              <button type="button" style={sty.btnGhost} onClick={() => setShowModal(false)}>{t('common.cancel')}</button>
               <button type="submit" style={sty.btnPrimary} disabled={addMutation.isPending}>
-                {addMutation.isPending ? 'Adding…' : 'Add'}
+                {addMutation.isPending ? t('aiAssistantSettings.forbiddenTerms.adding') : t('aiAssistantSettings.forbiddenTerms.add')}
               </button>
             </div>
           </form>
@@ -947,15 +966,15 @@ function ForbiddenTermsTab() {
       )}
 
       {deleteId !== null && (
-        <Modal title="Confirm deletion" onClose={() => setDeleteId(null)}>
-          <p>Remove this forbidden term?</p>
+        <Modal title={t('aiAssistantSettings.confirmTitle')} onClose={() => setDeleteId(null)}>
+          <p>{t('aiAssistantSettings.confirm.deleteTerm')}</p>
           <div style={sty.modalFooter}>
             <button style={sty.btnGhost} onClick={() => setDeleteId(null)}
-              disabled={deleteMutation.isPending}>Cancel</button>
+              disabled={deleteMutation.isPending}>{t('common.cancel')}</button>
             <button style={sty.btnDanger}
               onClick={() => deleteMutation.mutate(deleteId!)}
               disabled={deleteMutation.isPending}>
-              {deleteMutation.isPending ? 'Removing…' : 'Remove'}
+              {deleteMutation.isPending ? t('aiAssistantSettings.forbiddenTerms.removing') : t('aiAssistantSettings.forbiddenTerms.remove')}
             </button>
           </div>
         </Modal>
@@ -969,6 +988,7 @@ function ForbiddenTermsTab() {
 // ---------------------------------------------------------------------------
 
 function AuditTab() {
+  const { t } = useTranslation();
   const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
   const [month, setMonth] = useState(currentMonth);
   const [logAction, setLogAction] = useState('');
@@ -992,12 +1012,12 @@ function AuditTab() {
 
   return (
     <div>
-      <h3 style={sty.sectionTitle}>Audit & Metrics</h3>
+      <h3 style={sty.sectionTitle}>{t('aiAssistantSettings.audit.sectionTitle')}</h3>
 
       {/* Month picker + metrics cards */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '1rem' }}>
         <label style={{ fontWeight: 500, fontSize: '0.875rem' }}>
-          Month:
+          {t('aiAssistantSettings.audit.month')}
           <input
             type="month"
             aria-label="Select metrics month"
@@ -1009,19 +1029,19 @@ function AuditTab() {
         </label>
       </div>
 
-      {metricsLoading && <p style={sty.muted}>Loading metrics…</p>}
+      {metricsLoading && <p style={sty.muted}>{t('aiAssistantSettings.audit.metricsLoading')}</p>}
       {m && (
         <div style={sty.metricsGrid}>
-          <MetricCard label="Drafts generated" value={m.total_drafts} />
-          <MetricCard label="Sent" value={m.total_sent} />
-          <MetricCard label="Auto-sent" value={m.total_auto_sent} />
-          <MetricCard label="Discarded" value={m.total_discarded} />
+          <MetricCard label={t('aiAssistantSettings.audit.metrics.drafts')} value={m.total_drafts} />
+          <MetricCard label={t('aiAssistantSettings.audit.metrics.sent')} value={m.total_sent} />
+          <MetricCard label={t('aiAssistantSettings.audit.metrics.autoSent')} value={m.total_auto_sent} />
+          <MetricCard label={t('aiAssistantSettings.audit.metrics.discarded')} value={m.total_discarded} />
           <MetricCard
-            label="Avg confidence"
+            label={t('aiAssistantSettings.audit.metrics.avgConfidence')}
             value={m.avg_confidence !== null ? `${Math.round(m.avg_confidence)}%` : '—'}
           />
           <MetricCard
-            label="Cost (USD)"
+            label={t('aiAssistantSettings.audit.metrics.cost')}
             value={m.total_cost_usd !== null ? `$${m.total_cost_usd.toFixed(4)}` : '—'}
           />
         </div>
@@ -1029,24 +1049,31 @@ function AuditTab() {
 
       {/* Reply log */}
       <div style={{ ...sty.tabBar, marginTop: '1.5rem' }}>
-        <h4 style={{ margin: 0, fontWeight: 600, fontSize: '0.95rem' }}>Reply log (last 50)</h4>
+        <h4 style={{ margin: 0, fontWeight: 600, fontSize: '0.95rem' }}>{t('aiAssistantSettings.audit.log')}</h4>
         <select
           style={{ ...sty.select, width: 'auto' }}
           aria-label="Filter by action"
           value={logAction}
           onChange={e => setLogAction(e.target.value)}
         >
-          <option value="">All actions</option>
+          <option value="">{t('aiAssistantSettings.audit.allActions')}</option>
           {LOG_ACTIONS.map(a => <option key={a} value={a}>{a}</option>)}
         </select>
       </div>
 
-      {logsLoading && <p style={sty.muted}>Loading logs…</p>}
-      {!logsLoading && logs.length === 0 && <p style={sty.muted}>No log entries.</p>}
+      {logsLoading && <p style={sty.muted}>{t('aiAssistantSettings.audit.logsLoading')}</p>}
+      {!logsLoading && logs.length === 0 && <p style={sty.muted}>{t('aiAssistantSettings.audit.noLogs')}</p>}
       {logs.length > 0 && (
         <table style={sty.table}>
           <thead>
-            <tr>{['Ticket', 'Action', 'Confidence', 'Cost', 'Channel', 'Date'].map(h => (
+            <tr>{[
+              t('aiAssistantSettings.audit.cols.ticket'),
+              t('aiAssistantSettings.audit.cols.action'),
+              t('aiAssistantSettings.audit.cols.confidence'),
+              t('aiAssistantSettings.audit.cols.cost'),
+              t('aiAssistantSettings.audit.cols.channel'),
+              t('aiAssistantSettings.audit.cols.date'),
+            ].map(h => (
               <th key={h} style={sty.th}>{h}</th>
             ))}</tr>
           </thead>
@@ -1090,29 +1117,30 @@ function actionBadge(action: string): React.CSSProperties {
 // Main page
 // ---------------------------------------------------------------------------
 
-const TABS: { id: AiTab; label: string }[] = [
-  { id: 'general',      label: '⚙️ General' },
-  { id: 'providers',    label: '🔌 Providers' },
-  { id: 'phrases',      label: '💬 Phrase Library' },
-  { id: 'forbiddenTerms', label: '🚫 Forbidden Terms' },
-  { id: 'audit',        label: '📊 Audit & Metrics' },
-];
-
 export function AIAssistantSettings() {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<AiTab>('general');
+
+  const tabs: { id: AiTab; label: string }[] = [
+    { id: 'general',        label: t('aiAssistantSettings.tabs.general') },
+    { id: 'providers',      label: t('aiAssistantSettings.tabs.providers') },
+    { id: 'phrases',        label: t('aiAssistantSettings.tabs.phrases') },
+    { id: 'forbiddenTerms', label: t('aiAssistantSettings.tabs.forbiddenTerms') },
+    { id: 'audit',          label: t('aiAssistantSettings.tabs.audit') },
+  ];
 
   return (
     <div style={sty.page}>
-      <h2 style={sty.pageTitle}>🤖 AI Assistant Settings</h2>
+      <h2 style={sty.pageTitle}>{t('aiAssistantSettings.title')}</h2>
 
       <div style={sty.tabs}>
-        {TABS.map(t => (
+        {tabs.map(tab_ => (
           <button
-            key={t.id}
-            style={{ ...sty.tabBtn, ...(tab === t.id ? sty.tabBtnActive : {}) }}
-            onClick={() => setTab(t.id)}
+            key={tab_.id}
+            style={{ ...sty.tabBtn, ...(tab === tab_.id ? sty.tabBtnActive : {}) }}
+            onClick={() => setTab(tab_.id)}
           >
-            {t.label}
+            {tab_.label}
           </button>
         ))}
       </div>

@@ -13,7 +13,8 @@
     "search": "Buscar…",
     "errorDash": "—",
     "na": "N/D",
-    "saving": "Guardando…"
+    "saving": "Guardando…",
+    "deleting": "Eliminando…"
   },
   "login": {
     "title": "🔥 FireISP 5.0",
@@ -326,7 +327,9 @@
       "redactPii": "Ocultar datos personales antes de enviar al proveedor",
       "save": "Guardar configuración",
       "saving": "Guardando…",
-      "saved": "✓ Guardado"
+      "saved": "✓ Guardado",
+      "loading": "Cargando política…",
+      "loadError": "Error al cargar la política de IA."
     },
     "providers": {
       "sectionTitle": "Proveedores LLM",
@@ -377,7 +380,11 @@
       "add": "Agregar",
       "update": "Actualizar",
       "addTitle": "Agregar frase",
-      "editTitle": "Editar frase"
+      "editTitle": "Editar frase",
+      "cols": {
+        "phrase": "Frase",
+        "variables": "Variables"
+      }
     },
     "forbiddenTerms": {
       "sectionTitle": "Términos prohibidos",
@@ -399,7 +406,9 @@
       },
       "add": "Agregar",
       "adding": "Agregando…",
-      "addTitle": "Agregar término prohibido"
+      "addTitle": "Agregar término prohibido",
+      "remove": "Eliminar",
+      "removing": "Eliminando…"
     },
     "audit": {
       "sectionTitle": "Auditoría y métricas",
@@ -435,7 +444,8 @@
       "nameRequired": "El nombre es obligatorio",
       "phraseRequired": "El texto de la frase es obligatorio",
       "termRequired": "El término es obligatorio"
-    }
+    },
+    "confirmTitle": "Confirmar eliminación"
   },
   "aiSuggestedReply": {
     "panelLabel": "Respuesta Sugerida por IA",
