@@ -309,8 +309,7 @@ describe('Accessibility audit — WCAG 2.1 AA', () => {
       return Promise.resolve({ data: { data: null }, error: null });
     });
 
-    vi.spyOn(globalThis, 'fetch').mockImplementation((url: string, init?: RequestInit) => {
-      const method = (init?.method ?? 'GET').toUpperCase();
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
       const path = String(url).split('?')[0];
       if (path.includes('/tickets/') && path.includes('/comments'))
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ data: [] }) } as Response);

@@ -59,13 +59,13 @@ const HISTORY_WINDOW = 10;
  */
 const PII_PATTERNS = [
   // Email — must come before phone to avoid eating the domain part
-  { name: 'EMAIL', re: /\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/g },
+  { name: 'EMAIL', re: /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b/g },
   // MAC address
-  { name: 'MAC', re: /\b(?:[0-9a-fA-F]{2}[:\-]){5}[0-9a-fA-F]{2}\b/g },
+  { name: 'MAC', re: /\b(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}\b/g },
   // IPv4 address (loose — catches private + public ranges)
   { name: 'IP', re: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g },
   // Phone: +52 (55) 1234-5678, 55-1234-5678, +1 800 555 1234, etc.
-  { name: 'PHONE', re: /\b\+?[\d][\d\s\-\(\)]{6,14}[\d]\b/g },
+  { name: 'PHONE', re: /\b\+?[\d][\d\s().-]{6,14}[\d]\b/g },
 ];
 
 /**
@@ -181,8 +181,8 @@ function _renderSystemPrompt({ tone, category, phrasesByCategory, forbiddenTerms
 
   const historyLines = ticketHistory.length
     ? ticketHistory.map(c =>
-        `[${c.created_at}]${c.is_internal ? ' (internal)' : ''} ${c.body}`,
-      ).join('\n---\n')
+      `[${c.created_at}]${c.is_internal ? ' (internal)' : ''} ${c.body}`,
+    ).join('\n---\n')
     : '(no prior messages)';
 
   return [
