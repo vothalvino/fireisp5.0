@@ -154,6 +154,7 @@ const LOG = {
   id: 10, organization_id: 1, ticket_id: 5, provider_id: 1,
   classification: 'billing', confidence: 0.92,
   draft_text: 'Estimado cliente, revisaremos su factura.',
+  context_snapshot: JSON.stringify({ topology: { cpe: { id: 1, name: 'CPE-1' }, accessDevice: { id: 2, name: 'SW-A' }, backhauls: [], coreDevice: { id: 3, name: 'CORE-1' }, activeOutages: [] } }),
   final_text: null, action: 'proposed',
   reviewer_user_id: null, cost_usd: 0.00012, duration_ms: 1234,
   created_at: '2026-04-01T10:00:00.000Z',
@@ -579,11 +580,14 @@ describe('GET /api/v1/ai/logs', () => {
       .mockResolvedValueOnce([[{ total: 1 }]]);
   });
 
-  it('returns 200 with paginated logs', async () => {
+  it('returns 200 with paginated logs including draft_text and context_snapshot', async () => {
     const res = await request(app).get('/api/v1/ai/logs');
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
     expect(res.body.meta.total).toBe(1);
+    const row = res.body.data[0];
+    expect(row).toHaveProperty('draft_text');
+    expect(row).toHaveProperty('context_snapshot');
   });
 
   it('applies ticket_id filter', async () => {

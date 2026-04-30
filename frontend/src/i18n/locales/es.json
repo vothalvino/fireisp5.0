@@ -436,5 +436,21 @@
       "phraseRequired": "El texto de la frase es obligatorio",
       "termRequired": "El término es obligatorio"
     }
+  },
+  "aiSuggestedReply": {
+    "panelLabel": "Respuesta Sugerida por IA",
+    "title": "Respuesta Sugerida por IA",
+    "noReply": "No hay borrador de IA para este ticket todavía.",
+    "generate": "Generar Borrador",
+    "generating": "Generando…",
+    "regenerate": "Regenerar",
+    "send": "Enviar",
+    "sending": "Enviando…",
+    "editAndSend": "Editar y Enviar",
+    "editDraft": "Editar borrador",
+    "discard": "Descartar",
+    "sent": "Respuesta enviada.",
+    "edited": "Respuesta editada enviada.",
+    "discarded": "Borrador descartado."
   }
 }

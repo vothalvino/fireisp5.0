@@ -15,6 +15,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, tokenStore } from '@/api/client';
 import { useWebSocket } from '@/api/useWebSocket';
 import { useGraphQLSubscription } from '@/api/useGraphQLSubscription';
+import { useAuth } from '@/auth/AuthContext';
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -372,6 +374,436 @@ function CommentsThread({ ticketId, comments, onAdded }: CommentsProps) {
 }
 
 // ---------------------------------------------------------------------------
+// AI Suggested Reply — types & helpers
+// ---------------------------------------------------------------------------
+
+interface AiPolicy {
+  enabled: number | boolean;
+  mode: string;
+  active_provider_id: number | null;
+}
+
+interface TopologyNode {
+  id?: number;
+  name?: string;
+  device_id?: number;
+}
+
+interface TopologyContext {
+  cpe: TopologyNode | null;
+  accessDevice: TopologyNode | null;
+  backhauls: Array<{ device: TopologyNode | null; medium: string | null }>;
+  coreDevice: TopologyNode | null;
+  activeOutages: Array<{ id: number; device_id: number }>;
+}
+
+interface AiReplyLog {
+  id: number;
+  ticket_id: number;
+  provider_id: number | null;
+  classification: string | null;
+  confidence: number | null;
+  action: string;
+  cost_usd: number | null;
+  duration_ms: number | null;
+  draft_text: string | null;
+  context_snapshot: string | null;
+  created_at: string;
+}
+
+async function fetchAiPolicy(): Promise<AiPolicy | null> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/ai/policy`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return null;
+  const body = await res.json() as { data: AiPolicy };
+  return body.data ?? null;
+}
+
+async function fetchLatestAiLog(ticketId: number): Promise<AiReplyLog | null> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/ai/logs?ticket_id=${ticketId}&limit=1`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return null;
+  const body = await res.json() as { data: AiReplyLog[] };
+  return body.data?.[0] ?? null;
+}
+
+async function generateDraft(ticketId: number, contractId: number | null): Promise<{ logId: number; draftText: string | null }> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/ai/reply/draft`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ ticket_id: ticketId, channel: 'portal', inbound_text: '', contract_id: contractId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error || 'Failed to generate draft');
+  }
+  const body = await res.json() as { data: { logId: number; draftText: string | null; skipped?: boolean; reason?: string } };
+  if (body.data?.skipped) throw new Error(body.data.reason ?? 'Draft skipped');
+  return { logId: body.data.logId, draftText: body.data.draftText };
+}
+
+async function finalizeReply(logId: number, finalText: string, action: 'sent' | 'edited' | 'discarded'): Promise<void> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/ai/reply/send`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ log_id: logId, final_text: finalText, action }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error || 'Failed to finalize reply');
+  }
+}
+
+function parseTopology(contextSnapshot: string | null): TopologyContext | null {
+  if (!contextSnapshot) return null;
+  try {
+    const parsed = JSON.parse(contextSnapshot) as { topology?: TopologyContext };
+    return parsed.topology ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Confidence badge
+// ---------------------------------------------------------------------------
+
+function ConfidenceBadge({ confidence }: { confidence: number | null }) {
+  if (confidence === null) return null;
+  const pct = Math.round(confidence * 100);
+  const color = pct >= 80 ? '#065f46' : pct >= 60 ? '#854d0e' : '#991b1b';
+  const bg    = pct >= 80 ? '#d1fae5' : pct >= 60 ? '#fef9c3' : '#fee2e2';
+  return (
+    <span style={{
+      background: bg, color,
+      padding: '2px 8px', borderRadius: 10,
+      fontSize: '0.72rem', fontWeight: 700,
+    }}>
+      {pct}% confidence
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Topology breadcrumb
+// ---------------------------------------------------------------------------
+
+interface TopoBreadcrumbProps { topology: TopologyContext }
+
+function TopoBreadcrumb({ topology }: TopoBreadcrumbProps) {
+  const outagedIds = new Set(topology.activeOutages.map(o => o.device_id));
+
+  function NodeChip({ node, role }: { node: TopologyNode | null; role: string }) {
+    if (!node) return null;
+    const nodeId = node.id ?? node.device_id;
+    const hasOutage = nodeId !== undefined && outagedIds.has(nodeId);
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        {hasOutage && <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} aria-label="active outage" />}
+        <span style={{
+          background: '#f3f4f6', color: '#374151',
+          padding: '2px 8px', borderRadius: 6, fontSize: '0.75rem', fontWeight: 600,
+        }}>
+          {role}: {node.name ?? `#${nodeId}`}
+        </span>
+      </span>
+    );
+  }
+
+  function MediumIcon({ medium }: { medium: string | null }) {
+    if (medium === 'fiber') return <span title="fiber">🔵</span>;
+    if (medium === 'wireless') return <span title="wireless">📡</span>;
+    return <span>—</span>;
+  }
+
+  return (
+    <div
+      style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 8 }}
+      aria-label="topology breadcrumb"
+    >
+      <NodeChip node={topology.cpe} role="CPE" />
+      {topology.accessDevice && (
+        <>
+          <span style={{ color: '#9ca3af' }}>→</span>
+          <NodeChip node={topology.accessDevice} role="Access" />
+        </>
+      )}
+      {topology.backhauls.map((bh, i) => (
+        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ color: '#9ca3af' }}>→</span>
+          <MediumIcon medium={bh.medium} />
+          <NodeChip node={bh.device} role="Backhaul" />
+        </span>
+      ))}
+      {topology.coreDevice && (
+        <>
+          <span style={{ color: '#9ca3af' }}>→</span>
+          <NodeChip node={topology.coreDevice} role="Core" />
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AI Suggested Reply Panel
+// ---------------------------------------------------------------------------
+
+interface AiSuggestedReplyPanelProps {
+  ticket: Ticket;
+  onReplySent: () => void;
+}
+
+function AiSuggestedReplyPanel({ ticket, onReplySent }: AiSuggestedReplyPanelProps) {
+  const { t } = useTranslation();
+  const { user } = useAuth();
+
+  // draft state
+  const [logId, setLogId] = useState<number | null>(null);
+  const [draftText, setDraftText] = useState<string | null>(null);
+  const [topology, setTopology] = useState<TopologyContext | null>(null);
+  const [editText, setEditText] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [actionDone, setActionDone] = useState<string | null>(null);
+  const [panelErr, setPanelErr] = useState('');
+
+  // Fetch policy
+  const { data: policy, isLoading: policyLoading } = useQuery({
+    queryKey: ['ai-policy'],
+    queryFn: fetchAiPolicy,
+  });
+
+  // Fetch latest log for this ticket
+  const { data: latestLog, refetch: refetchLog } = useQuery({
+    queryKey: ['ai-log', ticket.id],
+    queryFn: () => fetchLatestAiLog(ticket.id),
+    enabled: !!policy && !!Number(policy.enabled),
+  });
+
+  // Populate state from latest log when it arrives (and we don't have an in-memory draft yet)
+  useEffect(() => {
+    if (latestLog && latestLog.action === 'proposed' && draftText === null && logId === null) {
+      setLogId(latestLog.id);
+      setDraftText(latestLog.draft_text);
+      const topo = parseTopology(latestLog.context_snapshot);
+      setTopology(topo);
+      setEditText(latestLog.draft_text ?? '');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestLog]);
+
+  const generateMutation = useMutation({
+    mutationFn: () => generateDraft(ticket.id, ticket.contract_id),
+    onSuccess: (data) => {
+      setLogId(data.logId);
+      setDraftText(data.draftText);
+      setEditText(data.draftText ?? '');
+      setActionDone(null);
+      setPanelErr('');
+      void refetchLog();
+    },
+    onError: (e: Error) => setPanelErr(e.message),
+  });
+
+  const finalizeMutation = useMutation({
+    mutationFn: ({ action, text }: { action: 'sent' | 'edited' | 'discarded'; text: string }) =>
+      finalizeReply(logId!, text, action),
+    onSuccess: (_data, vars) => {
+      setActionDone(vars.action);
+      if (vars.action === 'sent' || vars.action === 'edited') {
+        onReplySent();
+      }
+      setIsEditing(false);
+    },
+    onError: (e: Error) => setPanelErr(e.message),
+  });
+
+  // Role gate: only show to staff (admin/support/technician/billing)
+  const ALLOWED_ROLES = ['admin', 'support', 'technician', 'billing'];
+  if (!user || !ALLOWED_ROLES.includes(user.role)) return null;
+
+  if (policyLoading) return null;
+  if (!policy || !Number(policy.enabled)) return null;
+
+  const isGenerating = generateMutation.isPending;
+  const isFinalizing = finalizeMutation.isPending;
+  const hasDraft = draftText !== null && logId !== null;
+
+  return (
+    <div
+      style={{
+        ...card,
+        marginTop: '1.5rem',
+        border: '1px solid #dbeafe',
+        background: 'var(--bg-card)',
+      }}
+      aria-label={t('aiSuggestedReply.panelLabel', 'AI Suggested Reply')}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+        <h3 style={{ ...cardTitle, margin: 0, color: '#1e40af' }}>
+          🤖 {t('aiSuggestedReply.title', 'AI Suggested Reply')}
+        </h3>
+        {hasDraft && !actionDone && (
+          <button
+            style={{ ...btnSecondary, width: 'auto', fontSize: '0.78rem' }}
+            disabled={isGenerating}
+            onClick={() => { setDraftText(null); setLogId(null); setTopology(null); generateMutation.mutate(); }}
+            aria-label={t('aiSuggestedReply.regenerate', 'Regenerate')}
+          >
+            {isGenerating ? t('aiSuggestedReply.generating', 'Generating…') : '↻ ' + t('aiSuggestedReply.regenerate', 'Regenerate')}
+          </button>
+        )}
+      </div>
+
+      {panelErr && <div style={errStyle}>{panelErr}</div>}
+
+      {/* ── No draft yet ── */}
+      {!hasDraft && !actionDone && (
+        <div style={{ textAlign: 'center', padding: '1rem 0' }}>
+          <p style={{ color: '#6b7280', fontSize: '0.85rem', marginBottom: 12 }}>
+            {t('aiSuggestedReply.noReply', 'No AI draft for this ticket yet.')}
+          </p>
+          <button
+            style={btnPrimary}
+            disabled={isGenerating}
+            onClick={() => generateMutation.mutate()}
+            aria-label={t('aiSuggestedReply.generate', 'Generate Draft')}
+          >
+            {isGenerating ? t('aiSuggestedReply.generating', 'Generating…') : '✨ ' + t('aiSuggestedReply.generate', 'Generate Draft')}
+          </button>
+        </div>
+      )}
+
+      {/* ── Draft ready ── */}
+      {hasDraft && !actionDone && (
+        <>
+          {/* Metadata row */}
+          {latestLog && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10, fontSize: '0.78rem', color: '#6b7280' }}>
+              {latestLog.classification && (
+                <span style={{ background: '#ede9fe', color: '#5b21b6', padding: '2px 8px', borderRadius: 10, fontWeight: 600 }}>
+                  {latestLog.classification}
+                </span>
+              )}
+              <ConfidenceBadge confidence={latestLog.confidence} />
+              {latestLog.cost_usd != null && (
+                <span>💲 ${Number(latestLog.cost_usd).toFixed(5)}</span>
+              )}
+              {latestLog.duration_ms != null && (
+                <span>⏱ {latestLog.duration_ms}ms</span>
+              )}
+            </div>
+          )}
+
+          {/* Topology breadcrumb */}
+          {topology && <TopoBreadcrumb topology={topology} />}
+
+          {/* Draft text or edit textarea */}
+          {isEditing ? (
+            <textarea
+              style={{ ...inputStyle, height: 120, resize: 'vertical', marginTop: 12 }}
+              value={editText}
+              onChange={e => setEditText(e.target.value)}
+              aria-label={t('aiSuggestedReply.editDraft', 'Edit draft')}
+            />
+          ) : (
+            <div style={{
+              marginTop: 12, padding: '10px 14px',
+              background: '#eff6ff', border: '1px solid #bfdbfe',
+              borderRadius: 8, fontSize: '0.87rem', color: '#1e3a5f',
+              whiteSpace: 'pre-wrap', lineHeight: 1.6,
+            }}
+              data-testid="ai-draft-text"
+            >
+              {draftText}
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+            {isEditing ? (
+              <>
+                <button
+                  style={btnPrimary}
+                  disabled={isFinalizing || !editText.trim()}
+                  onClick={() => finalizeMutation.mutate({ action: 'edited', text: editText.trim() })}
+                  aria-label={t('aiSuggestedReply.sendEdited', 'Send edited')}
+                >
+                  {isFinalizing ? t('aiSuggestedReply.sending', 'Sending…') : '📤 ' + t('aiSuggestedReply.send', 'Send')}
+                </button>
+                <button
+                  style={btnSecondary}
+                  disabled={isFinalizing}
+                  onClick={() => { setIsEditing(false); setEditText(draftText ?? ''); }}
+                >
+                  {t('common.cancel', 'Cancel')}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  style={btnPrimary}
+                  disabled={isFinalizing}
+                  onClick={() => finalizeMutation.mutate({ action: 'sent', text: draftText ?? '' })}
+                  aria-label={t('aiSuggestedReply.send', 'Send')}
+                >
+                  {isFinalizing ? t('aiSuggestedReply.sending', 'Sending…') : '📤 ' + t('aiSuggestedReply.send', 'Send')}
+                </button>
+                <button
+                  style={btnSecondary}
+                  disabled={isFinalizing}
+                  onClick={() => { setIsEditing(true); setEditText(draftText ?? ''); }}
+                  aria-label={t('aiSuggestedReply.editAndSend', 'Edit & Send')}
+                >
+                  ✏️ {t('aiSuggestedReply.editAndSend', 'Edit & Send')}
+                </button>
+                <button
+                  style={{ ...btnSecondary, color: '#991b1b', borderColor: '#fca5a5' }}
+                  disabled={isFinalizing}
+                  onClick={() => finalizeMutation.mutate({ action: 'discarded', text: '' })}
+                  aria-label={t('aiSuggestedReply.discard', 'Discard')}
+                >
+                  🗑️ {t('aiSuggestedReply.discard', 'Discard')}
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── Action completed ── */}
+      {actionDone && (
+        <div style={{ textAlign: 'center', padding: '0.75rem 0' }}>
+          <p style={{ color: actionDone === 'discarded' ? '#6b7280' : '#065f46', fontWeight: 600, marginBottom: 12 }}>
+            {actionDone === 'sent'     && ('✅ ' + t('aiSuggestedReply.sent', 'Reply sent.'))}
+            {actionDone === 'edited'   && ('✅ ' + t('aiSuggestedReply.edited', 'Edited reply sent.'))}
+            {actionDone === 'discarded'&& ('🗑️ ' + t('aiSuggestedReply.discarded', 'Draft discarded.'))}
+          </p>
+          <button
+            style={btnSecondary}
+            onClick={() => { setActionDone(null); setDraftText(null); setLogId(null); setTopology(null); }}
+          >
+            ✨ {t('aiSuggestedReply.generate', 'Generate Draft')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
@@ -506,6 +938,12 @@ export function TicketDetail() {
             ticketId={ticket.id}
             comments={comments}
             onAdded={() => void refetchComments()}
+          />
+
+          {/* AI Suggested Reply */}
+          <AiSuggestedReplyPanel
+            ticket={ticket}
+            onReplySent={() => void refetchComments()}
           />
         </div>
 

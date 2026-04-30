@@ -458,7 +458,7 @@ router.get('/logs', requirePermission('ai.policy.read'), async (req, res, next) 
     const [rows] = await db.query(
       `SELECT id, ticket_id, provider_id, classification, confidence, action,
               reviewer_user_id, prompt_tokens, completion_tokens, cost_usd,
-              duration_ms, error, created_at
+              duration_ms, error, draft_text, context_snapshot, created_at
        FROM ai_reply_logs
        WHERE ${where}
        ORDER BY created_at DESC

@@ -436,5 +436,21 @@
       "phraseRequired": "Phrase text is required",
       "termRequired": "Term is required"
     }
+  },
+  "aiSuggestedReply": {
+    "panelLabel": "AI Suggested Reply",
+    "title": "AI Suggested Reply",
+    "noReply": "No AI draft for this ticket yet.",
+    "generate": "Generate Draft",
+    "generating": "Generating…",
+    "regenerate": "Regenerate",
+    "send": "Send",
+    "sending": "Sending…",
+    "editAndSend": "Edit & Send",
+    "editDraft": "Edit draft",
+    "discard": "Discard",
+    "sent": "Reply sent.",
+    "edited": "Edited reply sent.",
+    "discarded": "Draft discarded."
   }
 }

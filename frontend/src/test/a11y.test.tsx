@@ -97,6 +97,7 @@ import { TicketList } from '@/pages/TicketList';
 import { UserList } from '@/pages/UserList';
 import { PortalLogin } from '@/pages/portal/PortalLogin';
 import { AIAssistantSettings } from '@/pages/AIAssistantSettings';
+import { TicketDetail } from '@/pages/TicketDetail';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -285,6 +286,56 @@ describe('Accessibility audit — WCAG 2.1 AA', () => {
         <PortalLogin />
       </MemoryRouter>,
     );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('TicketDetail page with AI Suggested Reply panel has no violations', async () => {
+    mockUseAuth();
+
+    const td99 = {
+      id: 99, client_id: 5, contract_id: 3, assigned_to: null,
+      subject: 'Slow internet', description: 'Speed is very low',
+      priority: 'high', category: 'connectivity', status: 'open',
+      created_at: '2026-04-01T08:00:00Z', updated_at: '2026-04-01T09:00:00Z',
+    };
+
+    mockApiGet.mockImplementation((path: string) => {
+      if (String(path).includes('/tickets/'))
+        return Promise.resolve({ data: { data: td99 }, error: null });
+      if (String(path).includes('/clients/'))
+        return Promise.resolve({ data: { data: { id: 5, name: 'Jane', email: 'jane@x.com' } }, error: null });
+      if (String(path).includes('/users'))
+        return Promise.resolve({ data: { data: [] }, error: null });
+      return Promise.resolve({ data: { data: null }, error: null });
+    });
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url: string, init?: RequestInit) => {
+      const method = (init?.method ?? 'GET').toUpperCase();
+      const path = String(url).split('?')[0];
+      if (path.includes('/tickets/') && path.includes('/comments'))
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ data: [] }) } as Response);
+      if (path.endsWith('/ai/policy'))
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ data: { id: 1, enabled: 1, mode: 'draft_only', active_provider_id: 2 } }) } as Response);
+      if (path.endsWith('/ai/logs'))
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ data: [], meta: { total: 0 } }) } as Response);
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ data: null }) } as Response);
+    });
+
+    vi.mock('@/api/useWebSocket',          () => ({ useWebSocket:          vi.fn(() => ({ lastMessage: null })) }));
+    vi.mock('@/api/useGraphQLSubscription', () => ({ useGraphQLSubscription: vi.fn(() => ({ data: null })) }));
+
+    const { Route: RRoute, Routes: RRoutes } = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+
+    const { container } = render(
+      <QueryClientProvider client={makeQc()}>
+        <MemoryRouter initialEntries={['/tickets/99']}>
+          <RRoutes>
+            <RRoute path="/tickets/:id" element={<TicketDetail />} />
+          </RRoutes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => container.querySelector('h1'));
     expect(await axe(container)).toHaveNoViolations();
   });
 
