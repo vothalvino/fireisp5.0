@@ -50,7 +50,7 @@ fi
 # If the SSH connection drops mid-install the process will be killed before
 # nginx or the database are fully configured.  Abort here if the user is not
 # already inside a screen / tmux session, and advise them to use one.
-if [[ -z "${TERM_PROGRAM:-}" && -z "${STY:-}" && -z "${TMUX:-}" ]]; then
+if [[ -z "${STY:-}" && -z "${TMUX:-}" ]]; then
   warn "You do not appear to be running inside a persistent terminal session"
   warn "(screen or tmux).  If your SSH connection drops during the install"
   warn "the process will be killed before it completes."

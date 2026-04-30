@@ -82,7 +82,7 @@ log "Dummy certificate created."
 # Nginx can start without the upstream app; it only needs port 80 to answer
 # the ACME HTTP-01 challenge from the /var/www/certbot webroot.
 log "Starting nginx ..."
-$DOCKER_COMPOSE_CMD up -d --no-deps nginx
+$DOCKER_COMPOSE_CMD up --no-deps -d nginx
 sleep 3  # give nginx a moment to accept connections
 
 # Verify nginx is up
