@@ -110,13 +110,34 @@ describe('aiTriageWorker (ai-triage)', () => {
 
 describe('aiBackfillEmbeddingsWorker (ai-backfill-embeddings)', () => {
   const mockListPhrases = jest.fn();
+  const mockFindByOrgId = jest.fn();
+  const mockEmbed = jest.fn();
+  const mockVsIsEnabled = jest.fn();
+  const mockVsEnsureCollection = jest.fn();
+  const mockVsUpsert = jest.fn();
 
   beforeEach(() => {
     jest.resetModules();
     jest.clearAllMocks();
     mockDbQuery.mockReset();
     mockListPhrases.mockReset();
+    mockFindByOrgId.mockReset();
+    mockEmbed.mockReset();
+    mockVsIsEnabled.mockReset();
+    mockVsEnsureCollection.mockReset();
+    mockVsUpsert.mockReset();
+
     jest.mock('../../src/services/phraseLibraryService', () => ({ listPhrases: mockListPhrases }));
+    jest.mock('../../src/models/AiPolicy', () => ({ findByOrgId: mockFindByOrgId }));
+    jest.mock('../../src/services/vectorStoreService', () => ({
+      isEnabled:           mockVsIsEnabled,
+      ensureCollection:    mockVsEnsureCollection,
+      upsertDocuments:     mockVsUpsert,
+      phraseCollectionName: (orgId, locale) => `phrases_${orgId}_${locale.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+      queryDocuments:   jest.fn().mockResolvedValue({ ids: [], documents: [], metadatas: [], distances: [] }),
+      deleteDocuments:  jest.fn().mockResolvedValue(undefined),
+    }));
+    jest.mock('../../src/services/llmProviderService', () => ({ embed: mockEmbed }));
     jest.mock('../../src/services/jobQueueService', () => ({
       add:      jest.fn().mockResolvedValue({ id: 'x' }),
       process:  jest.fn(),
@@ -124,6 +145,12 @@ describe('aiBackfillEmbeddingsWorker (ai-backfill-embeddings)', () => {
       getStats: jest.fn(),
       QUEUE_NAMES: [],
     }));
+
+    // Defaults for enabled path
+    mockFindByOrgId.mockResolvedValue({ active_provider_id: 1 });
+    mockVsEnsureCollection.mockResolvedValue('col-id');
+    mockVsUpsert.mockResolvedValue(undefined);
+    mockEmbed.mockResolvedValue([0.1, 0.2, 0.3]);
   });
 
   afterEach(() => {
@@ -161,7 +188,7 @@ describe('aiBackfillEmbeddingsWorker (ai-backfill-embeddings)', () => {
   it('runs backfill when VECTOR_RETRIEVAL_ENABLED=true', async () => {
     process.env.VECTOR_RETRIEVAL_ENABLED = 'true';
 
-    mockListPhrases.mockResolvedValue({ data: [{ id: 1 }, { id: 2 }], total: 2 });
+    mockListPhrases.mockResolvedValue({ data: [{ id: 1, locale: 'es-MX', text: 'Hola', category: 'greeting' }, { id: 2, locale: 'es-MX', text: 'Adiós', category: 'closing' }], total: 2 });
     mockDbQuery.mockResolvedValue([[
       { id: 10, subject: 'Ticket 1', description: 'Resolved ok' },
       { id: 11, subject: 'Ticket 2', description: 'Also resolved' },
@@ -201,6 +228,102 @@ describe('aiBackfillEmbeddingsWorker (ai-backfill-embeddings)', () => {
     expect(result.skipped).toBe(false);
     expect(result.phrasesIndexed).toBe(0);
     expect(result.ticketsIndexed).toBe(0);
+  });
+
+  it('returns skipped when no active provider configured', async () => {
+    process.env.VECTOR_RETRIEVAL_ENABLED = 'true';
+
+    mockListPhrases.mockResolvedValue({ data: [{ id: 1, locale: 'es-MX', text: 'Hola', category: 'greeting' }], total: 1 });
+    mockDbQuery.mockResolvedValue([[{ id: 10, subject: 'T', description: 'D' }]]);
+    mockFindByOrgId.mockResolvedValue({ active_provider_id: null });
+
+    const jobQueue = require('../../src/services/jobQueueService');
+    const workers  = require('../../src/workers');
+    workers.registerWorkers();
+
+    const handler = getHandler(jobQueue, 'ai-backfill-embeddings');
+    const result  = await handler(makeJob({ orgId: 5 }));
+
+    expect(result).toEqual({ skipped: true, reason: 'no_active_provider' });
+    expect(mockVsUpsert).not.toHaveBeenCalled();
+  });
+
+  it('calls vectorStoreService.upsertDocuments and llmProviderService.embed when enabled', async () => {
+    process.env.VECTOR_RETRIEVAL_ENABLED = 'true';
+
+    mockListPhrases.mockResolvedValue({
+      data: [{ id: 1, locale: 'en', text: 'Hello', category: 'greeting' }],
+      total: 1,
+    });
+    mockDbQuery.mockResolvedValue([[{ id: 10, subject: 'Internet down', description: 'No service' }]]);
+
+    const jobQueue = require('../../src/services/jobQueueService');
+    const workers  = require('../../src/workers');
+    workers.registerWorkers();
+
+    const handler = getHandler(jobQueue, 'ai-backfill-embeddings');
+    await handler(makeJob({ orgId: 3 }));
+
+    expect(mockEmbed).toHaveBeenCalledWith('Hello', 1);
+    expect(mockEmbed).toHaveBeenCalledWith('Internet down\nNo service', 1);
+    expect(mockVsUpsert).toHaveBeenCalledTimes(2); // once for phrases, once for tickets
+  });
+
+  it('logs warn and continues when embed fails for one item', async () => {
+    process.env.VECTOR_RETRIEVAL_ENABLED = 'true';
+
+    mockListPhrases.mockResolvedValue({
+      data: [
+        { id: 1, locale: 'en', text: 'Phrase 1', category: 'greeting' },
+        { id: 2, locale: 'en', text: 'Phrase 2', category: 'closing' },
+      ],
+      total: 2,
+    });
+    mockDbQuery.mockResolvedValue([[]]); // no tickets
+
+    // First embed fails, second succeeds
+    mockEmbed
+      .mockRejectedValueOnce(new Error('embed failed'))
+      .mockResolvedValueOnce([0.1, 0.2]);
+
+    const jobQueue = require('../../src/services/jobQueueService');
+    const workers  = require('../../src/workers');
+    workers.registerWorkers();
+
+    const handler = getHandler(jobQueue, 'ai-backfill-embeddings');
+    const result  = await handler(makeJob({ orgId: 7 }));
+
+    // Only the second phrase was successfully indexed
+    expect(result.phrasesIndexed).toBe(1);
+    expect(result.ticketsIndexed).toBe(0);
+  });
+
+  it('returns { phrasesIndexed, ticketsIndexed } with correct counts', async () => {
+    process.env.VECTOR_RETRIEVAL_ENABLED = 'true';
+
+    mockListPhrases.mockResolvedValue({
+      data: [
+        { id: 1, locale: 'es-MX', text: 'P1', category: 'greeting' },
+        { id: 2, locale: 'es-MX', text: 'P2', category: 'general' },
+        { id: 3, locale: 'en',    text: 'P3', category: 'general' },
+      ],
+      total: 3,
+    });
+    mockDbQuery.mockResolvedValue([[
+      { id: 10, subject: 'T1', description: 'D1' },
+      { id: 11, subject: 'T2', description: 'D2' },
+      { id: 12, subject: 'T3', description: 'D3' },
+    ]]);
+
+    const jobQueue = require('../../src/services/jobQueueService');
+    const workers  = require('../../src/workers');
+    workers.registerWorkers();
+
+    const handler = getHandler(jobQueue, 'ai-backfill-embeddings');
+    const result  = await handler(makeJob({ orgId: 9 }));
+
+    expect(result.phrasesIndexed).toBe(3);
+    expect(result.ticketsIndexed).toBe(3);
   });
 });
 

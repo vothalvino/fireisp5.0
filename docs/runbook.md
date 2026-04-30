@@ -10,6 +10,7 @@ Common operational scenarios and troubleshooting guides.
 - [Database Maintenance](#database-maintenance)
 - [Alert System](#alert-system)
 - [2FA / TOTP Issues](#2fa--totp-issues)
+- [AI Assistant](#ai-assistant)
 - [Incident Response](#incident-response-p19)
   - [Severity Matrix](#severity-matrix)
   - [Incident Declaration Criteria](#incident-declaration-criteria)
@@ -545,5 +546,138 @@ For legal/regulatory issues (data breach, SAT inquiry):
 
 For payment gateway issues:
    On-call engineer  ──→  Finance/accounting  ──→  Gateway support line
+```
+
+---
+
+## AI Assistant
+
+The AI Reply Assistant drafts (and optionally auto-sends) professional responses to
+inbound support tickets. It is **per-organization** and can be toggled on or off
+instantly without redeploying the application.
+
+### Emergency kill switch
+
+Use either method to halt all AI-generated replies immediately:
+
+**Option A — API (fastest, scriptable):**
+
+```bash
+curl -X PUT https://<your-domain>/api/v1/ai/policy \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "X-Org-Id: <org_id>" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false}'
+```
+
+**Option B — Admin UI:**
+
+1. Log in as an admin user.
+2. Navigate to **Settings → AI Assistant → General** tab.
+3. Toggle the **Master switch** to **Off**.
+4. Click **Save**.
+
+Both actions take effect immediately for all new ticket replies; any reply that is
+already being generated will still complete, but no further drafts will be
+initiated.
+
+### Re-enabling the assistant
+
+```bash
+curl -X PUT https://<your-domain>/api/v1/ai/policy \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "X-Org-Id: <org_id>" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
+```
+
+Or re-toggle the master switch in the admin UI (Settings → AI Assistant → General).
+
+### Disabling a specific channel
+
+To disable AI replies on a single channel (e.g., WhatsApp) while leaving others
+active, update the `enabled_channels` map:
+
+```bash
+curl -X PUT https://<your-domain>/api/v1/ai/policy \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "X-Org-Id: <org_id>" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled_channels": {"portal": true, "email": true, "whatsapp": false, "sms": true}}'
+```
+
+### Switching the active LLM provider
+
+If the configured provider is failing or exhibiting unexpected behaviour, switch to
+a backup provider:
+
+```bash
+# 1. List available providers to find the backup provider ID
+curl https://<your-domain>/api/v1/ai/providers \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "X-Org-Id: <org_id>"
+
+# 2. Set the active provider
+curl -X PUT https://<your-domain>/api/v1/ai/policy \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "X-Org-Id: <org_id>" \
+  -H "Content-Type: application/json" \
+  -d '{"active_provider_id": <backup_provider_id>}'
+```
+
+### Checking recent AI reply logs
+
+```sql
+SELECT id, ticket_id, status, confidence, cost_usd, created_at
+FROM ai_reply_logs
+WHERE organization_id = <org_id>
+ORDER BY created_at DESC
+LIMIT 20;
+```
+
+Flag values for `status`: `draft`, `sent`, `discarded`, `error`.
+
+### Diagnosing high LLM cost
+
+```sql
+SELECT
+  DATE(created_at)        AS day,
+  SUM(cost_usd)           AS total_usd,
+  COUNT(*)                AS drafts,
+  AVG(confidence)         AS avg_confidence
+FROM ai_reply_logs
+WHERE organization_id = <org_id>
+  AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+GROUP BY DATE(created_at)
+ORDER BY day DESC;
+```
+
+If costs spike unexpectedly:
+
+1. Check whether `mode` is set to `auto_send` (replies sent without human review).
+2. Review `ai_reply_logs.prompt_hash` for repeated identical prompts (possible
+   runaway retry loop).
+3. Temporarily switch to a cheaper provider (e.g., a smaller Ollama model) while
+   investigating.
+
+### RAG / ChromaDB health check
+
+If the optional RAG sidecar (`VECTOR_RETRIEVAL_ENABLED=true`) is enabled:
+
+```bash
+# Confirm the ChromaDB container is reachable
+curl http://chromadb:8000/api/v1/heartbeat
+
+# Start the sidecar if it is not running
+docker compose --profile rag up -d chromadb
+```
+
+To trigger a full phrase-library re-embedding:
+
+```bash
+# Enqueue via the admin API
+curl -X POST https://<your-domain>/api/v1/ai/backfill-embeddings \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "X-Org-Id: <org_id>"
 ```
 

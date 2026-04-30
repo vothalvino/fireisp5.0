@@ -176,8 +176,8 @@ describe('AIAssistantSettings page', () => {
       fireEvent.click(saveBtn);
 
       await waitFor(() => {
-        const calls = mockFetch.mock.calls.filter(
-          ([url, init]: [string, RequestInit]) =>
+        const calls = (mockFetch.mock.calls as Array<[string, RequestInit]>).filter(
+          ([url, init]) =>
             url.endsWith('/ai/policy') && (init?.method ?? '').toUpperCase() === 'PUT',
         );
         expect(calls.length).toBeGreaterThan(0);
@@ -240,8 +240,8 @@ describe('AIAssistantSettings page', () => {
 
       await waitFor(() => expect(screen.getByText(/Connection OK/i)).toBeInTheDocument());
 
-      const verifyCalls = mockFetch.mock.calls.filter(
-        ([url, init]: [string, RequestInit]) =>
+      const verifyCalls = (mockFetch.mock.calls as Array<[string, RequestInit]>).filter(
+        ([url, init]) =>
           url.includes('/ai/providers/1/verify') && (init?.method ?? '').toUpperCase() === 'POST',
       );
       expect(verifyCalls.length).toBe(1);
@@ -282,8 +282,8 @@ describe('AIAssistantSettings page', () => {
       fireEvent.click(radio);
 
       await waitFor(() => {
-        const calls = mockFetch.mock.calls.filter(
-          ([url, init]: [string, RequestInit]) =>
+        const calls = (mockFetch.mock.calls as Array<[string, RequestInit]>).filter(
+          ([url, init]) =>
             url.endsWith('/ai/policy') && (init?.method ?? '').toUpperCase() === 'PUT',
         );
         expect(calls.length).toBeGreaterThan(0);

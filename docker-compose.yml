@@ -78,6 +78,8 @@ services:
       DB_HOST: db
       DB_PORT: 3306
       REDIS_URL: redis://redis:6379
+      VECTOR_RETRIEVAL_ENABLED: ${VECTOR_RETRIEVAL_ENABLED:-false}
+      CHROMA_URL: ${CHROMA_URL:-http://chromadb:8000}
     volumes:
       - ./src:/app/src
       - ./storage:/app/storage
@@ -95,6 +97,37 @@ services:
         max-size: '10m'
         max-file: '3'
 
+  chromadb:
+    image: chromadb/chroma:1.0.4
+    profiles: ['rag']
+    restart: unless-stopped
+    ports:
+      - '8000:8000'
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      IS_PERSISTENT: 'TRUE'
+      ANONYMIZED_TELEMETRY: 'FALSE'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:8000/api/v1/heartbeat || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
 volumes:
   db_data:
   redis_data:
+  chroma_data:

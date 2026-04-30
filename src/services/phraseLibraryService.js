@@ -346,6 +346,44 @@ async function validateDraft(orgId, locale, draftText) {
 }
 
 // =============================================================================
+// Semantic search (RAG)
+// =============================================================================
+
+/**
+ * Semantic search over the phrase library using vector similarity.
+ * Returns top-k phrase texts ordered by relevance.
+ * Returns [] when VECTOR_RETRIEVAL_ENABLED is not 'true'.
+ *
+ * @param {number} orgId
+ * @param {string} locale
+ * @param {string} query
+ * @param {number} [k=5]
+ * @returns {Promise<string[]>}
+ */
+async function search(orgId, locale, query, k = 5) {
+  const vectorStoreService = require('./vectorStoreService');
+  if (!vectorStoreService.isEnabled()) return [];
+
+  const AiPolicy = require('../models/AiPolicy');
+  const llmProviderService = require('./llmProviderService');
+
+  const policy = await AiPolicy.findByOrgId(orgId);
+  if (!policy.active_provider_id) return [];
+
+  let embedding;
+  try {
+    embedding = await llmProviderService.embed(query, policy.active_provider_id);
+  } catch (err) {
+    logger.warn({ orgId, err: err.message }, 'phraseLibraryService.search: embed failed — skipping RAG');
+    return [];
+  }
+
+  const collection = vectorStoreService.phraseCollectionName(orgId, locale);
+  const results = await vectorStoreService.queryDocuments({ collection, queryEmbedding: embedding, k });
+  return results.documents;
+}
+
+// =============================================================================
 // Internal validators
 // =============================================================================
 
@@ -387,4 +425,6 @@ module.exports = {
   getTermsByLocale,
   // validation
   validateDraft,
+  // semantic search (RAG)
+  search,
 };

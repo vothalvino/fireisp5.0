@@ -100,14 +100,76 @@ function registerWorkers() {
     );
     logger.debug({ orgId, count: tickets.length }, 'Worker: backfill — resolved tickets loaded');
 
-    // Actual vector upsert is deferred to §8 (vector retrieval implementation).
-    // For now, return a summary so the job is recorded as completed.
-    return {
-      skipped: false,
-      orgId,
-      phrasesIndexed: phrases.length,
-      ticketsIndexed: tickets.length,
-    };
+    // Actual vector upsert using ChromaDB.
+    const vectorStoreService = require('../services/vectorStoreService');
+    const { phraseCollectionName } = vectorStoreService;
+    const llmProviderService = require('../services/llmProviderService');
+
+    // Get active provider for this org
+    const AiPolicy = require('../models/AiPolicy');
+    const policy = await AiPolicy.findByOrgId(orgId);
+    if (!policy.active_provider_id) {
+      return { skipped: true, reason: 'no_active_provider' };
+    }
+    const activeProviderId = policy.active_provider_id;
+
+    let phrasesIndexed = 0;
+    let ticketsIndexed = 0;
+
+    // --- Embed + upsert phrases per locale ---
+    const phrasesByLocale = {};
+    for (const p of phrases) {
+      if (!phrasesByLocale[p.locale]) phrasesByLocale[p.locale] = [];
+      phrasesByLocale[p.locale].push(p);
+    }
+
+    for (const [locale, localePhrases] of Object.entries(phrasesByLocale)) {
+      const collection = phraseCollectionName(orgId, locale);
+      await vectorStoreService.ensureCollection(collection);
+
+      const ids = [], embeddings = [], documents = [], metadatas = [];
+      for (const phrase of localePhrases) {
+        try {
+          const embedding = await llmProviderService.embed(phrase.text, activeProviderId);
+          ids.push(`phrase_${phrase.id}`);
+          embeddings.push(embedding);
+          documents.push(phrase.text);
+          metadatas.push({ phrase_id: phrase.id, category: phrase.category, locale });
+          phrasesIndexed += 1;
+        } catch (err) {
+          logger.warn({ orgId, phraseId: phrase.id, err: err.message }, 'Worker: backfill — embed failed for phrase');
+        }
+      }
+
+      if (ids.length > 0) {
+        await vectorStoreService.upsertDocuments({ collection, ids, embeddings, documents, metadatas });
+      }
+    }
+
+    // --- Embed + upsert resolved tickets ---
+    const ticketCollection = `tickets_${orgId}`;
+    await vectorStoreService.ensureCollection(ticketCollection);
+
+    const tIds = [], tEmbeds = [], tDocs = [], tMeta = [];
+    for (const ticket of tickets) {
+      const text = [ticket.subject, ticket.description].filter(Boolean).join('\n');
+      try {
+        const embedding = await llmProviderService.embed(text, activeProviderId);
+        tIds.push(`ticket_${ticket.id}`);
+        tEmbeds.push(embedding);
+        tDocs.push(text);
+        tMeta.push({ ticket_id: ticket.id, subject: ticket.subject });
+        ticketsIndexed += 1;
+      } catch (err) {
+        logger.warn({ orgId, ticketId: ticket.id, err: err.message }, 'Worker: backfill — embed failed for ticket');
+      }
+    }
+
+    if (tIds.length > 0) {
+      await vectorStoreService.upsertDocuments({ collection: ticketCollection, ids: tIds, embeddings: tEmbeds, documents: tDocs, metadatas: tMeta });
+    }
+
+    return { skipped: false, orgId, phrasesIndexed, ticketsIndexed };
   });
 
   // ---- AI cost rollup -----------------------------------------------------

@@ -425,3 +425,84 @@ in health endpoint responses.
 - [ ] Pino redact list includes any new secret field names added to the app
 - [ ] Health endpoints verified: `curl .../health?detail=true` shows no secrets
 - [ ] Secret rotation procedure documented and tested at least once
+
+---
+
+## Provider API keys (AI Reply Assistant)
+
+Each LLM provider registered in the AI Reply Assistant stores its API key
+**encrypted at rest** using AES-256-GCM (the same `ENCRYPTION_KEY` used for
+all other sensitive settings).  The plaintext key is decrypted only inside
+`src/services/llmProviderService.js` at call time, and is **never returned by
+any API endpoint**.
+
+### How keys are stored
+
+```
+plaintext API key
+      │
+      │  encrypt(key)  ← src/utils/encryption.js (AES-256-GCM, ENCRYPTION_KEY)
+      ▼
+api_key_encrypted TEXT column in ai_providers table
+```
+
+`GET /api/v1/ai/providers` deliberately omits `api_key_encrypted` from the
+SELECT list; the encrypted blob never leaves the backend.
+
+### Rotating a provider API key
+
+#### Via the admin UI
+
+1. Open **Settings → AI Assistant → Providers** tab.
+2. Click **Edit** on the provider you want to rotate.
+3. Paste the new API key in the **API Key** field and save.
+4. The new key is encrypted and stored; the old encrypted blob is overwritten.
+5. Click **Test Connection** to verify the new key works end-to-end.
+
+#### Via the REST API
+
+```bash
+# 1. Update the provider with the new key (old encrypted value is overwritten)
+curl -X PUT "https://your-fireisp.domain/api/v1/ai/providers/<provider_id>" \
+  -H "Authorization: Bearer <admin_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"api_key": "<NEW_KEY>"}'
+
+# 2. Verify the connection
+curl -X POST "https://your-fireisp.domain/api/v1/ai/providers/<provider_id>/verify" \
+  -H "Authorization: Bearer <admin_token>"
+# Expected: { "success": true, "message": "Connection OK", ... }
+```
+
+### Rotating the ENCRYPTION_KEY
+
+If you rotate the platform-wide `ENCRYPTION_KEY` (the AES-256-GCM master key),
+**all** stored provider API keys must be re-encrypted.  Procedure:
+
+1. Export all provider API keys in plaintext **before** changing the key
+   (requires direct DB access + the old `ENCRYPTION_KEY`).
+2. Update the `ENCRYPTION_KEY` secret in your secrets manager and restart the
+   application (so the new key is loaded).
+3. Re-register each provider via `PUT /api/v1/ai/providers/:id` with its
+   plaintext API key — the route will encrypt using the new `ENCRYPTION_KEY`.
+4. Run `POST /providers/:id/verify` for each provider to confirm success.
+
+> **Tip:** Keep both the old and new `ENCRYPTION_KEY` accessible during the
+> migration window.  Do not delete the old key until all providers are
+> re-registered with the new one.
+
+### Adding provider keys to the Required secrets table
+
+When you register a new AI provider, add its API key to your secrets manager
+under a descriptive name and record it in the table below:
+
+| Key | Purpose |
+|---|---|
+| `AI_PROVIDER_OPENAI` | OpenAI API key (stored encrypted in DB; include here for backup/rotation reference) |
+| `AI_PROVIDER_ANTHROPIC` | Anthropic API key |
+| `AI_PROVIDER_AZURE_OPENAI` | Azure OpenAI API key |
+| `AI_PROVIDER_GEMINI` | Google Gemini API key |
+
+> Provider API keys are stored encrypted in the database, **not** as
+> environment variables.  The table above is for rotation-tracking purposes
+> only — keep these values in your secrets manager alongside `ENCRYPTION_KEY`.

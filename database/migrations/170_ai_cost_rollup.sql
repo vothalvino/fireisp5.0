@@ -10,7 +10,7 @@
 -- =============================================================================
 
 ALTER TABLE `organization_quotas`
-  ADD COLUMN IF NOT EXISTS `ai_cost_month_usd`    DECIMAL(12,6) NULL DEFAULT NULL
+  ADD COLUMN `ai_cost_month_usd`    DECIMAL(12,6) NULL DEFAULT NULL
     COMMENT 'Running monthly AI cost total (USD) — updated daily by aiCostRollupWorker',
-  ADD COLUMN IF NOT EXISTS `ai_cost_rollup_month`  CHAR(7)       NULL DEFAULT NULL
+  ADD COLUMN `ai_cost_rollup_month`  CHAR(7)       NULL DEFAULT NULL
     COMMENT 'YYYY-MM of the last rollup (used to detect month boundary)';

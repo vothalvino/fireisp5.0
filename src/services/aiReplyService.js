@@ -59,13 +59,13 @@ const HISTORY_WINDOW = 10;
  */
 const PII_PATTERNS = [
   // Email — must come before phone to avoid eating the domain part
-  { name: 'EMAIL', re: /\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/g },
+  { name: 'EMAIL', re: /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b/g },
   // MAC address
-  { name: 'MAC', re: /\b(?:[0-9a-fA-F]{2}[:\-]){5}[0-9a-fA-F]{2}\b/g },
+  { name: 'MAC', re: /\b(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}\b/g },
   // IPv4 address (loose — catches private + public ranges)
   { name: 'IP', re: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g },
   // Phone: +52 (55) 1234-5678, 55-1234-5678, +1 800 555 1234, etc.
-  { name: 'PHONE', re: /\b\+?[\d][\d\s\-\(\)]{6,14}[\d]\b/g },
+  { name: 'PHONE', re: /\b\+?[\d][\d\s().-]{6,14}[\d]\b/g },
 ];
 
 /**
@@ -170,9 +170,10 @@ Respond with only valid JSON — no markdown fences, no extra text.`,
  * @param {object[]} opts.forbiddenTerms    — [{term, replacement}]
  * @param {string}   opts.contextJson       — already-redacted context JSON string
  * @param {object[]} opts.ticketHistory     — last N ticket comment rows
+ * @param {string[]} [opts.ragChunks]       — semantically retrieved phrase texts
  * @returns {string}
  */
-function _renderSystemPrompt({ tone, category, phrasesByCategory, forbiddenTerms, contextJson, ticketHistory }) {
+function _renderSystemPrompt({ tone, category, phrasesByCategory, forbiddenTerms, contextJson, ticketHistory, ragChunks = [] }) {
   const phrases      = phrasesByCategory[category] || phrasesByCategory['general'] || [];
   const required     = phrases.filter(p => Number(p.is_required) === 1).map(p => `- "${p.text}"`);
   const suggested    = phrases.filter(p => Number(p.is_required) !== 1).map(p => `- "${p.text}"`);
@@ -180,8 +181,8 @@ function _renderSystemPrompt({ tone, category, phrasesByCategory, forbiddenTerms
 
   const historyLines = ticketHistory.length
     ? ticketHistory.map(c =>
-        `[${c.created_at}]${c.is_internal ? ' (internal)' : ''} ${c.body}`,
-      ).join('\n---\n')
+      `[${c.created_at}]${c.is_internal ? ' (internal)' : ''} ${c.body}`,
+    ).join('\n---\n')
     : '(no prior messages)';
 
   return [
@@ -201,6 +202,9 @@ function _renderSystemPrompt({ tone, category, phrasesByCategory, forbiddenTerms
     '',
     '## Ticket history (oldest → newest)',
     historyLines,
+    '',
+    '## Relevant retrieved phrases (semantic search)',
+    ragChunks.length ? ragChunks.map(c => `- "${c}"`).join('\n') : '(none)',
     '',
     'Reply ONLY with the customer-facing response text. No preamble, no metadata.',
   ].join('\n');
@@ -353,10 +357,11 @@ async function generate({ orgId, ticketId, channel = 'portal', inboundText, cont
   }
 
   // ── Step 5: Render system prompt ────────────────────────────────────────────
-  const [phrasesByCategory, forbiddenTerms, ticketHistory] = await Promise.all([
+  const [phrasesByCategory, forbiddenTerms, ticketHistory, ragChunks] = await Promise.all([
     phraseLibraryService.getPhrasesByCategory(orgId, locale),
     phraseLibraryService.getTermsByLocale(orgId, locale),
     Ticket.getComments(ticketId),
+    phraseLibraryService.search(orgId, locale, workingInbound, 5),
   ]);
 
   const systemPrompt = _renderSystemPrompt({
@@ -366,6 +371,7 @@ async function generate({ orgId, ticketId, channel = 'portal', inboundText, cont
     forbiddenTerms,
     contextJson:       workingContextStr,
     ticketHistory:     ticketHistory.slice(-HISTORY_WINDOW),
+    ragChunks,
   });
 
   const promptHash = crypto.createHash('sha256').update(systemPrompt).digest('hex');

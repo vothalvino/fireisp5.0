@@ -16,7 +16,7 @@
 // Response:
 //   {
 //     "meta": { "generatedAt": "<ISO8601>", "requestedBy": "<user_email>",
-//               "version": "1.0" },
+//               "version": "1.1" },
 //     "data": {
 //       "client": { ...client row },
 //       "contacts": [ ... ],
@@ -26,7 +26,8 @@
 //       "payments": [ ... ],
 //       "tickets": [ ... ],
 //       "connectionLogs": [ ... ],
-//       "ipAssignments": [ ... ]
+//       "ipAssignments": [ ... ],
+//       "aiReplyLogs": [ ... ]   ← draft/final text only; internal prompts redacted
 //     }
 //   }
 // =============================================================================
@@ -111,13 +112,29 @@ router.get('/clients/:id', requirePermission('clients.view'), async (req, res, n
       [id],
     );
 
+    // ---- AI reply logs (most-recent 200 rows, internal prompts redacted) --
+    // draft_text / final_text are the actual replies drafted/sent about the
+    // client.  context_snapshot (topology/health data) and prompt_hash
+    // (internal operational metadata) are excluded as they do not constitute
+    // personal data of the data subject.
+    const [aiReplyLogs] = await db.query(
+      `SELECT arl.id, arl.ticket_id, arl.action, arl.confidence,
+              arl.classification, arl.draft_text, arl.final_text, arl.created_at
+       FROM ai_reply_logs arl
+       JOIN tickets t ON t.id = arl.ticket_id
+       WHERE t.client_id = ? AND arl.organization_id = ?
+       ORDER BY arl.created_at DESC
+       LIMIT 200`,
+      [id, orgId],
+    );
+
     res.json({
       meta: {
         generatedAt:  new Date().toISOString(),
         requestedBy:  req.user && req.user.email,
         clientId:     Number(id),
         organizationId: Number(orgId),
-        version:      '1.0',
+        version:      '1.1',
       },
       data: {
         client,
@@ -129,6 +146,7 @@ router.get('/clients/:id', requirePermission('clients.view'), async (req, res, n
         tickets,
         connectionLogs,
         ipAssignments,
+        aiReplyLogs,
       },
     });
   } catch (err) {

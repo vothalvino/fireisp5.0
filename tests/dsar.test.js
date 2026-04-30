@@ -79,7 +79,9 @@ function setupMocks(clientRow) {
     // 8. connectionLogs
     .mockResolvedValueOnce([[{ id: 400, username: 'juan_pppoe', ip_address: '192.168.1.1', mac_address: 'AA:BB:CC:DD:EE:FF', nas_id: 1, session_start: '2024-04-01', session_stop: '2024-04-01', bytes_in: 1000, bytes_out: 2000 }]])
     // 9. ipAssignments
-    .mockResolvedValueOnce([[{ id: 500, ip_address: '192.168.1.1', type: 'dynamic', status: 'assigned', assigned_at: '2024-01-01', released_at: null }]]);
+    .mockResolvedValueOnce([[{ id: 500, ip_address: '192.168.1.1', type: 'dynamic', status: 'assigned', assigned_at: '2024-01-01', released_at: null }]])
+    // 10. aiReplyLogs
+    .mockResolvedValueOnce([[{ id: 1, ticket_id: 300, action: 'sent', confidence: 0.91, classification: 'connectivity', draft_text: 'Dear client,', final_text: 'Dear client, issue resolved.', created_at: '2024-03-01T10:00:00Z' }]]);
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +102,7 @@ describe('GET /api/v1/dsar/clients/:id', () => {
     expect(res.body.meta).toMatchObject({
       clientId:      42,
       organizationId: 1,
-      version:       '1.0',
+      version:       '1.1',
       requestedBy:   'admin@test.com',
     });
     expect(res.body.meta.generatedAt).toBeTruthy();
@@ -115,6 +117,11 @@ describe('GET /api/v1/dsar/clients/:id', () => {
     expect(data.tickets).toHaveLength(1);
     expect(data.connectionLogs).toHaveLength(1);
     expect(data.ipAssignments).toHaveLength(1);
+    expect(data.aiReplyLogs).toHaveLength(1);
+    expect(data.aiReplyLogs[0].action).toBe('sent');
+    // Internal fields must NOT be exported
+    expect(data.aiReplyLogs[0]).not.toHaveProperty('context_snapshot');
+    expect(data.aiReplyLogs[0]).not.toHaveProperty('prompt_hash');
   });
 
   test('returns 404 when the client does not exist in the org', async () => {
@@ -141,7 +148,8 @@ describe('GET /api/v1/dsar/clients/:id', () => {
       .mockResolvedValueOnce([[]])                      // payments
       .mockResolvedValueOnce([[]])                      // tickets
       .mockResolvedValueOnce([[]])                      // connectionLogs
-      .mockResolvedValueOnce([[]]);                     // ipAssignments
+      .mockResolvedValueOnce([[]])                      // ipAssignments
+      .mockResolvedValueOnce([[]]);                     // aiReplyLogs
 
     const res = await request(app).get('/api/v1/dsar/clients/42');
     expect(res.status).toBe(200);
@@ -176,11 +184,59 @@ describe('GET /api/v1/dsar/clients/:id', () => {
       .mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([logs])
-      .mockResolvedValueOnce([[]]);
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]]);   // aiReplyLogs
 
     const res = await request(app).get('/api/v1/dsar/clients/42');
     expect(res.status).toBe(200);
     expect(res.body.data.connectionLogs).toHaveLength(5);
+  });
+
+  test('includes aiReplyLogs section with draft/final text but without internal fields', async () => {
+    const aiLog = {
+      id: 1, ticket_id: 300, action: 'edited', confidence: 0.88,
+      classification: 'billing', draft_text: 'Draft reply.', final_text: 'Final reply.',
+      created_at: '2024-03-02T09:00:00Z',
+    };
+    mockQuery
+      .mockResolvedValueOnce([[CLIENT_ROW]])    // client
+      .mockResolvedValueOnce([[]])              // contacts
+      .mockResolvedValueOnce([[undefined]])     // mxProfile
+      .mockResolvedValueOnce([[]])              // contracts
+      .mockResolvedValueOnce([[]])              // invoices
+      .mockResolvedValueOnce([[]])              // payments
+      .mockResolvedValueOnce([[]])              // tickets
+      .mockResolvedValueOnce([[]])              // connectionLogs
+      .mockResolvedValueOnce([[]])              // ipAssignments
+      .mockResolvedValueOnce([[aiLog]]);        // aiReplyLogs
+
+    const res = await request(app).get('/api/v1/dsar/clients/42');
+    expect(res.status).toBe(200);
+    expect(res.body.data.aiReplyLogs).toHaveLength(1);
+    expect(res.body.data.aiReplyLogs[0].action).toBe('edited');
+    expect(res.body.data.aiReplyLogs[0].draft_text).toBe('Draft reply.');
+    expect(res.body.data.aiReplyLogs[0].final_text).toBe('Final reply.');
+    // Internal fields must not be present (they were excluded by the SELECT)
+    expect(res.body.data.aiReplyLogs[0]).not.toHaveProperty('context_snapshot');
+    expect(res.body.data.aiReplyLogs[0]).not.toHaveProperty('prompt_hash');
+  });
+
+  test('aiReplyLogs is empty array when client has no AI interactions', async () => {
+    mockQuery
+      .mockResolvedValueOnce([[CLIENT_ROW]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[undefined]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]]);  // aiReplyLogs empty
+
+    const res = await request(app).get('/api/v1/dsar/clients/42');
+    expect(res.status).toBe(200);
+    expect(res.body.data.aiReplyLogs).toEqual([]);
   });
 
   test('returns 500 when a DB query throws', async () => {

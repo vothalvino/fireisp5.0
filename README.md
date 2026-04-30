@@ -79,7 +79,7 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 - Speed test recording from client portal, technician tools, automated probes, and external services
 - IFT/CRT regulatory compliance — concession titles, periodic filings, statistical reports, and registered contract templates (Carta de Adhesión)
 - Internationalization (i18n) — English, Spanish, and Brazilian Portuguese locale support
-- RESTful API with 199 endpoints, interactive Swagger UI documentation (`/api/docs`), and static OpenAPI spec (`docs/openapi.json`)
+- RESTful API with 212 endpoints, interactive Swagger UI documentation (`/api/docs`), and static OpenAPI spec (`docs/openapi.json`)
 - GraphQL gateway (`/api/v1/graphql`) powered by graphql-yoga v5 — single-request multi-entity fetches, real-time subscriptions via SSE (PubSub), and a live ClientDetail query replacing multiple REST round-trips
 - Real-time event hub (WebSocket + SSE dual-broadcast) — live Dashboard device-status indicator, live TicketDetail comment stream, and a useWebSocket React hook for all frontend consumers
 - httpOnly SameSite=Strict cookie authentication — access token in memory, refresh token in httpOnly cookie, Origin-based CSRF guard; eliminates localStorage token exposure
@@ -88,6 +88,7 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 - Spec-driven development — `spec:check` drift scanner detects route/schema gaps against the OpenAPI spec in CI; `spec:gen` scaffolds new route stubs from the spec
 - OWASP ZAP DAST scan in CI — automated active scan against a live test instance on every push; ZAP HTML report uploaded as a workflow artifact
 - WCAG 2.1 AA accessibility — jest-axe audit on all major pages; aria-label fixes across TicketList, UserList, and other interactive components
+- AI Reply Assistant — topology-aware LLM chatbot that drafts (and optionally auto-sends) professional answers to inbound support tickets; pluggable provider registry (OpenAI, Azure OpenAI, Anthropic, Google Gemini, Ollama, custom); phrase library with forbidden-term guard; PII redaction before prompt dispatch; per-org master on/off switch and per-channel toggles; optional RAG via ChromaDB; full audit log. **Emergency kill switch:** `PUT /api/v1/ai/policy` `{"enabled":false}` or untick the master switch in Settings → AI Assistant → General.
 - In-app changelog panel — paginated, filterable release history surfaced in the admin sidebar for operators who need to track what changed without leaving the UI
 - Kubernetes-ready health probes — `/health/live` (liveness), `/health/ready` (readiness with DB + Redis checks), `/health?detail=true` (detailed)
 - CSP nonce-based inline style protection (per-request nonce replaces `unsafe-inline`)
@@ -103,8 +104,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 117 tables)
-│   └── migrations/          # Individual numbered migration files (001–168)
+│   ├── schema.sql           # Combined schema (all 123 tables)
+│   └── migrations/          # Individual numbered migration files (001–172)
 ├── src/                     # Application source code
 │   ├── app.js               # Express app setup (middleware, routes, error handling)
 │   ├── server.js            # HTTP server entry point
@@ -113,11 +114,11 @@ fireisp5.0/
 │   ├── locales/             # i18n translation files (en.json, es.json, pt-BR.json)
 │   ├── middleware/           # Authentication, logging, validation, and request middleware
 │   │   └── schemas/         # Joi / Zod validation schemas per route
-│   ├── models/              # Data models / ORM entities (92 models)
-│   ├── routes/              # Route definitions (80 route files)
+│   ├── models/              # Data models / ORM entities (98 models)
+│   ├── routes/              # Route definitions (81 route files)
 │   ├── scripts/             # CLI scripts (migrate, seed, backup, admin, openapi, postman, spec)
-│   ├── services/            # Business logic layer (42 services)
-│   ├── workers/             # BullMQ worker registry (5 named queues; active only when REDIS_URL is set)
+│   ├── services/            # Business logic layer (48 services)
+│   ├── workers/             # BullMQ worker registry (8 named queues; active only when REDIS_URL is set)
 │   ├── utils/               # Shared helpers (errors, logger, i18n, circuit breaker, OpenAPI)
 │   └── views/               # Email templates (HTML builders for transactional emails)
 ├── storage/                 # User-uploaded and system-generated files
@@ -128,7 +129,7 @@ fireisp5.0/
 │   └── backups/             # System database and config backups
 ├── docs/                    # Project documentation (API guide, architecture, deployment, etc.)
 ├── frontend/                # React + TypeScript SPA (Vite); builds to frontend/dist/
-├── tests/                   # Automated tests (131 test files, 2,679 Jest tests)
+├── tests/                   # Automated tests (137 test files, 3,105 Jest tests)
 ├── LICENSE
 └── README.md
 ```
@@ -272,6 +273,12 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 115 | `organization_quotas` | Per-tenant resource quota table — stores optional upper bounds for `max_clients`, `max_devices`, `max_storage_mb`, and `max_scheduled_tasks`; a NULL limit means "unlimited"; absence of a row is also treated as unlimited |
 | 116 | `organization_database_configs` | Per-tenant database isolation configuration — stores the `isolation_mode` (`shared` default, `isolated` opt-in) and, for isolated tenants, the target database host/port/name/user, encrypted password, SSL flag, and `last_verified_at` connectivity-check timestamp |
 | 117 | `profeco_complaints` | PROFECO / CONCILIANET complaint register — one row per consumer complaint folio filed with Mexico's Procuraduría Federal del Consumidor; captures folio number, ISP–consumer resolution status, complaint category, service type, intake and resolution dates, staff attribution, and optional links to existing client and support-ticket records; enables quarterly regulatory filing |
+| 118 | `ai_providers` | AI/LLM provider registry per organization — stores provider kind (`openai`, `azure_openai`, `anthropic`, `gemini`, `ollama`, `custom`), API endpoint, encrypted API key, model name, optional `embedding_model` for RAG, temperature, max tokens, active flag, and soft-delete support |
+| 119 | `ai_policies` | Per-organization AI Reply Assistant policy — master on/off switch, dispatch mode (`draft_only`, `auto_send`, `suggest`), tone, PII-redaction flag, per-channel enable flags (email/ticket/portal), max draft length, and confidence threshold; one row per organization |
+| 120 | `ai_phrase_library` | Curated phrase library for AI prompt enrichment — stores phrase text, category (`greeting`, `closing`, `technical`, `billing`, `escalation`, `other`), locale, optional variable placeholders (JSON), optional embedding vector ID in ChromaDB, and soft-delete support |
+| 121 | `ai_forbidden_terms` | Forbidden-term guard list per organization — terms that must not appear in any AI-drafted reply; evaluated by `phraseLibraryService.validateDraft()` before dispatch; supports locale-scoping and soft-delete |
+| 122 | `ai_reply_logs` | Immutable audit log of every AI-drafted reply — stores `ticket_id`, `provider_id`, `dispatch_mode`, `confidence_score`, `draft_text`, `final_text`, `cost_usd`, `tokens_used`, `pii_redacted` flag, `validation_passed` flag, `sent_at`, and `created_by`; internal `context_snapshot` and `prompt_hash` are never returned by the API |
+| 123 | `contract_topology_paths` | Cached network topology paths for AI context — stores the materialized path from a contract's CPE through all intermediate devices to the backbone; used by `topologyContextService` to build the topology breadcrumb injected into AI prompts; invalidated on device/link/contract change |
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 
@@ -460,6 +467,14 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 167 — Per-tenant database isolation config:** `167_create_organization_database_configs.sql` creates the `organization_database_configs` control-plane table. One row per organization (unique constraint). Stores `isolation_mode` (`shared` default, `isolated` opt-in), isolated database host, port, name, user, AES-256-GCM-encrypted password (`db_password_encrypted`), SSL flag, and `last_verified_at` timestamp. When `isolation_mode = 'isolated'` and a valid connection config is present, `src/config/database.js` routes every DB operation for that organization to a dedicated MySQL pool (cached in memory, invalidated on config update). Admin endpoints: `GET/PUT /api/v1/organizations/:id/database-isolation` (masked config), `POST /api/v1/organizations/:id/database-isolation/test` (connectivity check + records `last_verified_at`). `FK ON DELETE CASCADE` from `organizations`.
 
 > **Migration 168 — PROFECO complaint tracking:** `168_create_profeco_complaints_table.sql` creates the `profeco_complaints` table for ISPs subject to Mexico's PROFECO (Procuraduría Federal del Consumidor) CONCILIANET obligations. One row per complaint folio. Stores `folio_profeco` (official CONCILIANET folio, nullable until assigned), `consumer_name`, `consumer_email/phone`, `service_type`, `complaint_category`, `description`, `status` (`received` → `in_process` → `resolved` / `escalated`), `resolution_notes`, `received_at`, `response_deadline`, `resolved_at`, `submitted_by` (FK to users), and optional FKs to `clients` and `tickets`. Unique constraint on `(organization_id, folio_profeco)`. Supports quarterly export for regulatory filing.
+
+> **Migration 169 — AI Reply Assistant tables + device/link columns:** `169_ai_assistant.sql` creates six tables for the AI Reply Assistant feature (`ai_policies`, `ai_providers`, `ai_phrase_library`, `ai_forbidden_terms`, `ai_reply_logs`, `contract_topology_paths`) and adds two ALTER TABLE statements: `devices.role ENUM('cpe','pop','backbone','border','access') NULL` for topology classification, and `network_links.medium ENUM('fiber','wireless','copper') NULL` + `network_links.role ENUM('backbone','distribution','access','client') NULL` for link metadata used by `topologyContextService`.
+
+> **Migration 170 — AI cost roll-up columns on organization_quotas:** `170_ai_cost_rollup.sql` adds `max_ai_tokens_month BIGINT UNSIGNED NULL` (monthly token budget; NULL = unlimited), `ai_cost_month_usd DECIMAL(10,4) NOT NULL DEFAULT 0` (running cost accumulator reset monthly by the `aiCostRollupWorker`), and `ai_cost_rollup_month DATE NULL` (date of the last roll-up) to `organization_quotas`.
+
+> **Migration 171 — AI RBAC permissions seed:** `171_seed_ai_permissions.sql` inserts the seven granular AI permission slugs (`ai.policy.read`, `ai.policy.write`, `ai.phrases.read`, `ai.phrases.write`, `ai.reply.draft`, `ai.reply.send`, `ai.providers.write`) into `permissions` and grants them to the `admin` role via `role_permissions`. Uses `INSERT IGNORE` for idempotent re-runs.
+
+> **Migration 172 — `embedding_model` on ai_providers:** `172_add_embedding_model_to_ai_providers.sql` adds `embedding_model VARCHAR(120) NULL` to `ai_providers`. When populated and `VECTOR_RETRIEVAL_ENABLED=true`, the `vectorStoreService` uses this model via `llmProviderService.embed()` to generate embeddings for ChromaDB upserts and similarity queries in the RAG pipeline.
 
 ### Venta al Público en General (Factura Pública)
 
