@@ -32,7 +32,7 @@ describe('vectorStoreService — disabled (VECTOR_RETRIEVAL_ENABLED not set)', (
     delete process.env.VECTOR_RETRIEVAL_ENABLED;
     svc = require('../src/services/vectorStoreService');
     // Clear cache between tests
-    svc._collectionCache.clear();
+    svc._clearCacheForTesting();
   });
 
   afterEach(() => {
@@ -83,7 +83,7 @@ describe('vectorStoreService — enabled (VECTOR_RETRIEVAL_ENABLED=true)', () =>
     global.fetch = mockFetch;
 
     svc = require('../src/services/vectorStoreService');
-    svc._collectionCache.clear();
+    svc._clearCacheForTesting();
   });
 
   afterEach(() => {

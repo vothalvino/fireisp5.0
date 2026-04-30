@@ -189,6 +189,6 @@ module.exports = {
   queryDocuments,
   deleteDocuments,
   phraseCollectionName,
-  // Exported for testing
-  _collectionCache,
+  // Exported for testing only — use _clearCacheForTesting() instead of accessing the Map directly
+  _clearCacheForTesting() { _collectionCache.clear(); },
 };

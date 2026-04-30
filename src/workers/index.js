@@ -124,7 +124,8 @@ function registerWorkers() {
     }
 
     for (const [locale, localePhrases] of Object.entries(phrasesByLocale)) {
-      const collection = phraseCollectionName(orgId, locale);      await vectorStoreService.ensureCollection(collection);
+      const collection = phraseCollectionName(orgId, locale);
+      await vectorStoreService.ensureCollection(collection);
 
       const ids = [], embeddings = [], documents = [], metadatas = [];
       for (const phrase of localePhrases) {
