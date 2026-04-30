@@ -106,6 +106,7 @@ function generateSpec() {
       { name: 'FireRelay', description: 'Multi-node cluster management' },
       { name: 'Regulatory', description: 'Regulatory compliance filings' },
       { name: 'PROFECO Complaints', description: 'PROFECO consumer complaint register and export' },
+      { name: 'AI Assistant', description: 'AI reply assistant — policy, providers, phrase library, reply generation, audit logs' },
     ],
     paths: {
       // ---- Auth ----
@@ -460,6 +461,76 @@ function generateSpec() {
               },
             },
           },
+        },
+      },
+
+      // ---- AI Assistant ----
+      '/ai/policy': {
+        get:  { tags: ['AI Assistant'], summary: 'Get AI reply policy', operationId: 'getAiPolicy', security: [{ bearerAuth: [] }], responses: r200('AiPolicy') },
+        put:  { tags: ['AI Assistant'], summary: 'Upsert AI reply policy', operationId: 'upsertAiPolicy', security: [{ bearerAuth: [] }], requestBody: jsonBody('ai_updateAiPolicy'), responses: r200('AiPolicy') },
+      },
+      '/ai/providers/catalog': {
+        get: { tags: ['AI Assistant'], summary: 'List supported LLM provider kinds', operationId: 'getAiProviderCatalog', security: [{ bearerAuth: [] }], responses: r200('Catalog[]') },
+      },
+      '/ai/providers': {
+        get:  { tags: ['AI Assistant'], summary: 'List LLM providers', operationId: 'listAiProviders', security: [{ bearerAuth: [] }], responses: r200('AiProvider[]') },
+        post: { tags: ['AI Assistant'], summary: 'Create LLM provider', operationId: 'createAiProvider', security: [{ bearerAuth: [] }], requestBody: jsonBody('ai_createAiProvider'), responses: r201('AiProvider') },
+      },
+      '/ai/providers/{id}': {
+        put:    { tags: ['AI Assistant'], summary: 'Update LLM provider', operationId: 'updateAiProvider', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('ai_updateAiProvider'), responses: r200('AiProvider') },
+        delete: { tags: ['AI Assistant'], summary: 'Delete LLM provider', operationId: 'deleteAiProvider', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/ai/providers/{id}/verify': {
+        post: { tags: ['AI Assistant'], summary: 'Test provider connectivity', operationId: 'verifyAiProvider', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('VerifyResult') },
+      },
+      '/ai/phrases': {
+        get:  { tags: ['AI Assistant'], summary: 'List phrase library entries', operationId: 'listAiPhrases', security: [{ bearerAuth: [] }], responses: r200('AiPhrase[]') },
+        post: { tags: ['AI Assistant'], summary: 'Add a phrase', operationId: 'createAiPhrase', security: [{ bearerAuth: [] }], requestBody: jsonBody('ai_createAiPhrase'), responses: r201('AiPhrase') },
+      },
+      '/ai/phrases/{id}': {
+        put:    { tags: ['AI Assistant'], summary: 'Update a phrase', operationId: 'updateAiPhrase', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('ai_updateAiPhrase'), responses: r200('AiPhrase') },
+        delete: { tags: ['AI Assistant'], summary: 'Delete a phrase', operationId: 'deleteAiPhrase', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/ai/forbidden-terms': {
+        get:  { tags: ['AI Assistant'], summary: 'List forbidden terms', operationId: 'listAiForbiddenTerms', security: [{ bearerAuth: [] }], responses: r200('AiForbiddenTerm[]') },
+        post: { tags: ['AI Assistant'], summary: 'Add a forbidden term', operationId: 'createAiForbiddenTerm', security: [{ bearerAuth: [] }], requestBody: jsonBody('ai_createForbiddenTerm'), responses: r201('AiForbiddenTerm') },
+      },
+      '/ai/forbidden-terms/{id}': {
+        delete: { tags: ['AI Assistant'], summary: 'Remove a forbidden term', operationId: 'deleteAiForbiddenTerm', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/ai/reply/draft': {
+        post: { tags: ['AI Assistant'], summary: 'Generate a draft reply (never auto-sends)', operationId: 'aiReplyDraft', security: [{ bearerAuth: [] }], requestBody: jsonBody('ai_replyDraft'), responses: r200('AiDraftResult') },
+      },
+      '/ai/reply/send': {
+        post: { tags: ['AI Assistant'], summary: 'Record reviewer decision and optionally send reply', operationId: 'aiReplySend', security: [{ bearerAuth: [] }], requestBody: jsonBody('ai_replySend'), responses: r200('AiSendResult') },
+      },
+      '/ai/logs': {
+        get: {
+          tags: ['AI Assistant'],
+          summary: 'List AI reply audit logs',
+          operationId: 'listAiReplyLogs',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'ticket_id', in: 'query', schema: { type: 'integer' }, description: 'Filter by ticket' },
+            { name: 'action',    in: 'query', schema: { type: 'string', enum: ['proposed', 'edited', 'sent', 'auto_sent', 'discarded', 'failed'] } },
+            { name: 'date_from', in: 'query', schema: { type: 'string', format: 'date' } },
+            { name: 'date_to',   in: 'query', schema: { type: 'string', format: 'date' } },
+            { name: 'limit',     in: 'query', schema: { type: 'integer', default: 50 } },
+            { name: 'offset',    in: 'query', schema: { type: 'integer', default: 0 } },
+          ],
+          responses: r200('AiReplyLog[]'),
+        },
+      },
+      '/ai/metrics': {
+        get: {
+          tags: ['AI Assistant'],
+          summary: 'Aggregate AI usage metrics for the current org',
+          operationId: 'getAiMetrics',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'month', in: 'query', schema: { type: 'string', pattern: '^\\d{4}-\\d{2}$' }, description: 'YYYY-MM (defaults to current UTC month)' },
+          ],
+          responses: r200('AiMetrics'),
         },
       },
     },

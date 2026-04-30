@@ -149,8 +149,7 @@ describe('Contract Routes — /api/contracts', () => {
       db.query
         .mockResolvedValueOnce([[mockContract]])                                    // findByIdOrFail
         .mockResolvedValueOnce([{ affectedRows: 1 }])                              // UPDATE
-        .mockResolvedValueOnce([[{ ...mockContract, status: 'suspended' }]])        // findById
-        .mockResolvedValueOnce([{ affectedRows: 1 }]);                             // auditLog
+        .mockResolvedValueOnce([[{ ...mockContract, status: 'suspended' }]]);      // findById (inside Contract.update)
 
       const res = await request(app)
         .put('/api/contracts/1')
@@ -168,8 +167,7 @@ describe('Contract Routes — /api/contracts', () => {
       mockAuthUser();
       db.query
         .mockResolvedValueOnce([[mockContract]])       // findByIdOrFail
-        .mockResolvedValueOnce([{ affectedRows: 1 }])  // DELETE
-        .mockResolvedValueOnce([{ affectedRows: 1 }]); // auditLog
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // soft-DELETE (UPDATE deleted_at)
 
       const res = await request(app)
         .delete('/api/contracts/1')
@@ -1044,8 +1042,9 @@ describe('Ticket Routes — /api/tickets', () => {
       mockAuthUser();
       const newComment = { id: 5, ticket_id: 1, user_id: 1, body: 'Issue resolved.', is_internal: false };
       db.query
-        .mockResolvedValueOnce([{ insertId: 5, affectedRows: 1 }])  // INSERT
-        .mockResolvedValueOnce([[newComment]]);                       // SELECT
+        .mockResolvedValueOnce([{ insertId: 5, affectedRows: 1 }])  // INSERT ticket_comments
+        .mockResolvedValueOnce([[newComment]])                       // SELECT ticket_comment
+        .mockResolvedValueOnce([[{ id: 1, organization_id: 1, contract_id: null }]]); // SELECT ticket for aiTriage
 
       const res = await request(app)
         .post('/api/tickets/1/comments')

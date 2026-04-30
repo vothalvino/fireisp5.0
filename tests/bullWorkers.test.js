@@ -45,6 +45,9 @@ describe('jobQueueService constants', () => {
     expect(QUEUE_NAMES).toContain('sms-send');
     expect(QUEUE_NAMES).toContain('cfdi-stamp');
     expect(QUEUE_NAMES).toContain('config-backup');
+    expect(QUEUE_NAMES).toContain('ai-triage');
+    expect(QUEUE_NAMES).toContain('ai-backfill-embeddings');
+    expect(QUEUE_NAMES).toContain('ai-cost-rollup');
   });
 
   test('getStats() returns in-process mode when REDIS_URL is unset', async () => {
@@ -57,7 +60,7 @@ describe('jobQueueService constants', () => {
 // Worker Registry
 // ============================================================================
 describe('workers/index.js — registerWorkers()', () => {
-  test('registers handlers for all 5 named queues', () => {
+  test('registers handlers for all 8 named queues', () => {
     const processSpy = jest.spyOn(jobQueue, 'process');
     workers.registerWorkers();
     const names = processSpy.mock.calls.map(([name]) => name);
@@ -66,14 +69,17 @@ describe('workers/index.js — registerWorkers()', () => {
     expect(names).toContain('sms-send');
     expect(names).toContain('cfdi-stamp');
     expect(names).toContain('config-backup');
-    expect(names).toHaveLength(5);
+    expect(names).toContain('ai-triage');
+    expect(names).toContain('ai-backfill-embeddings');
+    expect(names).toContain('ai-cost-rollup');
+    expect(names).toHaveLength(8);
   });
 
   test('registerWorkers() is idempotent — second call is a no-op', () => {
     const processSpy = jest.spyOn(jobQueue, 'process');
     workers.registerWorkers();
     workers.registerWorkers();
-    expect(processSpy).toHaveBeenCalledTimes(5);
+    expect(processSpy).toHaveBeenCalledTimes(8);
   });
 });
 

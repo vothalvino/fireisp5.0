@@ -6,18 +6,28 @@
 // Primary protection: both auth cookies are set with SameSite=Strict, which
 // prevents the browser from sending them on any cross-origin request.
 //
-// Secondary protection (this file): for state-changing requests (POST / PUT /
-// PATCH / DELETE) that arrive with a fireisp_access or fireisp_refresh cookie,
-// the Origin or Referer header must match the configured APP_URL host.  This
-// satisfies the "Verifying Origin With Standard Headers" CSRF mitigation from
-// OWASP and suppresses the CodeQL js/missing-token-validation alert.
+// CSRF token protection (double-submit cookie + csrf library):
+//   1. On login / token refresh the server generates a CSRF secret (via the
+//      `csrf` library) and stores it in an httpOnly `fireisp_csrf_secret`
+//      cookie.  A derived CSRF token is stored in a non-httpOnly
+//      `fireisp_csrf` cookie that the browser SPA can read.
+//   2. The SPA reads `fireisp_csrf` and echoes it back as the `X-CSRF-Token`
+//      request header on every state-changing request.
+//   3. This middleware reads the secret from the httpOnly cookie and calls
+//      `Tokens.verify(secret, token)` — this is the CodeQL-recognised
+//      js/missing-token-validation CSRF mitigation pattern.
 //
-// API clients that use X-API-Key or Bearer-only (no cookie) are exempt because
-// they do not rely on the cookie credential and therefore cannot be CSRF targets.
+// Fallback: sessions without a CSRF secret cookie fall back to an
+// Origin/Referer header check for backward compatibility.
+//
+// API clients that use X-API-Key or Bearer-only (no auth cookie) are exempt.
 // =============================================================================
 
+const Tokens = require('csrf');
 const config = require('../config');
 const { URL } = require('url');
+
+const tokens = new Tokens();
 
 /**
  * Return the host (hostname + optional port) from a URL string, or null if
@@ -33,19 +43,88 @@ function parseHost(url) {
 
 const allowedHost = parseHost(config.appUrl);
 
+// ---------------------------------------------------------------------------
+// Cookie names
+// ---------------------------------------------------------------------------
+const CSRF_SECRET_COOKIE = 'fireisp_csrf_secret'; // httpOnly — server reads it
+const CSRF_TOKEN_COOKIE  = 'fireisp_csrf';         // NOT httpOnly — SPA reads it
+const CSRF_HEADER        = 'x-csrf-token';
+
+// ---------------------------------------------------------------------------
+// CSRF cookie helpers
+// ---------------------------------------------------------------------------
+
 /**
- * CSRF origin check — only active when the request carries a FireISP auth
- * cookie (browser SPA path) AND the method is state-changing.
+ * Cookie options for the CSRF *secret* cookie (httpOnly, server-only).
+ */
+function secretCookieOptions(maxAge) {
+  return {
+    httpOnly: true,
+    sameSite: 'strict',
+    secure: config.env === 'production',
+    path: '/api',
+    ...(maxAge !== undefined ? { maxAge } : {}),
+  };
+}
+
+/**
+ * Cookie options for the CSRF *token* cookie (NOT httpOnly so the SPA can read it).
+ */
+function tokenCookieOptions(maxAge) {
+  return {
+    httpOnly: false,       // Must be readable by client-side JavaScript
+    sameSite: 'strict',
+    secure: config.env === 'production',
+    path: '/api',
+    ...(maxAge !== undefined ? { maxAge } : {}),
+  };
+}
+
+/**
+ * Set CSRF cookies alongside the auth cookies.
+ *
+ * Sets:
+ *   - `fireisp_csrf_secret` (httpOnly) — the CSRF secret (server-only)
+ *   - `fireisp_csrf` (not httpOnly) — the derived CSRF token (SPA reads + sends as header)
+ *
+ * @param {import('express').Response} res
+ * @param {number} maxAgeMs  Cookie lifetime in milliseconds (should match access token).
+ */
+function setCsrfCookie(res, maxAgeMs) {
+  const secret = tokens.secretSync();
+  const token  = tokens.create(secret);
+  res.cookie(CSRF_SECRET_COOKIE, secret, secretCookieOptions(maxAgeMs));
+  res.cookie(CSRF_TOKEN_COOKIE,  token,  tokenCookieOptions(maxAgeMs));
+}
+
+/**
+ * Clear the CSRF cookies (call alongside clearAuthCookies).
+ * @param {import('express').Response} res
+ */
+function clearCsrfCookie(res) {
+  res.clearCookie(CSRF_SECRET_COOKIE, secretCookieOptions());
+  res.clearCookie(CSRF_TOKEN_COOKIE,  tokenCookieOptions());
+}
+
+// ---------------------------------------------------------------------------
+// csrfOriginCheck middleware
+// ---------------------------------------------------------------------------
+
+/**
+ * CSRF protection middleware — token validation via `csrf` library with
+ * Origin/Referer fallback for backward compatibility.
  *
  * Returns next() immediately when:
- *   - No auth cookie is present (API-key / Bearer-only clients)
  *   - Method is GET, HEAD, or OPTIONS (safe methods)
+ *   - No auth cookie is present (API-key / Bearer-only clients)
  *
- * Returns 403 when:
- *   - An auth cookie IS present AND the Origin/Referer host does not match
- *     the configured APP_URL.
- *   - An auth cookie IS present AND no Origin/Referer header is sent at all
- *     (conservative: browsers always send Origin on cross-origin POST).
+ * When the `fireisp_csrf_secret` cookie is present (new sessions):
+ *   - Reads the CSRF token from the `X-CSRF-Token` request header.
+ *   - Verifies with `tokens.verify(secret, token)` (CodeQL-recognised pattern).
+ *   - Returns 403 if the token is missing or fails verification.
+ *
+ * When the `fireisp_csrf_secret` cookie is absent (legacy sessions):
+ *   - Falls back to Origin/Referer header check.
  */
 function csrfOriginCheck(req, res, next) {
   const method = req.method.toUpperCase();
@@ -56,11 +135,22 @@ function csrfOriginCheck(req, res, next) {
   const hasCookie = !!(req.cookies?.fireisp_access || req.cookies?.fireisp_refresh);
   if (!hasCookie) return next();
 
-  // Prefer Origin header; fall back to Referer
+  // --- Primary: csrf-library token verification ---
+  const secret = req.cookies?.[CSRF_SECRET_COOKIE];
+  if (secret) {
+    const csrfToken = req.headers[CSRF_HEADER] || req.body?._csrf;
+    if (!csrfToken || !tokens.verify(secret, csrfToken)) {
+      return res.status(403).json({
+        error: { code: 'FORBIDDEN', message: 'CSRF check failed: invalid or missing CSRF token' },
+      });
+    }
+    return next();
+  }
+
+  // --- Fallback: Origin/Referer check (backward compat for pre-CSRF-cookie sessions) ---
   const originHeader = req.headers.origin || req.headers.referer || null;
 
   if (!originHeader) {
-    // No origin info on a cookie-carrying state-changing request — reject
     return res.status(403).json({
       error: { code: 'FORBIDDEN', message: 'CSRF check failed: missing Origin header' },
     });
@@ -76,4 +166,4 @@ function csrfOriginCheck(req, res, next) {
   return next();
 }
 
-module.exports = { csrfOriginCheck };
+module.exports = { csrfOriginCheck, setCsrfCookie, clearCsrfCookie };

@@ -9,6 +9,7 @@ const { validate } = require('../middleware/validate');
 const authSchemas = require('../middleware/schemas/auth');
 const User = require('../models/User');
 const config = require('../config');
+const { setCsrfCookie, clearCsrfCookie } = require('../middleware/csrf');
 
 const router = Router();
 
@@ -25,11 +26,16 @@ const COOKIE_BASE = {
 
 /**
  * Set httpOnly SameSite=Strict auth cookies on the response.
- * - fireisp_access  — short-lived JWT (Path=/api, access token lifetime)
- * - fireisp_refresh — opaque refresh token (Path=/api/v1/auth/refresh only, refresh token lifetime)
+ * - fireisp_access        — short-lived JWT (Path=/api, access token lifetime)
+ * - fireisp_refresh       — opaque refresh token (Path=/api/v1/auth/refresh only, refresh token lifetime)
+ * - fireisp_csrf_secret   — CSRF secret (httpOnly, server-only, Path=/api)
+ * - fireisp_csrf          — CSRF token derived from secret (NOT httpOnly, SPA-readable, Path=/api)
  *
  * The narrow Path on the refresh cookie means the browser will only attach it
  * to the refresh endpoint, limiting its exposure surface.
+ *
+ * The SPA reads `fireisp_csrf` and sends it as the `X-CSRF-Token` header on
+ * every state-changing request.  The server verifies it against the secret.
  */
 function setAuthCookies(res, accessToken, refreshToken) {
   res.cookie('fireisp_access', accessToken, {
@@ -42,14 +48,17 @@ function setAuthCookies(res, accessToken, refreshToken) {
     path: '/api/v1/auth/refresh',
     maxAge: authService.REFRESH_SECONDS * 1000,
   });
+  // Set the CSRF double-submit token (not httpOnly so the SPA can read it)
+  setCsrfCookie(res, authService.ACCESS_SECONDS * 1000);
 }
 
 /**
- * Clear both auth cookies from the response.
+ * Clear all auth + CSRF cookies from the response.
  */
 function clearAuthCookies(res) {
   res.clearCookie('fireisp_access', { ...COOKIE_BASE, path: '/api' });
   res.clearCookie('fireisp_refresh', { ...COOKIE_BASE, path: '/api/v1/auth/refresh' });
+  clearCsrfCookie(res);
 }
 
 // ---------------------------------------------------------------------------

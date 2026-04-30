@@ -45,6 +45,7 @@ import { SnmpTraps } from '@/pages/SnmpTraps';
 import { Reports } from '@/pages/Reports';
 import { Settings } from '@/pages/Settings';
 import { ProfecoComplaints } from '@/pages/ProfecoComplaints';
+import { AIAssistantSettings } from '@/pages/AIAssistantSettings';
 import { NotFound } from '@/pages/NotFound';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
 
@@ -123,6 +124,7 @@ export function App() {
               <Route element={<Layout />}>
                 <Route path="users" element={<UserList />} />
                 <Route path="settings" element={<Settings />} />
+                <Route path="ai-assistant" element={<AIAssistantSettings />} />
               </Route>
             </Route>
 

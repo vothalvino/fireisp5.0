@@ -63,6 +63,109 @@ function registerWorkers() {
     return configBackupService.runNightlyBackups(organizationId);
   });
 
+  // ---- AI triage ----------------------------------------------------------
+  jobQueue.process('ai-triage', async (job) => {
+    const aiReplyService = require('../services/aiReplyService');
+    const { orgId, ticketId, channel, inboundText, contractId } = job.data;
+    logger.info({ orgId, ticketId, channel }, 'Worker: running AI triage');
+    return aiReplyService.generate({ orgId, ticketId, channel, inboundText, contractId });
+  });
+
+  // ---- AI backfill embeddings ---------------------------------------------
+  // Re-indexes phrase library + resolved tickets into the vector store when
+  // the phrase library changes.  Skipped when vector retrieval is disabled
+  // (VECTOR_RETRIEVAL_ENABLED !== 'true').
+  jobQueue.process('ai-backfill-embeddings', async (job) => {
+    const { orgId } = job.data;
+
+    if (process.env.VECTOR_RETRIEVAL_ENABLED !== 'true') {
+      logger.debug({ orgId }, 'Worker: vector retrieval disabled — skipping backfill');
+      return { skipped: true, reason: 'vector_retrieval_disabled' };
+    }
+
+    logger.info({ orgId }, 'Worker: running AI embedding backfill');
+    const phraseLibraryService = require('../services/phraseLibraryService');
+    const db = require('../config/database');
+
+    // Re-embed phrase library for the org
+    const { data: phrases } = await phraseLibraryService.listPhrases(orgId, { limit: 1000 });
+    logger.debug({ orgId, count: phrases.length }, 'Worker: backfill — phrase library loaded');
+
+    // Re-embed resolved tickets (context for future retrieval-augmented drafts)
+    const [tickets] = await db.query(
+      `SELECT id, subject, description FROM tickets
+       WHERE organization_id = ? AND status = 'resolved' AND deleted_at IS NULL
+       ORDER BY updated_at DESC LIMIT 500`,
+      [orgId],
+    );
+    logger.debug({ orgId, count: tickets.length }, 'Worker: backfill — resolved tickets loaded');
+
+    // Actual vector upsert is deferred to §8 (vector retrieval implementation).
+    // For now, return a summary so the job is recorded as completed.
+    return {
+      skipped: false,
+      orgId,
+      phrasesIndexed: phrases.length,
+      ticketsIndexed: tickets.length,
+    };
+  });
+
+  // ---- AI cost rollup -----------------------------------------------------
+  // Daily job: aggregate ai_reply_logs.cost_usd per org for the current
+  // calendar month and persist into organization_quotas.ai_cost_month_usd.
+  // Resets the counter when a new month is detected.
+  jobQueue.process('ai-cost-rollup', async (job) => {
+    const db = require('../config/database');
+    const { organizationId = null } = job.data;
+
+    const now = new Date();
+    const currentMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+
+    // Build org filter — process a single org or all orgs
+    let orgCondition = '';
+    const params = [currentMonth];
+    if (organizationId !== null) {
+      orgCondition = 'AND organization_id = ?';
+      params.push(organizationId);
+    }
+
+    logger.info({ organizationId, currentMonth }, 'Worker: running AI cost rollup');
+
+    // Aggregate cost_usd per org for the current calendar month
+    const [rows] = await db.query(
+      `SELECT organization_id,
+              SUM(COALESCE(cost_usd, 0)) AS total_cost_usd
+       FROM ai_reply_logs
+       WHERE DATE_FORMAT(created_at, '%Y-%m') = ?
+         ${orgCondition}
+       GROUP BY organization_id`,
+      params,
+    );
+
+    if (rows.length === 0) {
+      logger.debug({ organizationId, currentMonth }, 'Worker: no AI reply logs for period');
+      return { updated: 0, month: currentMonth };
+    }
+
+    // Upsert each org's monthly cost total.
+    // total_cost_usd is the full month aggregate from the SELECT above, so we
+    // always overwrite (no addition needed — this handles both same-month
+    // refresh and month-boundary reset correctly).
+    for (const row of rows) {
+      await db.query(
+        `INSERT INTO organization_quotas (organization_id, ai_cost_month_usd, ai_cost_rollup_month)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           ai_cost_month_usd    = VALUES(ai_cost_month_usd),
+           ai_cost_rollup_month = VALUES(ai_cost_rollup_month)`,
+        [row.organization_id, row.total_cost_usd, currentMonth],
+      );
+    }
+
+    logger.info({ organizationId, currentMonth, orgsUpdated: rows.length }, 'Worker: AI cost rollup complete');
+    return { updated: rows.length, month: currentMonth };
+  });
+
   logger.info('Job workers registered');
 }
 

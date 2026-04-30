@@ -37,6 +37,7 @@ const NAV_ITEMS: NavItem[] = [
   // Admin-only
   { to: '/users', labelKey: 'nav.users', requiredRole: 'admin' },
   { to: '/reports', labelKey: 'nav.reports', requiredRole: 'billing' },
+  { to: '/ai-assistant', labelKey: 'nav.aiAssistant', requiredRole: 'admin' },
   { to: '/settings', labelKey: 'nav.settings', requiredRole: 'admin' },
 ];
 

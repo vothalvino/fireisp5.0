@@ -10,7 +10,8 @@ class NetworkLink extends BaseModel {
   static get fillable() {
     return [
       'organization_id', 'device_a_id', 'device_b_id', 'link_type',
-      'capacity_mbps', 'interface_a', 'interface_b', 'status', 'notes',
+      'capacity_mbps', 'medium', 'role', 'interface_a', 'interface_b',
+      'status', 'notes',
     ];
   }
 

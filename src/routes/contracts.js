@@ -12,6 +12,8 @@ const { validate } = require('../middleware/validate');
 const { createContract, updateContract, patchContract, createContractAddon } = require('../middleware/schemas/contracts');
 const db = require('../config/database');
 const suspensionService = require('../services/suspensionService');
+const topologyContextService = require('../services/topologyContextService');
+const logger = require('../utils/logger').child({ service: 'routes/contracts' });
 
 const router = Router();
 const ctrl = crudController(Contract);
@@ -22,10 +24,33 @@ router.use(orgScope);
 router.get('/', requirePermission('contracts.view'), ctrl.list);
 router.get('/:id', requirePermission('contracts.view'), ctrl.get);
 router.post('/', requirePermission('contracts.create'), validate(createContract), ctrl.create);
-router.put('/:id', requirePermission('contracts.update'), validate(updateContract), ctrl.update);
+router.put('/:id', requirePermission('contracts.update'), validate(updateContract), async (req, res, next) => {
+  try {
+    const old = await Contract.findByIdOrFail(req.params.id, req.orgId);
+    const record = await Contract.update(req.params.id, req.body, req.orgId);
+    topologyContextService.invalidate(record.id, 'contract')
+      .catch(err => logger.warn({ err: err.message, contractId: record.id }, 'topology invalidate failed on contract update'));
+    res.json({ data: record });
+  } catch (err) { next(err); }
+});
 router.patch('/:id', requirePermission('contracts.update'), validate(patchContract), ctrl.partialUpdate);
-router.delete('/:id', requirePermission('contracts.delete'), ctrl.destroy);
-router.post('/:id/restore', requirePermission('contracts.update'), ctrl.restore);
+router.delete('/:id', requirePermission('contracts.delete'), async (req, res, next) => {
+  try {
+    const old = await Contract.findByIdOrFail(req.params.id, req.orgId);
+    await Contract.delete(req.params.id, req.orgId);
+    topologyContextService.invalidate(old.id, 'contract')
+      .catch(err => logger.warn({ err: err.message, contractId: old.id }, 'topology invalidate failed on contract delete'));
+    res.status(204).send();
+  } catch (err) { next(err); }
+});
+router.post('/:id/restore', requirePermission('contracts.update'), async (req, res, next) => {
+  try {
+    const record = await Contract.restore(req.params.id, req.orgId);
+    topologyContextService.invalidate(record.id, 'contract')
+      .catch(err => logger.warn({ err: err.message, contractId: record.id }, 'topology invalidate failed on contract restore'));
+    res.json({ data: record });
+  } catch (err) { next(err); }
+});
 
 // Contract add-ons
 router.get('/:id/addons', requirePermission('contracts.view'), async (req, res, next) => {
