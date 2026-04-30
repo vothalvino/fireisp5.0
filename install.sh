@@ -45,6 +45,25 @@ if [[ "$EUID" -ne 0 ]]; then
   Re-run:  sudo bash $0"
 fi
 
+# ── Persistent-session warning ────────────────────────────────────────────────
+# Installation takes several minutes and involves long-running Docker builds.
+# If the SSH connection drops mid-install the process will be killed before
+# nginx or the database are fully configured.  Abort here if the user is not
+# already inside a screen / tmux session, and advise them to use one.
+if [[ -z "${STY:-}" && -z "${TMUX:-}" ]]; then
+  warn "You do not appear to be running inside a persistent terminal session"
+  warn "(screen or tmux).  If your SSH connection drops during the install"
+  warn "the process will be killed before it completes."
+  warn ""
+  warn "It is strongly recommended to run the installer inside screen or tmux:"
+  warn "  screen -S fireisp"
+  warn "  # or"
+  warn "  tmux new -s fireisp"
+  warn ""
+  warn "Press Ctrl-C within 15 seconds to abort, or wait to continue anyway..."
+  sleep 15 || true
+fi
+
 # ── OS detection ──────────────────────────────────────────────────────────────
 if [[ -f /etc/os-release ]]; then
   # shellcheck source=/dev/null
