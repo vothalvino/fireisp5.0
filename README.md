@@ -88,6 +88,7 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 - Spec-driven development — `spec:check` drift scanner detects route/schema gaps against the OpenAPI spec in CI; `spec:gen` scaffolds new route stubs from the spec
 - OWASP ZAP DAST scan in CI — automated active scan against a live test instance on every push; ZAP HTML report uploaded as a workflow artifact
 - WCAG 2.1 AA accessibility — jest-axe audit on all major pages; aria-label fixes across TicketList, UserList, and other interactive components
+- AI Reply Assistant — topology-aware LLM chatbot that drafts (and optionally auto-sends) professional answers to inbound support tickets; pluggable provider registry (OpenAI, Azure OpenAI, Anthropic, Google Gemini, Ollama, custom); phrase library with forbidden-term guard; PII redaction before prompt dispatch; per-org master on/off switch and per-channel toggles; optional RAG via ChromaDB; full audit log. **Emergency kill switch:** `PUT /api/v1/ai/policy` `{"enabled":false}` or untick the master switch in Settings → AI Assistant → General.
 - In-app changelog panel — paginated, filterable release history surfaced in the admin sidebar for operators who need to track what changed without leaving the UI
 - Kubernetes-ready health probes — `/health/live` (liveness), `/health/ready` (readiness with DB + Redis checks), `/health?detail=true` (detailed)
 - CSP nonce-based inline style protection (per-request nonce replaces `unsafe-inline`)

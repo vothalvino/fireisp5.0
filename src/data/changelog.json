@@ -1,5 +1,16 @@
 [
   {
+    "id": "p6.1",
+    "date": "2026-04-30T00:00:00.000Z",
+    "title": "AI Reply Assistant",
+    "body": "Agents now receive AI-drafted replies for every inbound support ticket. The assistant is topology-aware — it knows the client's network path from CPE to core — and is constrained to a curated phrase library so replies stay on-brand. Operators can choose the LLM provider (OpenAI, Azure OpenAI, Anthropic, Google Gemini, on-prem Ollama, or a custom endpoint), set the tone and dispatch mode (draft-only, suggest, or auto-send), and toggle the assistant on or off per channel without redeploying. An optional RAG layer (ChromaDB) enriches prompts with semantically similar resolved tickets and phrases.",
+    "tags": [
+      "ai",
+      "tickets",
+      "automation"
+    ]
+  },
+  {
     "id": "p3.7",
     "date": "2025-01-15T00:00:00.000Z",
     "title": "Real-time ticket comments via WebSocket",

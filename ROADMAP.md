@@ -188,7 +188,61 @@
 
 ---
 
-## ❌ Anti-Patterns to Avoid
+## Milestone 6: AI Reply Assistant ✅ COMPLETE (2026-04-30)
+
+> Goal: Agents receive AI-drafted replies for every inbound ticket, constrained to a
+> curated phrase library and the contract's network topology context. Operators can
+> switch provider, tone, and mode without redeploying.
+
+### 6.1 — Database & Models
+- ✅ Migration 169 — `ai_policies`, `ai_providers`, `ai_phrase_library`, `ai_forbidden_terms`, `ai_reply_logs`, `contract_topology_paths` tables
+- ✅ Migration 170 — `ai_cost_month_usd` + `ai_cost_rollup_month` columns (cost roll-up)
+- ✅ Migration 171 — `ai.*` RBAC permissions seeded (`ai.policy.read/write`, `ai.phrases.write`, `ai.reply.draft/send`, `ai.providers.write`)
+- ✅ Migration 172 — `embedding_model` column on `ai_providers` (RAG support)
+- ✅ Models: `AiPolicy`, `AiProvider`, `AiPhrase`, `AiForbiddenTerm`, `AiReplyLog`, `ContractTopologyPath`
+
+### 6.2 — Services
+- ✅ `topologyContextService` — contract topology graph traversal + loop detection + TTL cache
+- ✅ `serviceHealthService` — SNMP / alert snapshot for topology summary
+- ✅ `phraseLibraryService` — CRUD for phrase library + forbidden terms, `getPhrasesByCategory`, `getTermsByLocale`, `validateDraft`, `search` (RAG)
+- ✅ `llmProviderService` — `chat()` + `verify()` + `embed()`; 6 provider kinds (OpenAI, Azure OpenAI, Anthropic, Google Gemini, Ollama, custom); 3× retry, fallback chain, cost table
+- ✅ `aiReplyService` — 10-step pipeline (gate → classify → context → PII-redact → prompt → chat → validate → rehydrate → log → dispatch); 3 dispatch modes; 2-retry hallucination guard
+- ✅ `vectorStoreService` — ChromaDB HTTP wrapper; `VECTOR_RETRIEVAL_ENABLED` guard; `upsertDocuments` / `queryDocuments` / `deleteDocuments`
+
+### 6.3 — Workers
+- ✅ `aiTriageWorker` — enqueued on ticket create + non-internal comment; topology cache invalidation on device/link/contract change
+- ✅ `aiBackfillEmbeddingsWorker` — embeds phrase library + resolved tickets into ChromaDB (guarded by `VECTOR_RETRIEVAL_ENABLED=true`)
+- ✅ `aiCostRollupWorker` — daily aggregate of `ai_reply_logs.cost_usd` → `organization_quotas`
+
+### 6.4 — API
+- ✅ 16 REST endpoints at `/api/v1/ai/` (policy CRUD, providers CRUD + verify, phrases CRUD, forbidden terms CRUD, reply/draft + reply/send, logs list, backfill trigger)
+- ✅ GraphQL extension: `AiPolicy`, `AiProvider`, `AiPhrase`, `AiReplyLog`, `AiDraftReplyResult` types; `aiPolicy`/`aiProviders`/`aiPhrases`/`aiReplyLogs` queries; `aiDraftReply` mutation
+- ✅ OpenAPI spec synced (212 paths, 0 drift)
+
+### 6.5 — Frontend
+- ✅ `AIAssistantSettings` page — 5 tabs: General (master switch, mode, tone, PII-redact), Providers (CRUD + test-connection), Phrases (CRUD phrase library), ForbiddenTerms (CRUD), Audit (reply log)
+- ✅ `AiSuggestedReplyPanel` in `TicketDetail` — generate, edit, send, discard; topology breadcrumb; confidence badge
+- ✅ i18n: `aiAssistantSettings` + `aiSuggestedReply` key groups in en / es / pt-BR
+
+### 6.6 — Security & Privacy
+- ✅ Every route + worker org-scoped; multitenant isolation tests cover all `ai_*` tables
+- ✅ API keys encrypted at rest; never returned by `GET /providers`
+- ✅ DSAR export includes `ai_reply_logs` (`draft_text`, `final_text`); internal prompts redacted
+- ✅ `docs/privacy.md` updated — `ai_reply_logs` PII table + LLM prompt-forwarding notice
+- ✅ `docs/secrets-management.md` updated — AI provider key rotation section
+
+### 6.7 — RAG (optional)
+- ✅ ChromaDB sidecar in `docker-compose.yml` + `docker-compose.prod.yml` behind `--profile rag`
+- ✅ `phraseLibraryService.search()` embeds query and retrieves top-k chunks for prompt enrichment
+- ✅ `llmProviderService.embed()` dispatches to OpenAI / Azure / Gemini / Ollama; Anthropic / custom raise `LLM_EMBED_NOT_SUPPORTED`
+
+### 6.8 — Documentation
+- ✅ `docs/ai-reply-assistant.md` — full build plan
+- ✅ `README.md` — AI Assistant feature bullet
+- ✅ `docs/runbook.md` — AI Assistant emergency kill-switch section
+- ✅ `ROADMAP.md` — this entry
+- ✅ `src/data/changelog.json` — AI Assistant changelog panel entry
+- ✅ `docs/adr/0002-pluggable-llm-providers.md` — provider abstraction ADR
 
 | Don't Do This | Do This Instead |
 |---|---|
@@ -261,6 +315,7 @@
 | 2026-04-23 | 5.7 | DB read replica routing: replicaPool in database.js (DB_REPLICA_HOST/DB_REPLICA_PORT/DB_REPLICA_USER/DB_REPLICA_PASSWORD/DB_REPLICA_POOL_SIZE; falls back to primary when not set); queryReplica() routes all report + dashboard SELECT queries to replica; close() drains both pools; reportService.js (agingReport, financialSummary, technicianReport, subscriberGrowthReport) and dashboardController.js (summary, revenue, mrr, deviceHealth, overdue) switched to queryReplica; .env.example updated; 19 new Jest tests in dbReadReplica.test.js | #TBD |
 | 2026-04-23 | 5.8 | Coverage zone map editor: coverageZoneService.js (GeoJSON ↔ MySQL POLYGON via ST_AsGeoJSON/ST_GeomFromGeoJSON; listZones/getZone/createZone/updateZone/deleteZone/restoreZone with org scoping, polygon validation ≥4 vertices, audit logging); coverageZones route rewritten to use service (returns boundary as parsed GeoJSON objects; POST/PUT accept GeoJSON Polygon); CoverageZoneMap.tsx — SVG polygon editor (service area selector, zone list with status/type/color, draw-polygon mode with click-to-add-vertex/undo/complete, viewport auto-fit, create/edit modal, delete confirmation); wired to /coverage-zones route (technician+); nav item added; 20 new Jest tests in coverageZoneMap.test.js | #TBD |
 | 2026-04-23 | 5.10 | Multi-tenant active-organization switching: `authService.switchOrganization(userId, orgId, refreshToken)` validates non-deleted `organization_users` membership against non-deleted `organizations`, requires the current refresh token (scoped to the calling user) to defend against stolen-access-token pivot, mints a new access token with `orgId` claim, rotates refresh token within the same family; new `POST /api/v1/auth/switch-organization` route + validation schema; OpenAPI updated; frontend `AuthContext` exposes `switchOrganization()` and `AuthUser.organizations`; org-switcher `<select>` in `Layout.tsx` user area shown only when the user has >1 org; 11 new Jest tests in `tests/switchOrganization.test.js` | #TBD |
+| 2026-04-30 | 6.1 | AI Reply Assistant — migrations 169–172, 6 AI models, topologyContextService, serviceHealthService, phraseLibraryService, llmProviderService (6 provider kinds), aiReplyService (10-step pipeline), aiTriage/aiBackfillEmbeddings/aiCostRollup BullMQ workers, 16 REST endpoints at `/api/v1/ai/`, GraphQL AI types + queries + aiDraftReply mutation, OpenAPI synced (212 paths), AIAssistantSettings page (5 tabs), AiSuggestedReplyPanel in TicketDetail, RAG via ChromaDB sidecar (`--profile rag`), RBAC ai.* permissions (migration 171), DSAR export, privacy.md + secrets-management.md updated, aiPolicy/aiProvider/aiReplyService/llmProviderService/topologyContextService/phraseLibraryService/vectorStoreService test suites (3,105 Jest tests pass) | #TBD |
 
 
 ---
