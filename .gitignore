@@ -13,6 +13,10 @@ package-lock.json
 nginx/cloudflare.ini
 nginx/certs/
 nginx/letsencrypt/
+# Transient backup created by nginx/init-letsencrypt.sh during TLS bootstrap.
+# A trap removes it on success; this entry guarantees it never reaches git
+# even if the script is interrupted at the wrong moment.
+nginx/.nginx.conf.bootstrap-backup
 
 # Logs
 *.log
