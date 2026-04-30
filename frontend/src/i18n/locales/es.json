@@ -48,7 +48,8 @@
     "users": "🔑 Usuarios",
     "reports": "📈 Reportes",
     "settings": "⚙️ Configuración",
-    "profecoComplaints": "🏛️ PROFECO"
+    "profecoComplaints": "🏛️ PROFECO",
+    "aiAssistant": "🤖 Asistente IA"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -303,6 +304,137 @@
       "description": "Descripción",
       "resolutionRequested": "Resolución solicitada",
       "folioProfeco": "Folio PROFECO"
+    }
+  },
+  "aiAssistantSettings": {
+    "title": "🤖 Configuración del Asistente IA",
+    "tabs": {
+      "general": "⚙️ General",
+      "providers": "🔌 Proveedores",
+      "phrases": "💬 Librería de frases",
+      "forbiddenTerms": "🚫 Términos prohibidos",
+      "audit": "📊 Auditoría y métricas"
+    },
+    "general": {
+      "sectionTitle": "Configuración general",
+      "enabled": "Asistente de respuesta IA habilitado",
+      "channels": "Canales activos",
+      "mode": "Modo de respuesta",
+      "confidence": "Umbral de confianza para envío automático",
+      "locale": "Idioma por defecto",
+      "tone": "Tono",
+      "redactPii": "Ocultar datos personales antes de enviar al proveedor",
+      "save": "Guardar configuración",
+      "saving": "Guardando…",
+      "saved": "✓ Guardado"
+    },
+    "providers": {
+      "sectionTitle": "Proveedores LLM",
+      "addProvider": "+ Agregar proveedor",
+      "loading": "Cargando proveedores…",
+      "error": "Error al cargar proveedores.",
+      "empty": "No hay proveedores configurados. Agrega uno para habilitar las respuestas IA.",
+      "cols": {
+        "active": "Activo",
+        "priority": "Prioridad",
+        "name": "Nombre",
+        "kind": "Tipo",
+        "model": "Modelo",
+        "enabled": "Habilitado",
+        "status": "Estado"
+      },
+      "test": "🔗 Probar",
+      "testing": "Probando…",
+      "connectionOk": "Conexión OK",
+      "form": {
+        "name": "Nombre",
+        "kind": "Tipo de proveedor",
+        "model": "Modelo (p.ej. gpt-4o, claude-3-opus)",
+        "endpoint": "URL del endpoint",
+        "deployment": "Nombre de deployment Azure",
+        "apiKey": "Clave API",
+        "apiKeyKeep": "(dejar en blanco para conservar la clave existente)",
+        "priority": "Prioridad (menor = más alta)",
+        "providerEnabled": "Habilitado"
+      },
+      "add": "Agregar",
+      "update": "Actualizar",
+      "addTitle": "Agregar proveedor",
+      "editTitle": "Editar proveedor"
+    },
+    "phrases": {
+      "sectionTitle": "Librería de frases",
+      "addPhrase": "+ Agregar frase",
+      "loading": "Cargando frases…",
+      "error": "Error al cargar la librería de frases.",
+      "empty": "No hay frases para el idioma \"{{locale}}\".",
+      "form": {
+        "category": "Categoría",
+        "locale": "Idioma",
+        "phrase": "Frase",
+        "variables": "Variables (separadas por comas)"
+      },
+      "add": "Agregar",
+      "update": "Actualizar",
+      "addTitle": "Agregar frase",
+      "editTitle": "Editar frase"
+    },
+    "forbiddenTerms": {
+      "sectionTitle": "Términos prohibidos",
+      "addTerm": "+ Agregar término",
+      "description": "Las respuestas que contengan estos términos serán rechazadas y no se enviarán a los clientes.",
+      "loading": "Cargando términos prohibidos…",
+      "error": "Error al cargar los términos prohibidos.",
+      "empty": "No hay términos prohibidos configurados.",
+      "cols": {
+        "term": "Término",
+        "locale": "Idioma",
+        "added": "Agregado"
+      },
+      "allLocales": "— todos los idiomas —",
+      "form": {
+        "term": "Término",
+        "locale": "Idioma",
+        "localeHint": "(dejar en blanco para todos los idiomas)"
+      },
+      "add": "Agregar",
+      "adding": "Agregando…",
+      "addTitle": "Agregar término prohibido"
+    },
+    "audit": {
+      "sectionTitle": "Auditoría y métricas",
+      "month": "Mes:",
+      "metricsLoading": "Cargando métricas…",
+      "metrics": {
+        "drafts": "Borradores generados",
+        "sent": "Enviados",
+        "autoSent": "Enviados automáticamente",
+        "discarded": "Descartados",
+        "avgConfidence": "Confianza promedio",
+        "cost": "Costo (USD)"
+      },
+      "log": "Registro de respuestas (últimas 50)",
+      "allActions": "Todas las acciones",
+      "logsLoading": "Cargando registros…",
+      "noLogs": "No hay entradas en el registro.",
+      "cols": {
+        "ticket": "Ticket",
+        "action": "Acción",
+        "confidence": "Confianza",
+        "cost": "Costo",
+        "channel": "Canal",
+        "date": "Fecha"
+      }
+    },
+    "confirm": {
+      "deleteProvider": "¿Eliminar este proveedor? Esta acción no se puede deshacer.",
+      "deletePhrase": "¿Eliminar esta frase? Esta acción no se puede deshacer.",
+      "deleteTerm": "¿Eliminar este término prohibido?"
+    },
+    "errors": {
+      "nameRequired": "El nombre es obligatorio",
+      "phraseRequired": "El texto de la frase es obligatorio",
+      "termRequired": "El término es obligatorio"
     }
   }
 }

@@ -96,6 +96,7 @@ import { InvoiceList } from '@/pages/InvoiceList';
 import { TicketList } from '@/pages/TicketList';
 import { UserList } from '@/pages/UserList';
 import { PortalLogin } from '@/pages/portal/PortalLogin';
+import { AIAssistantSettings } from '@/pages/AIAssistantSettings';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -284,6 +285,38 @@ describe('Accessibility audit — WCAG 2.1 AA', () => {
         <PortalLogin />
       </MemoryRouter>,
     );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('AIAssistantSettings page has no violations (General tab)', async () => {
+    mockUseAuth();
+    vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/ai/policy') && method === 'GET')
+        return Promise.resolve({
+          ok: true, status: 200,
+          json: () => Promise.resolve({
+            data: {
+              id: 1, enabled: true, mode: 'draft_only',
+              active_provider_id: null,
+              enabled_channels: { portal: true, email: true, whatsapp: false, sms: false },
+              auto_send_confidence: 90, default_locale: 'en',
+              tone: 'professional', redact_pii_before_llm: true,
+              updated_at: '2025-01-01T00:00:00Z',
+            },
+          }),
+        } as Response);
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ data: [] }) } as Response);
+    });
+
+    const { container } = render(
+      <QueryClientProvider client={makeQc()}>
+        <MemoryRouter>
+          <AIAssistantSettings />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => container.querySelector('form, h2'));
     expect(await axe(container)).toHaveNoViolations();
   });
 });

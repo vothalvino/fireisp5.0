@@ -48,7 +48,8 @@
     "users": "🔑 Users",
     "reports": "📈 Reports",
     "settings": "⚙️ Settings",
-    "profecoComplaints": "🏛️ PROFECO"
+    "profecoComplaints": "🏛️ PROFECO",
+    "aiAssistant": "🤖 AI Assistant"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -303,6 +304,137 @@
       "description": "Description",
       "resolutionRequested": "Resolution Requested",
       "folioProfeco": "Folio PROFECO"
+    }
+  },
+  "aiAssistantSettings": {
+    "title": "🤖 AI Assistant Settings",
+    "tabs": {
+      "general": "⚙️ General",
+      "providers": "🔌 Providers",
+      "phrases": "💬 Phrase Library",
+      "forbiddenTerms": "🚫 Forbidden Terms",
+      "audit": "📊 Audit & Metrics"
+    },
+    "general": {
+      "sectionTitle": "General Settings",
+      "enabled": "AI Reply Assistant enabled",
+      "channels": "Active channels",
+      "mode": "Reply mode",
+      "confidence": "Auto-send confidence threshold",
+      "locale": "Default locale",
+      "tone": "Tone",
+      "redactPii": "Redact PII before sending to provider",
+      "save": "Save Settings",
+      "saving": "Saving…",
+      "saved": "✓ Saved"
+    },
+    "providers": {
+      "sectionTitle": "LLM Providers",
+      "addProvider": "+ Add Provider",
+      "loading": "Loading providers…",
+      "error": "Failed to load providers.",
+      "empty": "No providers configured. Add one to enable AI replies.",
+      "cols": {
+        "active": "Active",
+        "priority": "Priority",
+        "name": "Name",
+        "kind": "Kind",
+        "model": "Model",
+        "enabled": "Enabled",
+        "status": "Status"
+      },
+      "test": "🔗 Test",
+      "testing": "Testing…",
+      "connectionOk": "Connection OK",
+      "form": {
+        "name": "Name",
+        "kind": "Provider kind",
+        "model": "Model (e.g. gpt-4o, claude-3-opus)",
+        "endpoint": "Endpoint URL",
+        "deployment": "Azure deployment name",
+        "apiKey": "API key",
+        "apiKeyKeep": "(leave blank to keep existing key)",
+        "priority": "Priority (lower = higher priority)",
+        "providerEnabled": "Enabled"
+      },
+      "add": "Add",
+      "update": "Update",
+      "addTitle": "Add Provider",
+      "editTitle": "Edit Provider"
+    },
+    "phrases": {
+      "sectionTitle": "Phrase Library",
+      "addPhrase": "+ Add Phrase",
+      "loading": "Loading phrases…",
+      "error": "Failed to load phrase library.",
+      "empty": "No phrases for locale \"{{locale}}\".",
+      "form": {
+        "category": "Category",
+        "locale": "Locale",
+        "phrase": "Phrase",
+        "variables": "Variables (comma-separated)"
+      },
+      "add": "Add",
+      "update": "Update",
+      "addTitle": "Add Phrase",
+      "editTitle": "Edit Phrase"
+    },
+    "forbiddenTerms": {
+      "sectionTitle": "Forbidden Terms",
+      "addTerm": "+ Add Term",
+      "description": "Replies containing these terms will be rejected and not sent to clients.",
+      "loading": "Loading forbidden terms…",
+      "error": "Failed to load forbidden terms.",
+      "empty": "No forbidden terms configured.",
+      "cols": {
+        "term": "Term",
+        "locale": "Locale",
+        "added": "Added"
+      },
+      "allLocales": "— all locales —",
+      "form": {
+        "term": "Term",
+        "locale": "Locale",
+        "localeHint": "(leave blank for all locales)"
+      },
+      "add": "Add",
+      "adding": "Adding…",
+      "addTitle": "Add Forbidden Term"
+    },
+    "audit": {
+      "sectionTitle": "Audit & Metrics",
+      "month": "Month:",
+      "metricsLoading": "Loading metrics…",
+      "metrics": {
+        "drafts": "Drafts generated",
+        "sent": "Sent",
+        "autoSent": "Auto-sent",
+        "discarded": "Discarded",
+        "avgConfidence": "Avg confidence",
+        "cost": "Cost (USD)"
+      },
+      "log": "Reply log (last 50)",
+      "allActions": "All actions",
+      "logsLoading": "Loading logs…",
+      "noLogs": "No log entries.",
+      "cols": {
+        "ticket": "Ticket",
+        "action": "Action",
+        "confidence": "Confidence",
+        "cost": "Cost",
+        "channel": "Channel",
+        "date": "Date"
+      }
+    },
+    "confirm": {
+      "deleteProvider": "Delete this provider? This cannot be undone.",
+      "deletePhrase": "Delete this phrase? This cannot be undone.",
+      "deleteTerm": "Remove this forbidden term?"
+    },
+    "errors": {
+      "nameRequired": "Name is required",
+      "phraseRequired": "Phrase text is required",
+      "termRequired": "Term is required"
     }
   }
 }
