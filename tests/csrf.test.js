@@ -1,5 +1,5 @@
 // =============================================================================
-// FireISP 5.0 — CSRF protection middleware tests (P3.4 + CSRF double-submit)
+// FireISP 5.0 — CSRF protection middleware tests (P3.4 + csrf library)
 // =============================================================================
 
 jest.mock('../src/config', () => ({
@@ -8,10 +8,22 @@ jest.mock('../src/config', () => ({
   jwt: { secret: 'test-secret' },
 }));
 
+// Mock the csrf library so tests don't need node_modules
+const mockVerify = jest.fn();
+const mockCreate = jest.fn(() => 'mock-token');
+const mockSecretSync = jest.fn(() => 'mock-secret');
+jest.mock('csrf', () => {
+  return jest.fn().mockImplementation(() => ({
+    verify: mockVerify,
+    create: mockCreate,
+    secretSync: mockSecretSync,
+  }));
+});
+
 const { csrfOriginCheck, setCsrfCookie, clearCsrfCookie } = require('../src/middleware/csrf');
 
-function mockReq({ method = 'POST', cookies = {}, headers = {} } = {}) {
-  return { method, cookies, headers };
+function mockReq({ method = 'POST', cookies = {}, headers = {}, body = {} } = {}) {
+  return { method, cookies, headers, body };
 }
 
 function mockRes() {
@@ -27,6 +39,10 @@ function mockRes() {
   };
   return res;
 }
+
+beforeEach(() => {
+  jest.clearAllMocks();
+});
 
 describe('csrfOriginCheck', () => {
   // =========================================================================
@@ -60,41 +76,44 @@ describe('csrfOriginCheck', () => {
   });
 
   // =========================================================================
-  // Double-submit CSRF token — primary path (fireisp_csrf cookie present)
+  // csrf-library token verification — primary path
   // =========================================================================
-  test('POST with matching X-CSRF-Token header and fireisp_csrf cookie is allowed', () => {
-    const token = 'abc123';
+  test('POST with valid X-CSRF-Token header is allowed (tokens.verify returns true)', () => {
+    mockVerify.mockReturnValue(true);
     const req = mockReq({
-      cookies: { fireisp_access: 'jwt', fireisp_csrf: token },
-      headers: { 'x-csrf-token': token },
+      cookies: { fireisp_access: 'jwt', fireisp_csrf_secret: 'secret' },
+      headers: { 'x-csrf-token': 'valid-token' },
     });
     const res = mockRes();
     const next = jest.fn();
 
     csrfOriginCheck(req, res, next);
 
+    expect(mockVerify).toHaveBeenCalledWith('secret', 'valid-token');
     expect(next).toHaveBeenCalledWith();
     expect(res._status).toBeNull();
   });
 
-  test('POST with wrong X-CSRF-Token header returns 403', () => {
+  test('POST with invalid X-CSRF-Token header returns 403 (tokens.verify returns false)', () => {
+    mockVerify.mockReturnValue(false);
     const req = mockReq({
-      cookies: { fireisp_access: 'jwt', fireisp_csrf: 'real-token' },
-      headers: { 'x-csrf-token': 'wrong-token' },
+      cookies: { fireisp_access: 'jwt', fireisp_csrf_secret: 'secret' },
+      headers: { 'x-csrf-token': 'bad-token' },
     });
     const res = mockRes();
     const next = jest.fn();
 
     csrfOriginCheck(req, res, next);
 
+    expect(mockVerify).toHaveBeenCalledWith('secret', 'bad-token');
     expect(next).not.toHaveBeenCalled();
     expect(res._status).toBe(403);
     expect(res._body.error.code).toBe('FORBIDDEN');
   });
 
-  test('POST with missing X-CSRF-Token header returns 403 when fireisp_csrf cookie is set', () => {
+  test('POST with missing X-CSRF-Token header returns 403 when secret cookie is set', () => {
     const req = mockReq({
-      cookies: { fireisp_access: 'jwt', fireisp_csrf: 'real-token' },
+      cookies: { fireisp_access: 'jwt', fireisp_csrf_secret: 'secret' },
       headers: {},
     });
     const res = mockRes();
@@ -106,12 +125,29 @@ describe('csrfOriginCheck', () => {
     expect(res._status).toBe(403);
   });
 
+  test('POST can also read CSRF token from body._csrf', () => {
+    mockVerify.mockReturnValue(true);
+    const req = mockReq({
+      cookies: { fireisp_access: 'jwt', fireisp_csrf_secret: 'secret' },
+      headers: {},
+      body: { _csrf: 'body-token' },
+    });
+    const res = mockRes();
+    const next = jest.fn();
+
+    csrfOriginCheck(req, res, next);
+
+    expect(mockVerify).toHaveBeenCalledWith('secret', 'body-token');
+    expect(next).toHaveBeenCalledWith();
+  });
+
   test.each(['PUT', 'PATCH', 'DELETE'])(
-    '%s with fireisp_csrf cookie but wrong header returns 403',
+    '%s with secret cookie but invalid token returns 403',
     (method) => {
+      mockVerify.mockReturnValue(false);
       const req = mockReq({
         method,
-        cookies: { fireisp_access: 'jwt', fireisp_csrf: 'real-token' },
+        cookies: { fireisp_access: 'jwt', fireisp_csrf_secret: 'secret' },
         headers: { 'x-csrf-token': 'bad' },
       });
       const res = mockRes();
@@ -125,7 +161,7 @@ describe('csrfOriginCheck', () => {
   );
 
   // =========================================================================
-  // Fallback: Origin/Referer check (no fireisp_csrf cookie)
+  // Fallback: Origin/Referer check (no fireisp_csrf_secret cookie)
   // =========================================================================
   test('POST with fireisp_access cookie and correct Origin is allowed (fallback)', () => {
     const req = mockReq({
@@ -218,42 +254,47 @@ describe('csrfOriginCheck', () => {
 // setCsrfCookie / clearCsrfCookie helpers
 // =============================================================================
 describe('setCsrfCookie', () => {
-  test('sets fireisp_csrf cookie with 64-char hex token', () => {
+  test('sets fireisp_csrf_secret (httpOnly) and fireisp_csrf (not httpOnly) cookies', () => {
     const res = mockRes();
-    const token = setCsrfCookie(res, 900_000);
+    setCsrfCookie(res, 900_000);
 
-    expect(typeof token).toBe('string');
-    expect(token).toHaveLength(64);
-    expect(/^[0-9a-f]+$/.test(token)).toBe(true);
+    expect(res._cookies.fireisp_csrf_secret).toBeDefined();
     expect(res._cookies.fireisp_csrf).toBeDefined();
-    expect(res._cookies.fireisp_csrf.value).toBe(token);
   });
 
-  test('cookie is NOT httpOnly (must be readable by JS)', () => {
+  test('fireisp_csrf_secret cookie is httpOnly', () => {
+    const res = mockRes();
+    setCsrfCookie(res, 900_000);
+    expect(res._cookies.fireisp_csrf_secret.opts.httpOnly).toBe(true);
+  });
+
+  test('fireisp_csrf token cookie is NOT httpOnly (must be readable by JS)', () => {
     const res = mockRes();
     setCsrfCookie(res, 900_000);
     expect(res._cookies.fireisp_csrf.opts.httpOnly).toBe(false);
   });
 
-  test('cookie is SameSite=Strict', () => {
+  test('both cookies are SameSite=Strict', () => {
     const res = mockRes();
     setCsrfCookie(res, 900_000);
+    expect(res._cookies.fireisp_csrf_secret.opts.sameSite).toBe('strict');
     expect(res._cookies.fireisp_csrf.opts.sameSite).toBe('strict');
   });
 
-  test('two calls generate different tokens', () => {
-    const res1 = mockRes();
-    const res2 = mockRes();
-    const t1 = setCsrfCookie(res1, 900_000);
-    const t2 = setCsrfCookie(res2, 900_000);
-    expect(t1).not.toBe(t2);
+  test('uses tokens.secretSync() and tokens.create() to generate values', () => {
+    const res = mockRes();
+    setCsrfCookie(res, 900_000);
+    expect(mockSecretSync).toHaveBeenCalled();
+    expect(mockCreate).toHaveBeenCalledWith('mock-secret');
+    expect(res._cookies.fireisp_csrf.value).toBe('mock-token');
   });
 });
 
 describe('clearCsrfCookie', () => {
-  test('calls res.clearCookie for fireisp_csrf', () => {
+  test('clears both fireisp_csrf_secret and fireisp_csrf cookies', () => {
     const res = mockRes();
     clearCsrfCookie(res);
+    expect(res._cleared.fireisp_csrf_secret).toBeDefined();
     expect(res._cleared.fireisp_csrf).toBeDefined();
   });
 });
