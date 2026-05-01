@@ -251,6 +251,39 @@ else
 fi
 echo ""
 
+# ── Host-nginx mode detection ─────────────────────────────────────────────────
+# When USE_HOST_NGINX=1 the host-level (system) nginx acts as the TLS
+# front-door and proxies to the Docker app container on port 8080.
+# This is required when another service already binds port 80 on the host
+# (e.g. a pre-existing system nginx, Apache, or another Docker container),
+# preventing the bundled Docker nginx service from starting.
+USE_HOST_NGINX="${USE_HOST_NGINX:-0}"
+
+if [[ "$USE_HOST_NGINX" != "1" && "$SKIP_TLS" != "1" ]]; then
+  # Auto-detect: if port 80 is occupied by something that is NOT docker-proxy
+  # (i.e. not our own Docker nginx container), switch to host-nginx mode.
+  # Use :[[:space:]] to anchor the match so we do not accidentally match
+  # port 8080 (which would appear as ":8080 ") — the target pattern is
+  # specifically ":80 " (colon-80-space) as formatted by ss and netstat.
+  _port80_owner=""
+  if command -v ss >/dev/null 2>&1; then
+    _port80_owner=$(ss -tlnp 2>/dev/null | awk '$4 ~ /:80$/ || $4 ~ /:80 /' | grep -v docker-proxy | head -1 || true)
+  elif command -v netstat >/dev/null 2>&1; then
+    _port80_owner=$(netstat -tlnp 2>/dev/null | awk '$4 ~ /:80$/ || $4 ~ /:80 /' | grep -v docker-proxy | head -1 || true)
+  fi
+  if [[ -n "$_port80_owner" ]]; then
+    warn "Port 80 is already in use (not by Docker): $_port80_owner"
+    warn "Enabling host-nginx mode to avoid port conflict."
+    USE_HOST_NGINX=1
+  fi
+fi
+
+if [[ "$USE_HOST_NGINX" == "1" ]]; then
+  info "Host-nginx mode: system nginx will act as the TLS front-door."
+  info "                 FireISP app will be accessible on localhost:8080."
+fi
+echo ""
+
 # ── Auto-generate secrets (skip if already set via env) ───────────────────────
 : "${DB_PASSWORD:=$(gen_pass)}"
 : "${DB_ROOT_PASSWORD:=$(gen_pass)}"
@@ -345,6 +378,53 @@ ENVEOF
 chmod 600 "$ENV_FILE"
 log ".env.prod written to $ENV_FILE"
 
+# ── Host-nginx: install and configure system nginx ────────────────────────────
+if [[ "$USE_HOST_NGINX" == "1" ]]; then
+  echo ""
+  echo -e "${BOLD}── Host Nginx Setup ────────────────────────────────────────────────────${RESET}"
+  echo ""
+
+  # Install nginx on the host if not already present
+  if ! command -v nginx >/dev/null 2>&1; then
+    apt_install nginx
+    log "nginx installed."
+  else
+    log "nginx is already installed."
+  fi
+
+  # Create the certbot webroot (the certbot Docker container will write
+  # ACME challenge files here; host nginx reads them to answer HTTP-01).
+  mkdir -p "$INSTALL_DIR/nginx/certbot-www/.well-known/acme-challenge"
+
+  # Expand the __INSTALL_DIR__ placeholder in host-nginx.conf and install it
+  # into conf.d/ rather than sites-available/ because this file contains
+  # http-level directives (upstream, limit_req_zone, server{}) that must be
+  # included inside http{}, and Ubuntu's nginx.conf includes conf.d/*.conf
+  # inside its http{} block.
+  HOST_NGINX_CONF_SRC="$INSTALL_DIR/nginx/host-nginx.conf"
+  [[ -f "$HOST_NGINX_CONF_SRC" ]] || die "Missing $HOST_NGINX_CONF_SRC — repository may be incomplete."
+  sed "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$HOST_NGINX_CONF_SRC" \
+    > /etc/nginx/conf.d/fireisp.conf
+
+  # Disable the nginx default site to avoid conflicts on port 80/443.
+  rm -f /etc/nginx/sites-enabled/default
+
+  # Validate the generated nginx config.
+  nginx -t || die "Generated nginx configuration is invalid.
+  Check /etc/nginx/conf.d/fireisp.conf and fix any errors."
+
+  log "Host nginx configured (/etc/nginx/conf.d/fireisp.conf)."
+
+  # Schedule nginx to reload every 6 hours so it picks up renewed TLS
+  # certificates without manual intervention.  Uses the root crontab.
+  # A unique comment marker is used so we can safely remove or update this
+  # entry without accidentally removing unrelated crontab lines.
+  CRON_MARKER="# fireisp-nginx-reload"
+  CRON_LINE="0 */6 * * * /usr/sbin/nginx -s reload 2>/dev/null || true  $CRON_MARKER"
+  ( crontab -l 2>/dev/null | grep -v "$CRON_MARKER" ; echo "$CRON_LINE" ) | crontab -
+  log "Cron job added: nginx reloads every 6 hours to pick up renewed certs."
+fi
+
 # ── TLS certificates ────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}── TLS Certificates ────────────────────────────────────────────────────${RESET}"
@@ -359,18 +439,22 @@ if [[ "$SKIP_TLS" == "1" ]]; then
     -out    "$INSTALL_DIR/nginx/certs/fullchain.pem" \
     -subj   "/CN=${DOMAIN}" 2>/dev/null
   log "Self-signed certificate created."
+  if [[ "$USE_HOST_NGINX" == "1" ]]; then
+    # Start host nginx now that dummy certs are in place.
+    systemctl enable nginx --now || true
+  fi
 else
   info "Bootstrapping Let's Encrypt TLS for ${DOMAIN} ..."
   LETSENCRYPT_SCRIPT="$INSTALL_DIR/nginx/init-letsencrypt.sh"
   [[ -f "$LETSENCRYPT_SCRIPT" ]] || die "TLS bootstrap script not found: $LETSENCRYPT_SCRIPT
   The repository may be incomplete. Re-run the installer."
-  if [[ -n "${CF_API_TOKEN:-}" ]]; then
-    CF_API_TOKEN="$CF_API_TOKEN" DOMAIN="$DOMAIN" EMAIL="$EMAIL" \
-      bash "$LETSENCRYPT_SCRIPT" --cloudflare
-  else
-    DOMAIN="$DOMAIN" EMAIL="$EMAIL" \
-      bash "$LETSENCRYPT_SCRIPT"
-  fi
+  # Build the flag list for the TLS bootstrap script using an array to
+  # avoid word-splitting issues when flags contain no content.
+  _TLS_ARGS=()
+  [[ -n "${CF_API_TOKEN:-}" ]] && _TLS_ARGS+=(--cloudflare)
+  [[ "$USE_HOST_NGINX" == "1" ]] && _TLS_ARGS+=(--host-nginx)
+  CF_API_TOKEN="${CF_API_TOKEN:-}" DOMAIN="$DOMAIN" EMAIL="$EMAIL" \
+    bash "$LETSENCRYPT_SCRIPT" "${_TLS_ARGS[@]}"
   log "Let's Encrypt certificate obtained."
 fi
 
@@ -379,7 +463,13 @@ echo ""
 echo -e "${BOLD}── Starting FireISP ─────────────────────────────────────────────────────${RESET}"
 echo ""
 
-COMPOSE="docker compose -f $INSTALL_DIR/docker-compose.prod.yml --env-file $ENV_FILE"
+# In host-nginx mode include the overlay that disables the Docker nginx
+# container and exposes the app on localhost:8080 for the host nginx.
+if [[ "$USE_HOST_NGINX" == "1" ]]; then
+  COMPOSE="docker compose -f $INSTALL_DIR/docker-compose.prod.yml -f $INSTALL_DIR/docker-compose.host-nginx.yml --env-file $ENV_FILE"
+else
+  COMPOSE="docker compose -f $INSTALL_DIR/docker-compose.prod.yml --env-file $ENV_FILE"
+fi
 
 info "Building and starting containers (first run may take a few minutes)..."
 $COMPOSE up -d --build
@@ -443,6 +533,13 @@ echo -e "  ${BOLD}Swagger UI${RESET}    https://${DOMAIN}/api/docs"
 echo ""
 echo -e "  ${BOLD}Install directory${RESET}  $INSTALL_DIR"
 echo -e "  ${BOLD}Environment file${RESET}   $ENV_FILE"
+if [[ "$USE_HOST_NGINX" == "1" ]]; then
+  echo ""
+  echo -e "  ${BOLD}Nginx mode${RESET}         Host nginx (system service)"
+  echo -e "  ${BOLD}App port${RESET}           localhost:8080 → Docker app container"
+  echo -e "  ${BOLD}Nginx config${RESET}       /etc/nginx/conf.d/fireisp.conf"
+  echo -e "  ${BOLD}Cert reload${RESET}        Cron: nginx -s reload every 6 hours"
+fi
 echo ""
 echo -e "  ${BOLD}Next steps:${RESET}"
 echo -e "   1. Open https://${DOMAIN} in your browser"

@@ -1,0 +1,69 @@
+# =============================================================================
+# FireISP 5.0 — Host-Nginx Overlay
+# =============================================================================
+#
+# Use this overlay when a system-level (host) Nginx already owns port 80
+# (or needs to own it for TLS / Certbot), preventing the bundled Docker
+# nginx service from binding.
+#
+# What this overlay does:
+#   1. Moves the Docker nginx service to an opt-in profile ("docker-nginx")
+#      so it is NOT started during a plain `docker compose up`, freeing
+#      ports 80 and 443 for the host-level nginx.
+#   2. Exposes the FireISP app on 127.0.0.1:8080 (loopback only) so the
+#      host nginx can proxy to it.
+#   3. Replaces the certbot_www named volume with a host bind-mount
+#      (./nginx/certbot-www) so the host nginx can serve Let's Encrypt
+#      HTTP-01 ACME challenges directly from the filesystem.
+#
+# Pre-requisites (handled automatically by install.sh when USE_HOST_NGINX=1):
+#   1. Install and configure host nginx:
+#        apt install nginx
+#        # copy nginx/host-nginx.conf to /etc/nginx/conf.d/fireisp.conf
+#        # (see docs/tls-setup.md#host-nginx-mode-port-80-conflict)
+#   2. Bootstrap TLS:
+#        DOMAIN=isp.example.com EMAIL=admin@example.com \
+#          ./nginx/init-letsencrypt.sh --host-nginx
+#   3. Start the FireISP stack with this overlay:
+#        docker compose \
+#          -f docker-compose.prod.yml \
+#          -f docker-compose.host-nginx.yml \
+#          --env-file .env.prod up -d
+#
+# To force-enable the Docker nginx alongside host nginx (not recommended —
+# creates a port conflict unless you change nginx ports in the base file):
+#   docker compose -f docker-compose.prod.yml -f docker-compose.host-nginx.yml \
+#     --profile docker-nginx --env-file .env.prod up -d
+# =============================================================================
+
+services:
+
+  # ── Disable Docker-internal nginx ──────────────────────────────────────────
+  # Adding a profile makes this service opt-in; it is NOT started during a
+  # plain `docker compose up` with this overlay active.  Host nginx owns
+  # ports 80 and 443 instead.
+  nginx:
+    profiles:
+      - docker-nginx
+
+  # ── Expose app on localhost so host nginx can proxy to it ──────────────────
+  # The base docker-compose.prod.yml only exposes port 3000 inside the Docker
+  # network (using `expose`).  This port mapping publishes the app on the
+  # loopback interface only, making it reachable by host nginx at
+  # 127.0.0.1:8080 without being accessible from the internet directly.
+  app:
+    ports:
+      - '127.0.0.1:8080:3000'
+
+  # ── Certbot webroot: named volume → host bind-mount ────────────────────────
+  # The base file uses a named Docker volume (certbot_www) for the ACME
+  # challenge webroot.  That volume is only visible inside Docker, so the host
+  # nginx cannot serve its contents.  Replacing it with a bind-mount lets
+  # both the host nginx and the certbot container see the same directory.
+  #
+  # Docker Compose merges volume mounts by container path: this entry
+  # overrides the base file's `certbot_www:/var/www/certbot` mapping for
+  # the certbot container because they share the same target path.
+  certbot:
+    volumes:
+      - ./nginx/certbot-www:/var/www/certbot

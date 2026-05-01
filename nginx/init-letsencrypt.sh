@@ -40,11 +40,15 @@ EMAIL="${EMAIL:?Set EMAIL=admin@your.domain.com before running this script}"
 # ── Optional parameters ───────────────────────────────────────────────────────
 STAGING="${STAGING:-0}"           # Set to 1 to use Let's Encrypt staging CA
 USE_CLOUDFLARE=0
+USE_HOST_NGINX=0                  # Set to 1 (or pass --host-nginx) to bootstrap
+                                  # using a host-level nginx instead of the
+                                  # Docker nginx container.
 
 # ── Parse flags ───────────────────────────────────────────────────────────────
 for arg in "$@"; do
   case "$arg" in
-    --cloudflare) USE_CLOUDFLARE=1 ;;
+    --cloudflare)  USE_CLOUDFLARE=1  ;;
+    --host-nginx)  USE_HOST_NGINX=1  ;;
     *) echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
 done
@@ -85,7 +89,10 @@ command -v docker >/dev/null 2>&1 || die "docker is not installed."
 docker info >/dev/null 2>&1       || die "Docker daemon is not running."
 
 [[ -f "$NGINX_CONF" ]]     || die "Missing $NGINX_CONF"
-[[ -f "$BOOTSTRAP_CONF" ]] || die "Missing $BOOTSTRAP_CONF — required for first-time TLS bootstrap."
+
+if [[ "$USE_HOST_NGINX" == "0" ]]; then
+  [[ -f "$BOOTSTRAP_CONF" ]] || die "Missing $BOOTSTRAP_CONF — required for first-time TLS bootstrap."
+fi
 
 mkdir -p "$CERTS_DIR" "$LE_DIR"
 
@@ -97,6 +104,109 @@ openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
   -subj   "/CN=$DOMAIN" \
   2>/dev/null
 log "Dummy certificate created."
+
+# =============================================================================
+# ── HOST-NGINX bootstrap path ────────────────────────────────────────────────
+# When --host-nginx is passed, the system-level nginx service manages TLS and
+# proxies traffic to the Docker app container.  We skip the Docker nginx
+# container entirely and use systemctl to manage the host nginx daemon.
+# =============================================================================
+if [[ "$USE_HOST_NGINX" == "1" ]]; then
+
+  # ── Verify host nginx is installed ────────────────────────────────────────
+  command -v nginx >/dev/null 2>&1 || \
+    die "nginx is not installed on the host. Install with: apt install nginx"
+
+  # Ensure the certbot webroot directory exists so nginx can start without
+  # errors on the location block even before the first certificate issuance.
+  mkdir -p "$SCRIPT_DIR/certbot-www/.well-known/acme-challenge"
+
+  # ── Test and reload / start host nginx ────────────────────────────────────
+  if ! NGINX_TEST_OUT="$(nginx -t 2>&1)"; then
+    echo "[ERROR] Host nginx failed configuration test. Output of 'nginx -t':" >&2
+    printf '%s\n' "$NGINX_TEST_OUT" | sed 's/^/  /' >&2
+    die "Fix the nginx configuration errors above, then re-run this script."
+  fi
+
+  log "Starting / reloading host nginx ..."
+  if systemctl is-active --quiet nginx 2>/dev/null; then
+    systemctl reload nginx
+  else
+    systemctl start nginx
+  fi
+  sleep 2  # give nginx a moment to accept connections
+  log "Host nginx is running."
+
+  # ── Step 3 (host-nginx): Obtain Let's Encrypt certificate ─────────────────
+  STAGING_FLAG=""
+  [[ "$STAGING" == "1" ]] && STAGING_FLAG="--staging"
+
+  log "Requesting Let's Encrypt certificate for $DOMAIN ..."
+
+  if [[ "$USE_CLOUDFLARE" == "1" ]]; then
+    # ── DNS-01 challenge via Cloudflare (supports wildcard certs) ─────────────
+    log "Using Cloudflare DNS-01 challenge ..."
+
+    CF_INI="$SCRIPT_DIR/cloudflare.ini"
+    printf 'dns_cloudflare_api_token = %s\n' "$CF_API_TOKEN" > "$CF_INI"
+    chmod 600 "$CF_INI"
+
+    docker run --rm \
+      -v "$LE_DIR:/etc/letsencrypt" \
+      -v "$CF_INI:/cloudflare.ini:ro" \
+      certbot/dns-cloudflare:latest certonly \
+        --dns-cloudflare \
+        --dns-cloudflare-credentials /cloudflare.ini \
+        --dns-cloudflare-propagation-seconds 60 \
+        -d "$DOMAIN" -d "*.$DOMAIN" \
+        --email "$EMAIL" \
+        --agree-tos --non-interactive \
+        $STAGING_FLAG
+
+    rm -f "$CF_INI"
+  else
+    # ── HTTP-01 challenge via webroot (host nginx serves the challenge) ────────
+    # The certbot-www bind-mount in docker-compose.host-nginx.yml makes the
+    # same directory visible to both the Docker certbot container (write) and
+    # the host nginx (read).  We use a plain `docker run` here (not compose)
+    # so the certbot image can be pulled and run without the rest of the stack.
+    docker run --rm \
+      -v "$LE_DIR:/etc/letsencrypt" \
+      -v "$SCRIPT_DIR/certbot-www:/var/www/certbot" \
+      -v "$CERTS_DIR:/certs" \
+      -v "$SCRIPT_DIR/certbot-deploy-hook.sh:/etc/letsencrypt/renewal-hooks/deploy/copy-certs.sh:ro" \
+      certbot/certbot:latest certonly \
+        --webroot \
+        --webroot-path /var/www/certbot \
+        -d "$DOMAIN" \
+        --email "$EMAIL" \
+        --agree-tos --non-interactive \
+        $STAGING_FLAG
+  fi
+
+  log "Certificate issued successfully."
+
+  # ── Step 4 (host-nginx): Copy real certificate to ./nginx/certs/ ────────────
+  log "Installing certificate into $CERTS_DIR ..."
+  LIVE_DIR="$LE_DIR/live/$DOMAIN"
+  if [[ ! -f "$LIVE_DIR/fullchain.pem" ]]; then
+    die "Certificate not found at $LIVE_DIR — certbot may have failed."
+  fi
+  cp "$LIVE_DIR/fullchain.pem" "$CERTS_DIR/fullchain.pem"
+  cp "$LIVE_DIR/privkey.pem"   "$CERTS_DIR/privkey.pem"
+  chmod 644 "$CERTS_DIR/fullchain.pem"
+  chmod 640 "$CERTS_DIR/privkey.pem"
+
+  # ── Step 5 (host-nginx): Reload host nginx to pick up the real certificate ───
+  log "Reloading host nginx with the real certificate ..."
+  nginx -t || die "nginx config test failed after cert install — check /etc/nginx/conf.d/fireisp.conf"
+  systemctl reload nginx
+  log "Host nginx reloaded."
+
+else
+# =============================================================================
+# ── DOCKER-NGINX bootstrap path (default) ────────────────────────────────────
+# =============================================================================
 
 # ── Step 2: Swap in the bootstrap nginx.conf and start nginx ─────────────────
 # The production nginx.conf declares `upstream app { server app:3000; }`,
@@ -217,6 +327,8 @@ trap - EXIT
 $DOCKER_COMPOSE_CMD stop nginx >/dev/null 2>&1 || true
 $DOCKER_COMPOSE_CMD rm -f nginx >/dev/null 2>&1 || true
 
+fi  # end USE_HOST_NGINX / Docker-nginx branch
+
 log ""
 log "✅  TLS bootstrap complete!"
 log "    Domain : $DOMAIN"
@@ -224,6 +336,13 @@ log "    Certs  : $CERTS_DIR/"
 [[ "$STAGING" == "1" ]] && log "    ⚠️  Staging certificate — not trusted by browsers. Re-run without STAGING=1 for production."
 log ""
 log "Next steps:"
-log "  1. Start the full stack:  $DOCKER_COMPOSE_CMD up -d"
-log "  2. Certificates renew automatically every ~60 days (certbot service checks every 12h)."
-log "  3. nginx reloads every 6 hours to pick up renewed certs automatically."
+if [[ "$USE_HOST_NGINX" == "1" ]]; then
+  log "  1. Start the FireISP stack (host-nginx overlay):"
+  log "       docker compose -f $COMPOSE_FILE -f $(dirname "$COMPOSE_FILE")/docker-compose.host-nginx.yml up -d"
+  log "  2. Certificates renew automatically every ~60 days (certbot service checks every 12h)."
+  log "  3. Host nginx reloads every 6 hours via cron to pick up renewed certs."
+else
+  log "  1. Start the full stack:  $DOCKER_COMPOSE_CMD up -d"
+  log "  2. Certificates renew automatically every ~60 days (certbot service checks every 12h)."
+  log "  3. nginx reloads every 6 hours to pick up renewed certs automatically."
+fi
