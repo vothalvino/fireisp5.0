@@ -32,7 +32,7 @@
 
 const AiPhrase       = require('../models/AiPhrase');
 const AiForbiddenTerm = require('../models/AiForbiddenTerm');
-const { NotFoundError, ValidationError } = require('../utils/errors');
+const { ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ service: 'phraseLibraryService' });
 
 // =============================================================================

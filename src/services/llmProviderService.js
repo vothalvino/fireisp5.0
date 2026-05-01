@@ -693,7 +693,7 @@ async function verify(providerId) {
 
     // Use max_tokens override to keep it cheap
     const cheapProvider = { ...provider, max_tokens: 5 };
-    const result = await _callProviderOnce(cheapProvider, apiKey, probe, null, signal);
+    const _result = await _callProviderOnce(cheapProvider, apiKey, probe, null, signal);
     clearTimer();
 
     return { ok: true, model: provider.model, latency_ms: Date.now() - start };

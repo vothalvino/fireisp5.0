@@ -14,8 +14,6 @@ const Client = require('../models/Client');
 const Invoice = require('../models/Invoice');
 const Ticket = require('../models/Ticket');
 const AiPolicy = require('../models/AiPolicy');
-const AiProvider = require('../models/AiProvider');
-const AiPhrase = require('../models/AiPhrase');
 const aiReplyService = require('../services/aiReplyService');
 const { pubsub } = require('../services/pubsub');
 
