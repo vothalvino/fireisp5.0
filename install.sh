@@ -453,9 +453,46 @@ else
   _TLS_ARGS=()
   [[ -n "${CF_API_TOKEN:-}" ]] && _TLS_ARGS+=(--cloudflare)
   [[ "$USE_HOST_NGINX" == "1" ]] && _TLS_ARGS+=(--host-nginx)
-  CF_API_TOKEN="${CF_API_TOKEN:-}" DOMAIN="$DOMAIN" EMAIL="$EMAIL" \
-    bash "$LETSENCRYPT_SCRIPT" "${_TLS_ARGS[@]}"
-  log "Let's Encrypt certificate obtained."
+  # Run the TLS bootstrap script.  If it fails (e.g. domain DNS is not yet
+  # pointing to this server, or a network error), we fall back to a
+  # temporary self-signed certificate so containers can still start.
+  # The real certificate can be obtained later by running init-letsencrypt.sh
+  # manually once DNS is in place.
+  if CF_API_TOKEN="${CF_API_TOKEN:-}" DOMAIN="$DOMAIN" EMAIL="$EMAIL" \
+       bash "$LETSENCRYPT_SCRIPT" "${_TLS_ARGS[@]}"; then
+    log "Let's Encrypt certificate obtained."
+  else
+    warn "Let's Encrypt TLS bootstrap failed."
+    warn "This usually means ${DOMAIN} does not yet resolve to this server's IP,"
+    warn "or that port 80 is not reachable from the internet."
+    warn ""
+    warn "FireISP will start with a temporary self-signed certificate."
+    warn "Once DNS is in place, obtain a real certificate by running:"
+    warn "  DOMAIN=${DOMAIN} EMAIL=${EMAIL} bash ${LETSENCRYPT_SCRIPT}"
+    warn ""
+    # Clean up any partial nginx container left by the failed bootstrap.
+    # `rm -sf` stops and removes the container in a single atomic operation.
+    docker compose -f "$INSTALL_DIR/docker-compose.prod.yml" \
+      rm -sf nginx >/dev/null 2>&1 || true
+    # Restore production nginx.conf in case the bootstrap script swapped it
+    # but did not restore it (e.g. it was killed before the EXIT trap fired).
+    _NGINX_CONF_BACKUP="$INSTALL_DIR/nginx/.nginx.conf.bootstrap-backup"
+    if [[ -f "$_NGINX_CONF_BACKUP" ]]; then
+      mv -f "$_NGINX_CONF_BACKUP" "$INSTALL_DIR/nginx/nginx.conf"
+      info "Restored production nginx.conf from bootstrap backup."
+    fi
+    # Create a fallback self-signed certificate.  Errors are shown so the
+    # user can diagnose disk-space or permission problems.
+    mkdir -p "$INSTALL_DIR/nginx/certs"
+    openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
+      -keyout "$INSTALL_DIR/nginx/certs/privkey.pem" \
+      -out    "$INSTALL_DIR/nginx/certs/fullchain.pem" \
+      -subj   "/CN=${DOMAIN}" 2>&1 | grep -v "^Generating" || true
+    log "Fallback self-signed certificate created."
+    if [[ "$USE_HOST_NGINX" == "1" ]]; then
+      systemctl enable nginx --now || true
+    fi
+  fi
 fi
 
 # ── Start the stack ─────────────────────────────────────────────────────────────
