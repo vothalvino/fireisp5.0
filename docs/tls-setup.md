@@ -1,13 +1,14 @@
 # TLS Setup Guide
 
 FireISP 5.0 ships with a production-ready Nginx reverse proxy that enforces
-HTTPS.  This guide covers three ways to provision TLS certificates:
+HTTPS.  This guide covers four ways to provision TLS certificates:
 
 | Method | Use case |
 |---|---|
 | [Let's Encrypt (HTTP-01)](#lets-encrypt-http-01-challenge) | Single-domain cert, server reachable on port 80 |
 | [Let's Encrypt (DNS-01 / Cloudflare)](#lets-encrypt-dns-01-cloudflare) | Wildcard cert (`*.isp.example.com`), or server not on port 80 |
 | [Manual / commercial certificate](#manual--commercial-certificate) | Bring-your-own cert (DigiCert, ZeroSSL, self-signed) |
+| [Host Nginx (port-80 conflict)](#host-nginx-mode-port-80-conflict) | Docker already binds port 80; system nginx acts as TLS front-door |
 
 ---
 
@@ -213,6 +214,116 @@ docker compose -f docker-compose.prod.yml exec nginx nginx -s reload
 
 ---
 
+## Host Nginx Mode (Port-80 Conflict)
+
+Use this mode when a Docker container (or another service) already binds
+port 80 on the host, preventing the bundled Docker nginx service from starting.
+A common symptom is:
+
+```
+nginx: [emerg] bind() to 0.0.0.0:80 failed (98: Address already in use)
+```
+
+### How it works
+
+Instead of running nginx inside Docker, the **system-level nginx** (installed
+as an OS service) acts as the TLS front-door.  It handles port 80/443 and
+proxies traffic to the FireISP app container exposed on `127.0.0.1:8080`:
+
+```
+Internet → Host Nginx :80/:443 → 127.0.0.1:8080 (Docker app container)
+```
+
+The `docker-compose.host-nginx.yml` overlay:
+- Disables the Docker nginx service (moves it to an opt-in profile).
+- Publishes the app on `127.0.0.1:8080` (loopback only).
+- Swaps the certbot webroot volume to a bind-mount so the host nginx can
+  serve ACME HTTP-01 challenges.
+
+### Automatic setup (installer)
+
+If the installer (`install.sh`) detects port 80 is occupied by a non-Docker
+process it enables host-nginx mode automatically.  You can also force it:
+
+```bash
+USE_HOST_NGINX=1 DOMAIN=isp.example.com EMAIL=admin@example.com \
+  curl -fsSL https://raw.githubusercontent.com/vothalvino/fireisp5.0/main/install.sh | bash
+```
+
+### Manual setup
+
+**1. Install nginx on the host**
+
+```bash
+sudo apt install nginx
+```
+
+**2. Configure nginx**
+
+```bash
+# Replace __INSTALL_DIR__ with your actual install path (e.g. /opt/fireisp)
+sed 's|__INSTALL_DIR__|/opt/fireisp|g' /opt/fireisp/nginx/host-nginx.conf \
+  > /etc/nginx/sites-available/fireisp
+ln -sf /etc/nginx/sites-available/fireisp /etc/nginx/sites-enabled/fireisp
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl reload nginx
+```
+
+**3. Create the certbot webroot directory**
+
+```bash
+mkdir -p /opt/fireisp/nginx/certbot-www/.well-known/acme-challenge
+```
+
+**4. Bootstrap TLS**
+
+```bash
+cd /opt/fireisp
+DOMAIN=isp.example.com EMAIL=admin@example.com \
+  ./nginx/init-letsencrypt.sh --host-nginx
+```
+
+For Cloudflare DNS-01 (wildcard certs), combine both flags:
+
+```bash
+CF_API_TOKEN=<token> DOMAIN=isp.example.com EMAIL=admin@example.com \
+  ./nginx/init-letsencrypt.sh --cloudflare --host-nginx
+```
+
+**5. Start the FireISP stack**
+
+```bash
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.host-nginx.yml \
+  --env-file .env.prod up -d
+```
+
+**6. Schedule nginx reloads for certificate renewals**
+
+```bash
+# Reload nginx every 6 hours so it picks up renewed certificates
+(crontab -l 2>/dev/null; echo "0 */6 * * * /usr/sbin/nginx -s reload 2>/dev/null || true") \
+  | crontab -
+```
+
+### Management commands (host-nginx mode)
+
+```bash
+COMPOSE="docker compose -f docker-compose.prod.yml -f docker-compose.host-nginx.yml --env-file .env.prod"
+
+$COMPOSE logs -f          # tail all service logs
+$COMPOSE down             # stop all containers
+$COMPOSE up -d --build    # rebuild and restart
+
+# nginx is managed by systemd, not Docker:
+sudo systemctl status nginx
+sudo systemctl reload nginx
+sudo nginx -t             # test config before reload
+```
+
+---
+
 ## Certificate Renewal
 
 ### Automatic (Let's Encrypt)
@@ -281,15 +392,53 @@ the nginx container logs before exiting. The most common causes are:
   during bootstrap. Pull the latest `nginx/init-letsencrypt.sh` and
   `nginx/nginx.bootstrap.conf` from the repo and re-run.
 - **Port 80 already in use** — another service (Apache, system nginx,
-  Caddy) is bound to port 80. Stop it before re-running.
+  Caddy, or another Docker container) is bound to port 80. See the
+  [Host Nginx Mode](#host-nginx-mode-port-80-conflict) section, or stop
+  the conflicting service before re-running.
 - **Bad edit to `nginx/nginx.conf`** — the printed `nginx -t` output points
   at the offending file/line.
+
+### Port 80 already in use — Docker nginx cannot start
+
+```
+nginx: [emerg] bind() to 0.0.0.0:80 failed (98: Address already in use)
+```
+
+A Docker container or host service already holds port 80.  To identify it:
+
+```bash
+sudo ss -tlnp | grep ':80 '
+# or
+sudo netstat -tlnp | grep ':80 '
+```
+
+**Option A — Stop the conflicting service**, then re-run
+`nginx/init-letsencrypt.sh` as normal.
+
+**Option B — Use host-nginx mode** (recommended when you have a system nginx
+you want to keep running):
+
+```bash
+# Switch to host-nginx mode — system nginx becomes the TLS front-door
+# and the Docker nginx container is disabled.
+USE_HOST_NGINX=1 DOMAIN=isp.example.com EMAIL=admin@example.com \
+  ./nginx/init-letsencrypt.sh --host-nginx
+
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.host-nginx.yml \
+  --env-file .env.prod up -d
+```
+
+See [Host Nginx Mode](#host-nginx-mode-port-80-conflict) for the full setup
+instructions.
 
 ### Certbot ACME challenge fails (HTTP-01)
 
 - Verify port 80 is open in your firewall/security group.
 - Confirm DNS A record points to the correct server IP.
-- Check nginx logs: `docker compose -f docker-compose.prod.yml logs nginx`.
+- Check nginx logs: `docker compose -f docker-compose.prod.yml logs nginx`
+  (Docker nginx mode) or `sudo journalctl -u nginx -n 50` (host-nginx mode).
 
 ### Let's Encrypt rate limits
 
