@@ -1,5 +1,5 @@
 // =============================================================================
-// FireISP 5.0 — Remaining Model Unit Tests
+// FireISP 5.0 - Remaining Model Unit Tests
 // =============================================================================
 // Covers the 26 thin BaseModel subclasses that have no other test coverage.
 // Each model is verified for: tableName, fillable array, hasOrgScope, and the
