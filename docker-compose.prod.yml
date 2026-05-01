@@ -12,7 +12,7 @@
 #                   rate limiting, WebSocket pass-through for FireRelay)
 #
 # Prerequisites:
-#   1. Copy .env.example → .env.prod and fill ALL required values.
+#   1. Copy .env.prod.example → .env.prod and fill ALL required values.
 #   2. Place TLS certificates at ./nginx/certs/fullchain.pem and privkey.pem
 #      (or mount a Certbot volume — see nginx service comment below).
 #   3. Set a strong MYSQL_REPL_PASSWORD in .env.prod.
