@@ -167,7 +167,12 @@ else
   # to the current terminal — without this flag Docker Compose will attempt
   # to allocate a PTY, which disrupts the SSH session when the installer is
   # run over a pipe (curl … | bash) or from a non-interactive terminal.
-  $DOCKER_COMPOSE_CMD run --rm -T certbot certonly \
+  #
+  # --entrypoint certbot overrides the custom entrypoint defined in
+  # docker-compose.prod.yml (the 12-hour renewal loop) so that `certonly`
+  # is executed directly instead of being treated as a positional argument
+  # to the loop shell script (which would cause a silent 12-hour hang).
+  $DOCKER_COMPOSE_CMD run --rm -T --entrypoint certbot certbot certonly \
     --webroot \
     --webroot-path /var/www/certbot \
     -d "$DOMAIN" \
