@@ -16,7 +16,7 @@ describe('config', () => {
     const config = require('../src/config');
     expect(config.env).toBe('development');
     expect(config.port).toBe(3000);
-    expect(config.jwt.secret).toBe('change-me-to-a-random-64-char-string');
+    expect(config.jwt.secret).toBe('change-me-in-production-this-default-jwt-secret-is-not-secure!!!');
     expect(config.requestTimeoutMs).toBe(30000);
   });
 

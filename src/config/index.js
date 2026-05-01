@@ -21,7 +21,7 @@ const config = {
   appUrl: process.env.APP_URL || 'http://localhost:3000',
 
   jwt: {
-    secret: process.env.JWT_SECRET || 'change-me-to-a-random-64-char-string',
+    secret: process.env.JWT_SECRET || 'change-me-in-production-this-default-jwt-secret-is-not-secure!!!',
     expiresIn: process.env.JWT_EXPIRES_IN || '24h',
     accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m',
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
@@ -80,7 +80,7 @@ function validateEnv(logger) {
   const isProduction = config.env === 'production';
 
   // JWT secret: must not be the default and must be >= 64 chars in production
-  const DEFAULT_SECRET = 'change-me-to-a-random-64-char-string';
+  const DEFAULT_SECRET = 'change-me-in-production-this-default-jwt-secret-is-not-secure!!!';
   const secretLen = config.jwt.secret.length;
   if (config.jwt.secret === DEFAULT_SECRET) {
     const msg = 'JWT_SECRET is set to the insecure default — set a unique random string (>= 64 chars)';
