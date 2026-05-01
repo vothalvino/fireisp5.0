@@ -262,9 +262,11 @@ sudo apt install nginx
 
 ```bash
 # Replace __INSTALL_DIR__ with your actual install path (e.g. /opt/fireisp)
+# The file is placed in conf.d/ (not sites-available/) because it contains
+# http-level directives (upstream, server{}) that nginx includes inside http{}.
 sed 's|__INSTALL_DIR__|/opt/fireisp|g' /opt/fireisp/nginx/host-nginx.conf \
-  > /etc/nginx/sites-available/fireisp
-ln -sf /etc/nginx/sites-available/fireisp /etc/nginx/sites-enabled/fireisp
+  > /etc/nginx/conf.d/fireisp.conf
+# Disable the default nginx site to prevent port conflicts
 rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
 ```

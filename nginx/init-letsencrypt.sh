@@ -170,7 +170,7 @@ if [[ "$USE_HOST_NGINX" == "1" ]]; then
     # same directory visible to both the Docker certbot container (write) and
     # the host nginx (read).  We use a plain `docker run` here (not compose)
     # so the certbot image can be pulled and run without the rest of the stack.
-    docker run --rm -T \
+    docker run --rm \
       -v "$LE_DIR:/etc/letsencrypt" \
       -v "$SCRIPT_DIR/certbot-www:/var/www/certbot" \
       -v "$CERTS_DIR:/certs" \
@@ -199,7 +199,7 @@ if [[ "$USE_HOST_NGINX" == "1" ]]; then
 
   # ── Step 5 (host-nginx): Reload host nginx to pick up the real certificate ───
   log "Reloading host nginx with the real certificate ..."
-  nginx -t 2>/dev/null || die "nginx config test failed after cert install — check /etc/nginx/sites-available/fireisp"
+  nginx -t || die "nginx config test failed after cert install — check /etc/nginx/conf.d/fireisp.conf"
   systemctl reload nginx
   log "Host nginx reloaded."
 

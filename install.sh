@@ -262,11 +262,14 @@ USE_HOST_NGINX="${USE_HOST_NGINX:-0}"
 if [[ "$USE_HOST_NGINX" != "1" && "$SKIP_TLS" != "1" ]]; then
   # Auto-detect: if port 80 is occupied by something that is NOT docker-proxy
   # (i.e. not our own Docker nginx container), switch to host-nginx mode.
+  # Use :[[:space:]] to anchor the match so we do not accidentally match
+  # port 8080 (which would appear as ":8080 ") — the target pattern is
+  # specifically ":80 " (colon-80-space) as formatted by ss and netstat.
   _port80_owner=""
   if command -v ss >/dev/null 2>&1; then
-    _port80_owner=$(ss -tlnp 2>/dev/null | awk '/:80[[:space:]]/' | grep -v docker-proxy | head -1 || true)
+    _port80_owner=$(ss -tlnp 2>/dev/null | awk '$4 ~ /:80$/ || $4 ~ /:80 /' | grep -v docker-proxy | head -1 || true)
   elif command -v netstat >/dev/null 2>&1; then
-    _port80_owner=$(netstat -tlnp 2>/dev/null | awk '/:80[[:space:]]/' | grep -v docker-proxy | head -1 || true)
+    _port80_owner=$(netstat -tlnp 2>/dev/null | awk '$4 ~ /:80$/ || $4 ~ /:80 /' | grep -v docker-proxy | head -1 || true)
   fi
   if [[ -n "$_port80_owner" ]]; then
     warn "Port 80 is already in use (not by Docker): $_port80_owner"
@@ -393,27 +396,32 @@ if [[ "$USE_HOST_NGINX" == "1" ]]; then
   # ACME challenge files here; host nginx reads them to answer HTTP-01).
   mkdir -p "$INSTALL_DIR/nginx/certbot-www/.well-known/acme-challenge"
 
-  # Expand the __INSTALL_DIR__ placeholder in host-nginx.conf and install it.
+  # Expand the __INSTALL_DIR__ placeholder in host-nginx.conf and install it
+  # into conf.d/ rather than sites-available/ because this file contains
+  # http-level directives (upstream, limit_req_zone, server{}) that must be
+  # included inside http{}, and Ubuntu's nginx.conf includes conf.d/*.conf
+  # inside its http{} block.
   HOST_NGINX_CONF_SRC="$INSTALL_DIR/nginx/host-nginx.conf"
   [[ -f "$HOST_NGINX_CONF_SRC" ]] || die "Missing $HOST_NGINX_CONF_SRC — repository may be incomplete."
   sed "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$HOST_NGINX_CONF_SRC" \
-    > /etc/nginx/sites-available/fireisp
+    > /etc/nginx/conf.d/fireisp.conf
 
-  # Enable the FireISP site and disable the nginx default site to avoid
-  # conflicts on port 80/443.
-  ln -sf /etc/nginx/sites-available/fireisp /etc/nginx/sites-enabled/fireisp
+  # Disable the nginx default site to avoid conflicts on port 80/443.
   rm -f /etc/nginx/sites-enabled/default
 
   # Validate the generated nginx config.
   nginx -t || die "Generated nginx configuration is invalid.
-  Check /etc/nginx/sites-available/fireisp and fix any errors."
+  Check /etc/nginx/conf.d/fireisp.conf and fix any errors."
 
-  log "Host nginx configured (/etc/nginx/sites-available/fireisp)."
+  log "Host nginx configured (/etc/nginx/conf.d/fireisp.conf)."
 
   # Schedule nginx to reload every 6 hours so it picks up renewed TLS
   # certificates without manual intervention.  Uses the root crontab.
-  CRON_LINE="0 */6 * * * /usr/sbin/nginx -s reload 2>/dev/null || true"
-  ( crontab -l 2>/dev/null | grep -v "nginx -s reload" ; echo "$CRON_LINE" ) | crontab -
+  # A unique comment marker is used so we can safely remove or update this
+  # entry without accidentally removing unrelated crontab lines.
+  CRON_MARKER="# fireisp-nginx-reload"
+  CRON_LINE="0 */6 * * * /usr/sbin/nginx -s reload 2>/dev/null || true  $CRON_MARKER"
+  ( crontab -l 2>/dev/null | grep -v "$CRON_MARKER" ; echo "$CRON_LINE" ) | crontab -
   log "Cron job added: nginx reloads every 6 hours to pick up renewed certs."
 fi
 
@@ -529,7 +537,7 @@ if [[ "$USE_HOST_NGINX" == "1" ]]; then
   echo ""
   echo -e "  ${BOLD}Nginx mode${RESET}         Host nginx (system service)"
   echo -e "  ${BOLD}App port${RESET}           localhost:8080 → Docker app container"
-  echo -e "  ${BOLD}Nginx config${RESET}       /etc/nginx/sites-available/fireisp"
+  echo -e "  ${BOLD}Nginx config${RESET}       /etc/nginx/conf.d/fireisp.conf"
   echo -e "  ${BOLD}Cert reload${RESET}        Cron: nginx -s reload every 6 hours"
 fi
 echo ""

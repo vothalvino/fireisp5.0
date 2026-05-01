@@ -19,8 +19,8 @@
 # Pre-requisites (handled automatically by install.sh when USE_HOST_NGINX=1):
 #   1. Install and configure host nginx:
 #        apt install nginx
-#        # copy nginx/host-nginx.conf to /etc/nginx/sites-available/fireisp
-#        # symlink into sites-enabled, disable default site
+#        # copy nginx/host-nginx.conf to /etc/nginx/conf.d/fireisp.conf
+#        # (see docs/tls-setup.md#host-nginx-mode-port-80-conflict)
 #   2. Bootstrap TLS:
 #        DOMAIN=isp.example.com EMAIL=admin@example.com \
 #          ./nginx/init-letsencrypt.sh --host-nginx
