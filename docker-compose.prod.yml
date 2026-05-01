@@ -208,22 +208,38 @@ services:
     ports:
       - '80:80'
       - '443:443'
+    # On startup: auto-generate a self-signed certificate when no real TLS
+    # certificate is present yet (e.g. before init-letsencrypt.sh has been
+    # run).  This lets nginx bind on port 80 immediately so the container is
+    # healthy and can serve the Let's Encrypt ACME HTTP-01 challenge.
+    # The self-signed cert is overwritten by init-letsencrypt.sh / certbot.
     # Reload nginx every 6 hours so it picks up renewed TLS certificates
     # without requiring a container restart. Let's Encrypt renews ~30 days
     # before expiry; the 6-hour window guarantees fresh certs within hours.
-    command: >
-      /bin/sh -c
-      'while :; do sleep 6h & wait $${!}; nginx -s reload; done
-       & exec nginx -g "daemon off;"'
+    command:
+      - /bin/sh
+      - -c
+      - |
+          if [ ! -f /etc/nginx/certs/fullchain.pem ] || [ ! -f /etc/nginx/certs/privkey.pem ]; then
+            mkdir -p /etc/nginx/certs;
+            openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+              -keyout /etc/nginx/certs/privkey.pem \
+              -out    /etc/nginx/certs/fullchain.pem \
+              -subj   /CN=localhost 2>/dev/null; # bootstrap-only; replaced by init-letsencrypt.sh
+            echo "[nginx] Self-signed cert created. Run nginx/init-letsencrypt.sh for a real cert.";
+          fi;
+          while :; do sleep 6h & wait $${!}; nginx -s reload; done &
+          exec nginx -g "daemon off;"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       # TLS certificates directory — populated by:
-      #   • init-letsencrypt.sh   (first-time bootstrap)
+      #   • The startup command above (temporary self-signed cert when missing)
+      #   • init-letsencrypt.sh   (first-time real certificate bootstrap)
       #   • certbot-deploy-hook.sh (automatic renewal copy)
       #   • Manual: place fullchain.pem + privkey.pem here directly
-      # The certbot service also mounts this directory (write) to copy renewed
-      # certs. nginx itself only reads certs, so we keep it read-only here.
-      - ./nginx/certs:/etc/nginx/certs:ro
+      # Not mounted read-only so the startup command can write the initial
+      # self-signed certificate when no real certificate is present yet.
+      - ./nginx/certs:/etc/nginx/certs
       # Certbot ACME challenge web-root (HTTP-01 challenge)
       - certbot_www:/var/www/certbot:ro
     healthcheck:
