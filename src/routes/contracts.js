@@ -26,7 +26,7 @@ router.get('/:id', requirePermission('contracts.view'), ctrl.get);
 router.post('/', requirePermission('contracts.create'), validate(createContract), ctrl.create);
 router.put('/:id', requirePermission('contracts.update'), validate(updateContract), async (req, res, next) => {
   try {
-    const old = await Contract.findByIdOrFail(req.params.id, req.orgId);
+    await Contract.findByIdOrFail(req.params.id, req.orgId);
     const record = await Contract.update(req.params.id, req.body, req.orgId);
     topologyContextService.invalidate(record.id, 'contract')
       .catch(err => logger.warn({ err: err.message, contractId: record.id }, 'topology invalidate failed on contract update'));
