@@ -517,6 +517,34 @@ app.use((err, req, res, _next) => {
     );
   }
 
+  // Handle database connectivity errors — return 503 so clients (and load
+  // balancers) can distinguish "server is broken" from "DB is unreachable".
+  // ECONNREFUSED / ENOTFOUND / ETIMEDOUT / ECONNRESET cover the case where
+  // MySQL/MariaDB is not running or the DB_HOST is wrong.
+  // ER_ACCESS_DENIED_ERROR covers bad DB_USER / DB_PASSWORD credentials.
+  // ER_NO_SUCH_TABLE covers the case where migrations have not been run yet.
+  const DB_CONNECT_CODES = new Set([
+    'ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET',
+  ]);
+  if (DB_CONNECT_CODES.has(err.code)) {
+    logger.error({ err, requestId: req.id }, 'Database unreachable');
+    return res.status(503).json(
+      errorBody('DB_UNAVAILABLE', 'Database is unreachable. Check that MySQL/MariaDB is running and that DB_HOST, DB_USER, DB_PASSWORD, and DB_NAME are correctly set in your .env file.'),
+    );
+  }
+  if (err.code === 'ER_ACCESS_DENIED_ERROR' || err.errno === 1045) {
+    logger.error({ err, requestId: req.id }, 'Database authentication failed');
+    return res.status(503).json(
+      errorBody('DB_AUTH_ERROR', 'Database authentication failed. Check DB_USER and DB_PASSWORD in your .env file.'),
+    );
+  }
+  if (err.code === 'ER_NO_SUCH_TABLE' || err.errno === 1146) {
+    logger.error({ err, requestId: req.id }, 'Database table missing — migrations may not have been run');
+    return res.status(503).json(
+      errorBody('DB_MIGRATIONS_REQUIRED', 'A required database table is missing. Run `pnpm run migrate` to apply all migrations, then `pnpm run seed` to seed default data.'),
+    );
+  }
+
   if (err instanceof AppError) {
     return res.status(err.statusCode).json(
       errorBody(err.code, err.message, err.details ? { details: err.details } : undefined),
