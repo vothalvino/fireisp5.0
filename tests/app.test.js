@@ -151,6 +151,56 @@ describe('Global Error Handler', () => {
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('FK_VIOLATION');
   });
+
+  test.each(['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET'])(
+    'handles DB connectivity error %s with 503 DB_UNAVAILABLE',
+    async (code) => {
+      const connError = new Error(code);
+      connError.code = code;
+      db.query.mockRejectedValueOnce(connError);
+
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send({
+          firstName: 'Test', lastName: 'User', email: 'conn@example.com',
+          password: 'password123',
+        });
+      expect(res.status).toBe(503);
+      expect(res.body.error.code).toBe('DB_UNAVAILABLE');
+    },
+  );
+
+  test('handles DB authentication error (ER_ACCESS_DENIED_ERROR) with 503 DB_AUTH_ERROR', async () => {
+    const authError = new Error('Access denied');
+    authError.code = 'ER_ACCESS_DENIED_ERROR';
+    authError.errno = 1045;
+    db.query.mockRejectedValueOnce(authError);
+
+    const res = await request(app)
+      .post('/api/auth/register')
+      .send({
+        firstName: 'Test', lastName: 'User', email: 'authfail@example.com',
+        password: 'password123',
+      });
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe('DB_AUTH_ERROR');
+  });
+
+  test('handles missing table error (ER_NO_SUCH_TABLE) with 503 DB_MIGRATIONS_REQUIRED', async () => {
+    const tableError = new Error("Table 'fireisp.users' doesn't exist");
+    tableError.code = 'ER_NO_SUCH_TABLE';
+    tableError.errno = 1146;
+    db.query.mockRejectedValueOnce(tableError);
+
+    const res = await request(app)
+      .post('/api/auth/register')
+      .send({
+        firstName: 'Test', lastName: 'User', email: 'migrate@example.com',
+        password: 'password123',
+      });
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe('DB_MIGRATIONS_REQUIRED');
+  });
 });
 
 describe('Auth Routes', () => {
