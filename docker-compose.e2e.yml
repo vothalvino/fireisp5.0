@@ -50,7 +50,7 @@ services:
       DB_USER: root
       DB_PASSWORD: e2epassword
       DB_NAME: fireisp_e2e
-      JWT_SECRET: e2e-test-jwt-secret-not-for-production
+      JWT_SECRET: e2e-test-jwt-secret-for-automated-tests-not-for-production-use!!
       REDIS_URL: ''
       LOG_LEVEL: warn
     # Run migrations and seed before starting the server so Playwright
