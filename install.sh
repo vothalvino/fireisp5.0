@@ -194,17 +194,16 @@ fi
 # previous prompt) so the installer is fully non-interactive when all variables
 # are supplied upfront.
 prompt() {
-  local var="$1" msg="$2" default="${3:-}"
+  local var="$1" msg="$2" default="${3:-}" val=""
   if [[ -n "${!var:-}" ]]; then return; fi
   if [[ -n "$default" ]]; then
-    read -rp "$(echo -e "${BOLD}${msg}${RESET} [${default}]: ")" val
-    eval "$var=\"${val:-${default}}\""
+    read -rp "$(echo -e "${BOLD}${msg}${RESET} [${default}]: ")" val </dev/tty
+    printf -v "$var" '%s' "${val:-${default}}"
   else
-    local val=""
     while [[ -z "$val" ]]; do
-      read -rp "$(echo -e "${BOLD}${msg}${RESET}: ")" val
+      read -rp "$(echo -e "${BOLD}${msg}${RESET}: ")" val </dev/tty
     done
-    eval "$var=\"$val\""
+    printf -v "$var" '%s' "$val"
   fi
 }
 
