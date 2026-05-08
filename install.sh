@@ -292,6 +292,10 @@ echo ""
 : "${ENCRYPTION_KEY:=$(openssl rand -hex 32)}"
 # ENCRYPTION_KEY uses hex (not base64) because the app expects a 64-char hex
 # string that it passes directly to crypto.createCipheriv as a 32-byte key.
+: "${ADMIN_PASSWORD:=$(gen_pass)}"
+# ADMIN_PASSWORD is the initial password for the seeded admin account.
+# It is hashed by bcrypt inside seed.js before being written to the database;
+# the plaintext is never stored in the DB or in the application logs.
 
 # ── Clone / update repository ─────────────────────────────────────────────────
 echo -e "${BOLD}── Downloading FireISP ────────────────────────────────────────────────${RESET}"
@@ -356,6 +360,12 @@ JWT_EXPIRES_IN=8h
 # ---- Encryption (at-rest secrets) --------------------------------------------
 # AES-256-GCM key for payment gateway credentials, PAC passwords, etc.
 ENCRYPTION_KEY=${ENCRYPTION_KEY}
+
+# ---- Admin account (generated at install time) --------------------------------
+# Plaintext initial password for the admin@demo-isp.com account.
+# seed.js reads this, hashes it with bcrypt, and stores only the hash in the DB.
+# Change this password in the web UI after your first login.
+ADMIN_PASSWORD=${ADMIN_PASSWORD}
 
 # ---- SMTP (configure after install) ------------------------------------------
 SMTP_HOST=localhost
@@ -554,7 +564,15 @@ log "Migrations applied."
 
 # ── Seed default data ─────────────────────────────────────────────────────────
 info "Seeding default roles, permissions, settings, and tax rates..."
-$COMPOSE exec -T app node src/scripts/seed.js
+# Write the admin password to a temporary env file so it is never visible
+# in `ps aux` output (which would happen with `docker exec -e VAR=value`).
+# The EXIT trap guarantees cleanup whether the script succeeds or fails.
+_SEED_ENV_FILE="$(mktemp)"
+chmod 600 "$_SEED_ENV_FILE"
+printf 'ADMIN_PASSWORD=%s\n' "$ADMIN_PASSWORD" > "$_SEED_ENV_FILE"
+trap 'rm -f "$_SEED_ENV_FILE"' EXIT
+$COMPOSE exec -T --env-file "$_SEED_ENV_FILE" app node src/scripts/seed.js
+rm -f "$_SEED_ENV_FILE" && trap - EXIT
 log "Seed data loaded."
 
 # ── Install the `fireisp` CLI wrapper ─────────────────────────────────────────
@@ -609,7 +627,10 @@ fi
 echo ""
 echo -e "  ${BOLD}Next steps:${RESET}"
 echo -e "   1. Open https://${DOMAIN} in your browser"
-echo -e "   2. Create your admin account on first login"
+echo -e "   2. Log in with the credentials below, then immediately change the password"
+echo -e "      ${BOLD}Admin email   :${RESET} admin@demo-isp.com"
+echo -e "      ${BOLD}Admin password:${RESET} ${ADMIN_PASSWORD}"
+echo -e "      ${YELLOW}(Also stored in ${ENV_FILE} — keep that file private)${RESET}"
 echo -e "   3. Configure SMTP in Settings → Organization → Email"
 echo -e "   4. Fill in your ISP organization details"
 echo ""
