@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS clients (
     name            VARCHAR(255)    NOT NULL,
     email           VARCHAR(255)    NULL,
     phone           VARCHAR(30)     NULL,
-    client_type     ENUM('personal', 'company') NOT NULL DEFAULT 'personal',
+    client_type     ENUM('personal', 'company', 'residential', 'business', 'government', 'wholesale') NOT NULL DEFAULT 'personal',
     locale          ENUM('global', 'MX') NOT NULL DEFAULT 'global'
                         COMMENT 'Regional compliance switch: global = no country-specific requirements; MX = SAT CFDI 4.0 + IFT/CRT compliance required',
     tax_id          VARCHAR(50)     NULL,
