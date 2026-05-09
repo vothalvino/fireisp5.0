@@ -480,6 +480,9 @@ CREATE TABLE IF NOT EXISTS payments (
     clabe            VARCHAR(18)     NULL COMMENT '18-digit CLABE interbank key — required for SPEI and CoDi transactions',
     bank_name        VARCHAR(100)    NULL COMMENT 'Bank name for SPEI / CoDi transactions',
     notes            TEXT            NULL,
+    status           ENUM('pending', 'completed', 'failed', 'refunded', 'cancelled')
+                                     NOT NULL DEFAULT 'completed'
+                                     COMMENT 'Payment lifecycle status',
     version          INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
     recorded_by      BIGINT UNSIGNED NULL,
     created_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -491,6 +494,7 @@ CREATE TABLE IF NOT EXISTS payments (
     KEY idx_payments_client_id (client_id),
     KEY idx_payments_invoice_id (invoice_id),
     KEY idx_payments_payment_date (payment_date),
+    KEY idx_payments_status (status),
     KEY idx_payments_client_created (client_id, created_at DESC),
     KEY idx_payments_deleted_at (deleted_at),
     CONSTRAINT fk_payments_client FOREIGN KEY (client_id)
