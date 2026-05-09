@@ -311,6 +311,18 @@ describe('setCsrfCookie', () => {
     expect(res._cookies.fireisp_csrf.opts.httpOnly).toBe(false);
   });
 
+  test('fireisp_csrf token cookie has path "/" so SPA can read it on any route', () => {
+    const res = mockRes();
+    setCsrfCookie(res, 900_000);
+    expect(res._cookies.fireisp_csrf.opts.path).toBe('/');
+  });
+
+  test('fireisp_csrf_secret cookie has path "/api" (server-only)', () => {
+    const res = mockRes();
+    setCsrfCookie(res, 900_000);
+    expect(res._cookies.fireisp_csrf_secret.opts.path).toBe('/api');
+  });
+
   test('both cookies are SameSite=Strict', () => {
     const res = mockRes();
     setCsrfCookie(res, 900_000);

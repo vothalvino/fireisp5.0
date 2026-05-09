@@ -24,6 +24,10 @@
 //   - Requests without a FireISP auth cookie (API-key clients, unauthenticated)
 //   - Requests carrying `Authorization: Bearer` (custom headers cannot be forged
 //     cross-origin, so these are inherently CSRF-safe even when cookies are present)
+//
+// Cookie paths:
+//   - fireisp_csrf_secret  path=/api  — httpOnly, only sent on API requests (server-only)
+//   - fireisp_csrf         path=/     — NOT httpOnly, readable via document.cookie on any SPA route
 // =============================================================================
 
 const Tokens = require('csrf');
@@ -72,13 +76,19 @@ function secretCookieOptions(maxAge) {
 
 /**
  * Cookie options for the CSRF *token* cookie (NOT httpOnly so the SPA can read it).
+ *
+ * Path MUST be '/' so that client-side JavaScript on any SPA route (/, /clients,
+ * /dashboard, etc.) can read the token via `document.cookie`.  Using path '/api'
+ * would restrict visibility to pages whose URL starts with /api — which is never
+ * the case for the frontend SPA — causing `document.cookie` to return nothing and
+ * breaking the CSRF double-submit pattern on every page reload.
  */
 function tokenCookieOptions(maxAge) {
   return {
     httpOnly: false,       // Must be readable by client-side JavaScript
     sameSite: 'strict',
     secure: config.env === 'production',
-    path: '/api',
+    path: '/',             // '/' — readable from every SPA route
     ...(maxAge !== undefined ? { maxAge } : {}),
   };
 }
