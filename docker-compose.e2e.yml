@@ -80,6 +80,6 @@ services:
       BASE_URL: http://app:3000
       CI: 'true'
     command: >
-      sh -c "npm ci && npx playwright install --with-deps chromium && npx playwright test"
+      sh -c "npm install && npx playwright install --with-deps chromium && npx playwright test"
 
 volumes: {}
