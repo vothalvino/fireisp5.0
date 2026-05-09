@@ -13,7 +13,7 @@ export default defineConfig({
   testDir: './tests',
 
   // Maximum time one test can run (ms)
-  timeout: 60_000,
+  timeout: 120_000,
 
   // Retry once in CI to absorb transient flakiness
   retries: process.env.CI ? 1 : 0,

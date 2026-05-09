@@ -815,6 +815,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     description VARCHAR(255)    NOT NULL COMMENT 'Line-item description e.g. plan name, one-time fee',
     quantity    DECIMAL(10, 2)  NOT NULL DEFAULT 1.00,
     unit_price  DECIMAL(10, 2)  NOT NULL,
+    amount      DECIMAL(10, 2)  NOT NULL DEFAULT 0.00 COMMENT 'Line-item total amount (quantity × unit_price); populated on INSERT by billingService and Invoice.addItem',
     tax_rate_id BIGINT UNSIGNED NULL COMMENT 'Per-line-item tax rate override; NULL = inherit from parent invoice',
     total       DECIMAL(10, 2)  GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT 'quantity * unit_price',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
