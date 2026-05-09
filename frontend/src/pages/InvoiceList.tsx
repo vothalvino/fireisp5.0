@@ -65,8 +65,10 @@ interface InvoiceLineItem {
   unitPrice: string;
 }
 
+let _itemCounter = 0;
 function makeItem(type: ItemType): InvoiceLineItem {
-  return { localId: Math.random().toString(36).slice(2), type, contractId: '', description: '', quantity: '1', unitPrice: '' };
+  const localId = `item-${++_itemCounter}`;
+  return { localId, type, contractId: '', description: '', quantity: '1', unitPrice: '' };
 }
 
 // ---------------------------------------------------------------------------
@@ -214,8 +216,8 @@ function GenerateInvoiceModal({ clients, contracts, onClose, onGenerated }: Gene
       if ((item.type === 'product' || item.type === 'custom') && !item.description.trim()) {
         setError('Please enter a description for each product/custom item.'); return;
       }
-      if ((item.type === 'product' || item.type === 'custom') && (!item.unitPrice || parseFloat(item.unitPrice) < 0)) {
-        setError('Please enter a valid unit price for each product/custom item.'); return;
+      if ((item.type === 'product' || item.type === 'custom') && (!item.unitPrice || parseFloat(item.unitPrice) <= 0)) {
+        setError('Please enter a unit price greater than zero for each product/custom item.'); return;
       }
     }
 
@@ -357,7 +359,7 @@ function GenerateInvoiceModal({ clients, contracts, onClose, onGenerated }: Gene
                         <input
                           style={inputStyle}
                           type="number"
-                          min="0"
+                          min="0.01"
                           step="0.01"
                           placeholder="0.00"
                           value={item.unitPrice}

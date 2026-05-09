@@ -143,7 +143,7 @@ router.post('/generate', requirePermission('invoices.create'), async (req, res, 
         if (!item.description || String(item.description).trim() === '') {
           return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'description is required for product/custom items' } });
         }
-        const qty = Math.max(parseFloat(item.quantity) || 1, 0);
+        const qty = Math.max(parseFloat(item.quantity) || 1, 0.01);
         const up = Math.max(parseFloat(item.unit_price) || 0, 0);
         const amount = Math.round(qty * up * 100) / 100;
         lineItems.push({ description: String(item.description).trim(), quantity: qty, unit_price: up, amount });
