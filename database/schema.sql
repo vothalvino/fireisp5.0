@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS clients (
     name            VARCHAR(255)    NOT NULL,
     email           VARCHAR(255)    NULL,
     phone           VARCHAR(30)     NULL,
-    client_type     ENUM('personal', 'company') NOT NULL DEFAULT 'personal',
+    client_type     ENUM('personal', 'company', 'residential', 'business', 'government', 'wholesale') NOT NULL DEFAULT 'personal',
     locale          ENUM('global', 'MX') NOT NULL DEFAULT 'global'
                         COMMENT 'Regional compliance switch: global = no country-specific requirements; MX = SAT CFDI 4.0 + IFT/CRT compliance required',
     tax_id          VARCHAR(50)     NULL,
@@ -176,11 +176,15 @@ CREATE TABLE IF NOT EXISTS plans (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS contracts (
     id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Owning tenant organisation; NULL = single-tenant deployment',
     client_id      BIGINT UNSIGNED NOT NULL,
     plan_id        BIGINT UNSIGNED NOT NULL,
     site_id        BIGINT UNSIGNED NULL,
     start_date     DATE            NOT NULL,
     end_date       DATE            NULL,
+    billing_day    TINYINT UNSIGNED NULL     COMMENT 'Day of month (1–28) on which invoices are generated; NULL = inherit from plan'
+                       CHECK (billing_day BETWEEN 1 AND 28),
+    ip_address     VARCHAR(45)     NULL      COMMENT 'Static IPv4/IPv6 address assigned to this service; NULL = dynamic',
     billing_cycle  ENUM('monthly', 'quarterly', 'semi_annual', 'annual') NULL COMMENT 'Override cycle; NULL means use the plan billing cycle',
     price_override DECIMAL(10, 2)  NULL COMMENT 'Custom price; NULL means use plan price',
     notes          TEXT            NULL,
@@ -198,6 +202,8 @@ CREATE TABLE IF NOT EXISTS contracts (
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
+    KEY idx_contracts_organization_id (organization_id),
+    KEY idx_contracts_org_status (organization_id, status),
     KEY idx_contracts_client_id (client_id),
     KEY idx_contracts_plan_id (plan_id),
     KEY idx_contracts_site_id (site_id),
@@ -207,6 +213,8 @@ CREATE TABLE IF NOT EXISTS contracts (
     KEY idx_contracts_status (status),
     KEY idx_contracts_client_status (client_id, status),
     KEY idx_contracts_deleted_at (deleted_at),
+    CONSTRAINT fk_contracts_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_contracts_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_contracts_plan FOREIGN KEY (plan_id)
@@ -362,21 +370,24 @@ CREATE TABLE IF NOT EXISTS devices (
 -- Purpose: Customer support ticket tracking
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS tickets (
-    id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Owning tenant organisation; NULL = single-tenant deployment',
     client_id    BIGINT UNSIGNED NOT NULL,
     contract_id  BIGINT UNSIGNED NULL     COMMENT 'Contract this ticket concerns (NULL = general client-level ticket)',
     assigned_to  BIGINT UNSIGNED NULL,
-    title        VARCHAR(255)    NOT NULL,
+    subject      VARCHAR(255)    NOT NULL,
     description  TEXT            NULL,
+    notes        TEXT            NULL COMMENT 'Internal operator notes on this ticket',
     category     VARCHAR(100)    NULL COMMENT 'e.g. connectivity, billing, hardware',
     priority     ENUM('low', 'medium', 'high', 'critical') NOT NULL DEFAULT 'medium',
-    status       ENUM('open', 'in_progress', 'resolved', 'closed') NOT NULL DEFAULT 'open',
+    status       ENUM('open', 'in_progress', 'waiting', 'resolved', 'closed') NOT NULL DEFAULT 'open',
     resolved_at  TIMESTAMP       NULL,
     created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
+    KEY idx_tickets_organization_id (organization_id),
     KEY idx_tickets_client_id (client_id),
     KEY idx_tickets_contract_id (contract_id),
     KEY idx_tickets_assigned_to (assigned_to),
@@ -390,7 +401,9 @@ CREATE TABLE IF NOT EXISTS tickets (
     CONSTRAINT fk_tickets_contract FOREIGN KEY (contract_id)
         REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_tickets_assigned_to FOREIGN KEY (assigned_to)
-        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_tickets_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -398,29 +411,33 @@ CREATE TABLE IF NOT EXISTS tickets (
 -- Purpose: Billing records issued to clients
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS invoices (
-    id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    client_id      BIGINT UNSIGNED NOT NULL,
-    contract_id    BIGINT UNSIGNED NULL,
-    invoice_number VARCHAR(50)     NOT NULL,
-    issue_date     DATE            NOT NULL,
-    due_date       DATE            NOT NULL,
-    subtotal       DECIMAL(10, 2)  NOT NULL DEFAULT 0.00,
-    tax_rate       DECIMAL(5, 4)   NOT NULL DEFAULT 0.0000 COMMENT 'e.g. 0.0800 for 8%',
-    tax_amount     DECIMAL(10, 2)  NOT NULL DEFAULT 0.00,
-    total          DECIMAL(10, 2)  NOT NULL DEFAULT 0.00,
-    currency       CHAR(3)         NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code',
-    tax_rate_id    BIGINT UNSIGNED NULL COMMENT 'Tax rate configuration used; NULL = manual / legacy rate',
-    notes          TEXT            NULL,
-    status         ENUM('draft', 'sent', 'paid', 'overdue', 'cancelled') NOT NULL DEFAULT 'draft',
-    paid_at        TIMESTAMP       NULL,
-    version        INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
-    created_by     BIGINT UNSIGNED NULL,
-    created_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL      COMMENT 'Owning tenant organisation; NULL = single-tenant deployment',
+    client_id       BIGINT UNSIGNED NOT NULL,
+    contract_id     BIGINT UNSIGNED NULL,
+    invoice_number  VARCHAR(50)     NOT NULL,
+    issue_date      DATE            NOT NULL DEFAULT (CURRENT_DATE) COMMENT 'Billing date of the invoice',
+    due_date        DATE            NOT NULL,
+    issued_at       DATETIME        NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Timestamp when the invoice record was created (used by DSAR export)',
+    subtotal        DECIMAL(10, 2)  NOT NULL DEFAULT 0.00,
+    tax_rate        DECIMAL(5, 4)   NOT NULL DEFAULT 0.0000 COMMENT 'e.g. 0.0800 for 8%',
+    tax_amount      DECIMAL(10, 2)  NOT NULL DEFAULT 0.00,
+    total           DECIMAL(10, 2)  NOT NULL DEFAULT 0.00,
+    currency        CHAR(3)         NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code',
+    tax_rate_id     BIGINT UNSIGNED NULL COMMENT 'Tax rate configuration used; NULL = manual / legacy rate',
+    notes           TEXT            NULL,
+    status          ENUM('draft', 'issued', 'sent', 'paid', 'overdue', 'cancelled', 'void') NOT NULL DEFAULT 'draft',
+    paid_at         TIMESTAMP       NULL,
+    version         INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
+    created_by      BIGINT UNSIGNED NULL,
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_invoices_number (invoice_number),
+    KEY idx_invoices_organization_id (organization_id),
+    KEY idx_invoices_org_status (organization_id, status),
     KEY idx_invoices_client_id (client_id),
     KEY idx_invoices_contract_id (contract_id),
     KEY idx_invoices_status (status),
@@ -429,6 +446,8 @@ CREATE TABLE IF NOT EXISTS invoices (
     KEY idx_invoices_status_due (status, due_date),
     KEY idx_invoices_tax_rate_id (tax_rate_id),
     KEY idx_invoices_deleted_at (deleted_at),
+    CONSTRAINT fk_invoices_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_invoices_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_invoices_contract FOREIGN KEY (contract_id)
@@ -445,21 +464,26 @@ CREATE TABLE IF NOT EXISTS invoices (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS payments (
     id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id  BIGINT UNSIGNED NULL     COMMENT 'Owning tenant organisation; NULL = single-tenant deployment',
     client_id        BIGINT UNSIGNED NOT NULL,
     invoice_id       BIGINT UNSIGNED NULL,
     amount           DECIMAL(10, 2)  NOT NULL,
     currency         CHAR(3)         NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code',
-    payment_date     DATE            NOT NULL,
-    payment_method   ENUM('cash', 'check', 'credit_card', 'debit_card', 'bank_transfer',
-                         'oxxo_pay', 'spei', 'codi', 'convenience_store', 'digital_wallet',
-                         'other')
+    payment_date     DATE            NOT NULL DEFAULT (CURRENT_DATE) COMMENT 'Date the payment was received; defaults to today',
+    payment_method   ENUM('cash', 'check', 'card', 'transfer', 'online',
+                         'credit_card', 'debit_card', 'bank_transfer',
+                         'oxxo_pay', 'spei', 'codi', 'convenience_store',
+                         'digital_wallet', 'other')
                                      NOT NULL DEFAULT 'cash'
-                                     COMMENT 'Payment instrument; MX methods: oxxo_pay, spei, codi, convenience_store, digital_wallet',
+                                     COMMENT 'Payment instrument; simplified: cash/check/card/transfer/online/other; MX methods: oxxo_pay, spei, codi, convenience_store, digital_wallet',
     sat_forma_pago   VARCHAR(2)      NULL COMMENT 'SAT c_FormaPago code used to stamp on CFDI pago complement (e.g. 01=cash, 03=SPEI, 06=CoDi)',
     reference_number VARCHAR(100)    NULL COMMENT 'Check number, transaction ID, etc.',
     clabe            VARCHAR(18)     NULL COMMENT '18-digit CLABE interbank key — required for SPEI and CoDi transactions',
     bank_name        VARCHAR(100)    NULL COMMENT 'Bank name for SPEI / CoDi transactions',
     notes            TEXT            NULL,
+    status           ENUM('pending', 'completed', 'failed', 'refunded', 'cancelled')
+                                     NOT NULL DEFAULT 'completed'
+                                     COMMENT 'Payment lifecycle status',
     version          INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
     recorded_by      BIGINT UNSIGNED NULL,
     created_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -467,9 +491,11 @@ CREATE TABLE IF NOT EXISTS payments (
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
+    KEY idx_payments_organization_id (organization_id),
     KEY idx_payments_client_id (client_id),
     KEY idx_payments_invoice_id (invoice_id),
     KEY idx_payments_payment_date (payment_date),
+    KEY idx_payments_status (status),
     KEY idx_payments_client_created (client_id, created_at DESC),
     KEY idx_payments_deleted_at (deleted_at),
     CONSTRAINT fk_payments_client FOREIGN KEY (client_id)
@@ -477,7 +503,9 @@ CREATE TABLE IF NOT EXISTS payments (
     CONSTRAINT fk_payments_invoice FOREIGN KEY (invoice_id)
         REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_payments_recorded_by FOREIGN KEY (recorded_by)
-        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_payments_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -793,6 +821,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     description VARCHAR(255)    NOT NULL COMMENT 'Line-item description e.g. plan name, one-time fee',
     quantity    DECIMAL(10, 2)  NOT NULL DEFAULT 1.00,
     unit_price  DECIMAL(10, 2)  NOT NULL,
+    amount      DECIMAL(10, 2)  NOT NULL DEFAULT 0.00 COMMENT 'Line-item total amount (quantity × unit_price); populated on INSERT by billingService and Invoice.addItem',
     tax_rate_id BIGINT UNSIGNED NULL COMMENT 'Per-line-item tax rate override; NULL = inherit from parent invoice',
     total       DECIMAL(10, 2)  GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT 'quantity * unit_price',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -2161,14 +2190,17 @@ CREATE TABLE IF NOT EXISTS client_balance_ledger (
     client_id       BIGINT UNSIGNED  NOT NULL,
     balance_type    ENUM('prepaid', 'postpaid') NOT NULL DEFAULT 'postpaid'
                         COMMENT 'prepaid = client pays in advance (positive balance = available credit); postpaid = client pays after usage (positive balance = amount owed)',
-    entry_type      ENUM('invoice', 'payment', 'credit_note', 'adjustment', 'topup', 'usage_deduction') NOT NULL
-                        COMMENT 'invoice/usage_deduction = debit entries; payment/topup/credit_note/adjustment = credit entries',
+    entry_type      ENUM('invoice', 'payment', 'credit_note', 'adjustment', 'topup', 'usage_deduction', 'debit', 'credit') NOT NULL
+                        COMMENT 'invoice/usage_deduction/debit = debit entries; payment/topup/credit_note/adjustment/credit = credit entries',
     reference_id    BIGINT UNSIGNED  NULL     COMMENT 'Polymorphic ID of the invoice, payment, credit_note, or related entity',
     description     VARCHAR(255)     NULL,
+    amount          DECIMAL(10, 2)   NOT NULL DEFAULT 0.00 COMMENT 'Convenience field used by billingService; mirrors the debit or credit value',
+    currency        VARCHAR(3)       NULL     COMMENT 'ISO 4217 currency code for the entry (e.g. MXN, USD)',
+    reference_type  VARCHAR(50)      NULL     COMMENT 'Polymorphic type tag for reference_id (invoice, payment, etc.)',
     debit           DECIMAL(10, 2)   NOT NULL DEFAULT 0.00 COMMENT 'Amount charged (increases balance owed / decreases prepaid credit)',
     credit          DECIMAL(10, 2)   NOT NULL DEFAULT 0.00 COMMENT 'Amount credited (decreases balance owed / increases prepaid credit)',
     running_balance DECIMAL(10, 2)   NOT NULL DEFAULT 0.00 COMMENT 'Client account balance after this entry',
-    entry_date      DATE             NOT NULL,
+    entry_date      DATE             NOT NULL DEFAULT (CURRENT_DATE) COMMENT 'Accounting date of this ledger entry',
     created_by      BIGINT UNSIGNED  NULL     COMMENT 'User who created this entry; NULL = system',
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

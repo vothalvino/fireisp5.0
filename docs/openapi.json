@@ -16739,6 +16739,10 @@
               "other"
             ]
           },
+          "payment_date": {
+            "type": "string",
+            "format": "date"
+          },
           "reference": {
             "type": "string",
             "maximum": 200

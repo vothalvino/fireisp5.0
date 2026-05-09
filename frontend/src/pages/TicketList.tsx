@@ -205,7 +205,7 @@ function NewTicketModal({ clients, users, onClose, onCreated }: NewTicketModalPr
     setForm(f => ({ ...f, [k]: e.target.value }));
 
   return (
-    <div style={modalOverlay}>
+    <div style={modalOverlay} role="dialog" aria-modal="true" aria-label="New Ticket">
       <div style={modalBox}>
         <h3 style={{ margin: '0 0 1rem' }}>New Ticket</h3>
         {err && <div style={errStyle}>{err}</div>}

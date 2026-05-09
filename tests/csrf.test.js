@@ -76,6 +76,43 @@ describe('csrfOriginCheck', () => {
   });
 
   // =========================================================================
+  // Bearer-token requests — exempt even when cookies are present
+  // (CSRF cannot forge custom Authorization headers cross-origin)
+  // =========================================================================
+  test('POST with Authorization: Bearer header is exempt even when auth cookies are set', () => {
+    const req = mockReq({
+      cookies: { fireisp_access: 'jwt', fireisp_csrf_secret: 'secret' },
+      headers: { authorization: 'Bearer some-access-token' },
+    });
+    const res = mockRes();
+    const next = jest.fn();
+
+    csrfOriginCheck(req, res, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(mockVerify).not.toHaveBeenCalled();
+    expect(res._status).toBeNull();
+  });
+
+  test.each(['PUT', 'PATCH', 'DELETE'])(
+    '%s with Authorization: Bearer is exempt from CSRF check',
+    (method) => {
+      const req = mockReq({
+        method,
+        cookies: { fireisp_access: 'jwt', fireisp_csrf_secret: 'secret' },
+        headers: { authorization: 'Bearer some-access-token' },
+      });
+      const res = mockRes();
+      const next = jest.fn();
+
+      csrfOriginCheck(req, res, next);
+
+      expect(next).toHaveBeenCalledWith();
+      expect(mockVerify).not.toHaveBeenCalled();
+    },
+  );
+
+  // =========================================================================
   // csrf-library token verification — primary path
   // =========================================================================
   test('POST with valid X-CSRF-Token header is allowed (tokens.verify returns true)', () => {
@@ -272,6 +309,18 @@ describe('setCsrfCookie', () => {
     const res = mockRes();
     setCsrfCookie(res, 900_000);
     expect(res._cookies.fireisp_csrf.opts.httpOnly).toBe(false);
+  });
+
+  test('fireisp_csrf token cookie has path "/" so SPA can read it on any route', () => {
+    const res = mockRes();
+    setCsrfCookie(res, 900_000);
+    expect(res._cookies.fireisp_csrf.opts.path).toBe('/');
+  });
+
+  test('fireisp_csrf_secret cookie has path "/api" (server-only)', () => {
+    const res = mockRes();
+    setCsrfCookie(res, 900_000);
+    expect(res._cookies.fireisp_csrf_secret.opts.path).toBe('/api');
   });
 
   test('both cookies are SameSite=Strict', () => {

@@ -7,6 +7,7 @@ const createPayment = {
   amount: { type: 'number', required: true, min: 0 },
   currency: { type: 'string', max: 3 },
   payment_method: { type: 'string', enum: ['cash', 'card', 'transfer', 'check', 'online', 'other'] },
+  payment_date: { type: 'string', format: 'date' },
   reference: { type: 'string', max: 200 },
   sat_forma_pago: { type: 'string', max: 2 },
   clabe: { type: 'string', max: 18 },

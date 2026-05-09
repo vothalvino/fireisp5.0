@@ -20,24 +20,47 @@ const ADMIN_EMAIL = 'admin@demo-isp.com';
 const ADMIN_PASSWORD = 'admin123!';
 const API = '/api/v1';
 
-/** Log in via the REST API and return an access token. */
-async function apiLogin(request: APIRequestContext): Promise<string> {
+/**
+ * Log in via the REST API and return the access token plus the CSRF token that
+ * the server stored in the `fireisp_csrf` cookie.
+ *
+ * The CSRF middleware requires `X-CSRF-Token` on every state-changing request
+ * that carries the `fireisp_access` auth cookie.  Playwright's
+ * `APIRequestContext` automatically re-sends cookies across requests in the
+ * same context, so every subsequent POST/PUT/DELETE must echo the CSRF token
+ * back via the header.
+ */
+async function apiLogin(
+  request: APIRequestContext,
+): Promise<{ token: string; csrfToken: string }> {
   const res = await request.post(`${API}/auth/login`, {
     data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
   });
   expect(res.ok(), `API login failed: ${await res.text()}`).toBeTruthy();
   const body = await res.json();
-  return (body.data?.accessToken ?? body.accessToken) as string;
+  const token = (body.data?.accessToken ?? body.accessToken) as string;
+
+  // Extract the CSRF token from the cookie jar so we can echo it as
+  // X-CSRF-Token on subsequent state-changing API requests.
+  const state = await request.storageState();
+  const csrfCookie = state.cookies.find((c) => c.name === 'fireisp_csrf');
+  const csrfToken = csrfCookie?.value ?? '';
+
+  return { token, csrfToken };
 }
 
 /** Create a throwaway client and return its id. */
 async function apiCreateClient(
   request: APIRequestContext,
   token: string,
+  csrfToken: string,
   suffix: string,
 ): Promise<number> {
   const res = await request.post(`${API}/clients`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'X-CSRF-Token': csrfToken,
+    },
     data: {
       name: `Smoke ${suffix}`,
       email: `smoke.${suffix}@e2e.test`,
@@ -59,11 +82,25 @@ test('full operator workflow smoke test', async ({ page, request }) => {
   // A unique suffix to identify this test run's data in table rows.
   const suffix = Date.now().toString(36).toUpperCase();
 
+  // ---------------------------------------------------------------------------
+  // Pre-dismiss the DR Drill banner.
+  //
+  // DrDrillBanner shows a full-screen aria-hidden backdrop that blocks all
+  // pointer events whenever the server reports overdue:true.  In CI the fresh
+  // database has no drill history (last_run_at=null) so overdue is always true.
+  // The component respects the sessionStorage flag set by its own dismiss
+  // handler, so injecting it before the first page load is equivalent to the
+  // user clicking "Dismiss" on a previous visit.
+  // ---------------------------------------------------------------------------
+  await page.addInitScript(() => {
+    try { sessionStorage.setItem('drDrillBannerDismissed', '1'); } catch { /* ignore */ }
+  });
+
   // -------------------------------------------------------------------------
   // Step 0 — Create a test client via API (no UI form on ClientList)
   // -------------------------------------------------------------------------
-  const token = await apiLogin(request);
-  const clientId = await apiCreateClient(request, token, suffix);
+  const { token, csrfToken } = await apiLogin(request);
+  const clientId = await apiCreateClient(request, token, csrfToken, suffix);
 
   // We need the client name in the UI selects later.
   const clientName = `Smoke ${suffix}`;
@@ -103,46 +140,53 @@ test('full operator workflow smoke test', async ({ page, request }) => {
   // Open the modal
   await page.getByRole('button', { name: /new contract/i }).click();
 
+  // Scope all interactions to the New Contract dialog specifically
+  const contractDialog = page.getByRole('dialog', { name: /new contract/i });
+
   // Wait for the client dropdown to be populated
-  const clientSelect = page.getByRole('dialog').locator('select').first();
+  const clientSelect = contractDialog.locator('select').first();
   await expect(clientSelect).toBeVisible({ timeout: 10_000 });
   await clientSelect.selectOption({ label: clientName });
 
   // Select the first plan
-  const planSelect = page.getByRole('dialog').locator('select').nth(1);
+  const planSelect = contractDialog.locator('select').nth(1);
   await planSelect.selectOption({ index: 1 }); // first real option after the placeholder
 
   // Start date is pre-filled with today — leave it as-is
   // Submit
-  await page.getByRole('dialog').getByRole('button', { name: /create|save|submit/i }).click();
+  await contractDialog.getByRole('button', { name: /create|save|submit/i }).click();
 
   // Modal should close and the contracts table should refresh
-  await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: 15_000 });
+  await expect(contractDialog).not.toBeVisible({ timeout: 15_000 });
 
   // -------------------------------------------------------------------------
   // Step 5 — Invoices → Generate Invoice for our test client
+  //
+  // The new modal: select client → add items (contract charge / product / custom)
+  // → Generate.  We add one contract-charge item pointing to the contract
+  // created in step 4.
   // -------------------------------------------------------------------------
   await page.goto('/invoices');
 
   await page.getByRole('button', { name: /generate invoice/i }).click();
 
-  // Select client
-  const invClientSelect = page.locator('div[style*="position: fixed"] select, [role="dialog"] select').first();
+  const generateDialog = page.getByRole('dialog', { name: /generate invoice/i });
+
+  // Select client (first select in the dialog)
+  const invClientSelect = generateDialog.locator('select').first();
   await expect(invClientSelect).toBeVisible({ timeout: 10_000 });
   await invClientSelect.selectOption({ label: clientName });
 
-  // Select the contract we just created (first option after placeholder)
-  const invContractSelect = page
-    .locator('div[style*="position: fixed"] select, [role="dialog"] select')
-    .nth(1);
-  await invContractSelect.selectOption({ index: 1 });
+  // The modal pre-adds one "Contract charge" item by default.
+  // The contract select is the second select in the dialog.
+  const invContractSelect = generateDialog.locator('select').nth(1);
+  await expect(invContractSelect).toBeVisible({ timeout: 10_000 });
+  await invContractSelect.selectOption({ index: 1 }); // first real option
 
-  await page.getByRole('button', { name: /^generate$/i }).click();
+  await generateDialog.getByRole('button', { name: /^generate$/i }).click();
 
   // Modal closes; invoice list refreshes
-  await expect(
-    page.locator('div[style*="position: fixed"], [role="dialog"]'),
-  ).not.toBeVisible({ timeout: 15_000 });
+  await expect(generateDialog).not.toBeVisible({ timeout: 30_000 });
 
   // -------------------------------------------------------------------------
   // Step 6 — Payments → Record Payment for our test client
@@ -151,15 +195,15 @@ test('full operator workflow smoke test', async ({ page, request }) => {
 
   await page.getByRole('button', { name: /record payment/i }).click();
 
-  const payClientSelect = page
-    .locator('div[style*="position: fixed"] select, [role="dialog"] select')
-    .first();
+  const payDialog = page.getByRole('dialog', { name: /record payment/i });
+
+  const payClientSelect = payDialog.locator('select').first();
   await expect(payClientSelect).toBeVisible({ timeout: 10_000 });
   await payClientSelect.selectOption({ label: clientName });
 
   // Enter amount
-  await page
-    .locator('div[style*="position: fixed"] input[type="number"], [role="dialog"] input[type="number"]')
+  await payDialog
+    .locator('input[type="number"]')
     .first()
     .fill('29.99');
 
@@ -167,9 +211,7 @@ test('full operator workflow smoke test', async ({ page, request }) => {
   await page.getByRole('button', { name: /^record payment$/i }).click();
 
   // Modal closes
-  await expect(
-    page.locator('div[style*="position: fixed"], [role="dialog"]'),
-  ).not.toBeVisible({ timeout: 15_000 });
+  await expect(payDialog).not.toBeVisible({ timeout: 15_000 });
 
   // -------------------------------------------------------------------------
   // Step 7 — Tickets → New Ticket linked to our test client
@@ -178,26 +220,22 @@ test('full operator workflow smoke test', async ({ page, request }) => {
 
   await page.getByRole('button', { name: /new ticket/i }).click();
 
+  const ticketDialog = page.getByRole('dialog', { name: /new ticket/i });
+
   // Fill subject
-  const subjectInput = page
-    .locator('div[style*="position: fixed"] input, [role="dialog"] input')
-    .first();
+  const subjectInput = ticketDialog.locator('input').first();
   await expect(subjectInput).toBeVisible({ timeout: 10_000 });
   await subjectInput.fill(`E2E smoke ${suffix}`);
 
   // Link to client (optional field — use the first non-empty select)
-  const ticketClientSelect = page
-    .locator('div[style*="position: fixed"] select, [role="dialog"] select')
-    .first();
+  const ticketClientSelect = ticketDialog.locator('select').first();
   await ticketClientSelect.selectOption({ label: clientName });
 
   // Submit
   await page.getByRole('button', { name: /create ticket/i }).click();
 
   // Modal closes; our ticket subject should appear in the list
-  await expect(
-    page.locator('div[style*="position: fixed"], [role="dialog"]'),
-  ).not.toBeVisible({ timeout: 15_000 });
+  await expect(ticketDialog).not.toBeVisible({ timeout: 15_000 });
   await expect(page.getByText(`E2E smoke ${suffix}`)).toBeVisible({ timeout: 15_000 });
 
   // -------------------------------------------------------------------------

@@ -11,6 +11,7 @@
 
 import createClient, { type Middleware } from 'openapi-fetch';
 import type { paths } from './schema';
+import { readCsrfCookie } from './csrf';
 
 // Access token lives in module scope (memory only).  The refresh token is now
 // stored as an httpOnly SameSite=Strict cookie set by the server, so it is no
@@ -36,9 +37,16 @@ async function doRefresh(): Promise<boolean> {
     // No body needed — the browser sends the httpOnly `fireisp_refresh` cookie
     // automatically.  `credentials: 'include'` is required for same-origin
     // cookie delivery on fetch calls.
+    //
+    // The CSRF middleware enforces X-CSRF-Token for cookie-authenticated POSTs.
+    // Read the non-httpOnly `fireisp_csrf` cookie and echo it back as the header.
+    const csrfToken = readCsrfCookie();
     const res = await fetch('/api/v1/auth/refresh', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+      },
       credentials: 'include',
     });
 

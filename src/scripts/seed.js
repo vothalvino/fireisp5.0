@@ -116,7 +116,7 @@ async function seed() {
     // 9. A couple of tickets
     logger.info('Seeding tickets...');
     await conn.execute(`
-      INSERT IGNORE INTO tickets (id, client_id, title, description, status, priority)
+      INSERT IGNORE INTO tickets (id, client_id, subject, description, status, priority)
       VALUES
         (1, 1, 'Slow internet speeds', 'Customer reports download speed below 20 Mbps during peak hours', 'open', 'high'),
         (2, 3, 'New office connection', 'Need to set up a second connection at the new Acme Corp office', 'open', 'medium')
