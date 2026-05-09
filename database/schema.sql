@@ -176,11 +176,14 @@ CREATE TABLE IF NOT EXISTS plans (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS contracts (
     id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Owning tenant organisation; NULL = single-tenant deployment',
     client_id      BIGINT UNSIGNED NOT NULL,
     plan_id        BIGINT UNSIGNED NOT NULL,
     site_id        BIGINT UNSIGNED NULL,
     start_date     DATE            NOT NULL,
     end_date       DATE            NULL,
+    billing_day    TINYINT UNSIGNED NULL     COMMENT 'Day of month (1–28) on which invoices are generated; NULL = inherit from plan',
+    ip_address     VARCHAR(45)     NULL      COMMENT 'Static IPv4/IPv6 address assigned to this service; NULL = dynamic',
     billing_cycle  ENUM('monthly', 'quarterly', 'semi_annual', 'annual') NULL COMMENT 'Override cycle; NULL means use the plan billing cycle',
     price_override DECIMAL(10, 2)  NULL COMMENT 'Custom price; NULL means use plan price',
     notes          TEXT            NULL,
@@ -198,6 +201,8 @@ CREATE TABLE IF NOT EXISTS contracts (
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
+    KEY idx_contracts_organization_id (organization_id),
+    KEY idx_contracts_org_status (organization_id, status),
     KEY idx_contracts_client_id (client_id),
     KEY idx_contracts_plan_id (plan_id),
     KEY idx_contracts_site_id (site_id),
@@ -207,6 +212,8 @@ CREATE TABLE IF NOT EXISTS contracts (
     KEY idx_contracts_status (status),
     KEY idx_contracts_client_status (client_id, status),
     KEY idx_contracts_deleted_at (deleted_at),
+    CONSTRAINT fk_contracts_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_contracts_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_contracts_plan FOREIGN KEY (plan_id)
