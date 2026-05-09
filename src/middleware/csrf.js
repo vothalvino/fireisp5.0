@@ -20,7 +20,10 @@
 // Fallback: sessions without a CSRF secret cookie fall back to an
 // Origin/Referer header check for backward compatibility.
 //
-// API clients that use X-API-Key or Bearer-only (no auth cookie) are exempt.
+// Exempt from CSRF enforcement:
+//   - Requests without a FireISP auth cookie (API-key clients, unauthenticated)
+//   - Requests carrying `Authorization: Bearer` (custom headers cannot be forged
+//     cross-origin, so these are inherently CSRF-safe even when cookies are present)
 // =============================================================================
 
 const Tokens = require('csrf');
@@ -134,6 +137,14 @@ function csrfOriginCheck(req, res, next) {
   // Only enforce when the request carries a FireISP auth cookie
   const hasCookie = !!(req.cookies?.fireisp_access || req.cookies?.fireisp_refresh);
   if (!hasCookie) return next();
+
+  // Bearer-token requests cannot be forged via CSRF because cross-origin
+  // requests cannot set custom `Authorization` headers without a CORS
+  // pre-flight that the server would reject.  The SPA uses both Bearer token
+  // and cookies, so we must exempt it here to avoid double-enforcement.
+  const hasBearer = typeof req.headers?.authorization === 'string' &&
+    req.headers.authorization.startsWith('Bearer ');
+  if (hasBearer) return next();
 
   // --- Primary: csrf-library token verification ---
   const secret = req.cookies?.[CSRF_SECRET_COOKIE];

@@ -112,6 +112,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // (credentials: 'include'), so no localStorage read is needed.  If the
   // cookie is absent or expired the server returns 401 and we settle as
   // logged-out without further network calls.
+  //
+  // The CSRF middleware enforces X-CSRF-Token for cookie-authenticated POSTs.
+  // Read the non-httpOnly `fireisp_csrf` cookie and echo it back.
   const booted = useRef(false);
   useEffect(() => {
     if (booted.current) return;
@@ -119,9 +122,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
+        const csrfMatch = document.cookie.match(/(?:^|;\s*)fireisp_csrf=([^;]*)/);
+        const csrfToken = csrfMatch ? decodeURIComponent(csrfMatch[1]) : '';
         const res = await fetch('/api/v1/auth/refresh', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+          },
           credentials: 'include',
         });
         if (res.ok) {
