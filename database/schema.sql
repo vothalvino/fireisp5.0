@@ -370,7 +370,8 @@ CREATE TABLE IF NOT EXISTS devices (
 -- Purpose: Customer support ticket tracking
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS tickets (
-    id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Owning tenant organisation; NULL = single-tenant deployment',
     client_id    BIGINT UNSIGNED NOT NULL,
     contract_id  BIGINT UNSIGNED NULL     COMMENT 'Contract this ticket concerns (NULL = general client-level ticket)',
     assigned_to  BIGINT UNSIGNED NULL,
@@ -385,6 +386,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
+    KEY idx_tickets_organization_id (organization_id),
     KEY idx_tickets_client_id (client_id),
     KEY idx_tickets_contract_id (contract_id),
     KEY idx_tickets_assigned_to (assigned_to),
@@ -398,7 +400,9 @@ CREATE TABLE IF NOT EXISTS tickets (
     CONSTRAINT fk_tickets_contract FOREIGN KEY (contract_id)
         REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_tickets_assigned_to FOREIGN KEY (assigned_to)
-        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_tickets_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -459,6 +463,7 @@ CREATE TABLE IF NOT EXISTS invoices (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS payments (
     id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id  BIGINT UNSIGNED NULL     COMMENT 'Owning tenant organisation; NULL = single-tenant deployment',
     client_id        BIGINT UNSIGNED NOT NULL,
     invoice_id       BIGINT UNSIGNED NULL,
     amount           DECIMAL(10, 2)  NOT NULL,
@@ -481,6 +486,7 @@ CREATE TABLE IF NOT EXISTS payments (
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
+    KEY idx_payments_organization_id (organization_id),
     KEY idx_payments_client_id (client_id),
     KEY idx_payments_invoice_id (invoice_id),
     KEY idx_payments_payment_date (payment_date),
@@ -491,7 +497,9 @@ CREATE TABLE IF NOT EXISTS payments (
     CONSTRAINT fk_payments_invoice FOREIGN KEY (invoice_id)
         REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_payments_recorded_by FOREIGN KEY (recorded_by)
-        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_payments_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -2175,14 +2183,17 @@ CREATE TABLE IF NOT EXISTS client_balance_ledger (
     client_id       BIGINT UNSIGNED  NOT NULL,
     balance_type    ENUM('prepaid', 'postpaid') NOT NULL DEFAULT 'postpaid'
                         COMMENT 'prepaid = client pays in advance (positive balance = available credit); postpaid = client pays after usage (positive balance = amount owed)',
-    entry_type      ENUM('invoice', 'payment', 'credit_note', 'adjustment', 'topup', 'usage_deduction') NOT NULL
-                        COMMENT 'invoice/usage_deduction = debit entries; payment/topup/credit_note/adjustment = credit entries',
+    entry_type      ENUM('invoice', 'payment', 'credit_note', 'adjustment', 'topup', 'usage_deduction', 'debit', 'credit') NOT NULL
+                        COMMENT 'invoice/usage_deduction/debit = debit entries; payment/topup/credit_note/adjustment/credit = credit entries',
     reference_id    BIGINT UNSIGNED  NULL     COMMENT 'Polymorphic ID of the invoice, payment, credit_note, or related entity',
     description     VARCHAR(255)     NULL,
+    amount          DECIMAL(10, 2)   NOT NULL DEFAULT 0.00 COMMENT 'Convenience field used by billingService; mirrors the debit or credit value',
+    currency        VARCHAR(3)       NULL     COMMENT 'ISO 4217 currency code for the entry (e.g. MXN, USD)',
+    reference_type  VARCHAR(50)      NULL     COMMENT 'Polymorphic type tag for reference_id (invoice, payment, etc.)',
     debit           DECIMAL(10, 2)   NOT NULL DEFAULT 0.00 COMMENT 'Amount charged (increases balance owed / decreases prepaid credit)',
     credit          DECIMAL(10, 2)   NOT NULL DEFAULT 0.00 COMMENT 'Amount credited (decreases balance owed / increases prepaid credit)',
     running_balance DECIMAL(10, 2)   NOT NULL DEFAULT 0.00 COMMENT 'Client account balance after this entry',
-    entry_date      DATE             NOT NULL,
+    entry_date      DATE             NOT NULL DEFAULT (CURRENT_DATE) COMMENT 'Accounting date of this ledger entry',
     created_by      BIGINT UNSIGNED  NULL     COMMENT 'User who created this entry; NULL = system',
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
