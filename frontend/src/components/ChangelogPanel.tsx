@@ -127,9 +127,9 @@ export function ChangelogPanel() {
           ...styles.panel,
           transform: open ? 'translateX(0)' : 'translateX(100%)',
         }}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t('changelog.title')}
+        role={open ? 'dialog' : undefined}
+        aria-modal={open ? true : undefined}
+        aria-label={open ? t('changelog.title') : undefined}
         data-testid="changelog-panel"
       >
         <div style={styles.panelHeader}>

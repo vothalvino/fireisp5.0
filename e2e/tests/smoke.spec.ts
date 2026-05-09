@@ -140,21 +140,24 @@ test('full operator workflow smoke test', async ({ page, request }) => {
   // Open the modal
   await page.getByRole('button', { name: /new contract/i }).click();
 
+  // Scope all interactions to the New Contract dialog specifically
+  const contractDialog = page.getByRole('dialog', { name: /new contract/i });
+
   // Wait for the client dropdown to be populated
-  const clientSelect = page.getByRole('dialog').locator('select').first();
+  const clientSelect = contractDialog.locator('select').first();
   await expect(clientSelect).toBeVisible({ timeout: 10_000 });
   await clientSelect.selectOption({ label: clientName });
 
   // Select the first plan
-  const planSelect = page.getByRole('dialog').locator('select').nth(1);
+  const planSelect = contractDialog.locator('select').nth(1);
   await planSelect.selectOption({ index: 1 }); // first real option after the placeholder
 
   // Start date is pre-filled with today — leave it as-is
   // Submit
-  await page.getByRole('dialog').getByRole('button', { name: /create|save|submit/i }).click();
+  await contractDialog.getByRole('button', { name: /create|save|submit/i }).click();
 
   // Modal should close and the contracts table should refresh
-  await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: 15_000 });
+  await expect(contractDialog).not.toBeVisible({ timeout: 15_000 });
 
   // -------------------------------------------------------------------------
   // Step 5 — Invoices → Generate Invoice for our test client
