@@ -21,6 +21,16 @@ const ADMIN_PASSWORD = 'admin123!';
 const API            = '/api/v1';
 
 // ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface SavedPayment {
+  reference: string | null;
+  amount: string;
+  status: string;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers (same pattern as smoke.spec.ts)
 // ---------------------------------------------------------------------------
 
@@ -75,7 +85,9 @@ test('record payment and verify it saves', async ({ page, request }) => {
   const suffix    = Date.now().toString(36).toUpperCase();
   const reference = `E2E-PAY-${suffix}`;
   const amount    = '75.50';
-  const today     = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  // Use UTC date (ISO slice) — the payment_date column stores YYYY-MM-DD and
+  // the date input accepts the same format, so UTC is intentional here.
+  const today     = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
 
   // -------------------------------------------------------------------------
   // 0 — Pre-dismiss the DR Drill banner so it never blocks interactions.
@@ -169,16 +181,20 @@ test('record payment and verify it saves', async ({ page, request }) => {
     headers: { Authorization: `Bearer ${token}` },
   });
   expect(listRes.ok(), `Fetch payments failed: ${await listRes.text()}`).toBeTruthy();
-  const listBody = await listRes.json() as { data: { data: Array<{ reference: string; amount: string; status: string }> } | Array<{ reference: string; amount: string; status: string }> };
+  const listBody = await listRes.json() as {
+    data: { data: SavedPayment[] } | SavedPayment[];
+  };
 
   // Normalise paginated vs flat response shape.
-  const payments: Array<{ reference: string; amount: string; status: string }> =
+  const payments: SavedPayment[] =
     Array.isArray(listBody.data)
       ? listBody.data
-      : (listBody.data as { data: Array<{ reference: string; amount: string; status: string }> }).data;
+      : (listBody.data as { data: SavedPayment[] }).data;
 
   const saved = payments.find((p) => p.reference === reference);
-  expect(saved, `Payment with reference ${reference} not found in API response`).toBeTruthy();
-  expect(parseFloat(saved!.amount)).toBeCloseTo(parseFloat(amount), 2);
-  expect(saved!.status).toBe('completed');
+  if (!saved) {
+    throw new Error(`Payment with reference ${reference} not found in API response`);
+  }
+  expect(parseFloat(saved.amount)).toBeCloseTo(parseFloat(amount), 2);
+  expect(saved.status).toBe('completed');
 });
