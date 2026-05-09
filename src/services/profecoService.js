@@ -74,7 +74,7 @@ async function buildReport(organizationId, {
       pc.created_at,
       c.name       AS client_name,
       c.email      AS client_email,
-      t.title      AS ticket_title,
+      t.subject    AS ticket_title,
       u.first_name AS submitted_by_first_name,
       u.last_name  AS submitted_by_last_name
     FROM  profeco_complaints pc
