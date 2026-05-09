@@ -45,6 +45,28 @@ interface Client {
 interface Contract {
   id: number;
   client_id: number;
+  plan_id: number;
+}
+
+// ---------------------------------------------------------------------------
+// Invoice item types (for the flexible generate modal)
+// ---------------------------------------------------------------------------
+
+type ItemType = 'contract' | 'product' | 'custom';
+
+interface InvoiceLineItem {
+  localId: string;
+  type: ItemType;
+  // contract type
+  contractId: string;
+  // product / custom type
+  description: string;
+  quantity: string;
+  unitPrice: string;
+}
+
+function makeItem(type: ItemType): InvoiceLineItem {
+  return { localId: Math.random().toString(36).slice(2), type, contractId: '', description: '', quantity: '1', unitPrice: '' };
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +96,15 @@ async function fetchContracts(): Promise<Contract[]> {
   return (res.data as unknown as { data: Contract[] }).data;
 }
 
-async function generateInvoice(contractId: number): Promise<void> {
+interface FlexItem {
+  type: ItemType;
+  contract_id?: number;
+  description?: string;
+  quantity?: number;
+  unit_price?: number;
+}
+
+async function generateFlexibleInvoice(clientId: number, items: FlexItem[]): Promise<void> {
   const token = tokenStore.getAccess();
   const res = await fetch(`${API_BASE}/invoices/generate`, {
     method: 'POST',
@@ -82,11 +112,14 @@ async function generateInvoice(contractId: number): Promise<void> {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ contract_id: contractId }),
+    body: JSON.stringify({ client_id: clientId, items }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error((body as { error?: string }).error || 'Failed to generate invoice');
+    const msg = (body as { error?: { message?: string }; message?: string }).error?.message
+      || (body as { message?: string }).message
+      || 'Failed to generate invoice';
+    throw new Error(msg);
   }
 }
 
@@ -132,7 +165,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Generate Invoice Modal
+// Generate Invoice Modal — flexible multi-item invoice builder
 // ---------------------------------------------------------------------------
 
 interface GenerateModalProps {
@@ -142,21 +175,65 @@ interface GenerateModalProps {
   onGenerated: () => void;
 }
 
+const ITEM_TYPE_LABELS: Record<ItemType, string> = {
+  contract: 'Contract charge',
+  product:  'Product',
+  custom:   'Custom item',
+};
+
 function GenerateInvoiceModal({ clients, contracts, onClose, onGenerated }: GenerateModalProps) {
   const [clientId, setClientId] = useState('');
-  const [contractId, setContractId] = useState('');
+  const [items, setItems] = useState<InvoiceLineItem[]>([makeItem('contract')]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   const clientContracts = contracts.filter(c => String(c.client_id) === clientId);
 
+  function addItem(type: ItemType) {
+    setItems(prev => [...prev, makeItem(type)]);
+  }
+
+  function removeItem(localId: string) {
+    setItems(prev => prev.filter(i => i.localId !== localId));
+  }
+
+  function updateItem(localId: string, patch: Partial<InvoiceLineItem>) {
+    setItems(prev => prev.map(i => i.localId === localId ? { ...i, ...patch } : i));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!contractId) { setError('Please select a contract.'); return; }
+    if (!clientId) { setError('Please select a client.'); return; }
+    if (items.length === 0) { setError('Please add at least one item.'); return; }
+
+    // Validate each item
+    for (const item of items) {
+      if (item.type === 'contract' && !item.contractId) {
+        setError('Please select a contract for each contract-charge item.'); return;
+      }
+      if ((item.type === 'product' || item.type === 'custom') && !item.description.trim()) {
+        setError('Please enter a description for each product/custom item.'); return;
+      }
+      if ((item.type === 'product' || item.type === 'custom') && (!item.unitPrice || parseFloat(item.unitPrice) < 0)) {
+        setError('Please enter a valid unit price for each product/custom item.'); return;
+      }
+    }
+
     setSubmitting(true);
     setError('');
     try {
-      await generateInvoice(Number(contractId));
+      const flexItems: FlexItem[] = items.map(item => {
+        if (item.type === 'contract') {
+          return { type: 'contract', contract_id: Number(item.contractId) };
+        }
+        return {
+          type: item.type,
+          description: item.description.trim(),
+          quantity: parseFloat(item.quantity) || 1,
+          unit_price: parseFloat(item.unitPrice) || 0,
+        };
+      });
+      await generateFlexibleInvoice(Number(clientId), flexItems);
       onGenerated();
       onClose();
     } catch (err) {
@@ -168,32 +245,132 @@ function GenerateInvoiceModal({ clients, contracts, onClose, onGenerated }: Gene
 
   return (
     <div style={overlay} role="dialog" aria-modal="true" aria-label="Generate Invoice">
-      <div style={modalBox}>
+      <div style={{ ...modalBox, width: 520, maxHeight: '90vh', overflowY: 'auto' }}>
         <h3 style={{ margin: '0 0 1rem' }}>Generate Invoice</h3>
         {error && <div style={errorBox}>{error}</div>}
         <form onSubmit={handleSubmit}>
+          {/* Client selector */}
           <label style={labelStyle}>Client</label>
           <select
             style={inputStyle}
             value={clientId}
-            onChange={e => { setClientId(e.target.value); setContractId(''); }}
+            onChange={e => { setClientId(e.target.value); setItems([makeItem('contract')]); }}
             required
           >
             <option value="">— select client —</option>
             {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
 
-          <label style={labelStyle}>Contract</label>
-          <select
-            style={inputStyle}
-            value={contractId}
-            onChange={e => setContractId(e.target.value)}
-            required
-            disabled={!clientId}
-          >
-            <option value="">— select contract —</option>
-            {clientContracts.map(c => <option key={c.id} value={c.id}>Contract #{c.id}</option>)}
-          </select>
+          {/* Line items */}
+          <div style={{ marginTop: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                Invoice Items
+              </span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {(['contract', 'product', 'custom'] as ItemType[]).map(type => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => addItem(type)}
+                    style={{ ...addItemBtn }}
+                    title={`Add ${ITEM_TYPE_LABELS[type]}`}
+                  >
+                    + {ITEM_TYPE_LABELS[type]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {items.length === 0 && (
+              <p style={{ fontSize: '0.82rem', color: '#9ca3af', textAlign: 'center', padding: '0.75rem 0' }}>
+                Use the buttons above to add items.
+              </p>
+            )}
+
+            {items.map((item, idx) => (
+              <div
+                key={item.localId}
+                style={{
+                  border: '1px solid var(--border-strong)', borderRadius: 6,
+                  padding: '0.6rem 0.75rem', marginBottom: 8, background: 'var(--bg-card)',
+                }}
+              >
+                {/* Item header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#e25822' }}>
+                    {idx + 1}. {ITEM_TYPE_LABELS[item.type]}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeItem(item.localId)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: '1rem', lineHeight: 1 }}
+                    aria-label="Remove item"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                {item.type === 'contract' ? (
+                  /* Contract charge: select a contract */
+                  <>
+                    <label style={{ ...labelStyle, marginTop: 0 }}>Contract</label>
+                    <select
+                      style={inputStyle}
+                      value={item.contractId}
+                      onChange={e => updateItem(item.localId, { contractId: e.target.value })}
+                      disabled={!clientId}
+                      required
+                    >
+                      <option value="">— select contract —</option>
+                      {clientContracts.map(c => (
+                        <option key={c.id} value={c.id}>Contract #{c.id}</option>
+                      ))}
+                    </select>
+                  </>
+                ) : (
+                  /* Product or Custom: description + qty + unit price */
+                  <>
+                    <label style={{ ...labelStyle, marginTop: 0 }}>Description</label>
+                    <input
+                      style={inputStyle}
+                      type="text"
+                      placeholder={item.type === 'product' ? 'e.g. Router Mikrotik hEX' : 'e.g. Installation fee'}
+                      value={item.description}
+                      onChange={e => updateItem(item.localId, { description: e.target.value })}
+                      required
+                    />
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={labelStyle}>Quantity</label>
+                        <input
+                          style={inputStyle}
+                          type="number"
+                          min="0.01"
+                          step="any"
+                          value={item.quantity}
+                          onChange={e => updateItem(item.localId, { quantity: e.target.value })}
+                        />
+                      </div>
+                      <div style={{ flex: 2 }}>
+                        <label style={labelStyle}>Unit Price</label>
+                        <input
+                          style={inputStyle}
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={item.unitPrice}
+                          onChange={e => updateItem(item.localId, { unitPrice: e.target.value })}
+                          required
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
 
           <div style={{ display: 'flex', gap: 8, marginTop: '1rem', justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>
@@ -389,4 +566,9 @@ const cancelBtn: React.CSSProperties = {
 const pageBtn: React.CSSProperties = {
   padding: '4px 10px', border: '1px solid var(--border-strong)', borderRadius: 4,
   background: 'var(--bg-card)', cursor: 'pointer', fontSize: '0.8rem',
+};
+const addItemBtn: React.CSSProperties = {
+  background: 'var(--bg-card)', color: '#e25822', border: '1px solid #e25822',
+  padding: '3px 10px', borderRadius: 4, cursor: 'pointer',
+  fontWeight: 600, fontSize: '0.72rem',
 };

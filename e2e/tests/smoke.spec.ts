@@ -161,6 +161,10 @@ test('full operator workflow smoke test', async ({ page, request }) => {
 
   // -------------------------------------------------------------------------
   // Step 5 — Invoices → Generate Invoice for our test client
+  //
+  // The new modal: select client → add items (contract charge / product / custom)
+  // → Generate.  We add one contract-charge item pointing to the contract
+  // created in step 4.
   // -------------------------------------------------------------------------
   await page.goto('/invoices');
 
@@ -168,19 +172,21 @@ test('full operator workflow smoke test', async ({ page, request }) => {
 
   const generateDialog = page.getByRole('dialog', { name: /generate invoice/i });
 
-  // Select client
+  // Select client (first select in the dialog)
   const invClientSelect = generateDialog.locator('select').first();
   await expect(invClientSelect).toBeVisible({ timeout: 10_000 });
   await invClientSelect.selectOption({ label: clientName });
 
-  // Select the contract we just created (first option after placeholder)
+  // The modal pre-adds one "Contract charge" item by default.
+  // The contract select is the second select in the dialog.
   const invContractSelect = generateDialog.locator('select').nth(1);
-  await invContractSelect.selectOption({ index: 1 });
+  await expect(invContractSelect).toBeVisible({ timeout: 10_000 });
+  await invContractSelect.selectOption({ index: 1 }); // first real option
 
-  await page.getByRole('button', { name: /^generate$/i }).click();
+  await generateDialog.getByRole('button', { name: /^generate$/i }).click();
 
   // Modal closes; invoice list refreshes
-  await expect(generateDialog).not.toBeVisible({ timeout: 15_000 });
+  await expect(generateDialog).not.toBeVisible({ timeout: 30_000 });
 
   // -------------------------------------------------------------------------
   // Step 6 — Payments → Record Payment for our test client

@@ -9,7 +9,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createInvoice, updateInvoice, patchInvoice, addInvoiceItem, generateInvoice } = require('../middleware/schemas/invoices');
+const { createInvoice, updateInvoice, patchInvoice, addInvoiceItem } = require('../middleware/schemas/invoices');
 const billingService = require('../services/billingService');
 const db = require('../config/database');
 
@@ -45,30 +45,179 @@ router.post('/:id/items', requirePermission('invoices.update'), validate(addInvo
   }
 });
 
-// Generate invoice for a contract billing period
-router.post('/generate', requirePermission('invoices.create'), validate(generateInvoice), async (req, res, next) => {
+// Generate invoice — supports two modes:
+//   Legacy: { contract_id }  → billing-period invoice for a single contract
+//   Flexible: { client_id, items: [{type, ...}] } → multi-item invoice
+router.post('/generate', requirePermission('invoices.create'), async (req, res, next) => {
   try {
-    const { contract_id } = req.body;
+    const { contract_id, client_id, items } = req.body;
 
-    // Fetch contract and plan
-    const [contracts] = await db.query(
-      'SELECT * FROM contracts WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
-      [contract_id, req.orgId],
+    // ----------------------------------------------------------------
+    // LEGACY FORMAT: { contract_id }
+    // ----------------------------------------------------------------
+    if (contract_id && !client_id) {
+      if (typeof contract_id !== 'number' || contract_id < 1) {
+        return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'contract_id must be a positive number' } });
+      }
+      const [contracts] = await db.query(
+        'SELECT * FROM contracts WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+        [contract_id, req.orgId],
+      );
+      if (!contracts[0]) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Contract not found' } });
+      }
+      const contract = contracts[0];
+      const [plans] = await db.query('SELECT * FROM plans WHERE id = ? AND deleted_at IS NULL', [contract.plan_id]);
+      if (!plans[0]) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Plan not found' } });
+      }
+      const period = await billingService.generateBillingPeriod(contract);
+      const invoice = await billingService.generateInvoice(period, contract, plans[0], req.orgId);
+      return res.status(201).json({ data: invoice });
+    }
+
+    // ----------------------------------------------------------------
+    // FLEXIBLE FORMAT: { client_id, items: [{type, ...}] }
+    // ----------------------------------------------------------------
+    if (!client_id || !Array.isArray(items) || items.length === 0) {
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Provide either contract_id (legacy) or client_id with a non-empty items array',
+        },
+      });
+    }
+
+    // Validate client belongs to org
+    const [clientRows] = await db.query(
+      'SELECT id FROM clients WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [client_id, req.orgId],
     );
-    if (!contracts[0]) {
-      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Contract not found' } });
-    }
-    const contract = contracts[0];
-
-    const [plans] = await db.query('SELECT * FROM plans WHERE id = ? AND deleted_at IS NULL', [contract.plan_id]);
-    if (!plans[0]) {
-      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Plan not found' } });
+    if (!clientRows[0]) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Client not found' } });
     }
 
-    // Generate billing period then invoice
-    const period = await billingService.generateBillingPeriod(contract);
-    const invoice = await billingService.generateInvoice(period, contract, plans[0], req.orgId);
-    res.status(201).json({ data: invoice });
+    // Pre-process items (billing-period lookups happen outside the tx)
+    const lineItems = [];
+    const billingPeriodUpdates = []; // { periodId }
+    let currency = 'USD';
+    let subtotal = 0;
+
+    for (const item of items) {
+      const type = item.type;
+
+      if (type === 'contract') {
+        if (!item.contract_id) {
+          return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'contract_id is required for contract-charge items' } });
+        }
+        const [contractRows] = await db.query(
+          'SELECT * FROM contracts WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+          [item.contract_id, req.orgId],
+        );
+        if (!contractRows[0]) {
+          return res.status(404).json({ error: { code: 'NOT_FOUND', message: `Contract ${item.contract_id} not found` } });
+        }
+        const contract = contractRows[0];
+
+        const [planRows] = await db.query('SELECT * FROM plans WHERE id = ? AND deleted_at IS NULL', [contract.plan_id]);
+        if (!planRows[0]) {
+          return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Plan not found for contract' } });
+        }
+        const plan = planRows[0];
+
+        const period = await billingService.generateBillingPeriod(contract);
+        const price = parseFloat(contract.price_override || plan.price);
+        currency = plan.currency || 'USD';
+
+        const periodStart = String(period.period_start).slice(0, 10);
+        const periodEnd = String(period.period_end).slice(0, 10);
+        lineItems.push({
+          description: `${plan.name} — ${periodStart} to ${periodEnd}`,
+          quantity: 1,
+          unit_price: price,
+          amount: price,
+        });
+        billingPeriodUpdates.push({ periodId: period.id });
+        subtotal += price;
+      } else if (type === 'product' || type === 'custom') {
+        if (!item.description || String(item.description).trim() === '') {
+          return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'description is required for product/custom items' } });
+        }
+        const qty = Math.max(parseFloat(item.quantity) || 1, 0);
+        const up = Math.max(parseFloat(item.unit_price) || 0, 0);
+        const amount = Math.round(qty * up * 100) / 100;
+        lineItems.push({ description: String(item.description).trim(), quantity: qty, unit_price: up, amount });
+        subtotal += amount;
+      } else {
+        return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: `Unknown item type: ${type}` } });
+      }
+    }
+
+    // Get default tax rate
+    const [taxRates] = await db.query(
+      'SELECT * FROM tax_rates WHERE organization_id = ? AND is_default = TRUE LIMIT 1',
+      [req.orgId],
+    );
+    const taxRate = taxRates[0];
+    const taxPct = taxRate ? parseFloat(taxRate.rate) : 0;
+    subtotal = Math.round(subtotal * 100) / 100;
+    const taxAmount = Math.round(subtotal * taxPct) / 100;
+    const total = Math.round((subtotal + taxAmount) * 100) / 100;
+
+    // Create invoice in a transaction
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      const [countResult] = await conn.execute(
+        'SELECT COUNT(*) AS cnt FROM invoices WHERE organization_id = ?',
+        [req.orgId],
+      );
+      const invoiceNumber = `INV-${String(countResult[0].cnt + 1).padStart(6, '0')}`;
+
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 15);
+
+      const [invResult] = await conn.execute(
+        `INSERT INTO invoices
+           (organization_id, client_id, invoice_number, subtotal, tax_amount, total,
+            currency, tax_rate, tax_rate_id, due_date, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued')`,
+        [req.orgId, client_id, invoiceNumber, subtotal, taxAmount, total,
+          currency, taxPct, taxRate?.id || null, dueDate],
+      );
+      const invoiceId = invResult.insertId;
+
+      for (const li of lineItems) {
+        await conn.execute(
+          'INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, amount) VALUES (?, ?, ?, ?, ?)',
+          [invoiceId, li.description, li.quantity, li.unit_price, li.amount],
+        );
+      }
+
+      for (const bp of billingPeriodUpdates) {
+        await conn.execute(
+          "UPDATE billing_periods SET status = 'invoiced', invoice_id = ? WHERE id = ?",
+          [invoiceId, bp.periodId],
+        );
+      }
+
+      await conn.execute(
+        `INSERT INTO client_balance_ledger
+           (client_id, organization_id, entry_type, amount, currency, reference_type, reference_id, description)
+         VALUES (?, ?, 'debit', ?, ?, 'invoice', ?, ?)`,
+        [client_id, req.orgId, total, currency, invoiceId, `Invoice ${invoiceNumber}`],
+      );
+
+      await conn.commit();
+      const invoice = await Invoice.findById(invoiceId);
+      return res.status(201).json({ data: invoice });
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
   } catch (err) {
     next(err);
   }
