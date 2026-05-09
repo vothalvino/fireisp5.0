@@ -14,6 +14,7 @@ ALTER TABLE contracts
     AFTER id,
   ADD COLUMN billing_day TINYINT UNSIGNED NULL
     COMMENT 'Day of month (1–28) on which invoices are generated; NULL = inherit from plan'
+    CHECK (billing_day BETWEEN 1 AND 28)
     AFTER end_date,
   ADD COLUMN ip_address VARCHAR(45) NULL
     COMMENT 'Static IPv4/IPv6 address assigned to this service; NULL = dynamic'

@@ -182,7 +182,8 @@ CREATE TABLE IF NOT EXISTS contracts (
     site_id        BIGINT UNSIGNED NULL,
     start_date     DATE            NOT NULL,
     end_date       DATE            NULL,
-    billing_day    TINYINT UNSIGNED NULL     COMMENT 'Day of month (1–28) on which invoices are generated; NULL = inherit from plan',
+    billing_day    TINYINT UNSIGNED NULL     COMMENT 'Day of month (1–28) on which invoices are generated; NULL = inherit from plan'
+                       CHECK (billing_day BETWEEN 1 AND 28),
     ip_address     VARCHAR(45)     NULL      COMMENT 'Static IPv4/IPv6 address assigned to this service; NULL = dynamic',
     billing_cycle  ENUM('monthly', 'quarterly', 'semi_annual', 'annual') NULL COMMENT 'Override cycle; NULL means use the plan billing cycle',
     price_override DECIMAL(10, 2)  NULL COMMENT 'Custom price; NULL means use plan price',
