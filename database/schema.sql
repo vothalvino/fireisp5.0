@@ -469,11 +469,12 @@ CREATE TABLE IF NOT EXISTS payments (
     amount           DECIMAL(10, 2)  NOT NULL,
     currency         CHAR(3)         NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code',
     payment_date     DATE            NOT NULL DEFAULT (CURRENT_DATE) COMMENT 'Date the payment was received; defaults to today',
-    payment_method   ENUM('cash', 'check', 'credit_card', 'debit_card', 'bank_transfer',
-                         'oxxo_pay', 'spei', 'codi', 'convenience_store', 'digital_wallet',
-                         'other')
+    payment_method   ENUM('cash', 'check', 'card', 'transfer', 'online',
+                         'credit_card', 'debit_card', 'bank_transfer',
+                         'oxxo_pay', 'spei', 'codi', 'convenience_store',
+                         'digital_wallet', 'other')
                                      NOT NULL DEFAULT 'cash'
-                                     COMMENT 'Payment instrument; MX methods: oxxo_pay, spei, codi, convenience_store, digital_wallet',
+                                     COMMENT 'Payment instrument; simplified: cash/check/card/transfer/online/other; MX methods: oxxo_pay, spei, codi, convenience_store, digital_wallet',
     sat_forma_pago   VARCHAR(2)      NULL COMMENT 'SAT c_FormaPago code used to stamp on CFDI pago complement (e.g. 01=cash, 03=SPEI, 06=CoDi)',
     reference_number VARCHAR(100)    NULL COMMENT 'Check number, transaction ID, etc.',
     clabe            VARCHAR(18)     NULL COMMENT '18-digit CLABE interbank key — required for SPEI and CoDi transactions',
