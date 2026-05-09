@@ -18,6 +18,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { readCsrfCookie } from '@/api/csrf';
 import { tokenStore } from '@/api/client';
 
 // ---------------------------------------------------------------------------
@@ -122,8 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
-        const csrfMatch = document.cookie.match(/(?:^|;\s*)fireisp_csrf=([^;]*)/);
-        const csrfToken = csrfMatch ? decodeURIComponent(csrfMatch[1]) : '';
+        const csrfToken = readCsrfCookie();
         const res = await fetch('/api/v1/auth/refresh', {
           method: 'POST',
           headers: {
