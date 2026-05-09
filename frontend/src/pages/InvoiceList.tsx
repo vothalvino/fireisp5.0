@@ -167,7 +167,7 @@ function GenerateInvoiceModal({ clients, contracts, onClose, onGenerated }: Gene
   }
 
   return (
-    <div style={overlay}>
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="Generate Invoice">
       <div style={modalBox}>
         <h3 style={{ margin: '0 0 1rem' }}>Generate Invoice</h3>
         {error && <div style={errorBox}>{error}</div>}

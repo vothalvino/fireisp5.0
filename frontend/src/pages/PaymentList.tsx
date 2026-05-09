@@ -318,7 +318,7 @@ function RecordPaymentModal({ clients, onClose, onRecorded }: RecordPaymentModal
   }
 
   return (
-    <div style={overlay}>
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="Record Payment">
       <div style={{ ...modalBox, maxHeight: '90vh', overflowY: 'auto' }}>
         <h3 style={{ margin: '0 0 1rem' }}>Record Payment</h3>
         {error && <div style={errorBox}>{error}</div>}

@@ -166,23 +166,21 @@ test('full operator workflow smoke test', async ({ page, request }) => {
 
   await page.getByRole('button', { name: /generate invoice/i }).click();
 
+  const generateDialog = page.getByRole('dialog', { name: /generate invoice/i });
+
   // Select client
-  const invClientSelect = page.locator('div[style*="position: fixed"] select, [role="dialog"] select').first();
+  const invClientSelect = generateDialog.locator('select').first();
   await expect(invClientSelect).toBeVisible({ timeout: 10_000 });
   await invClientSelect.selectOption({ label: clientName });
 
   // Select the contract we just created (first option after placeholder)
-  const invContractSelect = page
-    .locator('div[style*="position: fixed"] select, [role="dialog"] select')
-    .nth(1);
+  const invContractSelect = generateDialog.locator('select').nth(1);
   await invContractSelect.selectOption({ index: 1 });
 
   await page.getByRole('button', { name: /^generate$/i }).click();
 
   // Modal closes; invoice list refreshes
-  await expect(
-    page.locator('div[style*="position: fixed"], [role="dialog"]'),
-  ).not.toBeVisible({ timeout: 15_000 });
+  await expect(generateDialog).not.toBeVisible({ timeout: 15_000 });
 
   // -------------------------------------------------------------------------
   // Step 6 — Payments → Record Payment for our test client
@@ -191,15 +189,15 @@ test('full operator workflow smoke test', async ({ page, request }) => {
 
   await page.getByRole('button', { name: /record payment/i }).click();
 
-  const payClientSelect = page
-    .locator('div[style*="position: fixed"] select, [role="dialog"] select')
-    .first();
+  const payDialog = page.getByRole('dialog', { name: /record payment/i });
+
+  const payClientSelect = payDialog.locator('select').first();
   await expect(payClientSelect).toBeVisible({ timeout: 10_000 });
   await payClientSelect.selectOption({ label: clientName });
 
   // Enter amount
-  await page
-    .locator('div[style*="position: fixed"] input[type="number"], [role="dialog"] input[type="number"]')
+  await payDialog
+    .locator('input[type="number"]')
     .first()
     .fill('29.99');
 
@@ -207,9 +205,7 @@ test('full operator workflow smoke test', async ({ page, request }) => {
   await page.getByRole('button', { name: /^record payment$/i }).click();
 
   // Modal closes
-  await expect(
-    page.locator('div[style*="position: fixed"], [role="dialog"]'),
-  ).not.toBeVisible({ timeout: 15_000 });
+  await expect(payDialog).not.toBeVisible({ timeout: 15_000 });
 
   // -------------------------------------------------------------------------
   // Step 7 — Tickets → New Ticket linked to our test client
@@ -218,26 +214,22 @@ test('full operator workflow smoke test', async ({ page, request }) => {
 
   await page.getByRole('button', { name: /new ticket/i }).click();
 
+  const ticketDialog = page.getByRole('dialog', { name: /new ticket/i });
+
   // Fill subject
-  const subjectInput = page
-    .locator('div[style*="position: fixed"] input, [role="dialog"] input')
-    .first();
+  const subjectInput = ticketDialog.locator('input').first();
   await expect(subjectInput).toBeVisible({ timeout: 10_000 });
   await subjectInput.fill(`E2E smoke ${suffix}`);
 
   // Link to client (optional field — use the first non-empty select)
-  const ticketClientSelect = page
-    .locator('div[style*="position: fixed"] select, [role="dialog"] select')
-    .first();
+  const ticketClientSelect = ticketDialog.locator('select').first();
   await ticketClientSelect.selectOption({ label: clientName });
 
   // Submit
   await page.getByRole('button', { name: /create ticket/i }).click();
 
   // Modal closes; our ticket subject should appear in the list
-  await expect(
-    page.locator('div[style*="position: fixed"], [role="dialog"]'),
-  ).not.toBeVisible({ timeout: 15_000 });
+  await expect(ticketDialog).not.toBeVisible({ timeout: 15_000 });
   await expect(page.getByText(`E2E smoke ${suffix}`)).toBeVisible({ timeout: 15_000 });
 
   // -------------------------------------------------------------------------
