@@ -25,4 +25,4 @@ ALTER TABLE invoice_items
     AFTER unit_price;
 
 -- Back-fill existing rows from the generated total column
-UPDATE invoice_items SET amount = total WHERE amount = 0;
+UPDATE invoice_items SET amount = total;
