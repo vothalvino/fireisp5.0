@@ -20,24 +20,47 @@ const ADMIN_EMAIL = 'admin@demo-isp.com';
 const ADMIN_PASSWORD = 'admin123!';
 const API = '/api/v1';
 
-/** Log in via the REST API and return an access token. */
-async function apiLogin(request: APIRequestContext): Promise<string> {
+/**
+ * Log in via the REST API and return the access token plus the CSRF token that
+ * the server stored in the `fireisp_csrf` cookie.
+ *
+ * The CSRF middleware requires `X-CSRF-Token` on every state-changing request
+ * that carries the `fireisp_access` auth cookie.  Playwright's
+ * `APIRequestContext` automatically re-sends cookies across requests in the
+ * same context, so every subsequent POST/PUT/DELETE must echo the CSRF token
+ * back via the header.
+ */
+async function apiLogin(
+  request: APIRequestContext,
+): Promise<{ token: string; csrfToken: string }> {
   const res = await request.post(`${API}/auth/login`, {
     data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
   });
   expect(res.ok(), `API login failed: ${await res.text()}`).toBeTruthy();
   const body = await res.json();
-  return (body.data?.accessToken ?? body.accessToken) as string;
+  const token = (body.data?.accessToken ?? body.accessToken) as string;
+
+  // Extract the CSRF token from the cookie jar so we can echo it as
+  // X-CSRF-Token on subsequent state-changing API requests.
+  const state = await request.storageState();
+  const csrfCookie = state.cookies.find((c) => c.name === 'fireisp_csrf');
+  const csrfToken = csrfCookie?.value ?? '';
+
+  return { token, csrfToken };
 }
 
 /** Create a throwaway client and return its id. */
 async function apiCreateClient(
   request: APIRequestContext,
   token: string,
+  csrfToken: string,
   suffix: string,
 ): Promise<number> {
   const res = await request.post(`${API}/clients`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'X-CSRF-Token': csrfToken,
+    },
     data: {
       name: `Smoke ${suffix}`,
       email: `smoke.${suffix}@e2e.test`,
@@ -62,8 +85,8 @@ test('full operator workflow smoke test', async ({ page, request }) => {
   // -------------------------------------------------------------------------
   // Step 0 — Create a test client via API (no UI form on ClientList)
   // -------------------------------------------------------------------------
-  const token = await apiLogin(request);
-  const clientId = await apiCreateClient(request, token, suffix);
+  const { token, csrfToken } = await apiLogin(request);
+  const clientId = await apiCreateClient(request, token, csrfToken, suffix);
 
   // We need the client name in the UI selects later.
   const clientName = `Smoke ${suffix}`;
