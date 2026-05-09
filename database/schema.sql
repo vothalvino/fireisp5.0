@@ -468,7 +468,7 @@ CREATE TABLE IF NOT EXISTS payments (
     invoice_id       BIGINT UNSIGNED NULL,
     amount           DECIMAL(10, 2)  NOT NULL,
     currency         CHAR(3)         NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code',
-    payment_date     DATE            NOT NULL,
+    payment_date     DATE            NOT NULL DEFAULT (CURRENT_DATE) COMMENT 'Date the payment was received; defaults to today',
     payment_method   ENUM('cash', 'check', 'credit_card', 'debit_card', 'bank_transfer',
                          'oxxo_pay', 'spei', 'codi', 'convenience_store', 'digital_wallet',
                          'other')

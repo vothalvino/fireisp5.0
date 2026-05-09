@@ -71,6 +71,7 @@ interface RecordPaymentBody {
   amount: number;
   currency: string;
   payment_method: string;
+  payment_date?: string;
   reference?: string;
   status: string;
   invoice_id?: number;
@@ -304,6 +305,7 @@ function RecordPaymentModal({ clients, onClose, onRecorded }: RecordPaymentModal
         amount: parseFloat(form.amount),
         currency: form.currency,
         payment_method: form.payment_method,
+        payment_date: form.payment_date,
         ...(form.reference ? { reference: form.reference } : {}),
         status: form.status,
         ...(invoiceId ? { invoice_id: Number(invoiceId) } : {}),
