@@ -82,6 +82,20 @@ test('full operator workflow smoke test', async ({ page, request }) => {
   // A unique suffix to identify this test run's data in table rows.
   const suffix = Date.now().toString(36).toUpperCase();
 
+  // ---------------------------------------------------------------------------
+  // Pre-dismiss the DR Drill banner.
+  //
+  // DrDrillBanner shows a full-screen aria-hidden backdrop that blocks all
+  // pointer events whenever the server reports overdue:true.  In CI the fresh
+  // database has no drill history (last_run_at=null) so overdue is always true.
+  // The component respects the sessionStorage flag set by its own dismiss
+  // handler, so injecting it before the first page load is equivalent to the
+  // user clicking "Dismiss" on a previous visit.
+  // ---------------------------------------------------------------------------
+  await page.addInitScript(() => {
+    try { sessionStorage.setItem('drDrillBannerDismissed', '1'); } catch { /* ignore */ }
+  });
+
   // -------------------------------------------------------------------------
   // Step 0 — Create a test client via API (no UI form on ClientList)
   // -------------------------------------------------------------------------
