@@ -607,6 +607,7 @@ function convertSchemaToOpenApi(schema) {
     if (rules.max !== undefined) prop.maximum = rules.max;
     if (rules.enum) prop.enum = rules.enum;
     if (rules.pattern) prop.pattern = rules.pattern;
+    if (rules.format) prop.format = rules.format;
     if (rules.required) required.push(field);
 
     properties[field] = prop;

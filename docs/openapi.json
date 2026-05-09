@@ -16740,7 +16740,8 @@
             ]
           },
           "payment_date": {
-            "type": "string"
+            "type": "string",
+            "format": "date"
           },
           "reference": {
             "type": "string",
