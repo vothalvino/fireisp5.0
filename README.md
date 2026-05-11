@@ -7,7 +7,7 @@ An open source ISP (Internet Service Provider) management software designed to h
 Deploy FireISP 5.0 on any Linux server with Docker in a single command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vothalvino/fireisp5.0/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/vothalvino/fireisp5.0/main/install.sh | sudo bash
 ```
 
 The installer will prompt for your domain name and email, then automatically:
@@ -26,7 +26,7 @@ Pass variables before the pipe to skip interactive prompts:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/vothalvino/fireisp5.0/main/install.sh \
-  | DOMAIN=isp.example.com EMAIL=admin@example.com bash
+  | sudo DOMAIN=isp.example.com EMAIL=admin@example.com bash
 ```
 
 | Variable | Default | Description |
