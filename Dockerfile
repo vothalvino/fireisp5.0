@@ -15,9 +15,9 @@ COPY docs/openapi.json ./docs/openapi.json
 RUN pnpm --filter fireisp-frontend run build
 
 # ── Stage 2: production API server ────────────────────────────────────────────
-FROM node:24-alpine
+FROM node:24-bookworm-slim
 
-RUN addgroup -S fireisp && adduser -S fireisp -G fireisp
+RUN groupadd --system fireisp && useradd --system --gid fireisp --no-create-home fireisp
 
 WORKDIR /app
 
@@ -43,6 +43,6 @@ USER fireisp
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:3000/health || exit 1
+  CMD node -e "require('http').get('http://localhost:3000/health',(r)=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"
 
 CMD ["node", "src/server.js"]
