@@ -28,6 +28,7 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml .npmrc ./
 RUN pnpm install --frozen-lockfile --prod \
   && pnpm store prune \
+  && rm -rf /root/.cache/node/corepack \
   && corepack disable \
   && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
