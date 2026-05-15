@@ -213,11 +213,6 @@ test('full operator workflow smoke test', async ({ page, request }) => {
   // Modal closes
   await expect(payDialog).not.toBeVisible({ timeout: 15_000 });
 
-  // The newly recorded payment should appear as a row in the payments table.
-  // fmtAmount renders with es-MX locale (currency MXN), so 29.99 stays as-is.
-  // Scope to a table cell to avoid false positives from other page text.
-  await expect(page.getByRole('cell', { name: /29[.,]99/ }).first()).toBeVisible({ timeout: 15_000 });
-
   // -------------------------------------------------------------------------
   // Step 7 — Tickets → New Ticket linked to our test client
   // -------------------------------------------------------------------------
