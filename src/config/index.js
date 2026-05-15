@@ -94,7 +94,7 @@ function validateEnv(logger) {
     if (isProduction) errors.push(msg); else warnings.push(msg);
   }
   if (secretLen !== 64 && config.jwt.secret !== DEFAULT_JWT_SECRET) {
-    const msg = `JWT_SECRET is ${secretLen} characters — use exactly 64 characters for HS256`;
+    const msg = 'JWT_SECRET must be exactly 64 characters for HS256';
     if (isProduction) errors.push(msg); else warnings.push(msg);
   }
 
