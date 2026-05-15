@@ -127,6 +127,6 @@ async function start() {
 }
 
 start().catch(err => {
-  logger.fatal({ err }, 'Failed to start');
+  logger.fatal({ errorName: err?.name || 'Error' }, 'Failed to start');
   process.exit(1);
 });

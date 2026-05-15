@@ -84,6 +84,13 @@ describe('encryption utility', () => {
     expect(() => encryption.encrypt('test')).toThrow('64-character hex string');
   });
 
+  test('throws when ENCRYPTION_KEY is not hex', () => {
+    process.env.ENCRYPTION_KEY = 'z'.repeat(64);
+    encryption = require('../src/utils/encryption');
+
+    expect(() => encryption.encrypt('test')).toThrow('64-character hex string');
+  });
+
   test('getKey returns null when ENCRYPTION_KEY not set', () => {
     encryption = require('../src/utils/encryption');
     expect(encryption.getKey()).toBeNull();

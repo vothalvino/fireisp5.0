@@ -49,6 +49,7 @@ jest.mock('../src/config', () => ({
     secret:           'test-secret-that-is-64-chars-long-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
     accessExpiresIn:  '15m',
     refreshExpiresIn: '7d',
+    algorithm:        'HS256',
   },
   rateLimit:          { windowMs: 900000, api: 200, auth: 20, public: 60, upload: 30, export: 20, sse: 10, webhook: 100, tenantWindowMs: 900000, tenantApi: 500 },
   requestTimeoutMs:   0,

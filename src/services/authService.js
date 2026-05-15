@@ -141,7 +141,7 @@ async function login({ email, password }) {
       orgId: primaryOrg?.id || user.organization_id,
     },
     config.jwt.secret,
-    { expiresIn: config.jwt.accessExpiresIn },
+    { expiresIn: config.jwt.accessExpiresIn, algorithm: config.jwt.algorithm },
   );
 
   // Issue opaque refresh token + assign a token family for reuse detection
@@ -213,7 +213,7 @@ async function refreshToken(currentRefreshToken) {
       orgId: primaryOrg?.id || user.organization_id,
     },
     config.jwt.secret,
-    { expiresIn: config.jwt.accessExpiresIn },
+    { expiresIn: config.jwt.accessExpiresIn, algorithm: config.jwt.algorithm },
   );
 
   // Issue new refresh token (rotation)
@@ -422,7 +422,7 @@ async function switchOrganization(userId, organizationId, currentRefreshToken) {
       orgId: membership.org_id,
     },
     config.jwt.secret,
-    { expiresIn: config.jwt.accessExpiresIn },
+    { expiresIn: config.jwt.accessExpiresIn, algorithm: config.jwt.algorithm },
   );
 
   // Rotate refresh token within the same family.
