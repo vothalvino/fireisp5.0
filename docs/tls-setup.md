@@ -465,3 +465,81 @@ openssl x509 -in nginx/certs/fullchain.pem -noout -checkend $((30*86400)) \
   && echo "Certificate is valid for more than 30 days." \
   || echo "⚠️  Certificate expires within 30 days — renew now!"
 ```
+
+---
+
+## Reinstalling Without Rotating Certificates
+
+When reinstalling or updating FireISP, preserve your existing TLS certificate and ACME state. Certificates are stored in persistent Docker volumes that survive container recreation.
+
+### Backup Before Reinstall
+
+```bash
+cd /opt/fireisp
+
+# Archive certificate, ACME state, and environment
+sudo tar -czf /root/fireisp-ssl-backup-$(date +%Y%m%d-%H%M%S).tar.gz \
+  nginx/certs \
+  nginx/letsencrypt \
+  .env.prod
+
+# Verify
+ls -lh /root/fireisp-ssl-backup-*.tar.gz
+```
+
+### Reinstall Flow
+
+1. **Stop the stack** (preserve volumes):
+   ```bash
+   docker compose -f docker-compose.prod.yml --env-file .env.prod down
+   # ⚠️  Never use: docker compose down -v  (destroys cert volumes)
+   ```
+
+2. **Update FireISP code**:
+   ```bash
+   git pull origin main
+   # or re-download if not using git
+   ```
+
+3. **Restore TLS assets**:
+   ```bash
+   sudo tar -xzf /root/fireisp-ssl-backup-*.tar.gz -C /opt/fireisp
+   
+   # Verify certs are in place
+   ls -la /opt/fireisp/nginx/certs/
+   # Should show: fullchain.pem  privkey.pem
+   ```
+
+4. **Bring stack online**:
+   ```bash
+   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+   ```
+
+### Verify Certificate Continuity
+
+Compare serial number before and after to confirm cert was not re-issued:
+
+```bash
+# Before reinstall
+openssl x509 -in nginx/certs/fullchain.pem -noout -serial
+
+# After reinstall
+docker compose -f docker-compose.prod.yml exec nginx \
+  openssl x509 -in /etc/nginx/certs/fullchain.pem -noout -serial
+```
+
+**Serial and expiry date must be identical.**
+
+### Why This Works
+
+- **setup.sh is idempotent**: JWT_SECRET and ENCRYPTION_KEY in `.env.prod` are not rotated if they already exist, preserving session validity and DB encryption state.
+- **nginx reads from persistent paths**: The container mounts `./nginx/certs → /etc/nginx/certs`. As long as files exist on disk, they are used.
+- **Certbot state is preserved**: `/opt/fireisp/nginx/letsencrypt/` contains ACME account metadata, certificate archives, and renewal configuration. The certbot service continues on the same renewal schedule without re-issuing.
+
+### Guardrails
+
+❌ **Don't:**
+- `docker compose down -v` — removes volumes and deletes certificates
+- `docker system prune -a --volumes` — dangerous; deletes cert data
+- `rm -rf nginx/certs` — deletes certificate files
+- Re-run `./nginx/init-letsencrypt.sh` unless certificates are corrupted/missing
