@@ -28,7 +28,7 @@ async function portalAuthenticate(req, _res, next) {
     const token = header.slice(7);
     let payload;
     try {
-      payload = jwt.verify(token, config.jwt.secret);
+      payload = jwt.verify(token, config.jwt.secret, { algorithms: [config.jwt.algorithm] });
     } catch {
       throw new UnauthorizedError('Invalid or expired token');
     }

@@ -524,7 +524,7 @@ async function mintTokens(user, orgId) {
       orgId,
     },
     config.jwt.secret,
-    { expiresIn: config.jwt.accessExpiresIn },
+    { expiresIn: config.jwt.accessExpiresIn, algorithm: config.jwt.algorithm },
   );
 
   const refreshTokenValue = crypto.randomBytes(32).toString('hex');

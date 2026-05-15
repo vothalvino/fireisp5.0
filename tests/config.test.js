@@ -50,6 +50,7 @@ describe('config', () => {
 
 describe('validateEnv', () => {
   const originalEnv = { ...process.env };
+  const VALID_SECRET = 'a'.repeat(64);
 
   afterEach(() => {
     process.env = { ...originalEnv };
@@ -84,9 +85,32 @@ describe('validateEnv', () => {
     expect(() => config.validateEnv(null)).toThrow('JWT_SECRET');
   });
 
+  test('throws in production when JWT_ALGORITHM is not HS256', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.JWT_SECRET = VALID_SECRET;
+    process.env.JWT_ALGORITHM = 'RS256';
+    process.env.DB_HOST = 'localhost';
+    process.env.DB_NAME = 'fireisp';
+    process.env.ENCRYPTION_KEY = 'b'.repeat(64);
+    jest.resetModules();
+    const config = require('../src/config');
+    expect(() => config.validateEnv(null)).toThrow('JWT_ALGORITHM must be HS256');
+  });
+
+  test('throws in production when JWT_SECRET is longer than 64 characters', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.JWT_SECRET = 'a'.repeat(65);
+    process.env.DB_HOST = 'localhost';
+    process.env.DB_NAME = 'fireisp';
+    process.env.ENCRYPTION_KEY = 'b'.repeat(64);
+    jest.resetModules();
+    const config = require('../src/config');
+    expect(() => config.validateEnv(null)).toThrow('exactly 64 characters');
+  });
+
   test('throws in production when DB_HOST is missing', () => {
     process.env.NODE_ENV = 'production';
-    process.env.JWT_SECRET = 'a-very-long-secret-that-is-at-least-64-characters-long-for-hs256-validation';
+    process.env.JWT_SECRET = VALID_SECRET;
     delete process.env.DB_HOST;
     process.env.DB_NAME = 'fireisp';
     jest.resetModules();
@@ -96,7 +120,7 @@ describe('validateEnv', () => {
 
   test('does not throw in production with valid config', () => {
     process.env.NODE_ENV = 'production';
-    process.env.JWT_SECRET = 'a-very-long-secret-that-is-at-least-64-characters-long-for-hs256-validation';
+    process.env.JWT_SECRET = VALID_SECRET;
     process.env.DB_HOST = 'localhost';
     process.env.DB_NAME = 'fireisp';
     process.env.ENCRYPTION_KEY = 'a'.repeat(64);
@@ -107,13 +131,24 @@ describe('validateEnv', () => {
 
   test('throws in production when ENCRYPTION_KEY is missing', () => {
     process.env.NODE_ENV = 'production';
-    process.env.JWT_SECRET = 'a-very-long-secret-that-is-at-least-64-characters-long-for-hs256-validation';
+    process.env.JWT_SECRET = VALID_SECRET;
     process.env.DB_HOST = 'localhost';
     process.env.DB_NAME = 'fireisp';
     delete process.env.ENCRYPTION_KEY;
     jest.resetModules();
     const config = require('../src/config');
     expect(() => config.validateEnv(null)).toThrow('ENCRYPTION_KEY');
+  });
+
+  test('throws in production when ENCRYPTION_KEY is not 64-character hex', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.JWT_SECRET = VALID_SECRET;
+    process.env.DB_HOST = 'localhost';
+    process.env.DB_NAME = 'fireisp';
+    process.env.ENCRYPTION_KEY = 'z'.repeat(64);
+    jest.resetModules();
+    const config = require('../src/config');
+    expect(() => config.validateEnv(null)).toThrow('64-character hex string');
   });
 
   test('warns in development when ENCRYPTION_KEY is missing', () => {

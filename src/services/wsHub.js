@@ -205,7 +205,7 @@ class WsHub {
 
     let payload;
     try {
-      payload = jwt.verify(msg.token, config.jwt.secret);
+      payload = jwt.verify(msg.token, config.jwt.secret, { algorithms: [config.jwt.algorithm] });
     } catch (_err) {
       ws.send(JSON.stringify({ type: 'auth_fail', reason: 'Invalid or expired token' }));
       ws.close(4003, 'Invalid token');

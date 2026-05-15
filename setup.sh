@@ -5,6 +5,73 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+generate_hex_secret() {
+    if command -v openssl &> /dev/null; then
+        openssl rand -hex 32
+    else
+        node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+    fi
+}
+
+is_hex_64() {
+    printf '%s' "$1" | grep -Eq '^[0-9a-fA-F]{64}$'
+}
+
+is_placeholder_or_empty() {
+    [ -z "$1" ] || [[ "$1" == CHANGE_ME* ]] || [[ "$1" == change-me* ]]
+}
+
+get_env_value() {
+    local file="$1"
+    local key="$2"
+    grep -E "^${key}=" "$file" | tail -n 1 | cut -d= -f2- || true
+}
+
+set_env_value() {
+    local file="$1"
+    local key="$2"
+    local value="$3"
+    if grep -qE "^${key}=" "$file"; then
+        sed -i "s|^${key}=.*|${key}=${value}|" "$file"
+    elif grep -qE "^# ?${key}=" "$file"; then
+        sed -i "s|^# \?${key}=.*|${key}=${value}|" "$file"
+    else
+        printf '\n%s=%s\n' "$key" "$value" >> "$file"
+    fi
+}
+
+ensure_hex_secret() {
+    local file="$1"
+    local key="$2"
+    local label="$3"
+    local current
+    current=$(get_env_value "$file" "$key")
+    if is_hex_64 "$current"; then
+        echo "$label already configured with a 64-character local secret; keeping existing value."
+        return 1
+    fi
+
+    echo "Generating secure $label..."
+    set_env_value "$file" "$key" "$(generate_hex_secret)"
+    return 0
+}
+
+ensure_password() {
+    local file="$1"
+    local key="$2"
+    local label="$3"
+    local current
+    current=$(get_env_value "$file" "$key")
+    if ! is_placeholder_or_empty "$current"; then
+        echo "$label already configured; keeping existing value."
+        return 1
+    fi
+
+    echo "Generating random $label..."
+    set_env_value "$file" "$key" "$(generate_hex_secret | cut -c1-40)"
+    return 0
+}
+
 # 2. Parse flags
 PROD=false
 for arg in "$@"; do
@@ -29,32 +96,27 @@ if [ "$PROD" = true ]; then
         echo "$ENV_FILE already exists, skipping creation."
     fi
 
-    # 4. Generate secrets for production
-    echo "Generating secure JWT_SECRET..."
-    NEW_JWT_SECRET=$(openssl rand -hex 32)
-    sed -i "s/^JWT_SECRET=.*/JWT_SECRET=$NEW_JWT_SECRET/" "$ENV_FILE"
+    # 4. Generate secrets for production. Existing valid secrets are never rotated
+    # automatically because doing so would invalidate sessions or make encrypted
+    # database secrets unreadable.
+    ensure_hex_secret "$ENV_FILE" "JWT_SECRET" "JWT_SECRET"
+    set_env_value "$ENV_FILE" "JWT_ALGORITHM" "HS256"
 
-    echo "Generating secure ENCRYPTION_KEY..."
-    NEW_ENC_KEY=$(openssl rand -hex 32)
-    sed -i "s/^ENCRYPTION_KEY=.*/ENCRYPTION_KEY=$NEW_ENC_KEY/" "$ENV_FILE"
+    ensure_hex_secret "$ENV_FILE" "ENCRYPTION_KEY" "ENCRYPTION_KEY"
 
-    echo "Generating random DB_PASSWORD..."
-    NEW_DB_PASS=$(openssl rand -hex 20)
-    sed -i "s/^DB_PASSWORD=.*/DB_PASSWORD=$NEW_DB_PASS/" "$ENV_FILE"
+    ensure_password "$ENV_FILE" "DB_PASSWORD" "DB_PASSWORD"
+    ensure_password "$ENV_FILE" "DB_ROOT_PASSWORD" "DB_ROOT_PASSWORD"
+    ensure_password "$ENV_FILE" "MYSQL_REPL_PASSWORD" "MYSQL_REPL_PASSWORD"
 
-    echo "Generating random DB_ROOT_PASSWORD..."
-    NEW_DB_ROOT_PASS=$(openssl rand -hex 20)
-    sed -i "s/^DB_ROOT_PASSWORD=.*/DB_ROOT_PASSWORD=$NEW_DB_ROOT_PASS/" "$ENV_FILE"
-
-    echo "Generating random MYSQL_REPL_PASSWORD..."
-    NEW_REPL_PASS=$(openssl rand -hex 20)
-    sed -i "s/^MYSQL_REPL_PASSWORD=.*/MYSQL_REPL_PASSWORD=$NEW_REPL_PASS/" "$ENV_FILE"
-
-    echo "Generating random REDIS_PASSWORD..."
-    NEW_REDIS_PASS=$(openssl rand -hex 20)
-    sed -i "s/^REDIS_PASSWORD=.*/REDIS_PASSWORD=$NEW_REDIS_PASS/" "$ENV_FILE"
-    # Update the embedded password inside REDIS_URL (template: redis://:placeholder@host)
-    sed -i "s|^REDIS_URL=redis://:[^@]*@|REDIS_URL=redis://:$NEW_REDIS_PASS@|" "$ENV_FILE"
+    if ensure_password "$ENV_FILE" "REDIS_PASSWORD" "REDIS_PASSWORD"; then
+        NEW_REDIS_PASS=$(get_env_value "$ENV_FILE" "REDIS_PASSWORD")
+        # Update the embedded password inside REDIS_URL (template: redis://:placeholder@host)
+        if grep -qE '^REDIS_URL=redis://:[^@]*@' "$ENV_FILE"; then
+            sed -i "s|^REDIS_URL=redis://:[^@]*@|REDIS_URL=redis://:$NEW_REDIS_PASS@|" "$ENV_FILE"
+        else
+            set_env_value "$ENV_FILE" "REDIS_URL" "redis://:$NEW_REDIS_PASS@redis:6379"
+        fi
+    fi
 
     # 5. Install dependencies
     if command -v pnpm &> /dev/null; then
@@ -85,17 +147,16 @@ else
         echo "$ENV_FILE already exists, skipping creation."
     fi
 
-    # 4. Generate secure 64-character JWT_SECRET (512-bit)
-    # This satisfies the HS256 requirement that caused your crash
-    echo "Generating secure JWT_SECRET..."
-    NEW_JWT_SECRET=$(openssl rand -hex 32)
-    # Replaces the placeholder in .env with the new secret
-    sed -i "s/^JWT_SECRET=.*/JWT_SECRET=$NEW_JWT_SECRET/" "$ENV_FILE"
+    # 4. Generate secure local secrets. Existing valid secrets are never rotated
+    # automatically because doing so would invalidate sessions or make encrypted
+    # database secrets unreadable.
+    ensure_hex_secret "$ENV_FILE" "JWT_SECRET" "JWT_SECRET"
+    set_env_value "$ENV_FILE" "JWT_ALGORITHM" "HS256"
+
+    ensure_hex_secret "$ENV_FILE" "ENCRYPTION_KEY" "ENCRYPTION_KEY"
 
     # 5. Generate random Database Password
-    echo "Generating random DB_PASSWORD..."
-    NEW_DB_PASS=$(openssl rand -base64 12)
-    sed -i "s/^DB_PASSWORD=.*/DB_PASSWORD=$NEW_DB_PASS/" "$ENV_FILE"
+    ensure_password "$ENV_FILE" "DB_PASSWORD" "DB_PASSWORD"
 
     # 6. Install dependencies
     if command -v pnpm &> /dev/null; then

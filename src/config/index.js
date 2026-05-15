@@ -15,17 +15,21 @@ const parseBoolEnv = (key, fallback) => {
   return v === 'true' || v === '1';
 };
 
+const DEFAULT_JWT_SECRET = 'change-me-in-production-this-default-jwt-secret-is-not-secure!!!';
+const REQUIRED_JWT_ALGORITHM = 'HS256';
+const HEX_64_RE = /^[0-9a-fA-F]{64}$/;
+
 const config = {
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '3000', 10),
   appUrl: process.env.APP_URL || 'http://localhost:3000',
 
   jwt: {
-    secret: process.env.JWT_SECRET || 'change-me-in-production-this-default-jwt-secret-is-not-secure!!!',
+    secret: process.env.JWT_SECRET || DEFAULT_JWT_SECRET,
     expiresIn: process.env.JWT_EXPIRES_IN || '24h',
     accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m',
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
-    algorithm: process.env.JWT_ALGORITHM || 'HS256',
+    algorithm: process.env.JWT_ALGORITHM || REQUIRED_JWT_ALGORITHM,
   },
 
   log: {
@@ -79,21 +83,27 @@ function validateEnv(logger) {
   const warnings = [];
   const isProduction = config.env === 'production';
 
-  // JWT secret: must not be the default and must be >= 64 chars in production
-  const DEFAULT_SECRET = 'change-me-in-production-this-default-jwt-secret-is-not-secure!!!';
+  // JWT secret: must be the generated local 64-character HS256 secret in production.
   const secretLen = config.jwt.secret.length;
-  if (config.jwt.secret === DEFAULT_SECRET) {
-    const msg = 'JWT_SECRET is set to the insecure default — set a unique random string (>= 64 chars)';
+  if (config.jwt.algorithm !== REQUIRED_JWT_ALGORITHM) {
+    const msg = `JWT_ALGORITHM must be ${REQUIRED_JWT_ALGORITHM}`;
     if (isProduction) errors.push(msg); else warnings.push(msg);
   }
-  if (secretLen < 64 && config.jwt.secret !== DEFAULT_SECRET) {
-    const msg = `JWT_SECRET is only ${secretLen} characters — use at least 64 characters for HS256`;
+  if (config.jwt.secret === DEFAULT_JWT_SECRET) {
+    const msg = 'JWT_SECRET is set to the insecure default — set a unique random 64-character HS256 secret';
+    if (isProduction) errors.push(msg); else warnings.push(msg);
+  }
+  if (secretLen !== 64 && config.jwt.secret !== DEFAULT_JWT_SECRET) {
+    const msg = `JWT_SECRET is ${secretLen} characters — use exactly 64 characters for HS256`;
     if (isProduction) errors.push(msg); else warnings.push(msg);
   }
 
   // Encryption key: required in production for at-rest encryption of secrets
   if (!process.env.ENCRYPTION_KEY) {
     const msg = 'ENCRYPTION_KEY is not set — payment gateway secrets, PAC passwords, and webhook secrets will be stored in plaintext';
+    if (isProduction) errors.push(msg); else warnings.push(msg);
+  } else if (!HEX_64_RE.test(process.env.ENCRYPTION_KEY)) {
+    const msg = 'ENCRYPTION_KEY must be a 64-character hex string (256 bits)';
     if (isProduction) errors.push(msg); else warnings.push(msg);
   }
 

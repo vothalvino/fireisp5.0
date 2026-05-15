@@ -90,7 +90,7 @@ async function authenticate(req, _res, next) {
     }
     let payload;
     try {
-      payload = jwt.verify(token, config.jwt.secret);
+      payload = jwt.verify(token, config.jwt.secret, { algorithms: [config.jwt.algorithm] });
     } catch (_err) {
       throw new UnauthorizedError('Invalid or expired token');
     }

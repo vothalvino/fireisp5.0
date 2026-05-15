@@ -14,6 +14,7 @@ const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;     // 96-bit IV recommended for GCM
 const TAG_LENGTH = 16;    // 128-bit auth tag
 const ENCODING = 'hex';
+const HEX_64_RE = /^[0-9a-fA-F]{64}$/;
 
 /**
  * Derive the 256-bit encryption key from the ENCRYPTION_KEY env var.
@@ -22,7 +23,7 @@ const ENCODING = 'hex';
 function getKey() {
   const hex = process.env.ENCRYPTION_KEY;
   if (!hex) return null;
-  if (hex.length !== 64) {
+  if (!HEX_64_RE.test(hex)) {
     throw new Error('ENCRYPTION_KEY must be a 64-character hex string (256 bits)');
   }
   return Buffer.from(hex, 'hex');
