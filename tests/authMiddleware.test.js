@@ -1,6 +1,6 @@
 jest.mock('jsonwebtoken');
 jest.mock('../src/config', () => ({
-  jwt: { secret: 'test-jwt-secret' },
+  jwt: { secret: 'test-jwt-secret', algorithm: 'HS256' },
 }));
 jest.mock('../src/config/database', () => ({
   query: jest.fn(),
@@ -194,7 +194,7 @@ describe('auth middleware', () => {
 
       await authenticate(req, res, next);
 
-      expect(jwt.verify).toHaveBeenCalledWith('my-secret-token', 'test-jwt-secret');
+      expect(jwt.verify).toHaveBeenCalledWith('my-secret-token', 'test-jwt-secret', { algorithms: ['HS256'] });
     });
   });
 
@@ -218,7 +218,7 @@ describe('auth middleware', () => {
 
       await authenticate(req, res, next);
 
-      expect(jwt.verify).toHaveBeenCalledWith('cookie-jwt-token', 'test-jwt-secret');
+      expect(jwt.verify).toHaveBeenCalledWith('cookie-jwt-token', 'test-jwt-secret', { algorithms: ['HS256'] });
       expect(next).toHaveBeenCalledWith();
       expect(req.user).toMatchObject({ id: 1, email: 'cookie@example.com', organizationId: 5 });
     });
@@ -255,7 +255,7 @@ describe('auth middleware', () => {
       await authenticate(req, res, next);
 
       // Must use the Bearer token string, not the cookie value
-      expect(jwt.verify).toHaveBeenCalledWith('bearer-wins', 'test-jwt-secret');
+      expect(jwt.verify).toHaveBeenCalledWith('bearer-wins', 'test-jwt-secret', { algorithms: ['HS256'] });
       expect(next).toHaveBeenCalledWith();
     });
 
@@ -275,7 +275,7 @@ describe('auth middleware', () => {
 
       await optionalAuth(req, res, next);
 
-      expect(jwt.verify).toHaveBeenCalledWith('optional-cookie-jwt', 'test-jwt-secret');
+      expect(jwt.verify).toHaveBeenCalledWith('optional-cookie-jwt', 'test-jwt-secret', { algorithms: ['HS256'] });
       expect(next).toHaveBeenCalledWith();
       expect(req.user).toBeDefined();
     });
