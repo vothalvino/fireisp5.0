@@ -20,13 +20,12 @@ EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
 UPDATE expenses e
-LEFT JOIN jobs j ON j.id = e.job_id
 LEFT JOIN users u ON u.id = e.user_id
 LEFT JOIN (
   SELECT MIN(id) AS organization_id
   FROM organizations
 ) o ON TRUE
-SET e.organization_id = COALESCE(e.organization_id, j.organization_id, u.organization_id, o.organization_id)
+SET e.organization_id = COALESCE(e.organization_id, u.organization_id, o.organization_id)
 WHERE e.organization_id IS NULL;
 
 SET @has_expenses_org_idx = (
