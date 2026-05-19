@@ -27,8 +27,6 @@
 #       up -d --scale app=3 --no-recreate
 # =============================================================================
 
-version: '3.8'
-
 # ── Shared defaults ──────────────────────────────────────────────────────────
 x-logging: &default-logging
   driver: json-file
