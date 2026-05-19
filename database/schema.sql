@@ -5193,6 +5193,7 @@ CREATE TABLE IF NOT EXISTS revenue_summary (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS network_health_snapshots (
     id                        BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+    organization_id           BIGINT UNSIGNED   NULL                    COMMENT 'Tenant organization this snapshot belongs to; NULL = single-tenant deployment',
     device_id                 BIGINT UNSIGNED   NULL                    COMMENT 'Device this snapshot is for; NULL if link-only snapshot',
     network_link_id           BIGINT UNSIGNED   NULL                    COMMENT 'Network link this snapshot is for; NULL if device-only snapshot',
     snapshot_date             DATE              NOT NULL                COMMENT 'Calendar date this snapshot covers (one row per day)',
@@ -5208,9 +5209,12 @@ CREATE TABLE IF NOT EXISTS network_health_snapshots (
     created_at                TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
+    KEY idx_network_health_organization_id (organization_id),
     KEY idx_network_health_device_date (device_id, snapshot_date),
     KEY idx_network_health_link_date (network_link_id, snapshot_date),
     KEY idx_network_health_snapshot_date (snapshot_date),
+    CONSTRAINT fk_network_health_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_network_health_device FOREIGN KEY (device_id)
         REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_network_health_link FOREIGN KEY (network_link_id)
