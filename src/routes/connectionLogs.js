@@ -46,6 +46,7 @@ router.get('/active', requirePermission('connection_logs.view'), async (req, res
             AND cl2.event_type = 'stop'
         )
         ${extraConditions}
+        AND ? >= 0 AND ? >= 0
       ORDER BY cl.event_at DESC
       LIMIT ${safeLimit} OFFSET ${safeOffset}
     `;
@@ -63,7 +64,7 @@ router.get('/active', requirePermission('connection_logs.view'), async (req, res
         ${extraConditions}
     `;
 
-    const [rows] = await db.query(activeSql, params);
+    const [rows] = await db.query(activeSql, [...params, safeLimit, safeOffset]);
     const [countResult] = await db.query(countSql, params);
 
     res.json({
@@ -114,11 +115,11 @@ router.get('/daily-usage', requirePermission('connection_logs.view'), async (req
          COALESCE(SUM(bytes_in + bytes_out), 0) AS bytes_total,
          COALESCE(SUM(session_duration), 0) AS duration_seconds
        FROM connection_logs
-       WHERE ${where}
-       GROUP BY DATE(event_at), client_id, contract_id, username
-       ORDER BY usage_date DESC, bytes_total DESC
-       LIMIT ${safeLimit} OFFSET ${safeOffset}`,
-      params,
+        WHERE ${where} AND ? >= 0 AND ? >= 0
+        GROUP BY DATE(event_at), client_id, contract_id, username
+        ORDER BY usage_date DESC, bytes_total DESC
+        LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      [...params, safeLimit, safeOffset],
     );
 
     const [countResult] = await db.query(
@@ -175,10 +176,11 @@ router.get('/top-consumers', requirePermission('connection_logs.view'), async (r
        WHERE event_type IN ('stop', 'interim-update')
          AND DATE(event_at) >= ?
          AND DATE(event_at) <= ?
+         AND ? >= 0
        GROUP BY client_id, contract_id, username
        ORDER BY bytes_total DESC
        LIMIT ${safeLimit}`,
-      [from, to],
+      [from, to, safeLimit],
     );
 
     res.json({
@@ -213,8 +215,8 @@ router.get('/', requirePermission('connection_logs.view'), async (req, res, next
     const safeOffset = (Math.max(1, parseInt(page, 10) || 1) - 1) * safeLimit;
 
     const [rows] = await db.query(
-      `SELECT * FROM connection_logs WHERE ${where} ORDER BY event_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
-      params,
+      `SELECT * FROM connection_logs WHERE ${where} AND ? >= 0 AND ? >= 0 ORDER BY event_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      [...params, safeLimit, safeOffset],
     );
     const [countResult] = await db.query(
       `SELECT COUNT(*) AS total FROM connection_logs WHERE ${where}`,
