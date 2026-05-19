@@ -303,6 +303,7 @@ CREATE TABLE IF NOT EXISTS radius (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS devices (
     id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this device belongs to; NULL = single-tenant deployment',
     site_id       BIGINT UNSIGNED NULL,
     client_id     BIGINT UNSIGNED NULL,
     contract_id   BIGINT UNSIGNED NULL     COMMENT 'Contract this device serves (e.g. which service a CPE belongs to)',
@@ -346,6 +347,7 @@ CREATE TABLE IF NOT EXISTS devices (
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_devices_serial_number (serial_number),
+    KEY idx_devices_organization_id (organization_id),
     KEY idx_devices_site_id (site_id),
     KEY idx_devices_client_id (client_id),
     KEY idx_devices_contract_id (contract_id),
@@ -355,6 +357,8 @@ CREATE TABLE IF NOT EXISTS devices (
     KEY idx_devices_snmp_profile_id (snmp_profile_id),
     KEY idx_devices_firerelay_node_id (firerelay_node_id),
     KEY idx_devices_deleted_at (deleted_at),
+    CONSTRAINT fk_devices_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_devices_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_devices_client FOREIGN KEY (client_id)
@@ -1840,6 +1844,7 @@ CREATE TABLE IF NOT EXISTS warehouses (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS inventory_items (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this inventory item belongs to; NULL = single-tenant deployment',
     sku             VARCHAR(100)    NULL COMMENT 'Stock-keeping unit / internal part number',
     name            VARCHAR(255)    NOT NULL COMMENT 'Item name (e.g. MikroTik hAP ac³)',
     category        ENUM(
@@ -1873,9 +1878,12 @@ CREATE TABLE IF NOT EXISTS inventory_items (
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_inventory_items_sku (sku),
+    KEY idx_inventory_items_organization_id (organization_id),
     KEY idx_inventory_items_category (category),
     KEY idx_inventory_items_status (status),
-    KEY idx_inventory_items_deleted_at (deleted_at)
+    KEY idx_inventory_items_deleted_at (deleted_at),
+    CONSTRAINT fk_inventory_items_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -2098,6 +2106,7 @@ CREATE TABLE IF NOT EXISTS billing_periods (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS network_links (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this network link belongs to; NULL = single-tenant deployment',
     device_a_id     BIGINT UNSIGNED NOT NULL  COMMENT 'First endpoint device',
     device_b_id     BIGINT UNSIGNED NOT NULL  COMMENT 'Second endpoint device',
     link_type       ENUM('fiber', 'wireless', 'copper', 'virtual', 'other')
@@ -2119,11 +2128,14 @@ CREATE TABLE IF NOT EXISTS network_links (
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
+    KEY idx_network_links_organization_id (organization_id),
     KEY idx_network_links_device_a_id (device_a_id),
     KEY idx_network_links_device_b_id (device_b_id),
     KEY idx_network_links_link_type (link_type),
     KEY idx_network_links_status (status),
     KEY idx_network_links_deleted_at (deleted_at),
+    CONSTRAINT fk_network_links_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_network_links_device_a FOREIGN KEY (device_a_id)
         REFERENCES devices (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_network_links_device_b FOREIGN KEY (device_b_id)

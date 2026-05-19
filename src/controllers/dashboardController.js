@@ -158,7 +158,12 @@ async function overdue(req, res, next) {
   try {
     const [rows] = await db.queryReplica(
       `SELECT i.id, i.invoice_number, i.total, i.currency, i.due_date,
-              i.client_id, cl.first_name, cl.last_name,
+              i.client_id,
+              SUBSTRING_INDEX(cl.name, ' ', 1) AS first_name,
+              CASE
+                WHEN LOCATE(' ', cl.name) > 0 THEN SUBSTRING(cl.name, LOCATE(' ', cl.name) + 1)
+                ELSE ''
+              END AS last_name,
               DATEDIFF(NOW(), i.due_date) AS days_overdue
        FROM invoices i
        JOIN clients cl ON cl.id = i.client_id
