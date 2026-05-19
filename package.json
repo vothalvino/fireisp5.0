@@ -46,7 +46,8 @@
     "overrides": {
       "glob": "^13.0.6",
       "test-exclude>glob": "^7.2.0",
-      "ip-address": "^10.1.1"
+      "ip-address": "^10.1.1",
+      "minimatch@10>brace-expansion": "^5.0.6"
     },
     "onlyBuiltDependencies": [
       "esbuild",
@@ -79,7 +80,7 @@
     "openid-client": "^5.7.1",
     "pdfkit": "^0.18.0",
     "pino": "^10.3.1",
-    "ws": "^8.20.0"
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
