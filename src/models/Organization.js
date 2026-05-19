@@ -22,14 +22,14 @@ class Organization extends BaseModel {
   /**
    * Get settings for this organization from the settings table.
    */
-  static async getSettings(organizationId) {
+  static async getSettings(_organizationId) {
     const db = require('../config/database');
     const [rows] = await db.query(
       'SELECT setting_key, setting_value, description FROM settings ORDER BY setting_key ASC',
     );
     const map = {};
     for (const row of rows) {
-      map[row.setting_key] = row.setting_value;
+      map[row.setting_key ?? row.key] = row.setting_value ?? row.value;
     }
     return map;
   }
