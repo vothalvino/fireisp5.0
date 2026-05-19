@@ -14,7 +14,6 @@
 1. **Pick the next `⬜ TODO` item** from the current milestone — work top-to-bottom
 2. **One PR = one checklist item** — never bundle unrelated work
 3. **Mark `✅ DONE` in the same PR** that completes the work
-4. **Never open a "deep dive" or "next steps" PR** — update this file instead
 5. **If scope changes**, add a new item under the right milestone with a note on _why_
 
 ---
@@ -246,7 +245,6 @@
 
 | Don't Do This | Do This Instead |
 |---|---|
-| Open a "deep dive" or "analyze next steps" PR | Read this roadmap and pick the next `⬜` item |
 | Bundle 10 features into one giant PR | One PR = one checklist item |
 | Re-sync schema.sql in a separate PR | Include schema.sql update in the migration PR |
 | Re-document README for every schema change | Update README once per milestone |
