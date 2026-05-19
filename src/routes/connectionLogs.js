@@ -32,7 +32,8 @@ router.get('/active', requirePermission('connection_logs.view'), async (req, res
     const extraConditions = conditions.length
       ? `AND ${conditions.join(' AND ')}`
       : '';
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const safeLimit = Math.min(Math.max(1, parseInt(limit, 10) || 50), 200);
+    const safeOffset = (Math.max(1, parseInt(page, 10) || 1) - 1) * safeLimit;
 
     const activeSql = `
       SELECT cl.*
@@ -46,7 +47,7 @@ router.get('/active', requirePermission('connection_logs.view'), async (req, res
         )
         ${extraConditions}
       ORDER BY cl.event_at DESC
-      LIMIT ? OFFSET ?
+      LIMIT ${safeLimit} OFFSET ${safeOffset}
     `;
 
     const countSql = `
@@ -62,12 +63,12 @@ router.get('/active', requirePermission('connection_logs.view'), async (req, res
         ${extraConditions}
     `;
 
-    const [rows] = await db.query(activeSql, [...params, parseInt(limit, 10), offset]);
+    const [rows] = await db.query(activeSql, params);
     const [countResult] = await db.query(countSql, params);
 
     res.json({
       data: rows,
-      meta: { total: countResult[0].total, page: parseInt(page, 10), limit: parseInt(limit, 10) },
+      meta: { total: countResult[0].total, page: Math.max(1, parseInt(page, 10) || 1), limit: safeLimit },
     });
   } catch (err) {
     next(err);
@@ -98,7 +99,8 @@ router.get('/daily-usage', requirePermission('connection_logs.view'), async (req
     if (contract_id) { conditions.push('contract_id = ?'); params.push(contract_id); }
 
     const where = conditions.join(' AND ');
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const safeLimit = Math.min(Math.max(1, parseInt(limit, 10) || 50), 200);
+    const safeOffset = (Math.max(1, parseInt(page, 10) || 1) - 1) * safeLimit;
 
     const [rows] = await db.query(
       `SELECT
@@ -115,8 +117,8 @@ router.get('/daily-usage', requirePermission('connection_logs.view'), async (req
        WHERE ${where}
        GROUP BY DATE(event_at), client_id, contract_id, username
        ORDER BY usage_date DESC, bytes_total DESC
-       LIMIT ? OFFSET ?`,
-      [...params, parseInt(limit, 10), offset],
+       LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      params,
     );
 
     const [countResult] = await db.query(
@@ -134,8 +136,8 @@ router.get('/daily-usage', requirePermission('connection_logs.view'), async (req
       data: rows,
       meta: {
         total: countResult[0].total,
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
+        page: Math.max(1, parseInt(page, 10) || 1),
+        limit: safeLimit,
         date_from: from,
         date_to: to,
       },
@@ -157,6 +159,7 @@ router.get('/top-consumers', requirePermission('connection_logs.view'), async (r
     const from = date_from || defaultFrom.toISOString().slice(0, 10);
     const to = date_to || defaultTo.toISOString().slice(0, 10);
 
+    const safeLimit = Math.min(Math.max(1, parseInt(limit, 10) || 10), 100);
     const [rows] = await db.query(
       `SELECT
          client_id,
@@ -174,13 +177,13 @@ router.get('/top-consumers', requirePermission('connection_logs.view'), async (r
          AND DATE(event_at) <= ?
        GROUP BY client_id, contract_id, username
        ORDER BY bytes_total DESC
-       LIMIT ?`,
-      [from, to, parseInt(limit, 10)],
+       LIMIT ${safeLimit}`,
+      [from, to],
     );
 
     res.json({
       data: rows,
-      meta: { date_from: from, date_to: to, limit: parseInt(limit, 10) },
+      meta: { date_from: from, date_to: to, limit: safeLimit },
     });
   } catch (err) {
     next(err);
@@ -206,18 +209,19 @@ router.get('/', requirePermission('connection_logs.view'), async (req, res, next
     if (date_to) { conditions.push('event_at <= ?'); params.push(date_to); }
 
     const where = conditions.length ? conditions.join(' AND ') : '1=1';
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const safeLimit = Math.min(Math.max(1, parseInt(limit, 10) || 50), 200);
+    const safeOffset = (Math.max(1, parseInt(page, 10) || 1) - 1) * safeLimit;
 
     const [rows] = await db.query(
-      `SELECT * FROM connection_logs WHERE ${where} ORDER BY event_at DESC LIMIT ? OFFSET ?`,
-      [...params, parseInt(limit, 10), offset],
+      `SELECT * FROM connection_logs WHERE ${where} ORDER BY event_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      params,
     );
     const [countResult] = await db.query(
       `SELECT COUNT(*) AS total FROM connection_logs WHERE ${where}`,
       params,
     );
 
-    res.json({ data: rows, meta: { total: countResult[0].total, page: parseInt(page, 10), limit: parseInt(limit, 10) } });
+    res.json({ data: rows, meta: { total: countResult[0].total, page: Math.max(1, parseInt(page, 10) || 1), limit: safeLimit } });
   } catch (err) {
     next(err);
   }

@@ -25,13 +25,11 @@ class Organization extends BaseModel {
   static async getSettings(organizationId) {
     const db = require('../config/database');
     const [rows] = await db.query(
-      'SELECT `key`, `value`, `description` FROM settings WHERE organization_id = ? OR organization_id IS NULL ORDER BY organization_id ASC',
-      [organizationId],
+      'SELECT setting_key, setting_value, description FROM settings ORDER BY setting_key ASC',
     );
-    // Org-specific settings override global ones
     const map = {};
     for (const row of rows) {
-      map[row.key] = row.value;
+      map[row.setting_key] = row.setting_value;
     }
     return map;
   }
@@ -39,13 +37,13 @@ class Organization extends BaseModel {
   /**
    * Update a single setting.
    */
-  static async setSetting(organizationId, key, value) {
+  static async setSetting(_organizationId, key, value) {
     const db = require('../config/database');
     await db.query(
-      `INSERT INTO settings (organization_id, \`key\`, \`value\`)
-       VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE \`value\` = VALUES(\`value\`)`,
-      [organizationId, key, value],
+      `INSERT INTO settings (setting_key, setting_value)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+      [key, value],
     );
   }
 }

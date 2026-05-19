@@ -627,6 +627,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS expenses (
     id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this expense belongs to; NULL = single-tenant deployment',
     job_id       BIGINT UNSIGNED NULL COMMENT 'Related work order, if applicable',
     user_id      BIGINT UNSIGNED NOT NULL COMMENT 'Employee who incurred the expense',
     category     VARCHAR(100)    NOT NULL COMMENT 'e.g. fuel, equipment, labor, parts',
@@ -643,11 +644,14 @@ CREATE TABLE IF NOT EXISTS expenses (
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
+    KEY idx_expenses_organization_id (organization_id),
     KEY idx_expenses_job_id (job_id),
     KEY idx_expenses_user_id (user_id),
     KEY idx_expenses_status (status),
     KEY idx_expenses_expense_date (expense_date),
     KEY idx_expenses_deleted_at (deleted_at),
+    CONSTRAINT fk_expenses_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_expenses_job FOREIGN KEY (job_id)
         REFERENCES jobs (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_expenses_user FOREIGN KEY (user_id)
