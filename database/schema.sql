@@ -303,6 +303,7 @@ CREATE TABLE IF NOT EXISTS radius (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS devices (
     id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this device belongs to; NULL = single-tenant deployment',
     site_id       BIGINT UNSIGNED NULL,
     client_id     BIGINT UNSIGNED NULL,
     contract_id   BIGINT UNSIGNED NULL     COMMENT 'Contract this device serves (e.g. which service a CPE belongs to)',
@@ -346,6 +347,7 @@ CREATE TABLE IF NOT EXISTS devices (
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_devices_serial_number (serial_number),
+    KEY idx_devices_organization_id (organization_id),
     KEY idx_devices_site_id (site_id),
     KEY idx_devices_client_id (client_id),
     KEY idx_devices_contract_id (contract_id),
@@ -355,6 +357,8 @@ CREATE TABLE IF NOT EXISTS devices (
     KEY idx_devices_snmp_profile_id (snmp_profile_id),
     KEY idx_devices_firerelay_node_id (firerelay_node_id),
     KEY idx_devices_deleted_at (deleted_at),
+    CONSTRAINT fk_devices_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_devices_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_devices_client FOREIGN KEY (client_id)
@@ -623,6 +627,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS expenses (
     id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this expense belongs to; NULL = single-tenant deployment',
     job_id       BIGINT UNSIGNED NULL COMMENT 'Related work order, if applicable',
     user_id      BIGINT UNSIGNED NOT NULL COMMENT 'Employee who incurred the expense',
     category     VARCHAR(100)    NOT NULL COMMENT 'e.g. fuel, equipment, labor, parts',
@@ -639,11 +644,14 @@ CREATE TABLE IF NOT EXISTS expenses (
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
+    KEY idx_expenses_organization_id (organization_id),
     KEY idx_expenses_job_id (job_id),
     KEY idx_expenses_user_id (user_id),
     KEY idx_expenses_status (status),
     KEY idx_expenses_expense_date (expense_date),
     KEY idx_expenses_deleted_at (deleted_at),
+    CONSTRAINT fk_expenses_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_expenses_job FOREIGN KEY (job_id)
         REFERENCES jobs (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_expenses_user FOREIGN KEY (user_id)
@@ -1840,6 +1848,7 @@ CREATE TABLE IF NOT EXISTS warehouses (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS inventory_items (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this inventory item belongs to; NULL = single-tenant deployment',
     sku             VARCHAR(100)    NULL COMMENT 'Stock-keeping unit / internal part number',
     name            VARCHAR(255)    NOT NULL COMMENT 'Item name (e.g. MikroTik hAP ac³)',
     category        ENUM(
@@ -1873,9 +1882,12 @@ CREATE TABLE IF NOT EXISTS inventory_items (
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_inventory_items_sku (sku),
+    KEY idx_inventory_items_organization_id (organization_id),
     KEY idx_inventory_items_category (category),
     KEY idx_inventory_items_status (status),
-    KEY idx_inventory_items_deleted_at (deleted_at)
+    KEY idx_inventory_items_deleted_at (deleted_at),
+    CONSTRAINT fk_inventory_items_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -2098,6 +2110,7 @@ CREATE TABLE IF NOT EXISTS billing_periods (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS network_links (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this network link belongs to; NULL = single-tenant deployment',
     device_a_id     BIGINT UNSIGNED NOT NULL  COMMENT 'First endpoint device',
     device_b_id     BIGINT UNSIGNED NOT NULL  COMMENT 'Second endpoint device',
     link_type       ENUM('fiber', 'wireless', 'copper', 'virtual', 'other')
@@ -2119,11 +2132,14 @@ CREATE TABLE IF NOT EXISTS network_links (
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
+    KEY idx_network_links_organization_id (organization_id),
     KEY idx_network_links_device_a_id (device_a_id),
     KEY idx_network_links_device_b_id (device_b_id),
     KEY idx_network_links_link_type (link_type),
     KEY idx_network_links_status (status),
     KEY idx_network_links_deleted_at (deleted_at),
+    CONSTRAINT fk_network_links_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_network_links_device_a FOREIGN KEY (device_a_id)
         REFERENCES devices (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_network_links_device_b FOREIGN KEY (device_b_id)
@@ -5181,6 +5197,7 @@ CREATE TABLE IF NOT EXISTS revenue_summary (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS network_health_snapshots (
     id                        BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+    organization_id           BIGINT UNSIGNED   NULL                    COMMENT 'Tenant organization this snapshot belongs to; NULL = single-tenant deployment',
     device_id                 BIGINT UNSIGNED   NULL                    COMMENT 'Device this snapshot is for; NULL if link-only snapshot',
     network_link_id           BIGINT UNSIGNED   NULL                    COMMENT 'Network link this snapshot is for; NULL if device-only snapshot',
     snapshot_date             DATE              NOT NULL                COMMENT 'Calendar date this snapshot covers (one row per day)',
@@ -5196,9 +5213,12 @@ CREATE TABLE IF NOT EXISTS network_health_snapshots (
     created_at                TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
+    KEY idx_network_health_organization_id (organization_id),
     KEY idx_network_health_device_date (device_id, snapshot_date),
     KEY idx_network_health_link_date (network_link_id, snapshot_date),
     KEY idx_network_health_snapshot_date (snapshot_date),
+    CONSTRAINT fk_network_health_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_network_health_device FOREIGN KEY (device_id)
         REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_network_health_link FOREIGN KEY (network_link_id)

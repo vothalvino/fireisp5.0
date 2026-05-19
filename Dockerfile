@@ -17,6 +17,10 @@ RUN pnpm --filter fireisp-frontend run build
 # ── Stage 2: production API server ────────────────────────────────────────────
 FROM node:24-bookworm-slim
 
+RUN apt-get update \
+  && apt-get upgrade -y --no-install-recommends \
+  && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system fireisp && useradd --system --gid fireisp --no-create-home fireisp
 
 WORKDIR /app

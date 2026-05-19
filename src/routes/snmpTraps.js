@@ -56,14 +56,15 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
       `SELECT t.id, t.organization_id, t.device_id, d.name AS device_name,
               t.source_ip, t.trap_type, t.trap_oid, t.community,
               t.snmp_version, t.is_acknowledged, t.acknowledged_by,
-              u.name AS acknowledged_by_name, t.acknowledged_at, t.received_at
+              TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) AS acknowledged_by_name,
+              t.acknowledged_at, t.received_at
        FROM snmp_traps t
        LEFT JOIN devices d ON d.id = t.device_id
        LEFT JOIN users   u ON u.id = t.acknowledged_by
        WHERE ${where}
        ORDER BY t.received_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset],
+       LIMIT ${limitNum} OFFSET ${offset}`,
+      params,
     );
 
     const [[{ total }]] = await db.query(
@@ -85,7 +86,7 @@ router.get('/:id', requirePermission('devices.view'), async (req, res, next) => 
   try {
     const [rows] = await db.query(
       `SELECT t.*, d.name AS device_name,
-              u.name AS acknowledged_by_name
+              TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) AS acknowledged_by_name
        FROM snmp_traps t
        LEFT JOIN devices d ON d.id = t.device_id
        LEFT JOIN users   u ON u.id = t.acknowledged_by

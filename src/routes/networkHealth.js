@@ -21,8 +21,8 @@ router.get('/', requirePermission('network_health.view'), async (req, res, next)
       page = 1, limit = 50,
     } = req.query;
 
-    const conditions = [];
-    const params = [];
+    const conditions = ['organization_id = ?'];
+    const params = [req.orgId];
 
     if (device_id) { conditions.push('device_id = ?'); params.push(device_id); }
     if (network_link_id) { conditions.push('network_link_id = ?'); params.push(network_link_id); }
