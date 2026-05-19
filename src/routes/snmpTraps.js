@@ -63,8 +63,8 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
        LEFT JOIN users   u ON u.id = t.acknowledged_by
        WHERE ${where}
        ORDER BY t.received_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset],
+       LIMIT ${limitNum} OFFSET ${offset}`,
+      params,
     );
 
     const [[{ total }]] = await db.query(
