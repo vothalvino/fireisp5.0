@@ -1,6 +1,6 @@
 # FireISP 5.0
 
-An open source ISP (Internet Service Provider) management software designed to help ISPs manage their customers, plans, billing, and network infrastructure.
+Open source ISP management software for customer operations, billing, network management, compliance, and modern self-service/admin workflows.
 
 ## Quick Install
 
@@ -105,31 +105,32 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 fireisp5.0/
 ├── database/                # Database schema and migrations
 │   ├── schema.sql           # Combined schema (all 123 tables)
-│   └── migrations/          # Individual numbered migration files (001–182)
-├── src/                     # Application source code
-│   ├── app.js               # Express app setup (middleware, routes, error handling)
+│   └── migrations/          # Individual numbered migration files (001–185)
+├── src/                     # Express API, services, middleware, scripts, and workers
+│   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
 │   ├── config/              # App configuration and environment settings
 │   ├── controllers/         # Request handlers / route controllers
 │   ├── locales/             # i18n translation files (en.json, es.json, pt-BR.json)
-│   ├── middleware/           # Authentication, logging, validation, and request middleware
-│   │   └── schemas/         # Joi / Zod validation schemas per route
-│   ├── models/              # Data models / ORM entities (98 models)
-│   ├── routes/              # Route definitions (81 route files)
+│   ├── middleware/          # Authentication, logging, validation, and request middleware
+│   │   └── schemas/         # Validation schemas per route
+│   ├── models/              # Data models / ORM-style entities
+│   ├── routes/              # Route definitions
 │   ├── scripts/             # CLI scripts (migrate, seed, backup, admin, openapi, postman, spec)
-│   ├── services/            # Business logic layer (48 services)
-│   ├── workers/             # BullMQ worker registry (8 named queues; active only when REDIS_URL is set)
-│   ├── utils/               # Shared helpers (errors, logger, i18n, circuit breaker, OpenAPI)
-│   └── views/               # Email templates (HTML builders for transactional emails)
+│   ├── services/            # Business logic layer
+│   ├── workers/             # Background worker entrypoints
+│   ├── utils/               # Shared helpers
+│   └── views/               # Email templates
 ├── storage/                 # User-uploaded and system-generated files
 │   ├── devices/             # Per-device files (history, evidence)
 │   ├── clients/             # Per-client files (documents, notification logs)
 │   ├── tickets/             # Per-ticket files (chat history, attachments)
 │   ├── organizations/       # Organization-level files (logos, maps, SAT docs)
 │   └── backups/             # System database and config backups
-├── docs/                    # Project documentation (API guide, architecture, deployment, etc.)
-├── frontend/                # React + TypeScript SPA (Vite); builds to frontend/dist/
-├── tests/                   # Automated tests (137 test files, 3,105 Jest tests)
+├── docs/                    # Project documentation
+├── frontend/                # React + TypeScript admin SPA (Vite)
+├── e2e/                     # Playwright smoke tests
+├── tests/                   # Backend/unit/integration test suites
 ├── LICENSE
 └── README.md
 ```
@@ -810,22 +811,32 @@ See the [`docs/`](docs/) directory for detailed guides on [API usage](docs/API_G
 git clone https://github.com/vothalvino/fireisp5.0.git
 cd fireisp5.0
 
-# 2. Configure environment
-cp .env.example .env
-# Edit .env — set DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, and a strong JWT_SECRET
+# 2. Enable the expected package manager
+corepack enable
+corepack prepare pnpm@10.33.2 --activate
 
-# 3. Install dependencies (pnpm required; install with: npm install -g pnpm)
+# 3. Install workspace dependencies
 pnpm install
 
-# 4. Set up the database (MySQL 8.0+ required)
+# 4. Configure environment
+cp .env.example .env
+# Edit .env — set DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, JWT_SECRET, and ENCRYPTION_KEY
+
+# 5. Set up the database (MySQL 8.0+ / MariaDB 10.6+)
 pnpm run migrate
 pnpm run seed
 
-# 5. Start the development server
+# 6. Start the backend API
 pnpm run dev
+
+# 7. In another terminal, start the frontend
+pnpm --filter fireisp-frontend dev
 ```
 
-The admin dashboard is available at `http://localhost:3000` and the API at `http://localhost:3000/api/v1/`. Interactive API docs are served at `http://localhost:3000/api/docs`.
+- Frontend dev UI: `http://localhost:5173`
+- Backend API: `http://localhost:3000/api/v1/`
+- Interactive API docs: `http://localhost:3000/api/docs`
+- Health endpoints: `http://localhost:3000/health/live` and `http://localhost:3000/health/ready`
 
 ### Docker Quick Start
 
@@ -840,6 +851,7 @@ docker compose up -d
 | Command | Description |
 |---------|-------------|
 | `pnpm run dev` | Start with auto-reload (nodemon) |
+| `pnpm --filter fireisp-frontend dev` | Start the Vite frontend on port 5173 |
 | `pnpm start` | Production start |
 | `pnpm test` | Run test suite (Jest) |
 | `pnpm run test:watch` | Run tests in watch mode |
@@ -852,6 +864,10 @@ docker compose up -d
 | `pnpm run openapi` | Generate OpenAPI spec to `docs/openapi.json` |
 | `pnpm run spec:check` | Check for OpenAPI ↔ route drift (run in CI) |
 | `pnpm run spec:gen` | Scaffold a new route stub from the OpenAPI spec |
+| `pnpm --filter fireisp-frontend test` | Run frontend tests (Vitest) |
+| `pnpm --filter fireisp-frontend run lint` | Run frontend type-check / lint step |
+| `pnpm --filter fireisp-frontend build` | Build the frontend bundle |
+| `pnpm --filter fireisp-e2e test` | Run Playwright smoke tests |
 | `pnpm run admin -- create-user --email admin@example.com --password secret --role admin` | Create admin user |
 | `pnpm run backup` | Back up the database |
 
