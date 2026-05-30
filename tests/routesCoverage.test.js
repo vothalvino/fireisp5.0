@@ -1022,11 +1022,14 @@ describe('Quote Routes — /api/quotes', () => {
     test('success — converts quote to invoice', async () => {
       mockAuthUser();
       const conn = mockConnection();
+      conn.execute
+        .mockResolvedValueOnce([[{ cnt: 0 }]]) // invoice number count
+        .mockResolvedValueOnce([{ insertId: 50, affectedRows: 1 }]) // insert invoice
+        .mockResolvedValueOnce([[{ description: 'Item 1', quantity: 1, unit_price: 100, total: 100, tax_rate_id: 1 }]]) // select quote items
+        .mockResolvedValue([{ insertId: 1, affectedRows: 1 }]); // item insert + quote update
 
       db.query.mockResolvedValue([[{ id: 1, client_id: 5, contract_id: 10, subtotal: '100.00', tax_amount: '16.00', total: '116.00', currency: 'MXN', tax_rate: '0.16', tax_rate_id: 1, notes: 'Test' }]]);
-      Invoice.create.mockResolvedValue({ id: 50, total: '116.00' });
-      Quote.getItems.mockResolvedValue([{ description: 'Item 1', quantity: 1, unit_price: 100, amount: 100, tax_rate_id: 1 }]);
-      Invoice.addItem.mockResolvedValue({ id: 1 });
+      Invoice.findById.mockResolvedValue({ id: 50, total: '116.00' });
 
       const res = await request(app)
         .post('/api/quotes/1/convert-to-invoice')
@@ -1034,6 +1037,30 @@ describe('Quote Routes — /api/quotes', () => {
 
       expect(res.status).toBe(201);
       expect(conn.commit).toHaveBeenCalled();
+    });
+
+    test('rolls back without orphaning the invoice when a later write fails', async () => {
+      mockAuthUser();
+      const conn = mockConnection();
+      conn.execute
+        .mockResolvedValueOnce([[{ cnt: 0 }]]) // invoice number count
+        .mockResolvedValueOnce([{ insertId: 50, affectedRows: 1 }]) // insert invoice
+        .mockResolvedValueOnce([[{ description: 'Item 1', quantity: 1, unit_price: 100, total: 100, tax_rate_id: 1 }]]) // select quote items
+        .mockResolvedValueOnce([{ insertId: 1, affectedRows: 1 }]) // item insert
+        .mockRejectedValueOnce(new Error('update failed')); // quote status update fails
+
+      db.query.mockResolvedValue([[{ id: 1, client_id: 5, contract_id: 10, subtotal: '100.00', tax_amount: '16.00', total: '116.00', currency: 'MXN', tax_rate: '0.16', tax_rate_id: 1, notes: 'Test' }]]);
+
+      const res = await request(app)
+        .post('/api/quotes/1/convert-to-invoice')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(500);
+      expect(conn.rollback).toHaveBeenCalled();
+      expect(conn.commit).not.toHaveBeenCalled();
+      // The invoice insert ran on the same connection that was rolled back, so
+      // nothing is committed — no orphaned invoice can remain.
+      expect(Invoice.create).not.toHaveBeenCalled();
     });
 
     test('returns 404 when quote not found', async () => {

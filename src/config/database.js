@@ -17,6 +17,12 @@ const parseIntEnv = (key, fallback) => {
   return Number.isNaN(n) ? fallback : n;
 };
 
+const parseBoolEnv = (key, fallback) => {
+  const v = process.env[key];
+  if (v === undefined || v === '') return fallback;
+  return /^(1|true|yes|on)$/i.test(v.trim());
+};
+
 /**
  * Shared connection parameters derived from environment variables.
  * Used by both the main application pool and the migration runner.
@@ -42,8 +48,15 @@ const pool = mysql.createPool({
 
 const tenantContext = new AsyncLocalStorage();
 const tenantConfigCache = new Map();
+// tenantPoolCache: key -> { pool, lastUsed }. Entries are evicted on an idle TTL
+// and capped with LRU eviction so multi-tenant deployments with many orgs do not
+// accumulate connection pools indefinitely.
 const tenantPoolCache = new Map();
 const TENANT_CACHE_TTL_MS = parseIntEnv('TENANT_DB_CONFIG_CACHE_MS', 60000);
+// Close a tenant pool after it has been idle for this long (0 disables idle eviction).
+const TENANT_POOL_IDLE_MS = parseIntEnv('TENANT_DB_POOL_IDLE_MS', 300000);
+// Maximum number of tenant pools to keep cached before LRU-evicting the oldest.
+const TENANT_POOL_MAX = Math.max(1, parseIntEnv('TENANT_DB_POOL_MAX', 100));
 
 /**
  * Read replica pool — created only when DB_REPLICA_HOST is set.
@@ -84,7 +97,9 @@ function normalizeTenantConfig(row) {
     user: row.db_user,
     password: decrypt(row.db_password_encrypted) || '',
     database: row.db_name,
-    ssl: row.ssl_enabled ? {} : undefined,
+    ssl: row.ssl_enabled
+      ? { rejectUnauthorized: parseBoolEnv('TENANT_DB_SSL_REJECT_UNAUTHORIZED', true) }
+      : undefined,
   };
 }
 
@@ -106,24 +121,65 @@ async function getTenantConnectionConfig(orgId) {
   return value;
 }
 
+/**
+ * Close and remove a single tenant pool from the cache.
+ * Pool shutdown errors are swallowed so eviction never rejects the caller.
+ */
+function evictTenantPool(key, entry) {
+  tenantPoolCache.delete(key);
+  Promise.resolve()
+    .then(() => entry.pool.end())
+    .catch(() => {});
+}
+
+/**
+ * Close any tenant pools that have been idle longer than TENANT_POOL_IDLE_MS.
+ */
+function evictIdleTenantPools(now = Date.now()) {
+  if (TENANT_POOL_IDLE_MS <= 0) return;
+  for (const [key, entry] of tenantPoolCache) {
+    if (now - entry.lastUsed > TENANT_POOL_IDLE_MS) evictTenantPool(key, entry);
+  }
+}
+
 async function getTenantPool(orgId) {
   const config = await getTenantConnectionConfig(orgId);
   if (!config) return null;
 
   const key = String(orgId);
-  if (!tenantPoolCache.has(key)) {
-    tenantPoolCache.set(key, mysql.createPool({
-      ...config,
-      charset: 'utf8mb4',
-      timezone: '+00:00',
-      waitForConnections: true,
-      connectionLimit: parseIntEnv('TENANT_DB_POOL_SIZE', 10),
-      queueLimit: parseIntEnv('DB_QUEUE_LIMIT', 0),
-      enableKeepAlive: true,
-      keepAliveInitialDelay: parseIntEnv('DB_KEEP_ALIVE_MS', 30000),
-    }));
+  const now = Date.now();
+  evictIdleTenantPools(now);
+
+  let entry = tenantPoolCache.get(key);
+  if (entry) {
+    // Refresh LRU recency by re-inserting at the end of the Map.
+    tenantPoolCache.delete(key);
+  } else {
+    entry = {
+      pool: mysql.createPool({
+        ...config,
+        charset: 'utf8mb4',
+        timezone: '+00:00',
+        waitForConnections: true,
+        connectionLimit: parseIntEnv('TENANT_DB_POOL_SIZE', 10),
+        queueLimit: parseIntEnv('DB_QUEUE_LIMIT', 0),
+        enableKeepAlive: true,
+        keepAliveInitialDelay: parseIntEnv('DB_KEEP_ALIVE_MS', 30000),
+      }),
+      lastUsed: now,
+    };
   }
-  return tenantPoolCache.get(key);
+  entry.lastUsed = now;
+  tenantPoolCache.set(key, entry);
+
+  // Enforce the LRU cap by evicting the least-recently-used pools.
+  while (tenantPoolCache.size > TENANT_POOL_MAX) {
+    const oldestKey = tenantPoolCache.keys().next().value;
+    if (oldestKey === key) break;
+    evictTenantPool(oldestKey, tenantPoolCache.get(oldestKey));
+  }
+
+  return entry.pool;
 }
 
 async function getCurrentPool({ preferReplica = false } = {}) {
@@ -138,9 +194,9 @@ async function getCurrentPool({ preferReplica = false } = {}) {
 async function invalidateTenantDbConfig(orgId) {
   const key = String(orgId);
   tenantConfigCache.delete(key);
-  const tenantPool = tenantPoolCache.get(key);
+  const entry = tenantPoolCache.get(key);
   tenantPoolCache.delete(key);
-  if (tenantPool) await tenantPool.end();
+  if (entry) await entry.pool.end();
 }
 
 async function testTenantConnection(connectionConfig) {
@@ -208,10 +264,12 @@ async function getConnection() {
 async function close() {
   const tasks = [pool.end()];
   if (replicaPool) tasks.push(replicaPool.end());
-  for (const tenantPool of tenantPoolCache.values()) tasks.push(tenantPool.end());
+  for (const entry of tenantPoolCache.values()) tasks.push(entry.pool.end());
   tenantPoolCache.clear();
   tenantConfigCache.clear();
-  await Promise.all(tasks);
+  // Use allSettled so that a single pool failing to close does not prevent the
+  // remaining pools from being drained during graceful shutdown.
+  await Promise.allSettled(tasks);
 }
 
 module.exports = {

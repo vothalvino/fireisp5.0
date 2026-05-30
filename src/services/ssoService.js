@@ -153,7 +153,7 @@ async function getGroupMappings(ssoConfigId) {
 async function saveGroupMappings(ssoConfigId, mappings) {
   const conn = await db.getConnection();
   try {
-    await conn.query('START TRANSACTION');
+    await conn.beginTransaction();
     await conn.query(
       'DELETE FROM organization_sso_group_mappings WHERE sso_config_id = ?',
       [ssoConfigId],
@@ -165,9 +165,9 @@ async function saveGroupMappings(ssoConfigId, mappings) {
         [values],
       );
     }
-    await conn.query('COMMIT');
+    await conn.commit();
   } catch (err) {
-    await conn.query('ROLLBACK');
+    await conn.rollback();
     throw err;
   } finally {
     conn.release();

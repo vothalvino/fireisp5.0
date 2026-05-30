@@ -9,6 +9,9 @@ const mockQuery      = jest.fn();
 const mockGetConn    = jest.fn();
 const mockConnQuery  = jest.fn();
 const mockConnRelease = jest.fn();
+const mockConnBegin    = jest.fn();
+const mockConnCommit   = jest.fn();
+const mockConnRollback = jest.fn();
 
 jest.mock('../src/config/database', () => ({
   query:         mockQuery,
@@ -325,11 +328,17 @@ describe('ssoService.getGroupMappings', () => {
 describe('ssoService.saveGroupMappings', () => {
   beforeEach(() => {
     mockQuery.mockReset();
+    mockConnBegin.mockReset().mockResolvedValue(undefined);
+    mockConnCommit.mockReset().mockResolvedValue(undefined);
+    mockConnRollback.mockReset().mockResolvedValue(undefined);
     mockGetConn.mockResolvedValue({
-      query:   mockConnQuery,
-      release: mockConnRelease,
+      query:            mockConnQuery,
+      beginTransaction: mockConnBegin,
+      commit:           mockConnCommit,
+      rollback:         mockConnRollback,
+      release:          mockConnRelease,
     });
-    mockConnQuery.mockResolvedValue([{}]);
+    mockConnQuery.mockReset().mockResolvedValue([{}]);
   });
 
   test('replaces all mappings in a transaction', async () => {
@@ -338,20 +347,19 @@ describe('ssoService.saveGroupMappings', () => {
 
     const mappings = [{ idp_group: 'g1', fireisp_role: 'admin' }];
     const result = await ssoService.saveGroupMappings(10, mappings);
-    expect(mockConnQuery).toHaveBeenCalledWith('START TRANSACTION');
-    expect(mockConnQuery).toHaveBeenCalledWith('COMMIT');
+    expect(mockConnBegin).toHaveBeenCalled();
+    expect(mockConnCommit).toHaveBeenCalled();
     expect(result).toHaveLength(1);
   });
 
   test('rolls back on error', async () => {
     mockConnQuery
-      .mockResolvedValueOnce([{}])  // START TRANSACTION
       .mockResolvedValueOnce([{}])  // DELETE
       .mockRejectedValueOnce(new Error('DB error')); // INSERT fails
 
     await expect(ssoService.saveGroupMappings(10, [{ idp_group: 'g', fireisp_role: 'admin' }]))
       .rejects.toThrow('DB error');
-    expect(mockConnQuery).toHaveBeenCalledWith('ROLLBACK');
+    expect(mockConnRollback).toHaveBeenCalled();
   });
 });
 
@@ -463,7 +471,13 @@ describe('PUT /api/v1/sso/:orgId/saml/group-mappings', () => {
     mockQuery.mockReset();
     mockGetConn.mockReset();
     mockConnQuery.mockReset();
-    mockGetConn.mockResolvedValue({ query: mockConnQuery, release: mockConnRelease });
+    mockGetConn.mockResolvedValue({
+      query: mockConnQuery,
+      beginTransaction: mockConnBegin,
+      commit: mockConnCommit,
+      rollback: mockConnRollback,
+      release: mockConnRelease,
+    });
     mockConnQuery.mockResolvedValue([{}]);
   });
 
