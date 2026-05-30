@@ -246,7 +246,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright chromium
-        run: pnpm --filter fireisp-e2e exec playwright install --with-deps chromium
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: l
+        run: |
+          # Remove needrestart to prevent interactive prompts on Ubuntu 24.04+
+          sudo apt-get remove -y needrestart || true
+          pnpm --filter fireisp-e2e exec playwright install --with-deps chromium
 
       - name: Start MySQL
         run: |
