@@ -92,6 +92,35 @@ describe('Rollback SQL files — database/rollbacks/', () => {
   });
 });
 
+// Recent schema-altering migrations 174–185 that must have a tested down-path.
+const RECENT_RANGE = Array.from({ length: 12 }, (_, i) => i + 174); // 174–185
+
+describe('Rollback SQL files — recent migrations 174–185', () => {
+  const rollbackFiles = listSqlFiles(ROLLBACKS_DIR);
+  const migrationFiles = listSqlFiles(MIGRATIONS_DIR);
+
+  // Every recent migration has a matching rollback with an identical filename
+  for (const num of RECENT_RANGE) {
+    it(`rollback exists and matches the migration filename for ${num}`, () => {
+      const migFile = migrationFiles.find(f => migrationNumber(f) === num);
+      expect(migFile).toBeDefined();
+      expect(rollbackFiles).toContain(migFile);
+    });
+  }
+
+  // Every recent rollback is non-empty and reverses schema with valid SQL
+  for (const num of RECENT_RANGE) {
+    it(`rollback ${num} contains valid reversing SQL`, () => {
+      const file = rollbackFiles.find(f => migrationNumber(f) === num);
+      if (!file) return; // covered by the existence test above
+      const content = fs.readFileSync(path.join(ROLLBACKS_DIR, file), 'utf8');
+      expect(content.trim().length).toBeGreaterThan(0);
+      const sqlKeywords = /\b(DROP|ALTER|MODIFY|CHANGE)\b/i;
+      expect(sqlKeywords.test(content)).toBe(true);
+    });
+  }
+});
+
 describe('Rollback runner — src/scripts/rollback.js', () => {
   // We only test the module exports (no DB calls)
   let rollbackModule;
