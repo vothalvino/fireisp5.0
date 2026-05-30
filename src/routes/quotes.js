@@ -62,42 +62,49 @@ router.post('/:id/convert-to-invoice', requirePermission('quotes.create'), requi
     try {
       await conn.beginTransaction();
 
-      // Create invoice from quote
-      const invoiceData = {
-        organization_id: req.orgId,
-        client_id: quote.client_id,
-        contract_id: quote.contract_id,
-        subtotal: quote.subtotal,
-        tax_amount: quote.tax_amount,
-        total: quote.total,
-        currency: quote.currency,
-        tax_rate: quote.tax_rate,
-        tax_rate_id: quote.tax_rate_id,
-        status: 'pending',
-        notes: quote.notes,
-      };
-      const invoice = await Invoice.create(invoiceData);
+      // Generate a unique invoice number within the transaction
+      const [countResult] = await conn.execute(
+        'SELECT COUNT(*) AS cnt FROM invoices WHERE organization_id = ?',
+        [req.orgId],
+      );
+      const invoiceNumber = `INV-${String(countResult[0].cnt + 1).padStart(6, '0')}`;
+
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 15);
+
+      // Create invoice from quote — all writes run on the transaction connection
+      const [invResult] = await conn.execute(
+        `INSERT INTO invoices
+           (organization_id, client_id, contract_id, invoice_number, subtotal, tax_amount,
+            total, currency, tax_rate, tax_rate_id, due_date, status, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued', ?)`,
+        [req.orgId, quote.client_id, quote.contract_id, invoiceNumber, quote.subtotal,
+          quote.tax_amount, quote.total, quote.currency, quote.tax_rate,
+          quote.tax_rate_id, dueDate, quote.notes],
+      );
+      const invoiceId = invResult.insertId;
 
       // Copy quote items to invoice items
-      const quoteItems = await Quote.getItems(req.params.id);
+      const [quoteItems] = await conn.execute(
+        'SELECT * FROM quote_items WHERE quote_id = ? AND deleted_at IS NULL ORDER BY id',
+        [req.params.id],
+      );
       for (const item of quoteItems) {
-        await Invoice.addItem({
-          invoice_id: invoice.id,
-          description: item.description,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          amount: item.amount,
-          tax_rate_id: item.tax_rate_id,
-        });
+        await conn.execute(
+          `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, amount, tax_rate_id)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [invoiceId, item.description, item.quantity, item.unit_price, item.total, item.tax_rate_id || null],
+        );
       }
 
       // Mark quote as accepted
-      await conn.query(
+      await conn.execute(
         'UPDATE quotes SET status = ? WHERE id = ?',
         ['accepted', req.params.id],
       );
 
       await conn.commit();
+      const invoice = await Invoice.findById(invoiceId);
       res.status(201).json({ data: invoice });
     } catch (txErr) {
       await conn.rollback();
