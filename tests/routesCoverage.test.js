@@ -444,6 +444,26 @@ describe('Role Routes — /api/roles', () => {
     });
   });
 
+  describe('GET /api/roles/permissions', () => {
+    test('success — lists the permission catalogue', async () => {
+      mockAuthUser();
+      db.query.mockResolvedValueOnce([
+        [
+          { id: 1, slug: 'clients.view', description: 'View clients', module: 'clients' },
+          { id: 2, slug: 'invoices.create', description: 'Create invoices', module: 'billing' },
+        ],
+      ]);
+
+      const res = await request(app)
+        .get('/api/roles/permissions')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveLength(2);
+      expect(res.body.data[0].slug).toBe('clients.view');
+    });
+  });
+
   describe('GET /api/roles/:id', () => {
     test('success — returns role with permissions', async () => {
       mockAuthUser();

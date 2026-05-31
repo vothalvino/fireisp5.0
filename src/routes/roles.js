@@ -39,6 +39,19 @@ router.get('/', requirePermission('roles.view'), async (req, res, next) => {
   }
 });
 
+// List the full catalogue of assignable permissions (for role editors).
+// Declared before '/:id' so the literal path is not captured as an id.
+router.get('/permissions', requirePermission('roles.view'), async (_req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT id, name AS slug, description, module FROM permissions ORDER BY module, name',
+    );
+    res.json({ data: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Get a single role with its permissions
 router.get('/:id', requirePermission('roles.view'), async (req, res, next) => {
   try {
@@ -48,7 +61,7 @@ router.get('/:id', requirePermission('roles.view'), async (req, res, next) => {
     }
 
     const [permissions] = await db.query(
-      `SELECT p.id, p.slug, p.description
+      `SELECT p.id, p.name AS slug, p.description
        FROM role_permissions rp
        JOIN permissions p ON p.id = rp.permission_id
        WHERE rp.role_id = ?
@@ -118,7 +131,7 @@ router.post('/:id/permissions', requirePermission('roles.manage'), validate(assi
       [req.params.id, permission_id],
     );
     const [rows] = await db.query(
-      `SELECT p.id, p.slug, p.description
+      `SELECT p.id, p.name AS slug, p.description
        FROM role_permissions rp
        JOIN permissions p ON p.id = rp.permission_id
        WHERE rp.role_id = ?

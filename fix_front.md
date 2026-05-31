@@ -128,7 +128,7 @@ appropriate role gate. Candidate areas, mapped to existing routes/tables:
 - [ ] Suspension rules & suspension actions — `/suspension-rules`, `/suspension`.
 
 **Support & SLAs**
-- [ ] SLA definitions — `/sla-definitions`.
+- [x] SLA definitions — `/sla-definitions`.
 - [ ] Message templates — `/message-templates` (currently only partially in Settings).
 
 **Compliance (MX) & regulatory**
@@ -137,10 +137,10 @@ appropriate role gate. Candidate areas, mapped to existing routes/tables:
 - [ ] Concession titles, regulatory filings, IFT statistical reports, facturas públicas.
 
 **Administration & security**
-- [ ] Roles & permissions editor — `/roles` (assign `role_permissions`).
-- [ ] API tokens — `/api-tokens`.
-- [ ] Webhooks & deliveries — `/webhooks`.
-- [ ] Audit logs viewer — `/audit-logs`.
+- [x] Roles & permissions editor — `/roles` (assign `role_permissions`).
+- [x] API tokens — `/api-tokens`.
+- [x] Webhooks & deliveries — `/webhooks`.
+- [x] Audit logs viewer — `/audit-logs`.
 - [ ] Scheduled tasks & job/queue status — `/scheduled-tasks`, `/jobs`, `/queue-stats`.
 - [ ] Organizations management — `/organizations`.
 - [ ] DSAR and DR-drill admin tools — `/dsar`, `/dr-drill`.
@@ -191,7 +191,7 @@ IP pools/assignments → SLA definitions → Roles/permissions → remaining net
 - [x] **M2 – Pattern normalization + missing edit/delete** (Phase 1 items 3–5).
 - [x] **M3 – Core billing/sales pages** (Plans, Quotes, Credit notes, Expenses).
 - [x] **M4 – Network/operations pages** (Sites, NAS, IP pools/assignments, VLANs, etc.).
-- [ ] **M5 – Support/SLA + Admin/security pages** (SLA defs, Roles/permissions, API tokens,
+- [x] **M5 – Support/SLA + Admin/security pages** (SLA defs, Roles/permissions, API tokens,
   Webhooks, Audit logs, Scheduled tasks).
 - [ ] **M6 – Compliance/MX pages** (CSD, PAC, SAT catalogs, regulatory filings).
 

@@ -1001,6 +1001,32 @@
         }
       }
     },
+    "/roles/permissions": {
+      "get": {
+        "tags": [
+          "Roles"
+        ],
+        "summary": "List all assignable permissions",
+        "operationId": "listPermissions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Permission[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/roles/{id}": {
       "get": {
         "tags": [

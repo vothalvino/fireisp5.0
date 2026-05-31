@@ -54,6 +54,12 @@ import { VlanList } from '@/pages/VlanList';
 import { Reports } from '@/pages/Reports';
 import { Settings } from '@/pages/Settings';
 import { ProfecoComplaints } from '@/pages/ProfecoComplaints';
+import { SlaDefinitionList } from '@/pages/SlaDefinitionList';
+import { RoleList } from '@/pages/RoleList';
+import { ApiTokenList } from '@/pages/ApiTokenList';
+import { WebhookList } from '@/pages/WebhookList';
+import { AuditLogList } from '@/pages/AuditLogList';
+import { ScheduledTaskList } from '@/pages/ScheduledTaskList';
 import { AIAssistantSettings } from '@/pages/AIAssistantSettings';
 import { NotFound } from '@/pages/NotFound';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
@@ -141,6 +147,12 @@ export function App() {
             <Route element={<PrivateRoute requiredRole="admin" />}>
               <Route element={<Layout />}>
                 <Route path="users" element={<UserList />} />
+                <Route path="sla-definitions" element={<SlaDefinitionList />} />
+                <Route path="roles" element={<RoleList />} />
+                <Route path="api-tokens" element={<ApiTokenList />} />
+                <Route path="webhooks" element={<WebhookList />} />
+                <Route path="audit-logs" element={<AuditLogList />} />
+                <Route path="scheduled-tasks" element={<ScheduledTaskList />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="ai-assistant" element={<AIAssistantSettings />} />
               </Route>
