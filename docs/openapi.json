@@ -1001,32 +1001,6 @@
         }
       }
     },
-    "/roles/permissions": {
-      "get": {
-        "tags": [
-          "Roles"
-        ],
-        "summary": "List all assignable permissions",
-        "operationId": "listPermissions",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Permission[]",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/roles/{id}": {
       "get": {
         "tags": [
@@ -1130,6 +1104,32 @@
         "responses": {
           "204": {
             "description": "No content"
+          }
+        }
+      }
+    },
+    "/roles/permissions": {
+      "get": {
+        "tags": [
+          "Roles"
+        ],
+        "summary": "List all assignable permissions",
+        "operationId": "listPermissions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Permission[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -9414,6 +9414,32 @@
         "responses": {
           "204": {
             "description": "No content"
+          }
+        }
+      }
+    },
+    "/queue-stats": {
+      "get": {
+        "tags": [
+          "Queue Stats"
+        ],
+        "summary": "Get background job queue statistics",
+        "operationId": "getQueueStats",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "QueueStats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }

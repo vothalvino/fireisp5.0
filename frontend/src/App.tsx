@@ -60,6 +60,12 @@ import { ApiTokenList } from '@/pages/ApiTokenList';
 import { WebhookList } from '@/pages/WebhookList';
 import { AuditLogList } from '@/pages/AuditLogList';
 import { ScheduledTaskList } from '@/pages/ScheduledTaskList';
+import { JobList } from '@/pages/JobList';
+import { QueueStats } from '@/pages/QueueStats';
+import { CsdCertificateList } from '@/pages/CsdCertificateList';
+import { PacProviderList } from '@/pages/PacProviderList';
+import { SatCatalogList } from '@/pages/SatCatalogList';
+import { RegulatoryFilingList } from '@/pages/RegulatoryFilingList';
 import { AIAssistantSettings } from '@/pages/AIAssistantSettings';
 import { NotFound } from '@/pages/NotFound';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
@@ -138,6 +144,10 @@ export function App() {
                 <Route path="quotes" element={<QuoteList />} />
                 <Route path="credit-notes" element={<CreditNoteList />} />
                 <Route path="expenses" element={<ExpenseList />} />
+                <Route path="csd-certificates" element={<CsdCertificateList />} />
+                <Route path="pac-providers" element={<PacProviderList />} />
+                <Route path="sat-catalogs" element={<SatCatalogList />} />
+                <Route path="regulatory-filings" element={<RegulatoryFilingList />} />
                 <Route path="reports" element={<Reports />} />
                 <Route path="profeco-complaints" element={<ProfecoComplaints />} />
               </Route>
@@ -153,6 +163,8 @@ export function App() {
                 <Route path="webhooks" element={<WebhookList />} />
                 <Route path="audit-logs" element={<AuditLogList />} />
                 <Route path="scheduled-tasks" element={<ScheduledTaskList />} />
+                <Route path="jobs" element={<JobList />} />
+                <Route path="queue-stats" element={<QueueStats />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="ai-assistant" element={<AIAssistantSettings />} />
               </Route>

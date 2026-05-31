@@ -65,7 +65,13 @@
     "reports": "📈 Reports",
     "settings": "⚙️ Settings",
     "profecoComplaints": "🏛️ PROFECO",
-    "aiAssistant": "🤖 AI Assistant"
+    "aiAssistant": "🤖 AI Assistant",
+    "csdCertificates": "📜 CSD Certificates",
+    "pacProviders": "🧾 PAC Providers",
+    "satCatalogs": "📚 SAT Catalogs",
+    "regulatoryFilings": "🏛️ Regulatory Filings",
+    "jobs": "🛠️ Field Jobs",
+    "queueStats": "📥 Queue Status"
   },
   "layout": {
     "brandName": "🔥 FireISP",

@@ -137,6 +137,9 @@ function generateSpec() {
         put: { tags: ['Roles'], summary: 'Update a role', operationId: 'updateRole', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('roles_updateRole'), responses: r200('Role') },
         delete: { tags: ['Roles'], summary: 'Delete a role', operationId: 'deleteRole', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
       },
+      '/roles/permissions': {
+        get: { tags: ['Roles'], summary: 'List all assignable permissions', operationId: 'listPermissions', security: [{ bearerAuth: [] }], responses: r200('Permission[]') },
+      },
       '/roles/{id}/permissions': {
         post: { tags: ['Roles'], summary: 'Assign a permission to a role', operationId: 'assignPermission', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('permission_id'), responses: r201('Permission[]') },
       },
@@ -370,6 +373,9 @@ function generateSpec() {
 
       // ---- Scheduled Tasks ----
       ...crudPaths('scheduled-tasks', 'Scheduled Tasks', 'ScheduledTask'),
+
+      // ---- Queue Stats ----
+      '/queue-stats': { get: { tags: ['Queue Stats'], summary: 'Get background job queue statistics', operationId: 'getQueueStats', security: [{ bearerAuth: [] }], responses: r200('QueueStats') } },
 
       // ---- Warehouses ----
       ...crudPaths('warehouses', 'Warehouses', 'Warehouse'),

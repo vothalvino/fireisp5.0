@@ -132,16 +132,17 @@ appropriate role gate. Candidate areas, mapped to existing routes/tables:
 - [ ] Message templates — `/message-templates` (currently only partially in Settings).
 
 **Compliance (MX) & regulatory**
-- [ ] CSD certificates, PAC providers, SAT catalogs — `/csd-certificates`, `/pac-providers`,
+- [x] CSD certificates, PAC providers, SAT catalogs — `/csd-certificates`, `/pac-providers`,
   `/sat-catalogs`.
-- [ ] Concession titles, regulatory filings, IFT statistical reports, facturas públicas.
+- [x] Regulatory filings — `/regulatory-filings`.
+- [ ] Concession titles, IFT statistical reports, facturas públicas.
 
 **Administration & security**
 - [x] Roles & permissions editor — `/roles` (assign `role_permissions`).
 - [x] API tokens — `/api-tokens`.
 - [x] Webhooks & deliveries — `/webhooks`.
 - [x] Audit logs viewer — `/audit-logs`.
-- [ ] Scheduled tasks & job/queue status — `/scheduled-tasks`, `/jobs`, `/queue-stats`.
+- [x] Scheduled tasks & job/queue status — `/scheduled-tasks`, `/jobs`, `/queue-stats`.
 - [ ] Organizations management — `/organizations`.
 - [ ] DSAR and DR-drill admin tools — `/dsar`, `/dr-drill`.
 
@@ -193,7 +194,7 @@ IP pools/assignments → SLA definitions → Roles/permissions → remaining net
 - [x] **M4 – Network/operations pages** (Sites, NAS, IP pools/assignments, VLANs, etc.).
 - [x] **M5 – Support/SLA + Admin/security pages** (SLA defs, Roles/permissions, API tokens,
   Webhooks, Audit logs, Scheduled tasks).
-- [ ] **M6 – Compliance/MX pages** (CSD, PAC, SAT catalogs, regulatory filings).
+- [x] **M6 – Compliance/MX pages** (CSD, PAC, SAT catalogs, regulatory filings).
 
 Each milestone is independently shippable and leaves the frontdesk more complete than
 before.
