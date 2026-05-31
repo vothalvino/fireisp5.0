@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, tokenStore } from '@/api/client';
+import { extractApiError } from '@/components/ClientFormModal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -132,6 +133,24 @@ async function createPayment(invoiceId: number, body: RecordPaymentBody): Promis
     const err = await allocRes.json().catch(() => ({}));
     throw new Error((err as { error?: string }).error || 'Failed to allocate payment');
   }
+}
+
+interface UpdateInvoiceBody {
+  invoice_number?: string;
+  currency?: string;
+  due_date?: string;
+  status?: string;
+  subtotal?: number;
+  tax_amount?: number;
+  total?: number;
+}
+
+async function updateInvoice(id: number, body: UpdateInvoiceBody): Promise<void> {
+  const { error } = await api.PUT('/invoices/{id}', {
+    params: { path: { id } },
+    body: body as never,
+  });
+  if (error) throw new Error(extractApiError(error, 'Failed to update invoice'));
 }
 
 // ---------------------------------------------------------------------------
@@ -308,6 +327,107 @@ function RecordPaymentModal({ invoice, clientId, onClose, onRecorded }: RecordPa
 }
 
 // ---------------------------------------------------------------------------
+// Edit Invoice Modal
+// ---------------------------------------------------------------------------
+
+const INVOICE_STATUSES = ['draft', 'issued', 'paid', 'overdue', 'cancelled', 'void'];
+
+interface EditInvoiceModalProps {
+  invoice: Invoice;
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+function EditInvoiceModal({ invoice, onClose, onSaved }: EditInvoiceModalProps) {
+  const [form, setForm] = useState({
+    invoice_number: invoice.invoice_number ?? '',
+    currency: invoice.currency || 'MXN',
+    due_date: invoice.due_date ? invoice.due_date.split('T')[0] : '',
+    status: invoice.status,
+    subtotal: invoice.subtotal ?? '',
+    tax_amount: invoice.tax_amount ?? '',
+    total: invoice.total ?? '',
+  });
+  const [error, setError] = useState('');
+
+  function setField(name: keyof typeof form, value: string) {
+    setForm(prev => ({ ...prev, [name]: value }));
+  }
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const body: UpdateInvoiceBody = { status: form.status };
+      if (form.invoice_number.trim()) body.invoice_number = form.invoice_number.trim();
+      if (form.currency.trim()) body.currency = form.currency.trim();
+      if (form.due_date) body.due_date = form.due_date;
+      if (form.subtotal !== '') body.subtotal = parseFloat(form.subtotal);
+      if (form.tax_amount !== '') body.tax_amount = parseFloat(form.tax_amount);
+      if (form.total !== '') body.total = parseFloat(form.total);
+      return updateInvoice(invoice.id, body);
+    },
+    onSuccess: () => { onSaved(); onClose(); },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    mutation.mutate();
+  }
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="Edit Invoice">
+      <div style={modalBox}>
+        <h3 style={{ margin: '0 0 1rem' }}>Edit Invoice</h3>
+        {error && <div style={errorBox}>{error}</div>}
+        <form onSubmit={handleSubmit}>
+          <label style={labelStyle}>Invoice Number</label>
+          <input style={inputStyle} value={form.invoice_number} onChange={e => setField('invoice_number', e.target.value)} />
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+            <div>
+              <label style={labelStyle}>Status</label>
+              <select style={inputStyle} value={form.status} onChange={e => setField('status', e.target.value)}>
+                {INVOICE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Currency</label>
+              <input style={inputStyle} maxLength={3} value={form.currency} onChange={e => setField('currency', e.target.value.toUpperCase())} />
+            </div>
+          </div>
+
+          <label style={labelStyle}>Due Date</label>
+          <input type="date" style={inputStyle} value={form.due_date} onChange={e => setField('due_date', e.target.value)} />
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 12px' }}>
+            <div>
+              <label style={labelStyle}>Subtotal</label>
+              <input type="number" step="0.01" min="0" style={inputStyle} value={form.subtotal} onChange={e => setField('subtotal', e.target.value)} />
+            </div>
+            <div>
+              <label style={labelStyle}>Tax</label>
+              <input type="number" step="0.01" min="0" style={inputStyle} value={form.tax_amount} onChange={e => setField('tax_amount', e.target.value)} />
+            </div>
+            <div>
+              <label style={labelStyle}>Total</label>
+              <input type="number" step="0.01" min="0" style={inputStyle} value={form.total} onChange={e => setField('total', e.target.value)} />
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} style={cancelBtn} disabled={mutation.isPending}>Cancel</button>
+            <button type="submit" style={submitBtn} disabled={mutation.isPending}>
+              {mutation.isPending ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
@@ -315,6 +435,7 @@ export function InvoiceDetail() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const [showPayment, setShowPayment] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
 
   const invoiceQ = useQuery({
@@ -349,6 +470,22 @@ export function InvoiceDetail() {
     },
     onError: (err: Error) => showToast(`Error: ${err.message}`),
   });
+
+  const voidMutation = useMutation({
+    mutationFn: () => updateInvoice(Number(id), { status: 'void' }),
+    onSuccess: () => {
+      showToast('Invoice voided');
+      qc.invalidateQueries({ queryKey: ['invoice', id] });
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+    },
+    onError: (err: Error) => showToast(`Error: ${err.message}`),
+  });
+
+  function handleVoid() {
+    if (window.confirm('Void this invoice? This marks it as void and cannot be undone.')) {
+      voidMutation.mutate();
+    }
+  }
 
   function showToast(msg: string) {
     setToastMsg(msg);
@@ -420,12 +557,22 @@ export function InvoiceDetail() {
               <button onClick={handleDownloadPdf} style={actionBtn('#059669')}>
                 ⬇ Download PDF
               </button>
+              <button onClick={() => setShowEdit(true)} style={actionBtn('#6b7280')}>
+                ✏️ Edit
+              </button>
               <button
                 onClick={() => setShowPayment(true)}
                 disabled={invoice.status === 'paid' || invoice.status === 'void'}
                 style={actionBtn('#e25822')}
               >
                 💳 Record Payment
+              </button>
+              <button
+                onClick={handleVoid}
+                disabled={invoice.status === 'void' || invoice.status === 'paid' || voidMutation.isPending}
+                style={actionBtn('#b91c1c')}
+              >
+                {voidMutation.isPending ? 'Voiding…' : '🚫 Void'}
               </button>
             </div>
           </div>
@@ -524,6 +671,19 @@ export function InvoiceDetail() {
               </table>
             )}
           </div>
+
+          {/* Edit Invoice Modal */}
+          {showEdit && (
+            <EditInvoiceModal
+              invoice={invoice}
+              onClose={() => setShowEdit(false)}
+              onSaved={() => {
+                qc.invalidateQueries({ queryKey: ['invoice', id] });
+                qc.invalidateQueries({ queryKey: ['invoices'] });
+                showToast('Invoice updated');
+              }}
+            />
+          )}
 
           {/* Record Payment Modal */}
           {showPayment && (

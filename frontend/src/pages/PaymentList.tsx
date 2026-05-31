@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, tokenStore } from '@/api/client';
+import { extractApiError } from '@/components/ClientFormModal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -188,6 +189,35 @@ async function sendReceipt(paymentId: number): Promise<{ to: string }> {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((body as { error?: string }).error || 'Failed to send receipt');
   return body as { to: string };
+}
+
+interface UpdatePaymentBody {
+  amount?: number;
+  currency?: string;
+  payment_method?: string;
+  reference?: string;
+  status?: string;
+}
+
+async function updatePayment(id: number, body: UpdatePaymentBody): Promise<void> {
+  const { error } = await api.PUT('/payments/{id}', {
+    params: { path: { id } },
+    body: body as never,
+  });
+  if (error) throw new Error(extractApiError(error, 'Failed to update payment'));
+}
+
+async function deletePayment(id: number): Promise<void> {
+  const { error } = await api.DELETE('/payments/{id}', { params: { path: { id } } });
+  if (error) throw new Error(extractApiError(error, 'Failed to delete payment'));
+}
+
+async function allocatePayment(id: number, invoiceId: number, amount: number): Promise<void> {
+  const { error } = await api.POST('/payments/{id}/allocate', {
+    params: { path: { id } },
+    body: { invoice_id: invoiceId, amount } as never,
+  });
+  if (error) throw new Error(extractApiError(error, 'Failed to allocate payment'));
 }
 
 // ---------------------------------------------------------------------------
@@ -439,6 +469,205 @@ function RecordPaymentModal({ clients, onClose, onRecorded }: RecordPaymentModal
 }
 
 // ---------------------------------------------------------------------------
+// Edit Payment Modal
+// ---------------------------------------------------------------------------
+
+interface EditPaymentModalProps {
+  payment: Payment;
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+function EditPaymentModal({ payment, onClose, onSaved }: EditPaymentModalProps) {
+  const [form, setForm] = useState({
+    amount: payment.amount,
+    currency: payment.currency,
+    payment_method: payment.payment_method || 'cash',
+    reference: payment.reference || '',
+    status: payment.status,
+  });
+
+  const mutation = useMutation({
+    mutationFn: () => updatePayment(payment.id, {
+      amount: parseFloat(form.amount),
+      currency: form.currency,
+      payment_method: form.payment_method,
+      reference: form.reference,
+      status: form.status,
+    }),
+    onSuccess: () => { onSaved(); onClose(); },
+  });
+
+  function setField(name: string, value: string) {
+    setForm(prev => ({ ...prev, [name]: value }));
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.amount || isNaN(parseFloat(form.amount))) return;
+    mutation.mutate();
+  }
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="Edit Payment">
+      <div style={{ ...modalBox, maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 1rem' }}>Edit Payment #{payment.id}</h3>
+        {mutation.isError && (
+          <div style={errorBox}>{(mutation.error as Error).message}</div>
+        )}
+        <form onSubmit={handleSubmit}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+            <div>
+              <label style={labelStyle}>Amount *</label>
+              <input
+                type="number" step="0.01" min="0.01"
+                style={inputStyle}
+                value={form.amount}
+                onChange={e => setField('amount', e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Currency</label>
+              <input
+                type="text" maxLength={3}
+                style={inputStyle}
+                value={form.currency}
+                onChange={e => setField('currency', e.target.value.toUpperCase())}
+                required
+              />
+            </div>
+          </div>
+
+          <label style={labelStyle}>Payment Method</label>
+          <select
+            style={inputStyle}
+            value={form.payment_method}
+            onChange={e => setField('payment_method', e.target.value)}
+          >
+            {PAYMENT_METHODS.map(m => (
+              <option key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>
+            ))}
+          </select>
+
+          <label style={labelStyle}>Status</label>
+          <select
+            style={inputStyle}
+            value={form.status}
+            onChange={e => setField('status', e.target.value)}
+          >
+            {['pending', 'completed', 'failed', 'refunded', 'cancelled'].map(s => (
+              <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+            ))}
+          </select>
+
+          <label style={labelStyle}>Reference / Folio (optional)</label>
+          <input
+            type="text" style={inputStyle}
+            value={form.reference}
+            onChange={e => setField('reference', e.target.value)}
+            placeholder="e.g. transfer ID, check number"
+          />
+
+          <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>
+            <button type="submit" style={submitBtn} disabled={mutation.isPending}>
+              {mutation.isPending ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Manual Allocate Modal
+// ---------------------------------------------------------------------------
+
+interface AllocateModalProps {
+  payment: Payment;
+  onClose: () => void;
+  onAllocated: () => void;
+}
+
+function AllocateModal({ payment, onClose, onAllocated }: AllocateModalProps) {
+  const [invoiceId, setInvoiceId] = useState('');
+  const [amount, setAmount] = useState(payment.amount);
+
+  const { data: openInvoices = [], isLoading: loadingInvoices } = useQuery({
+    queryKey: ['open-invoices', payment.client_id],
+    queryFn: () => fetchOpenInvoices(payment.client_id),
+  });
+
+  const mutation = useMutation({
+    mutationFn: () => allocatePayment(payment.id, Number(invoiceId), parseFloat(amount)),
+    onSuccess: () => { onAllocated(); onClose(); },
+  });
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!invoiceId) return;
+    if (!amount || isNaN(parseFloat(amount))) return;
+    mutation.mutate();
+  }
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="Allocate Payment">
+      <div style={{ ...modalBox, maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 1rem' }}>Allocate Payment #{payment.id}</h3>
+        {mutation.isError && (
+          <div style={errorBox}>{(mutation.error as Error).message}</div>
+        )}
+        <form onSubmit={handleSubmit}>
+          <label style={labelStyle}>Invoice *</label>
+          <select
+            style={inputStyle}
+            value={invoiceId}
+            onChange={e => setInvoiceId(e.target.value)}
+            disabled={loadingInvoices}
+            required
+          >
+            <option value="">— select invoice —</option>
+            {openInvoices.map(inv => (
+              <option key={inv.id} value={inv.id}>
+                {inv.invoice_number || `#${inv.id}`} — {fmtAmount(inv.total, payment.currency)}
+              </option>
+            ))}
+          </select>
+          {loadingInvoices && (
+            <p style={{ fontSize: '0.78rem', color: '#9ca3af', margin: '4px 0 0' }}>
+              Loading open invoices…
+            </p>
+          )}
+          {!loadingInvoices && openInvoices.length === 0 && (
+            <p style={{ fontSize: '0.78rem', color: '#9ca3af', margin: '4px 0 0' }}>
+              No open invoices for this client.
+            </p>
+          )}
+
+          <label style={labelStyle}>Amount *</label>
+          <input
+            type="number" step="0.01" min="0.01"
+            style={inputStyle}
+            value={amount}
+            onChange={e => setAmount(e.target.value)}
+            required
+          />
+
+          <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>
+            <button type="submit" style={submitBtn} disabled={mutation.isPending}>
+              {mutation.isPending ? 'Allocating…' : 'Allocate'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Inline Allocations Drawer
 // ---------------------------------------------------------------------------
 
@@ -575,9 +804,12 @@ interface PaymentRowProps {
   idx: number;
   onSendReceipt: (id: number) => void;
   sendingReceipt: number | null;
+  onEdit: (payment: Payment) => void;
+  onAllocate: (payment: Payment) => void;
+  onDelete: (payment: Payment) => void;
 }
 
-function PaymentRow({ payment, idx, onSendReceipt, sendingReceipt }: PaymentRowProps) {
+function PaymentRow({ payment, idx, onSendReceipt, sendingReceipt, onEdit, onAllocate, onDelete }: PaymentRowProps) {
   const [expanded, setExpanded] = useState<'none' | 'alloc' | 'gateway'>('none');
 
   function toggleExpand(mode: 'alloc' | 'gateway') {
@@ -638,6 +870,27 @@ function PaymentRow({ payment, idx, onSendReceipt, sendingReceipt }: PaymentRowP
             >
               {sendingReceipt === payment.id ? '…' : '📧 Receipt'}
             </button>
+            <button
+              style={{ ...actionBtn, background: '#e0f2fe', color: '#075985' }}
+              onClick={() => onAllocate(payment)}
+              title="Allocate payment to an invoice"
+            >
+              ➕ Allocate
+            </button>
+            <button
+              style={{ ...actionBtn, background: '#f3f4f6', color: '#374151' }}
+              onClick={() => onEdit(payment)}
+              title="Edit payment"
+            >
+              ✏️ Edit
+            </button>
+            <button
+              style={{ ...actionBtn, background: '#fee2e2', color: '#991b1b' }}
+              onClick={() => onDelete(payment)}
+              title="Delete payment"
+            >
+              🗑 Delete
+            </button>
           </div>
         </td>
       </tr>
@@ -662,6 +915,9 @@ export function PaymentList() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [showRecord, setShowRecord] = useState(false);
+  const [editPayment, setEditPayment] = useState<Payment | null>(null);
+  const [allocatePaymentRow, setAllocatePaymentRow] = useState<Payment | null>(null);
+  const [deletePaymentRow, setDeletePaymentRow] = useState<Payment | null>(null);
   const [toast, setToast] = useState('');
   const [sendingReceipt, setSendingReceipt] = useState<number | null>(null);
   const qc = useQueryClient();
@@ -688,6 +944,19 @@ export function PaymentList() {
     onError: (err: Error) => {
       showToast(`Error: ${err.message}`);
       setSendingReceipt(null);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deletePayment(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['payments'] });
+      showToast('Payment deleted');
+      setDeletePaymentRow(null);
+    },
+    onError: (err: Error) => {
+      showToast(`Error: ${err.message}`);
+      setDeletePaymentRow(null);
     },
   });
 
@@ -761,6 +1030,9 @@ export function PaymentList() {
                     idx={idx}
                     onSendReceipt={(id) => sendReceiptMutation.mutate(id)}
                     sendingReceipt={sendingReceipt}
+                    onEdit={setEditPayment}
+                    onAllocate={setAllocatePaymentRow}
+                    onDelete={setDeletePaymentRow}
                   />
                 ))}
               </tbody>
@@ -786,6 +1058,51 @@ export function PaymentList() {
           onClose={() => setShowRecord(false)}
           onRecorded={() => qc.invalidateQueries({ queryKey: ['payments'] })}
         />
+      )}
+
+      {/* Edit Payment Modal */}
+      {editPayment && (
+        <EditPaymentModal
+          payment={editPayment}
+          onClose={() => setEditPayment(null)}
+          onSaved={() => { qc.invalidateQueries({ queryKey: ['payments'] }); showToast('Payment updated'); }}
+        />
+      )}
+
+      {/* Allocate Payment Modal */}
+      {allocatePaymentRow && (
+        <AllocateModal
+          payment={allocatePaymentRow}
+          onClose={() => setAllocatePaymentRow(null)}
+          onAllocated={() => {
+            qc.invalidateQueries({ queryKey: ['payments'] });
+            qc.invalidateQueries({ queryKey: ['payment-allocs', allocatePaymentRow.id] });
+            showToast('Payment allocated');
+          }}
+        />
+      )}
+
+      {/* Delete Confirmation */}
+      {deletePaymentRow && (
+        <div style={overlay} role="alertdialog" aria-modal="true" aria-label="Delete Payment">
+          <div style={modalBox}>
+            <h3 style={{ margin: '0 0 0.75rem' }}>Delete Payment #{deletePaymentRow.id}?</h3>
+            <p style={{ margin: '0 0 1.25rem', color: '#4b5563', fontSize: '0.9rem' }}>
+              This will permanently remove payment of {fmtAmount(deletePaymentRow.amount, deletePaymentRow.currency)}. This action cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" onClick={() => setDeletePaymentRow(null)} style={cancelBtn}>Cancel</button>
+              <button
+                type="button"
+                onClick={() => deleteMutation.mutate(deletePaymentRow.id)}
+                disabled={deleteMutation.isPending}
+                style={{ ...submitBtn, background: '#dc2626' }}
+              >
+                {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Toast */}
