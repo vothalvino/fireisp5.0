@@ -246,8 +246,8 @@ describe('PPPoE Auth Flow — FireISP RADIUS service (unit)', () => {
         .mockResolvedValueOnce([[{
           contract_id: 10,
           contract_status: 'active',
-          download_speed: 20000,
-          upload_speed: 10000,
+          download_speed_mbps: 20000,
+          upload_speed_mbps: 10000,
           plan_name: 'Residential 20M',
           radius_id: 1,
           username: 'subscriber_001',
@@ -272,8 +272,8 @@ describe('PPPoE Auth Flow — FireISP RADIUS service (unit)', () => {
         .mockResolvedValueOnce([[{
           contract_id: 11,
           contract_status: 'suspended',
-          download_speed: 20000,
-          upload_speed: 10000,
+          download_speed_mbps: 20000,
+          upload_speed_mbps: 10000,
           plan_name: 'Residential 20M',
           radius_id: 2,
           username: 'subscriber_002',
@@ -312,20 +312,20 @@ describe('PPPoE Auth Flow — FireISP RADIUS service (unit)', () => {
         .mockResolvedValueOnce([[{
           contract_id: 20, contract_status: 'active',
           radius_id: 100, username: 'sub_020', radius_status: 'active',
-          download_speed: 10000, upload_speed: 5000, plan_name: 'Basic',
+          download_speed_mbps: 10000, upload_speed_mbps: 5000, plan_name: 'Basic',
         }]])
         // syncAccount(21)
         .mockResolvedValueOnce([[{
           contract_id: 21, contract_status: 'suspended',
           radius_id: 101, username: 'sub_021', radius_status: 'active',
-          download_speed: 20000, upload_speed: 10000, plan_name: 'Standard',
+          download_speed_mbps: 20000, upload_speed_mbps: 10000, plan_name: 'Standard',
         }]])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
         // syncAccount(22)
         .mockResolvedValueOnce([[{
           contract_id: 22, contract_status: 'active',
           radius_id: 102, username: 'sub_022', radius_status: 'active',
-          download_speed: 50000, upload_speed: 25000, plan_name: 'Pro',
+          download_speed_mbps: 50000, upload_speed_mbps: 25000, plan_name: 'Pro',
         }]]);
 
       const result = await radiusService.syncAllAccounts(1);
@@ -493,8 +493,8 @@ describe('PPPoE Auth Flow — FireISP RADIUS service (unit)', () => {
         .mockResolvedValueOnce([[{
           contract_id: 50,
           contract_status: 'active',
-          download_speed: 100000,
-          upload_speed: 50000,
+          download_speed_mbps: 100000,
+          upload_speed_mbps: 50000,
           plan_name: 'Fiber 100M',
           radius_id: 500,
           username: 'fiber_client_050',

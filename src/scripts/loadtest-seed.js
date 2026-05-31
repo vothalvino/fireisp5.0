@@ -154,7 +154,7 @@ async function seedLoadTestFixture() {
     const siteId = siteResult.insertId;
 
     const [planResult] = await conn.execute(
-      `INSERT INTO plans (organization_id, name, download_speed, upload_speed, price, currency, billing_cycle, status)
+      `INSERT INTO plans (organization_id, name, download_speed_mbps, upload_speed_mbps, price, currency, billing_cycle, status)
        VALUES (?, 'LoadTest 100 Mbps', 100, 25, 49.99, 'USD', 'monthly', 'active')`,
       [organizationId],
     );

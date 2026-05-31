@@ -148,16 +148,16 @@ CREATE TABLE IF NOT EXISTS plans (
     organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this plan belongs to; NULL = single-tenant deployment',
     name            VARCHAR(255)    NOT NULL,
     description     TEXT            NULL,
-    download_speed  INT UNSIGNED    NOT NULL COMMENT 'Speed in Mbps',
-    upload_speed    INT UNSIGNED    NOT NULL COMMENT 'Speed in Mbps',
+    download_speed_mbps INT UNSIGNED NOT NULL COMMENT 'Download speed in Mbps',
+    upload_speed_mbps   INT UNSIGNED NOT NULL COMMENT 'Upload speed in Mbps',
     data_cap_gb     DECIMAL(10, 2)  NULL COMMENT 'Monthly data cap in GB, NULL = unlimited',
     price           DECIMAL(10, 2)  NOT NULL,
     currency        CHAR(3)         NOT NULL DEFAULT 'USD' COMMENT 'ISO 4217 currency code',
     billing_cycle   ENUM('monthly', 'quarterly', 'semi_annual', 'annual') NOT NULL DEFAULT 'monthly',
-    burst_download  INT UNSIGNED    NULL COMMENT 'Burst download speed in Mbps',
-    burst_upload    INT UNSIGNED    NULL COMMENT 'Burst upload speed in Mbps',
-    contention      TINYINT UNSIGNED NULL COMMENT 'Contention ratio e.g. 10 means 10:1',
-    status          ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    burst_download_mbps INT UNSIGNED NULL COMMENT 'Burst download speed in Mbps',
+    burst_upload_mbps   INT UNSIGNED NULL COMMENT 'Burst upload speed in Mbps',
+    priority        TINYINT UNSIGNED NULL COMMENT 'Plan priority 1-8 (1 = highest)',
+    status          ENUM('active', 'inactive', 'archived') NOT NULL DEFAULT 'active',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
@@ -544,10 +544,12 @@ CREATE TABLE IF NOT EXISTS payment_allocations (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS quotes (
     id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL  COMMENT 'Owning tenant organisation; NULL = single-tenant deployment',
     client_id    BIGINT UNSIGNED NOT NULL,
+    contract_id  BIGINT UNSIGNED NULL     COMMENT 'Contract this quote relates to, if any',
     quote_number VARCHAR(50)     NOT NULL,
-    issue_date   DATE            NOT NULL,
-    expiry_date  DATE            NULL,
+    issue_date   DATE            NOT NULL DEFAULT (CURRENT_DATE) COMMENT 'Date this quote was issued',
+    valid_until  DATE            NULL     COMMENT 'Date this quote expires',
     subtotal     DECIMAL(10, 2)  NOT NULL DEFAULT 0.00,
     tax_rate     DECIMAL(5, 4)   NOT NULL DEFAULT 0.0000 COMMENT 'e.g. 0.0800 for 8%',
     tax_amount   DECIMAL(10, 2)  NOT NULL DEFAULT 0.00,
@@ -563,12 +565,18 @@ CREATE TABLE IF NOT EXISTS quotes (
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_quotes_number (quote_number),
+    KEY idx_quotes_organization_id (organization_id),
     KEY idx_quotes_client_id (client_id),
+    KEY idx_quotes_contract_id (contract_id),
     KEY idx_quotes_status (status),
     KEY idx_quotes_tax_rate_id (tax_rate_id),
     KEY idx_quotes_deleted_at (deleted_at),
+    CONSTRAINT fk_quotes_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_quotes_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_quotes_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_quotes_tax_rate FOREIGN KEY (tax_rate_id)
         REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_quotes_created_by FOREIGN KEY (created_by)
@@ -1983,23 +1991,22 @@ CREATE TABLE IF NOT EXISTS inventory_transactions (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS credit_notes (
     id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id    BIGINT UNSIGNED NULL      COMMENT 'Owning tenant organisation; NULL = single-tenant deployment',
     client_id          BIGINT UNSIGNED NOT NULL,
     contract_id        BIGINT UNSIGNED NULL,
     invoice_id         BIGINT UNSIGNED NULL      COMMENT 'Original invoice being credited, if any',
     payment_id         BIGINT UNSIGNED NULL      COMMENT 'Payment that triggered this credit note (e.g. duplicate payment refund)',
     credit_note_number VARCHAR(50)     NOT NULL,
-    issue_date         DATE            NOT NULL,
+    issue_date         DATE            NOT NULL DEFAULT (CURRENT_DATE) COMMENT 'Date this credit note was issued',
     reason             ENUM(
-                           'return',
-                           'courtesy',
-                           'service_outage',
                            'billing_error',
-                           'duplicate_payment',
-                           'downgrade',
-                           'cancellation',
+                           'service_interruption',
+                           'overpayment',
+                           'promotional_credit',
+                           'contract_cancellation',
                            'other'
                        ) NOT NULL
-                           COMMENT 'return=client returned equipment; courtesy=goodwill/customer satisfaction; service_outage=compensation for downtime; billing_error=incorrect charge on invoice; duplicate_payment=client paid twice; downgrade=refund of unused service after plan change; cancellation=prorated refund for early termination; other=see notes',
+                           COMMENT 'Reason the credit note was issued',
     subtotal           DECIMAL(10, 2)  NOT NULL DEFAULT 0.00,
     tax_rate           DECIMAL(5, 4)   NOT NULL DEFAULT 0.0000 COMMENT 'e.g. 0.0800 for 8%',
     tax_amount         DECIMAL(10, 2)  NOT NULL DEFAULT 0.00,
@@ -2017,6 +2024,7 @@ CREATE TABLE IF NOT EXISTS credit_notes (
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_credit_notes_number (credit_note_number),
+    KEY idx_credit_notes_organization_id (organization_id),
     KEY idx_credit_notes_client_id (client_id),
     KEY idx_credit_notes_contract_id (contract_id),
     KEY idx_credit_notes_invoice_id (invoice_id),
@@ -2026,6 +2034,8 @@ CREATE TABLE IF NOT EXISTS credit_notes (
     KEY idx_credit_notes_issue_date (issue_date),
     KEY idx_credit_notes_tax_rate_id (tax_rate_id),
     KEY idx_credit_notes_deleted_at (deleted_at),
+    CONSTRAINT fk_credit_notes_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_credit_notes_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_credit_notes_contract FOREIGN KEY (contract_id)

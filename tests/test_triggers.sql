@@ -33,7 +33,7 @@ INSERT INTO clients (id, organization_id, name, client_type, locale, status)
 VALUES (9001, 9001, 'MX Client', 'personal', 'MX', 'active');
 
 -- Plan
-INSERT INTO plans (id, organization_id, name, download_speed, upload_speed, price, status)
+INSERT INTO plans (id, organization_id, name, download_speed_mbps, upload_speed_mbps, price, status)
 VALUES (9000, 9000, 'Test Plan 50M', 50, 10, 499.00, 'active');
 
 -- Site
@@ -330,7 +330,7 @@ CALL assert_sql_error('45000', 'UPDATE credit_notes SET total = 201.00 WHERE id 
 
 -- H5. Credit note without invoice_id — no cap enforced
 INSERT INTO credit_notes (id, client_id, credit_note_number, issue_date, reason, subtotal, total, status)
-VALUES (9002, 9001, 'CN-T9002', '2024-03-01', 'courtesy', 9999.00, 9999.00, 'draft');
+VALUES (9002, 9001, 'CN-T9002', '2024-03-01', 'promotional_credit', 9999.00, 9999.00, 'draft');
 CALL assert_true(ROW_COUNT() = 1, 'H5: Credit note without invoice_id succeeds regardless of amount');
 
 -- =========================================================================

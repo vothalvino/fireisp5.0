@@ -61,7 +61,7 @@ describe('serviceHealthService.getSnapshot', () => {
     // RouterOS queue query
     mockQuery.mockResolvedValueOnce(makeDbResult({
       ip_address: '10.0.1.1', firerelay_node_id: 'node-A',
-      type: 'router', download_speed: 50, upload_speed: 10,
+      type: 'router', download_speed_mbps: 50, upload_speed_mbps: 10,
     }));
 
     // Speed test query

@@ -29,7 +29,7 @@ describe('radiusService', () => {
       db.query
         .mockResolvedValueOnce([[{
           contract_id: 1, contract_status: 'active',
-          download_speed: 100, upload_speed: 50, plan_name: 'Premium',
+          download_speed_mbps: 100, upload_speed_mbps: 50, plan_name: 'Premium',
           radius_id: 10, username: 'user1', radius_status: 'disabled',
         }]])
         .mockResolvedValueOnce([{ affectedRows: 1 }]);
@@ -65,9 +65,9 @@ describe('radiusService', () => {
       db.query
         .mockResolvedValueOnce([[{ id: 1 }, { id: 2 }]])  // list contracts
         // syncAccount for contract 1
-        .mockResolvedValueOnce([[{ contract_id: 1, contract_status: 'active', radius_id: 10, username: 'u1', radius_status: 'active', download_speed: 100, upload_speed: 50, plan_name: 'P1' }]])
+        .mockResolvedValueOnce([[{ contract_id: 1, contract_status: 'active', radius_id: 10, username: 'u1', radius_status: 'active', download_speed_mbps: 100, upload_speed_mbps: 50, plan_name: 'P1' }]])
         // syncAccount for contract 2
-        .mockResolvedValueOnce([[{ contract_id: 2, contract_status: 'active', radius_id: 20, username: 'u2', radius_status: 'active', download_speed: 50, upload_speed: 25, plan_name: 'P2' }]]);
+        .mockResolvedValueOnce([[{ contract_id: 2, contract_status: 'active', radius_id: 20, username: 'u2', radius_status: 'active', download_speed_mbps: 50, upload_speed_mbps: 25, plan_name: 'P2' }]]);
 
       const result = await radiusService.syncAllAccounts(1);
       expect(result.synced).toBe(2);

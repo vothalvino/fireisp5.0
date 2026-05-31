@@ -127,7 +127,7 @@ async function getRouterOsQueue(contractId) {
   try {
     const [rows] = await db.query(
       `SELECT d.ip_address, d.firerelay_node_id, d.type,
-              p.download_speed, p.upload_speed
+              p.download_speed_mbps, p.upload_speed_mbps
        FROM contracts c
        JOIN plans p ON p.id = c.plan_id
        JOIN devices d ON d.contract_id = c.id AND d.deleted_at IS NULL
@@ -143,8 +143,8 @@ async function getRouterOsQueue(contractId) {
     // Real-time queue inspection via routerosService is deferred to when
     // the FireRelay tunnel is available (requires firerelay_node_id).
     return {
-      downloadLimit: row.download_speed,
-      uploadLimit:   row.upload_speed,
+      downloadLimit: row.download_speed_mbps,
+      uploadLimit:   row.upload_speed_mbps,
       enabled:       true,
       source:        'plan_config',
     };

@@ -19,7 +19,7 @@ INSERT INTO clients (id, organization_id, name, client_type, locale, status)
 VALUES (8000, 8000, 'Check Test Client', 'personal', 'MX', 'active');
 INSERT INTO sites (id, organization_id, name, site_type, status)
 VALUES (8000, 8000, 'Check Test POP', 'pop', 'active');
-INSERT INTO plans (id, organization_id, name, download_speed, upload_speed, price, status)
+INSERT INTO plans (id, organization_id, name, download_speed_mbps, upload_speed_mbps, price, status)
 VALUES (8000, 8000, 'Check Test Plan', 50, 10, 299.00, 'active');
 
 -- =========================================================================
