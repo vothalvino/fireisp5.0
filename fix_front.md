@@ -106,10 +106,10 @@ backend allows), registered in `App.tsx` routes and `components/Layout.tsx` nav 
 appropriate role gate. Candidate areas, mapped to existing routes/tables:
 
 **Billing & sales**
-- [ ] Plans & plan add-ons — `/plans` (`src/routes/plans.js`).
-- [ ] Quotes & quote items, convert-to-invoice — `/quotes`.
-- [ ] Credit notes — `/credit-notes`.
-- [ ] Expenses — `/expenses`.
+- [x] Plans & plan add-ons — `/plans` (`src/routes/plans.js`).
+- [x] Quotes & quote items, convert-to-invoice — `/quotes`.
+- [x] Credit notes — `/credit-notes`.
+- [x] Expenses — `/expenses`.
 - [ ] Promotions / tax rules / tax rates — backend + `promotions`, `tax_rules`, `tax_rates`.
 - [ ] Recurring payment profiles — `/recurring-payment-profiles`.
 - [ ] Payment gateways & transactions detail — `/payment-gateways`, `/payment-transactions`.
@@ -189,7 +189,7 @@ IP pools/assignments → SLA definitions → Roles/permissions → remaining net
 
 - [x] **M1 – Clients & Devices fully operational** (Phase 1 items 1–2). Highest impact.
 - [ ] **M2 – Pattern normalization + missing edit/delete** (Phase 1 items 3–5).
-- [ ] **M3 – Core billing/sales pages** (Plans, Quotes, Credit notes, Expenses).
+- [x] **M3 – Core billing/sales pages** (Plans, Quotes, Credit notes, Expenses).
 - [ ] **M4 – Network/operations pages** (Sites, NAS, IP pools/assignments, VLANs, etc.).
 - [ ] **M5 – Support/SLA + Admin/security pages** (SLA defs, Roles/permissions, API tokens,
   Webhooks, Audit logs, Scheduled tasks).

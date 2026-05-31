@@ -35,6 +35,10 @@ import { TicketDetail } from '@/pages/TicketDetail';
 import { DeviceMap } from '@/pages/DeviceMap';
 import { UserList } from '@/pages/UserList';
 import { CfdiList } from '@/pages/CfdiList';
+import { PlanList } from '@/pages/PlanList';
+import { QuoteList } from '@/pages/QuoteList';
+import { CreditNoteList } from '@/pages/CreditNoteList';
+import { ExpenseList } from '@/pages/ExpenseList';
 import { InventoryList } from '@/pages/InventoryList';
 import { WarehouseList } from '@/pages/WarehouseList';
 import { CoverageZoneMap } from '@/pages/CoverageZoneMap';
@@ -114,6 +118,10 @@ export function App() {
             <Route element={<PrivateRoute requiredRole="billing" />}>
               <Route element={<Layout />}>
                 <Route path="cfdi" element={<CfdiList />} />
+                <Route path="plans" element={<PlanList />} />
+                <Route path="quotes" element={<QuoteList />} />
+                <Route path="credit-notes" element={<CreditNoteList />} />
+                <Route path="expenses" element={<ExpenseList />} />
                 <Route path="reports" element={<Reports />} />
                 <Route path="profeco-complaints" element={<ProfecoComplaints />} />
               </Route>
