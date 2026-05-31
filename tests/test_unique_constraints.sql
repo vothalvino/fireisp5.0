@@ -66,8 +66,8 @@ CALL assert_sql_error(NULL, 'INSERT INTO invoices (id, client_id, invoice_number
 -- =========================================================================
 -- F. ip_assignments — uq_ip_assignments_ip
 -- =========================================================================
-INSERT INTO ip_pools (id, site_id, name, network, cidr, ip_version, status)
-VALUES (7000, 7000, 'Pool-A', '10.0.0.0', 24, '4', 'active');
+INSERT INTO ip_pools (id, site_id, name, network, subnet_mask, ip_version, status)
+VALUES (7000, 7000, 'Pool-A', '10.0.0.0', '255.255.255.0', '4', 'active');
 INSERT INTO ip_assignments (id, pool_id, ip_address, client_id, type, status)
 VALUES (7000, 7000, '10.0.0.1', 7000, 'static', 'active');
 
