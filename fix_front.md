@@ -12,9 +12,9 @@ of features that already exist in the database and backend API but have no UI to
 
 The backend is far richer than the UI exposes:
 
-- **212 documented API endpoints** (`docs/openapi.json`) and **123 database tables**
+- **215 documented API endpoints** (`docs/openapi.json`) and **123 database tables**
   (`database/schema.sql`).
-- Only **~23 admin pages** exist (`frontend/src/pages/*.tsx`), and most are **read-only**.
+- Only **~29 admin pages** exist (`frontend/src/pages/*.tsx`), and most are **read-only**.
 
 The problem is **not** a single global failure. Specifically, the CSRF concern that looks
 suspicious is a *false positive*: the backend exempts Bearer-token requests from CSRF
@@ -188,7 +188,7 @@ IP pools/assignments → SLA definitions → Roles/permissions → remaining net
 ## 7. Suggested milestones
 
 - [x] **M1 – Clients & Devices fully operational** (Phase 1 items 1–2). Highest impact.
-- [ ] **M2 – Pattern normalization + missing edit/delete** (Phase 1 items 3–5).
+- [x] **M2 – Pattern normalization + missing edit/delete** (Phase 1 items 3–5).
 - [x] **M3 – Core billing/sales pages** (Plans, Quotes, Credit notes, Expenses).
 - [ ] **M4 – Network/operations pages** (Sites, NAS, IP pools/assignments, VLANs, etc.).
 - [ ] **M5 – Support/SLA + Admin/security pages** (SLA defs, Roles/permissions, API tokens,
