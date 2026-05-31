@@ -249,6 +249,18 @@
       "description": "Recurring payment profiles"
     },
     {
+      "name": "Promotions",
+      "description": "Promotion and coupon management"
+    },
+    {
+      "name": "Tax Rules",
+      "description": "Regional tax rule configuration"
+    },
+    {
+      "name": "Tax Rates",
+      "description": "Tax rate configuration"
+    },
+    {
       "name": "Settings",
       "description": "Organization settings"
     },
@@ -10347,6 +10359,507 @@
         }
       }
     },
+    "/promotions": {
+      "get": {
+        "tags": [
+          "Promotions"
+        ],
+        "summary": "List promotions",
+        "operationId": "listPromotions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Promotion[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Promotions"
+        ],
+        "summary": "Create a Promotion",
+        "operationId": "createPromotion",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Promotion",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Promotion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/promotions/{id}": {
+      "get": {
+        "tags": [
+          "Promotions"
+        ],
+        "summary": "Get a Promotion",
+        "operationId": "getPromotion",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Promotion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Promotions"
+        ],
+        "summary": "Update a Promotion",
+        "operationId": "updatePromotion",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Promotion",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Promotion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Promotions"
+        ],
+        "summary": "Delete a Promotion",
+        "operationId": "deletePromotion",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/tax-rules": {
+      "get": {
+        "tags": [
+          "Tax Rules"
+        ],
+        "summary": "List tax-rules",
+        "operationId": "listTaxRules",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TaxRule[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Tax Rules"
+        ],
+        "summary": "Create a TaxRule",
+        "operationId": "createTaxRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "TaxRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "TaxRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tax-rules/{id}": {
+      "get": {
+        "tags": [
+          "Tax Rules"
+        ],
+        "summary": "Get a TaxRule",
+        "operationId": "getTaxRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TaxRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Tax Rules"
+        ],
+        "summary": "Update a TaxRule",
+        "operationId": "updateTaxRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "TaxRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "TaxRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Tax Rules"
+        ],
+        "summary": "Delete a TaxRule",
+        "operationId": "deleteTaxRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/tax-rates": {
+      "get": {
+        "tags": [
+          "Tax Rates"
+        ],
+        "summary": "List tax-rates",
+        "operationId": "listTaxRates",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TaxRate[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Tax Rates"
+        ],
+        "summary": "Create a TaxRate",
+        "operationId": "createTaxRate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "TaxRate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "TaxRate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tax-rates/{id}": {
+      "get": {
+        "tags": [
+          "Tax Rates"
+        ],
+        "summary": "Get a TaxRate",
+        "operationId": "getTaxRate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TaxRate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Tax Rates"
+        ],
+        "summary": "Update a TaxRate",
+        "operationId": "updateTaxRate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "TaxRate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "TaxRate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Tax Rates"
+        ],
+        "summary": "Delete a TaxRate",
+        "operationId": "deleteTaxRate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
     "/settings": {
       "get": {
         "tags": [
@@ -17536,6 +18049,151 @@
           }
         }
       },
+      "promotions_createPromotion": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maximum": 150
+          },
+          "code": {
+            "type": "string",
+            "maximum": 50
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "discount_type": {
+            "type": "string",
+            "enum": [
+              "percentage",
+              "fixed_amount"
+            ]
+          },
+          "discount_value": {
+            "type": "number",
+            "minimum": 0
+          },
+          "promotion_type": {
+            "type": "string",
+            "enum": [
+              "coupon",
+              "promotional",
+              "referral"
+            ]
+          },
+          "applies_to": {
+            "type": "string",
+            "enum": [
+              "contract",
+              "invoice",
+              "plan"
+            ]
+          },
+          "max_uses": {
+            "type": "number",
+            "minimum": 0
+          },
+          "max_uses_per_client": {
+            "type": "number",
+            "minimum": 0
+          },
+          "min_order_value": {
+            "type": "number",
+            "minimum": 0
+          },
+          "duration_months": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "starts_at": {
+            "type": "string"
+          },
+          "ends_at": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "discount_type",
+          "discount_value"
+        ]
+      },
+      "promotions_updatePromotion": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maximum": 150
+          },
+          "code": {
+            "type": "string",
+            "maximum": 50
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "discount_type": {
+            "type": "string",
+            "enum": [
+              "percentage",
+              "fixed_amount"
+            ]
+          },
+          "discount_value": {
+            "type": "number",
+            "minimum": 0
+          },
+          "promotion_type": {
+            "type": "string",
+            "enum": [
+              "coupon",
+              "promotional",
+              "referral"
+            ]
+          },
+          "applies_to": {
+            "type": "string",
+            "enum": [
+              "contract",
+              "invoice",
+              "plan"
+            ]
+          },
+          "max_uses": {
+            "type": "number",
+            "minimum": 0
+          },
+          "max_uses_per_client": {
+            "type": "number",
+            "minimum": 0
+          },
+          "min_order_value": {
+            "type": "number",
+            "minimum": 0
+          },
+          "duration_months": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "starts_at": {
+            "type": "string"
+          },
+          "ends_at": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        }
+      },
       "quotes_createQuote": {
         "type": "object",
         "properties": {
@@ -18954,6 +19612,144 @@
           },
           "is_enabled": {
             "type": "boolean"
+          }
+        }
+      },
+      "taxRates_createTaxRate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "rate"
+        ]
+      },
+      "taxRates_updateTaxRate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        }
+      },
+      "taxRules_createTaxRule": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maximum": 255
+          },
+          "region": {
+            "type": "string",
+            "maximum": 100
+          },
+          "tax_type": {
+            "type": "string",
+            "enum": [
+              "vat",
+              "sales_tax",
+              "gst",
+              "other"
+            ]
+          },
+          "rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "rate"
+        ]
+      },
+      "taxRules_updateTaxRule": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maximum": 255
+          },
+          "region": {
+            "type": "string",
+            "maximum": 100
+          },
+          "tax_type": {
+            "type": "string",
+            "enum": [
+              "vat",
+              "sales_tax",
+              "gst",
+              "other"
+            ]
+          },
+          "rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
           }
         }
       },

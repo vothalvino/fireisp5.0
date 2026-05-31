@@ -9,7 +9,8 @@ class TaxRate extends BaseModel {
 
   static get fillable() {
     return [
-      'organization_id', 'name', 'rate', 'country', 'state', 'status',
+      'organization_id', 'name', 'rate', 'description',
+      'is_default', 'status',
     ];
   }
 

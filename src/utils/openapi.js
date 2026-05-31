@@ -96,6 +96,9 @@ function generateSpec() {
       { name: 'Payment Transactions', description: 'Payment transaction history' },
       { name: 'Payment Webhooks', description: 'Payment provider webhooks' },
       { name: 'Recurring Payments', description: 'Recurring payment profiles' },
+      { name: 'Promotions', description: 'Promotion and coupon management' },
+      { name: 'Tax Rules', description: 'Regional tax rule configuration' },
+      { name: 'Tax Rates', description: 'Tax rate configuration' },
       { name: 'Settings', description: 'Organization settings' },
       { name: 'Audit Logs', description: 'Audit trail' },
       { name: 'Export', description: 'CSV export of data' },
@@ -398,6 +401,15 @@ function generateSpec() {
 
       // ---- Recurring Payment Profiles ----
       ...crudPaths('recurring-payment-profiles', 'Recurring Payments', 'RecurringPaymentProfile'),
+
+      // ---- Promotions ----
+      ...crudPaths('promotions', 'Promotions', 'Promotion'),
+
+      // ---- Tax Rules ----
+      ...crudPaths('tax-rules', 'Tax Rules', 'TaxRule'),
+
+      // ---- Tax Rates ----
+      ...crudPaths('tax-rates', 'Tax Rates', 'TaxRate'),
 
       // ---- Settings ----
       '/settings': {
