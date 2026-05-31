@@ -77,22 +77,22 @@ describes.
 
 Priority order (highest operator impact first):
 
-1. **Clients (critical).**
-   - `ClientList`: add "New Client" create modal, per-row Edit and Delete (soft-delete) +
-     Restore, wired to `POST/PUT/DELETE /clients` and `POST /clients/:id/restore`.
-   - `ClientDetail`: add Edit client form; add management for Contacts, MX profile, and
-     portal password using the existing sub-resource endpoints.
-2. **Devices.** Add create/edit/delete/restore on `DeviceMap` (or a companion list view)
-   against `/devices`.
-3. **Reports.** Wire the "generate/export" actions to the report endpoints
-   (`/reports`, `/export`) so reports can actually be produced, not just viewed.
-4. **Normalize mutation patterns (tech-debt fixes that cause "did nothing" bugs):**
-   - Convert `InventoryList` and `WarehouseList` from `async/await + local state` to
-     `useMutation` with query invalidation; add Delete actions.
-   - Convert `TicketList` and `InvoiceList` raw `fetch()` calls to the typed `api` client.
-5. **Fill missing edit/delete on partial pages:** invoices (edit/void), payments
-   (edit/delete/manual allocate), contracts (edit/delete), ticket comments (edit/delete).
-   Only expose actions that have backend support; otherwise add the endpoint first.
+- [ ] **1. Clients (critical).**
+  - [ ] `ClientList`: add "New Client" create modal, per-row Edit and Delete (soft-delete) +
+    Restore, wired to `POST/PUT/DELETE /clients` and `POST /clients/:id/restore`.
+  - [ ] `ClientDetail`: add Edit client form; add management for Contacts, MX profile, and
+    portal password using the existing sub-resource endpoints.
+- [ ] **2. Devices.** Add create/edit/delete/restore on `DeviceMap` (or a companion list view)
+  against `/devices`.
+- [ ] **3. Reports.** Wire the "generate/export" actions to the report endpoints
+  (`/reports`, `/export`) so reports can actually be produced, not just viewed.
+- [ ] **4. Normalize mutation patterns (tech-debt fixes that cause "did nothing" bugs):**
+  - [ ] Convert `InventoryList` and `WarehouseList` from `async/await + local state` to
+    `useMutation` with query invalidation; add Delete actions.
+  - [ ] Convert `TicketList` and `InvoiceList` raw `fetch()` calls to the typed `api` client.
+- [ ] **5. Fill missing edit/delete on partial pages:** invoices (edit/void), payments
+  (edit/delete/manual allocate), contracts (edit/delete), ticket comments (edit/delete).
+  Only expose actions that have backend support; otherwise add the endpoint first.
 
 Deliverable for Phase 1: every existing list/detail page supports the full set of
 operations its backend route already provides.
@@ -106,52 +106,52 @@ backend allows), registered in `App.tsx` routes and `components/Layout.tsx` nav 
 appropriate role gate. Candidate areas, mapped to existing routes/tables:
 
 **Billing & sales**
-- Plans & plan add-ons — `/plans` (`src/routes/plans.js`).
-- Quotes & quote items, convert-to-invoice — `/quotes`.
-- Credit notes — `/credit-notes`.
-- Expenses — `/expenses`.
-- Promotions / tax rules / tax rates — backend + `promotions`, `tax_rules`, `tax_rates`.
-- Recurring payment profiles — `/recurring-payment-profiles`.
-- Payment gateways & transactions detail — `/payment-gateways`, `/payment-transactions`.
+- [ ] Plans & plan add-ons — `/plans` (`src/routes/plans.js`).
+- [ ] Quotes & quote items, convert-to-invoice — `/quotes`.
+- [ ] Credit notes — `/credit-notes`.
+- [ ] Expenses — `/expenses`.
+- [ ] Promotions / tax rules / tax rates — backend + `promotions`, `tax_rules`, `tax_rates`.
+- [ ] Recurring payment profiles — `/recurring-payment-profiles`.
+- [ ] Payment gateways & transactions detail — `/payment-gateways`, `/payment-transactions`.
 
 **Network / operations**
-- Sites — `/sites`.
-- NAS devices — `/nas`.
-- IP pools & IP assignments — `/ip-pools`, `/ip-assignments`.
-- VLANs and network links — `/vlans`, `/network-links`.
-- Service areas — `/service-areas`.
-- Outages — `/outages`.
-- Speed tests, connection logs, network health — `/speed-tests`, `/connection-logs`,
+- [ ] Sites — `/sites`.
+- [ ] NAS devices — `/nas`.
+- [ ] IP pools & IP assignments — `/ip-pools`, `/ip-assignments`.
+- [ ] VLANs and network links — `/vlans`, `/network-links`.
+- [ ] Service areas — `/service-areas`.
+- [ ] Outages — `/outages`.
+- [ ] Speed tests, connection logs, network health — `/speed-tests`, `/connection-logs`,
   `/network-health`.
-- SNMP profiles — `/snmp-profiles` (metrics/traps UIs already exist).
-- Device config backups — `/device-config-backups`.
-- Suspension rules & suspension actions — `/suspension-rules`, `/suspension`.
+- [ ] SNMP profiles — `/snmp-profiles` (metrics/traps UIs already exist).
+- [ ] Device config backups — `/device-config-backups`.
+- [ ] Suspension rules & suspension actions — `/suspension-rules`, `/suspension`.
 
 **Support & SLAs**
-- SLA definitions — `/sla-definitions`.
-- Message templates — `/message-templates` (currently only partially in Settings).
+- [ ] SLA definitions — `/sla-definitions`.
+- [ ] Message templates — `/message-templates` (currently only partially in Settings).
 
 **Compliance (MX) & regulatory**
-- CSD certificates, PAC providers, SAT catalogs — `/csd-certificates`, `/pac-providers`,
+- [ ] CSD certificates, PAC providers, SAT catalogs — `/csd-certificates`, `/pac-providers`,
   `/sat-catalogs`.
-- Concession titles, regulatory filings, IFT statistical reports, facturas públicas.
+- [ ] Concession titles, regulatory filings, IFT statistical reports, facturas públicas.
 
 **Administration & security**
-- Roles & permissions editor — `/roles` (assign `role_permissions`).
-- API tokens — `/api-tokens`.
-- Webhooks & deliveries — `/webhooks`.
-- Audit logs viewer — `/audit-logs`.
-- Scheduled tasks & job/queue status — `/scheduled-tasks`, `/jobs`, `/queue-stats`.
-- Organizations management — `/organizations`.
-- DSAR and DR-drill admin tools — `/dsar`, `/dr-drill`.
+- [ ] Roles & permissions editor — `/roles` (assign `role_permissions`).
+- [ ] API tokens — `/api-tokens`.
+- [ ] Webhooks & deliveries — `/webhooks`.
+- [ ] Audit logs viewer — `/audit-logs`.
+- [ ] Scheduled tasks & job/queue status — `/scheduled-tasks`, `/jobs`, `/queue-stats`.
+- [ ] Organizations management — `/organizations`.
+- [ ] DSAR and DR-drill admin tools — `/dsar`, `/dr-drill`.
 
 For each new page:
-1. Confirm the endpoints are present in `docs/openapi.json`; if missing, add them first so
-   the generated client is typed.
-2. Build list view → create/edit modal → delete/restore, all via `useMutation` + typed
-   `api`, with permission-gated actions.
-3. Register route in `App.tsx` under the correct role group and add the nav entry +
-   i18n labels.
+- [ ] Confirm the endpoints are present in `docs/openapi.json`; if missing, add them first so
+  the generated client is typed.
+- [ ] Build list view → create/edit modal → delete/restore, all via `useMutation` + typed
+  `api`, with permission-gated actions.
+- [ ] Register route in `App.tsx` under the correct role group and add the nav entry +
+  i18n labels.
 
 Sequence Phase 2 by operator value: Plans → Quotes → Credit notes → Expenses → Sites/NAS →
 IP pools/assignments → SLA definitions → Roles/permissions → remaining network → compliance
@@ -161,39 +161,39 @@ IP pools/assignments → SLA definitions → Roles/permissions → remaining net
 
 ## 5. Cross-cutting work
 
-- **i18n:** add keys for every new label/action in `frontend/src/i18n` (both locales used).
-- **Shared UI primitives:** factor a reusable CRUD list + modal-form pattern to avoid
+- [ ] **i18n:** add keys for every new label/action in `frontend/src/i18n` (both locales used).
+- [ ] **Shared UI primitives:** factor a reusable CRUD list + modal-form pattern to avoid
   re-implementing per page and to keep behavior/accessibility consistent.
-- **Empty/error/loading states** standardized across pages.
-- **Navigation grouping:** as the number of pages grows, group the sidebar into sections
+- [ ] **Empty/error/loading states** standardized across pages.
+- [ ] **Navigation grouping:** as the number of pages grows, group the sidebar into sections
   (Clients/Billing/Network/Compliance/Admin) in `components/Layout.tsx`.
-- **Documentation:** keep `docs/openapi.json` and any feature docs in sync; CI validates
+- [ ] **Documentation:** keep `docs/openapi.json` and any feature docs in sync; CI validates
   schema/migration counts (per repo conventions).
 
 ---
 
 ## 6. Validation & testing
 
-- **Per slice:** component tests (`frontend/src/pages/__tests__` / `src/test`) for the new
+- [ ] **Per slice:** component tests (`frontend/src/pages/__tests__` / `src/test`) for the new
   create/edit/delete flows, asserting the correct typed `api` call and query invalidation.
-- **Type/build gate:** `pnpm --filter fireisp-frontend lint` (runs `gen:api` + `tsc`) and
+- [ ] **Type/build gate:** `pnpm --filter fireisp-frontend lint` (runs `gen:api` + `tsc`) and
   `build` must pass — this also guarantees every called endpoint exists in the schema.
-- **Backend:** add/extend route tests for any endpoints introduced for missing UIs.
-- **E2E smoke:** extend the Playwright smoke flow to cover the new critical paths
+- [ ] **Backend:** add/extend route tests for any endpoints introduced for missing UIs.
+- [ ] **E2E smoke:** extend the Playwright smoke flow to cover the new critical paths
   (create client → contract → invoice → payment) once e2e CI is re-enabled.
-- **Manual RBAC check:** verify action buttons appear only for permitted roles.
+- [ ] **Manual RBAC check:** verify action buttons appear only for permitted roles.
 
 ---
 
 ## 7. Suggested milestones
 
-1. **M1 – Clients & Devices fully operational** (Phase 1 items 1–2). Highest impact.
-2. **M2 – Pattern normalization + missing edit/delete** (Phase 1 items 3–5).
-3. **M3 – Core billing/sales pages** (Plans, Quotes, Credit notes, Expenses).
-4. **M4 – Network/operations pages** (Sites, NAS, IP pools/assignments, VLANs, etc.).
-5. **M5 – Support/SLA + Admin/security pages** (SLA defs, Roles/permissions, API tokens,
-   Webhooks, Audit logs, Scheduled tasks).
-6. **M6 – Compliance/MX pages** (CSD, PAC, SAT catalogs, regulatory filings).
+- [ ] **M1 – Clients & Devices fully operational** (Phase 1 items 1–2). Highest impact.
+- [ ] **M2 – Pattern normalization + missing edit/delete** (Phase 1 items 3–5).
+- [ ] **M3 – Core billing/sales pages** (Plans, Quotes, Credit notes, Expenses).
+- [ ] **M4 – Network/operations pages** (Sites, NAS, IP pools/assignments, VLANs, etc.).
+- [ ] **M5 – Support/SLA + Admin/security pages** (SLA defs, Roles/permissions, API tokens,
+  Webhooks, Audit logs, Scheduled tasks).
+- [ ] **M6 – Compliance/MX pages** (CSD, PAC, SAT catalogs, regulatory filings).
 
 Each milestone is independently shippable and leaves the frontdesk more complete than
 before.
