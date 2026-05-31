@@ -8,6 +8,17 @@ of features that already exist in the database and backend API but have no UI to
 
 ---
 
+## Status snapshot (current)
+
+- **Phase 1 (repair existing pages): ✅ complete** — Clients, Devices, Reports/exports,
+  mutation-pattern normalization, and the missing edit/delete/allocate actions are all in.
+- **Phase 2 (new feature pages): in progress** — Milestones **M1–M6 done** (billing core,
+  network core, support/SLA, admin/security, compliance/MX).
+- **Remaining work is tracked as milestones M7–M11 in Section 7** (billing extras, remaining
+  network/ops, support+compliance, administration, then cross-cutting hardening & sign-off).
+
+---
+
 ## 1. Diagnosis — why so much of the frontdesk "doesn't work"
 
 The backend is far richer than the UI exposes:
@@ -84,18 +95,21 @@ Priority order (highest operator impact first):
     portal password using the existing sub-resource endpoints.
 - [x] **2. Devices.** Add create/edit/delete/restore on `DeviceMap` (or a companion list view)
   against `/devices`.
-- [ ] **3. Reports.** Wire the "generate/export" actions to the report endpoints
+- [x] **3. Reports.** Wire the "generate/export" actions to the report endpoints
   (`/reports`, `/export`) so reports can actually be produced, not just viewed.
-- [ ] **4. Normalize mutation patterns (tech-debt fixes that cause "did nothing" bugs):**
-  - [ ] Convert `InventoryList` and `WarehouseList` from `async/await + local state` to
+  (`Reports.tsx` now has revenue/growth/aging/IFT/technicians tabs plus an Exports tab that
+  downloads CSV through the typed client via `/export/{clients,contracts,invoices,payments}`.)
+- [x] **4. Normalize mutation patterns (tech-debt fixes that cause "did nothing" bugs):**
+  - [x] Convert `InventoryList` and `WarehouseList` from `async/await + local state` to
     `useMutation` with query invalidation; add Delete actions.
-  - [ ] Convert `TicketList` and `InvoiceList` raw `fetch()` calls to the typed `api` client.
-- [ ] **5. Fill missing edit/delete on partial pages:** invoices (edit/void), payments
-  (edit/delete/manual allocate), contracts (edit/delete), ticket comments (edit/delete).
-  Only expose actions that have backend support; otherwise add the endpoint first.
+  - [x] Convert `TicketList` and `InvoiceList` raw `fetch()` calls to the typed `api` client.
+- [x] **5. Fill missing edit/delete on partial pages:** invoices (edit/void), payments
+  (edit/delete/manual allocate via `api.POST /payments/{id}/allocate`), contracts
+  (edit/delete/suspend/cancel), ticket comments (edit/delete). Only expose actions that have
+  backend support; otherwise add the endpoint first.
 
 Deliverable for Phase 1: every existing list/detail page supports the full set of
-operations its backend route already provides.
+operations its backend route already provides. **✅ Phase 1 complete.**
 
 ---
 
@@ -186,15 +200,64 @@ IP pools/assignments → SLA definitions → Roles/permissions → remaining net
 
 ---
 
-## 7. Suggested milestones
+## 7. Milestones
+
+### Completed
 
 - [x] **M1 – Clients & Devices fully operational** (Phase 1 items 1–2). Highest impact.
-- [x] **M2 – Pattern normalization + missing edit/delete** (Phase 1 items 3–5).
+- [x] **M2 – Pattern normalization + missing edit/delete** (Phase 1 items 3–5: Reports
+  export, Inventory/Warehouse `useMutation`, Ticket/Invoice typed client, contract/payment
+  edit-delete-allocate). **Phase 1 is now fully complete.**
 - [x] **M3 – Core billing/sales pages** (Plans, Quotes, Credit notes, Expenses).
 - [x] **M4 – Network/operations pages** (Sites, NAS, IP pools/assignments, VLANs, etc.).
 - [x] **M5 – Support/SLA + Admin/security pages** (SLA defs, Roles/permissions, API tokens,
   Webhooks, Audit logs, Scheduled tasks).
 - [x] **M6 – Compliance/MX pages** (CSD, PAC, SAT catalogs, regulatory filings).
 
-Each milestone is independently shippable and leaves the frontdesk more complete than
-before.
+### Remaining — next stages to "done"
+
+Everything below is the rest of Phase 2 + cross-cutting work, sequenced by operator value.
+Each milestone is independently shippable. For every new page follow the per-page checklist
+in Section 4 (confirm endpoint in `docs/openapi.json` → list → create/edit modal →
+delete/restore via `useMutation` + typed `api` → register route/nav/i18n → tests).
+
+- [ ] **M7 – Billing & sales completion.**
+  - [ ] Recurring payment profiles — `/recurring-payment-profiles` (route exists; add page).
+  - [ ] Payment gateways — `/payment-gateways` (route exists; add page).
+  - [ ] Payment transactions detail — `/payment-transactions` (route exists; add read view).
+  - [ ] Promotions / tax rules / tax rates — tables (`promotions`, `tax_rules`, `tax_rates`)
+    exist but there are **no backend routes**. Add CRUD routes + OpenAPI generator entries +
+    route tests first, then build the pages.
+- [ ] **M8 – Network & operations completion** (routes already exist; add pages):
+  - [ ] Service areas — `/service-areas`.
+  - [ ] Outages — `/outages`.
+  - [ ] Speed tests / connection logs / network health — `/speed-tests`,
+    `/connection-logs`, `/network-health` (read/analytics views).
+  - [ ] SNMP profiles — `/snmp-profiles` (metrics/traps UIs already exist).
+  - [ ] Device config backups — `/device-config-backups`.
+  - [ ] Suspension rules & suspension actions — `/suspension-rules`, `/suspension`.
+- [ ] **M9 – Support & compliance completion** (routes exist; add pages):
+  - [ ] Message templates — `/message-templates` (promote out of Settings into its own CRUD page).
+  - [ ] Concession titles — `/concession-titles`.
+  - [ ] IFT statistical reports — `/ift-statistical-reports`.
+  - [ ] Facturas públicas — `/facturas-publicas`.
+- [ ] **M10 – Administration & security completion** (routes exist; add pages):
+  - [ ] Organizations management — `/organizations` (full CRUD + settings/quota sub-resources).
+  - [ ] DSAR admin tooling — `/dsar`.
+  - [ ] DR-drill admin tooling — `/dr-drill`.
+- [ ] **M11 – Cross-cutting hardening & sign-off** (Sections 5 & 6):
+  - [ ] Factor the repeated list+modal pattern into a shared CRUD primitive
+    (`crudStyles.tsx` already exists as a starting point) and migrate pages onto it.
+  - [ ] Group the sidebar into sections (Clients/Billing/Network/Compliance/Admin) in
+    `components/Layout.tsx`.
+  - [ ] Standardize empty/error/loading states across all pages.
+  - [ ] Complete i18n coverage for every label/action in all locales (`en`, `es`, `pt-BR`).
+  - [ ] Per-slice component tests for each remaining create/edit/delete flow.
+  - [ ] Re-enable and extend the Playwright e2e smoke flow (create client → contract →
+    invoice → payment) once e2e CI is restored.
+  - [ ] Final gate: `pnpm --filter fireisp-frontend lint` (gen:api + tsc) and `build` pass,
+    backend `jest` passes, and OpenAPI `spec:check` (spec-drift) passes.
+
+**Definition of done:** every backend route that represents a frontdesk operation has a
+permission-gated UI surface, all mutations use the typed `api` client + React Query
+invalidation, i18n is complete, and the lint/build/test/spec-drift gates are green.
