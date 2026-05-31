@@ -115,10 +115,10 @@ appropriate role gate. Candidate areas, mapped to existing routes/tables:
 - [ ] Payment gateways & transactions detail — `/payment-gateways`, `/payment-transactions`.
 
 **Network / operations**
-- [ ] Sites — `/sites`.
-- [ ] NAS devices — `/nas`.
-- [ ] IP pools & IP assignments — `/ip-pools`, `/ip-assignments`.
-- [ ] VLANs and network links — `/vlans`, `/network-links`.
+- [x] Sites — `/sites`.
+- [x] NAS devices — `/nas`.
+- [x] IP pools & IP assignments — `/ip-pools`, `/ip-assignments`.
+- [x] VLANs and network links — `/vlans`, `/network-links`.
 - [ ] Service areas — `/service-areas`.
 - [ ] Outages — `/outages`.
 - [ ] Speed tests, connection logs, network health — `/speed-tests`, `/connection-logs`,
@@ -190,7 +190,7 @@ IP pools/assignments → SLA definitions → Roles/permissions → remaining net
 - [x] **M1 – Clients & Devices fully operational** (Phase 1 items 1–2). Highest impact.
 - [x] **M2 – Pattern normalization + missing edit/delete** (Phase 1 items 3–5).
 - [x] **M3 – Core billing/sales pages** (Plans, Quotes, Credit notes, Expenses).
-- [ ] **M4 – Network/operations pages** (Sites, NAS, IP pools/assignments, VLANs, etc.).
+- [x] **M4 – Network/operations pages** (Sites, NAS, IP pools/assignments, VLANs, etc.).
 - [ ] **M5 – Support/SLA + Admin/security pages** (SLA defs, Roles/permissions, API tokens,
   Webhooks, Audit logs, Scheduled tasks).
 - [ ] **M6 – Compliance/MX pages** (CSD, PAC, SAT catalogs, regulatory filings).

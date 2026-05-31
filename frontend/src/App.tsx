@@ -46,6 +46,11 @@ import { RadiusSessions } from '@/pages/RadiusSessions';
 import { SessionAccounting } from '@/pages/SessionAccounting';
 import { SnmpMetrics } from '@/pages/SnmpMetrics';
 import { SnmpTraps } from '@/pages/SnmpTraps';
+import { SiteList } from '@/pages/SiteList';
+import { NasList } from '@/pages/NasList';
+import { IpPoolList } from '@/pages/IpPoolList';
+import { IpAssignmentList } from '@/pages/IpAssignmentList';
+import { VlanList } from '@/pages/VlanList';
 import { Reports } from '@/pages/Reports';
 import { Settings } from '@/pages/Settings';
 import { ProfecoComplaints } from '@/pages/ProfecoComplaints';
@@ -111,6 +116,11 @@ export function App() {
                 <Route path="snmp-metrics" element={<SnmpMetrics />} />
                 <Route path="snmp-traps" element={<SnmpTraps />} />
                 <Route path="coverage-zones" element={<CoverageZoneMap />} />
+                <Route path="sites" element={<SiteList />} />
+                <Route path="nas" element={<NasList />} />
+                <Route path="ip-pools" element={<IpPoolList />} />
+                <Route path="ip-assignments" element={<IpAssignmentList />} />
+                <Route path="vlans" element={<VlanList />} />
               </Route>
             </Route>
 
