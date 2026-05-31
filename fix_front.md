@@ -77,12 +77,12 @@ describes.
 
 Priority order (highest operator impact first):
 
-- [ ] **1. Clients (critical).**
-  - [ ] `ClientList`: add "New Client" create modal, per-row Edit and Delete (soft-delete) +
+- [x] **1. Clients (critical).**
+  - [x] `ClientList`: add "New Client" create modal, per-row Edit and Delete (soft-delete) +
     Restore, wired to `POST/PUT/DELETE /clients` and `POST /clients/:id/restore`.
-  - [ ] `ClientDetail`: add Edit client form; add management for Contacts, MX profile, and
+  - [x] `ClientDetail`: add Edit client form; add management for Contacts, MX profile, and
     portal password using the existing sub-resource endpoints.
-- [ ] **2. Devices.** Add create/edit/delete/restore on `DeviceMap` (or a companion list view)
+- [x] **2. Devices.** Add create/edit/delete/restore on `DeviceMap` (or a companion list view)
   against `/devices`.
 - [ ] **3. Reports.** Wire the "generate/export" actions to the report endpoints
   (`/reports`, `/export`) so reports can actually be produced, not just viewed.
@@ -187,7 +187,7 @@ IP pools/assignments → SLA definitions → Roles/permissions → remaining net
 
 ## 7. Suggested milestones
 
-- [ ] **M1 – Clients & Devices fully operational** (Phase 1 items 1–2). Highest impact.
+- [x] **M1 – Clients & Devices fully operational** (Phase 1 items 1–2). Highest impact.
 - [ ] **M2 – Pattern normalization + missing edit/delete** (Phase 1 items 3–5).
 - [ ] **M3 – Core billing/sales pages** (Plans, Quotes, Credit notes, Expenses).
 - [ ] **M4 – Network/operations pages** (Sites, NAS, IP pools/assignments, VLANs, etc.).
