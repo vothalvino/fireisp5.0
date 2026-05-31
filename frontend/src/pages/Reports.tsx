@@ -24,13 +24,13 @@
 import { useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { tokenStore } from '@/api/client';
+import { api, tokenStore } from '@/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type Tab = 'revenue' | 'growth' | 'aging' | 'ift' | 'technicians';
+type Tab = 'revenue' | 'growth' | 'aging' | 'ift' | 'technicians' | 'exports';
 
 // Revenue
 interface FinancialData {
@@ -142,6 +142,24 @@ async function apiFetch<T>(path: string, opts: RequestInit = {}): Promise<T> {
     throw new Error((body as { message?: string }).message ?? `${res.status} ${res.statusText}`);
   }
   return res.json() as Promise<T>;
+}
+
+// Download a CSV export through the typed client (auth + silent-refresh aware)
+// and trigger a browser file download.
+type ExportPath = '/export/clients' | '/export/contracts' | '/export/invoices' | '/export/payments';
+
+async function downloadCsv(path: ExportPath, filename: string): Promise<void> {
+  const { data, error } = await api.GET(path, { parseAs: 'blob' });
+  if (error) throw new Error('Failed to generate export');
+  const blob = data as unknown as Blob;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 // ---------------------------------------------------------------------------
@@ -819,7 +837,58 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'aging', label: '⏳ AR Aging' },
   { key: 'ift', label: '🏛️ IFT Statistical' },
   { key: 'technicians', label: '🔧 Technicians' },
+  { key: 'exports', label: '⬇ Export' },
 ];
+
+// ---------------------------------------------------------------------------
+// Export panel — CSV downloads for core datasets
+// ---------------------------------------------------------------------------
+
+const EXPORTS: { path: ExportPath; filename: string; label: string }[] = [
+  { path: '/export/clients', filename: 'clients.csv', label: 'Clients' },
+  { path: '/export/contracts', filename: 'contracts.csv', label: 'Contracts' },
+  { path: '/export/invoices', filename: 'invoices.csv', label: 'Invoices' },
+  { path: '/export/payments', filename: 'payments.csv', label: 'Payments' },
+];
+
+function ExportPanel() {
+  const [busy, setBusy] = useState<ExportPath | null>(null);
+  const [error, setError] = useState('');
+
+  async function handleExport(path: ExportPath, filename: string) {
+    setBusy(path);
+    setError('');
+    try {
+      await downloadCsv(path, filename);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate export');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div style={styles.tabContent}>
+      <h2 style={{ margin: '0 0 4px', fontSize: '1.05rem' }}>Export data (CSV)</h2>
+      <p style={{ margin: '0 0 14px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+        Download a CSV snapshot of your organization&apos;s records.
+      </p>
+      {error && <div style={styles.exportError}>{error}</div>}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        {EXPORTS.map(e => (
+          <button
+            key={e.path}
+            style={styles.btnPrimary}
+            onClick={() => handleExport(e.path, e.filename)}
+            disabled={busy !== null}
+          >
+            {busy === e.path ? 'Exporting…' : `⬇ ${e.label}`}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function Reports() {
   const [tab, setTab] = useState<Tab>('revenue');
@@ -845,6 +914,7 @@ export function Reports() {
       {tab === 'aging' && <AgingTab />}
       {tab === 'ift' && <IftTab />}
       {tab === 'technicians' && <TechnicianTab />}
+      {tab === 'exports' && <ExportPanel />}
     </div>
   );
 }
@@ -936,6 +1006,14 @@ const styles = {
     border: '1px solid var(--border)',
     borderRadius: 4,
     cursor: 'pointer',
+    fontSize: '0.85rem',
+  } as CSSProperties,
+  exportError: {
+    background: '#fee2e2',
+    color: '#991b1b',
+    padding: '8px 12px',
+    borderRadius: 6,
+    marginBottom: 12,
     fontSize: '0.85rem',
   } as CSSProperties,
   kpiRow: {
