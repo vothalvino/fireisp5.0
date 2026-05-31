@@ -51,6 +51,14 @@ import { NasList } from '@/pages/NasList';
 import { IpPoolList } from '@/pages/IpPoolList';
 import { IpAssignmentList } from '@/pages/IpAssignmentList';
 import { VlanList } from '@/pages/VlanList';
+import { ServiceAreaList } from '@/pages/ServiceAreaList';
+import { OutageList } from '@/pages/OutageList';
+import { SpeedTestList } from '@/pages/SpeedTestList';
+import { ConnectionLogList } from '@/pages/ConnectionLogList';
+import { NetworkHealthList } from '@/pages/NetworkHealthList';
+import { SnmpProfileList } from '@/pages/SnmpProfileList';
+import { DeviceConfigBackupList } from '@/pages/DeviceConfigBackupList';
+import { SuspensionRuleList } from '@/pages/SuspensionRuleList';
 import { Reports } from '@/pages/Reports';
 import { Settings } from '@/pages/Settings';
 import { ProfecoComplaints } from '@/pages/ProfecoComplaints';
@@ -139,6 +147,14 @@ export function App() {
                 <Route path="ip-pools" element={<IpPoolList />} />
                 <Route path="ip-assignments" element={<IpAssignmentList />} />
                 <Route path="vlans" element={<VlanList />} />
+                <Route path="service-areas" element={<ServiceAreaList />} />
+                <Route path="outages" element={<OutageList />} />
+                <Route path="speed-tests" element={<SpeedTestList />} />
+                <Route path="connection-logs" element={<ConnectionLogList />} />
+                <Route path="network-health" element={<NetworkHealthList />} />
+                <Route path="snmp-profiles" element={<SnmpProfileList />} />
+                <Route path="device-config-backups" element={<DeviceConfigBackupList />} />
+                <Route path="suspension-rules" element={<SuspensionRuleList />} />
               </Route>
             </Route>
 

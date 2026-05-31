@@ -133,13 +133,13 @@ appropriate role gate. Candidate areas, mapped to existing routes/tables:
 - [x] NAS devices — `/nas`.
 - [x] IP pools & IP assignments — `/ip-pools`, `/ip-assignments`.
 - [x] VLANs and network links — `/vlans`, `/network-links`.
-- [ ] Service areas — `/service-areas`.
-- [ ] Outages — `/outages`.
-- [ ] Speed tests, connection logs, network health — `/speed-tests`, `/connection-logs`,
-  `/network-health`.
-- [ ] SNMP profiles — `/snmp-profiles` (metrics/traps UIs already exist).
-- [ ] Device config backups — `/device-config-backups`.
-- [ ] Suspension rules & suspension actions — `/suspension-rules`, `/suspension`.
+- [x] Service areas — `/service-areas` (read view).
+- [x] Outages — `/outages` (read view).
+- [x] Speed tests, connection logs, network health — `/speed-tests`, `/connection-logs`,
+  `/network-health` (read/analytics views).
+- [x] SNMP profiles — `/snmp-profiles` (read view; metrics/traps UIs already exist).
+- [x] Device config backups — `/device-config-backups` (read view).
+- [ ] Suspension rules & suspension actions — `/suspension-rules` (read view added), `/suspension`.
 
 **Support & SLAs**
 - [x] SLA definitions — `/sla-definitions`.
@@ -229,14 +229,15 @@ delete/restore via `useMutation` + typed `api` → register route/nav/i18n → t
   - [x] Payment transactions detail — `/payment-transactions` (route exists; read view added).
   - [x] Promotions / tax rules / tax rates — added CRUD routes (`promotions`, `tax-rules`,
     `tax-rates`) + OpenAPI generator entries + route tests, then built the CRUD pages.
-- [ ] **M8 – Network & operations completion** (routes already exist; add pages):
-  - [ ] Service areas — `/service-areas`.
-  - [ ] Outages — `/outages`.
-  - [ ] Speed tests / connection logs / network health — `/speed-tests`,
+- [x] **M8 – Network & operations completion** (routes already exist; add read views):
+  - [x] Service areas — `/service-areas` (read view; boundary is WGS-84 POLYGON geometry).
+  - [x] Outages — `/outages` (read view).
+  - [x] Speed tests / connection logs / network health — `/speed-tests`,
     `/connection-logs`, `/network-health` (read/analytics views).
-  - [ ] SNMP profiles — `/snmp-profiles` (metrics/traps UIs already exist).
-  - [ ] Device config backups — `/device-config-backups`.
-  - [ ] Suspension rules & suspension actions — `/suspension-rules`, `/suspension`.
+  - [x] SNMP profiles — `/snmp-profiles` (read view; metrics/traps UIs already exist).
+  - [x] Device config backups — `/device-config-backups` (read view).
+  - [x] Suspension rules — `/suspension-rules` (read view; suspension actions stay on the
+    contract/client flows).
 - [ ] **M9 – Support & compliance completion** (routes exist; add pages):
   - [ ] Message templates — `/message-templates` (promote out of Settings into its own CRUD page).
   - [ ] Concession titles — `/concession-titles`.
