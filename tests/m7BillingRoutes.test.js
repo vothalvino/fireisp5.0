@@ -44,6 +44,15 @@ beforeEach(() => {
   User.findById.mockResolvedValue({
     id: 1, email: 'admin@example.com', status: 'active', role: 'admin', organization_id: 1,
   });
+
+  // The models are jest.mock'd, so static getters (hasOrgScope, tableName) used by
+  // crudController are not preserved by the automock. Restore them here.
+  Promotion.hasOrgScope = true;
+  Promotion.tableName = 'promotions';
+  TaxRule.hasOrgScope = true;
+  TaxRule.tableName = 'tax_rules';
+  TaxRate.hasOrgScope = true;
+  TaxRate.tableName = 'tax_rates';
 });
 
 const resources = [
