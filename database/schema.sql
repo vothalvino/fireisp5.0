@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS contracts (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS nas (
     id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL COMMENT 'Tenant organization this NAS belongs to; NULL = single-tenant deployment',
     name        VARCHAR(255)    NOT NULL,
     ip_address  VARCHAR(45)     NOT NULL COMMENT 'Primary IPv4 address',
     ipv6_address VARCHAR(45)    NULL     COMMENT 'IPv6 management address (dual-stack)',
@@ -247,8 +248,11 @@ CREATE TABLE IF NOT EXISTS nas (
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_nas_ip_address (ip_address),
+    KEY idx_nas_organization_id (organization_id),
     KEY idx_nas_status (status),
-    KEY idx_nas_deleted_at (deleted_at)
+    KEY idx_nas_deleted_at (deleted_at),
+    CONSTRAINT fk_nas_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -707,6 +711,7 @@ CREATE TABLE IF NOT EXISTS organizations (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ip_pools (
     id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL COMMENT 'Tenant organization this pool belongs to; NULL = single-tenant deployment',
     name        VARCHAR(255)    NOT NULL COMMENT 'Pool name e.g. Residential-Pool-1',
     ip_version  ENUM('4', '6') NOT NULL DEFAULT '4' COMMENT 'Address family: 4 = IPv4, 6 = IPv6',
     network     VARCHAR(45)     NOT NULL COMMENT 'Network address e.g. 10.0.0.0 (v4) or 2001:db8:: (v6)',
@@ -723,10 +728,13 @@ CREATE TABLE IF NOT EXISTS ip_pools (
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_ip_pools_network_cidr_ver (network, cidr, ip_version),
+    KEY idx_ip_pools_organization_id (organization_id),
     KEY idx_ip_pools_ip_version (ip_version),
     KEY idx_ip_pools_site_id (site_id),
     KEY idx_ip_pools_status (status),
     KEY idx_ip_pools_deleted_at (deleted_at),
+    CONSTRAINT fk_ip_pools_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_ip_pools_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -737,6 +745,7 @@ CREATE TABLE IF NOT EXISTS ip_pools (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ip_assignments (
     id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL COMMENT 'Tenant organization this assignment belongs to; NULL = single-tenant deployment',
     pool_id     BIGINT UNSIGNED NOT NULL COMMENT 'Parent IP pool',
     contract_id BIGINT UNSIGNED NULL     COMMENT 'Linked contract (for static/dual connection types)',
     client_id   BIGINT UNSIGNED NULL     COMMENT 'Assigned client',
@@ -756,12 +765,15 @@ CREATE TABLE IF NOT EXISTS ip_assignments (
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_ip_assignments_ip (ip_address),
+    KEY idx_ip_assignments_organization_id (organization_id),
     KEY idx_ip_assignments_pool_id (pool_id),
     KEY idx_ip_assignments_contract_id (contract_id),
     KEY idx_ip_assignments_client_id (client_id),
     KEY idx_ip_assignments_device_id (device_id),
     KEY idx_ip_assignments_status (status),
     KEY idx_ip_assignments_deleted_at (deleted_at),
+    CONSTRAINT fk_ip_assignments_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_ip_assignments_pool FOREIGN KEY (pool_id)
         REFERENCES ip_pools (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_ip_assignments_contract FOREIGN KEY (contract_id)
@@ -2472,6 +2484,7 @@ CREATE TABLE IF NOT EXISTS outages (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS vlans (
     id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED  NULL COMMENT 'Tenant organization this VLAN belongs to; NULL = single-tenant deployment',
     site_id         BIGINT UNSIGNED  NOT NULL COMMENT 'Site this VLAN belongs to',
     vlan_id         SMALLINT UNSIGNED NOT NULL COMMENT 'IEEE 802.1Q VLAN ID (1-4094)',
     name            VARCHAR(255)     NOT NULL COMMENT 'Descriptive label, e.g. "Client-Data", "Management", "VoIP"',
@@ -2484,9 +2497,12 @@ CREATE TABLE IF NOT EXISTS vlans (
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_vlans_site_vlan (site_id, vlan_id) COMMENT 'A VLAN ID must be unique within a site',
+    KEY idx_vlans_organization_id (organization_id),
     KEY idx_vlans_site_id (site_id),
     KEY idx_vlans_status (status),
     KEY idx_vlans_deleted_at (deleted_at),
+    CONSTRAINT fk_vlans_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_vlans_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT chk_vlans_vlan_id CHECK (vlan_id BETWEEN 1 AND 4094)
