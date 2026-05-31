@@ -11,7 +11,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, tokenStore } from '@/api/client';
+import { api } from '@/api/client';
+import { extractApiError } from '@/components/ClientFormModal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -76,7 +77,6 @@ function makeItem(type: ItemType): InvoiceLineItem {
 // ---------------------------------------------------------------------------
 
 const PAGE_SIZE = 25;
-const API_BASE = '/api/v1';
 
 async function fetchInvoices(page: number, statusFilter: string): Promise<InvoicesResponse> {
   const query: Record<string, string | number> = { page, limit: PAGE_SIZE };
@@ -107,22 +107,10 @@ interface FlexItem {
 }
 
 async function generateFlexibleInvoice(clientId: number, items: FlexItem[]): Promise<void> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/invoices/generate`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ client_id: clientId, items }),
+  const { error } = await api.POST('/invoices/generate', {
+    body: { client_id: clientId, items } as never,
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    const msg = (body as { error?: { message?: string }; message?: string }).error?.message
-      || (body as { message?: string }).message
-      || 'Failed to generate invoice';
-    throw new Error(msg);
-  }
+  if (error) throw new Error(extractApiError(error, 'Failed to generate invoice'));
 }
 
 // ---------------------------------------------------------------------------

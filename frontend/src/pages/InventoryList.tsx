@@ -12,7 +12,7 @@
 
 import { useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { tokenStore } from '@/api/client';
 
 // ---------------------------------------------------------------------------
@@ -154,6 +154,17 @@ async function recordTransaction(body: Record<string, unknown>): Promise<void> {
   }
 }
 
+async function deleteItem(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/inventory/items/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: { message?: string } };
+    throw new Error(data.error?.message ?? 'Failed to delete item');
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -237,44 +248,42 @@ function ItemFormModal({ item, onClose, onSaved }: ItemFormModalProps) {
         }
       : { ...EMPTY_ITEM_FORM },
   );
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const qc = useQueryClient();
 
   function set(field: keyof ItemFormValues, value: string) {
     setForm(f => ({ ...f, [field]: value }));
   }
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
-    setError('');
-    const body: Record<string, unknown> = {
-      name: form.name,
-      status: form.status,
-    };
-    if (form.sku) body.sku = form.sku;
-    if (form.category) body.category = form.category;
-    if (form.manufacturer) body.manufacturer = form.manufacturer;
-    if (form.model) body.model = form.model;
-    if (form.description) body.description = form.description;
-    if (form.unit) body.unit = form.unit;
-    if (form.unit_cost) body.unit_cost = parseFloat(form.unit_cost);
-    if (form.sale_price) body.sale_price = parseFloat(form.sale_price);
-    if (form.reorder_level) body.reorder_level = parseInt(form.reorder_level, 10);
-
-    try {
-      if (isEdit && item) {
-        await updateItem(item.id, body);
-      } else {
-        await createItem(body);
-      }
+  const mutation = useMutation({
+    mutationFn: () => {
+      const body: Record<string, unknown> = {
+        name: form.name,
+        status: form.status,
+      };
+      if (form.sku) body.sku = form.sku;
+      if (form.category) body.category = form.category;
+      if (form.manufacturer) body.manufacturer = form.manufacturer;
+      if (form.model) body.model = form.model;
+      if (form.description) body.description = form.description;
+      if (form.unit) body.unit = form.unit;
+      if (form.unit_cost) body.unit_cost = parseFloat(form.unit_cost);
+      if (form.sale_price) body.sale_price = parseFloat(form.sale_price);
+      if (form.reorder_level) body.reorder_level = parseInt(form.reorder_level, 10);
+      return isEdit && item ? updateItem(item.id, body) : createItem(body);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['inventoryItems'] });
       onSaved();
       onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setSubmitting(false);
-    }
+    },
+    onError: (err: unknown) => setError(err instanceof Error ? err.message : 'An error occurred'),
+  });
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    mutation.mutate();
   }
 
   return (
@@ -347,9 +356,9 @@ function ItemFormModal({ item, onClose, onSaved }: ItemFormModalProps) {
               onChange={e => set('description', e.target.value)} placeholder="Optional description…" />
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: '1rem', justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={cancelBtn} disabled={submitting}>Dismiss</button>
-            <button type="submit" style={submitBtn} disabled={submitting}>
-              {submitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Item'}
+            <button type="button" onClick={onClose} style={cancelBtn} disabled={mutation.isPending}>Dismiss</button>
+            <button type="submit" style={submitBtn} disabled={mutation.isPending}>
+              {mutation.isPending ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Item'}
             </button>
           </div>
         </form>
@@ -461,35 +470,37 @@ function TransactionModal({ item, preselectedStockId, onClose, onRecorded }: Tra
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const [stockId, setStockId] = useState(preselectedStockId ? String(preselectedStockId) : '');
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const qc = useQueryClient();
 
-  async function handleSubmit(e: FormEvent) {
+  const mutation = useMutation({
+    mutationFn: () => {
+      const body: Record<string, unknown> = {
+        stock_id: parseInt(stockId, 10),
+        transaction_type: txType,
+        quantity: parseFloat(quantity),
+      };
+      if (unitPrice) body.unit_price = parseFloat(unitPrice);
+      if (reference) body.reference = reference;
+      if (notes) body.notes = notes;
+      return recordTransaction(body);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['itemStock', item.id] });
+      onRecorded();
+      onClose();
+    },
+    onError: (err: unknown) => setError(err instanceof Error ? err.message : 'An error occurred'),
+  });
+
+  function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!stockId) {
       setError('Please select a warehouse (stock location).');
       return;
     }
-    setSubmitting(true);
     setError('');
-    const body: Record<string, unknown> = {
-      stock_id: parseInt(stockId, 10),
-      transaction_type: txType,
-      quantity: parseFloat(quantity),
-    };
-    if (unitPrice) body.unit_price = parseFloat(unitPrice);
-    if (reference) body.reference = reference;
-    if (notes) body.notes = notes;
-
-    try {
-      await recordTransaction(body);
-      onRecorded();
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setSubmitting(false);
-    }
+    mutation.mutate();
   }
 
   // Load stock rows to pick a stock_id when warehouse is chosen
@@ -576,9 +587,9 @@ function TransactionModal({ item, preselectedStockId, onClose, onRecorded }: Tra
           />
 
           <div style={{ display: 'flex', gap: 8, marginTop: '1rem', justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={cancelBtn} disabled={submitting}>Dismiss</button>
-            <button type="submit" style={submitBtn} disabled={submitting}>
-              {submitting ? 'Saving…' : 'Record Transaction'}
+            <button type="button" onClick={onClose} style={cancelBtn} disabled={mutation.isPending}>Dismiss</button>
+            <button type="submit" style={submitBtn} disabled={mutation.isPending}>
+              {mutation.isPending ? 'Saving…' : 'Record Transaction'}
             </button>
           </div>
         </form>
@@ -611,6 +622,18 @@ export function InventoryList() {
 
   function invalidate() {
     void qc.invalidateQueries({ queryKey: ['inventoryItems'] });
+  }
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteItem(id),
+    onSuccess: invalidate,
+    onError: (err: unknown) => alert(err instanceof Error ? err.message : 'Failed to delete item'),
+  });
+
+  function handleDelete(item: InventoryItem) {
+    if (window.confirm(`Delete item "${item.name}"? This cannot be undone.`)) {
+      deleteMutation.mutate(item.id);
+    }
   }
 
   function openTxFromStock(stockId: number, item: InventoryItem) {
@@ -701,6 +724,14 @@ export function InventoryList() {
                       <button style={actionBtn} onClick={() => setStockItem(item)}>Stock</button>
                       {' '}
                       <button style={actionBtn} onClick={() => { setTxItem(item); setTxStockId(null); }}>+ Txn</button>
+                      {' '}
+                      <button
+                        style={deleteBtn}
+                        onClick={() => handleDelete(item)}
+                        disabled={deleteMutation.isPending}
+                      >
+                        Delete
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -814,6 +845,11 @@ const filterBtnActive: CSSProperties = {
 
 const actionBtn: CSSProperties = {
   background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb',
+  borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: '0.78rem',
+};
+
+const deleteBtn: CSSProperties = {
+  background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5',
   borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: '0.78rem',
 };
 

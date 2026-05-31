@@ -11,7 +11,8 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, tokenStore } from '@/api/client';
+import { api } from '@/api/client';
+import { extractApiError } from '@/components/ClientFormModal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,7 +64,6 @@ interface CreateTicketBody {
 // ---------------------------------------------------------------------------
 
 const PAGE_SIZE = 25;
-const API_BASE = '/api/v1';
 
 async function fetchTickets(
   page: number,
@@ -91,19 +91,8 @@ async function fetchUsers(): Promise<User[]> {
 }
 
 async function createTicket(body: CreateTicketBody): Promise<void> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/tickets`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error || 'Failed to create ticket');
-  }
+  const { error } = await api.POST('/tickets', { body: body as never });
+  if (error) throw new Error(extractApiError(error, 'Failed to create ticket'));
 }
 
 // ---------------------------------------------------------------------------
