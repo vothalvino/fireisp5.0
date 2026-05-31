@@ -66,6 +66,12 @@ import { CsdCertificateList } from '@/pages/CsdCertificateList';
 import { PacProviderList } from '@/pages/PacProviderList';
 import { SatCatalogList } from '@/pages/SatCatalogList';
 import { RegulatoryFilingList } from '@/pages/RegulatoryFilingList';
+import { PromotionList } from '@/pages/PromotionList';
+import { TaxRuleList } from '@/pages/TaxRuleList';
+import { TaxRateList } from '@/pages/TaxRateList';
+import { PaymentGatewayList } from '@/pages/PaymentGatewayList';
+import { PaymentTransactionList } from '@/pages/PaymentTransactionList';
+import { RecurringPaymentProfileList } from '@/pages/RecurringPaymentProfileList';
 import { AIAssistantSettings } from '@/pages/AIAssistantSettings';
 import { NotFound } from '@/pages/NotFound';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
@@ -144,6 +150,12 @@ export function App() {
                 <Route path="quotes" element={<QuoteList />} />
                 <Route path="credit-notes" element={<CreditNoteList />} />
                 <Route path="expenses" element={<ExpenseList />} />
+                <Route path="promotions" element={<PromotionList />} />
+                <Route path="tax-rules" element={<TaxRuleList />} />
+                <Route path="tax-rates" element={<TaxRateList />} />
+                <Route path="payment-gateways" element={<PaymentGatewayList />} />
+                <Route path="payment-transactions" element={<PaymentTransactionList />} />
+                <Route path="recurring-payment-profiles" element={<RecurringPaymentProfileList />} />
                 <Route path="csd-certificates" element={<CsdCertificateList />} />
                 <Route path="pac-providers" element={<PacProviderList />} />
                 <Route path="sat-catalogs" element={<SatCatalogList />} />

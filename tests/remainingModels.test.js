@@ -234,7 +234,7 @@ describe('Promotion', () => {
   test('has correct metadata with soft-delete', () => {
     expectModel(Promotion, {
       tableName: 'promotions',
-      fillableIncludes: ['organization_id', 'name', 'code', 'discount_type', 'discount_value', 'status'],
+      fillableIncludes: ['organization_id', 'name', 'code', 'discount_type', 'discount_value', 'is_active'],
       hasOrgScope: true,
       softDelete: true,
     });
@@ -297,7 +297,7 @@ describe('TaxRate', () => {
   test('has correct metadata with soft-delete', () => {
     expectModel(TaxRate, {
       tableName: 'tax_rates',
-      fillableIncludes: ['organization_id', 'name', 'rate', 'country', 'state', 'status'],
+      fillableIncludes: ['organization_id', 'name', 'rate', 'description', 'is_default', 'status'],
       hasOrgScope: true,
       softDelete: true,
     });
@@ -308,7 +308,7 @@ describe('TaxRule', () => {
   test('has correct metadata with soft-delete', () => {
     expectModel(TaxRule, {
       tableName: 'tax_rules',
-      fillableIncludes: ['organization_id', 'name', 'tax_type', 'rate', 'country', 'state', 'status'],
+      fillableIncludes: ['organization_id', 'name', 'tax_type', 'rate', 'region', 'is_default', 'status'],
       hasOrgScope: true,
       softDelete: true,
     });
