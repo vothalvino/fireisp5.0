@@ -9,7 +9,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createTicket, updateTicket, patchTicket, createComment } = require('../middleware/schemas/tickets');
+const { createTicket, updateTicket, patchTicket, createComment, updateComment } = require('../middleware/schemas/tickets');
 const db = require('../config/database');
 const { pubsub } = require('../services/pubsub');
 const jobQueue = require('../services/jobQueueService');
@@ -88,6 +88,34 @@ router.post('/:id/comments', requirePermission('tickets.update'), validate(creat
     }
 
     res.status(201).json({ data: rows[0] });
+  } catch (err) { next(err); }
+});
+
+router.put('/:id/comments/:commentId', requirePermission('tickets.update'), validate(updateComment), async (req, res, next) => {
+  try {
+    const { body, is_internal } = req.body;
+    const [result] = await db.query(
+      'UPDATE ticket_comments SET body = ?, is_internal = ? WHERE id = ? AND ticket_id = ? AND deleted_at IS NULL',
+      [body, is_internal ?? false, req.params.commentId, req.params.id],
+    );
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+    const [rows] = await db.query('SELECT * FROM ticket_comments WHERE id = ?', [req.params.commentId]);
+    res.json({ data: rows[0] });
+  } catch (err) { next(err); }
+});
+
+router.delete('/:id/comments/:commentId', requirePermission('tickets.delete'), async (req, res, next) => {
+  try {
+    const [result] = await db.query(
+      'UPDATE ticket_comments SET deleted_at = NOW() WHERE id = ? AND ticket_id = ? AND deleted_at IS NULL',
+      [req.params.commentId, req.params.id],
+    );
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+    res.status(204).end();
   } catch (err) { next(err); }
 });
 

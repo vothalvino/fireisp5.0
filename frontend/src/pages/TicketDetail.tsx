@@ -132,6 +132,39 @@ async function addComment(
   }
 }
 
+async function updateComment(
+  ticketId: number,
+  commentId: number,
+  commentBody: string,
+  isInternal: boolean,
+): Promise<void> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/tickets/${ticketId}/comments/${commentId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: 'Bearer ' + token } : {}),
+    },
+    body: JSON.stringify({ body: commentBody, is_internal: isInternal }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error || 'Failed to update comment');
+  }
+}
+
+async function deleteComment(ticketId: number, commentId: number): Promise<void> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/tickets/${ticketId}/comments/${commentId}`, {
+    method: 'DELETE',
+    headers: token ? { Authorization: 'Bearer ' + token } : {},
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error || 'Failed to delete comment');
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -288,6 +321,115 @@ interface CommentsProps {
   onAdded: () => void;
 }
 
+interface CommentItemProps {
+  ticketId: number;
+  comment: TicketComment;
+  onChanged: () => void;
+}
+
+function CommentItem({ ticketId, comment, onChanged }: CommentItemProps) {
+  const [editing, setEditing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [draft, setDraft] = useState(comment.body);
+  const [err, setErr] = useState('');
+  const isInternal = Boolean(comment.is_internal);
+
+  const saveMutation = useMutation({
+    mutationFn: () => updateComment(ticketId, comment.id, draft.trim(), isInternal),
+    onSuccess: () => { setEditing(false); setErr(''); onChanged(); },
+    onError: (e: Error) => setErr(e.message),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteComment(ticketId, comment.id),
+    onSuccess: () => { setConfirmDelete(false); setErr(''); onChanged(); },
+    onError: (e: Error) => setErr(e.message),
+  });
+
+  return (
+    <div
+      style={{
+        background: isInternal ? '#fef9c3' : '#f9fafb',
+        border: `1px solid ${isInternal ? '#fde047' : '#e5e7eb'}`,
+        borderRadius: 8, padding: '10px 14px',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span style={{ fontWeight: 600, fontSize: '0.82rem', color: '#374151' }}>
+          {comment.first_name && comment.last_name ? `${comment.first_name} ${comment.last_name}` : 'System'}
+        </span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {isInternal && (
+            <span style={{
+              background: '#fde047', color: '#713f12',
+              fontSize: '0.7rem', fontWeight: 700,
+              padding: '1px 6px', borderRadius: 10,
+            }}>
+              INTERNAL
+            </span>
+          )}
+          <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{fmt(comment.created_at)}</span>
+        </div>
+      </div>
+
+      {err && <div style={errStyle}>{err}</div>}
+
+      {editing ? (
+        <>
+          <textarea
+            style={{ ...inputStyle, height: 70, resize: 'vertical' }}
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+            <button
+              style={btnPrimary}
+              disabled={saveMutation.isPending || !draft.trim()}
+              onClick={() => saveMutation.mutate()}
+            >
+              {saveMutation.isPending ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              style={commentActionBtn}
+              onClick={() => { setEditing(false); setDraft(comment.body); setErr(''); }}
+            >
+              Cancel
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p style={{ margin: 0, fontSize: '0.87rem', color: '#374151', whiteSpace: 'pre-wrap' }}>
+            {comment.body}
+          </p>
+          {confirmDelete ? (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+              <span style={{ fontSize: '0.78rem', color: '#991b1b' }}>Delete this comment?</span>
+              <button
+                style={commentDeleteBtn}
+                disabled={deleteMutation.isPending}
+                onClick={() => deleteMutation.mutate()}
+              >
+                {deleteMutation.isPending ? 'Deleting…' : 'Confirm'}
+              </button>
+              <button style={commentActionBtn} onClick={() => setConfirmDelete(false)}>Cancel</button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+              <button style={commentActionBtn} onClick={() => { setEditing(true); setDraft(comment.body); }}>
+                Edit
+              </button>
+              <button style={commentDeleteBtn} onClick={() => setConfirmDelete(true)}>
+                Delete
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function CommentsThread({ ticketId, comments, onAdded }: CommentsProps) {
   const [body, setBody] = useState('');
   const [isInternal, setIsInternal] = useState(false);
@@ -309,35 +451,7 @@ function CommentsThread({ ticketId, comments, onAdded }: CommentsProps) {
           <p style={{ color: '#888', fontSize: '0.85rem', margin: 0 }}>No comments yet.</p>
         )}
         {comments.map(c => (
-          <div
-            key={c.id}
-            style={{
-              background: c.is_internal ? '#fef9c3' : '#f9fafb',
-              border: `1px solid ${c.is_internal ? '#fde047' : '#e5e7eb'}`,
-              borderRadius: 8, padding: '10px 14px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span style={{ fontWeight: 600, fontSize: '0.82rem', color: '#374151' }}>
-                {c.first_name && c.last_name ? `${c.first_name} ${c.last_name}` : 'System'}
-              </span>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                {c.is_internal && (
-                  <span style={{
-                    background: '#fde047', color: '#713f12',
-                    fontSize: '0.7rem', fontWeight: 700,
-                    padding: '1px 6px', borderRadius: 10,
-                  }}>
-                    INTERNAL
-                  </span>
-                )}
-                <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{fmt(c.created_at)}</span>
-              </div>
-            </div>
-            <p style={{ margin: 0, fontSize: '0.87rem', color: '#374151', whiteSpace: 'pre-wrap' }}>
-              {c.body}
-            </p>
-          </div>
+          <CommentItem key={c.id} ticketId={ticketId} comment={c} onChanged={onAdded} />
         ))}
       </div>
 
@@ -1001,4 +1115,12 @@ const inputStyle: React.CSSProperties = {
 const errStyle: React.CSSProperties = {
   background: '#fee2e2', color: '#991b1b',
   padding: '8px 12px', borderRadius: 6, fontSize: '0.83rem', marginBottom: 8,
+};
+const commentActionBtn: React.CSSProperties = {
+  background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db',
+  padding: '3px 10px', borderRadius: 6, cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600,
+};
+const commentDeleteBtn: React.CSSProperties = {
+  background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5',
+  padding: '3px 10px', borderRadius: 6, cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600,
 };
