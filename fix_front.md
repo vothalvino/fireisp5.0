@@ -213,6 +213,8 @@ IP pools/assignments → SLA definitions → Roles/permissions → remaining net
 - [x] **M5 – Support/SLA + Admin/security pages** (SLA defs, Roles/permissions, API tokens,
   Webhooks, Audit logs, Scheduled tasks).
 - [x] **M6 – Compliance/MX pages** (CSD, PAC, SAT catalogs, regulatory filings).
+- [x] **M7 – Billing & sales completion** (Promotions, Tax rules, Tax rates CRUD; Payment
+  gateways, Payment transactions, Recurring payment profiles read views).
 
 ### Remaining — next stages to "done"
 
@@ -221,13 +223,12 @@ Each milestone is independently shippable. For every new page follow the per-pag
 in Section 4 (confirm endpoint in `docs/openapi.json` → list → create/edit modal →
 delete/restore via `useMutation` + typed `api` → register route/nav/i18n → tests).
 
-- [ ] **M7 – Billing & sales completion.**
-  - [ ] Recurring payment profiles — `/recurring-payment-profiles` (route exists; add page).
-  - [ ] Payment gateways — `/payment-gateways` (route exists; add page).
-  - [ ] Payment transactions detail — `/payment-transactions` (route exists; add read view).
-  - [ ] Promotions / tax rules / tax rates — tables (`promotions`, `tax_rules`, `tax_rates`)
-    exist but there are **no backend routes**. Add CRUD routes + OpenAPI generator entries +
-    route tests first, then build the pages.
+- [x] **M7 – Billing & sales completion.**
+  - [x] Recurring payment profiles — `/recurring-payment-profiles` (route exists; read view added).
+  - [x] Payment gateways — `/payment-gateways` (route exists; read view added — secret keys stay in the secure flow).
+  - [x] Payment transactions detail — `/payment-transactions` (route exists; read view added).
+  - [x] Promotions / tax rules / tax rates — added CRUD routes (`promotions`, `tax-rules`,
+    `tax-rates`) + OpenAPI generator entries + route tests, then built the CRUD pages.
 - [ ] **M8 – Network & operations completion** (routes already exist; add pages):
   - [ ] Service areas — `/service-areas`.
   - [ ] Outages — `/outages`.
