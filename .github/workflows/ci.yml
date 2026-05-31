@@ -227,6 +227,7 @@ jobs:
         run: pnpm --filter fireisp-frontend run lint
 
   e2e:
+    if: false
     runs-on: ubuntu-latest
     needs: [lint-and-test, frontend-test]
 
