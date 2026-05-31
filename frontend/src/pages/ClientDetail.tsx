@@ -10,8 +10,24 @@
 
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { gql } from '@/api/graphql';
+import { api } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
+import { can } from '@/auth/permissions';
+import {
+  ClientFormModal,
+  extractApiError,
+  overlay,
+  modalBox,
+  errorBox,
+  labelStyle,
+  inputStyle,
+  twoCol,
+  submitBtn,
+  cancelBtn,
+  type ClientFormInitial,
+} from '@/components/ClientFormModal';
 
 // ---------------------------------------------------------------------------
 // GraphQL query — fetches the client + all sub-resources in one request
@@ -32,6 +48,7 @@ const CLIENT_DETAIL_QUERY = /* GraphQL */ `
       zipCode
       country
       taxId
+      locale
       notes
       createdAt
       contracts {
@@ -80,6 +97,13 @@ const CLIENT_DETAIL_QUERY = /* GraphQL */ `
         notes
         createdAt
       }
+      contacts {
+        id
+        name
+        email
+        phone
+        role
+      }
     }
   }
 `;
@@ -101,6 +125,7 @@ interface Client {
   zipCode: string | null;
   country: string | null;
   taxId: string | null;
+  locale: string | null;
   notes: string | null;
   createdAt: string;
   contracts: Contract[];
@@ -108,6 +133,15 @@ interface Client {
   payments: Payment[];
   devices: Device[];
   ledger: LedgerEntry[];
+  contacts: Contact[];
+}
+
+interface Contact {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  role: string | null;
 }
 
 interface Contract {
@@ -229,7 +263,7 @@ function StatusBadge({ status, colorMap }: { status: string; colorMap?: Record<s
 // Tab types
 // ---------------------------------------------------------------------------
 
-type TabId = 'contracts' | 'invoices' | 'payments' | 'devices' | 'ledger';
+type TabId = 'contracts' | 'invoices' | 'payments' | 'devices' | 'ledger' | 'contacts';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'contracts', label: '📄 Contracts' },
@@ -237,6 +271,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'payments',  label: '💳 Payments' },
   { id: 'devices',   label: '🖧 Devices' },
   { id: 'ledger',    label: '📒 Ledger' },
+  { id: 'contacts',  label: '👤 Contacts' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -400,6 +435,53 @@ function LedgerTab({ ledger }: { ledger: LedgerEntry[] }) {
 }
 
 // ---------------------------------------------------------------------------
+// Contacts tab
+// ---------------------------------------------------------------------------
+
+function ContactsTab({
+  contacts,
+  canEdit,
+  onAdd,
+}: {
+  contacts: Contact[];
+  canEdit: boolean;
+  onAdd: () => void;
+}) {
+  return (
+    <div>
+      {canEdit && (
+        <div style={{ padding: '0.75rem 0.75rem 0', textAlign: 'right' }}>
+          <button type="button" onClick={onAdd} style={styles.smallPrimaryBtn}>+ Add Contact</button>
+        </div>
+      )}
+      {!contacts.length ? (
+        <p style={styles.msg}>No contacts found.</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={styles.table}>
+            <thead>
+              <tr>{['Name', 'Role', 'Email', 'Phone'].map(h => (
+                <th key={h} style={styles.th}>{h}</th>
+              ))}</tr>
+            </thead>
+            <tbody>
+              {contacts.map(c => (
+                <tr key={c.id} style={styles.tr}>
+                  <td style={{ ...styles.td, fontWeight: 600 }}>{c.name}</td>
+                  <td style={{ ...styles.td, textTransform: 'capitalize' }}>{c.role || '—'}</td>
+                  <td style={styles.td}>{c.email || '—'}</td>
+                  <td style={styles.td}>{c.phone || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Client Info Card
 // ---------------------------------------------------------------------------
 
@@ -457,18 +539,257 @@ function InfoRow({
 }
 
 // ---------------------------------------------------------------------------
+// Add Contact modal
+// ---------------------------------------------------------------------------
+
+function AddContactModal({
+  clientId,
+  onClose,
+  onSaved,
+}: {
+  clientId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({ name: '', role: '', email: '', phone: '' });
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }));
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.name.trim()) { setError('Name is required.'); return; }
+    setSaving(true);
+    setError(null);
+    const body: Record<string, string> = { name: form.name.trim() };
+    if (form.role.trim()) body.role = form.role.trim();
+    if (form.email.trim()) body.email = form.email.trim();
+    if (form.phone.trim()) body.phone = form.phone.trim();
+    const { error: apiError } = await api.POST('/clients/{id}/contacts', {
+      params: { path: { id: Number(clientId) } },
+      body: body as never,
+    });
+    setSaving(false);
+    if (apiError) { setError(extractApiError(apiError, 'Failed to add contact.')); return; }
+    onSaved();
+  }
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="Add contact">
+      <form style={modalBox} onSubmit={handleSubmit}>
+        <h2 style={modalTitle}>Add Contact</h2>
+        {error && <div style={errorBox}>{error}</div>}
+        <label style={labelStyle}>Name *</label>
+        <input style={inputStyle} value={form.name} onChange={set('name')} autoFocus />
+        <label style={labelStyle}>Role</label>
+        <input style={inputStyle} value={form.role} onChange={set('role')} />
+        <div style={twoCol}>
+          <div>
+            <label style={labelStyle}>Email</label>
+            <input style={inputStyle} type="email" value={form.email} onChange={set('email')} />
+          </div>
+          <div>
+            <label style={labelStyle}>Phone</label>
+            <input style={inputStyle} value={form.phone} onChange={set('phone')} />
+          </div>
+        </div>
+        <div style={modalActions}>
+          <button type="button" style={cancelBtn} onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="submit" style={submitBtn} disabled={saving}>{saving ? 'Saving…' : 'Add Contact'}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// MX Profile modal
+// ---------------------------------------------------------------------------
+
+interface MxProfile {
+  rfc?: string | null;
+  curp?: string | null;
+  razon_social?: string | null;
+  regimen_fiscal?: string | null;
+  codigo_postal_fiscal?: string | null;
+}
+
+function MxProfileModal({
+  clientId,
+  onClose,
+  onSaved,
+}: {
+  clientId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    rfc: '', curp: '', razon_social: '', regimen_fiscal: '', codigo_postal_fiscal: '',
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const { isLoading } = useQuery({
+    queryKey: ['client-mx-profile', clientId],
+    queryFn: async () => {
+      const { data, error: apiError } = await api.GET('/clients/{id}/mx-profile', {
+        params: { path: { id: Number(clientId) } },
+      });
+      if (apiError) throw new Error(extractApiError(apiError, 'Failed to load MX profile.'));
+      const profile = (data as { data?: MxProfile } | undefined)?.data;
+      if (profile) {
+        setForm({
+          rfc: profile.rfc ?? '',
+          curp: profile.curp ?? '',
+          razon_social: profile.razon_social ?? '',
+          regimen_fiscal: profile.regimen_fiscal ?? '',
+          codigo_postal_fiscal: profile.codigo_postal_fiscal ?? '',
+        });
+      }
+      return profile ?? null;
+    },
+  });
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }));
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.rfc.trim() || !form.razon_social.trim() ||
+        !form.regimen_fiscal.trim() || !form.codigo_postal_fiscal.trim()) {
+      setError('RFC, Razón social, Régimen fiscal and Código postal fiscal are required.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const body: Record<string, string> = {
+      rfc: form.rfc.trim(),
+      razon_social: form.razon_social.trim(),
+      regimen_fiscal: form.regimen_fiscal.trim(),
+      codigo_postal_fiscal: form.codigo_postal_fiscal.trim(),
+    };
+    if (form.curp.trim()) body.curp = form.curp.trim();
+    const { error: apiError } = await api.PUT('/clients/{id}/mx-profile', {
+      params: { path: { id: Number(clientId) } },
+      body: body as never,
+    });
+    setSaving(false);
+    if (apiError) { setError(extractApiError(apiError, 'Failed to save MX profile.')); return; }
+    onSaved();
+  }
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="MX fiscal profile">
+      <form style={modalBox} onSubmit={handleSubmit}>
+        <h2 style={modalTitle}>MX Fiscal Profile</h2>
+        {error && <div style={errorBox}>{error}</div>}
+        {isLoading ? (
+          <p style={styles.msg}>Loading…</p>
+        ) : (
+          <>
+            <label style={labelStyle}>RFC *</label>
+            <input style={inputStyle} value={form.rfc} onChange={set('rfc')} maxLength={13} />
+            <label style={labelStyle}>Razón social *</label>
+            <input style={inputStyle} value={form.razon_social} onChange={set('razon_social')} />
+            <div style={twoCol}>
+              <div>
+                <label style={labelStyle}>Régimen fiscal *</label>
+                <input style={inputStyle} value={form.regimen_fiscal} onChange={set('regimen_fiscal')} maxLength={3} />
+              </div>
+              <div>
+                <label style={labelStyle}>Código postal fiscal *</label>
+                <input style={inputStyle} value={form.codigo_postal_fiscal} onChange={set('codigo_postal_fiscal')} maxLength={5} />
+              </div>
+            </div>
+            <label style={labelStyle}>CURP</label>
+            <input style={inputStyle} value={form.curp} onChange={set('curp')} maxLength={18} />
+          </>
+        )}
+        <div style={modalActions}>
+          <button type="button" style={cancelBtn} onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="submit" style={submitBtn} disabled={saving || isLoading}>{saving ? 'Saving…' : 'Save Profile'}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Portal password modal
+// ---------------------------------------------------------------------------
+
+function PortalPasswordModal({
+  clientId,
+  onClose,
+  onSaved,
+}: {
+  clientId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
+    if (password !== confirm) { setError('Passwords do not match.'); return; }
+    setSaving(true);
+    setError(null);
+    const { error: apiError } = await api.PUT('/clients/{id}/portal-password', {
+      params: { path: { id: Number(clientId) } },
+      body: { password } as never,
+    });
+    setSaving(false);
+    if (apiError) { setError(extractApiError(apiError, 'Failed to set portal password.')); return; }
+    onSaved();
+  }
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="Set portal password">
+      <form style={modalBox} onSubmit={handleSubmit}>
+        <h2 style={modalTitle}>Set Portal Password</h2>
+        {error && <div style={errorBox}>{error}</div>}
+        <label style={labelStyle}>New password *</label>
+        <input style={inputStyle} type="password" value={password} onChange={e => setPassword(e.target.value)} autoFocus />
+        <label style={labelStyle}>Confirm password *</label>
+        <input style={inputStyle} type="password" value={confirm} onChange={e => setConfirm(e.target.value)} />
+        <div style={modalActions}>
+          <button type="button" style={cancelBtn} onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="submit" style={submitBtn} disabled={saving}>{saving ? 'Saving…' : 'Set Password'}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export function ClientDetail() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabId>('contracts');
+  const [showEdit, setShowEdit] = useState(false);
+  const [showAddContact, setShowAddContact] = useState(false);
+  const [showMxProfile, setShowMxProfile] = useState(false);
+  const [showPortalPassword, setShowPortalPassword] = useState(false);
+
+  const canEdit = can(user?.role, 'clients.update');
 
   const { data: client, isLoading, error } = useQuery({
     queryKey: ['client-detail-gql', id],
     queryFn: () => fetchClientDetail(id!),
     enabled: Boolean(id),
   });
+
+  const refetchClient = () => queryClient.invalidateQueries({ queryKey: ['client-detail-gql', id] });
 
   if (isLoading) {
     return (
@@ -486,6 +807,22 @@ export function ClientDetail() {
       </div>
     );
   }
+
+  const editInitial: ClientFormInitial = {
+    id: Number(client.id),
+    name: client.name,
+    email: client.email,
+    phone: client.phone,
+    client_type: client.clientType,
+    status: client.status,
+    tax_id: client.taxId,
+    address: client.address,
+    city: client.city,
+    state: client.state,
+    zip_code: client.zipCode,
+    country: client.country,
+    locale: client.locale,
+  };
 
   return (
     <div style={styles.page}>
@@ -505,6 +842,13 @@ export function ClientDetail() {
             <span style={styles.clientId}>ID #{client.id}</span>
           </div>
         </div>
+        {canEdit && (
+          <div style={styles.headerActions}>
+            <button type="button" style={styles.actionBtn} onClick={() => setShowEdit(true)}>✏️ Edit</button>
+            <button type="button" style={styles.actionBtn} onClick={() => setShowMxProfile(true)}>🧾 MX Profile</button>
+            <button type="button" style={styles.actionBtn} onClick={() => setShowPortalPassword(true)}>🔑 Portal Password</button>
+          </div>
+        )}
       </div>
 
       {/* Info card */}
@@ -533,7 +877,45 @@ export function ClientDetail() {
         {activeTab === 'payments'  && <PaymentsTab  payments={client.payments}   />}
         {activeTab === 'devices'   && <DevicesTab   devices={client.devices}     />}
         {activeTab === 'ledger'    && <LedgerTab    ledger={client.ledger}       />}
+        {activeTab === 'contacts'  && (
+          <ContactsTab
+            contacts={client.contacts}
+            canEdit={canEdit}
+            onAdd={() => setShowAddContact(true)}
+          />
+        )}
       </div>
+
+      {/* Modals */}
+      {showEdit && (
+        <ClientFormModal
+          mode="edit"
+          initial={editInitial}
+          onClose={() => setShowEdit(false)}
+          onSaved={() => { setShowEdit(false); refetchClient(); }}
+        />
+      )}
+      {showAddContact && (
+        <AddContactModal
+          clientId={client.id}
+          onClose={() => setShowAddContact(false)}
+          onSaved={() => { setShowAddContact(false); refetchClient(); }}
+        />
+      )}
+      {showMxProfile && (
+        <MxProfileModal
+          clientId={client.id}
+          onClose={() => setShowMxProfile(false)}
+          onSaved={() => { setShowMxProfile(false); refetchClient(); }}
+        />
+      )}
+      {showPortalPassword && (
+        <PortalPasswordModal
+          clientId={client.id}
+          onClose={() => setShowPortalPassword(false)}
+          onSaved={() => setShowPortalPassword(false)}
+        />
+      )}
     </div>
   );
 }
@@ -541,6 +923,13 @@ export function ClientDetail() {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
+
+const modalTitle: React.CSSProperties = {
+  margin: '0 0 1rem', fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-primary)',
+};
+const modalActions: React.CSSProperties = {
+  display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: '1.25rem',
+};
 
 const styles = {
   page: {
@@ -569,6 +958,28 @@ const styles = {
   clientName: { margin: '0 0 0.35rem', color: 'var(--text-primary)', fontSize: '1.6rem', fontWeight: 700 },
   headerMeta: { display: 'flex', alignItems: 'center', gap: '0.75rem' },
   clientId: { color: 'var(--text-dimmed)', fontSize: '0.8rem' },
+  headerActions: { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' as const },
+  actionBtn: {
+    padding: '0.45rem 0.85rem',
+    background: 'transparent',
+    color: 'var(--text-secondary)',
+    border: '1px solid var(--border-strong)',
+    borderRadius: 6,
+    cursor: 'pointer',
+    fontSize: '0.82rem',
+    fontWeight: 500,
+    whiteSpace: 'nowrap' as const,
+  },
+  smallPrimaryBtn: {
+    padding: '0.4rem 0.85rem',
+    background: '#e25822',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 6,
+    cursor: 'pointer',
+    fontSize: '0.82rem',
+    fontWeight: 600,
+  },
 
   infoCard: {
     background: 'var(--bg-card)',
