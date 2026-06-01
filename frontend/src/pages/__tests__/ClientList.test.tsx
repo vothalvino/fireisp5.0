@@ -17,6 +17,10 @@ vi.mock('@/api/client', () => ({
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
 }));
 
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 1, role: 'admin' } }),
+}));
+
 const client1 = {
   id: 1, name: 'Alice Smith', email: 'alice@test.com', phone: null,
   client_type: 'residential', status: 'active', city: 'CDMX', state: 'CMX', country: 'MX', created_at: '2024-01-01',

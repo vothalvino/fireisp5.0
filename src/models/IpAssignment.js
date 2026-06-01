@@ -9,8 +9,8 @@ class IpAssignment extends BaseModel {
 
   static get fillable() {
     return [
-      'organization_id', 'ip_pool_id', 'client_id', 'contract_id',
-      'device_id', 'ip_address', 'prefix_len', 'assignment_type',
+      'organization_id', 'pool_id', 'client_id', 'contract_id',
+      'device_id', 'ip_address', 'prefix_len', 'type',
       'status', 'notes',
     ];
   }

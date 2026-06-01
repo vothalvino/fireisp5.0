@@ -249,6 +249,18 @@
       "description": "Recurring payment profiles"
     },
     {
+      "name": "Promotions",
+      "description": "Promotion and coupon management"
+    },
+    {
+      "name": "Tax Rules",
+      "description": "Regional tax rule configuration"
+    },
+    {
+      "name": "Tax Rates",
+      "description": "Tax rate configuration"
+    },
+    {
       "name": "Settings",
       "description": "Organization settings"
     },
@@ -291,6 +303,14 @@
     {
       "name": "AI Assistant",
       "description": "AI reply assistant — policy, providers, phrase library, reply generation, audit logs"
+    },
+    {
+      "name": "DSAR",
+      "description": "Data subject access requests (LFPDPPP / GDPR)"
+    },
+    {
+      "name": "DR Drill",
+      "description": "Disaster-recovery drill status"
     }
   ],
   "paths": {
@@ -774,6 +794,212 @@
         }
       }
     },
+    "/organizations/{id}/restore": {
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Restore a soft-deleted organization",
+        "operationId": "restoreOrganization",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{id}/settings": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Get organization settings",
+        "operationId": "getOrganizationSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Settings map",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{id}/settings/{key}": {
+      "put": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Update a single organization setting",
+        "operationId": "updateOrganizationSetting",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Setting value",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Settings map",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{id}/quota": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Get organization quota and usage",
+        "operationId": "getOrganizationQuota",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Quota + usage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Update organization quota limits",
+        "operationId": "updateOrganizationQuota",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Quota limits",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Quota + usage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/users": {
       "get": {
         "tags": [
@@ -1104,6 +1330,32 @@
         "responses": {
           "204": {
             "description": "No content"
+          }
+        }
+      }
+    },
+    "/roles/permissions": {
+      "get": {
+        "tags": [
+          "Roles"
+        ],
+        "summary": "List all assignable permissions",
+        "operationId": "listPermissions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Permission[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -1978,6 +2230,88 @@
         "responses": {
           "200": {
             "description": "LedgerEntry[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clients/{id}/portal-password": {
+      "put": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Set or reset the client portal password",
+        "operationId": "setClientPortalPassword",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "password",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clients/{id}/restore": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Restore a soft-deleted client",
+        "operationId": "restoreClient",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Client",
             "content": {
               "application/json": {
                 "schema": {
@@ -5301,6 +5635,42 @@
         "responses": {
           "204": {
             "description": "No content"
+          }
+        }
+      }
+    },
+    "/devices/{id}/restore": {
+      "post": {
+        "tags": [
+          "Devices"
+        ],
+        "summary": "Restore a soft-deleted device",
+        "operationId": "restoreDevice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -9274,6 +9644,32 @@
         }
       }
     },
+    "/queue-stats": {
+      "get": {
+        "tags": [
+          "Queue Stats"
+        ],
+        "summary": "Get background job queue statistics",
+        "operationId": "getQueueStats",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "QueueStats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/warehouses": {
       "get": {
         "tags": [
@@ -10177,6 +10573,507 @@
         }
       }
     },
+    "/promotions": {
+      "get": {
+        "tags": [
+          "Promotions"
+        ],
+        "summary": "List promotions",
+        "operationId": "listPromotions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Promotion[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Promotions"
+        ],
+        "summary": "Create a Promotion",
+        "operationId": "createPromotion",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Promotion",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Promotion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/promotions/{id}": {
+      "get": {
+        "tags": [
+          "Promotions"
+        ],
+        "summary": "Get a Promotion",
+        "operationId": "getPromotion",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Promotion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Promotions"
+        ],
+        "summary": "Update a Promotion",
+        "operationId": "updatePromotion",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Promotion",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Promotion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Promotions"
+        ],
+        "summary": "Delete a Promotion",
+        "operationId": "deletePromotion",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/tax-rules": {
+      "get": {
+        "tags": [
+          "Tax Rules"
+        ],
+        "summary": "List tax-rules",
+        "operationId": "listTaxRules",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TaxRule[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Tax Rules"
+        ],
+        "summary": "Create a TaxRule",
+        "operationId": "createTaxRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "TaxRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "TaxRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tax-rules/{id}": {
+      "get": {
+        "tags": [
+          "Tax Rules"
+        ],
+        "summary": "Get a TaxRule",
+        "operationId": "getTaxRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TaxRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Tax Rules"
+        ],
+        "summary": "Update a TaxRule",
+        "operationId": "updateTaxRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "TaxRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "TaxRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Tax Rules"
+        ],
+        "summary": "Delete a TaxRule",
+        "operationId": "deleteTaxRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/tax-rates": {
+      "get": {
+        "tags": [
+          "Tax Rates"
+        ],
+        "summary": "List tax-rates",
+        "operationId": "listTaxRates",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TaxRate[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Tax Rates"
+        ],
+        "summary": "Create a TaxRate",
+        "operationId": "createTaxRate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "TaxRate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "TaxRate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tax-rates/{id}": {
+      "get": {
+        "tags": [
+          "Tax Rates"
+        ],
+        "summary": "Get a TaxRate",
+        "operationId": "getTaxRate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TaxRate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Tax Rates"
+        ],
+        "summary": "Update a TaxRate",
+        "operationId": "updateTaxRate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "TaxRate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "TaxRate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Tax Rates"
+        ],
+        "summary": "Delete a TaxRate",
+        "operationId": "deleteTaxRate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
     "/settings": {
       "get": {
         "tags": [
@@ -10237,6 +11134,209 @@
         }
       }
     },
+    "/message-templates": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "List message-templates",
+        "operationId": "listMessageTemplates",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MessageTemplate[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Create a MessageTemplate",
+        "operationId": "createMessageTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "MessageTemplate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "MessageTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/message-templates/{id}": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Get a MessageTemplate",
+        "operationId": "getMessageTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MessageTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Update a MessageTemplate",
+        "operationId": "updateMessageTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "MessageTemplate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "MessageTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Delete a MessageTemplate",
+        "operationId": "deleteMessageTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/message-templates/{id}/restore": {
+      "post": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Restore a soft-deleted message template",
+        "operationId": "restoreMessageTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MessageTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/audit-logs": {
       "get": {
         "tags": [
@@ -10252,6 +11352,68 @@
         "responses": {
           "200": {
             "description": "AuditLog[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dsar/clients/{id}": {
+      "get": {
+        "tags": [
+          "DSAR"
+        ],
+        "summary": "Export all personal data held for a client",
+        "operationId": "exportClientDsar",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DSAR export document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dr-drill/status": {
+      "get": {
+        "tags": [
+          "DR Drill"
+        ],
+        "summary": "Get latest disaster-recovery drill status",
+        "operationId": "getDrDrillStatus",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DR drill status",
             "content": {
               "application/json": {
                 "schema": {
@@ -17366,6 +18528,151 @@
           }
         }
       },
+      "promotions_createPromotion": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maximum": 150
+          },
+          "code": {
+            "type": "string",
+            "maximum": 50
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "discount_type": {
+            "type": "string",
+            "enum": [
+              "percentage",
+              "fixed_amount"
+            ]
+          },
+          "discount_value": {
+            "type": "number",
+            "minimum": 0
+          },
+          "promotion_type": {
+            "type": "string",
+            "enum": [
+              "coupon",
+              "promotional",
+              "referral"
+            ]
+          },
+          "applies_to": {
+            "type": "string",
+            "enum": [
+              "contract",
+              "invoice",
+              "plan"
+            ]
+          },
+          "max_uses": {
+            "type": "number",
+            "minimum": 0
+          },
+          "max_uses_per_client": {
+            "type": "number",
+            "minimum": 0
+          },
+          "min_order_value": {
+            "type": "number",
+            "minimum": 0
+          },
+          "duration_months": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "starts_at": {
+            "type": "string"
+          },
+          "ends_at": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "discount_type",
+          "discount_value"
+        ]
+      },
+      "promotions_updatePromotion": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maximum": 150
+          },
+          "code": {
+            "type": "string",
+            "maximum": 50
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "discount_type": {
+            "type": "string",
+            "enum": [
+              "percentage",
+              "fixed_amount"
+            ]
+          },
+          "discount_value": {
+            "type": "number",
+            "minimum": 0
+          },
+          "promotion_type": {
+            "type": "string",
+            "enum": [
+              "coupon",
+              "promotional",
+              "referral"
+            ]
+          },
+          "applies_to": {
+            "type": "string",
+            "enum": [
+              "contract",
+              "invoice",
+              "plan"
+            ]
+          },
+          "max_uses": {
+            "type": "number",
+            "minimum": 0
+          },
+          "max_uses_per_client": {
+            "type": "number",
+            "minimum": 0
+          },
+          "min_order_value": {
+            "type": "number",
+            "minimum": 0
+          },
+          "duration_months": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "starts_at": {
+            "type": "string"
+          },
+          "ends_at": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        }
+      },
       "quotes_createQuote": {
         "type": "object",
         "properties": {
@@ -18787,6 +20094,144 @@
           }
         }
       },
+      "taxRates_createTaxRate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "rate"
+        ]
+      },
+      "taxRates_updateTaxRate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        }
+      },
+      "taxRules_createTaxRule": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maximum": 255
+          },
+          "region": {
+            "type": "string",
+            "maximum": 100
+          },
+          "tax_type": {
+            "type": "string",
+            "enum": [
+              "vat",
+              "sales_tax",
+              "gst",
+              "other"
+            ]
+          },
+          "rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "rate"
+        ]
+      },
+      "taxRules_updateTaxRule": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maximum": 255
+          },
+          "region": {
+            "type": "string",
+            "maximum": 100
+          },
+          "tax_type": {
+            "type": "string",
+            "enum": [
+              "vat",
+              "sales_tax",
+              "gst",
+              "other"
+            ]
+          },
+          "rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        }
+      },
       "tickets_createTicket": {
         "type": "object",
         "properties": {
@@ -18938,6 +20383,22 @@
         }
       },
       "tickets_createComment": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 5000
+          },
+          "is_internal": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "body"
+        ]
+      },
+      "tickets_updateComment": {
         "type": "object",
         "properties": {
           "body": {

@@ -20,7 +20,7 @@ INSERT INTO clients (id, organization_id, name, client_type, locale, status)
 VALUES (7000, 7000, 'Unique Test Client', 'personal', 'global', 'active');
 INSERT INTO sites (id, organization_id, name, site_type, status)
 VALUES (7000, 7000, 'Unique Test POP', 'pop', 'active');
-INSERT INTO plans (id, organization_id, name, download_speed, upload_speed, price, status)
+INSERT INTO plans (id, organization_id, name, download_speed_mbps, upload_speed_mbps, price, status)
 VALUES (7000, 7000, 'Unique Test Plan', 50, 10, 299.00, 'active');
 
 -- =========================================================================
@@ -66,8 +66,8 @@ CALL assert_sql_error(NULL, 'INSERT INTO invoices (id, client_id, invoice_number
 -- =========================================================================
 -- F. ip_assignments — uq_ip_assignments_ip
 -- =========================================================================
-INSERT INTO ip_pools (id, site_id, name, network, cidr, ip_version, status)
-VALUES (7000, 7000, 'Pool-A', '10.0.0.0', 24, '4', 'active');
+INSERT INTO ip_pools (id, site_id, name, network, subnet_mask, ip_version, status)
+VALUES (7000, 7000, 'Pool-A', '10.0.0.0', '255.255.255.0', '4', 'active');
 INSERT INTO ip_assignments (id, pool_id, ip_address, client_id, type, status)
 VALUES (7000, 7000, '10.0.0.1', 7000, 'static', 'active');
 
@@ -109,9 +109,9 @@ CALL assert_sql_error(NULL, 'INSERT INTO quotes (id, client_id, quote_number, is
 -- K. credit_notes — uq_credit_notes_number
 -- =========================================================================
 INSERT INTO credit_notes (id, client_id, credit_note_number, issue_date, subtotal, tax_amount, total, reason, status)
-VALUES (7000, 7000, 'CN-UQ-001', '2024-01-01', 100.00, 0.00, 100.00, 'courtesy', 'draft');
+VALUES (7000, 7000, 'CN-UQ-001', '2024-01-01', 100.00, 0.00, 100.00, 'promotional_credit', 'draft');
 
-CALL assert_sql_error(NULL, 'INSERT INTO credit_notes (id, client_id, credit_note_number, issue_date, subtotal, tax_amount, total, reason, status) VALUES (7001, 7000, ''CN-UQ-001'', ''2024-02-01'', 50.00, 0.00, 50.00, ''courtesy'', ''draft'')', 'K: Duplicate credit note number rejected');
+CALL assert_sql_error(NULL, 'INSERT INTO credit_notes (id, client_id, credit_note_number, issue_date, subtotal, tax_amount, total, reason, status) VALUES (7001, 7000, ''CN-UQ-001'', ''2024-02-01'', 50.00, 0.00, 50.00, ''promotional_credit'', ''draft'')', 'K: Duplicate credit note number rejected');
 
 -- =========================================================================
 -- L. roles — uq_roles_name

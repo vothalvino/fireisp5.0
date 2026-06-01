@@ -22,7 +22,7 @@ INSERT INTO clients (id, organization_id, name, client_type, locale, status)
 VALUES (6000, 6000, 'RI Test Client', 'personal', 'global', 'active');
 INSERT INTO sites (id, organization_id, name, site_type, status)
 VALUES (6000, 6000, 'RI Test POP', 'pop', 'active');
-INSERT INTO plans (id, organization_id, name, download_speed, upload_speed, price, status)
+INSERT INTO plans (id, organization_id, name, download_speed_mbps, upload_speed_mbps, price, status)
 VALUES (6000, 6000, 'RI Test Plan', 50, 10, 299.00, 'active');
 SET FOREIGN_KEY_CHECKS = 1;
 

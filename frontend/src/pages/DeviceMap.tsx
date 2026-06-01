@@ -13,8 +13,22 @@
 // =============================================================================
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { tokenStore } from '@/api/client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, tokenStore } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
+import { can } from '@/auth/permissions';
+import {
+  extractApiError,
+  overlay,
+  modalBox,
+  errorBox,
+  labelStyle,
+  inputStyle,
+  twoCol,
+  submitBtn,
+  cancelBtn,
+  dangerBtn,
+} from '@/components/ClientFormModal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,6 +56,9 @@ interface Device {
   ip_address: string | null;
   status: string;
   snmp_enabled: boolean | number;
+  deleted_at?: string | null;
+  serial_number?: string | null;
+  mac_address?: string | null;
 }
 
 interface NetworkLink {
@@ -66,9 +83,9 @@ interface ListResponse<T> {
 
 const API_BASE = '/api/v1';
 
-async function fetchAll<T>(path: string): Promise<T[]> {
+async function fetchAll<T>(path: string, query = ''): Promise<T[]> {
   const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}${path}?limit=1000`, {
+  const res = await fetch(`${API_BASE}${path}?limit=1000${query}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) throw new Error(`Failed to load ${path}`);
@@ -80,8 +97,8 @@ async function fetchSites(): Promise<Site[]> {
   return fetchAll<Site>('/sites');
 }
 
-async function fetchDevices(): Promise<Device[]> {
-  return fetchAll<Device>('/devices');
+async function fetchDevices(includeDeleted = false): Promise<Device[]> {
+  return fetchAll<Device>('/devices', includeDeleted ? '&include_deleted=true' : '');
 }
 
 async function fetchLinks(): Promise<NetworkLink[]> {
@@ -159,15 +176,25 @@ function deviceIcon(type: string): string {
 // Device chip — compact card for a device inside a site
 // ---------------------------------------------------------------------------
 
-function DeviceChip({ device }: { device: Device }) {
+interface DeviceChipActions {
+  canEdit: boolean;
+  canDelete: boolean;
+  onEdit: (d: Device) => void;
+  onDelete: (d: Device) => void;
+  onRestore: (d: Device) => void;
+}
+
+function DeviceChip({ device, actions }: { device: Device; actions?: DeviceChipActions }) {
   const [hovered, setHovered] = useState(false);
+  const archived = Boolean(device.deleted_at);
   return (
     <div
       style={{
         border: '1px solid #e5e7eb',
         borderRadius: 8,
         padding: '8px 10px',
-        background: hovered ? '#f0f4ff' : '#fff',
+        background: archived ? '#f9fafb' : hovered ? '#f0f4ff' : '#fff',
+        opacity: archived ? 0.7 : 1,
         cursor: 'default',
         minWidth: 160,
         transition: 'background .15s',
@@ -188,7 +215,16 @@ function DeviceChip({ device }: { device: Device }) {
         </div>
       )}
       <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-        <DeviceStatusBadge status={device.status} />
+        {archived ? (
+          <span style={{
+            background: '#f3f4f6', color: '#6b7280',
+            padding: '1px 7px', borderRadius: 10, fontSize: '0.68rem', fontWeight: 600,
+          }}>
+            Archived
+          </span>
+        ) : (
+          <DeviceStatusBadge status={device.status} />
+        )}
         {(device.snmp_enabled === true || device.snmp_enabled === 1) && (
           <span style={{
             background: '#ede9fe', color: '#5b21b6',
@@ -199,6 +235,24 @@ function DeviceChip({ device }: { device: Device }) {
           </span>
         )}
       </div>
+      {actions && (actions.canEdit || actions.canDelete) && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+          {archived ? (
+            actions.canEdit && (
+              <button type="button" style={chipBtn} onClick={() => actions.onRestore(device)}>↩ Restore</button>
+            )
+          ) : (
+            <>
+              {actions.canEdit && (
+                <button type="button" style={chipBtn} onClick={() => actions.onEdit(device)}>✏️ Edit</button>
+              )}
+              {actions.canDelete && (
+                <button type="button" style={chipDangerBtn} onClick={() => actions.onDelete(device)}>🗑 Archive</button>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -210,9 +264,10 @@ function DeviceChip({ device }: { device: Device }) {
 interface SiteCardProps {
   site: Site;
   devices: Device[];
+  actions?: DeviceChipActions;
 }
 
-function SiteCard({ site, devices }: SiteCardProps) {
+function SiteCard({ site, devices, actions }: SiteCardProps) {
   const [collapsed, setCollapsed] = useState(false);
   return (
     <div style={{
@@ -268,7 +323,7 @@ function SiteCard({ site, devices }: SiteCardProps) {
             </p>
           ) : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {devices.map(d => <DeviceChip key={d.id} device={d} />)}
+              {devices.map(d => <DeviceChip key={d.id} device={d} actions={actions} />)}
             </div>
           )}
         </div>
@@ -389,16 +444,218 @@ function SummaryBar({ sites, devices, links }: SummaryBarProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Device create/edit modal
+// ---------------------------------------------------------------------------
+
+const DEVICE_TYPES = ['router', 'switch', 'olt', 'onu', 'ap', 'antenna', 'server', 'cpe', 'other'];
+const DEVICE_STATUSES = ['active', 'inactive', 'maintenance', 'decommissioned'];
+
+interface DeviceFormProps {
+  mode: 'create' | 'edit';
+  device?: Device;
+  sites: Site[];
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+function DeviceFormModal({ mode, device, sites, onClose, onSaved }: DeviceFormProps) {
+  const [form, setForm] = useState({
+    name: device?.name ?? '',
+    type: device?.type ?? 'router',
+    status: device?.status ?? 'active',
+    site_id: device?.site_id != null ? String(device.site_id) : '',
+    manufacturer: device?.manufacturer ?? '',
+    model: device?.model ?? '',
+    serial_number: device?.serial_number ?? '',
+    mac_address: device?.mac_address ?? '',
+    ip_address: device?.ip_address ?? '',
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const set = (k: keyof typeof form) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setForm(f => ({ ...f, [k]: e.target.value }));
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.name.trim()) { setError('Name is required.'); return; }
+    setSaving(true);
+    setError(null);
+    const body: Record<string, string | number> = {
+      name: form.name.trim(),
+      type: form.type,
+      status: form.status,
+    };
+    if (form.site_id) body.site_id = Number(form.site_id);
+    (['manufacturer', 'model', 'serial_number', 'mac_address', 'ip_address'] as const).forEach(k => {
+      const v = form[k].trim();
+      if (v) body[k] = v;
+    });
+
+    const { error: apiError } = mode === 'create'
+      ? await api.POST('/devices', { body: body as never })
+      : await api.PUT('/devices/{id}', { params: { path: { id: device!.id } }, body: body as never });
+
+    setSaving(false);
+    if (apiError) { setError(extractApiError(apiError, 'Failed to save device.')); return; }
+    onSaved();
+  }
+
+  const title = mode === 'create' ? 'New Device' : `Edit ${device?.name ?? 'Device'}`;
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label={title}>
+      <div style={{ ...modalBox, width: 540, maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 1rem' }}>{title}</h3>
+        {error && <div style={errorBox}>{error}</div>}
+        <form onSubmit={handleSubmit}>
+          <label style={labelStyle}>Name *</label>
+          <input style={inputStyle} type="text" value={form.name} onChange={set('name')} required autoFocus />
+
+          <div style={twoCol}>
+            <div>
+              <label style={labelStyle}>Type</label>
+              <select style={inputStyle} value={form.type} onChange={set('type')}>
+                {DEVICE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Status</label>
+              <select style={inputStyle} value={form.status} onChange={set('status')}>
+                {DEVICE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <label style={labelStyle}>Site</label>
+          <select style={inputStyle} value={form.site_id} onChange={set('site_id')}>
+            <option value="">— Unassigned —</option>
+            {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+
+          <div style={twoCol}>
+            <div>
+              <label style={labelStyle}>Manufacturer</label>
+              <input style={inputStyle} type="text" value={form.manufacturer} onChange={set('manufacturer')} />
+            </div>
+            <div>
+              <label style={labelStyle}>Model</label>
+              <input style={inputStyle} type="text" value={form.model} onChange={set('model')} />
+            </div>
+          </div>
+
+          <div style={twoCol}>
+            <div>
+              <label style={labelStyle}>MAC Address</label>
+              <input style={inputStyle} type="text" value={form.mac_address} onChange={set('mac_address')} maxLength={17} />
+            </div>
+            <div>
+              <label style={labelStyle}>IP Address</label>
+              <input style={inputStyle} type="text" value={form.ip_address} onChange={set('ip_address')} maxLength={45} />
+            </div>
+          </div>
+
+          <label style={labelStyle}>Serial Number</label>
+          <input style={inputStyle} type="text" value={form.serial_number} onChange={set('serial_number')} maxLength={100} />
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: '1.25rem' }}>
+            <button type="button" style={cancelBtn} onClick={onClose} disabled={saving}>Cancel</button>
+            <button type="submit" style={submitBtn} disabled={saving}>{saving ? 'Saving…' : (mode === 'create' ? 'Create Device' : 'Save Changes')}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Delete device confirmation modal
+// ---------------------------------------------------------------------------
+
+function DeleteDeviceModal({
+  device,
+  onClose,
+  onDeleted,
+}: {
+  device: Device;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function handleDelete() {
+    setSaving(true);
+    setError(null);
+    const { error: apiError } = await api.DELETE('/devices/{id}', {
+      params: { path: { id: device.id } },
+    });
+    setSaving(false);
+    if (apiError) { setError(extractApiError(apiError, 'Failed to archive device.')); return; }
+    onDeleted();
+  }
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="Archive device">
+      <div style={modalBox}>
+        <h3 style={{ margin: '0 0 1rem' }}>Archive Device</h3>
+        {error && <div style={errorBox}>{error}</div>}
+        <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+          Archive <strong>{device.name}</strong>? It can be restored later from the archived view.
+        </p>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: '1.25rem' }}>
+          <button type="button" style={cancelBtn} onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="button" style={dangerBtn} onClick={handleDelete} disabled={saving}>{saving ? 'Archiving…' : 'Archive'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
 export function DeviceMap() {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [siteFilter, setSiteFilter] = useState('');
   const [deviceStatusFilter, setDeviceStatusFilter] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
+  const [formTarget, setFormTarget] = useState<{ mode: 'create' | 'edit'; device?: Device } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Device | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const canCreate = can(user?.role, 'devices.create');
+  const canEditDevice = can(user?.role, 'devices.update');
+  const canDeleteDevice = can(user?.role, 'devices.delete');
 
   const sitesQuery = useQuery({ queryKey: ['sites'], queryFn: fetchSites });
-  const devicesQuery = useQuery({ queryKey: ['devices-all'], queryFn: fetchDevices });
+  const devicesQuery = useQuery({
+    queryKey: ['devices-all', showArchived],
+    queryFn: () => fetchDevices(showArchived),
+  });
   const linksQuery = useQuery({ queryKey: ['network-links'], queryFn: fetchLinks });
+
+  const refreshDevices = () => queryClient.invalidateQueries({ queryKey: ['devices-all'] });
+
+  async function handleRestore(device: Device) {
+    setActionError(null);
+    const { error: apiError } = await api.POST('/devices/{id}/restore', {
+      params: { path: { id: device.id } },
+    });
+    if (apiError) { setActionError(extractApiError(apiError, 'Failed to restore device.')); return; }
+    refreshDevices();
+  }
+
+  const deviceActions: DeviceChipActions = {
+    canEdit: canEditDevice,
+    canDelete: canDeleteDevice,
+    onEdit: (d) => setFormTarget({ mode: 'edit', device: d }),
+    onDelete: (d) => setDeleteTarget(d),
+    onRestore: handleRestore,
+  };
 
   const isLoading = sitesQuery.isLoading || devicesQuery.isLoading || linksQuery.isLoading;
   const error = sitesQuery.error ?? devicesQuery.error ?? linksQuery.error;
@@ -434,6 +691,11 @@ export function DeviceMap() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
         <h1 style={{ margin: 0, fontSize: '1.4rem' }}>🖧 Device / Network Map</h1>
+        {canCreate && (
+          <button style={btnPrimary} onClick={() => setFormTarget({ mode: 'create' })}>
+            + New Device
+          </button>
+        )}
       </div>
 
       {/* Filters */}
@@ -450,16 +712,23 @@ export function DeviceMap() {
           onChange={e => setDeviceStatusFilter(e.target.value)}
         >
           <option value="">All device statuses</option>
-          <option value="online">Online</option>
-          <option value="offline">Offline</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
           <option value="maintenance">Maintenance</option>
+          <option value="decommissioned">Decommissioned</option>
         </select>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', color: '#6b7280', cursor: 'pointer' }}>
+          <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />
+          Show archived
+        </label>
         {(siteFilter || deviceStatusFilter) && (
           <button style={btnSecondary} onClick={() => { setSiteFilter(''); setDeviceStatusFilter(''); }}>
             Clear
           </button>
         )}
       </div>
+
+      {actionError && <p style={{ color: '#e00', fontSize: '0.85rem' }}>{actionError}</p>}
 
       {isLoading && <p style={{ color: '#888' }}>Loading network map…</p>}
       {error && <p style={{ color: '#e00' }}>Failed to load network data.</p>}
@@ -483,6 +752,7 @@ export function DeviceMap() {
                 key={site.id}
                 site={site}
                 devices={devicesBySite.get(site.id) ?? []}
+                actions={deviceActions}
               />
             ))}
           </div>
@@ -503,6 +773,7 @@ export function DeviceMap() {
                   longitude: null,
                 }}
                 devices={unassigned}
+                actions={deviceActions}
               />
             </div>
           )}
@@ -510,6 +781,24 @@ export function DeviceMap() {
           {/* Network links */}
           <LinksTable links={allLinks} deviceMap={deviceMap} />
         </>
+      )}
+
+      {/* Modals */}
+      {formTarget && (
+        <DeviceFormModal
+          mode={formTarget.mode}
+          device={formTarget.device}
+          sites={allSites}
+          onClose={() => setFormTarget(null)}
+          onSaved={() => { setFormTarget(null); refreshDevices(); }}
+        />
+      )}
+      {deleteTarget && (
+        <DeleteDeviceModal
+          device={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={() => { setDeleteTarget(null); refreshDevices(); }}
+        />
       )}
     </div>
   );
@@ -530,6 +819,18 @@ const filterSelect: React.CSSProperties = {
 const btnSecondary: React.CSSProperties = {
   background: '#fff', color: '#374151', border: '1px solid #d1d5db',
   padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem',
+};
+const btnPrimary: React.CSSProperties = {
+  background: '#e25822', color: '#fff', border: 'none',
+  padding: '7px 16px', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600,
+};
+const chipBtn: React.CSSProperties = {
+  background: '#fff', color: '#374151', border: '1px solid #d1d5db',
+  padding: '2px 8px', borderRadius: 6, cursor: 'pointer', fontSize: '0.7rem',
+};
+const chipDangerBtn: React.CSSProperties = {
+  background: '#fff', color: '#dc2626', border: '1px solid #fecaca',
+  padding: '2px 8px', borderRadius: 6, cursor: 'pointer', fontSize: '0.7rem',
 };
 const tableStyle: React.CSSProperties = {
   width: '100%', borderCollapse: 'collapse', background: '#fff',

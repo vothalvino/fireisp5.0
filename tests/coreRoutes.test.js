@@ -1072,6 +1072,62 @@ describe('Ticket Routes — /api/tickets', () => {
       expect(res.body.data.is_internal).toBe(true);
     });
   });
+
+  // --- PUT /:id/comments/:commentId ---
+  describe('PUT /api/tickets/:id/comments/:commentId', () => {
+    test('updates a comment and returns the updated record', async () => {
+      mockAuthUser();
+      const updated = { id: 5, ticket_id: 1, user_id: 1, body: 'Edited body.', is_internal: false };
+      db.query
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([[updated]]);
+
+      const res = await request(app)
+        .put('/api/tickets/1/comments/5')
+        .set('Authorization', 'Bearer ' + authToken)
+        .send({ body: 'Edited body.' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.body).toBe('Edited body.');
+    });
+
+    test('returns 404 when the comment does not exist', async () => {
+      mockAuthUser();
+      db.query.mockResolvedValueOnce([{ affectedRows: 0 }]);
+
+      const res = await request(app)
+        .put('/api/tickets/1/comments/999')
+        .set('Authorization', 'Bearer ' + authToken)
+        .send({ body: 'Edited body.' });
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  // --- DELETE /:id/comments/:commentId ---
+  describe('DELETE /api/tickets/:id/comments/:commentId', () => {
+    test('soft-deletes a comment and returns 204', async () => {
+      mockAuthUser();
+      db.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      const res = await request(app)
+        .delete('/api/tickets/1/comments/5')
+        .set('Authorization', 'Bearer ' + authToken);
+
+      expect(res.status).toBe(204);
+    });
+
+    test('returns 404 when the comment does not exist', async () => {
+      mockAuthUser();
+      db.query.mockResolvedValueOnce([{ affectedRows: 0 }]);
+
+      const res = await request(app)
+        .delete('/api/tickets/1/comments/999')
+        .set('Authorization', 'Bearer ' + authToken);
+
+      expect(res.status).toBe(404);
+    });
+  });
 });
 
 // =============================================================================
@@ -1382,8 +1438,8 @@ describe('Organization Routes — /api/organizations', () => {
     });
   });
 
-  // --- PUT /:id/settings ---
-  describe('PUT /api/organizations/:id/settings', () => {
+  // --- PUT /:id/settings/:key ---
+  describe('PUT /api/organizations/:id/settings/:key', () => {
     test('updates a setting value for an organization', async () => {
       mockAuthUser();
       // setSetting for the 'value' key, then getSettings
@@ -1394,7 +1450,7 @@ describe('Organization Routes — /api/organizations', () => {
         ]]);
 
       const res = await request(app)
-        .put('/api/organizations/1/settings')
+        .put('/api/organizations/1/settings/billing.currency')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ value: 'USD' });
 
@@ -1407,7 +1463,7 @@ describe('Organization Routes — /api/organizations', () => {
       mockAuthUser();
 
       const res = await request(app)
-        .put('/api/organizations/1/settings')
+        .put('/api/organizations/1/settings/billing.currency')
         .set('Authorization', `Bearer ${authToken}`)
         .send({});
 

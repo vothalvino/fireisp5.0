@@ -62,7 +62,7 @@ async function seed() {
     // 4. Plans
     logger.info('Seeding plans...');
     await conn.execute(`
-      INSERT IGNORE INTO plans (id, organization_id, name, download_speed, upload_speed, price, currency, billing_cycle, status)
+      INSERT IGNORE INTO plans (id, organization_id, name, download_speed_mbps, upload_speed_mbps, price, currency, billing_cycle, status)
       VALUES
         (1, 1, 'Basic 50 Mbps',   50,  10,  29.99, 'USD', 'monthly', 'active'),
         (2, 1, 'Standard 100 Mbps', 100, 25,  49.99, 'USD', 'monthly', 'active'),

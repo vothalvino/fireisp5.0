@@ -27,7 +27,7 @@ async function syncAccount(contractId) {
   logger.info({ contractId }, 'Syncing RADIUS account');
   const [rows] = await db.query(`
     SELECT c.id AS contract_id, c.status AS contract_status,
-           p.download_speed, p.upload_speed, p.name AS plan_name,
+           p.download_speed_mbps, p.upload_speed_mbps, p.name AS plan_name,
            r.id AS radius_id, r.username, r.status AS radius_status
     FROM contracts c
     JOIN plans p ON p.id = c.plan_id
@@ -57,8 +57,8 @@ async function syncAccount(contractId) {
     username: row.username,
     status: expectedStatus,
     plan: row.plan_name,
-    download_speed: row.download_speed,
-    upload_speed: row.upload_speed,
+    download_speed: row.download_speed_mbps,
+    upload_speed: row.upload_speed_mbps,
   };
 }
 

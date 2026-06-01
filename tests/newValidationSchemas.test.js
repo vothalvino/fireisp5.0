@@ -69,6 +69,9 @@ const schemaModules = {
   regulatoryFilings: { path: '../src/middleware/schemas/regulatoryFilings', expected: ['createRegulatoryFiling', 'updateRegulatoryFiling'] },
   iftStatisticalReports: { path: '../src/middleware/schemas/iftStatisticalReports', expected: ['createIftStatisticalReport', 'updateIftStatisticalReport'] },
   facturasPublicas: { path: '../src/middleware/schemas/facturasPublicas', expected: ['createFacturaPublica', 'updateFacturaPublica', 'addFacturaPublicaItem'] },
+  promotions: { path: '../src/middleware/schemas/promotions', expected: ['createPromotion', 'updatePromotion'] },
+  taxRules: { path: '../src/middleware/schemas/taxRules', expected: ['createTaxRule', 'updateTaxRule'] },
+  taxRates: { path: '../src/middleware/schemas/taxRates', expected: ['createTaxRate', 'updateTaxRate'] },
 };
 
 describe('Schema module loading & exports', () => {
@@ -1423,6 +1426,87 @@ describe('FacturaPublica validation schemas', () => {
 
   test('updateFacturaPublica allows partial updates', () => {
     const next = run(updateFacturaPublica, { status: 'stamped' });
+    expectPass(next);
+  });
+});
+
+// --- Promotions / Tax Rules / Tax Rates (M7) ---
+describe('Promotion validation schemas', () => {
+  const { createPromotion, updatePromotion } = require('../src/middleware/schemas/promotions');
+
+  test('createPromotion requires name, discount_type, discount_value', () => {
+    const next = run(createPromotion, {});
+    expectReject(next);
+    const fields = errorFields(next);
+    expect(fields).toContain('name');
+    expect(fields).toContain('discount_type');
+    expect(fields).toContain('discount_value');
+  });
+
+  test('createPromotion rejects invalid discount_type', () => {
+    const next = run(createPromotion, { name: 'Promo', discount_type: 'half_off', discount_value: 10 });
+    expectReject(next);
+  });
+
+  test('createPromotion accepts valid data', () => {
+    const next = run(createPromotion, {
+      name: 'Summer Sale', code: 'SUMMER', discount_type: 'percentage',
+      discount_value: 20, promotion_type: 'coupon', applies_to: 'invoice', is_active: true,
+    });
+    expectPass(next);
+  });
+
+  test('updatePromotion allows partial updates', () => {
+    const next = run(updatePromotion, { is_active: false });
+    expectPass(next);
+  });
+});
+
+describe('Tax Rule validation schemas', () => {
+  const { createTaxRule, updateTaxRule } = require('../src/middleware/schemas/taxRules');
+
+  test('createTaxRule requires name and rate', () => {
+    const next = run(createTaxRule, {});
+    expectReject(next);
+    const fields = errorFields(next);
+    expect(fields).toContain('name');
+    expect(fields).toContain('rate');
+  });
+
+  test('createTaxRule rejects invalid tax_type', () => {
+    const next = run(createTaxRule, { name: 'IVA', rate: 0.16, tax_type: 'tariff' });
+    expectReject(next);
+  });
+
+  test('createTaxRule rejects rate above 1', () => {
+    const next = run(createTaxRule, { name: 'IVA', rate: 16 });
+    expectReject(next);
+  });
+
+  test('createTaxRule accepts valid data', () => {
+    const next = run(createTaxRule, { name: 'IVA 16%', region: 'MX', tax_type: 'vat', rate: 0.16, is_default: true, status: 'active' });
+    expectPass(next);
+  });
+});
+
+describe('Tax Rate validation schemas', () => {
+  const { createTaxRate, updateTaxRate } = require('../src/middleware/schemas/taxRates');
+
+  test('createTaxRate requires name and rate', () => {
+    const next = run(createTaxRate, {});
+    expectReject(next);
+    const fields = errorFields(next);
+    expect(fields).toContain('name');
+    expect(fields).toContain('rate');
+  });
+
+  test('createTaxRate accepts valid data', () => {
+    const next = run(createTaxRate, { name: 'IVA 16%', rate: 0.16, description: 'Standard MX VAT', is_default: true, status: 'active' });
+    expectPass(next);
+  });
+
+  test('updateTaxRate allows partial updates', () => {
+    const next = run(updateTaxRate, { status: 'inactive' });
     expectPass(next);
   });
 });

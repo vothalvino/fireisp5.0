@@ -35,6 +35,10 @@ import { TicketDetail } from '@/pages/TicketDetail';
 import { DeviceMap } from '@/pages/DeviceMap';
 import { UserList } from '@/pages/UserList';
 import { CfdiList } from '@/pages/CfdiList';
+import { PlanList } from '@/pages/PlanList';
+import { QuoteList } from '@/pages/QuoteList';
+import { CreditNoteList } from '@/pages/CreditNoteList';
+import { ExpenseList } from '@/pages/ExpenseList';
 import { InventoryList } from '@/pages/InventoryList';
 import { WarehouseList } from '@/pages/WarehouseList';
 import { CoverageZoneMap } from '@/pages/CoverageZoneMap';
@@ -42,9 +46,47 @@ import { RadiusSessions } from '@/pages/RadiusSessions';
 import { SessionAccounting } from '@/pages/SessionAccounting';
 import { SnmpMetrics } from '@/pages/SnmpMetrics';
 import { SnmpTraps } from '@/pages/SnmpTraps';
+import { SiteList } from '@/pages/SiteList';
+import { NasList } from '@/pages/NasList';
+import { IpPoolList } from '@/pages/IpPoolList';
+import { IpAssignmentList } from '@/pages/IpAssignmentList';
+import { VlanList } from '@/pages/VlanList';
+import { ServiceAreaList } from '@/pages/ServiceAreaList';
+import { OutageList } from '@/pages/OutageList';
+import { SpeedTestList } from '@/pages/SpeedTestList';
+import { ConnectionLogList } from '@/pages/ConnectionLogList';
+import { NetworkHealthList } from '@/pages/NetworkHealthList';
+import { SnmpProfileList } from '@/pages/SnmpProfileList';
+import { DeviceConfigBackupList } from '@/pages/DeviceConfigBackupList';
+import { SuspensionRuleList } from '@/pages/SuspensionRuleList';
 import { Reports } from '@/pages/Reports';
 import { Settings } from '@/pages/Settings';
 import { ProfecoComplaints } from '@/pages/ProfecoComplaints';
+import { SlaDefinitionList } from '@/pages/SlaDefinitionList';
+import { RoleList } from '@/pages/RoleList';
+import { ApiTokenList } from '@/pages/ApiTokenList';
+import { WebhookList } from '@/pages/WebhookList';
+import { AuditLogList } from '@/pages/AuditLogList';
+import { ScheduledTaskList } from '@/pages/ScheduledTaskList';
+import { OrganizationList } from '@/pages/OrganizationList';
+import { DsarTool } from '@/pages/DsarTool';
+import { DrDrillStatus } from '@/pages/DrDrillStatus';
+import { JobList } from '@/pages/JobList';
+import { QueueStats } from '@/pages/QueueStats';
+import { CsdCertificateList } from '@/pages/CsdCertificateList';
+import { PacProviderList } from '@/pages/PacProviderList';
+import { SatCatalogList } from '@/pages/SatCatalogList';
+import { RegulatoryFilingList } from '@/pages/RegulatoryFilingList';
+import { ConcessionTitleList } from '@/pages/ConcessionTitleList';
+import { IftStatisticalReportList } from '@/pages/IftStatisticalReportList';
+import { FacturaPublicaList } from '@/pages/FacturaPublicaList';
+import { MessageTemplateList } from '@/pages/MessageTemplateList';
+import { PromotionList } from '@/pages/PromotionList';
+import { TaxRuleList } from '@/pages/TaxRuleList';
+import { TaxRateList } from '@/pages/TaxRateList';
+import { PaymentGatewayList } from '@/pages/PaymentGatewayList';
+import { PaymentTransactionList } from '@/pages/PaymentTransactionList';
+import { RecurringPaymentProfileList } from '@/pages/RecurringPaymentProfileList';
 import { AIAssistantSettings } from '@/pages/AIAssistantSettings';
 import { NotFound } from '@/pages/NotFound';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
@@ -107,6 +149,19 @@ export function App() {
                 <Route path="snmp-metrics" element={<SnmpMetrics />} />
                 <Route path="snmp-traps" element={<SnmpTraps />} />
                 <Route path="coverage-zones" element={<CoverageZoneMap />} />
+                <Route path="sites" element={<SiteList />} />
+                <Route path="nas" element={<NasList />} />
+                <Route path="ip-pools" element={<IpPoolList />} />
+                <Route path="ip-assignments" element={<IpAssignmentList />} />
+                <Route path="vlans" element={<VlanList />} />
+                <Route path="service-areas" element={<ServiceAreaList />} />
+                <Route path="outages" element={<OutageList />} />
+                <Route path="speed-tests" element={<SpeedTestList />} />
+                <Route path="connection-logs" element={<ConnectionLogList />} />
+                <Route path="network-health" element={<NetworkHealthList />} />
+                <Route path="snmp-profiles" element={<SnmpProfileList />} />
+                <Route path="device-config-backups" element={<DeviceConfigBackupList />} />
+                <Route path="suspension-rules" element={<SuspensionRuleList />} />
               </Route>
             </Route>
 
@@ -114,6 +169,23 @@ export function App() {
             <Route element={<PrivateRoute requiredRole="billing" />}>
               <Route element={<Layout />}>
                 <Route path="cfdi" element={<CfdiList />} />
+                <Route path="plans" element={<PlanList />} />
+                <Route path="quotes" element={<QuoteList />} />
+                <Route path="credit-notes" element={<CreditNoteList />} />
+                <Route path="expenses" element={<ExpenseList />} />
+                <Route path="promotions" element={<PromotionList />} />
+                <Route path="tax-rules" element={<TaxRuleList />} />
+                <Route path="tax-rates" element={<TaxRateList />} />
+                <Route path="payment-gateways" element={<PaymentGatewayList />} />
+                <Route path="payment-transactions" element={<PaymentTransactionList />} />
+                <Route path="recurring-payment-profiles" element={<RecurringPaymentProfileList />} />
+                <Route path="csd-certificates" element={<CsdCertificateList />} />
+                <Route path="pac-providers" element={<PacProviderList />} />
+                <Route path="sat-catalogs" element={<SatCatalogList />} />
+                <Route path="regulatory-filings" element={<RegulatoryFilingList />} />
+                <Route path="concession-titles" element={<ConcessionTitleList />} />
+                <Route path="ift-statistical-reports" element={<IftStatisticalReportList />} />
+                <Route path="facturas-publicas" element={<FacturaPublicaList />} />
                 <Route path="reports" element={<Reports />} />
                 <Route path="profeco-complaints" element={<ProfecoComplaints />} />
               </Route>
@@ -123,7 +195,19 @@ export function App() {
             <Route element={<PrivateRoute requiredRole="admin" />}>
               <Route element={<Layout />}>
                 <Route path="users" element={<UserList />} />
+                <Route path="organizations" element={<OrganizationList />} />
+                <Route path="dsar" element={<DsarTool />} />
+                <Route path="dr-drill" element={<DrDrillStatus />} />
+                <Route path="sla-definitions" element={<SlaDefinitionList />} />
+                <Route path="roles" element={<RoleList />} />
+                <Route path="api-tokens" element={<ApiTokenList />} />
+                <Route path="webhooks" element={<WebhookList />} />
+                <Route path="audit-logs" element={<AuditLogList />} />
+                <Route path="scheduled-tasks" element={<ScheduledTaskList />} />
+                <Route path="jobs" element={<JobList />} />
+                <Route path="queue-stats" element={<QueueStats />} />
                 <Route path="settings" element={<Settings />} />
+                <Route path="message-templates" element={<MessageTemplateList />} />
                 <Route path="ai-assistant" element={<AIAssistantSettings />} />
               </Route>
             </Route>

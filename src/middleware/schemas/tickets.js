@@ -29,8 +29,13 @@ const createComment = {
   is_internal: { type: 'boolean' },
 };
 
+const updateComment = {
+  body: { type: 'string', required: true, min: 1, max: 5000 },
+  is_internal: { type: 'boolean' },
+};
+
 const patchTicket = Object.fromEntries(
   Object.entries(updateTicket).map(([k, v]) => [k, { ...v, required: false }]),
 );
 
-module.exports = { createTicket, updateTicket, patchTicket, createComment };
+module.exports = { createTicket, updateTicket, patchTicket, createComment, updateComment };

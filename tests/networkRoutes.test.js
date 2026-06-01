@@ -225,10 +225,10 @@ describe('IP Assignment Routes — /api/ip-assignments', () => {
   const mockIpAssignment = {
     id: 1,
     organization_id: 1,
-    ip_pool_id: 1,
+    pool_id: 1,
     ip_address: '192.168.1.10',
     prefix_len: 24,
-    assignment_type: 'static',
+    type: 'static',
     status: 'active',
   };
 
@@ -309,16 +309,16 @@ describe('IP Assignment Routes — /api/ip-assignments', () => {
       db.query
         .mockResolvedValueOnce([[mockIpAssignment]])                                         // findByIdOrFail
         .mockResolvedValueOnce([{ affectedRows: 1 }])                                       // UPDATE
-        .mockResolvedValueOnce([[{ ...mockIpAssignment, assignment_type: 'dynamic' }]])      // findById
+        .mockResolvedValueOnce([[{ ...mockIpAssignment, type: 'dynamic' }]])      // findById
         .mockResolvedValueOnce([{ affectedRows: 1 }]);                                      // auditLog
 
       const res = await request(app)
         .put('/api/ip-assignments/1')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ assignment_type: 'dynamic' });
+        .send({ type: 'dynamic' });
 
       expect(res.status).toBe(200);
-      expect(res.body.data.assignment_type).toBe('dynamic');
+      expect(res.body.data.type).toBe('dynamic');
     });
   });
 

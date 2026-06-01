@@ -11,7 +11,7 @@
 
 import { useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { tokenStore } from '@/api/client';
 
 // ---------------------------------------------------------------------------
@@ -103,6 +103,17 @@ async function updateWarehouse(id: number, body: Record<string, unknown>): Promi
   }
 }
 
+async function deleteWarehouse(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/warehouses/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: { message?: string } };
+    throw new Error(data.error?.message ?? 'Failed to delete warehouse');
+  }
+}
+
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ');
 }
@@ -156,6 +167,7 @@ interface WarehouseFormModalProps {
 
 function WarehouseFormModal({ warehouse, onClose, onSaved }: WarehouseFormModalProps) {
   const isEdit = !!warehouse;
+  const qc = useQueryClient();
   const [form, setForm] = useState<WarehouseFormValues>(
     warehouse
       ? {
@@ -170,38 +182,35 @@ function WarehouseFormModal({ warehouse, onClose, onSaved }: WarehouseFormModalP
         }
       : { ...EMPTY_FORM },
   );
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   function set(field: keyof WarehouseFormValues, value: string) {
     setForm(f => ({ ...f, [field]: value }));
   }
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
-    setError('');
-    const body: Record<string, unknown> = { name: form.name, status: form.status };
-    if (form.address) body.address = form.address;
-    if (form.city) body.city = form.city;
-    if (form.state) body.state = form.state;
-    if (form.country) body.country = form.country;
-    if (form.zip_code) body.zip_code = form.zip_code;
-    if (form.notes) body.notes = form.notes;
-
-    try {
-      if (isEdit && warehouse) {
-        await updateWarehouse(warehouse.id, body);
-      } else {
-        await createWarehouse(body);
-      }
+  const mutation = useMutation({
+    mutationFn: () => {
+      const body: Record<string, unknown> = { name: form.name, status: form.status };
+      if (form.address) body.address = form.address;
+      if (form.city) body.city = form.city;
+      if (form.state) body.state = form.state;
+      if (form.country) body.country = form.country;
+      if (form.zip_code) body.zip_code = form.zip_code;
+      if (form.notes) body.notes = form.notes;
+      return isEdit && warehouse ? updateWarehouse(warehouse.id, body) : createWarehouse(body);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['warehouseList'] });
       onSaved();
       onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setSubmitting(false);
-    }
+    },
+    onError: (err: unknown) => setError(err instanceof Error ? err.message : 'An error occurred'),
+  });
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    mutation.mutate();
   }
 
   return (
@@ -252,9 +261,9 @@ function WarehouseFormModal({ warehouse, onClose, onSaved }: WarehouseFormModalP
             onChange={e => set('notes', e.target.value)} placeholder="Optional notes…" />
 
           <div style={{ display: 'flex', gap: 8, marginTop: '0.75rem', justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={cancelBtn} disabled={submitting}>Dismiss</button>
-            <button type="submit" style={submitBtn} disabled={submitting}>
-              {submitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Warehouse'}
+            <button type="button" onClick={onClose} style={cancelBtn} disabled={mutation.isPending}>Dismiss</button>
+            <button type="submit" style={submitBtn} disabled={mutation.isPending}>
+              {mutation.isPending ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Warehouse'}
             </button>
           </div>
         </form>
@@ -380,6 +389,18 @@ export function WarehouseList() {
     void qc.invalidateQueries({ queryKey: ['warehouseList'] });
   }
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteWarehouse(id),
+    onSuccess: invalidate,
+    onError: (err: unknown) => alert(err instanceof Error ? err.message : 'Failed to delete warehouse'),
+  });
+
+  function handleDelete(wh: Warehouse) {
+    if (window.confirm(`Delete warehouse "${wh.name}"? This cannot be undone.`)) {
+      deleteMutation.mutate(wh.id);
+    }
+  }
+
   const totalPages = data?.meta.totalPages ?? 1;
 
   return (
@@ -446,6 +467,14 @@ export function WarehouseList() {
                       <button style={actionBtn} onClick={() => setEditWarehouse(wh)}>Edit</button>
                       {' '}
                       <button style={actionBtn} onClick={() => setStockWarehouse(wh)}>Stock</button>
+                      {' '}
+                      <button
+                        style={deleteBtn}
+                        onClick={() => handleDelete(wh)}
+                        disabled={deleteMutation.isPending}
+                      >
+                        Delete
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -545,6 +574,11 @@ const filterBtnActive: CSSProperties = {
 
 const actionBtn: CSSProperties = {
   background: 'var(--bg-subtle)', color: 'var(--text-secondary)', border: '1px solid var(--border)',
+  borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: '0.78rem',
+};
+
+const deleteBtn: CSSProperties = {
+  background: 'var(--bg-subtle)', color: '#dc2626', border: '1px solid #fca5a5',
   borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: '0.78rem',
 };
 

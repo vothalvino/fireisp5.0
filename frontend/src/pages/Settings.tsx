@@ -1,13 +1,14 @@
 // =============================================================================
 // FireISP 5.0 — Settings Page
 // =============================================================================
-// Admin-only page at /settings. Provides five tabs:
+// Admin-only page at /settings. Provides four tabs:
 //
 //   1. Org Config       — key/value settings from GET/PUT /api/v1/settings
-//   2. Email Templates  — CRUD on message templates via /api/v1/message-templates
-//   3. Alert Rules      — CRUD on alert rules via /api/v1/alerts/rules
-//   4. Payment Gateways — CRUD on payment gateways via /api/v1/payment-gateways
-//   5. Quotas           — per-tenant resource usage + limit management
+//   2. Alert Rules      — CRUD on alert rules via /api/v1/alerts/rules
+//   3. Payment Gateways — CRUD on payment gateways via /api/v1/payment-gateways
+//   4. Quotas           — per-tenant resource usage + limit management
+//
+// Message templates were promoted into their own page at /message-templates.
 // =============================================================================
 
 import { useState } from 'react';
@@ -20,22 +21,12 @@ import { useAuth } from '@/auth/AuthContext';
 // Types
 // ---------------------------------------------------------------------------
 
-type SettingsTab = 'orgConfig' | 'emailTemplates' | 'alertRules' | 'paymentGateways' | 'quotas';
+type SettingsTab = 'orgConfig' | 'alertRules' | 'paymentGateways' | 'quotas';
 
 interface Setting {
   key: string;
   value: string | null;
   description?: string;
-}
-
-interface MessageTemplate {
-  id: number;
-  name: string;
-  channel: string;
-  subject: string | null;
-  body: string;
-  variables: string | null;
-  created_at: string;
 }
 
 interface AlertRule {
@@ -69,7 +60,6 @@ interface PaymentGateway {
 // ---------------------------------------------------------------------------
 
 const API_BASE = '/api/v1';
-const CHANNELS = ['email', 'sms', 'whatsapp', 'push'];
 const METRICS = ['bandwidth_in', 'bandwidth_out', 'cpu', 'memory', 'signal', 'latency', 'uptime'];
 const OPERATORS = ['>', '>=', '<', '<=', '='];
 const SEVERITIES = ['critical', 'major', 'minor', 'warning'];
@@ -189,145 +179,6 @@ function OrgConfigTab() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Email Templates tab
-// ---------------------------------------------------------------------------
-
-const EMPTY_TPL = { name: '', channel: 'email', subject: '', body: '', variables: '' };
-
-function EmailTemplatesTab() {
-  const [showModal, setShowModal] = useState(false);
-  const [editing, setEditing] = useState<MessageTemplate | null>(null);
-  const [form, setForm] = useState({ ...EMPTY_TPL });
-  const [formError, setFormError] = useState('');
-  const [deleteId, setDeleteId] = useState<number | null>(null);
-  const qc = useQueryClient();
-
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['message-templates'],
-    queryFn: () =>
-      apiFetch<{ data: MessageTemplate[]; meta: { total: number } }>(`${API_BASE}/message-templates?limit=100`),
-  });
-
-  const saveMutation = useMutation({
-    mutationFn: (body: typeof form) =>
-      editing
-        ? apiFetch(`${API_BASE}/message-templates/${editing.id}`, { method: 'PUT', body: JSON.stringify(body) })
-        : apiFetch(`${API_BASE}/message-templates`, { method: 'POST', body: JSON.stringify(body) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['message-templates'] }); closeModal(); },
-    onError: (err: Error) => setFormError(err.message),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => apiFetch(`${API_BASE}/message-templates/${id}`, { method: 'DELETE' }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['message-templates'] }); setDeleteId(null); },
-  });
-
-  function openNew() { setEditing(null); setForm({ ...EMPTY_TPL }); setFormError(''); setShowModal(true); }
-  function openEdit(t: MessageTemplate) {
-    setEditing(t);
-    setForm({ name: t.name, channel: t.channel, subject: t.subject ?? '', body: t.body, variables: t.variables ?? '' });
-    setFormError('');
-    setShowModal(true);
-  }
-  function closeModal() { setShowModal(false); setEditing(null); }
-
-  function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setFormError('');
-    if (!form.name.trim()) { setFormError('Name is required'); return; }
-    if (!form.body.trim()) { setFormError('Body is required'); return; }
-    saveMutation.mutate(form);
-  }
-
-  const templates = data?.data ?? [];
-
-  return (
-    <div>
-      <div style={sty.tabBar}>
-        <h3 style={sty.sectionTitle}>Email / SMS Templates</h3>
-        <button style={sty.btnPrimary} onClick={openNew}>+ New Template</button>
-      </div>
-
-      {isLoading && <p style={sty.muted}>Loading templates…</p>}
-      {error && <p style={sty.errorText}>Failed to load templates.</p>}
-      {!isLoading && templates.length === 0 && <p style={sty.muted}>No templates defined.</p>}
-
-      {templates.length > 0 && (
-        <table style={sty.table}>
-          <thead>
-            <tr>{['Name', 'Channel', 'Subject', 'Created', ''].map(h => <th key={h} style={sty.th}>{h}</th>)}</tr>
-          </thead>
-          <tbody>
-            {templates.map(t => (
-              <tr key={t.id}>
-                <td style={sty.td}>{t.name}</td>
-                <td style={sty.td}><span style={channelBadge(t.channel)}>{t.channel}</span></td>
-                <td style={{ ...sty.td, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {t.subject ?? <em style={sty.muted}>—</em>}
-                </td>
-                <td style={sty.td}>{t.created_at.slice(0, 10)}</td>
-                <td style={sty.td}>
-                  <span style={sty.rowActions}>
-                    <button style={sty.btnGhost} onClick={() => openEdit(t)}>Edit</button>
-                    <button style={sty.btnDanger} onClick={() => setDeleteId(t.id)}>Delete</button>
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      {showModal && (
-        <Modal title={editing ? 'Edit Template' : 'New Template'} onClose={closeModal}>
-          <form onSubmit={handleSubmit} style={sty.form}>
-            <label style={sty.label}>Name *
-              <input style={sty.input} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required />
-            </label>
-            <label style={sty.label}>Channel *
-              <select style={sty.select} value={form.channel} onChange={e => setForm(f => ({ ...f, channel: e.target.value }))}>
-                {CHANNELS.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </label>
-            <label style={sty.label}>Subject
-              <input style={sty.input} value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} />
-            </label>
-            <label style={sty.label}>
-              Body * <span style={sty.hint}>(use {'{{variable}}'} placeholders)</span>
-              <textarea
-                style={{ ...sty.input, height: 140, resize: 'vertical' }}
-                value={form.body}
-                onChange={e => setForm(f => ({ ...f, body: e.target.value }))}
-                required
-              />
-            </label>
-            <label style={sty.label}>Variables (comma-separated list)
-              <input style={sty.input} value={form.variables} placeholder="e.g. client_name, invoice_total"
-                onChange={e => setForm(f => ({ ...f, variables: e.target.value }))} />
-            </label>
-            {formError && <p style={sty.errorText}>{formError}</p>}
-            <div style={sty.modalFooter}>
-              <button type="button" style={sty.btnGhost} onClick={closeModal}>Cancel</button>
-              <button type="submit" style={sty.btnPrimary} disabled={saveMutation.isPending}>
-                {saveMutation.isPending ? 'Saving…' : editing ? 'Update' : 'Create'}
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
-
-      {deleteId !== null && (
-        <ConfirmDialog
-          message="Delete this template? This cannot be undone."
-          onConfirm={() => deleteMutation.mutate(deleteId!)}
-          onCancel={() => setDeleteId(null)}
-          loading={deleteMutation.isPending}
-        />
-      )}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Alert Rules tab
@@ -910,7 +761,6 @@ function QuotasTab() {
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'orgConfig', label: '🏢 Org Config' },
-  { id: 'emailTemplates', label: '✉️ Email Templates' },
   { id: 'alertRules', label: '🚨 Alert Rules' },
   { id: 'paymentGateways', label: '💳 Payment Gateways' },
   { id: 'quotas', label: '📊 Quotas' },
@@ -939,7 +789,6 @@ export function Settings() {
       {/* Tab content */}
       <div style={sty.card}>
         {tab === 'orgConfig' && <OrgConfigTab />}
-        {tab === 'emailTemplates' && <EmailTemplatesTab />}
         {tab === 'alertRules' && <AlertRulesTab />}
         {tab === 'paymentGateways' && <PaymentGatewaysTab />}
         {tab === 'quotas' && <QuotasTab />}

@@ -96,6 +96,9 @@ function generateSpec() {
       { name: 'Payment Transactions', description: 'Payment transaction history' },
       { name: 'Payment Webhooks', description: 'Payment provider webhooks' },
       { name: 'Recurring Payments', description: 'Recurring payment profiles' },
+      { name: 'Promotions', description: 'Promotion and coupon management' },
+      { name: 'Tax Rules', description: 'Regional tax rule configuration' },
+      { name: 'Tax Rates', description: 'Tax rate configuration' },
       { name: 'Settings', description: 'Organization settings' },
       { name: 'Audit Logs', description: 'Audit trail' },
       { name: 'Export', description: 'CSV export of data' },
@@ -107,6 +110,8 @@ function generateSpec() {
       { name: 'Regulatory', description: 'Regulatory compliance filings' },
       { name: 'PROFECO Complaints', description: 'PROFECO consumer complaint register and export' },
       { name: 'AI Assistant', description: 'AI reply assistant — policy, providers, phrase library, reply generation, audit logs' },
+      { name: 'DSAR', description: 'Data subject access requests (LFPDPPP / GDPR)' },
+      { name: 'DR Drill', description: 'Disaster-recovery drill status' },
     ],
     paths: {
       // ---- Auth ----
@@ -123,6 +128,17 @@ function generateSpec() {
 
       // ---- Organizations ----
       ...crudPaths('organizations', 'Organizations', 'Organization'),
+      '/organizations/{id}/restore': { post: { tags: ['Organizations'], summary: 'Restore a soft-deleted organization', operationId: 'restoreOrganization', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Organization') } },
+      '/organizations/{id}/settings': {
+        get: { tags: ['Organizations'], summary: 'Get organization settings', operationId: 'getOrganizationSettings', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Settings map') },
+      },
+      '/organizations/{id}/settings/{key}': {
+        put: { tags: ['Organizations'], summary: 'Update a single organization setting', operationId: 'updateOrganizationSetting', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'key', in: 'path', required: true, schema: { type: 'string' } }], requestBody: jsonBody('Setting value'), responses: r200('Settings map') },
+      },
+      '/organizations/{id}/quota': {
+        get: { tags: ['Organizations'], summary: 'Get organization quota and usage', operationId: 'getOrganizationQuota', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Quota + usage') },
+        put: { tags: ['Organizations'], summary: 'Update organization quota limits', operationId: 'updateOrganizationQuota', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('Quota limits'), responses: r200('Quota + usage') },
+      },
 
       // ---- Users ----
       ...crudPaths('users', 'Users', 'User'),
@@ -136,6 +152,9 @@ function generateSpec() {
         get: { tags: ['Roles'], summary: 'Get a role with permissions', operationId: 'getRole', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Role') },
         put: { tags: ['Roles'], summary: 'Update a role', operationId: 'updateRole', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('roles_updateRole'), responses: r200('Role') },
         delete: { tags: ['Roles'], summary: 'Delete a role', operationId: 'deleteRole', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/roles/permissions': {
+        get: { tags: ['Roles'], summary: 'List all assignable permissions', operationId: 'listPermissions', security: [{ bearerAuth: [] }], responses: r200('Permission[]') },
       },
       '/roles/{id}/permissions': {
         post: { tags: ['Roles'], summary: 'Assign a permission to a role', operationId: 'assignPermission', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('permission_id'), responses: r201('Permission[]') },
@@ -168,6 +187,8 @@ function generateSpec() {
       '/clients/{id}/contracts': { get: { tags: ['Clients'], summary: 'List client contracts', operationId: 'listClientContracts', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Contract[]') } },
       '/clients/{id}/invoices': { get: { tags: ['Clients'], summary: 'List client invoices', operationId: 'listClientInvoices', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Invoice[]') } },
       '/clients/{id}/balance-ledger': { get: { tags: ['Clients'], summary: 'Get client balance ledger', operationId: 'getClientBalanceLedger', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('LedgerEntry[]') } },
+      '/clients/{id}/portal-password': { put: { tags: ['Clients'], summary: 'Set or reset the client portal password', operationId: 'setClientPortalPassword', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('password'), responses: r200('Message') } },
+      '/clients/{id}/restore': { post: { tags: ['Clients'], summary: 'Restore a soft-deleted client', operationId: 'restoreClient', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Client') } },
 
       // ---- Plans ----
       ...crudPaths('plans', 'Plans', 'Plan'),
@@ -257,6 +278,7 @@ function generateSpec() {
 
       // ---- Devices ----
       ...crudPaths('devices', 'Devices', 'Device'),
+      '/devices/{id}/restore': { post: { tags: ['Devices'], summary: 'Restore a soft-deleted device', operationId: 'restoreDevice', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Device') } },
 
       // ---- NAS ----
       ...crudPaths('nas', 'NAS', 'Nas'),
@@ -368,6 +390,9 @@ function generateSpec() {
       // ---- Scheduled Tasks ----
       ...crudPaths('scheduled-tasks', 'Scheduled Tasks', 'ScheduledTask'),
 
+      // ---- Queue Stats ----
+      '/queue-stats': { get: { tags: ['Queue Stats'], summary: 'Get background job queue statistics', operationId: 'getQueueStats', security: [{ bearerAuth: [] }], responses: r200('QueueStats') } },
+
       // ---- Warehouses ----
       ...crudPaths('warehouses', 'Warehouses', 'Warehouse'),
 
@@ -390,14 +415,33 @@ function generateSpec() {
       // ---- Recurring Payment Profiles ----
       ...crudPaths('recurring-payment-profiles', 'Recurring Payments', 'RecurringPaymentProfile'),
 
+      // ---- Promotions ----
+      ...crudPaths('promotions', 'Promotions', 'Promotion'),
+
+      // ---- Tax Rules ----
+      ...crudPaths('tax-rules', 'Tax Rules', 'TaxRule'),
+
+      // ---- Tax Rates ----
+      ...crudPaths('tax-rates', 'Tax Rates', 'TaxRate'),
+
       // ---- Settings ----
       '/settings': {
         get: { tags: ['Settings'], summary: 'List settings', operationId: 'listSettings', security: [{ bearerAuth: [] }], responses: r200('Setting[]') },
         put: { tags: ['Settings'], summary: 'Update settings', operationId: 'updateSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('settings'), responses: r200('Setting[]') },
       },
 
+      // ---- Message Templates ----
+      ...crudPaths('message-templates', 'Settings', 'MessageTemplate'),
+      '/message-templates/{id}/restore': { post: { tags: ['Settings'], summary: 'Restore a soft-deleted message template', operationId: 'restoreMessageTemplate', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('MessageTemplate') } },
+
       // ---- Audit Logs ----
       '/audit-logs': { get: { tags: ['Audit Logs'], summary: 'List audit log entries', operationId: 'listAuditLogs', security: [{ bearerAuth: [] }], responses: r200('AuditLog[]') } },
+
+      // ---- DSAR ----
+      '/dsar/clients/{id}': { get: { tags: ['DSAR'], summary: 'Export all personal data held for a client', operationId: 'exportClientDsar', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DSAR export document') } },
+
+      // ---- DR Drill ----
+      '/dr-drill/status': { get: { tags: ['DR Drill'], summary: 'Get latest disaster-recovery drill status', operationId: 'getDrDrillStatus', security: [{ bearerAuth: [] }], responses: r200('DR drill status') } },
 
       // ---- Export ----
       '/export/invoices': { get: { tags: ['Export'], summary: 'Export invoices as CSV', operationId: 'exportInvoices', security: [{ bearerAuth: [] }], responses: r200File('text/csv') } },

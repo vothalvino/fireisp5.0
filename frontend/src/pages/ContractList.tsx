@@ -138,6 +138,31 @@ async function createContract(body: CreateContractBody): Promise<void> {
   if (res.error) throw new Error('Failed to create contract');
 }
 
+interface UpdateContractBody {
+  plan_id?: number;
+  connection_type?: string;
+  start_date?: string;
+  end_date?: string | null;
+  billing_day?: number;
+  price_override?: number;
+  ip_address?: string;
+  status?: string;
+  facturar?: boolean;
+}
+
+async function updateContract(id: number, body: UpdateContractBody): Promise<void> {
+  const res = await api.PUT('/contracts/{id}', {
+    params: { path: { id } },
+    body: body as never,
+  });
+  if (res.error) throw new Error('Failed to update contract');
+}
+
+async function deleteContract(id: number): Promise<void> {
+  const res = await api.DELETE('/contracts/{id}', { params: { path: { id } } });
+  if (res.error) throw new Error('Failed to delete contract');
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -497,12 +522,157 @@ function RenewModal({ contractId, onClose, onRenewed }: RenewModalProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Edit Contract Modal
+// ---------------------------------------------------------------------------
+
+interface EditContractModalProps {
+  contract: Contract;
+  plans: Plan[];
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+const EDIT_STATUSES = ['pending', 'active', 'suspended', 'cancelled', 'terminated'];
+
+function EditContractModal({ contract, plans, onClose, onSaved }: EditContractModalProps) {
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState({
+    plan_id: String(contract.plan_id),
+    connection_type: contract.connection_type || 'pppoe',
+    start_date: contract.start_date ? contract.start_date.split('T')[0] : '',
+    end_date: contract.end_date ? contract.end_date.split('T')[0] : '',
+    billing_day: contract.billing_day != null ? String(contract.billing_day) : '',
+    ip_address: contract.ip_address || '',
+    price_override: contract.price_override != null ? String(contract.price_override) : '',
+    status: contract.status,
+    facturar: !!contract.facturar,
+  });
+  const [error, setError] = useState('');
+
+  function setField(name: string, value: unknown) {
+    setForm(prev => ({ ...prev, [name]: value }));
+  }
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const body: UpdateContractBody = {
+        plan_id: Number(form.plan_id),
+        connection_type: form.connection_type,
+        status: form.status,
+        facturar: form.facturar,
+        end_date: form.end_date || null,
+      };
+      if (form.start_date) body.start_date = form.start_date;
+      if (form.billing_day) body.billing_day = Math.min(28, Math.max(1, Number(form.billing_day)));
+      if (form.ip_address) body.ip_address = form.ip_address;
+      if (form.price_override) body.price_override = Number(form.price_override);
+      return updateContract(contract.id, body);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contracts'] });
+      onSaved();
+      onClose();
+    },
+    onError: () => setError('Failed to update contract. Check all fields and try again.'),
+  });
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    mutation.mutate();
+  }
+
+  return (
+    <div style={modalStyles.backdrop} onClick={onClose}>
+      <div
+        style={modalStyles.panel}
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="edit-contract-title"
+      >
+        <div style={modalStyles.header}>
+          <h2 id="edit-contract-title" style={modalStyles.title}>📝 Edit Contract #{contract.id}</h2>
+          <button style={modalStyles.closeBtn} onClick={onClose} aria-label="Close">✕</button>
+        </div>
+
+        <form onSubmit={handleSubmit} style={modalStyles.form}>
+          <label style={modalStyles.label}>
+            Plan
+            <select style={modalStyles.select} value={form.plan_id} onChange={e => setField('plan_id', e.target.value)}>
+              {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+
+          <label style={modalStyles.label}>
+            Connection Type
+            <select style={modalStyles.select} value={form.connection_type} onChange={e => setField('connection_type', e.target.value)}>
+              <option value="pppoe">PPPoE</option>
+              <option value="pppoe_dual">PPPoE Dual</option>
+              <option value="static">Static</option>
+              <option value="dual">Dual</option>
+            </select>
+          </label>
+
+          <label style={modalStyles.label}>
+            Status
+            <select style={modalStyles.select} value={form.status} onChange={e => setField('status', e.target.value)}>
+              {EDIT_STATUSES.map(s => <option key={s} value={s}>{capitalizeStatus(s)}</option>)}
+            </select>
+          </label>
+
+          <label style={modalStyles.label}>
+            Start Date
+            <input style={modalStyles.input} type="date" value={form.start_date} onChange={e => setField('start_date', e.target.value)} />
+          </label>
+
+          <label style={modalStyles.label}>
+            End Date (leave blank for month-to-month)
+            <input style={modalStyles.input} type="date" value={form.end_date} onChange={e => setField('end_date', e.target.value)} />
+          </label>
+
+          <label style={modalStyles.label}>
+            Billing Day (1–28)
+            <input style={modalStyles.input} type="number" min={1} max={28} value={form.billing_day} onChange={e => setField('billing_day', e.target.value)} />
+          </label>
+
+          <label style={modalStyles.label}>
+            IP Address
+            <input style={modalStyles.input} type="text" maxLength={45} value={form.ip_address} onChange={e => setField('ip_address', e.target.value)} />
+          </label>
+
+          <label style={modalStyles.label}>
+            Price Override (leave blank for plan default)
+            <input style={modalStyles.input} type="number" min={0} step="0.01" value={form.price_override} onChange={e => setField('price_override', e.target.value)} />
+          </label>
+
+          <label style={modalStyles.checkboxLabel}>
+            <input type="checkbox" checked={form.facturar} onChange={e => setField('facturar', e.target.checked)} />
+            Generate CFDI invoice automatically
+          </label>
+
+          {error && <p style={modalStyles.error}>{error}</p>}
+
+          <div style={modalStyles.actions}>
+            <button type="button" onClick={onClose} style={styles.btnSecondary} disabled={mutation.isPending}>Cancel</button>
+            <button type="submit" style={styles.btnPrimary} disabled={mutation.isPending}>
+              {mutation.isPending ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ContractList component
 // ---------------------------------------------------------------------------
 
 type ConfirmAction =
   | { type: 'suspend'; contractId: number }
-  | { type: 'cancel'; contractId: number };
+  | { type: 'cancel'; contractId: number }
+  | { type: 'delete'; contractId: number };
 
 const STATUS_OPTIONS = ['', 'active', 'pending', 'suspended', 'cancelled', 'terminated'];
 
@@ -512,6 +682,7 @@ export function ContractList() {
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [renewId, setRenewId] = useState<number | null>(null);
+  const [editContract, setEditContract] = useState<Contract | null>(null);
   const [confirm, setConfirm] = useState<ConfirmAction | null>(null);
 
   // Contracts query
@@ -551,6 +722,14 @@ export function ContractList() {
     },
   });
 
+  // Mutation for soft-delete
+  const deleteMutation = useMutation({
+    mutationFn: ({ id }: { id: number }) => deleteContract(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contracts'] });
+    },
+  });
+
   function handleFilterChange(value: string) {
     setStatusFilter(value);
     setPage(1);
@@ -560,6 +739,8 @@ export function ContractList() {
     if (!confirm) return;
     if (confirm.type === 'suspend') {
       suspendMutation.mutate({ id: confirm.contractId });
+    } else if (confirm.type === 'delete') {
+      deleteMutation.mutate({ id: confirm.contractId });
     } else {
       cancelMutation.mutate({ id: confirm.contractId });
     }
@@ -607,7 +788,7 @@ export function ContractList() {
       </div>
 
       {/* Mutation error banner */}
-      {(suspendMutation.isError || cancelMutation.isError) && (
+      {(suspendMutation.isError || cancelMutation.isError || deleteMutation.isError) && (
         <p style={{ color: '#ef4444', marginBottom: '0.75rem', fontSize: '0.85rem' }}>
           Action failed. Please try again.
         </p>
@@ -641,6 +822,8 @@ export function ContractList() {
                       onSuspend={() => setConfirm({ type: 'suspend', contractId: c.id })}
                       onCancel={() => setConfirm({ type: 'cancel', contractId: c.id })}
                       onRenew={() => setRenewId(c.id)}
+                      onEdit={() => setEditContract(c)}
+                      onDelete={() => setConfirm({ type: 'delete', contractId: c.id })}
                     />
                   ))}
                 </tbody>
@@ -689,12 +872,23 @@ export function ContractList() {
         />
       )}
 
+      {editContract && plansQ.data && (
+        <EditContractModal
+          contract={editContract}
+          plans={plansQ.data}
+          onClose={() => setEditContract(null)}
+          onSaved={() => queryClient.invalidateQueries({ queryKey: ['contracts'] })}
+        />
+      )}
+
       {confirm && (
         <ConfirmDialog
           message={
             confirm.type === 'suspend'
               ? 'Suspend this contract? The client will lose service.'
-              : 'Cancel this contract? This action is difficult to reverse.'
+              : confirm.type === 'delete'
+                ? 'Delete this contract? It will be soft-deleted and removed from the list.'
+                : 'Cancel this contract? This action is difficult to reverse.'
           }
           onConfirm={handleConfirm}
           onCancel={() => setConfirm(null)}
@@ -714,9 +908,11 @@ interface ContractRowProps {
   onSuspend: () => void;
   onCancel: () => void;
   onRenew: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }
 
-function ContractRow({ contract: c, plans, onSuspend, onCancel, onRenew }: ContractRowProps) {
+function ContractRow({ contract: c, plans, onSuspend, onCancel, onRenew, onEdit, onDelete }: ContractRowProps) {
   const plan = plans.find(p => p.id === c.plan_id);
 
   const canSuspend = c.status === 'active' || c.status === 'pending';
@@ -742,6 +938,13 @@ function ContractRow({ contract: c, plans, onSuspend, onCancel, onRenew }: Contr
       <td style={{ ...styles.td, fontFamily: 'monospace', fontSize: '0.78rem' }}>{c.ip_address || '—'}</td>
       <td style={styles.td}><StatusBadge status={c.status} /></td>
       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
+        <button
+          style={styles.actionBtn}
+          onClick={onEdit}
+          title="Edit this contract"
+        >
+          ✏️ Edit
+        </button>
         {canRenew && (
           <button
             style={styles.actionBtn}
@@ -769,6 +972,13 @@ function ContractRow({ contract: c, plans, onSuspend, onCancel, onRenew }: Contr
             ✕ Cancel
           </button>
         )}
+        <button
+          style={{ ...styles.actionBtn, color: '#991b1b' }}
+          onClick={onDelete}
+          title="Delete this contract"
+        >
+          🗑 Delete
+        </button>
       </td>
     </tr>
   );

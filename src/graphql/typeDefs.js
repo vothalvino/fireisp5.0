@@ -41,6 +41,7 @@ module.exports = /* GraphQL */ `
     zipCode: String
     country: String
     taxId: String
+    locale: String
     notes: String
     createdAt: String!
 
