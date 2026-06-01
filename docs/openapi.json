@@ -303,6 +303,14 @@
     {
       "name": "AI Assistant",
       "description": "AI reply assistant — policy, providers, phrase library, reply generation, audit logs"
+    },
+    {
+      "name": "DSAR",
+      "description": "Data subject access requests (LFPDPPP / GDPR)"
+    },
+    {
+      "name": "DR Drill",
+      "description": "Disaster-recovery drill status"
     }
   ],
   "paths": {
@@ -782,6 +790,202 @@
         "responses": {
           "204": {
             "description": "No content"
+          }
+        }
+      }
+    },
+    "/organizations/{id}/restore": {
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Restore a soft-deleted organization",
+        "operationId": "restoreOrganization",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{id}/settings": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Get organization settings",
+        "operationId": "getOrganizationSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Settings map",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Update organization settings",
+        "operationId": "updateOrganizationSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Settings map",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Settings map",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{id}/quota": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Get organization quota and usage",
+        "operationId": "getOrganizationQuota",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Quota + usage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Update organization quota limits",
+        "operationId": "updateOrganizationQuota",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Quota limits",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Quota + usage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -11138,6 +11342,68 @@
         "responses": {
           "200": {
             "description": "AuditLog[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dsar/clients/{id}": {
+      "get": {
+        "tags": [
+          "DSAR"
+        ],
+        "summary": "Export all personal data held for a client",
+        "operationId": "exportClientDsar",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DSAR export document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dr-drill/status": {
+      "get": {
+        "tags": [
+          "DR Drill"
+        ],
+        "summary": "Get latest disaster-recovery drill status",
+        "operationId": "getDrDrillStatus",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DR drill status",
             "content": {
               "application/json": {
                 "schema": {

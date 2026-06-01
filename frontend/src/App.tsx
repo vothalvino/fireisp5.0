@@ -68,6 +68,9 @@ import { ApiTokenList } from '@/pages/ApiTokenList';
 import { WebhookList } from '@/pages/WebhookList';
 import { AuditLogList } from '@/pages/AuditLogList';
 import { ScheduledTaskList } from '@/pages/ScheduledTaskList';
+import { OrganizationList } from '@/pages/OrganizationList';
+import { DsarTool } from '@/pages/DsarTool';
+import { DrDrillStatus } from '@/pages/DrDrillStatus';
 import { JobList } from '@/pages/JobList';
 import { QueueStats } from '@/pages/QueueStats';
 import { CsdCertificateList } from '@/pages/CsdCertificateList';
@@ -192,6 +195,9 @@ export function App() {
             <Route element={<PrivateRoute requiredRole="admin" />}>
               <Route element={<Layout />}>
                 <Route path="users" element={<UserList />} />
+                <Route path="organizations" element={<OrganizationList />} />
+                <Route path="dsar" element={<DsarTool />} />
+                <Route path="dr-drill" element={<DrDrillStatus />} />
                 <Route path="sla-definitions" element={<SlaDefinitionList />} />
                 <Route path="roles" element={<RoleList />} />
                 <Route path="api-tokens" element={<ApiTokenList />} />

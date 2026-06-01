@@ -157,8 +157,8 @@ appropriate role gate. Candidate areas, mapped to existing routes/tables:
 - [x] Webhooks & deliveries — `/webhooks`.
 - [x] Audit logs viewer — `/audit-logs`.
 - [x] Scheduled tasks & job/queue status — `/scheduled-tasks`, `/jobs`, `/queue-stats`.
-- [ ] Organizations management — `/organizations`.
-- [ ] DSAR and DR-drill admin tools — `/dsar`, `/dr-drill`.
+- [x] Organizations management — `/organizations`.
+- [x] DSAR and DR-drill admin tools — `/dsar`, `/dr-drill`.
 
 For each new page:
 - [ ] Confirm the endpoints are present in `docs/openapi.json`; if missing, add them first so
@@ -243,10 +243,10 @@ delete/restore via `useMutation` + typed `api` → register route/nav/i18n → t
   - [x] Concession titles — `/concession-titles` (read view).
   - [x] IFT statistical reports — `/ift-statistical-reports` (read view).
   - [x] Facturas públicas — `/facturas-publicas` (read view).
-- [ ] **M10 – Administration & security completion** (routes exist; add pages):
-  - [ ] Organizations management — `/organizations` (full CRUD + settings/quota sub-resources).
-  - [ ] DSAR admin tooling — `/dsar`.
-  - [ ] DR-drill admin tooling — `/dr-drill`.
+- [x] **M10 – Administration & security completion** (routes exist; add pages):
+  - [x] Organizations management — `/organizations` (full CRUD + settings/quota sub-resources).
+  - [x] DSAR admin tooling — `/dsar`.
+  - [x] DR-drill admin tooling — `/dr-drill`.
 - [ ] **M11 – Cross-cutting hardening & sign-off** (Sections 5 & 6):
   - [ ] Factor the repeated list+modal pattern into a shared CRUD primitive
     (`crudStyles.tsx` already exists as a starting point) and migrate pages onto it.

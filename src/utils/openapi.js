@@ -110,6 +110,8 @@ function generateSpec() {
       { name: 'Regulatory', description: 'Regulatory compliance filings' },
       { name: 'PROFECO Complaints', description: 'PROFECO consumer complaint register and export' },
       { name: 'AI Assistant', description: 'AI reply assistant — policy, providers, phrase library, reply generation, audit logs' },
+      { name: 'DSAR', description: 'Data subject access requests (LFPDPPP / GDPR)' },
+      { name: 'DR Drill', description: 'Disaster-recovery drill status' },
     ],
     paths: {
       // ---- Auth ----
@@ -126,6 +128,15 @@ function generateSpec() {
 
       // ---- Organizations ----
       ...crudPaths('organizations', 'Organizations', 'Organization'),
+      '/organizations/{id}/restore': { post: { tags: ['Organizations'], summary: 'Restore a soft-deleted organization', operationId: 'restoreOrganization', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Organization') } },
+      '/organizations/{id}/settings': {
+        get: { tags: ['Organizations'], summary: 'Get organization settings', operationId: 'getOrganizationSettings', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Settings map') },
+        put: { tags: ['Organizations'], summary: 'Update organization settings', operationId: 'updateOrganizationSettings', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('Settings map'), responses: r200('Settings map') },
+      },
+      '/organizations/{id}/quota': {
+        get: { tags: ['Organizations'], summary: 'Get organization quota and usage', operationId: 'getOrganizationQuota', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Quota + usage') },
+        put: { tags: ['Organizations'], summary: 'Update organization quota limits', operationId: 'updateOrganizationQuota', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('Quota limits'), responses: r200('Quota + usage') },
+      },
 
       // ---- Users ----
       ...crudPaths('users', 'Users', 'User'),
@@ -423,6 +434,12 @@ function generateSpec() {
 
       // ---- Audit Logs ----
       '/audit-logs': { get: { tags: ['Audit Logs'], summary: 'List audit log entries', operationId: 'listAuditLogs', security: [{ bearerAuth: [] }], responses: r200('AuditLog[]') } },
+
+      // ---- DSAR ----
+      '/dsar/clients/{id}': { get: { tags: ['DSAR'], summary: 'Export all personal data held for a client', operationId: 'exportClientDsar', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DSAR export document') } },
+
+      // ---- DR Drill ----
+      '/dr-drill/status': { get: { tags: ['DR Drill'], summary: 'Get latest disaster-recovery drill status', operationId: 'getDrDrillStatus', security: [{ bearerAuth: [] }], responses: r200('DR drill status') } },
 
       // ---- Export ----
       '/export/invoices': { get: { tags: ['Export'], summary: 'Export invoices as CSV', operationId: 'exportInvoices', security: [{ bearerAuth: [] }], responses: r200File('text/csv') } },

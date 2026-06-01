@@ -66,6 +66,9 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/profeco-complaints', labelKey: 'nav.profecoComplaints', requiredRole: 'billing' },
   // Admin-only
   { to: '/users', labelKey: 'nav.users', requiredRole: 'admin' },
+  { to: '/organizations', labelKey: 'nav.organizations', requiredRole: 'admin' },
+  { to: '/dsar', labelKey: 'nav.dsar', requiredRole: 'admin' },
+  { to: '/dr-drill', labelKey: 'nav.drDrill', requiredRole: 'admin' },
   { to: '/sla-definitions', labelKey: 'nav.slaDefinitions', requiredRole: 'admin' },
   { to: '/roles', labelKey: 'nav.roles', requiredRole: 'admin' },
   { to: '/api-tokens', labelKey: 'nav.apiTokens', requiredRole: 'admin' },
