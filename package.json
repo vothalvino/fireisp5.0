@@ -14,6 +14,7 @@
     "loadtest": "node src/scripts/loadtest.js",
     "loadtest:soak": "node src/scripts/loadtest-soak.js",
     "backup": "node src/scripts/backup.js",
+    "verify:volumes": "node src/scripts/verify-volumes.js",
     "firerelay:agent": "node src/scripts/firerelay-agent.js",
     "admin": "node src/scripts/admin.js",
     "openapi": "node src/scripts/openapi.js",

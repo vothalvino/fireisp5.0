@@ -2,6 +2,10 @@
 
 FireISP 5.0 includes a built-in backup script (`npm run backup`) that performs MySQL dumps with gzip compression and automatic rotation. This document covers the backup process, restore procedures, and disaster recovery planning.
 
+> **Updating or recreating containers?** First confirm your data is on a
+> persistent volume (not the container's ephemeral layer) with the
+> [Volume Persistence — Verification & Migration Protocol](volume-persistence.md).
+
 ---
 
 ## Table of Contents
