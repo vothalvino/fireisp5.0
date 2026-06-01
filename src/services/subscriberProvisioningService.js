@@ -41,11 +41,20 @@ function isIpv4Only(type) { return IPV4_ONLY_TYPES.includes(type); }
 
 /**
  * Build a random token from an alphabet using a cryptographically secure source.
+ * Uses rejection sampling so the modulo reduction does not bias the output
+ * toward the start of the alphabet.
  */
 function randomToken(length, alphabet) {
-  const bytes = crypto.randomBytes(length);
+  const max = Math.floor(256 / alphabet.length) * alphabet.length;
   let out = '';
-  for (let i = 0; i < length; i++) out += alphabet[bytes[i] % alphabet.length];
+  while (out.length < length) {
+    const bytes = crypto.randomBytes(length - out.length);
+    for (let i = 0; i < bytes.length; i++) {
+      const byte = bytes[i];
+      // Discard bytes in the biased tail to keep a uniform distribution.
+      if (byte < max) out += alphabet[byte % alphabet.length];
+    }
+  }
   return out;
 }
 

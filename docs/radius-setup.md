@@ -32,6 +32,18 @@ FireISP manages RADIUS subscriber accounts in the `radius` table. Each row repre
 | `download_speed` / `upload_speed` | Bandwidth limits (Mikrotik-Rate-Limit or standard attributes) |
 | `status` | `active`, `suspended`, `disabled` — controls auth acceptance |
 
+> **Automatic provisioning.** When a contract is created with a PPPoE connection
+> type (`pppoe` or `pppoe_dual`), FireISP automatically generates a `username`
+> and a recoverable cleartext `password`, inserts the matching `radius` row, and
+> returns the credentials in the create response (`data.provisioning.pppoe`).
+> The password is stored in cleartext — required for PAP/CHAP `Cleartext-Password`
+> lookups — so it stays visible for future reference via `GET /api/radius`.
+> Upgrading a contract from an IPv4-only type to a dual-stack type
+> (`pppoe` → `pppoe_dual`, or `static` → `dual`) enables a new IPv6 line by
+> attaching an active IPv6 pool to the subscriber's RADIUS account. Static IP
+> addresses on contracts and IP assignments are validated against existing
+> records to prevent duplicate use.
+
 ---
 
 ## Prerequisites
