@@ -42,10 +42,10 @@ CALL assert_sql_error(NULL, 'INSERT INTO nas (id, name, ip_address, secret, type
 -- =========================================================================
 -- C. radius — uq_radius_username
 -- =========================================================================
-INSERT INTO radius (id, client_id, username, password_hash, status)
+INSERT INTO radius (id, client_id, username, password, status)
 VALUES (7000, 7000, 'pppoe_unique_user', 'hash', 'active');
 
-CALL assert_sql_error(NULL, 'INSERT INTO radius (id, client_id, username, password_hash, status) VALUES (7001, 7000, ''pppoe_unique_user'', ''hash2'', ''active'')', 'C: Duplicate RADIUS username rejected');
+CALL assert_sql_error(NULL, 'INSERT INTO radius (id, client_id, username, password, status) VALUES (7001, 7000, ''pppoe_unique_user'', ''hash2'', ''active'')', 'C: Duplicate RADIUS username rejected');
 
 -- =========================================================================
 -- D. devices — uq_devices_serial_number

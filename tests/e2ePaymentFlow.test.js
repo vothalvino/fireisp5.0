@@ -49,6 +49,14 @@ function mockAuthUser() {
 function mockConnection() {
   const conn = {
     execute: jest.fn().mockResolvedValue([{ insertId: 1, affectedRows: 1 }]),
+    // Contract creation provisioning runs writes/reads on the transaction
+    // connection via `.query`. Resolve sensible defaults per statement type.
+    query: jest.fn().mockImplementation((sql) => {
+      if (/INSERT INTO contracts/i.test(sql)) return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
+      if (/INSERT INTO radius/i.test(sql)) return Promise.resolve([{ insertId: 50, affectedRows: 1 }]);
+      if (/^\s*SELECT/i.test(sql)) return Promise.resolve([[]]);
+      return Promise.resolve([{ affectedRows: 1 }]);
+    }),
     beginTransaction: jest.fn().mockResolvedValue(undefined),
     commit: jest.fn().mockResolvedValue(undefined),
     rollback: jest.fn().mockResolvedValue(undefined),
@@ -189,11 +197,25 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
 
     test('creates a contract linking client to plan', async () => {
       mockAuthUser();
-      // BaseModel.create: INSERT → findByIdIncludingDeleted → auditLog
+      // Contract create runs in a transaction: INSERT contract → SELECT client
+      // name (username seed) → PPPoE provisioning (radius username check, IPv4
+      // pool lookup, radius INSERT) → commit → Contract.findById → auditLog.
+      const conn = {
+        query: jest.fn()
+          .mockResolvedValueOnce([{ insertId: 1, affectedRows: 1 }]) // INSERT contracts
+          .mockResolvedValueOnce([[{ name: 'Acme' }]])               // SELECT client name
+          .mockResolvedValueOnce([[]])                               // radius username uniqueness
+          .mockResolvedValueOnce([[]])                               // IPv4 pool lookup (none)
+          .mockResolvedValueOnce([{ insertId: 50, affectedRows: 1 }]), // INSERT radius
+        beginTransaction: jest.fn().mockResolvedValue(undefined),
+        commit: jest.fn().mockResolvedValue(undefined),
+        rollback: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn(),
+      };
+      db.getConnection.mockResolvedValue(conn);
       db.query
-        .mockResolvedValueOnce([{ insertId: 1, affectedRows: 1 }])
-        .mockResolvedValueOnce([[mockContract]])
-        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+        .mockResolvedValueOnce([[mockContract]])     // Contract.findById
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // auditLog
 
       const res = await request(app)
         .post('/api/v1/contracts')
@@ -207,6 +229,8 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
         plan_id: 5,
         status: 'active',
       });
+      expect(res.body.data.provisioning.pppoe.username).toBeTruthy();
+      expect(res.body.data.provisioning.pppoe.password).toBeTruthy();
     });
 
     test('rejects contract without required client_id', async () => {
@@ -534,9 +558,9 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       expect(planId).toBe(5);
 
       // --- Step 3: Create contract ---
-      // BaseModel.create: INSERT → findByIdIncludingDeleted → auditLog
+      // INSERT runs on the transaction connection; db.query serves
+      // Contract.findById then auditLog.
       db.query
-        .mockResolvedValueOnce([{ insertId: 1, affectedRows: 1 }])
         .mockResolvedValueOnce([[{
           id: 1, organization_id: 1, client_id: clientId, plan_id: planId,
           start_date: '2026-02-01', billing_day: 1, status: 'active',
