@@ -84,6 +84,10 @@
     "pacProviders": "🧾 Proveedores PAC",
     "satCatalogs": "📚 Catálogos SAT",
     "regulatoryFilings": "🏛️ Trámites Regulatorios",
+    "concessionTitles": "📑 Títulos de Concesión",
+    "iftStatisticalReports": "📊 Reportes IFT",
+    "facturasPublicas": "🧾 Facturas Públicas",
+    "messageTemplates": "✉️ Plantillas de Mensajes",
     "jobs": "🛠️ Trabajos de Campo",
     "queueStats": "📥 Estado de Colas"
   },

@@ -60,6 +60,9 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/pac-providers', labelKey: 'nav.pacProviders', requiredRole: 'billing' },
   { to: '/sat-catalogs', labelKey: 'nav.satCatalogs', requiredRole: 'billing' },
   { to: '/regulatory-filings', labelKey: 'nav.regulatoryFilings', requiredRole: 'billing' },
+  { to: '/concession-titles', labelKey: 'nav.concessionTitles', requiredRole: 'billing' },
+  { to: '/ift-statistical-reports', labelKey: 'nav.iftStatisticalReports', requiredRole: 'billing' },
+  { to: '/facturas-publicas', labelKey: 'nav.facturasPublicas', requiredRole: 'billing' },
   { to: '/profeco-complaints', labelKey: 'nav.profecoComplaints', requiredRole: 'billing' },
   // Admin-only
   { to: '/users', labelKey: 'nav.users', requiredRole: 'admin' },
@@ -74,6 +77,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/reports', labelKey: 'nav.reports', requiredRole: 'billing' },
   { to: '/ai-assistant', labelKey: 'nav.aiAssistant', requiredRole: 'admin' },
   { to: '/settings', labelKey: 'nav.settings', requiredRole: 'admin' },
+  { to: '/message-templates', labelKey: 'nav.messageTemplates', requiredRole: 'admin' },
 ];
 
 export function Layout() {

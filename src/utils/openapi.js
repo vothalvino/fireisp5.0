@@ -417,6 +417,10 @@ function generateSpec() {
         put: { tags: ['Settings'], summary: 'Update settings', operationId: 'updateSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('settings'), responses: r200('Setting[]') },
       },
 
+      // ---- Message Templates ----
+      ...crudPaths('message-templates', 'Settings', 'MessageTemplate'),
+      '/message-templates/{id}/restore': { post: { tags: ['Settings'], summary: 'Restore a soft-deleted message template', operationId: 'restoreMessageTemplate', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('MessageTemplate') } },
+
       // ---- Audit Logs ----
       '/audit-logs': { get: { tags: ['Audit Logs'], summary: 'List audit log entries', operationId: 'listAuditLogs', security: [{ bearerAuth: [] }], responses: r200('AuditLog[]') } },
 

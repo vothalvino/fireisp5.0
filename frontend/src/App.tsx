@@ -74,6 +74,10 @@ import { CsdCertificateList } from '@/pages/CsdCertificateList';
 import { PacProviderList } from '@/pages/PacProviderList';
 import { SatCatalogList } from '@/pages/SatCatalogList';
 import { RegulatoryFilingList } from '@/pages/RegulatoryFilingList';
+import { ConcessionTitleList } from '@/pages/ConcessionTitleList';
+import { IftStatisticalReportList } from '@/pages/IftStatisticalReportList';
+import { FacturaPublicaList } from '@/pages/FacturaPublicaList';
+import { MessageTemplateList } from '@/pages/MessageTemplateList';
 import { PromotionList } from '@/pages/PromotionList';
 import { TaxRuleList } from '@/pages/TaxRuleList';
 import { TaxRateList } from '@/pages/TaxRateList';
@@ -176,6 +180,9 @@ export function App() {
                 <Route path="pac-providers" element={<PacProviderList />} />
                 <Route path="sat-catalogs" element={<SatCatalogList />} />
                 <Route path="regulatory-filings" element={<RegulatoryFilingList />} />
+                <Route path="concession-titles" element={<ConcessionTitleList />} />
+                <Route path="ift-statistical-reports" element={<IftStatisticalReportList />} />
+                <Route path="facturas-publicas" element={<FacturaPublicaList />} />
                 <Route path="reports" element={<Reports />} />
                 <Route path="profeco-complaints" element={<ProfecoComplaints />} />
               </Route>
@@ -194,6 +201,7 @@ export function App() {
                 <Route path="jobs" element={<JobList />} />
                 <Route path="queue-stats" element={<QueueStats />} />
                 <Route path="settings" element={<Settings />} />
+                <Route path="message-templates" element={<MessageTemplateList />} />
                 <Route path="ai-assistant" element={<AIAssistantSettings />} />
               </Route>
             </Route>

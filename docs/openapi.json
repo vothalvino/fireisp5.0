@@ -10920,6 +10920,209 @@
         }
       }
     },
+    "/message-templates": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "List message-templates",
+        "operationId": "listMessageTemplates",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MessageTemplate[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Create a MessageTemplate",
+        "operationId": "createMessageTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "MessageTemplate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "MessageTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/message-templates/{id}": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Get a MessageTemplate",
+        "operationId": "getMessageTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MessageTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Update a MessageTemplate",
+        "operationId": "updateMessageTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "MessageTemplate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "MessageTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Delete a MessageTemplate",
+        "operationId": "deleteMessageTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/message-templates/{id}/restore": {
+      "post": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Restore a soft-deleted message template",
+        "operationId": "restoreMessageTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MessageTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/audit-logs": {
       "get": {
         "tags": [

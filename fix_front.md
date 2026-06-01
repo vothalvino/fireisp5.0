@@ -238,11 +238,11 @@ delete/restore via `useMutation` + typed `api` → register route/nav/i18n → t
   - [x] Device config backups — `/device-config-backups` (read view).
   - [x] Suspension rules — `/suspension-rules` (read view; suspension actions stay on the
     contract/client flows).
-- [ ] **M9 – Support & compliance completion** (routes exist; add pages):
-  - [ ] Message templates — `/message-templates` (promote out of Settings into its own CRUD page).
-  - [ ] Concession titles — `/concession-titles`.
-  - [ ] IFT statistical reports — `/ift-statistical-reports`.
-  - [ ] Facturas públicas — `/facturas-publicas`.
+- [x] **M9 – Support & compliance completion** (routes exist; add pages):
+  - [x] Message templates — `/message-templates` (promoted out of Settings into its own full-CRUD page).
+  - [x] Concession titles — `/concession-titles` (read view).
+  - [x] IFT statistical reports — `/ift-statistical-reports` (read view).
+  - [x] Facturas públicas — `/facturas-publicas` (read view).
 - [ ] **M10 – Administration & security completion** (routes exist; add pages):
   - [ ] Organizations management — `/organizations` (full CRUD + settings/quota sub-resources).
   - [ ] DSAR admin tooling — `/dsar`.
