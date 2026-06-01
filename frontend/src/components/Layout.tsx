@@ -244,6 +244,16 @@ export function Layout() {
 
       {/* Main content */}
       <main className="app-main">
+        {/* Desktop top bar — contextual brand + org status (hidden on mobile) */}
+        <header className="app-topbar">
+          <span style={styles.topbarBrand}>{t('layout.brandName')}</span>
+          <span className="app-topbar-spacer" />
+          {user?.organization_id != null && orgs.length > 0 && (
+            <span style={styles.topbarOrg}>
+              {orgs.find(o => o.id === user.organization_id)?.name ?? ''}
+            </span>
+          )}
+        </header>
         <DrDrillBanner />
         <Outlet />
       </main>
@@ -257,7 +267,22 @@ const styles = {
     fontWeight: 700,
     fontSize: '1.1rem',
     color: '#fff',
-    borderBottom: '1px solid #333',
+    borderBottom: '1px solid var(--sidebar-border)',
+  },
+  topbarBrand: {
+    fontWeight: 700,
+    fontSize: '0.95rem',
+    color: 'var(--text-primary)',
+    letterSpacing: '0.01em',
+  },
+  topbarOrg: {
+    fontSize: '0.8rem',
+    fontWeight: 600,
+    color: 'var(--text-secondary)',
+    background: 'var(--bg-subtle)',
+    border: '1px solid var(--border)',
+    borderRadius: 9999,
+    padding: '3px 10px',
   },
   nav: {
     flex: 1,
@@ -273,7 +298,7 @@ const styles = {
   },
   navGroupTitle: {
     padding: '0.6rem 1rem 0.25rem',
-    color: '#777',
+    color: 'var(--sidebar-fg-dim)',
     fontSize: '0.68rem',
     fontWeight: 700,
     textTransform: 'uppercase' as const,
@@ -281,31 +306,31 @@ const styles = {
   },
   navLink: {
     display: 'block',
-    padding: '0.55rem 1rem',
-    color: '#aaa',
+    padding: '0.5rem 1rem',
+    color: 'var(--sidebar-fg-muted)',
     textDecoration: 'none',
-    borderRadius: 4,
+    borderRadius: 6,
     margin: '1px 8px',
-    transition: 'background .15s',
+    transition: 'background .15s, color .15s',
   },
   navLinkActive: {
-    background: '#e25822',
-    color: '#fff',
+    background: 'var(--sidebar-active-bg)',
+    color: 'var(--sidebar-active-fg)',
   },
   userArea: {
     padding: '0.75rem 1rem',
-    borderTop: '1px solid #333',
+    borderTop: '1px solid var(--sidebar-border)',
     display: 'flex',
     flexDirection: 'column' as const,
     gap: 4,
   },
   userName: { color: '#fff', fontWeight: 600, fontSize: '0.85rem' },
-  userRole: { color: '#888', fontSize: '0.75rem', textTransform: 'capitalize' as const },
+  userRole: { color: 'var(--sidebar-fg-dim)', fontSize: '0.75rem', textTransform: 'capitalize' as const },
   orgSelect: {
     marginTop: 6,
-    background: '#222',
+    background: 'var(--sidebar-hover-bg)',
     color: '#fff',
-    border: '1px solid #555',
+    border: '1px solid var(--sidebar-border)',
     borderRadius: 4,
     padding: '4px 6px',
     fontSize: '0.8rem',
@@ -313,8 +338,8 @@ const styles = {
   logoutBtn: {
     marginTop: 6,
     background: 'transparent',
-    border: '1px solid #555',
-    color: '#aaa',
+    border: '1px solid var(--sidebar-border)',
+    color: 'var(--sidebar-fg-muted)',
     padding: '4px 10px',
     borderRadius: 4,
     cursor: 'pointer',
@@ -323,8 +348,8 @@ const styles = {
   },
   themeBtn: {
     background: 'transparent',
-    border: '1px solid var(--border-strong)',
-    color: 'var(--text-muted)',
+    border: '1px solid var(--sidebar-border)',
+    color: 'var(--sidebar-fg-muted)',
     padding: '4px 10px',
     borderRadius: 4,
     cursor: 'pointer',

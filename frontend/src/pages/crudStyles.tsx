@@ -8,8 +8,8 @@
 
 export const styles = {
   page: {
-    padding: '2rem',
-    fontFamily: 'system-ui, sans-serif',
+    padding: '1.5rem',
+    fontFamily: 'var(--font-sans)',
     maxWidth: 1280,
   },
   header: {
@@ -21,10 +21,10 @@ export const styles = {
   },
   pageTitle: { margin: 0, color: 'var(--text-primary)', fontSize: '1.5rem', fontWeight: 700 },
   countBadge: {
-    background: '#e0e7ff',
-    color: '#3730a3',
+    background: 'var(--badge-bg)',
+    color: 'var(--badge-fg)',
     padding: '2px 10px',
-    borderRadius: 12,
+    borderRadius: 9999,
     fontSize: '0.78rem',
     fontWeight: 600,
   },
@@ -46,9 +46,9 @@ export const styles = {
   },
   btnPrimary: {
     padding: '0.5rem 1rem',
-    background: '#e25822',
-    color: '#fff',
-    border: 'none',
+    background: 'var(--accent)',
+    color: 'var(--accent-fg)',
+    border: '1px solid var(--accent)',
     borderRadius: 6,
     cursor: 'pointer',
     fontSize: '0.85rem',
@@ -57,7 +57,7 @@ export const styles = {
   btnSecondary: {
     padding: '0.5rem 1rem',
     background: 'transparent',
-    color: 'var(--text-muted)',
+    color: 'var(--text-secondary)',
     border: '1px solid var(--border-strong)',
     borderRadius: 6,
     cursor: 'pointer',
@@ -65,9 +65,9 @@ export const styles = {
   },
   btnDanger: {
     padding: '0.5rem 1rem',
-    background: '#ef4444',
+    background: 'var(--danger)',
     color: '#fff',
-    border: 'none',
+    border: '1px solid var(--danger)',
     borderRadius: 6,
     cursor: 'pointer',
     fontSize: '0.85rem',
@@ -76,7 +76,7 @@ export const styles = {
   tableCard: {
     background: 'var(--bg-card)',
     borderRadius: 8,
-    boxShadow: '0 1px 3px rgba(0,0,0,.08)',
+    border: '1px solid var(--border)',
     padding: '0.5rem 0',
   },
   table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: '0.85rem' },
@@ -87,24 +87,52 @@ export const styles = {
     fontSize: '0.75rem',
     textTransform: 'uppercase' as const,
     letterSpacing: '0.04em',
-    borderBottom: '2px solid var(--border-subtle)',
+    borderBottom: '1px solid var(--border)',
+    whiteSpace: 'nowrap' as const,
+  },
+  /** Right-aligned header for numeric columns. */
+  thNum: {
+    padding: '0.6rem 0.75rem',
+    textAlign: 'right' as const,
+    color: 'var(--text-muted)',
+    fontSize: '0.75rem',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.04em',
+    borderBottom: '1px solid var(--border)',
     whiteSpace: 'nowrap' as const,
   },
   tr: { borderBottom: '1px solid var(--border-subtle)' },
   td: { padding: '0.65rem 0.75rem', color: 'var(--text-secondary)', verticalAlign: 'middle' as const },
+  /** Monospace, right-aligned cell for IDs / money / counts / system values. */
+  tdNum: {
+    padding: '0.65rem 0.75rem',
+    color: 'var(--text-secondary)',
+    verticalAlign: 'middle' as const,
+    textAlign: 'right' as const,
+    fontFamily: 'var(--font-mono)',
+    fontVariantNumeric: 'tabular-nums' as const,
+  },
+  /** Monospace, left-aligned cell for IDs / codes / system values. */
+  tdMono: {
+    padding: '0.65rem 0.75rem',
+    color: 'var(--text-secondary)',
+    verticalAlign: 'middle' as const,
+    fontFamily: 'var(--font-mono)',
+    fontVariantNumeric: 'tabular-nums' as const,
+  },
   actionBtn: {
     background: 'transparent',
     border: 'none',
     cursor: 'pointer',
     fontSize: '0.78rem',
     fontWeight: 600,
-    color: '#1d4ed8',
+    color: 'var(--link)',
     padding: '2px 4px',
     marginRight: 4,
     borderRadius: 3,
   },
   msg: { padding: '2rem 1.5rem', color: 'var(--text-muted)', fontStyle: 'italic' as const, margin: 0 },
-  msgError: { padding: '2rem 1.5rem', color: '#ef4444', margin: 0 },
+  msgError: { padding: '2rem 1.5rem', color: 'var(--danger)', margin: 0 },
   pagination: {
     display: 'flex',
     alignItems: 'center',
@@ -139,7 +167,8 @@ export const modalStyles = {
   panel: {
     background: 'var(--bg-card)',
     borderRadius: 10,
-    boxShadow: '0 20px 60px rgba(0,0,0,.2)',
+    border: '1px solid var(--border)',
+    boxShadow: '0 10px 30px rgba(0,0,0,.18)',
     padding: '1.5rem',
     width: '100%',
     maxWidth: 520,
@@ -181,7 +210,7 @@ export const modalStyles = {
     borderRadius: 6,
     fontSize: '0.85rem',
     color: 'var(--text-primary)',
-    fontFamily: 'system-ui, sans-serif',
+    fontFamily: 'var(--font-sans)',
   },
   select: {
     padding: '0.45rem 0.65rem',
@@ -199,13 +228,13 @@ export const modalStyles = {
     marginTop: '0.5rem',
   },
   error: {
-    color: '#ef4444',
+    color: 'var(--danger)',
     fontSize: '0.82rem',
     margin: 0,
     padding: '0.4rem 0.75rem',
-    background: '#fef2f2',
+    background: 'var(--danger-soft)',
     borderRadius: 4,
-    border: '1px solid #fecaca',
+    border: '1px solid var(--danger-border)',
   },
   checkboxLabel: {
     display: 'flex',
@@ -219,7 +248,7 @@ export const modalStyles = {
   },
 };
 
-const REQUIRED_MARK_COLOR = '#ef4444';
+const REQUIRED_MARK_COLOR = 'var(--danger)';
 
 export function RequiredMark() {
   return <span style={{ color: REQUIRED_MARK_COLOR }}>*</span>;
