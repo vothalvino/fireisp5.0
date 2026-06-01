@@ -934,7 +934,7 @@ const modalActions: React.CSSProperties = {
 const styles = {
   page: {
     padding: '2rem',
-    fontFamily: 'system-ui, sans-serif',
+    fontFamily: 'var(--font-sans)',
     maxWidth: 1100,
   },
   breadcrumb: {
@@ -944,10 +944,10 @@ const styles = {
     marginBottom: '1.25rem',
     fontSize: '0.85rem',
   },
-  breadcrumbLink: { color: '#e25822', textDecoration: 'none', fontWeight: 500 },
+  breadcrumbLink: { color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 },
   breadcrumbSep:     { color: 'var(--text-dimmed)' },
   breadcrumbCurrent: { color: 'var(--text-secondary)' },
-  backLink: { color: '#e25822', textDecoration: 'none', fontWeight: 500, fontSize: '0.85rem' },
+  backLink: { color: 'var(--accent)', textDecoration: 'none', fontWeight: 500, fontSize: '0.85rem' },
 
   clientHeader: {
     display: 'flex',
@@ -972,7 +972,7 @@ const styles = {
   },
   smallPrimaryBtn: {
     padding: '0.4rem 0.85rem',
-    background: '#e25822',
+    background: 'var(--accent)',
     color: '#fff',
     border: 'none',
     borderRadius: 6,
@@ -984,7 +984,7 @@ const styles = {
   infoCard: {
     background: 'var(--bg-card)',
     borderRadius: 8,
-    boxShadow: '0 1px 3px rgba(0,0,0,.08)',
+    boxShadow: '0 0 0 1px var(--border)',
     padding: '1rem 1.25rem',
     marginBottom: '1.5rem',
   },
@@ -1014,20 +1014,20 @@ const styles = {
     color: 'var(--text-muted)',
     borderBottom: '2px solid transparent',
     marginBottom: '-2px',
-    fontFamily: 'system-ui, sans-serif',
+    fontFamily: 'var(--font-sans)',
     fontWeight: 500,
     whiteSpace: 'nowrap' as const,
     transition: 'color .15s',
   },
   tabBtnActive: {
-    color: '#e25822',
-    borderBottom: '2px solid #e25822',
+    color: 'var(--accent)',
+    borderBottom: '2px solid var(--accent)',
     fontWeight: 600,
   },
   tabContent: {
     background: 'var(--bg-card)',
     borderRadius: '0 0 8px 8px',
-    boxShadow: '0 1px 3px rgba(0,0,0,.08)',
+    boxShadow: '0 0 0 1px var(--border)',
     minHeight: 200,
   },
 

@@ -925,7 +925,7 @@ function ContractRow({ contract: c, plans, onSuspend, onCancel, onRenew, onEdit,
       <td style={styles.td}>
         <Link
           to={`/clients/${c.client_id}`}
-          style={{ color: '#1d4ed8', textDecoration: 'none', fontWeight: 500 }}
+          style={{ color: 'var(--link)', textDecoration: 'none', fontWeight: 500 }}
         >
           #{c.client_id}
         </Link>
@@ -991,7 +991,7 @@ function ContractRow({ contract: c, plans, onSuspend, onCancel, onRenew, onEdit,
 const styles = {
   page: {
     padding: '2rem',
-    fontFamily: 'system-ui, sans-serif',
+    fontFamily: 'var(--font-sans)',
     maxWidth: 1280,
   },
   header: {
@@ -1003,8 +1003,8 @@ const styles = {
   },
   pageTitle: { margin: 0, color: 'var(--text-primary)', fontSize: '1.5rem', fontWeight: 700 },
   countBadge: {
-    background: '#e0e7ff',
-    color: '#3730a3',
+    background: 'var(--accent-soft)',
+    color: 'var(--accent)',
     padding: '2px 10px',
     borderRadius: 12,
     fontSize: '0.78rem',
@@ -1028,7 +1028,7 @@ const styles = {
   },
   btnPrimary: {
     padding: '0.5rem 1rem',
-    background: '#e25822',
+    background: 'var(--accent)',
     color: '#fff',
     border: 'none',
     borderRadius: 6,
@@ -1058,7 +1058,7 @@ const styles = {
   tableCard: {
     background: 'var(--bg-card)',
     borderRadius: 8,
-    boxShadow: '0 1px 3px rgba(0,0,0,.08)',
+    boxShadow: '0 0 0 1px var(--border)',
     padding: '0.5rem 0',
   },
   table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: '0.85rem' },
@@ -1080,7 +1080,7 @@ const styles = {
     cursor: 'pointer',
     fontSize: '0.78rem',
     fontWeight: 600,
-    color: '#1d4ed8',
+    color: 'var(--link)',
     padding: '2px 4px',
     marginRight: 4,
     borderRadius: 3,
@@ -1163,7 +1163,7 @@ const modalStyles = {
     borderRadius: 6,
     fontSize: '0.85rem',
     color: 'var(--text-primary)',
-    fontFamily: 'system-ui, sans-serif',
+    fontFamily: 'var(--font-sans)',
   },
   select: {
     padding: '0.45rem 0.65rem',

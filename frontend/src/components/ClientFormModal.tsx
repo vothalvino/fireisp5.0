@@ -265,7 +265,7 @@ export const threeCol: React.CSSProperties = {
   display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10,
 };
 export const submitBtn: React.CSSProperties = {
-  background: '#e25822', color: '#fff', border: 'none',
+  background: 'var(--accent)', color: '#fff', border: 'none',
   padding: '7px 18px', borderRadius: 6, cursor: 'pointer',
   fontWeight: 600, fontSize: '0.875rem',
 };

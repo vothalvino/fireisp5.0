@@ -415,7 +415,7 @@ export function QuoteList() {
                         <td style={styles.td}>#{q.id}</td>
                         <td style={{ ...styles.td, fontWeight: 500 }}>{q.quote_number || '—'}</td>
                         <td style={styles.td}>
-                          <Link to={`/clients/${q.client_id}`} style={{ color: '#1d4ed8', textDecoration: 'none', fontWeight: 500 }}>
+                          <Link to={`/clients/${q.client_id}`} style={{ color: 'var(--link)', textDecoration: 'none', fontWeight: 500 }}>
                             {clientName(q.client_id)}
                           </Link>
                         </td>

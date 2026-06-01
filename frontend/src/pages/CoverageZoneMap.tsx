@@ -201,7 +201,7 @@ async function fetchZones(serviceAreaId: number): Promise<CoverageZone[]> {
 // ---------------------------------------------------------------------------
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  planned:            { bg: '#e0e7ff', text: '#3730a3' },
+  planned:            { bg: 'var(--accent-soft)', text: 'var(--accent)' },
   under_construction: { bg: '#fef9c3', text: '#854d0e' },
   active:             { bg: '#d1fae5', text: '#065f46' },
   degraded:           { bg: '#fee2e2', text: '#991b1b' },
@@ -894,7 +894,7 @@ const filterSelect: React.CSSProperties = {
 };
 
 const btnPrimary: React.CSSProperties = {
-  background: '#e25822', color: '#fff', border: 'none',
+  background: 'var(--accent)', color: '#fff', border: 'none',
   padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600,
 };
 

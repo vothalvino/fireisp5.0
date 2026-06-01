@@ -118,7 +118,7 @@ interface KpiCardProps {
   error?: boolean;
 }
 
-function KpiCard({ label, value, sub, icon, accent = '#e25822', loading, error }: KpiCardProps) {
+function KpiCard({ label, value, sub, icon, accent = 'var(--accent)', loading, error }: KpiCardProps) {
   const { t } = useTranslation();
   return (
     <div style={{ ...styles.card, borderTop: `3px solid ${accent}` }}>
@@ -362,7 +362,7 @@ export function Dashboard() {
 const styles = {
   page: {
     padding: '2rem',
-    fontFamily: 'system-ui, sans-serif',
+    fontFamily: 'var(--font-sans)',
     maxWidth: 1200,
   },
   header: {
@@ -376,7 +376,7 @@ const styles = {
   pageTitle: { margin: 0, color: 'var(--text-primary)', fontSize: '1.5rem', fontWeight: 700 },
   welcomeMsg: { margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' },
   roleBadge: {
-    background: '#e25822',
+    background: 'var(--accent)',
     color: '#fff',
     padding: '2px 8px',
     borderRadius: 12,
@@ -393,7 +393,7 @@ const styles = {
     background: 'var(--bg-card)',
     borderRadius: 8,
     padding: '1.25rem 1rem',
-    boxShadow: '0 1px 3px rgba(0,0,0,.08)',
+    boxShadow: '0 0 0 1px var(--border)',
     display: 'flex' as const,
     gap: '0.75rem',
     alignItems: 'flex-start' as const,
@@ -407,7 +407,7 @@ const styles = {
     letterSpacing: '0.04em',
     marginBottom: '0.3rem',
   },
-  cardValue: { color: 'var(--text-primary)', fontSize: '1.6rem', fontWeight: 700, lineHeight: '1.1' },
+  cardValue: { color: 'var(--text-primary)', fontSize: '1.6rem', fontWeight: 700, lineHeight: '1.1', fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' as const },
   cardSub: { color: 'var(--text-dimmed)', fontSize: '0.78rem', marginTop: '0.25rem' },
   cardLoading: { color: 'var(--text-dimmed)', fontSize: '0.85rem' },
   cardError: { color: '#ef4444', fontSize: '0.85rem' },
@@ -415,7 +415,7 @@ const styles = {
     background: 'var(--bg-card)',
     borderRadius: 8,
     padding: '1.25rem',
-    boxShadow: '0 1px 3px rgba(0,0,0,.08)',
+    boxShadow: '0 0 0 1px var(--border)',
   },
   sectionTitle: { margin: '0 0 1rem', color: 'var(--text-primary)', fontSize: '1rem', fontWeight: 600 },
   tableWrapper: { overflowX: 'auto' as const },
@@ -450,7 +450,7 @@ const styles = {
   },
   liveLabel: { color: 'var(--text-muted)' },
   liveBadge: {
-    background: '#e25822',
+    background: 'var(--accent)',
     color: '#fff',
     borderRadius: 10,
     padding: '0 6px',

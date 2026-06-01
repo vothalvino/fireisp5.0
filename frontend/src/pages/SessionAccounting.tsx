@@ -192,7 +192,7 @@ function DailyBarChart({ rows, dateFrom, dateTo }: { rows: DailyRow[]; dateFrom:
         const showLabel = points.length <= 14 || i % Math.ceil(points.length / 10) === 0;
         return (
           <g key={pt.date}>
-            <rect x={x} y={y} width={barW} height={barH} fill="#e25822" rx={1} opacity={0.85}>
+            <rect x={x} y={y} width={barW} height={barH} fill="var(--accent)" rx={1} opacity={0.85}>
               <title>{pt.date}: {formatBytes(pt.bytes_total)}</title>
             </rect>
             {showLabel && (
@@ -396,7 +396,7 @@ export function SessionAccounting() {
               )}
               {topRows.map((r, i) => (
                 <tr key={`${r.client_id}-${r.contract_id}`} style={s.tr}>
-                  <td style={{ ...s.td, color: i < 3 ? '#e25822' : '#555', fontWeight: i < 3 ? 700 : 400 }}>
+                  <td style={{ ...s.td, color: i < 3 ? 'var(--accent)' : '#555', fontWeight: i < 3 ? 700 : 400 }}>
                     {i + 1}
                   </td>
                   <td style={{ ...s.td, fontFamily: 'monospace' }}>{r.username}</td>
@@ -487,7 +487,7 @@ export function SessionAccounting() {
 // ---------------------------------------------------------------------------
 
 const s: Record<string, CSSProperties> = {
-  page: { padding: '1.5rem', fontFamily: 'system-ui, sans-serif', fontSize: '0.9rem' },
+  page: { padding: '1.5rem', fontFamily: 'var(--font-sans)', fontSize: '0.9rem' },
   title: { margin: '0 0 0.25rem', fontSize: '1.4rem' },
   subtitle: { margin: '0 0 1rem', color: 'var(--text-faint)', fontSize: '0.85rem' },
 
@@ -498,7 +498,7 @@ const s: Record<string, CSSProperties> = {
     fontSize: '0.85rem',
   },
   applyBtn: {
-    padding: '6px 14px', background: '#e25822', color: '#fff',
+    padding: '6px 14px', background: 'var(--accent)', color: '#fff',
     border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem',
   },
   clearBtn: {
@@ -509,19 +509,19 @@ const s: Record<string, CSSProperties> = {
   summaryBar: { display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap' },
   summaryCard: {
     flex: '1 1 120px', background: 'var(--bg-card)', borderRadius: 8,
-    padding: '0.9rem 1.2rem', boxShadow: '0 1px 4px rgba(0,0,0,.08)',
+    padding: '0.9rem 1.2rem', boxShadow: '0 0 0 1px var(--border)',
     minWidth: 110,
   },
-  summaryValue: { fontSize: '1.4rem', fontWeight: 700, color: '#1a1a2e' },
+  summaryValue: { fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)' },
   summaryLabel: { fontSize: '0.73rem', color: 'var(--text-faint)', marginTop: 2 },
 
   chartCard: {
     background: 'var(--bg-card)', borderRadius: 8, padding: '1rem 1.25rem',
-    boxShadow: '0 1px 4px rgba(0,0,0,.08)', marginBottom: '1.25rem',
+    boxShadow: '0 0 0 1px var(--border)', marginBottom: '1.25rem',
   },
   card: {
     background: 'var(--bg-card)', borderRadius: 8, padding: '1rem 1.25rem',
-    boxShadow: '0 1px 4px rgba(0,0,0,.08)', marginBottom: '1.25rem',
+    boxShadow: '0 0 0 1px var(--border)', marginBottom: '1.25rem',
   },
   sectionTitle: { margin: '0 0 0.75rem', fontSize: '1rem', fontWeight: 600 },
 
