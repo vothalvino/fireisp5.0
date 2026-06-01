@@ -131,7 +131,9 @@ function generateSpec() {
       '/organizations/{id}/restore': { post: { tags: ['Organizations'], summary: 'Restore a soft-deleted organization', operationId: 'restoreOrganization', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Organization') } },
       '/organizations/{id}/settings': {
         get: { tags: ['Organizations'], summary: 'Get organization settings', operationId: 'getOrganizationSettings', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Settings map') },
-        put: { tags: ['Organizations'], summary: 'Update organization settings', operationId: 'updateOrganizationSettings', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('Settings map'), responses: r200('Settings map') },
+      },
+      '/organizations/{id}/settings/{key}': {
+        put: { tags: ['Organizations'], summary: 'Update a single organization setting', operationId: 'updateOrganizationSetting', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'key', in: 'path', required: true, schema: { type: 'string' } }], requestBody: jsonBody('Setting value'), responses: r200('Settings map') },
       },
       '/organizations/{id}/quota': {
         get: { tags: ['Organizations'], summary: 'Get organization quota and usage', operationId: 'getOrganizationQuota', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Quota + usage') },

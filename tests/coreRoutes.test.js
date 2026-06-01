@@ -1438,8 +1438,8 @@ describe('Organization Routes — /api/organizations', () => {
     });
   });
 
-  // --- PUT /:id/settings ---
-  describe('PUT /api/organizations/:id/settings', () => {
+  // --- PUT /:id/settings/:key ---
+  describe('PUT /api/organizations/:id/settings/:key', () => {
     test('updates a setting value for an organization', async () => {
       mockAuthUser();
       // setSetting for the 'value' key, then getSettings
@@ -1450,7 +1450,7 @@ describe('Organization Routes — /api/organizations', () => {
         ]]);
 
       const res = await request(app)
-        .put('/api/organizations/1/settings')
+        .put('/api/organizations/1/settings/billing.currency')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ value: 'USD' });
 
@@ -1463,7 +1463,7 @@ describe('Organization Routes — /api/organizations', () => {
       mockAuthUser();
 
       const res = await request(app)
-        .put('/api/organizations/1/settings')
+        .put('/api/organizations/1/settings/billing.currency')
         .set('Authorization', `Bearer ${authToken}`)
         .send({});
 

@@ -864,13 +864,15 @@
             }
           }
         }
-      },
+      }
+    },
+    "/organizations/{id}/settings/{key}": {
       "put": {
         "tags": [
           "Organizations"
         ],
-        "summary": "Update organization settings",
-        "operationId": "updateOrganizationSettings",
+        "summary": "Update a single organization setting",
+        "operationId": "updateOrganizationSetting",
         "security": [
           {
             "bearerAuth": []
@@ -884,10 +886,18 @@
             "schema": {
               "type": "integer"
             }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
-          "description": "Settings map",
+          "description": "Setting value",
           "content": {
             "application/json": {
               "schema": {

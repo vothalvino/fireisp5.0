@@ -40,11 +40,9 @@ router.get('/:id/settings', requirePermission('settings.view'), async (req, res,
   }
 });
 
-router.put('/:id/settings', requirePermission('settings.update'), validate(updateSetting), async (req, res, next) => {
+router.put('/:id/settings/:key', requirePermission('settings.update'), validate(updateSetting), async (req, res, next) => {
   try {
-    for (const [key, value] of Object.entries(req.body)) {
-      await Organization.setSetting(req.params.id, key, value);
-    }
+    await Organization.setSetting(req.params.id, req.params.key, req.body.value);
     const settings = await Organization.getSettings(req.params.id);
     res.json({ data: settings });
   } catch (err) {

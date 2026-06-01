@@ -4,10 +4,9 @@
 // Admin page at /organizations. Lists tenant organizations with a paginated
 // table, a "New Organization" create modal plus per-row Edit and Delete
 // (soft-delete). Two sub-resource modals are reachable per row:
-//   • Settings — read-only viewer of the org key/value settings map. The
-//     backend PUT /organizations/{id}/settings contract requires a literal
-//     `value` field and writes every posted key, so generic key editing is not
-//     safely exposed (same convention as other misaligned write contracts).
+//   • Settings — viewer + editor of the org key/value settings map. Each value
+//     is editable inline and saved per-key via PUT /organizations/{id}/settings/
+//     {key} ({ value }), the clean per-key contract shared with /settings/{key}.
 //   • Quota — shows current usage vs configured limits and lets an admin edit
 //     the per-tenant limits (PUT /organizations/{id}/quota; NULL = unlimited).
 // All mutations go through the typed `api` client + React Query, invalidating
@@ -122,6 +121,11 @@ async function fetchSettings(id: number): Promise<Record<string, string>> {
   const res = await api.GET('/organizations/{id}/settings', { params: { path: { id } } });
   if (res.error) throw new Error('Failed to load settings');
   return ((res.data as unknown as { data: Record<string, string> }).data) ?? {};
+}
+
+async function updateSetting(id: number, key: string, value: string): Promise<void> {
+  const res = await api.PUT('/organizations/{id}/settings/{key}', { params: { path: { id, key } }, body: { value } as never });
+  if (res.error) throw new Error('Failed to update setting');
 }
 
 async function fetchQuota(id: number): Promise<QuotaResponse> {
@@ -320,15 +324,53 @@ function OrgModal({ organization, onClose, onSaved }: OrgModalProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Settings viewer modal (read-only)
+// Settings editor modal
 // ---------------------------------------------------------------------------
 
 function SettingsModal({ organization, onClose }: { organization: Organization; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState('');
+
   const settingsQ = useQuery({
     queryKey: ['organization-settings', organization.id],
     queryFn: () => fetchSettings(organization.id),
   });
-  const entries = Object.entries(settingsQ.data ?? {});
+
+  // Seed the editable form once the settings have loaded.
+  if (settingsQ.data && !loaded) {
+    const seed: Record<string, string> = {};
+    for (const [k, v] of Object.entries(settingsQ.data)) seed[k] = v == null ? '' : String(v);
+    setForm(seed);
+    setLoaded(true);
+  }
+
+  const original = settingsQ.data ?? {};
+  const keys = Object.keys(original);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      // Persist only the keys whose value changed, one PUT per key.
+      for (const k of keys) {
+        const next = form[k] ?? '';
+        if (next !== (original[k] == null ? '' : String(original[k]))) {
+          await updateSetting(organization.id, k, next);
+        }
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organization-settings', organization.id] });
+      onClose();
+    },
+    onError: () => setError('Failed to save settings.'),
+  });
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    mutation.mutate();
+  }
 
   return (
     <div style={modalStyles.backdrop} onClick={onClose}>
@@ -342,32 +384,32 @@ function SettingsModal({ organization, onClose }: { organization: Organization; 
           <p style={styles.msg}>Loading…</p>
         ) : settingsQ.error ? (
           <p style={styles.msgError}>Failed to load settings.</p>
-        ) : entries.length === 0 ? (
+        ) : keys.length === 0 ? (
           <p style={styles.msg}>No settings configured.</p>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Key</th>
-                  <th style={styles.th}>Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map(([k, v]) => (
-                  <tr key={k} style={styles.tr}>
-                    <td style={{ ...styles.td, fontWeight: 500 }}>{k}</td>
-                    <td style={{ ...styles.td, wordBreak: 'break-word' }}>{String(v ?? '—')}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+          <form onSubmit={handleSubmit} style={modalStyles.form}>
+            {keys.map(k => (
+              <label key={k} style={modalStyles.label}>
+                {k}
+                <input
+                  style={modalStyles.input}
+                  type="text"
+                  value={form[k] ?? ''}
+                  onChange={e => setForm(prev => ({ ...prev, [k]: e.target.value }))}
+                />
+              </label>
+            ))}
 
-        <div style={{ ...modalStyles.actions, marginTop: '1rem' }}>
-          <button type="button" onClick={onClose} style={styles.btnSecondary}>Close</button>
-        </div>
+            {error && <p style={modalStyles.error}>{error}</p>}
+
+            <div style={modalStyles.actions}>
+              <button type="button" onClick={onClose} style={styles.btnSecondary} disabled={mutation.isPending}>Cancel</button>
+              <button type="submit" style={styles.btnPrimary} disabled={mutation.isPending}>
+                {mutation.isPending ? 'Saving…' : 'Save Settings'}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );
@@ -571,7 +613,7 @@ export function OrganizationList() {
                       <td style={styles.td}><StatusBadge status={o.status} /></td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
                         <button style={styles.actionBtn} onClick={() => setEditOrg(o)} title="Edit this organization">✏️ Edit</button>
-                        <button style={styles.actionBtn} onClick={() => setSettingsOrg(o)} title="View settings">⚙️ Settings</button>
+                        <button style={styles.actionBtn} onClick={() => setSettingsOrg(o)} title="View and edit settings">⚙️ Settings</button>
                         <button style={styles.actionBtn} onClick={() => setQuotaOrg(o)} title="View and edit quota">📊 Quota</button>
                         <button style={{ ...styles.actionBtn, color: '#991b1b' }} onClick={() => setDeleteId(o.id)} title="Delete this organization">🗑 Delete</button>
                       </td>
