@@ -92,7 +92,14 @@
     "facturasPublicas": "🧾 Public Invoices",
     "messageTemplates": "✉️ Message Templates",
     "jobs": "🛠️ Field Jobs",
-    "queueStats": "📥 Queue Status"
+    "queueStats": "📥 Queue Status",
+    "sections": {
+      "clients": "Clients",
+      "billing": "Billing",
+      "network": "Network",
+      "compliance": "Compliance",
+      "admin": "Administration"
+    }
   },
   "layout": {
     "brandName": "🔥 FireISP",

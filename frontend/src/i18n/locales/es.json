@@ -92,7 +92,14 @@
     "facturasPublicas": "🧾 Facturas Públicas",
     "messageTemplates": "✉️ Plantillas de Mensajes",
     "jobs": "🛠️ Trabajos de Campo",
-    "queueStats": "📥 Estado de Colas"
+    "queueStats": "📥 Estado de Colas",
+    "sections": {
+      "clients": "Clientes",
+      "billing": "Facturación",
+      "network": "Red",
+      "compliance": "Cumplimiento",
+      "admin": "Administración"
+    }
   },
   "layout": {
     "brandName": "🔥 FireISP",

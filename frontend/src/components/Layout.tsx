@@ -17,70 +17,102 @@ interface NavItem {
   requiredRole?: string;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { to: '/', labelKey: 'nav.dashboard' },
-  { to: '/clients', labelKey: 'nav.clients' },
-  { to: '/contracts', labelKey: 'nav.contracts' },
-  { to: '/invoices', labelKey: 'nav.invoices' },
-  { to: '/payments', labelKey: 'nav.payments' },
-  { to: '/tickets', labelKey: 'nav.tickets' },
-  { to: '/devices', labelKey: 'nav.devices' },
-  { to: '/inventory', labelKey: 'nav.inventory', requiredRole: 'technician' },
-  { to: '/warehouses', labelKey: 'nav.warehouses', requiredRole: 'technician' },
-  { to: '/radius-sessions', labelKey: 'nav.radiusSessions', requiredRole: 'technician' },
-  { to: '/session-accounting', labelKey: 'nav.sessionAccounting', requiredRole: 'technician' },
-  { to: '/snmp-metrics', labelKey: 'nav.snmpMetrics', requiredRole: 'technician' },
-  { to: '/snmp-traps', labelKey: 'nav.snmpTraps', requiredRole: 'technician' },
-  { to: '/coverage-zones', labelKey: 'nav.coverageZones', requiredRole: 'technician' },
-  { to: '/sites', labelKey: 'nav.sites', requiredRole: 'technician' },
-  { to: '/nas', labelKey: 'nav.nas', requiredRole: 'technician' },
-  { to: '/ip-pools', labelKey: 'nav.ipPools', requiredRole: 'technician' },
-  { to: '/ip-assignments', labelKey: 'nav.ipAssignments', requiredRole: 'technician' },
-  { to: '/vlans', labelKey: 'nav.vlans', requiredRole: 'technician' },
-  { to: '/service-areas', labelKey: 'nav.serviceAreas', requiredRole: 'technician' },
-  { to: '/outages', labelKey: 'nav.outages', requiredRole: 'technician' },
-  { to: '/speed-tests', labelKey: 'nav.speedTests', requiredRole: 'technician' },
-  { to: '/connection-logs', labelKey: 'nav.connectionLogs', requiredRole: 'technician' },
-  { to: '/network-health', labelKey: 'nav.networkHealth', requiredRole: 'technician' },
-  { to: '/snmp-profiles', labelKey: 'nav.snmpProfiles', requiredRole: 'technician' },
-  { to: '/device-config-backups', labelKey: 'nav.deviceConfigBackups', requiredRole: 'technician' },
-  { to: '/suspension-rules', labelKey: 'nav.suspensionRules', requiredRole: 'technician' },
-  { to: '/cfdi', labelKey: 'nav.cfdi', requiredRole: 'billing' },
-  { to: '/plans', labelKey: 'nav.plans', requiredRole: 'billing' },
-  { to: '/quotes', labelKey: 'nav.quotes', requiredRole: 'billing' },
-  { to: '/credit-notes', labelKey: 'nav.creditNotes', requiredRole: 'billing' },
-  { to: '/expenses', labelKey: 'nav.expenses', requiredRole: 'billing' },
-  { to: '/promotions', labelKey: 'nav.promotions', requiredRole: 'billing' },
-  { to: '/tax-rules', labelKey: 'nav.taxRules', requiredRole: 'billing' },
-  { to: '/tax-rates', labelKey: 'nav.taxRates', requiredRole: 'billing' },
-  { to: '/payment-gateways', labelKey: 'nav.paymentGateways', requiredRole: 'billing' },
-  { to: '/payment-transactions', labelKey: 'nav.paymentTransactions', requiredRole: 'billing' },
-  { to: '/recurring-payment-profiles', labelKey: 'nav.recurringPaymentProfiles', requiredRole: 'billing' },
-  { to: '/csd-certificates', labelKey: 'nav.csdCertificates', requiredRole: 'billing' },
-  { to: '/pac-providers', labelKey: 'nav.pacProviders', requiredRole: 'billing' },
-  { to: '/sat-catalogs', labelKey: 'nav.satCatalogs', requiredRole: 'billing' },
-  { to: '/regulatory-filings', labelKey: 'nav.regulatoryFilings', requiredRole: 'billing' },
-  { to: '/concession-titles', labelKey: 'nav.concessionTitles', requiredRole: 'billing' },
-  { to: '/ift-statistical-reports', labelKey: 'nav.iftStatisticalReports', requiredRole: 'billing' },
-  { to: '/facturas-publicas', labelKey: 'nav.facturasPublicas', requiredRole: 'billing' },
-  { to: '/profeco-complaints', labelKey: 'nav.profecoComplaints', requiredRole: 'billing' },
-  // Admin-only
-  { to: '/users', labelKey: 'nav.users', requiredRole: 'admin' },
-  { to: '/organizations', labelKey: 'nav.organizations', requiredRole: 'admin' },
-  { to: '/dsar', labelKey: 'nav.dsar', requiredRole: 'admin' },
-  { to: '/dr-drill', labelKey: 'nav.drDrill', requiredRole: 'admin' },
-  { to: '/sla-definitions', labelKey: 'nav.slaDefinitions', requiredRole: 'admin' },
-  { to: '/roles', labelKey: 'nav.roles', requiredRole: 'admin' },
-  { to: '/api-tokens', labelKey: 'nav.apiTokens', requiredRole: 'admin' },
-  { to: '/webhooks', labelKey: 'nav.webhooks', requiredRole: 'admin' },
-  { to: '/audit-logs', labelKey: 'nav.auditLogs', requiredRole: 'admin' },
-  { to: '/scheduled-tasks', labelKey: 'nav.scheduledTasks', requiredRole: 'admin' },
-  { to: '/jobs', labelKey: 'nav.jobs', requiredRole: 'admin' },
-  { to: '/queue-stats', labelKey: 'nav.queueStats', requiredRole: 'admin' },
-  { to: '/reports', labelKey: 'nav.reports', requiredRole: 'billing' },
-  { to: '/ai-assistant', labelKey: 'nav.aiAssistant', requiredRole: 'admin' },
-  { to: '/settings', labelKey: 'nav.settings', requiredRole: 'admin' },
-  { to: '/message-templates', labelKey: 'nav.messageTemplates', requiredRole: 'admin' },
+interface NavGroup {
+  /** i18n key for the section heading; omit for the top-level (ungrouped) items. */
+  titleKey?: string;
+  items: NavItem[];
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    items: [{ to: '/', labelKey: 'nav.dashboard' }],
+  },
+  {
+    titleKey: 'nav.sections.clients',
+    items: [
+      { to: '/clients', labelKey: 'nav.clients' },
+      { to: '/contracts', labelKey: 'nav.contracts' },
+      { to: '/tickets', labelKey: 'nav.tickets' },
+    ],
+  },
+  {
+    titleKey: 'nav.sections.billing',
+    items: [
+      { to: '/invoices', labelKey: 'nav.invoices' },
+      { to: '/payments', labelKey: 'nav.payments' },
+      { to: '/cfdi', labelKey: 'nav.cfdi', requiredRole: 'billing' },
+      { to: '/plans', labelKey: 'nav.plans', requiredRole: 'billing' },
+      { to: '/quotes', labelKey: 'nav.quotes', requiredRole: 'billing' },
+      { to: '/credit-notes', labelKey: 'nav.creditNotes', requiredRole: 'billing' },
+      { to: '/expenses', labelKey: 'nav.expenses', requiredRole: 'billing' },
+      { to: '/promotions', labelKey: 'nav.promotions', requiredRole: 'billing' },
+      { to: '/tax-rules', labelKey: 'nav.taxRules', requiredRole: 'billing' },
+      { to: '/tax-rates', labelKey: 'nav.taxRates', requiredRole: 'billing' },
+      { to: '/payment-gateways', labelKey: 'nav.paymentGateways', requiredRole: 'billing' },
+      { to: '/payment-transactions', labelKey: 'nav.paymentTransactions', requiredRole: 'billing' },
+      { to: '/recurring-payment-profiles', labelKey: 'nav.recurringPaymentProfiles', requiredRole: 'billing' },
+      { to: '/reports', labelKey: 'nav.reports', requiredRole: 'billing' },
+    ],
+  },
+  {
+    titleKey: 'nav.sections.network',
+    items: [
+      { to: '/devices', labelKey: 'nav.devices' },
+      { to: '/inventory', labelKey: 'nav.inventory', requiredRole: 'technician' },
+      { to: '/warehouses', labelKey: 'nav.warehouses', requiredRole: 'technician' },
+      { to: '/radius-sessions', labelKey: 'nav.radiusSessions', requiredRole: 'technician' },
+      { to: '/session-accounting', labelKey: 'nav.sessionAccounting', requiredRole: 'technician' },
+      { to: '/snmp-metrics', labelKey: 'nav.snmpMetrics', requiredRole: 'technician' },
+      { to: '/snmp-traps', labelKey: 'nav.snmpTraps', requiredRole: 'technician' },
+      { to: '/coverage-zones', labelKey: 'nav.coverageZones', requiredRole: 'technician' },
+      { to: '/sites', labelKey: 'nav.sites', requiredRole: 'technician' },
+      { to: '/nas', labelKey: 'nav.nas', requiredRole: 'technician' },
+      { to: '/ip-pools', labelKey: 'nav.ipPools', requiredRole: 'technician' },
+      { to: '/ip-assignments', labelKey: 'nav.ipAssignments', requiredRole: 'technician' },
+      { to: '/vlans', labelKey: 'nav.vlans', requiredRole: 'technician' },
+      { to: '/service-areas', labelKey: 'nav.serviceAreas', requiredRole: 'technician' },
+      { to: '/outages', labelKey: 'nav.outages', requiredRole: 'technician' },
+      { to: '/speed-tests', labelKey: 'nav.speedTests', requiredRole: 'technician' },
+      { to: '/connection-logs', labelKey: 'nav.connectionLogs', requiredRole: 'technician' },
+      { to: '/network-health', labelKey: 'nav.networkHealth', requiredRole: 'technician' },
+      { to: '/snmp-profiles', labelKey: 'nav.snmpProfiles', requiredRole: 'technician' },
+      { to: '/device-config-backups', labelKey: 'nav.deviceConfigBackups', requiredRole: 'technician' },
+      { to: '/suspension-rules', labelKey: 'nav.suspensionRules', requiredRole: 'technician' },
+    ],
+  },
+  {
+    titleKey: 'nav.sections.compliance',
+    items: [
+      { to: '/csd-certificates', labelKey: 'nav.csdCertificates', requiredRole: 'billing' },
+      { to: '/pac-providers', labelKey: 'nav.pacProviders', requiredRole: 'billing' },
+      { to: '/sat-catalogs', labelKey: 'nav.satCatalogs', requiredRole: 'billing' },
+      { to: '/regulatory-filings', labelKey: 'nav.regulatoryFilings', requiredRole: 'billing' },
+      { to: '/concession-titles', labelKey: 'nav.concessionTitles', requiredRole: 'billing' },
+      { to: '/ift-statistical-reports', labelKey: 'nav.iftStatisticalReports', requiredRole: 'billing' },
+      { to: '/facturas-publicas', labelKey: 'nav.facturasPublicas', requiredRole: 'billing' },
+      { to: '/profeco-complaints', labelKey: 'nav.profecoComplaints', requiredRole: 'billing' },
+    ],
+  },
+  {
+    titleKey: 'nav.sections.admin',
+    items: [
+      { to: '/users', labelKey: 'nav.users', requiredRole: 'admin' },
+      { to: '/organizations', labelKey: 'nav.organizations', requiredRole: 'admin' },
+      { to: '/dsar', labelKey: 'nav.dsar', requiredRole: 'admin' },
+      { to: '/dr-drill', labelKey: 'nav.drDrill', requiredRole: 'admin' },
+      { to: '/sla-definitions', labelKey: 'nav.slaDefinitions', requiredRole: 'admin' },
+      { to: '/roles', labelKey: 'nav.roles', requiredRole: 'admin' },
+      { to: '/api-tokens', labelKey: 'nav.apiTokens', requiredRole: 'admin' },
+      { to: '/webhooks', labelKey: 'nav.webhooks', requiredRole: 'admin' },
+      { to: '/audit-logs', labelKey: 'nav.auditLogs', requiredRole: 'admin' },
+      { to: '/scheduled-tasks', labelKey: 'nav.scheduledTasks', requiredRole: 'admin' },
+      { to: '/jobs', labelKey: 'nav.jobs', requiredRole: 'admin' },
+      { to: '/queue-stats', labelKey: 'nav.queueStats', requiredRole: 'admin' },
+      { to: '/ai-assistant', labelKey: 'nav.aiAssistant', requiredRole: 'admin' },
+      { to: '/settings', labelKey: 'nav.settings', requiredRole: 'admin' },
+      { to: '/message-templates', labelKey: 'nav.messageTemplates', requiredRole: 'admin' },
+    ],
+  },
 ];
 
 export function Layout() {
@@ -143,22 +175,33 @@ export function Layout() {
         <div style={styles.logo}>{t('layout.brandName')}</div>
 
         <nav style={styles.nav}>
-          {NAV_ITEMS.filter(
-            item => !item.requiredRole || (user && hasRole(user.role, item.requiredRole)),
-          ).map(item => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === '/'}
-              onClick={closeSidebar}
-              style={({ isActive }) => ({
-                ...styles.navLink,
-                ...(isActive ? styles.navLinkActive : {}),
-              })}
-            >
-              {t(item.labelKey)}
-            </NavLink>
-          ))}
+          {NAV_GROUPS.map((group, idx) => {
+            const visibleItems = group.items.filter(
+              item => !item.requiredRole || (user && hasRole(user.role, item.requiredRole)),
+            );
+            if (visibleItems.length === 0) return null;
+            return (
+              <div key={group.titleKey ?? `group-${idx}`} style={styles.navGroup}>
+                {group.titleKey && (
+                  <div style={styles.navGroupTitle}>{t(group.titleKey)}</div>
+                )}
+                {visibleItems.map(item => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.to === '/'}
+                    onClick={closeSidebar}
+                    style={({ isActive }) => ({
+                      ...styles.navLink,
+                      ...(isActive ? styles.navLinkActive : {}),
+                    })}
+                  >
+                    {t(item.labelKey)}
+                  </NavLink>
+                ))}
+              </div>
+            );
+          })}
         </nav>
 
         {/* User info + logout */}
@@ -222,6 +265,19 @@ const styles = {
     flexDirection: 'column' as const,
     padding: '0.5rem 0',
     overflowY: 'auto' as const,
+  },
+  navGroup: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    paddingBottom: '0.35rem',
+  },
+  navGroupTitle: {
+    padding: '0.6rem 1rem 0.25rem',
+    color: '#777',
+    fontSize: '0.68rem',
+    fontWeight: 700,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.08em',
   },
   navLink: {
     display: 'block',

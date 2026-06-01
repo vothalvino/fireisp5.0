@@ -176,11 +176,11 @@ IP pools/assignments → SLA definitions → Roles/permissions → remaining net
 
 ## 5. Cross-cutting work
 
-- [ ] **i18n:** add keys for every new label/action in `frontend/src/i18n` (both locales used).
+- [x] **i18n:** add keys for every new label/action in `frontend/src/i18n` (both locales used).
 - [ ] **Shared UI primitives:** factor a reusable CRUD list + modal-form pattern to avoid
   re-implementing per page and to keep behavior/accessibility consistent.
 - [ ] **Empty/error/loading states** standardized across pages.
-- [ ] **Navigation grouping:** as the number of pages grows, group the sidebar into sections
+- [x] **Navigation grouping:** as the number of pages grows, group the sidebar into sections
   (Clients/Billing/Network/Compliance/Admin) in `components/Layout.tsx`.
 - [ ] **Documentation:** keep `docs/openapi.json` and any feature docs in sync; CI validates
   schema/migration counts (per repo conventions).
@@ -250,14 +250,15 @@ delete/restore via `useMutation` + typed `api` → register route/nav/i18n → t
 - [ ] **M11 – Cross-cutting hardening & sign-off** (Sections 5 & 6):
   - [ ] Factor the repeated list+modal pattern into a shared CRUD primitive
     (`crudStyles.tsx` already exists as a starting point) and migrate pages onto it.
-  - [ ] Group the sidebar into sections (Clients/Billing/Network/Compliance/Admin) in
-    `components/Layout.tsx`.
+  - [x] Group the sidebar into sections (Clients/Billing/Network/Compliance/Admin) in
+    `components/Layout.tsx` (role-aware: empty sections are hidden).
   - [ ] Standardize empty/error/loading states across all pages.
-  - [ ] Complete i18n coverage for every label/action in all locales (`en`, `es`, `pt-BR`).
+  - [x] Complete i18n coverage for every label/action in all locales (`en`, `es`, `pt-BR`)
+    — `i18n:check` reports 100% parity; nav section headings added.
   - [ ] Per-slice component tests for each remaining create/edit/delete flow.
   - [ ] Re-enable and extend the Playwright e2e smoke flow (create client → contract →
     invoice → payment) once e2e CI is restored.
-  - [ ] Final gate: `pnpm --filter fireisp-frontend lint` (gen:api + tsc) and `build` pass,
+  - [x] Final gate: `pnpm --filter fireisp-frontend lint` (gen:api + tsc) and `build` pass,
     backend `jest` passes, and OpenAPI `spec:check` (spec-drift) passes.
 
 **Definition of done:** every backend route that represents a frontdesk operation has a
