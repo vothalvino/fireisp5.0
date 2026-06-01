@@ -164,7 +164,7 @@ export function PortalTicketDetail() {
         )}
 
         {isClosed && (
-          <p style={styles.closedNote}>This ticket is {ticket.status}. <Link to="/portal/tickets" style={{ color: '#e25822' }}>Open a new ticket</Link> if you need further assistance.</p>
+          <p style={styles.closedNote}>This ticket is {ticket.status}. <Link to="/portal/tickets" style={{ color: 'var(--accent)' }}>Open a new ticket</Link> if you need further assistance.</p>
         )}
       </div>
     </div>
@@ -174,7 +174,7 @@ export function PortalTicketDetail() {
 const styles = {
   breadcrumb: { marginBottom: '1rem' },
   back: { color: 'var(--text-muted)', textDecoration: 'none', fontSize: '0.9rem' },
-  card: { background: 'var(--bg-card)', borderRadius: 8, padding: '1.5rem', boxShadow: '0 1px 4px rgba(0,0,0,.07)' },
+  card: { background: 'var(--bg-card)', borderRadius: 8, padding: '1.5rem', boxShadow: '0 0 0 1px var(--border)' },
   ticketHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', flexWrap: 'wrap' as const, gap: '0.75rem' },
   subject: { margin: '0 0 0.25rem', fontSize: '1.3rem', color: 'var(--text-primary)' },
   meta: { margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem' },
@@ -191,6 +191,6 @@ const styles = {
   replyTitle: { margin: 0, fontSize: '0.95rem', color: 'var(--text-secondary)' },
   errorTxt: { color: '#b91c1c', fontSize: '0.875rem', margin: 0 },
   textarea: { padding: '0.6rem 0.75rem', border: '1px solid var(--input-border)', borderRadius: 4, fontSize: '0.9rem', fontFamily: 'inherit', resize: 'vertical' as const, width: '100%', boxSizing: 'border-box' as const },
-  replyBtn: { alignSelf: 'flex-start', padding: '0.5rem 1.25rem', background: '#e25822', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' },
+  replyBtn: { alignSelf: 'flex-start', padding: '0.5rem 1.25rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' },
   closedNote: { marginTop: '1rem', color: 'var(--text-muted)', fontSize: '0.875rem', fontStyle: 'italic' as const },
 };

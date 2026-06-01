@@ -992,7 +992,7 @@ export function TicketDetail() {
     <div style={{ padding: '1.5rem', maxWidth: 1000 }}>
       {/* Breadcrumb */}
       <div style={{ fontSize: '0.82rem', color: '#888', marginBottom: '0.75rem' }}>
-        <Link to="/tickets" style={{ color: '#1d4ed8', textDecoration: 'none' }}>Tickets</Link>
+        <Link to="/tickets" style={{ color: 'var(--link)', textDecoration: 'none' }}>Tickets</Link>
         {' › '}
         <span>#{ticket.id}</span>
       </div>
@@ -1019,7 +1019,7 @@ export function TicketDetail() {
               <MetaRow label="Priority"><PriorityBadge priority={ticket.priority} /></MetaRow>
               <MetaRow label="Client">
                 {client ? (
-                  <Link to={`/clients/${client.id}`} style={{ color: '#1d4ed8', textDecoration: 'none' }}>
+                  <Link to={`/clients/${client.id}`} style={{ color: 'var(--link)', textDecoration: 'none' }}>
                     {client.name}
                   </Link>
                 ) : ticket.client_id ? `#${ticket.client_id}` : '—'}
@@ -1088,7 +1088,7 @@ function MetaRow({ label, children }: { label: string; children: React.ReactNode
 // ---------------------------------------------------------------------------
 
 const btnPrimary: React.CSSProperties = {
-  background: '#e25822', color: '#fff', border: 'none',
+  background: 'var(--accent)', color: '#fff', border: 'none',
   padding: '7px 16px', borderRadius: 6, cursor: 'pointer',
   fontSize: '0.85rem', fontWeight: 600,
 };
@@ -1099,7 +1099,7 @@ const btnSecondary: React.CSSProperties = {
 };
 const card: React.CSSProperties = {
   background: 'var(--bg-card)', borderRadius: 10, padding: '1.25rem',
-  boxShadow: '0 1px 3px rgba(0,0,0,.08)',
+  boxShadow: '0 0 0 1px var(--border)',
 };
 const cardTitle: React.CSSProperties = {
   margin: '0 0 1rem', fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)',

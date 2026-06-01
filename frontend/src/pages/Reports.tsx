@@ -195,11 +195,11 @@ function BarChart({ rows, width = 480, height = 200 }: BarChartProps) {
         const y = i * (barH + 6) + 10;
         return (
           <g key={r.label}>
-            <text x={0} y={y + barH - 4} fontSize={11} fill="#555" style={{ fontFamily: 'system-ui' }}>
+            <text x={0} y={y + barH - 4} fontSize={11} fill="#555" style={{ fontFamily: 'var(--font-sans)' }}>
               {r.label}
             </text>
             <rect x={100} y={y} width={bw} height={barH} fill={r.color} rx={3} />
-            <text x={106 + bw} y={y + barH - 4} fontSize={11} fill="#333" style={{ fontFamily: 'system-ui' }}>
+            <text x={106 + bw} y={y + barH - 4} fontSize={11} fill="#333" style={{ fontFamily: 'var(--font-sans)' }}>
               {currency(r.value)}
             </text>
           </g>
@@ -926,7 +926,7 @@ export function Reports() {
 const styles = {
   page: {
     padding: '1.5rem',
-    fontFamily: 'system-ui, sans-serif',
+    fontFamily: 'var(--font-sans)',
     maxWidth: 1000,
   } as CSSProperties,
   pageTitle: {
@@ -952,16 +952,16 @@ const styles = {
   } as CSSProperties,
   tabBtnActive: {
     background: 'var(--bg-card)',
-    color: '#e25822',
+    color: 'var(--accent)',
     fontWeight: 600,
-    borderBottom: '2px solid #e25822',
+    borderBottom: '2px solid var(--accent)',
     marginBottom: -2,
   } as CSSProperties,
   tabContent: {
     background: 'var(--bg-card)',
     borderRadius: 8,
     padding: '1.25rem',
-    boxShadow: '0 1px 4px rgba(0,0,0,.06)',
+    boxShadow: '0 0 0 1px var(--border)',
   } as CSSProperties,
   filterRow: {
     display: 'flex',
@@ -980,7 +980,7 @@ const styles = {
     border: '1px solid var(--input-border)',
     borderRadius: 4,
     fontSize: '0.9rem',
-    fontFamily: 'system-ui, sans-serif',
+    fontFamily: 'var(--font-sans)',
   } as CSSProperties,
   btn: {
     padding: '6px 14px',
@@ -992,7 +992,7 @@ const styles = {
   } as CSSProperties,
   btnPrimary: {
     padding: '7px 16px',
-    background: '#e25822',
+    background: 'var(--accent)',
     color: '#fff',
     border: 'none',
     borderRadius: 4,

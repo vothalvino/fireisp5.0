@@ -712,7 +712,7 @@ function AllocationsRow({ paymentId, currency }: AllocationsRowProps) {
                   <td style={{ padding: '4px 8px' }}>
                     <Link
                       to={`/invoices/${a.invoice_id}`}
-                      style={{ color: '#e25822', textDecoration: 'none', fontWeight: 600 }}
+                      style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}
                     >
                       Invoice #{a.invoice_id}
                     </Link>
@@ -991,7 +991,7 @@ export function PaymentList() {
             onClick={() => handleFilterChange(s)}
             style={{
               padding: '4px 12px', borderRadius: 20, border: '1px solid #d1d5db',
-              background: statusFilter === s ? '#e25822' : '#fff',
+              background: statusFilter === s ? 'var(--accent)' : '#fff',
               color: statusFilter === s ? '#fff' : '#374151',
               cursor: 'pointer', fontSize: '0.8rem', fontWeight: 500,
             }}
@@ -1003,10 +1003,10 @@ export function PaymentList() {
 
       {/* Table */}
       {isLoading && <p style={{ color: '#888' }}>Loading…</p>}
-      {isError && <p style={{ color: '#e25822' }}>Failed to load payments.</p>}
+      {isError && <p style={{ color: 'var(--accent)' }}>Failed to load payments.</p>}
       {data && (
         <>
-          <div style={{ background: '#fff', borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,.08)', overflow: 'hidden' }}>
+          <div style={{ background: '#fff', borderRadius: 8, boxShadow: '0 0 0 1px var(--border)', overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
               <thead>
                 <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
@@ -1109,7 +1109,7 @@ export function PaymentList() {
       {toast && (
         <div style={{
           position: 'fixed', bottom: 24, right: 24,
-          background: '#1a1a2e', color: '#fff',
+          background: 'var(--sidebar-bg)', color: '#fff',
           padding: '10px 18px', borderRadius: 8,
           fontSize: '0.85rem', boxShadow: '0 4px 16px rgba(0,0,0,.25)',
           zIndex: 200,
@@ -1146,7 +1146,7 @@ const inputStyle: React.CSSProperties = {
   border: '1px solid var(--input-border)', borderRadius: 6, fontSize: '0.875rem',
 };
 const submitBtn: React.CSSProperties = {
-  background: '#e25822', color: '#fff', border: 'none',
+  background: 'var(--accent)', color: '#fff', border: 'none',
   padding: '7px 18px', borderRadius: 6, cursor: 'pointer',
   fontWeight: 600, fontSize: '0.875rem',
 };

@@ -274,7 +274,7 @@ function SiteCard({ site, devices, actions }: SiteCardProps) {
       border: '1px solid #e5e7eb',
       borderRadius: 10,
       background: '#fff',
-      boxShadow: '0 1px 4px rgba(0,0,0,.06)',
+      boxShadow: '0 0 0 1px var(--border)',
       overflow: 'hidden',
     }}>
       {/* Site header */}
@@ -348,7 +348,7 @@ function LinksTable({ links, deviceMap }: LinksTableProps) {
   }
 
   const LINK_TYPE_COLOR: Record<string, string> = {
-    fiber:    '#1d4ed8',
+    fiber:    'var(--link)',
     wireless: '#059669',
     copper:   '#b45309',
     virtual:  '#7c3aed',
@@ -821,7 +821,7 @@ const btnSecondary: React.CSSProperties = {
   padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem',
 };
 const btnPrimary: React.CSSProperties = {
-  background: '#e25822', color: '#fff', border: 'none',
+  background: 'var(--accent)', color: '#fff', border: 'none',
   padding: '7px 16px', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600,
 };
 const chipBtn: React.CSSProperties = {
@@ -835,7 +835,7 @@ const chipDangerBtn: React.CSSProperties = {
 const tableStyle: React.CSSProperties = {
   width: '100%', borderCollapse: 'collapse', background: '#fff',
   borderRadius: 8, overflow: 'hidden',
-  boxShadow: '0 1px 3px rgba(0,0,0,.08)',
+  boxShadow: '0 0 0 1px var(--border)',
 };
 const th: React.CSSProperties = {
   padding: '10px 12px', textAlign: 'left', fontSize: '0.78rem',

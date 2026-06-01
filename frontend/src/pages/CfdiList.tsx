@@ -342,7 +342,7 @@ export function CfdiList() {
                 onClick={() => handleFilterChange(s)}
                 style={{
                   padding: '3px 10px', borderRadius: 20, border: '1px solid #d1d5db',
-                  background: statusFilter === s ? '#e25822' : '#fff',
+                  background: statusFilter === s ? 'var(--accent)' : '#fff',
                   color: statusFilter === s ? '#fff' : '#374151',
                   cursor: 'pointer', fontSize: '0.78rem', fontWeight: 500,
                 }}
@@ -363,7 +363,7 @@ export function CfdiList() {
                 onClick={() => handleTypeChange(t)}
                 style={{
                   padding: '3px 10px', borderRadius: 20, border: '1px solid #d1d5db',
-                  background: typeFilter === t ? '#e25822' : '#fff',
+                  background: typeFilter === t ? 'var(--accent)' : '#fff',
                   color: typeFilter === t ? '#fff' : '#374151',
                   cursor: 'pointer', fontSize: '0.78rem', fontWeight: 500,
                 }}
@@ -377,10 +377,10 @@ export function CfdiList() {
 
       {/* Table */}
       {isLoading && <p style={{ color: '#888' }}>Loading…</p>}
-      {isError && <p style={{ color: '#e25822' }}>Failed to load CFDI documents.</p>}
+      {isError && <p style={{ color: 'var(--accent)' }}>Failed to load CFDI documents.</p>}
       {data && (
         <>
-          <div style={{ background: '#fff', borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,.08)', overflow: 'auto' }}>
+          <div style={{ background: '#fff', borderRadius: 8, boxShadow: '0 0 0 1px var(--border)', overflow: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.855rem' }}>
               <thead>
                 <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
@@ -558,7 +558,7 @@ const inputStyle: React.CSSProperties = {
   border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.875rem',
 };
 const submitBtn: React.CSSProperties = {
-  background: '#e25822', color: '#fff', border: 'none',
+  background: 'var(--accent)', color: '#fff', border: 'none',
   padding: '7px 18px', borderRadius: 6, cursor: 'pointer',
   fontWeight: 600, fontSize: '0.875rem',
 };

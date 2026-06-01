@@ -404,7 +404,7 @@ export function WarehouseList() {
   const totalPages = data?.meta.totalPages ?? 1;
 
   return (
-    <div style={{ padding: '1.5rem', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ padding: '1.5rem', fontFamily: 'var(--font-sans)' }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: 8 }}>
         <h1 style={{ margin: 0, fontSize: '1.4rem' }}>🏭 Warehouses</h1>
@@ -535,7 +535,7 @@ const modalBox: CSSProperties = {
 const inputStyle: CSSProperties = {
   width: '100%', boxSizing: 'border-box', padding: '0.45rem 0.6rem',
   border: '1px solid var(--input-border)', borderRadius: 4, fontSize: '0.85rem',
-  fontFamily: 'system-ui, sans-serif', marginBottom: '0.75rem',
+  fontFamily: 'var(--font-sans)', marginBottom: '0.75rem',
 };
 
 const labelStyle: CSSProperties = {
@@ -549,7 +549,7 @@ const errorBox: CSSProperties = {
 };
 
 const submitBtn: CSSProperties = {
-  background: '#e25822', color: '#fff', border: 'none', borderRadius: 4,
+  background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4,
   padding: '0.45rem 1.1rem', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem',
 };
 
@@ -559,7 +559,7 @@ const cancelBtn: CSSProperties = {
 };
 
 const primaryBtn: CSSProperties = {
-  background: '#e25822', color: '#fff', border: 'none', borderRadius: 4,
+  background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4,
   padding: '0.5rem 1.1rem', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem',
 };
 
@@ -569,7 +569,7 @@ const filterBtn: CSSProperties = {
 };
 
 const filterBtnActive: CSSProperties = {
-  background: '#e25822', color: '#fff', borderColor: '#e25822',
+  background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)',
 };
 
 const actionBtn: CSSProperties = {
@@ -590,7 +590,7 @@ const pageBtn: CSSProperties = {
 const tbl: CSSProperties = {
   width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem',
   background: 'var(--bg-card)', borderRadius: 6, overflow: 'hidden',
-  boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
+  boxShadow: '0 0 0 1px var(--border)',
 };
 
 const th: CSSProperties = {

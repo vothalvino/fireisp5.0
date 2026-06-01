@@ -402,7 +402,7 @@ export function CreditNoteList() {
                       <td style={styles.td}>#{n.id}</td>
                       <td style={{ ...styles.td, fontWeight: 500 }}>{n.credit_note_number || '—'}</td>
                       <td style={styles.td}>
-                        <Link to={`/clients/${n.client_id}`} style={{ color: '#1d4ed8', textDecoration: 'none', fontWeight: 500 }}>
+                        <Link to={`/clients/${n.client_id}`} style={{ color: 'var(--link)', textDecoration: 'none', fontWeight: 500 }}>
                           {clientName(n.client_id)}
                         </Link>
                       </td>

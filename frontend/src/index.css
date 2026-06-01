@@ -1,50 +1,152 @@
 /* =============================================================================
-   FireISP 5.0 — Global base styles & mobile-responsive layout
+   FireISP 5.0 — Global base styles, design tokens & component layer
+   -----------------------------------------------------------------------------
+   Design system (see front_instructions.md):
+   - Clean / flat / industrial aesthetic. Borders over shadows.
+   - A strict, restricted token palette with EXACTLY ONE accent colour.
+   - High information density on desktop; 4px / 8px spacing grid.
+   - Inter for UI text, JetBrains Mono for numbers / IDs / system values.
    ============================================================================= */
 
 /* =============================================================================
-   CSS Custom Properties — light / dark colour tokens
+   1. Design tokens — light theme (default)
    ============================================================================= */
 
 :root {
   color-scheme: light;
-  --bg-body:        #f5f6fa;
-  --bg-page:        #f0f2f5;
+
+  /* -- Backgrounds: clean off-white, no muddy greys --------------------- */
+  --bg-body:        #f7f8fa;
+  --bg-page:        #f7f8fa;
   --bg-card:        #ffffff;
   --bg-subtle:      #f3f4f6;
   --bg-muted:       #f9fafb;
-  --text-primary:   #111827;
-  --text-secondary: #374151;
-  --text-muted:     #6b7280;
-  --text-dimmed:    #9ca3af;
-  --text-faint:     #888888;
-  --border:         #e5e7eb;
-  --border-subtle:  #f3f4f6;
-  --border-strong:  #d1d5db;
+
+  /* -- Text: high-contrast primary, muted secondary -------------------- */
+  --text-primary:   #18181b;
+  --text-secondary: #3f3f46;
+  --text-muted:     #71717a;
+  --text-dimmed:    #a1a1aa;
+  --text-faint:     #a1a1aa;
+
+  /* -- Borders: thin, crisp, low-contrast zinc ------------------------- */
+  --border:         #e4e4e7;
+  --border-subtle:  #f1f1f4;
+  --border-strong:  #d4d4d8;
+
+  /* -- Inputs ----------------------------------------------------------- */
   --input-bg:       #ffffff;
-  --input-border:   #d1d5db;
+  --input-border:   #d4d4d8;
+
+  /* -- Accent: the single functional accent colour --------------------- */
   --accent:         #e25822;
+  --accent-hover:   #c8491a;
+  --accent-active:  #a93c14;
+  --accent-fg:      #ffffff;
+  --accent-soft:    #fdeee7;
+  --focus-ring:     rgba(226, 88, 34, 0.45);
+
+  /* -- Functional status colours --------------------------------------- */
+  --success:        #15803d;
+  --success-soft:   #dcfce7;
+  --danger:         #dc2626;
+  --danger-soft:    #fef2f2;
+  --danger-border:  #fecaca;
+  --warning:        #b45309;
+  --warning-soft:   #fef3c7;
+
+  /* -- Neutral badge (replaces hardcoded indigo/purple) ---------------- */
+  --badge-bg:       #f1f1f4;
+  --badge-fg:       #3f3f46;
+
+  /* -- Link / inline action colour (single accent, not stray blue) ----- */
+  --link:           var(--accent);
+
+  /* -- App shell (sidebar) --------------------------------------------- */
+  --sidebar-bg:        #18181b;
+  --sidebar-border:    #27272a;
+  --sidebar-fg:        #d4d4d8;
+  --sidebar-fg-muted:  #a1a1aa;
+  --sidebar-fg-dim:    #71717a;
+  --sidebar-active-bg: var(--accent);
+  --sidebar-active-fg: #ffffff;
+  --sidebar-hover-bg:  #27272a;
+  --topbar-bg:         var(--bg-card);
+
+  /* -- Typography ------------------------------------------------------- */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* -- Spacing scale (strict 4px grid) --------------------------------- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  /* -- Radius scale (capped at 8px) ------------------------------------ */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
 }
+
+/* =============================================================================
+   2. Design tokens — dark theme (deep slate / zinc)
+   ============================================================================= */
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg-body:        #0d1117;
-  --bg-page:        #0d1117;
-  --bg-card:        #161b22;
-  --bg-subtle:      #21262d;
-  --bg-muted:       #1c2128;
-  --text-primary:   #e6edf3;
-  --text-secondary: #cdd9e5;
-  --text-muted:     #8b949e;
-  --text-dimmed:    #6e7681;
-  --text-faint:     #6e7681;
-  --border:         #30363d;
-  --border-subtle:  #21262d;
-  --border-strong:  #3d444e;
-  --input-bg:       #0d1117;
-  --input-border:   #3d444e;
+
+  --bg-body:        #09090b;
+  --bg-page:        #09090b;
+  --bg-card:        #18181b;
+  --bg-subtle:      #27272a;
+  --bg-muted:       #1c1c1f;
+
+  --text-primary:   #fafafa;
+  --text-secondary: #d4d4d8;
+  --text-muted:     #a1a1aa;
+  --text-dimmed:    #71717a;
+  --text-faint:     #71717a;
+
+  --border:         #27272a;
+  --border-subtle:  #1f1f23;
+  --border-strong:  #3f3f46;
+
+  --input-bg:       #09090b;
+  --input-border:   #3f3f46;
+
   --accent:         #e25822;
+  --accent-hover:   #f06a35;
+  --accent-active:  #f57d4d;
+  --accent-fg:      #ffffff;
+  --accent-soft:    #2a1a12;
+  --focus-ring:     rgba(226, 88, 34, 0.55);
+
+  --success:        #4ade80;
+  --success-soft:   #14271a;
+  --danger:         #f87171;
+  --danger-soft:    #2a1416;
+  --danger-border:  #5b2526;
+  --warning:        #fbbf24;
+  --warning-soft:   #2a2010;
+
+  --badge-bg:       #27272a;
+  --badge-fg:       #d4d4d8;
+
+  --sidebar-bg:        #111113;
+  --sidebar-border:    #27272a;
+  --sidebar-fg:        #d4d4d8;
+  --sidebar-fg-muted:  #a1a1aa;
+  --sidebar-fg-dim:    #71717a;
+  --sidebar-hover-bg:  #27272a;
+  --topbar-bg:         var(--bg-card);
 }
+
+/* =============================================================================
+   3. Base / reset
+   ============================================================================= */
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -57,68 +159,274 @@ html, body, #root {
 }
 
 body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 0.9rem;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  line-height: 1.5;
   background: var(--bg-body);
   color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* ---- App shell ---------------------------------------------------------- */
+/* =============================================================================
+   4. Global interactive states
+   -----------------------------------------------------------------------------
+   Inline style objects (used widely across pages) cannot express :focus /
+   :hover. These element-level rules give every native control the single
+   accent focus ring and subtle hover feedback without touching each page.
+   ============================================================================= */
+
+a {
+  color: var(--link);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button:not(:disabled):hover {
+  filter: brightness(0.96);
+}
+
+[data-theme="dark"] button:not(:disabled):hover {
+  filter: brightness(1.12);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* =============================================================================
+   5. Component-class layer
+   -----------------------------------------------------------------------------
+   Reusable primitives for new / migrated markup. Borders over shadows.
+   ============================================================================= */
+
+/* -- Page container -------------------------------------------------------- */
+.page {
+  padding: var(--sp-5);
+  max-width: 1280px;
+}
+
+/* -- Panel: flat, 1px-bordered zone (no drop shadow) ----------------------- */
+.panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+/* -- Buttons --------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+.btn-primary:not(:disabled):hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  filter: none;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--border-strong);
+}
+.btn-secondary:not(:disabled):hover {
+  background: var(--bg-subtle);
+  filter: none;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+
+/* -- Inline text action (replaces stray blue link buttons) ----------------- */
+.btn-link {
+  background: transparent;
+  border: none;
+  padding: var(--sp-1) var(--sp-1);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--link);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+/* -- Inputs ---------------------------------------------------------------- */
+.input,
+.select {
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+}
+.select {
+  cursor: pointer;
+}
+
+/* -- Data tables ----------------------------------------------------------- */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.data-table th {
+  padding: var(--sp-2) var(--sp-3);
+  text-align: left;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.data-table td {
+  padding: var(--sp-2) var(--sp-3);
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+.data-table tbody tr:hover {
+  background: var(--bg-muted);
+}
+
+/* -- Numeric / monospace cells (IDs, money, counts, system values) --------- */
+.num,
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.num {
+  text-align: right;
+}
+
+/* -- Badges (neutral by default; status variants) -------------------------- */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--badge-bg);
+  color: var(--badge-fg);
+}
+.badge-accent  { background: var(--accent-soft);  color: var(--accent); }
+.badge-success { background: var(--success-soft);  color: var(--success); }
+.badge-danger  { background: var(--danger-soft);   color: var(--danger); }
+.badge-warning { background: var(--warning-soft);  color: var(--warning); }
+
+/* =============================================================================
+   6. App shell
+   ============================================================================= */
 
 .app-shell {
   display: flex;
   height: 100vh;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 0.9rem;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
 }
-
-/* ---- Sidebar ------------------------------------------------------------ */
 
 .app-sidebar {
   width: 220px;
-  background: #1a1a2e;
-  color: #ccc;
+  background: var(--sidebar-bg);
+  color: var(--sidebar-fg);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  border-right: 1px solid var(--sidebar-border);
   transition: transform 0.25s ease;
   z-index: 200;
 }
-
-/* ---- Main content area -------------------------------------------------- */
 
 .app-main {
   flex: 1;
   overflow: auto;
   min-width: 0; /* prevent content from pushing layout */
+  display: flex;
+  flex-direction: column;
 }
 
-/* ---- Hamburger button (hidden on desktop) ------------------------------- */
+/* -- Desktop top bar: contextual actions / status -------------------------- */
+.app-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  height: 52px;
+  flex-shrink: 0;
+  padding: 0 var(--sp-5);
+  background: var(--topbar-bg);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 90;
+}
+.app-topbar-spacer {
+  flex: 1;
+}
 
+/* -- Hamburger button (hidden on desktop) ---------------------------------- */
 .hamburger-btn {
   display: none;
   position: fixed;
-  top: 0.75rem;
-  left: 0.75rem;
+  top: var(--sp-3);
+  left: var(--sp-3);
   z-index: 300;
-  background: #1a1a2e;
+  background: var(--sidebar-bg);
   color: #fff;
   border: none;
-  border-radius: 4px;
-  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3);
   font-size: 1.2rem;
   cursor: pointer;
   line-height: 1;
 }
 
-/* ---- Mobile top bar (hidden on desktop) --------------------------------- */
-
+/* -- Mobile top bar (hidden on desktop) ------------------------------------ */
 .mobile-topbar {
   display: none;
 }
 
-/* ---- Sidebar overlay backdrop (hidden on desktop) ----------------------- */
-
+/* -- Sidebar overlay backdrop (hidden on desktop) -------------------------- */
 .nav-overlay {
   display: none;
   position: fixed;
@@ -127,13 +435,12 @@ body {
   z-index: 150;
 }
 
-/* ---- Portal layout CSS helpers ------------------------------------------ */
-
+/* -- Portal layout helpers ------------------------------------------------- */
 .portal-header {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
-  padding: 0.75rem 1.5rem;
+  gap: var(--sp-5);
+  padding: var(--sp-3) var(--sp-5);
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
@@ -141,20 +448,20 @@ body {
 
 .portal-nav {
   display: flex;
-  gap: 0.25rem;
+  gap: var(--sp-1);
   flex-wrap: wrap;
 }
 
 .portal-user-area {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: var(--sp-3);
   margin-left: auto;
 }
 
-/* =========================================================================
-   Mobile — screens narrower than 768 px
-   ========================================================================= */
+/* =============================================================================
+   7. Mobile — screens narrower than 768px
+   ============================================================================= */
 
 @media (max-width: 768px) {
 
@@ -165,13 +472,18 @@ body {
     justify-content: center;
   }
 
+  /* Desktop top bar hides on mobile (mobile-topbar takes over) */
+  .app-topbar {
+    display: none;
+  }
+
   /* Show mobile top bar */
   .mobile-topbar {
     display: flex;
     align-items: center;
     height: 48px;
-    background: #1a1a2e;
-    padding: 0 1rem 0 3.5rem;
+    background: var(--sidebar-bg);
+    padding: 0 var(--sp-4) 0 3.5rem;
     position: fixed;
     top: 0;
     left: 0;
@@ -212,8 +524,8 @@ body {
   .portal-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: 0.5rem;
-    padding: 0.75rem 1rem;
+    gap: var(--sp-2);
+    padding: var(--sp-3) var(--sp-4);
   }
 
   .portal-nav {

@@ -288,7 +288,7 @@ function GenerateInvoiceModal({ clients, contracts, onClose, onGenerated }: Gene
               >
                 {/* Item header */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#e25822' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--accent)' }}>
                     {idx + 1}. {ITEM_TYPE_LABELS[item.type]}
                   </span>
                   <button
@@ -430,7 +430,7 @@ export function InvoiceList() {
             onClick={() => handleFilterChange(s)}
             style={{
               padding: '4px 12px', borderRadius: 20, border: '1px solid #d1d5db',
-              background: statusFilter === s ? '#e25822' : '#fff',
+              background: statusFilter === s ? 'var(--accent)' : '#fff',
               color: statusFilter === s ? '#fff' : '#374151',
               cursor: 'pointer', fontSize: '0.8rem', fontWeight: 500,
             }}
@@ -442,10 +442,10 @@ export function InvoiceList() {
 
       {/* Table */}
       {isLoading && <p style={{ color: '#888' }}>Loading…</p>}
-      {isError && <p style={{ color: '#e25822' }}>Failed to load invoices.</p>}
+      {isError && <p style={{ color: 'var(--accent)' }}>Failed to load invoices.</p>}
       {data && (
         <>
-          <div style={{ background: '#fff', borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,.08)', overflow: 'hidden' }}>
+          <div style={{ background: '#fff', borderRadius: 8, boxShadow: '0 0 0 1px var(--border)', overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
               <thead>
                 <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
@@ -470,7 +470,7 @@ export function InvoiceList() {
                     <td style={{ padding: '10px 14px' }}>
                       <Link
                         to={`/invoices/${inv.id}`}
-                        style={{ color: '#e25822', fontWeight: 600, textDecoration: 'none' }}
+                        style={{ color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}
                       >
                         {inv.invoice_number || `#${inv.id}`}
                       </Link>
@@ -544,7 +544,7 @@ const inputStyle: React.CSSProperties = {
   border: '1px solid var(--input-border)', borderRadius: 6, fontSize: '0.875rem',
 };
 const submitBtn: React.CSSProperties = {
-  background: '#e25822', color: '#fff', border: 'none',
+  background: 'var(--accent)', color: '#fff', border: 'none',
   padding: '7px 18px', borderRadius: 6, cursor: 'pointer',
   fontWeight: 600, fontSize: '0.875rem',
 };
@@ -558,7 +558,7 @@ const pageBtn: React.CSSProperties = {
   background: 'var(--bg-card)', cursor: 'pointer', fontSize: '0.8rem',
 };
 const addItemBtn: React.CSSProperties = {
-  background: 'var(--bg-card)', color: '#e25822', border: '1px solid #e25822',
+  background: 'var(--bg-card)', color: 'var(--accent)', border: '1px solid var(--accent)',
   padding: '3px 10px', borderRadius: 4, cursor: 'pointer',
   fontWeight: 600, fontSize: '0.72rem',
 };

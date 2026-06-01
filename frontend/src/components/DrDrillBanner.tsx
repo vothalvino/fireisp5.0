@@ -201,7 +201,7 @@ const styles = {
     maxWidth: 520,
     width: 'calc(100% - 2rem)',
     boxShadow: '0 8px 40px rgba(0,0,0,.25)',
-    fontFamily: 'system-ui, sans-serif',
+    fontFamily: 'var(--font-sans)',
     display: 'flex' as const,
     flexDirection: 'column' as const,
     gap: '0.85rem',
@@ -254,7 +254,7 @@ const styles = {
   },
   dismissBtn: {
     padding: '0.6rem',
-    background: '#e25822',
+    background: 'var(--accent)',
     color: '#fff',
     border: 'none',
     borderRadius: 4,

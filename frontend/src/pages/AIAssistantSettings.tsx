@@ -1160,7 +1160,7 @@ export function AIAssistantSettings() {
 // Styles  (mirrors Settings.tsx palette + adds AI-specific entries)// ---------------------------------------------------------------------------
 
 const sty = {
-  page:        { padding: '1.5rem 2rem', fontFamily: 'system-ui, sans-serif', maxWidth: 1100 },
+  page:        { padding: '1.5rem 2rem', fontFamily: 'var(--font-sans)', maxWidth: 1100 },
   pageTitle:   { margin: '0 0 1rem', fontSize: '1.4rem' },
   tabs:        { display: 'flex', gap: 4, borderBottom: '2px solid var(--border)', marginBottom: '1.25rem', flexWrap: 'wrap' as const },
   tabBtn:      {
@@ -1168,7 +1168,7 @@ const sty = {
     padding: '0.5rem 1rem', cursor: 'pointer', fontSize: '0.9rem', color: 'var(--text-muted)',
     marginBottom: -2, transition: 'color .15s',
   } as React.CSSProperties,
-  tabBtnActive: { color: '#e25822', borderBottomColor: '#e25822', fontWeight: 600 } as React.CSSProperties,
+  tabBtnActive: { color: 'var(--accent)', borderBottomColor: 'var(--accent)', fontWeight: 600 } as React.CSSProperties,
   card:        { background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, padding: '1.5rem' },
   sectionTitle: { margin: '0 0 1rem', fontSize: '1rem', fontWeight: 600 },
   catTitle:    { margin: '0 0 0.5rem', fontSize: '0.875rem', fontWeight: 600, textTransform: 'capitalize' as const,
@@ -1201,7 +1201,7 @@ const sty = {
   modalFooter: { display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: '1rem' },
   closeBtn:    { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', color: 'var(--text-faint)' },
   // buttons
-  btnPrimary:  { padding: '0.4rem 1rem', background: '#e25822', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500 },
+  btnPrimary:  { padding: '0.4rem 1rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500 },
   btnGhost:    { padding: '0.4rem 1rem', background: 'var(--bg-body)', color: 'var(--text-secondary)', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer', fontSize: '0.875rem' },
   btnDanger:   { padding: '0.4rem 1rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: '0.875rem' },
   btnTiny:     { padding: '0 6px', background: 'var(--bg-body)', color: 'var(--text-secondary)', border: '1px solid var(--border-strong)', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', lineHeight: '1.6' },

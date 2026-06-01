@@ -355,7 +355,7 @@ export function TicketList() {
                     <td style={td}>
                       <Link
                         to={`/tickets/${t.id}`}
-                        style={{ color: '#1d4ed8', textDecoration: 'none', fontWeight: 600 }}
+                        style={{ color: 'var(--link)', textDecoration: 'none', fontWeight: 600 }}
                         onClick={e => e.stopPropagation()}
                       >
                         #{t.id}
@@ -404,7 +404,7 @@ export function TicketList() {
 // ---------------------------------------------------------------------------
 
 const btnPrimary: React.CSSProperties = {
-  background: '#e25822', color: '#fff', border: 'none',
+  background: 'var(--accent)', color: '#fff', border: 'none',
   padding: '7px 16px', borderRadius: 6, cursor: 'pointer',
   fontSize: '0.85rem', fontWeight: 600,
 };
@@ -419,7 +419,7 @@ const filterSelect: React.CSSProperties = {
 const tableStyle: React.CSSProperties = {
   width: '100%', borderCollapse: 'collapse', background: 'var(--bg-card)',
   borderRadius: 8, overflow: 'hidden',
-  boxShadow: '0 1px 3px rgba(0,0,0,.08)',
+  boxShadow: '0 0 0 1px var(--border)',
 };
 const th: React.CSSProperties = {
   padding: '10px 12px', textAlign: 'left', fontSize: '0.78rem',

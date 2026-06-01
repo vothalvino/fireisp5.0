@@ -426,24 +426,24 @@ export function RadiusSessions() {
 // ---------------------------------------------------------------------------
 
 const s: Record<string, CSSProperties> = {
-  page: { padding: '1.5rem', fontFamily: 'system-ui, sans-serif', fontSize: '0.9rem' },
+  page: { padding: '1.5rem', fontFamily: 'var(--font-sans)', fontSize: '0.9rem' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' },
   title: { margin: 0, fontSize: '1.4rem' },
   headerRight: { display: 'flex', alignItems: 'center', gap: '0.75rem' },
   refreshedAt: { color: 'var(--text-faint)', fontSize: '0.8rem' },
   autoRefreshLabel: { display: 'flex', alignItems: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', cursor: 'pointer' },
   refreshBtn: {
-    padding: '6px 14px', background: '#1a1a2e', color: '#fff',
+    padding: '6px 14px', background: 'var(--sidebar-bg)', color: '#fff',
     border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem',
   },
 
   summaryBar: { display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' },
   summaryCard: {
     flex: '1 1 140px', background: 'var(--bg-card)', borderRadius: 8,
-    padding: '0.9rem 1.2rem', boxShadow: '0 1px 4px rgba(0,0,0,.08)',
+    padding: '0.9rem 1.2rem', boxShadow: '0 0 0 1px var(--border)',
     minWidth: 120,
   },
-  summaryValue: { fontSize: '1.5rem', fontWeight: 700, color: '#1a1a2e' },
+  summaryValue: { fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' },
   summaryLabel: { fontSize: '0.75rem', color: 'var(--text-faint)', marginTop: 2 },
 
   filterBar: { display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' },
@@ -452,7 +452,7 @@ const s: Record<string, CSSProperties> = {
     fontSize: '0.85rem', minWidth: 140,
   },
   applyBtn: {
-    padding: '6px 14px', background: '#e25822', color: '#fff',
+    padding: '6px 14px', background: 'var(--accent)', color: '#fff',
     border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem',
   },
   clearBtn: {
@@ -460,7 +460,7 @@ const s: Record<string, CSSProperties> = {
     border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem',
   },
 
-  tableWrap: { overflowX: 'auto', background: 'var(--bg-card)', borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,.08)' },
+  tableWrap: { overflowX: 'auto', background: 'var(--bg-card)', borderRadius: 8, boxShadow: '0 0 0 1px var(--border)' },
   table: { width: '100%', borderCollapse: 'collapse' },
   th: {
     padding: '0.65rem 0.9rem', background: '#f0f2f8', borderBottom: '2px solid #e0e3ef',
@@ -475,7 +475,7 @@ const s: Record<string, CSSProperties> = {
 
   disconnectBtn: {
     padding: '4px 10px', background: 'transparent',
-    border: '1px solid #e25822', color: '#e25822',
+    border: '1px solid var(--accent)', color: 'var(--accent)',
     borderRadius: 4, cursor: 'pointer', fontSize: '0.78rem',
   },
 
@@ -502,7 +502,7 @@ const s: Record<string, CSSProperties> = {
     borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem',
   },
   confirmBtn: {
-    padding: '7px 16px', background: '#e25822', color: '#fff',
+    padding: '7px 16px', background: 'var(--accent)', color: '#fff',
     border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem',
   },
   errorText: { color: '#c0392b', margin: '0 0 0.5rem', fontSize: '0.85rem' },

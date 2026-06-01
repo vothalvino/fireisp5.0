@@ -524,7 +524,7 @@ export function InvoiceDetail() {
       </div>
 
       {invoiceQ.isLoading && <p style={{ color: '#888' }}>Loading…</p>}
-      {invoiceQ.isError && <p style={{ color: '#e25822' }}>Invoice not found.</p>}
+      {invoiceQ.isError && <p style={{ color: 'var(--accent)' }}>Invoice not found.</p>}
 
       {invoice && (
         <>
@@ -537,7 +537,7 @@ export function InvoiceDetail() {
               {client && (
                 <div style={{ marginTop: 4, fontSize: '0.875rem', color: '#6b7280' }}>
                   Client:{' '}
-                  <Link to={`/clients/${client.id}`} style={{ color: '#e25822', textDecoration: 'none' }}>
+                  <Link to={`/clients/${client.id}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>
                     {client.name}
                   </Link>
                   {client.email && <span style={{ marginLeft: 8, color: '#9ca3af' }}>{client.email}</span>}
@@ -563,7 +563,7 @@ export function InvoiceDetail() {
               <button
                 onClick={() => setShowPayment(true)}
                 disabled={invoice.status === 'paid' || invoice.status === 'void'}
-                style={actionBtn('#e25822')}
+                style={actionBtn('var(--accent)')}
               >
                 💳 Record Payment
               </button>
@@ -580,7 +580,7 @@ export function InvoiceDetail() {
           {/* Toast */}
           {toastMsg && (
             <div style={{
-              background: '#1a1a2e', color: '#fff', padding: '10px 16px',
+              background: 'var(--sidebar-bg)', color: '#fff', padding: '10px 16px',
               borderRadius: 6, marginBottom: '1rem', fontSize: '0.85rem',
             }}>
               {toastMsg}
@@ -661,7 +661,7 @@ export function InvoiceDetail() {
                 <tbody>
                   {(paymentsQ.data ?? []).map(p => (
                     <tr key={p.id} style={{ borderBottom: '1px solid #f9fafb' }}>
-                      <td style={{ padding: '8px 10px', color: '#e25822', fontWeight: 600 }}>#{p.payment_id}</td>
+                      <td style={{ padding: '8px 10px', color: 'var(--accent)', fontWeight: 600 }}>#{p.payment_id}</td>
                       <td style={{ padding: '8px 10px', textTransform: 'capitalize' }}>{(p.payment_method || '').replace('_', ' ')}</td>
                       <td style={{ padding: '8px 10px', fontVariantNumeric: 'tabular-nums' }}>{fmtAmount(p.amount, invoice.currency)}</td>
                       <td style={{ padding: '8px 10px', color: '#6b7280' }}>{fmt(p.payment_date)}</td>
@@ -724,7 +724,7 @@ function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
 
 const card: React.CSSProperties = {
   background: 'var(--bg-card)', borderRadius: 8, padding: '1rem',
-  boxShadow: '0 1px 4px rgba(0,0,0,.08)', marginBottom: '0.25rem',
+  boxShadow: '0 0 0 1px var(--border)', marginBottom: '0.25rem',
 };
 const metaGrid: React.CSSProperties = {
   display: 'grid', gridTemplateColumns: 'auto 1fr',
@@ -751,7 +751,7 @@ const inputStyle: React.CSSProperties = {
   border: '1px solid var(--input-border)', borderRadius: 6, fontSize: '0.875rem',
 };
 const submitBtn: React.CSSProperties = {
-  background: '#e25822', color: '#fff', border: 'none',
+  background: 'var(--accent)', color: '#fff', border: 'none',
   padding: '7px 18px', borderRadius: 6, cursor: 'pointer',
   fontWeight: 600, fontSize: '0.875rem',
 };

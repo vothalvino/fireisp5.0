@@ -466,13 +466,13 @@ export function SnmpMetrics() {
       {hasAnyData && (
         <div style={cs.summaryBar}>
           <div style={cs.summaryCard}>
-            <div style={{ ...cs.summaryValue, color: latestCpu != null && latestCpu > 90 ? '#c0392b' : '#1a1a2e' }}>
+            <div style={{ ...cs.summaryValue, color: latestCpu != null && latestCpu > 90 ? '#c0392b' : 'var(--text-primary)' }}>
               {fmtPct(latestCpu)}
             </div>
             <div style={cs.summaryLabel}>CPU (latest)</div>
           </div>
           <div style={cs.summaryCard}>
-            <div style={{ ...cs.summaryValue, color: latestMem != null && latestMem > 90 ? '#c0392b' : '#1a1a2e' }}>
+            <div style={{ ...cs.summaryValue, color: latestMem != null && latestMem > 90 ? '#c0392b' : 'var(--text-primary)' }}>
               {fmtPct(latestMem)}
             </div>
             <div style={cs.summaryLabel}>Memory (latest)</div>
@@ -503,7 +503,7 @@ export function SnmpMetrics() {
               yUnit="bytes"
               series={[
                 { key: 'in',  values: ifInOctets,  color: '#2980b9', label: '↓ In'  },
-                { key: 'out', values: ifOutOctets, color: '#e25822', label: '↑ Out' },
+                { key: 'out', values: ifOutOctets, color: 'var(--accent)', label: '↑ Out' },
               ]}
             />
           )}
@@ -570,12 +570,12 @@ export function SnmpMetrics() {
 // ---------------------------------------------------------------------------
 
 const cs: Record<string, CSSProperties> = {
-  page: { padding: '1.5rem', fontFamily: 'system-ui, sans-serif', fontSize: '0.9rem' },
+  page: { padding: '1.5rem', fontFamily: 'var(--font-sans)', fontSize: '0.9rem' },
 
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' },
   title: { margin: 0, fontSize: '1.4rem' },
   refreshBtn: {
-    padding: '6px 14px', background: '#1a1a2e', color: '#fff',
+    padding: '6px 14px', background: 'var(--sidebar-bg)', color: '#fff',
     border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem',
   },
 
@@ -592,7 +592,7 @@ const cs: Record<string, CSSProperties> = {
     borderRadius: 4, cursor: 'pointer', fontSize: '0.82rem', color: 'var(--text-secondary)',
   },
   rangeActive: {
-    padding: '6px 12px', background: '#e25822', border: '1px solid #e25822',
+    padding: '6px 12px', background: 'var(--accent)', border: '1px solid var(--accent)',
     borderRadius: 4, cursor: 'pointer', fontSize: '0.82rem', color: '#fff', fontWeight: 600,
   },
 
@@ -603,13 +603,13 @@ const cs: Record<string, CSSProperties> = {
   empty: {
     background: 'var(--bg-card)', borderRadius: 8, padding: '3rem 2rem',
     textAlign: 'center', color: 'var(--text-faint)', fontStyle: 'italic',
-    boxShadow: '0 1px 4px rgba(0,0,0,.08)', lineHeight: 1.8,
+    boxShadow: '0 0 0 1px var(--border)', lineHeight: 1.8,
   },
 
   summaryBar: { display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap' },
   summaryCard: {
     flex: '1 1 120px', background: 'var(--bg-card)', borderRadius: 8,
-    padding: '0.8rem 1rem', boxShadow: '0 1px 4px rgba(0,0,0,.08)', minWidth: 100,
+    padding: '0.8rem 1rem', boxShadow: '0 0 0 1px var(--border)', minWidth: 100,
   },
   summaryValue: { fontSize: '1.4rem', fontWeight: 700 },
   summaryLabel: { fontSize: '0.72rem', color: 'var(--text-faint)', marginTop: 2 },
@@ -618,9 +618,9 @@ const cs: Record<string, CSSProperties> = {
 
   chartBox: {
     background: 'var(--bg-card)', borderRadius: 8, padding: '1rem 1.25rem',
-    boxShadow: '0 1px 4px rgba(0,0,0,.08)',
+    boxShadow: '0 0 0 1px var(--border)',
   },
-  chartTitle: { fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.4rem', color: '#1a1a2e' },
+  chartTitle: { fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.4rem', color: 'var(--text-primary)' },
   chartEmpty: { color: 'var(--text-faint)', fontStyle: 'italic', fontSize: '0.85rem', padding: '1rem 0' },
   legend: { display: 'flex', gap: '1rem', marginBottom: '0.5rem', flexWrap: 'wrap' },
   legendItem: { display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-muted)' },
