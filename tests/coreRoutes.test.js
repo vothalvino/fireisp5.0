@@ -127,9 +127,19 @@ describe('Contract Routes — /api/contracts', () => {
   describe('POST /api/contracts', () => {
     test('creates a contract and returns 201', async () => {
       mockAuthUser();
+      const conn = {
+        query: jest.fn(),
+        beginTransaction: jest.fn().mockResolvedValue(undefined),
+        commit: jest.fn().mockResolvedValue(undefined),
+        rollback: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn(),
+      };
+      conn.query
+        .mockResolvedValueOnce([{ insertId: 2, affectedRows: 1 }])  // INSERT contracts
+        .mockResolvedValueOnce([[{ name: 'Acme' }]]);               // SELECT client name (seed)
+      db.getConnection.mockResolvedValue(conn);
       db.query
-        .mockResolvedValueOnce([{ insertId: 2, affectedRows: 1 }])  // INSERT
-        .mockResolvedValueOnce([[{ ...mockContract, id: 2 }]])       // findById
+        .mockResolvedValueOnce([[{ ...mockContract, id: 2 }]])       // Contract.findById
         .mockResolvedValueOnce([{ affectedRows: 1 }]);               // auditLog
 
       const res = await request(app)

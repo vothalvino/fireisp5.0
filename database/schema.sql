@@ -265,7 +265,7 @@ CREATE TABLE IF NOT EXISTS radius (
     contract_id   BIGINT UNSIGNED NULL,
     nas_id        BIGINT UNSIGNED NULL     COMMENT 'NAS this subscriber authenticates through',
     username      VARCHAR(64)     NOT NULL,
-    password_hash VARCHAR(255)    NOT NULL,
+    password      VARCHAR(255)    NOT NULL COMMENT 'Cleartext PPPoE secret used by FreeRADIUS Cleartext-Password lookups; kept visible for operator reference',
     ip_address              VARCHAR(45)     NULL COMMENT 'Static IPv4 address if assigned',
     ipv6_address            VARCHAR(45)     NULL COMMENT 'Static IPv6 address if assigned (dual-stack)',
     ipv6_delegated_prefix   VARCHAR(45)     NULL COMMENT 'Delegated IPv6 prefix e.g. 2001:db8:abcd:: (DHCPv6-PD)',

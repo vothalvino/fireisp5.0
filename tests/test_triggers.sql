@@ -290,7 +290,7 @@ CALL assert_sql_error('45000', 'UPDATE contracts SET status = ''active'' WHERE i
 
 -- G2. Create RADIUS account, then activate — should succeed
 INSERT INTO nas (id, name, ip_address, secret, type, status) VALUES (9000, 'Test NAS', '10.0.0.1', 'secret123', 'other', 'active');
-INSERT INTO radius (id, client_id, contract_id, nas_id, username, password_hash, status)
+INSERT INTO radius (id, client_id, contract_id, nas_id, username, password, status)
 VALUES (9000, 9000, 9002, 9000, 'test_user_pppoe', 'hash123', 'active');
 UPDATE contracts SET status = 'active' WHERE id = 9002;
 CALL assert_true(ROW_COUNT() = 1, 'G2: PPPoE contract activation succeeds with RADIUS account');
