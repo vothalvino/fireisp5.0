@@ -193,6 +193,22 @@
       "description": "Support ticket management"
     },
     {
+      "name": "Interactions",
+      "description": "Client interaction log and activity timeline"
+    },
+    {
+      "name": "Follow-up Reminders",
+      "description": "Scheduled client follow-ups with automated due notifications"
+    },
+    {
+      "name": "Satisfaction Surveys",
+      "description": "NPS / CSAT surveys and metrics"
+    },
+    {
+      "name": "Escalations",
+      "description": "Ticket escalation management for unresolved issues"
+    },
+    {
       "name": "SLA Definitions",
       "description": "Service level agreement definitions"
     },
@@ -9913,6 +9929,1035 @@
         }
       }
     },
+    "/interactions": {
+      "get": {
+        "tags": [
+          "Interactions"
+        ],
+        "summary": "List interactions",
+        "operationId": "listInteractions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Interaction[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Interactions"
+        ],
+        "summary": "Create a Interaction",
+        "operationId": "createInteraction",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Interaction",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Interaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/interactions/{id}": {
+      "get": {
+        "tags": [
+          "Interactions"
+        ],
+        "summary": "Get a Interaction",
+        "operationId": "getInteraction",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Interaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Interactions"
+        ],
+        "summary": "Update a Interaction",
+        "operationId": "updateInteraction",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Interaction",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Interaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Interactions"
+        ],
+        "summary": "Delete a Interaction",
+        "operationId": "deleteInteraction",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/interactions/{id}/restore": {
+      "post": {
+        "tags": [
+          "Interactions"
+        ],
+        "summary": "Restore a soft-deleted interaction",
+        "operationId": "restoreInteraction",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Interaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clients/{id}/timeline": {
+      "get": {
+        "tags": [
+          "Interactions"
+        ],
+        "summary": "Unified client activity timeline (interactions, tickets, payments, emails, SMS)",
+        "operationId": "getClientTimeline",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Timeline",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/follow-up-reminders": {
+      "get": {
+        "tags": [
+          "Follow-up Reminders"
+        ],
+        "summary": "List follow-up-reminders",
+        "operationId": "listFollowUpReminders",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FollowUpReminder[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Follow-up Reminders"
+        ],
+        "summary": "Create a FollowUpReminder",
+        "operationId": "createFollowUpReminder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "FollowUpReminder",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "FollowUpReminder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/follow-up-reminders/{id}": {
+      "get": {
+        "tags": [
+          "Follow-up Reminders"
+        ],
+        "summary": "Get a FollowUpReminder",
+        "operationId": "getFollowUpReminder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FollowUpReminder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Follow-up Reminders"
+        ],
+        "summary": "Update a FollowUpReminder",
+        "operationId": "updateFollowUpReminder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "FollowUpReminder",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "FollowUpReminder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Follow-up Reminders"
+        ],
+        "summary": "Delete a FollowUpReminder",
+        "operationId": "deleteFollowUpReminder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/follow-up-reminders/due": {
+      "get": {
+        "tags": [
+          "Follow-up Reminders"
+        ],
+        "summary": "List pending reminders that are due",
+        "operationId": "listDueFollowUpReminders",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "assigned_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FollowUpReminder[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/follow-up-reminders/{id}/restore": {
+      "post": {
+        "tags": [
+          "Follow-up Reminders"
+        ],
+        "summary": "Restore a soft-deleted reminder",
+        "operationId": "restoreFollowUpReminder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FollowUpReminder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/follow-up-reminders/{id}/complete": {
+      "post": {
+        "tags": [
+          "Follow-up Reminders"
+        ],
+        "summary": "Mark a reminder as completed",
+        "operationId": "completeFollowUpReminder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FollowUpReminder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/satisfaction-surveys": {
+      "get": {
+        "tags": [
+          "Satisfaction Surveys"
+        ],
+        "summary": "List satisfaction-surveys",
+        "operationId": "listSatisfactionSurveys",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SatisfactionSurvey[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Satisfaction Surveys"
+        ],
+        "summary": "Create a SatisfactionSurvey",
+        "operationId": "createSatisfactionSurvey",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "SatisfactionSurvey",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "SatisfactionSurvey",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/satisfaction-surveys/{id}": {
+      "get": {
+        "tags": [
+          "Satisfaction Surveys"
+        ],
+        "summary": "Get a SatisfactionSurvey",
+        "operationId": "getSatisfactionSurvey",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SatisfactionSurvey",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Satisfaction Surveys"
+        ],
+        "summary": "Update a SatisfactionSurvey",
+        "operationId": "updateSatisfactionSurvey",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "SatisfactionSurvey",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SatisfactionSurvey",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Satisfaction Surveys"
+        ],
+        "summary": "Delete a SatisfactionSurvey",
+        "operationId": "deleteSatisfactionSurvey",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/satisfaction-surveys/metrics": {
+      "get": {
+        "tags": [
+          "Satisfaction Surveys"
+        ],
+        "summary": "Aggregate NPS score and CSAT average",
+        "operationId": "getSatisfactionSurveyMetrics",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "months",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Survey metrics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/satisfaction-surveys/{id}/restore": {
+      "post": {
+        "tags": [
+          "Satisfaction Surveys"
+        ],
+        "summary": "Restore a soft-deleted survey",
+        "operationId": "restoreSatisfactionSurvey",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SatisfactionSurvey",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/satisfaction-surveys/{id}/send": {
+      "post": {
+        "tags": [
+          "Satisfaction Surveys"
+        ],
+        "summary": "Send (or re-send) a survey to the client",
+        "operationId": "sendSatisfactionSurvey",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SatisfactionSurvey",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/satisfaction-surveys/{id}/respond": {
+      "post": {
+        "tags": [
+          "Satisfaction Surveys"
+        ],
+        "summary": "Record the client response (NPS: 0-10, CSAT: 1-5)",
+        "operationId": "respondSatisfactionSurvey",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "interactions_respondSurvey",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SatisfactionSurvey",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/escalations": {
+      "get": {
+        "tags": [
+          "Escalations"
+        ],
+        "summary": "List ticket escalations",
+        "operationId": "listEscalations",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Escalation[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Escalations"
+        ],
+        "summary": "Escalate a ticket (level auto-increments)",
+        "operationId": "createEscalation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "interactions_createEscalation",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Escalation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/escalations/candidates": {
+      "get": {
+        "tags": [
+          "Escalations"
+        ],
+        "summary": "Unresolved tickets without an open escalation",
+        "operationId": "listEscalationCandidates",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hours",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Candidate[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/escalations/{id}": {
+      "get": {
+        "tags": [
+          "Escalations"
+        ],
+        "summary": "Get an escalation",
+        "operationId": "getEscalation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Escalation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/escalations/{id}/transition": {
+      "post": {
+        "tags": [
+          "Escalations"
+        ],
+        "summary": "Acknowledge or resolve an escalation",
+        "operationId": "transitionEscalation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "interactions_transitionEscalation",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Escalation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/sla-definitions": {
       "get": {
         "tags": [
@@ -18490,6 +19535,620 @@
           "csv"
         ]
       },
+      "interactions_createInteraction": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "user_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "interaction_type": {
+            "type": "string",
+            "enum": [
+              "call",
+              "email",
+              "sms",
+              "visit",
+              "chat",
+              "other"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 300
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          },
+          "occurred_at": {
+            "type": "string",
+            "maximum": 30
+          },
+          "duration_minutes": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100000
+          }
+        },
+        "required": [
+          "client_id",
+          "subject"
+        ]
+      },
+      "interactions_updateInteraction": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "user_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "interaction_type": {
+            "type": "string",
+            "enum": [
+              "call",
+              "email",
+              "sms",
+              "visit",
+              "chat",
+              "other"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 300
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          },
+          "occurred_at": {
+            "type": "string",
+            "maximum": 30
+          },
+          "duration_minutes": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100000
+          }
+        }
+      },
+      "interactions_patchInteraction": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "user_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "interaction_type": {
+            "type": "string",
+            "enum": [
+              "call",
+              "email",
+              "sms",
+              "visit",
+              "chat",
+              "other"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 300
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          },
+          "occurred_at": {
+            "type": "string",
+            "maximum": 30
+          },
+          "duration_minutes": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100000
+          }
+        }
+      },
+      "interactions_createFollowUp": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "interaction_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "ticket_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "assigned_to": {
+            "type": "number",
+            "minimum": 1
+          },
+          "title": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "completed",
+              "cancelled"
+            ]
+          },
+          "due_at": {
+            "type": "string",
+            "maximum": 30
+          }
+        },
+        "required": [
+          "client_id",
+          "title",
+          "due_at"
+        ]
+      },
+      "interactions_updateFollowUp": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "interaction_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "ticket_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "assigned_to": {
+            "type": "number",
+            "minimum": 1
+          },
+          "title": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "completed",
+              "cancelled"
+            ]
+          },
+          "due_at": {
+            "type": "string",
+            "maximum": 30
+          }
+        }
+      },
+      "interactions_patchFollowUp": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "interaction_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "ticket_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "assigned_to": {
+            "type": "number",
+            "minimum": 1
+          },
+          "title": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "completed",
+              "cancelled"
+            ]
+          },
+          "due_at": {
+            "type": "string",
+            "maximum": 30
+          }
+        }
+      },
+      "interactions_createSurvey": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "ticket_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "interaction_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "survey_type": {
+            "type": "string",
+            "enum": [
+              "nps",
+              "csat"
+            ]
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "portal",
+              "in_person"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "sent",
+              "responded",
+              "expired"
+            ]
+          }
+        },
+        "required": [
+          "client_id"
+        ]
+      },
+      "interactions_updateSurvey": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "ticket_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "interaction_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "survey_type": {
+            "type": "string",
+            "enum": [
+              "nps",
+              "csat"
+            ]
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "portal",
+              "in_person"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "sent",
+              "responded",
+              "expired"
+            ]
+          }
+        }
+      },
+      "interactions_patchSurvey": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "ticket_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "interaction_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "survey_type": {
+            "type": "string",
+            "enum": [
+              "nps",
+              "csat"
+            ]
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "portal",
+              "in_person"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "sent",
+              "responded",
+              "expired"
+            ]
+          }
+        }
+      },
+      "interactions_respondSurvey": {
+        "type": "object",
+        "properties": {
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "comment": {
+            "type": "string",
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "score"
+        ]
+      },
+      "interactions_createEscalation": {
+        "type": "object",
+        "properties": {
+          "ticket_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "escalated_to": {
+            "type": "number",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        "required": [
+          "ticket_id",
+          "reason"
+        ]
+      },
+      "interactions_transitionEscalation": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "acknowledged",
+              "resolved"
+            ]
+          },
+          "resolution_notes": {
+            "type": "string",
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "interactions_INTERACTION_TYPES": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          },
+          "3": {
+            "type": "string"
+          },
+          "4": {
+            "type": "string"
+          },
+          "5": {
+            "type": "string"
+          }
+        }
+      },
+      "interactions_DIRECTIONS": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          }
+        }
+      },
+      "interactions_REMINDER_PRIORITIES": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          }
+        }
+      },
+      "interactions_REMINDER_STATUSES": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          }
+        }
+      },
+      "interactions_SURVEY_TYPES": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          }
+        }
+      },
+      "interactions_SURVEY_CHANNELS": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          },
+          "3": {
+            "type": "string"
+          }
+        }
+      },
+      "interactions_SURVEY_STATUSES": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          },
+          "3": {
+            "type": "string"
+          }
+        }
+      },
+      "interactions_ESCALATION_STATUSES": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          }
+        }
+      },
       "inventory_createInventoryItem": {
         "type": "object",
         "properties": {
@@ -20267,63 +21926,6 @@
           }
         }
       },
-      "paymentTransactions_listPaymentTransactions": {
-        "type": "object",
-        "properties": {
-          "gateway_status": {
-            "type": "string",
-            "enum": [
-              "pending",
-              "succeeded",
-              "failed",
-              "refunded"
-            ]
-          },
-          "currency": {
-            "type": "string",
-            "maximum": 3
-          },
-          "page": {
-            "type": "number",
-            "minimum": 1
-          },
-          "limit": {
-            "type": "number",
-            "minimum": 1,
-            "maximum": 100
-          }
-        }
-      },
-      "paymentWebhooks_stripeWebhook": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "type"
-        ]
-      },
-      "paymentWebhooks_conektaWebhook": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "type"
-        ]
-      },
       "payments_createPayment": {
         "type": "object",
         "properties": {
@@ -20477,6 +22079,63 @@
         "required": [
           "invoice_id",
           "amount"
+        ]
+      },
+      "paymentTransactions_listPaymentTransactions": {
+        "type": "object",
+        "properties": {
+          "gateway_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "succeeded",
+              "failed",
+              "refunded"
+            ]
+          },
+          "currency": {
+            "type": "string",
+            "maximum": 3
+          },
+          "page": {
+            "type": "number",
+            "minimum": 1
+          },
+          "limit": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "paymentWebhooks_stripeWebhook": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type"
+        ]
+      },
+      "paymentWebhooks_conektaWebhook": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type"
         ]
       },
       "pdf_pdfById": {

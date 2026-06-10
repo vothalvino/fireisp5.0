@@ -82,6 +82,10 @@ function generateSpec() {
       { name: 'Service Areas', description: 'Service area management' },
       { name: 'Coverage Zones', description: 'Coverage zone management' },
       { name: 'Tickets', description: 'Support ticket management' },
+      { name: 'Interactions', description: 'Client interaction log and activity timeline' },
+      { name: 'Follow-up Reminders', description: 'Scheduled client follow-ups with automated due notifications' },
+      { name: 'Satisfaction Surveys', description: 'NPS / CSAT surveys and metrics' },
+      { name: 'Escalations', description: 'Ticket escalation management for unresolved issues' },
       { name: 'SLA Definitions', description: 'Service level agreement definitions' },
       { name: 'Alerts', description: 'Alert rules and event history' },
       { name: 'Outages', description: 'Outage tracking' },
@@ -391,6 +395,33 @@ function generateSpec() {
 
       // ---- Tickets ----
       ...crudPaths('tickets', 'Tickets', 'Ticket'),
+
+      // ---- Interactions (§1.3) ----
+      ...crudPaths('interactions', 'Interactions', 'Interaction'),
+      '/interactions/{id}/restore': { post: { tags: ['Interactions'], summary: 'Restore a soft-deleted interaction', operationId: 'restoreInteraction', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Interaction') } },
+      '/clients/{id}/timeline': { get: { tags: ['Interactions'], summary: 'Unified client activity timeline (interactions, tickets, payments, emails, SMS)', operationId: 'getClientTimeline', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'limit', in: 'query', required: false, schema: { type: 'integer' } }], responses: r200('Timeline') } },
+
+      // ---- Follow-up Reminders (§1.3) ----
+      ...crudPaths('follow-up-reminders', 'Follow-up Reminders', 'FollowUpReminder'),
+      '/follow-up-reminders/due': { get: { tags: ['Follow-up Reminders'], summary: 'List pending reminders that are due', operationId: 'listDueFollowUpReminders', security: [{ bearerAuth: [] }], parameters: [{ name: 'assigned_to', in: 'query', required: false, schema: { type: 'integer' } }], responses: r200('FollowUpReminder[]') } },
+      '/follow-up-reminders/{id}/restore': { post: { tags: ['Follow-up Reminders'], summary: 'Restore a soft-deleted reminder', operationId: 'restoreFollowUpReminder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('FollowUpReminder') } },
+      '/follow-up-reminders/{id}/complete': { post: { tags: ['Follow-up Reminders'], summary: 'Mark a reminder as completed', operationId: 'completeFollowUpReminder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('FollowUpReminder') } },
+
+      // ---- Satisfaction Surveys (§1.3) ----
+      ...crudPaths('satisfaction-surveys', 'Satisfaction Surveys', 'SatisfactionSurvey'),
+      '/satisfaction-surveys/metrics': { get: { tags: ['Satisfaction Surveys'], summary: 'Aggregate NPS score and CSAT average', operationId: 'getSatisfactionSurveyMetrics', security: [{ bearerAuth: [] }], parameters: [{ name: 'months', in: 'query', required: false, schema: { type: 'integer' } }], responses: r200('Survey metrics') } },
+      '/satisfaction-surveys/{id}/restore': { post: { tags: ['Satisfaction Surveys'], summary: 'Restore a soft-deleted survey', operationId: 'restoreSatisfactionSurvey', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SatisfactionSurvey') } },
+      '/satisfaction-surveys/{id}/send': { post: { tags: ['Satisfaction Surveys'], summary: 'Send (or re-send) a survey to the client', operationId: 'sendSatisfactionSurvey', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SatisfactionSurvey') } },
+      '/satisfaction-surveys/{id}/respond': { post: { tags: ['Satisfaction Surveys'], summary: 'Record the client response (NPS: 0-10, CSAT: 1-5)', operationId: 'respondSatisfactionSurvey', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('interactions_respondSurvey'), responses: r200('SatisfactionSurvey') } },
+
+      // ---- Escalations (§1.3) ----
+      '/escalations': {
+        get: { tags: ['Escalations'], summary: 'List ticket escalations', operationId: 'listEscalations', security: [{ bearerAuth: [] }], responses: r200('Escalation[]') },
+        post: { tags: ['Escalations'], summary: 'Escalate a ticket (level auto-increments)', operationId: 'createEscalation', security: [{ bearerAuth: [] }], requestBody: jsonBody('interactions_createEscalation'), responses: r201('Escalation') },
+      },
+      '/escalations/candidates': { get: { tags: ['Escalations'], summary: 'Unresolved tickets without an open escalation', operationId: 'listEscalationCandidates', security: [{ bearerAuth: [] }], parameters: [{ name: 'hours', in: 'query', required: false, schema: { type: 'integer' } }, { name: 'limit', in: 'query', required: false, schema: { type: 'integer' } }], responses: r200('Candidate[]') } },
+      '/escalations/{id}': { get: { tags: ['Escalations'], summary: 'Get an escalation', operationId: 'getEscalation', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Escalation') } },
+      '/escalations/{id}/transition': { post: { tags: ['Escalations'], summary: 'Acknowledge or resolve an escalation', operationId: 'transitionEscalation', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('interactions_transitionEscalation'), responses: r200('Escalation') } },
 
       // ---- SLA Definitions ----
       ...crudPaths('sla-definitions', 'SLA Definitions', 'SlaDefinition'),

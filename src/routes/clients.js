@@ -126,6 +126,17 @@ router.get('/:id/balance-ledger', requirePermission('clients.view'), async (req,
   } catch (err) { next(err); }
 });
 
+// Client activity timeline — unified interactions/tickets/payments/emails/SMS feed (§1.3)
+router.get('/:id/timeline', requirePermission('clients.view'), async (req, res, next) => {
+  try {
+    const interactionService = require('../services/interactionService');
+    const timeline = await interactionService.activityTimeline(req.params.id, req.orgId, {
+      limit: req.query.limit,
+    });
+    res.json({ data: timeline });
+  } catch (err) { next(err); }
+});
+
 // Set / reset portal password for a client (admin action)
 router.put('/:id/portal-password', requirePermission('clients.update'), async (req, res, next) => {
   try {
@@ -218,7 +229,7 @@ router.get('/:id/documents/:fileId/download', requirePermission('clients.view'),
   try {
     await Client.findByIdOrFail(req.params.id, req.orgId);
     const [rows] = await db.query(
-      `SELECT * FROM files WHERE id = ? AND entity_type = 'client' AND entity_id = ? AND deleted_at IS NULL`,
+      'SELECT * FROM files WHERE id = ? AND entity_type = \'client\' AND entity_id = ? AND deleted_at IS NULL',
       [req.params.fileId, req.params.id],
     );
     const file = rows[0];
@@ -235,7 +246,7 @@ router.delete('/:id/documents/:fileId', requirePermission('clients.update'), asy
   try {
     await Client.findByIdOrFail(req.params.id, req.orgId);
     const [result] = await db.query(
-      `UPDATE files SET deleted_at = NOW() WHERE id = ? AND entity_type = 'client' AND entity_id = ? AND deleted_at IS NULL`,
+      'UPDATE files SET deleted_at = NOW() WHERE id = ? AND entity_type = \'client\' AND entity_id = ? AND deleted_at IS NULL',
       [req.params.fileId, req.params.id],
     );
     if (result.affectedRows === 0) throw new NotFoundError('Document');

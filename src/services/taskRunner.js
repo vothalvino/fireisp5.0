@@ -20,6 +20,7 @@ const retentionService = require('./retentionService');
 const paymentRetryService = require('./paymentRetryService');
 const configBackupService = require('./configBackupService');
 const drDrillService = require('./drDrillService');
+const interactionService = require('./interactionService');
 const emailTemplates = require('../views/emailTemplates');
 const { backup: runBackup } = require('../scripts/backup');
 
@@ -86,6 +87,12 @@ async function runTask(taskName, organizationId = null) {
       return configBackupService.runNightlyBackups(organizationId);
     case 'quarterly_dr_drill':
       return drDrillService.runDrill();
+    case 'follow_up_reminders':
+      return interactionService.processDueReminders(organizationId);
+    case 'dispatch_satisfaction_surveys':
+      return interactionService.dispatchTicketSurveys(organizationId);
+    case 'auto_escalate_tickets':
+      return interactionService.autoEscalateTickets(organizationId);
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }

@@ -17,15 +17,23 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'leads.create', 'leads.update',
     'service_orders.create', 'service_orders.update',
     'winback.view', 'lifecycle.view',
+    'interactions.view', 'interactions.create', 'interactions.update', 'interactions.delete',
+    'follow_ups.view', 'follow_ups.create', 'follow_ups.update', 'follow_ups.delete',
+    'surveys.view', 'surveys.create', 'surveys.update',
+    'escalations.view', 'escalations.create', 'escalations.update',
   ],
-  technician: ['devices.create', 'devices.update', 'devices.delete', 'service_orders.update'],
+  technician: [
+    'devices.create', 'devices.update', 'devices.delete', 'service_orders.update',
+    'interactions.view', 'follow_ups.view', 'follow_ups.update', 'escalations.view',
+  ],
   billing: [
     'winback.view', 'winback.create', 'winback.update', 'winback.delete',
     'lifecycle.view',
     'suspension_rules.create', 'suspension_rules.update', 'suspension_rules.delete',
+    'interactions.view', 'follow_ups.view', 'surveys.view',
   ],
-  'read-only': ['winback.view', 'lifecycle.view'],
-  readonly: ['winback.view', 'lifecycle.view'],
+  'read-only': ['winback.view', 'lifecycle.view', 'interactions.view', 'follow_ups.view', 'surveys.view', 'escalations.view'],
+  readonly: ['winback.view', 'lifecycle.view', 'interactions.view', 'follow_ups.view', 'surveys.view', 'escalations.view'],
 };
 
 /**
