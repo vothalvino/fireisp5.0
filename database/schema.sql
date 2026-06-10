@@ -49,10 +49,11 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS clients (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this client belongs to; NULL = single-tenant deployment',
+    client_group_id BIGINT UNSIGNED NULL     COMMENT 'Family/account group this client belongs to (see client_groups)',
     name            VARCHAR(255)    NOT NULL,
     email           VARCHAR(255)    NULL,
     phone           VARCHAR(30)     NULL,
-    client_type     ENUM('personal', 'company', 'residential', 'business', 'government', 'wholesale') NOT NULL DEFAULT 'personal',
+    client_type     ENUM('personal', 'company', 'residential', 'business', 'corporate', 'government', 'wholesale') NOT NULL DEFAULT 'personal',
     locale          ENUM('global', 'MX') NOT NULL DEFAULT 'global'
                         COMMENT 'Regional compliance switch: global = no country-specific requirements; MX = SAT CFDI 4.0 + IFT/CRT compliance required',
     tax_id          VARCHAR(50)     NULL,
@@ -62,6 +63,12 @@ CREATE TABLE IF NOT EXISTS clients (
     state           VARCHAR(100)    NULL,
     country         VARCHAR(100)    NULL DEFAULT NULL,
     zip_code        VARCHAR(20)     NULL,
+    latitude        DECIMAL(10, 8)  NULL     COMMENT 'Service-address latitude (WGS-84) for the map pin / geocoding',
+    longitude       DECIMAL(11, 8)  NULL     COMMENT 'Service-address longitude (WGS-84) for the map pin / geocoding',
+    geocoded_at     TIMESTAMP       NULL     COMMENT 'When latitude/longitude were last resolved by the geocoding provider',
+    credit_score    SMALLINT UNSIGNED NULL   COMMENT 'Customer credit score (0-1000 scale; NULL = unscored)',
+    risk_rating     ENUM('low', 'medium', 'high', 'unrated') NOT NULL DEFAULT 'unrated'
+                        COMMENT 'Customer risk rating derived from credit/payment history',
     notes           TEXT            NULL,
     status          ENUM('active', 'inactive', 'suspended') NOT NULL DEFAULT 'active',
     portal_password_hash       VARCHAR(255) NULL      COMMENT 'bcrypt hash for self-service portal password; NULL = portal access not enabled',
@@ -74,12 +81,228 @@ CREATE TABLE IF NOT EXISTS clients (
 
     PRIMARY KEY (id),
     KEY idx_clients_organization_id (organization_id),
+    KEY idx_clients_client_group_id (client_group_id),
     KEY idx_clients_locale (locale),
     KEY idx_clients_status (status),
     KEY idx_clients_email (email),
+    KEY idx_clients_risk_rating (risk_rating),
     KEY idx_clients_deleted_at (deleted_at),
     CONSTRAINT fk_clients_organization FOREIGN KEY (organization_id)
-        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_clients_client_group FOREIGN KEY (client_group_id)
+        REFERENCES client_groups (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: client_groups
+-- Purpose: Family/account grouping (shared billing, family plan). Defined as a
+--          forward reference for the clients.client_group_id FK (resolved under
+--          SET FOREIGN_KEY_CHECKS = 0 at the top of this file).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS client_groups (
+    id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id   BIGINT UNSIGNED NULL
+                          COMMENT 'Tenant organization this group belongs to; NULL = single-tenant deployment',
+    name              VARCHAR(255)    NOT NULL COMMENT 'Group / family name',
+    billing_mode      ENUM('separate', 'shared') NOT NULL DEFAULT 'separate'
+                          COMMENT 'separate = each member billed individually; shared = primary member billed for all',
+    primary_client_id BIGINT UNSIGNED NULL
+                          COMMENT 'Member designated as the billing owner when billing_mode = shared',
+    notes             TEXT            NULL,
+    created_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at        DATETIME        DEFAULT NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_client_groups_organization_id (organization_id),
+    KEY idx_client_groups_primary_client_id (primary_client_id),
+    KEY idx_client_groups_deleted_at (deleted_at),
+    CONSTRAINT fk_client_groups_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_client_groups_primary_client FOREIGN KEY (primary_client_id)
+        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: client_custom_fields
+-- Purpose: Unlimited per-client key/value custom fields (technician notes,
+--          internal tags, etc.).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS client_custom_fields (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    client_id   BIGINT UNSIGNED NOT NULL,
+    field_key   VARCHAR(100)    NOT NULL COMMENT 'Custom field name / label',
+    field_value TEXT            NULL     COMMENT 'Custom field value (free-form text)',
+    created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at  DATETIME        DEFAULT NULL,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_client_custom_fields_client_key (client_id, field_key),
+    KEY idx_client_custom_fields_client_id (client_id),
+    KEY idx_client_custom_fields_deleted_at (deleted_at),
+    CONSTRAINT fk_client_custom_fields_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: leads
+-- Purpose: Lead capture and prospect pipeline (§1.2 Customer Lifecycle).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS leads (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL
+                            COMMENT 'Tenant organization; NULL = single-tenant deployment',
+    name                VARCHAR(200)    NOT NULL COMMENT 'Prospect name',
+    email               VARCHAR(255)    NULL,
+    phone               VARCHAR(30)     NULL,
+    company             VARCHAR(200)    NULL,
+    source              ENUM('website','referral','phone','walk_in','social','campaign','other')
+                            NOT NULL DEFAULT 'other' COMMENT 'How the lead was captured',
+    status              ENUM('new','contacted','qualified','proposal','won','lost')
+                            NOT NULL DEFAULT 'new' COMMENT 'Pipeline stage',
+    estimated_value     DECIMAL(12,2)   NULL COMMENT 'Estimated monthly/contract value',
+    currency            CHAR(3)         NULL,
+    assigned_to         BIGINT UNSIGNED NULL COMMENT 'Sales agent (users.id) owning this lead',
+    address             VARCHAR(500)    NULL,
+    city                VARCHAR(100)    NULL,
+    state               VARCHAR(100)    NULL,
+    zip_code            VARCHAR(20)     NULL,
+    latitude            DECIMAL(10,7)   NULL,
+    longitude           DECIMAL(10,7)   NULL,
+    notes               TEXT            NULL,
+    converted_client_id BIGINT UNSIGNED NULL COMMENT 'Client created when this lead was won/converted',
+    converted_at        DATETIME        NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        DEFAULT NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_leads_organization_id (organization_id),
+    KEY idx_leads_status (status),
+    KEY idx_leads_assigned_to (assigned_to),
+    KEY idx_leads_converted_client_id (converted_client_id),
+    KEY idx_leads_deleted_at (deleted_at),
+    CONSTRAINT fk_leads_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_leads_assigned_to FOREIGN KEY (assigned_to)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_leads_converted_client FOREIGN KEY (converted_client_id)
+        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: service_orders
+-- Purpose: Service order workflow — requested → approved → provisioning →
+--          activated (§1.2 Customer Lifecycle).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS service_orders (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL
+                        COMMENT 'Tenant organization; NULL = single-tenant deployment',
+    order_number    VARCHAR(40)     NOT NULL COMMENT 'Human-readable order reference (e.g. SO-000123)',
+    client_id       BIGINT UNSIGNED NULL COMMENT 'Existing client this order is for (NULL for prospects)',
+    lead_id         BIGINT UNSIGNED NULL COMMENT 'Originating lead, when the order came from the pipeline',
+    plan_id         BIGINT UNSIGNED NULL COMMENT 'Requested service plan',
+    contract_id     BIGINT UNSIGNED NULL COMMENT 'Contract created/linked when the order is activated',
+    order_type      ENUM('new_install','upgrade','downgrade','relocation','reconnect')
+                        NOT NULL DEFAULT 'new_install',
+    status          ENUM('requested','approved','provisioning','activated','cancelled')
+                        NOT NULL DEFAULT 'requested',
+    assigned_to     BIGINT UNSIGNED NULL COMMENT 'Technician/agent (users.id) handling the order',
+    address         VARCHAR(500)    NULL,
+    notes           TEXT            NULL,
+    requested_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    approved_at     DATETIME        NULL,
+    approved_by     BIGINT UNSIGNED NULL,
+    activated_at    DATETIME        NULL,
+    cancelled_at    DATETIME        NULL,
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_service_orders_org_number (organization_id, order_number),
+    KEY idx_service_orders_organization_id (organization_id),
+    KEY idx_service_orders_client_id (client_id),
+    KEY idx_service_orders_lead_id (lead_id),
+    KEY idx_service_orders_status (status),
+    KEY idx_service_orders_deleted_at (deleted_at),
+    CONSTRAINT fk_service_orders_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_service_orders_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_service_orders_lead FOREIGN KEY (lead_id)
+        REFERENCES leads (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_service_orders_plan FOREIGN KEY (plan_id)
+        REFERENCES plans (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_service_orders_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_service_orders_assigned_to FOREIGN KEY (assigned_to)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_service_orders_approved_by FOREIGN KEY (approved_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: service_order_tasks
+-- Purpose: Customer onboarding checklist items per service order (§1.2).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS service_order_tasks (
+    id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    service_order_id BIGINT UNSIGNED NOT NULL,
+    task_key         VARCHAR(60)     NOT NULL
+                         COMMENT 'Checklist key, e.g. contract_signed, payment_verified, equipment_received',
+    label            VARCHAR(200)    NOT NULL COMMENT 'Human-readable checklist label',
+    is_done          TINYINT(1)      NOT NULL DEFAULT 0,
+    completed_at     DATETIME        NULL,
+    completed_by     BIGINT UNSIGNED NULL,
+    sort_order       INT             NOT NULL DEFAULT 0,
+    notes            TEXT            NULL,
+    created_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_service_order_tasks_order_key (service_order_id, task_key),
+    KEY idx_service_order_tasks_order_id (service_order_id),
+    CONSTRAINT fk_service_order_tasks_order FOREIGN KEY (service_order_id)
+        REFERENCES service_orders (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_service_order_tasks_completed_by FOREIGN KEY (completed_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: winback_campaigns
+-- Purpose: Win-back campaigns for cancelled customers (§1.2).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS winback_campaigns (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL
+                            COMMENT 'Tenant organization; NULL = single-tenant deployment',
+    name                VARCHAR(200)    NOT NULL,
+    status              ENUM('draft','active','paused','completed')
+                            NOT NULL DEFAULT 'draft',
+    target_segment      ENUM('all_cancelled','cancelled_30d','cancelled_90d','high_value')
+                            NOT NULL DEFAULT 'all_cancelled'
+                            COMMENT 'Which cancelled-customer cohort this campaign targets',
+    offer_description   TEXT            NULL,
+    discount_percent    DECIMAL(5,2)    NULL COMMENT 'Retention discount offered (0-100)',
+    message_template_id BIGINT UNSIGNED NULL COMMENT 'Message template used for outreach',
+    start_date          DATE            NULL,
+    end_date            DATE            NULL,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        DEFAULT NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_winback_campaigns_organization_id (organization_id),
+    KEY idx_winback_campaigns_status (status),
+    KEY idx_winback_campaigns_deleted_at (deleted_at),
+    CONSTRAINT fk_winback_campaigns_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_winback_campaigns_template FOREIGN KEY (message_template_id)
+        REFERENCES message_templates (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -194,7 +417,7 @@ CREATE TABLE IF NOT EXISTS contracts (
                        COMMENT 'IFT/CRT-registered Carta de Adhesión template used for this contract; NULL for non-MX clients',
     facturar       BOOLEAN         NOT NULL DEFAULT FALSE
                        COMMENT 'MX only: TRUE = generate individual CFDI for this contract invoices; FALSE = invoices go to factura pública (venta al público en general). When TRUE the client must have a client_mx_profiles row with valid SAT data. Ignored when client locale is not MX',
-    status         ENUM('active', 'expired', 'cancelled', 'pending') NOT NULL DEFAULT 'pending',
+    status         ENUM('pending','active','suspended','expired','cancelled','terminated') NOT NULL DEFAULT 'pending',
     version        INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
     created_by     BIGINT UNSIGNED NULL,
     created_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -6012,8 +6235,9 @@ FOR EACH ROW
 BEGIN
     IF NEW.status != OLD.status THEN
         IF NOT (
-               (OLD.status = 'pending'   AND NEW.status IN ('active', 'cancelled'))
-            OR (OLD.status = 'active'    AND NEW.status IN ('expired', 'cancelled'))
+               (OLD.status = 'pending'    AND NEW.status IN ('active', 'cancelled'))
+            OR (OLD.status = 'active'     AND NEW.status IN ('expired', 'cancelled', 'suspended', 'terminated'))
+            OR (OLD.status = 'suspended'  AND NEW.status IN ('active', 'cancelled', 'terminated'))
         ) THEN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'Invalid contract status transition';

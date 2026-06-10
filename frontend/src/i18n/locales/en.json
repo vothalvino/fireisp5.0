@@ -33,7 +33,12 @@
   "nav": {
     "dashboard": "📊 Dashboard",
     "clients": "👥 Clients",
+    "clientGroups": "👨‍👩‍👧 Account Groups",
+    "leads": "🎯 Leads",
+    "serviceOrders": "📋 Service Orders",
     "contracts": "📄 Contracts",
+    "winbackCampaigns": "🎁 Win-back Campaigns",
+    "churnAnalytics": "📉 Churn Analytics",
     "invoices": "🧾 Invoices",
     "payments": "💳 Payments",
     "tickets": "🎫 Tickets",

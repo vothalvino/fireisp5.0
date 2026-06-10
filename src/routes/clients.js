@@ -9,10 +9,14 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createClient, updateClient, patchClient, createContact, updateMxProfile } = require('../middleware/schemas/clients');
-const { httpCache } = require('../middleware/httpCache');
+const { createClient, updateClient, patchClient, createContact, updateMxProfile, setCustomField, mergeClient, geocodeClient } = require('../middleware/schemas/clients');
+const { httpCache, bustCache } = require('../middleware/httpCache');
 const { ValidationError, NotFoundError } = require('../utils/errors');
 const { quotaCheck } = require('../middleware/checkQuota');
+const { uploadClientDocument, STORAGE_ROOT } = require('../middleware/upload');
+const auditLog = require('../services/auditLog');
+const path = require('path');
+const fs = require('fs');
 const db = require('../config/database');
 
 const router = Router();
@@ -139,6 +143,174 @@ router.put('/:id/portal-password', requirePermission('clients.update'), async (r
 
     await portalAuthService.setPassword(req.params.id, password);
     res.json({ message: 'Portal password updated' });
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Custom fields (unlimited key/value pairs) — §1.1
+// ---------------------------------------------------------------------------
+router.get('/:id/custom-fields', requirePermission('clients.view'), async (req, res, next) => {
+  try {
+    await Client.findByIdOrFail(req.params.id, req.orgId);
+    const fields = await Client.getCustomFields(req.params.id);
+    res.json({ data: fields });
+  } catch (err) { next(err); }
+});
+
+router.put('/:id/custom-fields', requirePermission('clients.update'), validate(setCustomField), async (req, res, next) => {
+  try {
+    await Client.findByIdOrFail(req.params.id, req.orgId);
+    const field = await Client.setCustomField(req.params.id, req.body.field_key, req.body.field_value ?? null);
+    await bustCache(req.orgId, 'clients');
+    res.json({ data: field });
+  } catch (err) { next(err); }
+});
+
+router.delete('/:id/custom-fields/:key', requirePermission('clients.update'), async (req, res, next) => {
+  try {
+    await Client.findByIdOrFail(req.params.id, req.orgId);
+    const removed = await Client.deleteCustomField(req.params.id, req.params.key);
+    if (!removed) throw new NotFoundError('Custom field');
+    await bustCache(req.orgId, 'clients');
+    res.status(204).send();
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// ID documents / photos (INE, passport, etc.) — §1.1 — backed by files table
+// ---------------------------------------------------------------------------
+router.get('/:id/documents', requirePermission('clients.view'), async (req, res, next) => {
+  try {
+    await Client.findByIdOrFail(req.params.id, req.orgId);
+    const docs = await Client.getDocuments(req.params.id);
+    res.json({ data: docs });
+  } catch (err) { next(err); }
+});
+
+router.post('/:id/documents', requirePermission('clients.update'), (req, res, next) => {
+  uploadClientDocument(req, res, async (err) => {
+    if (err) {
+      return res.status(422).json({ error: { code: 'UPLOAD_ERROR', message: err.message } });
+    }
+    if (!req.file) {
+      return res.status(422).json({ error: { code: 'UPLOAD_ERROR', message: 'No file provided' } });
+    }
+    try {
+      await Client.findByIdOrFail(req.params.id, req.orgId);
+      const category = req.body.category === 'notification_log' ? 'notification_log' : 'client_file';
+      const relPath = path.relative(STORAGE_ROOT, req.file.path);
+      const [result] = await db.query(
+        `INSERT INTO files (entity_type, entity_id, category, file_name, file_path, file_size, mime_type, uploaded_by, notes)
+         VALUES ('client', ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [req.params.id, category, req.file.originalname, relPath, req.file.size, req.file.mimetype, req.user?.id || null, req.body.notes || null],
+      );
+      const [rows] = await db.query('SELECT * FROM files WHERE id = ?', [result.insertId]);
+      res.status(201).json({ data: rows[0] });
+    } catch (createErr) {
+      // Best-effort cleanup of the orphaned upload if the DB insert failed.
+      try { if (req.file) fs.unlinkSync(req.file.path); } catch { /* ignore */ }
+      next(createErr);
+    }
+  });
+});
+
+router.get('/:id/documents/:fileId/download', requirePermission('clients.view'), async (req, res, next) => {
+  try {
+    await Client.findByIdOrFail(req.params.id, req.orgId);
+    const [rows] = await db.query(
+      `SELECT * FROM files WHERE id = ? AND entity_type = 'client' AND entity_id = ? AND deleted_at IS NULL`,
+      [req.params.fileId, req.params.id],
+    );
+    const file = rows[0];
+    if (!file) throw new NotFoundError('Document');
+    const filePath = path.join(STORAGE_ROOT, file.file_path || '');
+    if (!file.file_path || !fs.existsSync(filePath)) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'File not found on disk' } });
+    }
+    res.download(filePath, file.file_name);
+  } catch (err) { next(err); }
+});
+
+router.delete('/:id/documents/:fileId', requirePermission('clients.update'), async (req, res, next) => {
+  try {
+    await Client.findByIdOrFail(req.params.id, req.orgId);
+    const [result] = await db.query(
+      `UPDATE files SET deleted_at = NOW() WHERE id = ? AND entity_type = 'client' AND entity_id = ? AND deleted_at IS NULL`,
+      [req.params.fileId, req.params.id],
+    );
+    if (result.affectedRows === 0) throw new NotFoundError('Document');
+    res.status(204).send();
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Geocoding — resolve the service address to GPS coordinates — §1.1
+// ---------------------------------------------------------------------------
+router.post('/:id/geocode', requirePermission('clients.update'), validate(geocodeClient), async (req, res, next) => {
+  try {
+    const client = await Client.findByIdOrFail(req.params.id, req.orgId);
+    const { geocodeAddress } = require('../services/geocodingService');
+    const source = {
+      address: req.body.address ?? client.address,
+      city: req.body.city ?? client.city,
+      state: req.body.state ?? client.state,
+      zip_code: req.body.zip_code ?? client.zip_code,
+      country: req.body.country ?? client.country,
+    };
+    const result = await geocodeAddress(source);
+    const updated = await Client.update(
+      req.params.id,
+      { latitude: result.latitude, longitude: result.longitude, geocoded_at: new Date() },
+      req.orgId,
+    );
+    await bustCache(req.orgId, 'clients');
+    res.json({ data: updated, geocode: result });
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Duplicate detection & account merging — §1.1
+// ---------------------------------------------------------------------------
+// Global scan: find clients matching the supplied email/phone/tax_id.
+router.get('/duplicates/scan', requirePermission('clients.view'), async (req, res, next) => {
+  try {
+    const { email, phone, tax_id } = req.query;
+    const matches = await Client.findDuplicates({ email, phone, tax_id, orgId: req.orgId });
+    res.json({ data: matches });
+  } catch (err) { next(err); }
+});
+
+// Per-client: find other clients that look like duplicates of :id.
+router.get('/:id/duplicates', requirePermission('clients.view'), async (req, res, next) => {
+  try {
+    const client = await Client.findByIdOrFail(req.params.id, req.orgId);
+    const matches = await Client.findDuplicates({
+      email: client.email,
+      phone: client.phone,
+      tax_id: client.tax_id,
+      excludeId: client.id,
+      orgId: req.orgId,
+    });
+    res.json({ data: matches });
+  } catch (err) { next(err); }
+});
+
+// Merge: fold body.source_id into the :id client (the survivor), then archive source.
+router.post('/:id/merge', requirePermission('clients.delete'), validate(mergeClient), async (req, res, next) => {
+  try {
+    const targetId = req.params.id;
+    const sourceId = req.body.source_id;
+    const result = await Client.merge(sourceId, targetId, req.orgId);
+    await auditLog.log({
+      userId: req.user?.id,
+      organizationId: req.orgId,
+      action: 'merge',
+      tableName: 'clients',
+      recordId: parseInt(targetId, 10),
+      newValues: { source_id: sourceId, target_id: parseInt(targetId, 10), moved: result.moved },
+    });
+    await bustCache(req.orgId, 'clients');
+    res.json({ data: { target_id: parseInt(targetId, 10), source_id: sourceId, ...result } });
   } catch (err) { next(err); }
 });
 

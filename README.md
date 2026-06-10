@@ -42,6 +42,7 @@ curl -fsSL https://raw.githubusercontent.com/vothalvino/fireisp5.0/main/install.
 | `REDIS_PASSWORD` | *(auto-generated)* | Redis password |
 | `JWT_SECRET` | *(auto-generated)* | JWT signing secret (64 chars) |
 | `ENCRYPTION_KEY` | *(auto-generated)* | AES-256 key for secrets stored at rest |
+| `GOOGLE_MAPS_API_KEY` | — | Google Maps Geocoding API key — enables resolving a client service address to GPS coordinates (`POST /clients/:id/geocode`). When unset, geocoding returns `503` and coordinates can still be entered manually. |
 
 All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 
@@ -78,8 +79,9 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 - Geographic service areas and coverage zones with WGS 84 boundary polygons
 - Speed test recording from client portal, technician tools, automated probes, and external services
 - IFT/CRT regulatory compliance — concession titles, periodic filings, statistical reports, and registered contract templates (Carta de Adhesión)
+- Customer lifecycle management — lead capture and prospect pipeline, service order workflow (request → approval → provisioning → activation) with onboarding checklists, automated welcome email/SMS on activation, win-back campaigns for cancelled customers, and churn analytics with predictive at-risk alerts
 - Internationalization (i18n) — English, Spanish, and Brazilian Portuguese locale support
-- RESTful API with 212 endpoints, interactive Swagger UI documentation (`/api/docs`), and static OpenAPI spec (`docs/openapi.json`)
+- RESTful API with 265 endpoints, interactive Swagger UI documentation (`/api/docs`), and static OpenAPI spec (`docs/openapi.json`)
 - GraphQL gateway (`/api/v1/graphql`) powered by graphql-yoga v5 — single-request multi-entity fetches, real-time subscriptions via SSE (PubSub), and a live ClientDetail query replacing multiple REST round-trips
 - Real-time event hub (WebSocket + SSE dual-broadcast) — live Dashboard device-status indicator, live TicketDetail comment stream, and a useWebSocket React hook for all frontend consumers
 - httpOnly SameSite=Strict cookie authentication — access token in memory, refresh token in httpOnly cookie, Origin-based CSRF guard; eliminates localStorage token exposure
@@ -104,7 +106,7 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 123 tables)
+│   ├── schema.sql           # Combined schema (all 125 tables)
 │   └── migrations/          # Individual numbered migration files (001–189)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
@@ -280,6 +282,16 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 121 | `ai_forbidden_terms` | Forbidden-term guard list per organization — terms that must not appear in any AI-drafted reply; evaluated by `phraseLibraryService.validateDraft()` before dispatch; supports locale-scoping and soft-delete |
 | 122 | `ai_reply_logs` | Immutable audit log of every AI-drafted reply — stores `ticket_id`, `provider_id`, `dispatch_mode`, `confidence_score`, `draft_text`, `final_text`, `cost_usd`, `tokens_used`, `pii_redacted` flag, `validation_passed` flag, `sent_at`, and `created_by`; internal `context_snapshot` and `prompt_hash` are never returned by the API |
 | 123 | `contract_topology_paths` | Cached network topology paths for AI context — stores the materialized path from a contract's CPE through all intermediate devices to the backbone; used by `topologyContextService` to build the topology breadcrumb injected into AI prompts; invalidated on device/link/contract change |
+| 124 | `client_groups` | Family/account grouping for shared billing or family plans — stores group name, `billing_mode` (`separate` or `shared`), optional `primary_client_id` billing owner, and soft-delete; clients link via `clients.client_group_id` |
+| 125 | `client_custom_fields` | Unlimited per-client key/value custom fields (technician notes, internal tags, etc.) — unique on `(client_id, field_key)`, free-form `field_value`, with soft-delete |
+| 126 | `leads` | Lead capture and prospect pipeline — name/contact, `source`, pipeline `status` (`new`→`won`/`lost`), estimated value, assigned agent, optional geocoded address, and `converted_client_id` linking to the client created on conversion |
+| 127 | `service_orders` | Service order workflow — `order_number`, optional `client_id`/`lead_id`/`plan_id`/`contract_id`, `order_type`, status machine (`requested`→`approved`→`provisioning`→`activated`, or `cancelled`), assignment, and lifecycle timestamps |
+| 128 | `service_order_tasks` | Onboarding checklist items per service order — `task_key`, `label`, `is_done`, completion attribution, and sort order; unique on `(service_order_id, task_key)` |
+| 129 | `winback_campaigns` | Win-back campaigns for cancelled customers — name, status, `target_segment` cohort, offer description, retention `discount_percent`, optional message template, and date range |
+
+> **Migrations 193–194 — Customer lifecycle (§1.2):** `193_create_customer_lifecycle_tables.sql` adds the `leads`, `service_orders`, `service_order_tasks`, and `winback_campaigns` tables. `194_seed_lifecycle_permissions.sql` seeds the `lifecycle` RBAC module permissions (`leads.*`, `service_orders.*`, `winback.*`, `lifecycle.view`) and assigns them to the default roles. New endpoints: full CRUD under `/leads` (plus `GET /leads/pipeline`, `POST /leads/:id/convert`), `/service-orders` (plus `POST /service-orders/:id/{approve,provision,activate,cancel}` and `GET/POST/PATCH /service-orders/:id/tasks`), `/winback-campaigns` (plus `GET /winback-campaigns/:id/targets`), and lifecycle analytics under `/lifecycle/churn` and `/lifecycle/at-risk`. Activating a service order emits `service_order.activated`, which sends a welcome email/SMS.
+
+> **Migrations 190–192 — Subscriber profile management (§1.1):** `190_add_profile_fields_to_clients.sql` adds `latitude`, `longitude`, `geocoded_at`, `credit_score`, and `risk_rating` to `clients` and extends `client_type` with `corporate`. `191_create_client_custom_fields_table.sql` adds unlimited per-client key/value custom fields. `192_create_client_groups_table.sql` adds the `client_groups` table (family/account grouping) plus `clients.client_group_id`. New endpoints: `POST /clients/:id/geocode`, `GET/PUT/DELETE /clients/:id/custom-fields`, `GET/POST/DELETE /clients/:id/documents`, `GET /clients/:id/duplicates`, `GET /clients/duplicates/scan`, `POST /clients/:id/merge`, plus full CRUD under `/client-groups`. Geocoding requires `GOOGLE_MAPS_API_KEY`.
 
 > **Migration 051 — Multi-currency ALTER:** `051_add_currency_to_financial_tables.sql` adds a `currency CHAR(3) NOT NULL DEFAULT 'USD'` column (ISO 4217 currency code) to `invoices`, `payments`, `credit_notes`, `quotes`, `plans`, and `expenses`. This is an ALTER TABLE migration applied after the initial schema creation.
 

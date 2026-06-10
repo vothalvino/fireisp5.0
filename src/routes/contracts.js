@@ -208,6 +208,80 @@ router.post('/:id/unsuspend', requirePermission('contracts.update'), async (req,
   }
 });
 
+// Renew a contract — allowed from suspended, expired, or cancelled states.
+// Bypasses the PATCH endpoint to avoid the FSM trigger rejecting the transition
+// (FSM enforces: suspended → active, which is now allowed in migration 195).
+router.post('/:id/renew', requirePermission('contracts.update'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT * FROM contracts WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [req.params.id, req.orgId],
+    );
+    const contract = rows[0];
+    if (!contract) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Contract not found' } });
+    }
+    const renewableStatuses = ['suspended', 'expired', 'cancelled'];
+    if (!renewableStatuses.includes(contract.status)) {
+      return res.status(422).json({
+        error: { code: 'NOT_RENEWABLE', message: `Cannot renew a contract with status '${contract.status}'` },
+      });
+    }
+    const updates = { status: 'active' };
+    if (req.body.end_date !== undefined) updates.end_date = req.body.end_date || null;
+    if (req.body.plan_id) updates.plan_id = req.body.plan_id;
+    const record = await Contract.update(req.params.id, updates, req.orgId);
+    await auditLog.log({
+      userId: req.user?.id,
+      organizationId: req.orgId,
+      action: 'renew',
+      tableName: Contract.tableName,
+      recordId: record.id,
+      oldValues: { status: contract.status },
+      newValues: updates,
+    }).catch(() => {});
+    res.json({ data: record });
+  } catch (err) { next(err); }
+});
+
+// Terminate a contract — permanently ends service. Allowed from active or suspended.
+// Sends RADIUS Disconnect-Request when terminating an active/suspended contract.
+router.post('/:id/terminate', requirePermission('contracts.update'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT * FROM contracts WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [req.params.id, req.orgId],
+    );
+    const contract = rows[0];
+    if (!contract) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Contract not found' } });
+    }
+    const terminableStatuses = ['active', 'suspended'];
+    if (!terminableStatuses.includes(contract.status)) {
+      return res.status(422).json({
+        error: { code: 'NOT_TERMINABLE', message: `Cannot terminate a contract with status '${contract.status}'` },
+      });
+    }
+    // Fire RADIUS disconnect best-effort (don't fail the terminate if CoA fails)
+    if (contract.status === 'active' || contract.status === 'suspended') {
+      suspensionService.suspendContract(
+        parseInt(req.params.id, 10), null, req.user.id, null,
+      ).catch(() => {});
+    }
+    const record = await Contract.update(req.params.id, { status: 'terminated' }, req.orgId);
+    await auditLog.log({
+      userId: req.user?.id,
+      organizationId: req.orgId,
+      action: 'terminate',
+      tableName: Contract.tableName,
+      recordId: record.id,
+      oldValues: { status: contract.status },
+      newValues: { status: 'terminated' },
+    }).catch(() => {});
+    res.json({ data: record });
+  } catch (err) { next(err); }
+});
+
 router.post('/:id/addons', requirePermission('contracts.update'), validate(createContractAddon), async (req, res, next) => {
   try {
     const { plan_addon_id, quantity, unit_price, start_date, end_date } = req.body;

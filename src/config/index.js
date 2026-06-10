@@ -71,6 +71,13 @@ const config = {
     snmp: parseBoolEnv('FEATURE_SNMP', true),
     sso: parseBoolEnv('FEATURE_SSO', false),
   },
+
+  // Geocoding — resolves a client service address to GPS coordinates for the
+  // map pin (isp-platform-features.md §1.1). Disabled when no API key is set.
+  geocoding: {
+    googleApiKey: process.env.GOOGLE_MAPS_API_KEY || '',
+    timeoutMs: parseIntEnv('GEOCODING_TIMEOUT_MS', 8000),
+  },
 };
 
 /**

@@ -21,12 +21,17 @@ export interface ClientFormBody {
   client_type?: string;
   status?: string;
   tax_id?: string;
+  curp?: string;
   address?: string;
   city?: string;
   state?: string;
   zip_code?: string;
   country?: string;
   locale?: string;
+  latitude?: number;
+  longitude?: number;
+  credit_score?: number;
+  risk_rating?: string;
 }
 
 /** Minimal shape needed to pre-fill the edit form (nullable to match API rows). */
@@ -38,12 +43,17 @@ export interface ClientFormInitial {
   client_type?: string | null;
   status?: string | null;
   tax_id?: string | null;
+  curp?: string | null;
   address?: string | null;
   city?: string | null;
   state?: string | null;
   zip_code?: string | null;
   country?: string | null;
   locale?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+  credit_score?: number | null;
+  risk_rating?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -68,9 +78,10 @@ async function updateClient(id: number, body: ClientFormBody): Promise<void> {
   if (error) throw new Error(extractApiError(error, 'Failed to update client'));
 }
 
-const CLIENT_TYPES = ['residential', 'business', 'government', 'wholesale'];
+const CLIENT_TYPES = ['residential', 'business', 'corporate', 'government', 'wholesale'];
 const STATUSES = ['active', 'inactive', 'suspended'];
 const LOCALES = ['global', 'MX'];
+const RISK_RATINGS = ['unrated', 'low', 'medium', 'high'];
 
 // ---------------------------------------------------------------------------
 // Component
@@ -91,12 +102,20 @@ export function ClientFormModal({ mode, initial, onClose, onSaved }: ClientFormM
     client_type: initial?.client_type ?? 'residential',
     status: initial?.status ?? 'active',
     tax_id: initial?.tax_id ?? '',
+    curp: initial?.curp ?? '',
     address: initial?.address ?? '',
     city: initial?.city ?? '',
     state: initial?.state ?? '',
     zip_code: initial?.zip_code ?? '',
     country: initial?.country ?? '',
     locale: initial?.locale ?? 'global',
+    risk_rating: initial?.risk_rating ?? 'unrated',
+  });
+  // Numeric fields are kept as strings while editing so the inputs can be empty.
+  const [numeric, setNumeric] = useState({
+    latitude: initial?.latitude != null ? String(initial.latitude) : '',
+    longitude: initial?.longitude != null ? String(initial.longitude) : '',
+    credit_score: initial?.credit_score != null ? String(initial.credit_score) : '',
   });
   const [error, setError] = useState('');
 
@@ -125,7 +144,7 @@ export function ClientFormModal({ mode, initial, onClose, onSaved }: ClientFormM
     // email/enum validation). Always send name and the select values.
     const body: ClientFormBody = { name: form.name.trim() };
     (
-      ['email', 'phone', 'tax_id', 'address', 'city', 'state', 'zip_code', 'country'] as const
+      ['email', 'phone', 'tax_id', 'curp', 'address', 'city', 'state', 'zip_code', 'country'] as const
     ).forEach(k => {
       const v = (form[k] ?? '').trim();
       if (v) body[k] = v;
@@ -133,6 +152,14 @@ export function ClientFormModal({ mode, initial, onClose, onSaved }: ClientFormM
     body.client_type = form.client_type;
     body.status = form.status;
     body.locale = form.locale;
+    body.risk_rating = form.risk_rating;
+    // Parse numeric fields; only include valid finite numbers.
+    const lat = parseFloat(numeric.latitude);
+    const lng = parseFloat(numeric.longitude);
+    const score = parseInt(numeric.credit_score, 10);
+    if (numeric.latitude.trim() && Number.isFinite(lat)) body.latitude = lat;
+    if (numeric.longitude.trim() && Number.isFinite(lng)) body.longitude = lng;
+    if (numeric.credit_score.trim() && Number.isFinite(score)) body.credit_score = score;
     setError('');
     mutation.mutate(body);
   }
@@ -221,6 +248,42 @@ export function ClientFormModal({ mode, initial, onClose, onSaved }: ClientFormM
             value={form.country}
             onChange={e => set('country', e.target.value.toUpperCase())}
           />
+
+          <div style={twoCol}>
+            <div>
+              <label style={labelStyle}>CURP</label>
+              <input style={inputStyle} type="text" maxLength={18} value={form.curp}
+                onChange={e => set('curp', e.target.value.toUpperCase())} />
+            </div>
+            <div>
+              <label style={labelStyle}>Risk rating</label>
+              <select style={inputStyle} value={form.risk_rating} onChange={e => set('risk_rating', e.target.value)}>
+                {RISK_RATINGS.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={twoCol}>
+            <div>
+              <label style={labelStyle}>Credit score (0–1000)</label>
+              <input style={inputStyle} type="number" min={0} max={1000} value={numeric.credit_score}
+                onChange={e => setNumeric(p => ({ ...p, credit_score: e.target.value }))} />
+            </div>
+            <div />
+          </div>
+
+          <div style={twoCol}>
+            <div>
+              <label style={labelStyle}>Latitude</label>
+              <input style={inputStyle} type="number" step="any" min={-90} max={90} value={numeric.latitude}
+                onChange={e => setNumeric(p => ({ ...p, latitude: e.target.value }))} />
+            </div>
+            <div>
+              <label style={labelStyle}>Longitude</label>
+              <input style={inputStyle} type="number" step="any" min={-180} max={180} value={numeric.longitude}
+                onChange={e => setNumeric(p => ({ ...p, longitude: e.target.value }))} />
+            </div>
+          </div>
 
           <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>

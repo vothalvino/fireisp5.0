@@ -26,6 +26,54 @@ function getBroadcast() {
  * Call once at application startup.
  */
 function registerHooks() {
+  // --- Service Order Activated (welcome email/SMS) — §1.2 ---
+  eventBus.on('service_order.activated', async ({ organizationId, order, client }) => {
+    try {
+      const clientName = client
+        ? (`${client.first_name || ''} ${client.last_name || ''}`.trim() || client.name || '')
+        : '';
+
+      if (client?.email) {
+        const subject = '¡Bienvenido! Tu servicio está activo';
+        const html = `<p>Hola ${clientName || ''},</p>`
+          + `<p>Tu servicio (orden ${order.order_number}) ha sido activado. `
+          + 'Gracias por elegirnos.</p>'
+          + '<p>Si tienes alguna duda, responde a este correo o abre un ticket de soporte.</p>';
+        await emailTransport.sendEmail({
+          organizationId,
+          to: client.email,
+          subject,
+          html,
+        });
+      }
+
+      if (client?.phone) {
+        const smsBody = `Hola ${clientName || ''}, tu servicio (orden ${order.order_number}) ya está activo. ¡Bienvenido!`;
+        await smsTransport.queueSms({
+          organizationId,
+          clientId: order.client_id,
+          to:       client.phone,
+          body:     smsBody,
+        }).catch(err => logger.warn({ err, event: 'service_order.activated' }, 'SMS queue error'));
+      }
+
+      getBroadcast()(`org:${organizationId}:notifications`, 'service_order.activated', {
+        order_id: order.id,
+        order_number: order.order_number,
+        client_id: order.client_id,
+      });
+
+      await webhookService.dispatch(organizationId, 'service_order.activated', {
+        id: order.id,
+        order_number: order.order_number,
+        client_id: order.client_id,
+        contract_id: order.contract_id,
+      });
+    } catch (err) {
+      logger.error({ err, event: 'service_order.activated' }, 'Notification hook error');
+    }
+  });
+
   // --- Invoice Created ---
   eventBus.on('invoice.created', async ({ organizationId, invoice, client, items }) => {
     try {

@@ -45,6 +45,26 @@
       "description": "Client management"
     },
     {
+      "name": "Client Groups",
+      "description": "Family/account grouping (shared billing)"
+    },
+    {
+      "name": "Leads",
+      "description": "Lead capture and prospect pipeline"
+    },
+    {
+      "name": "Service Orders",
+      "description": "Service order workflow — request → approval → provisioning → activation"
+    },
+    {
+      "name": "Win-back Campaigns",
+      "description": "Win-back campaigns for cancelled customers"
+    },
+    {
+      "name": "Lifecycle",
+      "description": "Customer lifecycle analytics — churn and at-risk"
+    },
+    {
       "name": "Contracts",
       "description": "Contract management"
     },
@@ -2323,6 +2343,1793 @@
         }
       }
     },
+    "/clients/{id}/custom-fields": {
+      "get": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "List client custom fields",
+        "operationId": "listClientCustomFields",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CustomField[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Create or update a custom field",
+        "operationId": "setClientCustomField",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "clients_setCustomField",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CustomField",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clients/{id}/custom-fields/{key}": {
+      "delete": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Delete a custom field by key",
+        "operationId": "deleteClientCustomField",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/clients/{id}/documents": {
+      "get": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "List client ID documents / photos",
+        "operationId": "listClientDocuments",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Upload a client ID document / photo (multipart/form-data)",
+        "operationId": "uploadClientDocument",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "category": {
+                    "type": "string",
+                    "enum": [
+                      "client_file",
+                      "notification_log"
+                    ]
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clients/{id}/documents/{fileId}": {
+      "delete": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Delete a client document",
+        "operationId": "deleteClientDocument",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "fileId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/clients/{id}/documents/{fileId}/download": {
+      "get": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Download a client document",
+        "operationId": "downloadClientDocument",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "fileId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File download",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clients/{id}/geocode": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Geocode the client service address to GPS coordinates",
+        "operationId": "geocodeClient",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "clients_geocodeClient",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Client",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clients/duplicates/scan": {
+      "get": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Scan for duplicate clients by email/phone/tax_id",
+        "operationId": "scanClientDuplicates",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "email",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "phone",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tax_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Client[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clients/{id}/duplicates": {
+      "get": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Find potential duplicates of this client",
+        "operationId": "listClientDuplicates",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Client[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clients/{id}/merge": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Merge another client (source_id) into this client",
+        "operationId": "mergeClient",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "clients_mergeClient",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Merge result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/client-groups": {
+      "get": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "List client-groups",
+        "operationId": "listClientGroups",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ClientGroup[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Create a ClientGroup",
+        "operationId": "createClientGroup",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "ClientGroup",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ClientGroup",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/client-groups/{id}": {
+      "get": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Get a ClientGroup",
+        "operationId": "getClientGroup",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ClientGroup",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Update a ClientGroup",
+        "operationId": "updateClientGroup",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "ClientGroup",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ClientGroup",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Delete a ClientGroup",
+        "operationId": "deleteClientGroup",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/client-groups/{id}/members": {
+      "get": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "List member clients of a group",
+        "operationId": "listClientGroupMembers",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Client[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/client-groups/{id}/restore": {
+      "post": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Restore a soft-deleted client group",
+        "operationId": "restoreClientGroup",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ClientGroup",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/leads": {
+      "get": {
+        "tags": [
+          "Leads"
+        ],
+        "summary": "List leads",
+        "operationId": "listLeads",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lead[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Leads"
+        ],
+        "summary": "Create a Lead",
+        "operationId": "createLead",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Lead",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Lead",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/leads/{id}": {
+      "get": {
+        "tags": [
+          "Leads"
+        ],
+        "summary": "Get a Lead",
+        "operationId": "getLead",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lead",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Leads"
+        ],
+        "summary": "Update a Lead",
+        "operationId": "updateLead",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Lead",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Lead",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Leads"
+        ],
+        "summary": "Delete a Lead",
+        "operationId": "deleteLead",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/leads/pipeline": {
+      "get": {
+        "tags": [
+          "Leads"
+        ],
+        "summary": "Lead counts grouped by pipeline stage",
+        "operationId": "getLeadPipeline",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pipeline counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/leads/{id}/restore": {
+      "post": {
+        "tags": [
+          "Leads"
+        ],
+        "summary": "Restore a soft-deleted lead",
+        "operationId": "restoreLead",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lead",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/leads/{id}/convert": {
+      "post": {
+        "tags": [
+          "Leads"
+        ],
+        "summary": "Convert a lead into a client",
+        "operationId": "convertLead",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "leads_convertLead",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Lead + Client",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service-orders": {
+      "get": {
+        "tags": [
+          "Service Orders"
+        ],
+        "summary": "List service-orders",
+        "operationId": "listServiceOrders",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ServiceOrder[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Service Orders"
+        ],
+        "summary": "Create a ServiceOrder",
+        "operationId": "createServiceOrder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "ServiceOrder",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ServiceOrder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service-orders/{id}": {
+      "get": {
+        "tags": [
+          "Service Orders"
+        ],
+        "summary": "Get a ServiceOrder",
+        "operationId": "getServiceOrder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ServiceOrder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Service Orders"
+        ],
+        "summary": "Update a ServiceOrder",
+        "operationId": "updateServiceOrder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "ServiceOrder",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ServiceOrder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Service Orders"
+        ],
+        "summary": "Delete a ServiceOrder",
+        "operationId": "deleteServiceOrder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/service-orders/{id}/restore": {
+      "post": {
+        "tags": [
+          "Service Orders"
+        ],
+        "summary": "Restore a soft-deleted service order",
+        "operationId": "restoreServiceOrder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ServiceOrder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service-orders/{id}/approve": {
+      "post": {
+        "tags": [
+          "Service Orders"
+        ],
+        "summary": "Approve a requested service order",
+        "operationId": "approveServiceOrder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ServiceOrder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service-orders/{id}/provision": {
+      "post": {
+        "tags": [
+          "Service Orders"
+        ],
+        "summary": "Move an approved order into provisioning",
+        "operationId": "provisionServiceOrder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ServiceOrder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service-orders/{id}/activate": {
+      "post": {
+        "tags": [
+          "Service Orders"
+        ],
+        "summary": "Activate a provisioning order (sends welcome notification)",
+        "operationId": "activateServiceOrder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "serviceOrders_activateServiceOrder",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ServiceOrder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service-orders/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Service Orders"
+        ],
+        "summary": "Cancel a service order",
+        "operationId": "cancelServiceOrder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ServiceOrder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service-orders/{id}/tasks": {
+      "get": {
+        "tags": [
+          "Service Orders"
+        ],
+        "summary": "List onboarding checklist tasks",
+        "operationId": "listServiceOrderTasks",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ServiceOrderTask[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Service Orders"
+        ],
+        "summary": "Add an onboarding checklist task",
+        "operationId": "createServiceOrderTask",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "serviceOrders_createServiceOrderTask",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ServiceOrderTask",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service-orders/{id}/tasks/{taskId}": {
+      "patch": {
+        "tags": [
+          "Service Orders"
+        ],
+        "summary": "Update an onboarding checklist task",
+        "operationId": "updateServiceOrderTask",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "serviceOrders_updateServiceOrderTask",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ServiceOrderTask",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/winback-campaigns": {
+      "get": {
+        "tags": [
+          "Win-back Campaigns"
+        ],
+        "summary": "List winback-campaigns",
+        "operationId": "listWinbackCampaigns",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "WinbackCampaign[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Win-back Campaigns"
+        ],
+        "summary": "Create a WinbackCampaign",
+        "operationId": "createWinbackCampaign",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "WinbackCampaign",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "WinbackCampaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/winback-campaigns/{id}": {
+      "get": {
+        "tags": [
+          "Win-back Campaigns"
+        ],
+        "summary": "Get a WinbackCampaign",
+        "operationId": "getWinbackCampaign",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "WinbackCampaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Win-back Campaigns"
+        ],
+        "summary": "Update a WinbackCampaign",
+        "operationId": "updateWinbackCampaign",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "WinbackCampaign",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "WinbackCampaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Win-back Campaigns"
+        ],
+        "summary": "Delete a WinbackCampaign",
+        "operationId": "deleteWinbackCampaign",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/winback-campaigns/{id}/restore": {
+      "post": {
+        "tags": [
+          "Win-back Campaigns"
+        ],
+        "summary": "Restore a soft-deleted win-back campaign",
+        "operationId": "restoreWinbackCampaign",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "WinbackCampaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/winback-campaigns/{id}/targets": {
+      "get": {
+        "tags": [
+          "Win-back Campaigns"
+        ],
+        "summary": "Preview cancelled-customer cohort for a campaign",
+        "operationId": "getWinbackTargets",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Target[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/lifecycle/churn": {
+      "get": {
+        "tags": [
+          "Lifecycle"
+        ],
+        "summary": "Monthly churn report",
+        "operationId": "getChurnReport",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "months",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Churn report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/lifecycle/at-risk": {
+      "get": {
+        "tags": [
+          "Lifecycle"
+        ],
+        "summary": "Predictive at-risk (churn) client alerts",
+        "operationId": "getAtRiskClients",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "At-risk clients",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/plans": {
       "get": {
         "tags": [
@@ -2757,6 +4564,100 @@
           },
           "422": {
             "description": "Contract is not suspended"
+          }
+        }
+      }
+    },
+    "/contracts/{id}/renew": {
+      "post": {
+        "tags": [
+          "Contracts"
+        ],
+        "summary": "Renew (reactivate) a suspended, expired, or cancelled contract",
+        "operationId": "renewContract",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "end_date + plan_id",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Contract renewed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Contract not found"
+          },
+          "422": {
+            "description": "Contract is not in a renewable state"
+          }
+        }
+      }
+    },
+    "/contracts/{id}/terminate": {
+      "post": {
+        "tags": [
+          "Contracts"
+        ],
+        "summary": "Permanently terminate an active or suspended contract and send RADIUS disconnect",
+        "operationId": "terminateContract",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contract terminated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Contract not found"
+          },
+          "422": {
+            "description": "Contract cannot be terminated from its current state"
           }
         }
       }
@@ -14497,6 +16398,59 @@
           "invoice_id"
         ]
       },
+      "clientGroups_createClientGroup": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "billing_mode": {
+            "type": "string",
+            "enum": [
+              "separate",
+              "shared"
+            ]
+          },
+          "primary_client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "clientGroups_updateClientGroup": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "billing_mode": {
+            "type": "string",
+            "enum": [
+              "separate",
+              "shared"
+            ]
+          },
+          "primary_client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          }
+        }
+      },
       "clients_createClient": {
         "type": "object",
         "properties": {
@@ -14516,11 +16470,18 @@
           "client_type": {
             "type": "string",
             "enum": [
+              "personal",
+              "company",
               "residential",
               "business",
+              "corporate",
               "government",
               "wholesale"
             ]
+          },
+          "client_group_id": {
+            "type": "number",
+            "minimum": 1
           },
           "locale": {
             "type": "string",
@@ -14532,6 +16493,11 @@
           "tax_id": {
             "type": "string",
             "maximum": 50
+          },
+          "curp": {
+            "type": "string",
+            "minimum": 18,
+            "maximum": 18
           },
           "address": {
             "type": "string",
@@ -14552,6 +16518,30 @@
           "country": {
             "type": "string",
             "maximum": 2
+          },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "credit_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "risk_rating": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "unrated"
+            ]
           },
           "status": {
             "type": "string",
@@ -14585,11 +16575,18 @@
           "client_type": {
             "type": "string",
             "enum": [
+              "personal",
+              "company",
               "residential",
               "business",
+              "corporate",
               "government",
               "wholesale"
             ]
+          },
+          "client_group_id": {
+            "type": "number",
+            "minimum": 1
           },
           "locale": {
             "type": "string",
@@ -14601,6 +16598,11 @@
           "tax_id": {
             "type": "string",
             "maximum": 50
+          },
+          "curp": {
+            "type": "string",
+            "minimum": 18,
+            "maximum": 18
           },
           "address": {
             "type": "string",
@@ -14621,6 +16623,30 @@
           "country": {
             "type": "string",
             "maximum": 2
+          },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "credit_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "risk_rating": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "unrated"
+            ]
           },
           "status": {
             "type": "string",
@@ -14651,11 +16677,18 @@
           "client_type": {
             "type": "string",
             "enum": [
+              "personal",
+              "company",
               "residential",
               "business",
+              "corporate",
               "government",
               "wholesale"
             ]
+          },
+          "client_group_id": {
+            "type": "number",
+            "minimum": 1
           },
           "locale": {
             "type": "string",
@@ -14667,6 +16700,11 @@
           "tax_id": {
             "type": "string",
             "maximum": 50
+          },
+          "curp": {
+            "type": "string",
+            "minimum": 18,
+            "maximum": 18
           },
           "address": {
             "type": "string",
@@ -14687,6 +16725,30 @@
           "country": {
             "type": "string",
             "maximum": 2
+          },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "credit_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "risk_rating": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "unrated"
+            ]
           },
           "status": {
             "type": "string",
@@ -14758,6 +16820,60 @@
           "regimen_fiscal",
           "codigo_postal_fiscal"
         ]
+      },
+      "clients_setCustomField": {
+        "type": "object",
+        "properties": {
+          "field_key": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "field_value": {
+            "type": "string",
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "field_key"
+        ]
+      },
+      "clients_mergeClient": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": "number",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "source_id"
+        ]
+      },
+      "clients_geocodeClient": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "maximum": 500
+          },
+          "city": {
+            "type": "string",
+            "maximum": 100
+          },
+          "state": {
+            "type": "string",
+            "maximum": 100
+          },
+          "zip_code": {
+            "type": "string",
+            "maximum": 20
+          },
+          "country": {
+            "type": "string",
+            "maximum": 2
+          }
+        }
       },
       "concessionTitles_createConcessionTitle": {
         "type": "object",
@@ -17073,6 +19189,339 @@
           }
         }
       },
+      "leads_createLead": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "phone": {
+            "type": "string",
+            "maximum": 30
+          },
+          "company": {
+            "type": "string",
+            "maximum": 200
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "website",
+              "referral",
+              "phone",
+              "walk_in",
+              "social",
+              "campaign",
+              "other"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "contacted",
+              "qualified",
+              "proposal",
+              "won",
+              "lost"
+            ]
+          },
+          "estimated_value": {
+            "type": "number",
+            "minimum": 0
+          },
+          "currency": {
+            "type": "string",
+            "minimum": 3,
+            "maximum": 3
+          },
+          "assigned_to": {
+            "type": "number",
+            "minimum": 1
+          },
+          "address": {
+            "type": "string",
+            "maximum": 500
+          },
+          "city": {
+            "type": "string",
+            "maximum": 100
+          },
+          "state": {
+            "type": "string",
+            "maximum": 100
+          },
+          "zip_code": {
+            "type": "string",
+            "maximum": 20
+          },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "leads_updateLead": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "phone": {
+            "type": "string",
+            "maximum": 30
+          },
+          "company": {
+            "type": "string",
+            "maximum": 200
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "website",
+              "referral",
+              "phone",
+              "walk_in",
+              "social",
+              "campaign",
+              "other"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "contacted",
+              "qualified",
+              "proposal",
+              "won",
+              "lost"
+            ]
+          },
+          "estimated_value": {
+            "type": "number",
+            "minimum": 0
+          },
+          "currency": {
+            "type": "string",
+            "minimum": 3,
+            "maximum": 3
+          },
+          "assigned_to": {
+            "type": "number",
+            "minimum": 1
+          },
+          "address": {
+            "type": "string",
+            "maximum": 500
+          },
+          "city": {
+            "type": "string",
+            "maximum": 100
+          },
+          "state": {
+            "type": "string",
+            "maximum": 100
+          },
+          "zip_code": {
+            "type": "string",
+            "maximum": 20
+          },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          }
+        }
+      },
+      "leads_patchLead": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "phone": {
+            "type": "string",
+            "maximum": 30
+          },
+          "company": {
+            "type": "string",
+            "maximum": 200
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "website",
+              "referral",
+              "phone",
+              "walk_in",
+              "social",
+              "campaign",
+              "other"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "contacted",
+              "qualified",
+              "proposal",
+              "won",
+              "lost"
+            ]
+          },
+          "estimated_value": {
+            "type": "number",
+            "minimum": 0
+          },
+          "currency": {
+            "type": "string",
+            "minimum": 3,
+            "maximum": 3
+          },
+          "assigned_to": {
+            "type": "number",
+            "minimum": 1
+          },
+          "address": {
+            "type": "string",
+            "maximum": 500
+          },
+          "city": {
+            "type": "string",
+            "maximum": 100
+          },
+          "state": {
+            "type": "string",
+            "maximum": 100
+          },
+          "zip_code": {
+            "type": "string",
+            "maximum": 20
+          },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          }
+        }
+      },
+      "leads_convertLead": {
+        "type": "object",
+        "properties": {
+          "client_type": {
+            "type": "string",
+            "enum": [
+              "personal",
+              "company",
+              "residential",
+              "business",
+              "corporate",
+              "government",
+              "wholesale"
+            ]
+          }
+        }
+      },
+      "leads_SOURCES": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          },
+          "3": {
+            "type": "string"
+          },
+          "4": {
+            "type": "string"
+          },
+          "5": {
+            "type": "string"
+          },
+          "6": {
+            "type": "string"
+          }
+        }
+      },
+      "leads_STATUSES": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          },
+          "3": {
+            "type": "string"
+          },
+          "4": {
+            "type": "string"
+          },
+          "5": {
+            "type": "string"
+          }
+        }
+      },
       "metrics_metricsQuery": {
         "type": "object",
         "properties": {}
@@ -19317,6 +21766,212 @@
           }
         }
       },
+      "serviceOrders_createServiceOrder": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "lead_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "order_type": {
+            "type": "string",
+            "enum": [
+              "new_install",
+              "upgrade",
+              "downgrade",
+              "relocation",
+              "reconnect"
+            ]
+          },
+          "assigned_to": {
+            "type": "number",
+            "minimum": 1
+          },
+          "address": {
+            "type": "string",
+            "maximum": 500
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          },
+          "order_number": {
+            "type": "string",
+            "maximum": 40
+          }
+        }
+      },
+      "serviceOrders_updateServiceOrder": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "lead_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "contract_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "order_type": {
+            "type": "string",
+            "enum": [
+              "new_install",
+              "upgrade",
+              "downgrade",
+              "relocation",
+              "reconnect"
+            ]
+          },
+          "assigned_to": {
+            "type": "number",
+            "minimum": 1
+          },
+          "address": {
+            "type": "string",
+            "maximum": 500
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          }
+        }
+      },
+      "serviceOrders_patchServiceOrder": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "lead_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "contract_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "order_type": {
+            "type": "string",
+            "enum": [
+              "new_install",
+              "upgrade",
+              "downgrade",
+              "relocation",
+              "reconnect"
+            ]
+          },
+          "assigned_to": {
+            "type": "number",
+            "minimum": 1
+          },
+          "address": {
+            "type": "string",
+            "maximum": 500
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          }
+        }
+      },
+      "serviceOrders_activateServiceOrder": {
+        "type": "object",
+        "properties": {
+          "contract_id": {
+            "type": "number",
+            "minimum": 1
+          }
+        }
+      },
+      "serviceOrders_createServiceOrderTask": {
+        "type": "object",
+        "properties": {
+          "task_key": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 60
+          },
+          "label": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "sort_order": {
+            "type": "number",
+            "minimum": 0
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "task_key",
+          "label"
+        ]
+      },
+      "serviceOrders_updateServiceOrderTask": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "is_done": {
+            "type": "boolean"
+          },
+          "sort_order": {
+            "type": "number",
+            "minimum": 0
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          }
+        }
+      },
+      "serviceOrders_ORDER_TYPES": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          },
+          "3": {
+            "type": "string"
+          },
+          "4": {
+            "type": "string"
+          }
+        }
+      },
       "settings_updateSetting": {
         "type": "object",
         "properties": {
@@ -20783,6 +23438,202 @@
           },
           "is_enabled": {
             "type": "boolean"
+          }
+        }
+      },
+      "winbackCampaigns_createWinbackCampaign": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "paused",
+              "completed"
+            ]
+          },
+          "target_segment": {
+            "type": "string",
+            "enum": [
+              "all_cancelled",
+              "cancelled_30d",
+              "cancelled_90d",
+              "high_value"
+            ]
+          },
+          "offer_description": {
+            "type": "string",
+            "maximum": 65535
+          },
+          "discount_percent": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "message_template_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "start_date": {
+            "type": "string",
+            "maximum": 10
+          },
+          "end_date": {
+            "type": "string",
+            "maximum": 10
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "winbackCampaigns_updateWinbackCampaign": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "paused",
+              "completed"
+            ]
+          },
+          "target_segment": {
+            "type": "string",
+            "enum": [
+              "all_cancelled",
+              "cancelled_30d",
+              "cancelled_90d",
+              "high_value"
+            ]
+          },
+          "offer_description": {
+            "type": "string",
+            "maximum": 65535
+          },
+          "discount_percent": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "message_template_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "start_date": {
+            "type": "string",
+            "maximum": 10
+          },
+          "end_date": {
+            "type": "string",
+            "maximum": 10
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          }
+        }
+      },
+      "winbackCampaigns_patchWinbackCampaign": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "paused",
+              "completed"
+            ]
+          },
+          "target_segment": {
+            "type": "string",
+            "enum": [
+              "all_cancelled",
+              "cancelled_30d",
+              "cancelled_90d",
+              "high_value"
+            ]
+          },
+          "offer_description": {
+            "type": "string",
+            "maximum": 65535
+          },
+          "discount_percent": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "message_template_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "start_date": {
+            "type": "string",
+            "maximum": 10
+          },
+          "end_date": {
+            "type": "string",
+            "maximum": 10
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          }
+        }
+      },
+      "winbackCampaigns_STATUSES": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          },
+          "3": {
+            "type": "string"
+          }
+        }
+      },
+      "winbackCampaigns_SEGMENTS": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          },
+          "3": {
+            "type": "string"
           }
         }
       }

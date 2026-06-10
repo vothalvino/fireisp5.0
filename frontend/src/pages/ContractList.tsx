@@ -118,7 +118,7 @@ async function patchContractStatus(
 
 async function postContractAction(
   id: number,
-  action: 'suspend' | 'unsuspend',
+  action: 'suspend' | 'unsuspend' | 'renew' | 'terminate',
   extra?: Record<string, unknown>,
 ): Promise<void> {
   const token = tokenStore.getAccess();
@@ -187,6 +187,7 @@ function StatusBadge({ status }: { status: string }) {
     suspended:  { bg: '#fef3c7', color: '#92400e' },
     cancelled:  { bg: '#fee2e2', color: '#991b1b' },
     terminated: { bg: '#f3f4f6', color: '#6b7280' },
+    expired:    { bg: '#fde68a', color: '#78350f' },
   };
   const s = map[status] ?? { bg: '#f3f4f6', color: '#374151' };
   return (
@@ -472,8 +473,9 @@ function RenewModal({ contractId, onClose, onRenewed }: RenewModalProps) {
     setSubmitting(true);
     setError('');
     try {
-      // Reactivate and optionally set a new end date (null clears it for month-to-month)
-      await patchContractStatus(contractId, 'active', endDate || null);
+      // Use the dedicated /renew endpoint — PATCH {status:'active'} is blocked by
+      // the DB FSM trigger for suspended/expired/cancelled contracts.
+      await postContractAction(contractId, 'renew', { end_date: endDate || null });
       onRenewed();
       onClose();
     } catch {
@@ -671,10 +673,11 @@ function EditContractModal({ contract, plans, onClose, onSaved }: EditContractMo
 
 type ConfirmAction =
   | { type: 'suspend'; contractId: number }
+  | { type: 'terminate'; contractId: number }
   | { type: 'cancel'; contractId: number }
   | { type: 'delete'; contractId: number };
 
-const STATUS_OPTIONS = ['', 'active', 'pending', 'suspended', 'cancelled', 'terminated'];
+const STATUS_OPTIONS = ['', 'active', 'pending', 'suspended', 'cancelled', 'terminated', 'expired'];
 
 export function ContractList() {
   const queryClient = useQueryClient();
@@ -684,6 +687,15 @@ export function ContractList() {
   const [renewId, setRenewId] = useState<number | null>(null);
   const [editContract, setEditContract] = useState<Contract | null>(null);
   const [confirm, setConfirm] = useState<ConfirmAction | null>(null);
+
+  // Mutation for terminate (uses dedicated endpoint)
+  const terminateMutation = useMutation({
+    mutationFn: ({ id }: { id: number }) =>
+      postContractAction(id, 'terminate'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contracts'] });
+    },
+  });
 
   // Contracts query
   const contractsQ = useQuery({
@@ -739,6 +751,8 @@ export function ContractList() {
     if (!confirm) return;
     if (confirm.type === 'suspend') {
       suspendMutation.mutate({ id: confirm.contractId });
+    } else if (confirm.type === 'terminate') {
+      terminateMutation.mutate({ id: confirm.contractId });
     } else if (confirm.type === 'delete') {
       deleteMutation.mutate({ id: confirm.contractId });
     } else {
@@ -788,7 +802,7 @@ export function ContractList() {
       </div>
 
       {/* Mutation error banner */}
-      {(suspendMutation.isError || cancelMutation.isError || deleteMutation.isError) && (
+      {(suspendMutation.isError || cancelMutation.isError || terminateMutation.isError || deleteMutation.isError) && (
         <p style={{ color: '#ef4444', marginBottom: '0.75rem', fontSize: '0.85rem' }}>
           Action failed. Please try again.
         </p>
@@ -820,6 +834,7 @@ export function ContractList() {
                       contract={c}
                       plans={plansQ.data ?? []}
                       onSuspend={() => setConfirm({ type: 'suspend', contractId: c.id })}
+                      onTerminate={() => setConfirm({ type: 'terminate', contractId: c.id })}
                       onCancel={() => setConfirm({ type: 'cancel', contractId: c.id })}
                       onRenew={() => setRenewId(c.id)}
                       onEdit={() => setEditContract(c)}
@@ -886,9 +901,11 @@ export function ContractList() {
           message={
             confirm.type === 'suspend'
               ? 'Suspend this contract? The client will lose service.'
-              : confirm.type === 'delete'
-                ? 'Delete this contract? It will be soft-deleted and removed from the list.'
-                : 'Cancel this contract? This action is difficult to reverse.'
+              : confirm.type === 'terminate'
+                ? 'Terminate this contract? This permanently ends service and cannot be undone.'
+                : confirm.type === 'delete'
+                  ? 'Delete this contract? It will be soft-deleted and removed from the list.'
+                  : 'Cancel this contract? This action is difficult to reverse.'
           }
           onConfirm={handleConfirm}
           onCancel={() => setConfirm(null)}
@@ -906,18 +923,20 @@ interface ContractRowProps {
   contract: Contract;
   plans: Plan[];
   onSuspend: () => void;
+  onTerminate: () => void;
   onCancel: () => void;
   onRenew: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }
 
-function ContractRow({ contract: c, plans, onSuspend, onCancel, onRenew, onEdit, onDelete }: ContractRowProps) {
+function ContractRow({ contract: c, plans, onSuspend, onTerminate, onCancel, onRenew, onEdit, onDelete }: ContractRowProps) {
   const plan = plans.find(p => p.id === c.plan_id);
 
   const canSuspend = c.status === 'active' || c.status === 'pending';
-  const canCancel = c.status !== 'cancelled' && c.status !== 'terminated';
-  const canRenew = c.status === 'suspended' || c.status === 'cancelled';
+  const canTerminate = c.status === 'active' || c.status === 'suspended';
+  const canCancel = c.status !== 'cancelled' && c.status !== 'terminated' && c.status !== 'expired';
+  const canRenew = c.status === 'suspended' || c.status === 'cancelled' || c.status === 'expired';
 
   return (
     <tr style={styles.tr}>
@@ -961,6 +980,15 @@ function ContractRow({ contract: c, plans, onSuspend, onCancel, onRenew, onEdit,
             title="Suspend this contract"
           >
             ⏸ Suspend
+          </button>
+        )}
+        {canTerminate && (
+          <button
+            style={{ ...styles.actionBtn, color: '#991b1b' }}
+            onClick={onTerminate}
+            title="Permanently terminate this contract"
+          >
+            🚫 Terminate
           </button>
         )}
         {canCancel && (

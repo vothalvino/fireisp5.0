@@ -33,7 +33,12 @@
   "nav": {
     "dashboard": "📊 Painel",
     "clients": "👥 Clientes",
+    "clientGroups": "👨‍👩‍👧 Grupos de Conta",
+    "leads": "🎯 Leads",
+    "serviceOrders": "📋 Ordens de Serviço",
     "contracts": "📄 Contratos",
+    "winbackCampaigns": "🎁 Campanhas de Recuperação",
+    "churnAnalytics": "📉 Análise de Churn",
     "invoices": "🧾 Faturas",
     "payments": "💳 Pagamentos",
     "tickets": "🎫 Tickets",

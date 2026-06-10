@@ -26,6 +26,11 @@ import { PortalTicketDetail } from '@/pages/portal/PortalTicketDetail';
 import { Dashboard } from '@/pages/Dashboard';
 import { ClientList } from '@/pages/ClientList';
 import { ClientDetail } from '@/pages/ClientDetail';
+import { ClientGroupList } from '@/pages/ClientGroupList';
+import { LeadList } from '@/pages/LeadList';
+import { ServiceOrderList } from '@/pages/ServiceOrderList';
+import { WinbackCampaignList } from '@/pages/WinbackCampaignList';
+import { ChurnAnalytics } from '@/pages/ChurnAnalytics';
 import { ContractList } from '@/pages/ContractList';
 import { InvoiceList } from '@/pages/InvoiceList';
 import { InvoiceDetail } from '@/pages/InvoiceDetail';
@@ -129,6 +134,9 @@ export function App() {
                 <Route index element={<Dashboard />} />
                 <Route path="clients" element={<ClientList />} />
                 <Route path="clients/:id" element={<ClientDetail />} />
+                <Route path="client-groups" element={<ClientGroupList />} />
+                <Route path="leads" element={<LeadList />} />
+                <Route path="service-orders" element={<ServiceOrderList />} />
                 <Route path="contracts" element={<ContractList />} />
                 <Route path="invoices" element={<InvoiceList />} />
                 <Route path="invoices/:id" element={<InvoiceDetail />} />
@@ -179,6 +187,8 @@ export function App() {
                 <Route path="payment-gateways" element={<PaymentGatewayList />} />
                 <Route path="payment-transactions" element={<PaymentTransactionList />} />
                 <Route path="recurring-payment-profiles" element={<RecurringPaymentProfileList />} />
+                <Route path="winback-campaigns" element={<WinbackCampaignList />} />
+                <Route path="churn-analytics" element={<ChurnAnalytics />} />
                 <Route path="csd-certificates" element={<CsdCertificateList />} />
                 <Route path="pac-providers" element={<PacProviderList />} />
                 <Route path="sat-catalogs" element={<SatCatalogList />} />

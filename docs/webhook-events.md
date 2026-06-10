@@ -126,6 +126,24 @@ Fired when a new support ticket is opened.
 }
 ```
 
+### `service_order.activated`
+
+Fired when a service order is activated (its workflow reaches the `activated`
+state). Also triggers a welcome email/SMS to the linked client.
+
+```json
+{
+  "event": "service_order.activated",
+  "timestamp": "2026-06-09T09:00:00.000Z",
+  "data": {
+    "id": 789,
+    "order_number": "SO-000789",
+    "client_id": 567,
+    "contract_id": 321
+  }
+}
+```
+
 ### `device.offline`
 
 Fired when a monitored network device goes offline.

@@ -33,7 +33,12 @@
   "nav": {
     "dashboard": "📊 Panel",
     "clients": "👥 Clientes",
+    "clientGroups": "👨‍👩‍👧 Grupos de Cuenta",
+    "leads": "🎯 Prospectos",
+    "serviceOrders": "📋 Órdenes de Servicio",
     "contracts": "📄 Contratos",
+    "winbackCampaigns": "🎁 Campañas de Recuperación",
+    "churnAnalytics": "📉 Análisis de Cancelación",
     "invoices": "🧾 Facturas",
     "payments": "💳 Pagos",
     "tickets": "🎫 Tickets",

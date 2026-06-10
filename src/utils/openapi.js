@@ -45,6 +45,11 @@ function generateSpec() {
       { name: 'Two-Factor', description: 'TOTP two-factor authentication' },
       { name: 'API Tokens', description: 'API token management' },
       { name: 'Clients', description: 'Client management' },
+      { name: 'Client Groups', description: 'Family/account grouping (shared billing)' },
+      { name: 'Leads', description: 'Lead capture and prospect pipeline' },
+      { name: 'Service Orders', description: 'Service order workflow — request → approval → provisioning → activation' },
+      { name: 'Win-back Campaigns', description: 'Win-back campaigns for cancelled customers' },
+      { name: 'Lifecycle', description: 'Customer lifecycle analytics — churn and at-risk' },
       { name: 'Contracts', description: 'Contract management' },
       { name: 'Plans', description: 'Service plan management' },
       { name: 'Invoices', description: 'Invoice management' },
@@ -189,6 +194,62 @@ function generateSpec() {
       '/clients/{id}/balance-ledger': { get: { tags: ['Clients'], summary: 'Get client balance ledger', operationId: 'getClientBalanceLedger', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('LedgerEntry[]') } },
       '/clients/{id}/portal-password': { put: { tags: ['Clients'], summary: 'Set or reset the client portal password', operationId: 'setClientPortalPassword', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('password'), responses: r200('Message') } },
       '/clients/{id}/restore': { post: { tags: ['Clients'], summary: 'Restore a soft-deleted client', operationId: 'restoreClient', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Client') } },
+      '/clients/{id}/custom-fields': {
+        get: { tags: ['Clients'], summary: 'List client custom fields', operationId: 'listClientCustomFields', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('CustomField[]') },
+        put: { tags: ['Clients'], summary: 'Create or update a custom field', operationId: 'setClientCustomField', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('clients_setCustomField'), responses: r200('CustomField') },
+      },
+      '/clients/{id}/custom-fields/{key}': {
+        delete: { tags: ['Clients'], summary: 'Delete a custom field by key', operationId: 'deleteClientCustomField', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'key', in: 'path', required: true, schema: { type: 'string' } }], responses: r204() },
+      },
+      '/clients/{id}/documents': {
+        get: { tags: ['Clients'], summary: 'List client ID documents / photos', operationId: 'listClientDocuments', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Document[]') },
+        post: { tags: ['Clients'], summary: 'Upload a client ID document / photo (multipart/form-data)', operationId: 'uploadClientDocument', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: { content: { 'multipart/form-data': { schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' }, category: { type: 'string', enum: ['client_file', 'notification_log'] }, notes: { type: 'string' } } } } } }, responses: r201('Document') },
+      },
+      '/clients/{id}/documents/{fileId}': {
+        delete: { tags: ['Clients'], summary: 'Delete a client document', operationId: 'deleteClientDocument', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'fileId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/clients/{id}/documents/{fileId}/download': {
+        get: { tags: ['Clients'], summary: 'Download a client document', operationId: 'downloadClientDocument', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'fileId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200File('application/octet-stream') },
+      },
+      '/clients/{id}/geocode': { post: { tags: ['Clients'], summary: 'Geocode the client service address to GPS coordinates', operationId: 'geocodeClient', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('clients_geocodeClient'), responses: r200('Client') } },
+      '/clients/duplicates/scan': { get: { tags: ['Clients'], summary: 'Scan for duplicate clients by email/phone/tax_id', operationId: 'scanClientDuplicates', security: [{ bearerAuth: [] }], parameters: [{ name: 'email', in: 'query', schema: { type: 'string' } }, { name: 'phone', in: 'query', schema: { type: 'string' } }, { name: 'tax_id', in: 'query', schema: { type: 'string' } }], responses: r200('Client[]') } },
+      '/clients/{id}/duplicates': { get: { tags: ['Clients'], summary: 'Find potential duplicates of this client', operationId: 'listClientDuplicates', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Client[]') } },
+      '/clients/{id}/merge': { post: { tags: ['Clients'], summary: 'Merge another client (source_id) into this client', operationId: 'mergeClient', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('clients_mergeClient'), responses: r200('Merge result') } },
+
+      // ---- Client Groups ----
+      ...crudPaths('client-groups', 'Client Groups', 'ClientGroup'),
+      '/client-groups/{id}/members': { get: { tags: ['Client Groups'], summary: 'List member clients of a group', operationId: 'listClientGroupMembers', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Client[]') } },
+      '/client-groups/{id}/restore': { post: { tags: ['Client Groups'], summary: 'Restore a soft-deleted client group', operationId: 'restoreClientGroup', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ClientGroup') } },
+
+      // ---- Leads (prospect pipeline) ----
+      ...crudPaths('leads', 'Leads', 'Lead'),
+      '/leads/pipeline': { get: { tags: ['Leads'], summary: 'Lead counts grouped by pipeline stage', operationId: 'getLeadPipeline', security: [{ bearerAuth: [] }], responses: r200('Pipeline counts') } },
+      '/leads/{id}/restore': { post: { tags: ['Leads'], summary: 'Restore a soft-deleted lead', operationId: 'restoreLead', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Lead') } },
+      '/leads/{id}/convert': { post: { tags: ['Leads'], summary: 'Convert a lead into a client', operationId: 'convertLead', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('leads_convertLead'), responses: r201('Lead + Client') } },
+
+      // ---- Service Orders (workflow) ----
+      ...crudPaths('service-orders', 'Service Orders', 'ServiceOrder'),
+      '/service-orders/{id}/restore': { post: { tags: ['Service Orders'], summary: 'Restore a soft-deleted service order', operationId: 'restoreServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
+      '/service-orders/{id}/approve': { post: { tags: ['Service Orders'], summary: 'Approve a requested service order', operationId: 'approveServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
+      '/service-orders/{id}/provision': { post: { tags: ['Service Orders'], summary: 'Move an approved order into provisioning', operationId: 'provisionServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
+      '/service-orders/{id}/activate': { post: { tags: ['Service Orders'], summary: 'Activate a provisioning order (sends welcome notification)', operationId: 'activateServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('serviceOrders_activateServiceOrder'), responses: r200('ServiceOrder') } },
+      '/service-orders/{id}/cancel': { post: { tags: ['Service Orders'], summary: 'Cancel a service order', operationId: 'cancelServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
+      '/service-orders/{id}/tasks': {
+        get: { tags: ['Service Orders'], summary: 'List onboarding checklist tasks', operationId: 'listServiceOrderTasks', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrderTask[]') },
+        post: { tags: ['Service Orders'], summary: 'Add an onboarding checklist task', operationId: 'createServiceOrderTask', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('serviceOrders_createServiceOrderTask'), responses: r201('ServiceOrderTask') },
+      },
+      '/service-orders/{id}/tasks/{taskId}': {
+        patch: { tags: ['Service Orders'], summary: 'Update an onboarding checklist task', operationId: 'updateServiceOrderTask', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'taskId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('serviceOrders_updateServiceOrderTask'), responses: r200('ServiceOrderTask') },
+      },
+
+      // ---- Win-back Campaigns ----
+      ...crudPaths('winback-campaigns', 'Win-back Campaigns', 'WinbackCampaign'),
+      '/winback-campaigns/{id}/restore': { post: { tags: ['Win-back Campaigns'], summary: 'Restore a soft-deleted win-back campaign', operationId: 'restoreWinbackCampaign', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('WinbackCampaign') } },
+      '/winback-campaigns/{id}/targets': { get: { tags: ['Win-back Campaigns'], summary: 'Preview cancelled-customer cohort for a campaign', operationId: 'getWinbackTargets', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Target[]') } },
+
+      // ---- Lifecycle analytics ----
+      '/lifecycle/churn': { get: { tags: ['Lifecycle'], summary: 'Monthly churn report', operationId: 'getChurnReport', security: [{ bearerAuth: [] }], parameters: [{ name: 'months', in: 'query', required: false, schema: { type: 'integer' } }], responses: r200('Churn report') } },
+      '/lifecycle/at-risk': { get: { tags: ['Lifecycle'], summary: 'Predictive at-risk (churn) client alerts', operationId: 'getAtRiskClients', security: [{ bearerAuth: [] }], parameters: [{ name: 'limit', in: 'query', required: false, schema: { type: 'integer' } }], responses: r200('At-risk clients') } },
 
       // ---- Plans ----
       ...crudPaths('plans', 'Plans', 'Plan'),
@@ -197,6 +258,8 @@ function generateSpec() {
       ...crudPaths('contracts', 'Contracts', 'Contract'),
       '/contracts/{id}/suspend': { post: { tags: ['Contracts'], summary: 'Suspend a contract and kick active RADIUS session via CoA Disconnect-Request', operationId: 'suspendContract', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('rule_id + invoice_id'), responses: { 200: { description: 'Contract suspended', content: { 'application/json': { schema: { type: 'object' } } } }, 404: { description: 'Contract not found' }, 422: { description: 'Contract is already suspended' } } } },
       '/contracts/{id}/unsuspend': { post: { tags: ['Contracts'], summary: 'Unsuspend a contract and restore RADIUS access via CoA-Request', operationId: 'unsuspendContract', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('invoice_id'), responses: { 200: { description: 'Contract unsuspended', content: { 'application/json': { schema: { type: 'object' } } } }, 404: { description: 'Contract not found' }, 422: { description: 'Contract is not suspended' } } } },
+      '/contracts/{id}/renew': { post: { tags: ['Contracts'], summary: 'Renew (reactivate) a suspended, expired, or cancelled contract', operationId: 'renewContract', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('end_date + plan_id'), responses: { 200: { description: 'Contract renewed', content: { 'application/json': { schema: { type: 'object' } } } }, 404: { description: 'Contract not found' }, 422: { description: 'Contract is not in a renewable state' } } } },
+      '/contracts/{id}/terminate': { post: { tags: ['Contracts'], summary: 'Permanently terminate an active or suspended contract and send RADIUS disconnect', operationId: 'terminateContract', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: { 200: { description: 'Contract terminated', content: { 'application/json': { schema: { type: 'object' } } } }, 404: { description: 'Contract not found' }, 422: { description: 'Contract cannot be terminated from its current state' } } } },
 
       // ---- Invoices ----
       ...crudPaths('invoices', 'Invoices', 'Invoice'),
