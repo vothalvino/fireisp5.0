@@ -628,6 +628,40 @@ function registerHooks() {
     }
   });
 
+  // --- Refund Requested (notify billing staff via webhook) — §2.5 ---
+  eventBus.on('refund.requested', async ({ organizationId, refundRequest }) => {
+    try {
+      await webhookService.dispatch(organizationId, 'refund.requested', {
+        id: refundRequest.id,
+        amount: refundRequest.amount,
+        reason: refundRequest.reason,
+      });
+    } catch (err) {
+      logger.error({ err, event: 'refund.requested' }, 'Notification hook error');
+    }
+  });
+
+  // --- Refund Processed (notify client via email if available) — §2.5 ---
+  eventBus.on('refund.processed', async ({ organizationId, refundRequest, client }) => {
+    try {
+      if (client?.email) {
+        await emailTransport.sendEmail({
+          organizationId,
+          to: client.email,
+          subject: 'Your refund has been processed',
+          html: `<p>Your refund of ${refundRequest.amount} has been processed.</p>`,
+        });
+      }
+      await webhookService.dispatch(organizationId, 'refund.processed', {
+        id: refundRequest.id,
+        amount: refundRequest.amount,
+        refund_method: refundRequest.refund_method,
+      });
+    } catch (err) {
+      logger.error({ err, event: 'refund.processed' }, 'Notification hook error');
+    }
+  });
+
   logger.info('Notification hooks registered');
 }
 

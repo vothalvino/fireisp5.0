@@ -67,6 +67,10 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/payment-reminder-settings', labelKey: 'nav.paymentReminderSettings', requiredRole: 'billing' },
       { to: '/payment-plans', labelKey: 'nav.paymentPlans', requiredRole: 'billing' },
       { to: '/cash-reconciliation', labelKey: 'nav.cashReconciliation', requiredRole: 'billing' },
+      { to: '/refund-requests', labelKey: 'nav.refundRequests', requiredRole: 'billing' },
+      { to: '/billing-disputes', labelKey: 'nav.billingDisputes', requiredRole: 'billing' },
+      { to: '/chargebacks', labelKey: 'nav.chargebacks', requiredRole: 'billing' },
+      { to: '/billing-adjustments', labelKey: 'nav.billingAdjustments', requiredRole: 'billing' },
     ],
   },
   {

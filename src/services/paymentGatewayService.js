@@ -460,6 +460,30 @@ async function handleWebhookEvent({ provider, providerEventId, eventType, payloa
       }
     }
 
+    // Auto-create a chargeback record when a dispute is received — §2.5.3
+    if (newStatus === 'disputed') {
+      try {
+        await db.query(
+          `INSERT INTO chargebacks
+             (organization_id, payment_id, gateway, gateway_dispute_id, amount, currency, reason_code, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'received')
+           ON DUPLICATE KEY UPDATE updated_at = NOW()`,
+          [
+            tx.organization_id,
+            tx.id,
+            provider,
+            gatewayRef,
+            tx.amount,
+            tx.currency || 'USD',
+            eventType,
+          ],
+        );
+        logger.info({ transactionId: tx.id, provider, gatewayRef }, 'Chargeback auto-created from webhook');
+      } catch (chargebackErr) {
+        logger.error({ chargebackErr, transactionId: tx.id }, 'Failed to auto-create chargeback from webhook');
+      }
+    }
+
     logger.info({ provider, eventType, transactionId: tx.id }, 'Webhook event processed');
 
     return { status: 'processed', webhookEventId, transactionId: tx.id, newStatus };

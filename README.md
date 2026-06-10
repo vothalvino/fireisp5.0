@@ -107,8 +107,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 146 tables)
-│   └── migrations/          # Individual numbered migration files (001–216)
+│   ├── schema.sql           # Combined schema (all 151 tables)
+│   └── migrations/          # Individual numbered migration files (001–222)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -306,6 +306,14 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 144 | `payment_plans` | Payment plan for splitting invoices into installments |
 | 145 | `payment_plan_installments` | Individual installment records for a payment plan |
 | 146 | `cash_reconciliation_sessions` | Field agent cash collection reconciliation sessions |
+| 147 | `refund_requests` | Refund request workflow — create, review (approve/reject), process (credit balance, credit note, or gateway refund) |
+| 148 | `billing_disputes` | Billing dispute tracking with status lifecycle (open → investigating → resolved) |
+| 149 | `dispute_evidence` | File attachments for billing disputes (reuses multer upload infrastructure) |
+| 150 | `chargebacks` | Chargeback management; auto-created from gateway webhook dispute events |
+| 151 | `billing_adjustments` | Immutable billing adjustment log — written by refund processing, chargeback resolution, and manual admin actions; mirrors to audit_logs |
+
+> **Migrations 217–222 — §2.5 (Refund Requests, Disputes, Chargebacks, Billing Adjustments):**
+> Adds `refund_requests` table (217) with status lifecycle `requested → under_review → approved/rejected → processed`; RBAC seeds (218); `billing_disputes` + `dispute_evidence` tables (219) with multipart evidence upload reusing the existing upload middleware; dispute RBAC seeds (220); `chargebacks` + `billing_adjustments` tables (221); chargeback/adjustment RBAC seeds (222). `paymentGatewayService.handleWebhookEvent` now auto-creates a chargeback row when a dispute webhook is received. `billingAdjustmentService.record()` is called from refund processing and mirrors each adjustment into `audit_logs`. New events: `refund.requested` (webhook dispatch to billing staff), `refund.processed` (email to client + webhook).
 
 > **Migrations 211–216 — §2.3+§2.4 (Payment Plans, Cash Reconciliation, Soft Suspension, Suspension Exempt):**
 > Adds payment plan / installment management (211–212), cash reconciliation sessions (213–214), soft-suspend ENUM + speed columns on suspension_rules (215), and suspension_exempt columns on clients (216).

@@ -68,6 +68,10 @@
     "suspensionRules": "⛔ Regras de Suspensão",
     "paymentPlans": "💳 Planos de Pagamento",
     "cashReconciliation": "💰 Conciliação de Caixa",
+    "refundRequests": "↩ Solicitações de Reembolso",
+    "billingDisputes": "⚖️ Disputas de Faturamento",
+    "chargebacks": "🔄 Estornos",
+    "billingAdjustments": "🧮 Ajustes de Faturamento",
     "cfdi": "🏛️ CFDI",
     "plans": "📶 Planos",
     "quotes": "🧮 Orçamentos",
@@ -786,6 +790,178 @@
     "softSuspend": {
       "downloadKbps": "Velocidade de download limitada (kbps)",
       "uploadKbps": "Velocidade de upload limitada (kbps)"
+    }
+  },
+  "refundRequests": {
+    "title": "Solicitações de Reembolso",
+    "newRequest": "Nova Solicitação de Reembolso",
+    "columns": {
+      "id": "ID",
+      "clientId": "ID do Cliente",
+      "amount": "Valor",
+      "reason": "Motivo",
+      "status": "Status",
+      "requestedBy": "Solicitado Por",
+      "createdAt": "Criado em"
+    },
+    "status": {
+      "requested": "Solicitado",
+      "under_review": "Em Análise",
+      "approved": "Aprovado",
+      "rejected": "Rejeitado",
+      "processed": "Processado"
+    },
+    "reason": {
+      "overcharge": "Cobrança Excessiva",
+      "duplicate": "Pagamento Duplicado",
+      "cancellation": "Cancelamento",
+      "service_issue": "Problema de Serviço",
+      "other": "Outro"
+    },
+    "review": "Revisar",
+    "process": "Processar",
+    "form": {
+      "clientId": "ID do Cliente",
+      "amount": "Valor",
+      "reason": "Motivo",
+      "paymentId": "ID do Pagamento (opcional)",
+      "invoiceId": "ID da Fatura (opcional)"
+    },
+    "reviewModal": {
+      "title": "Revisar Solicitação",
+      "status": "Decisão",
+      "notes": "Notas de Revisão"
+    },
+    "processModal": {
+      "title": "Processar Reembolso",
+      "method": "Método de Reembolso",
+      "gatewayRef": "Referência do Gateway (opcional)",
+      "methods": {
+        "original_method": "Método de Pagamento Original",
+        "credit_balance": "Saldo de Crédito",
+        "manual": "Manual"
+      }
+    }
+  },
+  "billingDisputes": {
+    "title": "Disputas de Faturamento",
+    "newDispute": "Nova Disputa",
+    "columns": {
+      "id": "ID",
+      "clientId": "ID do Cliente",
+      "type": "Tipo",
+      "status": "Status",
+      "description": "Descrição",
+      "openedBy": "Aberto Por",
+      "createdAt": "Criado em"
+    },
+    "status": {
+      "open": "Aberto",
+      "investigating": "Investigando",
+      "resolved_favor_client": "Resolvido (Cliente)",
+      "resolved_favor_company": "Resolvido (Empresa)",
+      "escalated": "Escalado"
+    },
+    "type": {
+      "billing_error": "Erro de Faturamento",
+      "service_quality": "Qualidade do Serviço",
+      "unauthorized_charge": "Cobrança Não Autorizada",
+      "other": "Outro"
+    },
+    "transition": "Alterar Status",
+    "evidence": "Evidências",
+    "form": {
+      "clientId": "ID do Cliente",
+      "type": "Tipo",
+      "description": "Descrição",
+      "invoiceId": "ID da Fatura (opcional)",
+      "paymentId": "ID do Pagamento (opcional)"
+    },
+    "transitionModal": {
+      "title": "Alterar Status",
+      "status": "Novo Status",
+      "notes": "Notas de Resolução (opcional)"
+    },
+    "evidencePanel": {
+      "title": "Arquivos de Evidência",
+      "upload": "Enviar Evidência",
+      "note": "Nota (opcional)",
+      "chooseFile": "Escolher arquivo",
+      "download": "Baixar",
+      "noFiles": "Nenhum arquivo de evidência ainda."
+    }
+  },
+  "chargebacks": {
+    "title": "Estornos",
+    "newChargeback": "Estorno Manual",
+    "columns": {
+      "id": "ID",
+      "paymentId": "ID do Pagamento",
+      "gateway": "Gateway",
+      "gatewayDisputeId": "ID da Disputa",
+      "amount": "Valor",
+      "currency": "Moeda",
+      "status": "Status",
+      "dueBy": "Prazo",
+      "createdAt": "Criado em"
+    },
+    "status": {
+      "received": "Recebido",
+      "evidence_submitted": "Evidência Enviada",
+      "won": "Ganho",
+      "lost": "Perdido",
+      "accepted": "Aceito"
+    },
+    "update": "Atualizar",
+    "form": {
+      "paymentId": "ID do Pagamento (opcional)",
+      "gateway": "Gateway (opcional)",
+      "gatewayDisputeId": "ID de Disputa do Gateway (opcional)",
+      "amount": "Valor",
+      "currency": "Moeda",
+      "reasonCode": "Código de Motivo (opcional)"
+    },
+    "updateModal": {
+      "title": "Atualizar Estorno",
+      "status": "Status",
+      "outcomeNotes": "Notas de Resultado",
+      "dueBy": "Data Limite"
+    }
+  },
+  "billingAdjustments": {
+    "title": "Ajustes de Faturamento",
+    "newAdjustment": "Ajuste Manual",
+    "columns": {
+      "id": "ID",
+      "clientId": "ID do Cliente",
+      "entityType": "Tipo de Entidade",
+      "entityId": "ID da Entidade",
+      "adjustmentType": "Tipo de Ajuste",
+      "amountDelta": "Variação de Valor",
+      "reason": "Motivo",
+      "approvedBy": "Aprovado Por",
+      "createdAt": "Criado em"
+    },
+    "entityType": {
+      "invoice": "Fatura",
+      "payment": "Pagamento",
+      "credit_note": "Nota de Crédito",
+      "balance": "Saldo"
+    },
+    "adjustmentType": {
+      "late_fee_waiver": "Isenção de Multa por Atraso",
+      "discount": "Desconto",
+      "correction": "Correção",
+      "write_off": "Baixa de Dívida",
+      "other": "Outro"
+    },
+    "form": {
+      "clientId": "ID do Cliente",
+      "entityType": "Tipo de Entidade",
+      "entityId": "ID da Entidade",
+      "adjustmentType": "Tipo de Ajuste",
+      "amountDelta": "Variação de Valor",
+      "reason": "Motivo"
     }
   }
 }

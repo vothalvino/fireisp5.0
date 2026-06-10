@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS clients (
     locale          ENUM('global', 'MX') NOT NULL DEFAULT 'global'
                         COMMENT 'Regional compliance switch: global = no country-specific requirements; MX = SAT CFDI 4.0 + IFT/CRT compliance required',
     tax_id          VARCHAR(50)     NULL,
-    curp            VARCHAR(18)     NULL COMMENT 'Mexican personal ID (CURP) — personal clients only',
+    curp            VARCHAR(18)     NULL COMMENT 'Mexican personal ID (CURP) â€” personal clients only',
     address         VARCHAR(255)    NULL,
     city            VARCHAR(100)    NULL,
     state           VARCHAR(100)    NULL,
@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS client_custom_fields (
 
 -- ---------------------------------------------------------------------------
 -- Table: leads
--- Purpose: Lead capture and prospect pipeline (§1.2 Customer Lifecycle).
+-- Purpose: Lead capture and prospect pipeline (Â§1.2 Customer Lifecycle).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS leads (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -195,8 +195,8 @@ CREATE TABLE IF NOT EXISTS leads (
 
 -- ---------------------------------------------------------------------------
 -- Table: service_orders
--- Purpose: Service order workflow — requested → approved → provisioning →
---          activated (§1.2 Customer Lifecycle).
+-- Purpose: Service order workflow â€” requested â†’ approved â†’ provisioning â†’
+--          activated (Â§1.2 Customer Lifecycle).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS service_orders (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -248,7 +248,7 @@ CREATE TABLE IF NOT EXISTS service_orders (
 
 -- ---------------------------------------------------------------------------
 -- Table: service_order_tasks
--- Purpose: Customer onboarding checklist items per service order (§1.2).
+-- Purpose: Customer onboarding checklist items per service order (Â§1.2).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS service_order_tasks (
     id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -275,7 +275,7 @@ CREATE TABLE IF NOT EXISTS service_order_tasks (
 
 -- ---------------------------------------------------------------------------
 -- Table: winback_campaigns
--- Purpose: Win-back campaigns for cancelled customers (§1.2).
+-- Purpose: Win-back campaigns for cancelled customers (Â§1.2).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS winback_campaigns (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -417,7 +417,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     site_id        BIGINT UNSIGNED NULL,
     start_date     DATE            NOT NULL,
     end_date       DATE            NULL,
-    billing_day    TINYINT UNSIGNED NULL     COMMENT 'Day of month (1–28) on which invoices are generated; NULL = inherit from plan'
+    billing_day    TINYINT UNSIGNED NULL     COMMENT 'Day of month (1â€“28) on which invoices are generated; NULL = inherit from plan'
                        CHECK (billing_day BETWEEN 1 AND 28),
     ip_address     VARCHAR(45)     NULL      COMMENT 'Static IPv4/IPv6 address assigned to this service; NULL = dynamic',
     billing_cycle  ENUM('monthly', 'quarterly', 'semi_annual', 'annual') NULL COMMENT 'Override cycle; NULL means use the plan billing cycle',
@@ -426,9 +426,9 @@ CREATE TABLE IF NOT EXISTS contracts (
     connection_type ENUM('pppoe', 'pppoe_dual', 'static', 'dual') NOT NULL DEFAULT 'pppoe'
                        COMMENT 'pppoe = PPPoE IPv4-only (requires RADIUS); pppoe_dual = PPPoE dual-stack IPv4+IPv6 (requires RADIUS); static = static IPv4 (no RADIUS); dual = dual-stack static IPv4+IPv6 (no RADIUS)',
     contract_template_mx_id BIGINT UNSIGNED NULL
-                       COMMENT 'IFT/CRT-registered Carta de Adhesión template used for this contract; NULL for non-MX clients',
+                       COMMENT 'IFT/CRT-registered Carta de AdhesiÃ³n template used for this contract; NULL for non-MX clients',
     facturar       BOOLEAN         NOT NULL DEFAULT FALSE
-                       COMMENT 'MX only: TRUE = generate individual CFDI for this contract invoices; FALSE = invoices go to factura pública (venta al público en general). When TRUE the client must have a client_mx_profiles row with valid SAT data. Ignored when client locale is not MX',
+                       COMMENT 'MX only: TRUE = generate individual CFDI for this contract invoices; FALSE = invoices go to factura pÃºblica (venta al pÃºblico en general). When TRUE the client must have a client_mx_profiles row with valid SAT data. Ignored when client locale is not MX',
     status         ENUM('pending','active','suspended','expired','cancelled','terminated') NOT NULL DEFAULT 'pending',
     version        INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
     created_by     BIGINT UNSIGNED NULL,
@@ -560,7 +560,7 @@ CREATE TABLE IF NOT EXISTS devices (
                       'onu',
                       'other'
                   ) NOT NULL DEFAULT 'other'
-                      COMMENT 'Device type — client: outdoor_cpe, indoor_cpe; pop: ptp, ptmp_ap, olt, router, switch, onu',
+                      COMMENT 'Device type â€” client: outdoor_cpe, indoor_cpe; pop: ptp, ptmp_ap, olt, router, switch, onu',
     manufacturer  VARCHAR(100)    NULL,
     model         VARCHAR(100)    NULL,
     serial_number VARCHAR(100)    NULL,
@@ -569,7 +569,7 @@ CREATE TABLE IF NOT EXISTS devices (
     ipv6_address  VARCHAR(45)     NULL COMMENT 'Management IPv6 address (dual-stack)',
     firmware      VARCHAR(100)    NULL,
     snmp_enabled  BOOLEAN         NOT NULL DEFAULT FALSE COMMENT 'Enable SNMP polling for this device',
-    snmp_community VARCHAR(255)   NULL COMMENT 'SNMP community string (v1/v2c) — store encrypted; decrypt at application layer',
+    snmp_community VARCHAR(255)   NULL COMMENT 'SNMP community string (v1/v2c) â€” store encrypted; decrypt at application layer',
     snmp_version  ENUM('v1','v2c','v3') NULL DEFAULT 'v2c' COMMENT 'SNMP protocol version',
     snmp_port     SMALLINT UNSIGNED NULL DEFAULT 161 COMMENT 'SNMP UDP port',
     snmp_profile_id BIGINT UNSIGNED NULL
@@ -721,7 +721,7 @@ CREATE TABLE IF NOT EXISTS payments (
                                      COMMENT 'Payment instrument; simplified: cash/check/card/transfer/online/other; MX methods: oxxo_pay, spei, codi, convenience_store, digital_wallet',
     sat_forma_pago   VARCHAR(2)      NULL COMMENT 'SAT c_FormaPago code used to stamp on CFDI pago complement (e.g. 01=cash, 03=SPEI, 06=CoDi)',
     reference_number VARCHAR(100)    NULL COMMENT 'Check number, transaction ID, etc.',
-    clabe            VARCHAR(18)     NULL COMMENT '18-digit CLABE interbank key — required for SPEI and CoDi transactions',
+    clabe            VARCHAR(18)     NULL COMMENT '18-digit CLABE interbank key â€” required for SPEI and CoDi transactions',
     bank_name        VARCHAR(100)    NULL COMMENT 'Bank name for SPEI / CoDi transactions',
     notes            TEXT            NULL,
     status           ENUM('pending', 'completed', 'failed', 'refunded', 'cancelled')
@@ -753,7 +753,7 @@ CREATE TABLE IF NOT EXISTS payments (
 
 -- ---------------------------------------------------------------------------
 -- Table: payment_allocations
--- Purpose: Junction table for split payments — records what portion of a payment
+-- Purpose: Junction table for split payments â€” records what portion of a payment
 --          was applied to each invoice.  Supports one-payment-many-invoices flows
 --          (e.g. client pays a lump sum covering several outstanding invoices).
 --          The payments.invoice_id column is kept for simple single-invoice cases.
@@ -1093,7 +1093,7 @@ CREATE TABLE IF NOT EXISTS ip_assignments (
     type        ENUM('static', 'dynamic', 'reserved') NOT NULL DEFAULT 'dynamic',
     notes       TEXT            NULL,
     status      ENUM('active', 'available', 'expired') NOT NULL DEFAULT 'available'
-                    COMMENT 'Lifecycle state — reservation intent is captured by the type field',
+                    COMMENT 'Lifecycle state â€” reservation intent is captured by the type field',
     assigned_at TIMESTAMP       NULL,
     expires_at  TIMESTAMP       NULL,
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1186,7 +1186,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     description VARCHAR(255)    NOT NULL COMMENT 'Line-item description e.g. plan name, one-time fee',
     quantity    DECIMAL(10, 2)  NOT NULL DEFAULT 1.00,
     unit_price  DECIMAL(10, 2)  NOT NULL,
-    amount      DECIMAL(10, 2)  NOT NULL DEFAULT 0.00 COMMENT 'Line-item total amount (quantity × unit_price); populated on INSERT by billingService and Invoice.addItem',
+    amount      DECIMAL(10, 2)  NOT NULL DEFAULT 0.00 COMMENT 'Line-item total amount (quantity Ã— unit_price); populated on INSERT by billingService and Invoice.addItem',
     tax_rate_id BIGINT UNSIGNED NULL COMMENT 'Per-line-item tax rate override; NULL = inherit from parent invoice',
     total       DECIMAL(10, 2)  GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT 'quantity * unit_price',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1554,8 +1554,8 @@ CREATE TABLE IF NOT EXISTS snmp_traps (
 -- Table: dr_drill_logs
 -- Purpose: Audit log for automated quarterly DR-drill runs.
 --          Each row records the outcome of one non-destructive drill:
---            Phase 1 — backup taken + size verified
---            Phase 4 — referential-integrity and financial-consistency checks
+--            Phase 1 â€” backup taken + size verified
+--            Phase 4 â€” referential-integrity and financial-consistency checks
 --          Phases 2 (drop) and 3 (restore) are intentionally manual.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dr_drill_logs (
@@ -1581,7 +1581,7 @@ CREATE TABLE IF NOT EXISTS dr_drill_logs (
   COMMENT='Audit log for automated quarterly DR-drill runs.';
 
 -- ---------------------------------------------------------------------------
--- Seed: snmp_profiles — pre-built profiles for common ISP device vendors
+-- Seed: snmp_profiles â€” pre-built profiles for common ISP device vendors
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO snmp_profiles
     (name, manufacturer, model_pattern, device_type, snmp_version, poll_interval_sec, is_default, description)
@@ -1612,7 +1612,7 @@ VALUES
     );
 
 -- ---------------------------------------------------------------------------
--- Seed: snmp_profile_oids — OID mappings per vendor profile
+-- Seed: snmp_profile_oids â€” OID mappings per vendor profile
 -- ---------------------------------------------------------------------------
 
 -- Generic IF-MIB OIDs
@@ -1714,7 +1714,7 @@ WHERE p.name = 'Cambium Networks';
 -- =============================================================================
 -- Connection logs record every subscriber session event for regulatory compliance.
 -- Session traffic counters (bytes_in/out, packets_in/out) on stop/interim events
--- also serve as the source of truth for per-contract data usage — no separate
+-- also serve as the source of truth for per-contract data usage â€” no separate
 -- NetFlow usage tables are needed.
 -- =============================================================================
 
@@ -1728,8 +1728,8 @@ WHERE p.name = 'Cambium Networks';
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS connection_logs (
     id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    contract_id           BIGINT UNSIGNED NOT NULL          COMMENT 'Contract at time of session (no FK — compliance)',
-    client_id             BIGINT UNSIGNED NOT NULL          COMMENT 'Client at time of session (no FK — compliance)',
+    contract_id           BIGINT UNSIGNED NOT NULL          COMMENT 'Contract at time of session (no FK â€” compliance)',
+    client_id             BIGINT UNSIGNED NOT NULL          COMMENT 'Client at time of session (no FK â€” compliance)',
     nas_id                BIGINT UNSIGNED NULL              COMMENT 'NAS that authenticated the session',
     username              VARCHAR(64)     NOT NULL          COMMENT 'RADIUS username at time of session',
     session_id            VARCHAR(64)     NULL              COMMENT 'RADIUS Acct-Session-Id',
@@ -2076,7 +2076,7 @@ CREATE EVENT IF NOT EXISTS evt_snmp_partition_maintenance
 -- =============================================================================
 -- Connection Logs Partition Maintenance
 -- =============================================================================
--- Retention: connection_logs kept 2 years (DROP PARTITION — compliance)
+-- Retention: connection_logs kept 2 years (DROP PARTITION â€” compliance)
 -- =============================================================================
 
 DELIMITER $$
@@ -2207,7 +2207,7 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this inventory item belongs to; NULL = single-tenant deployment',
     sku             VARCHAR(100)    NULL COMMENT 'Stock-keeping unit / internal part number',
-    name            VARCHAR(255)    NOT NULL COMMENT 'Item name (e.g. MikroTik hAP ac³)',
+    name            VARCHAR(255)    NOT NULL COMMENT 'Item name (e.g. MikroTik hAP acÂ³)',
     category        ENUM(
                         'antenna',
                         'cable',
@@ -2278,7 +2278,7 @@ CREATE TABLE IF NOT EXISTS inventory_stock (
 
 -- ---------------------------------------------------------------------------
 -- Table: inventory_transactions
--- Purpose: Immutable log of every stock movement — receiving, job assignments,
+-- Purpose: Immutable log of every stock movement â€” receiving, job assignments,
 --          client sales, warehouse transfers, returns, and adjustments.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS inventory_transactions (
@@ -2333,7 +2333,7 @@ CREATE TABLE IF NOT EXISTS inventory_transactions (
 
 -- ---------------------------------------------------------------------------
 -- Table: credit_notes
--- Purpose: Credits issued to clients — for returns, courtesy adjustments,
+-- Purpose: Credits issued to clients â€” for returns, courtesy adjustments,
 --          service outages, billing errors, duplicate payments, downgrades,
 --          cancellations, or other reasons. Optionally linked to the original
 --          invoice being credited.
@@ -2428,7 +2428,7 @@ CREATE TABLE IF NOT EXISTS credit_note_items (
 
 -- ---------------------------------------------------------------------------
 -- Table: billing_periods
--- Purpose: Tracks each contract's billing windows — which periods have been
+-- Purpose: Tracks each contract's billing windows â€” which periods have been
 --          invoiced, which are upcoming, and when the next invoice should be
 --          auto-generated.
 -- ---------------------------------------------------------------------------
@@ -2464,7 +2464,7 @@ CREATE TABLE IF NOT EXISTS billing_periods (
 
 -- ---------------------------------------------------------------------------
 -- Table: network_links
--- Purpose: Device-to-device connections — fiber, wireless, copper, or virtual
+-- Purpose: Device-to-device connections â€” fiber, wireless, copper, or virtual
 --          links between two devices, with optional capacity and interface info.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS network_links (
@@ -2734,7 +2734,7 @@ CREATE TABLE IF NOT EXISTS portal_refresh_tokens (
 
 -- ---------------------------------------------------------------------------
 -- Tables: roles, permissions, role_permissions
--- Purpose: RBAC roles and permissions — flexible custom roles replacing the
+-- Purpose: RBAC roles and permissions â€” flexible custom roles replacing the
 --          rigid role ENUM on the users table.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS roles (
@@ -2780,7 +2780,7 @@ CREATE TABLE IF NOT EXISTS role_permissions (
 -- ---------------------------------------------------------------------------
 -- Table: outages
 -- Purpose: Planned and unplanned outage log. Tracks network-wide events
---          affecting many clients at once — per site and/or device with
+--          affecting many clients at once â€” per site and/or device with
 --          start/end times, affected client count, root cause, and resolution
 --          status. Feeds into SLA reporting.
 -- ---------------------------------------------------------------------------
@@ -2889,7 +2889,7 @@ CREATE TABLE IF NOT EXISTS message_templates (
     name            VARCHAR(100)     NOT NULL COMMENT 'Unique machine-readable name, e.g. invoice_reminder',
     channel         ENUM('email', 'sms', 'whatsapp', 'other') NOT NULL DEFAULT 'email',
     subject         VARCHAR(255)     NULL     COMMENT 'Email subject template (NULL for SMS/WhatsApp)',
-    body            TEXT             NOT NULL COMMENT 'Template body — supports placeholder variables e.g. {{client_name}}',
+    body            TEXT             NOT NULL COMMENT 'Template body â€” supports placeholder variables e.g. {{client_name}}',
     description     VARCHAR(255)     NULL     COMMENT 'Human-readable purpose of this template',
     variables       JSON             NULL     COMMENT 'List of available placeholder names, e.g. ["client_name","invoice_number"]',
     is_active       TINYINT(1)       NOT NULL DEFAULT 1,
@@ -2965,7 +2965,7 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 CREATE TABLE IF NOT EXISTS promotions (
     id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     organization_id BIGINT UNSIGNED  NULL     COMMENT 'Owning tenant; NULL = single-tenant deployment',
-    name            VARCHAR(150)     NOT NULL COMMENT 'Internal label, e.g. "Summer 2026 – 20% off"',
+    name            VARCHAR(150)     NOT NULL COMMENT 'Internal label, e.g. "Summer 2026 â€“ 20% off"',
     code            VARCHAR(50)      NULL     COMMENT 'Coupon code entered by client or staff; NULL = auto-applied / no code',
     description     TEXT             NULL     COMMENT 'Public-facing description shown on invoices or sign-up pages',
     discount_type   ENUM('percentage', 'fixed_amount')
@@ -3045,7 +3045,7 @@ CREATE TABLE IF NOT EXISTS service_areas (
 
 -- ---------------------------------------------------------------------------
 -- Table: coverage_zones
--- Purpose: Coverage zones within a service area — finer-grained polygons
+-- Purpose: Coverage zones within a service area â€” finer-grained polygons
 --          that describe the actual network reach, technology type, and
 --          maximum available speed.  Used on public coverage-check pages
 --          and for internal capacity planning.
@@ -3082,7 +3082,7 @@ CREATE TABLE IF NOT EXISTS coverage_zones (
 
 -- ---------------------------------------------------------------------------
 -- Table: sla_definitions
--- Purpose: SLA (Service Level Agreement) terms per plan — uptime guarantees,
+-- Purpose: SLA (Service Level Agreement) terms per plan â€” uptime guarantees,
 --          response / resolution time commitments, compensation rules, and
 --          maintenance-window exclusions.
 -- ---------------------------------------------------------------------------
@@ -3101,7 +3101,7 @@ CREATE TABLE IF NOT EXISTS sla_definitions (
     compensation_type       ENUM('none', 'credit_percentage', 'credit_fixed', 'service_extension')
                                              NOT NULL DEFAULT 'none'
                                              COMMENT 'Type of compensation when SLA is breached',
-    compensation_value      DECIMAL(10, 2)   NULL     COMMENT 'Compensation amount — percentage of monthly fee or fixed currency amount, depending on compensation_type',
+    compensation_value      DECIMAL(10, 2)   NULL     COMMENT 'Compensation amount â€” percentage of monthly fee or fixed currency amount, depending on compensation_type',
     exclude_maintenance     TINYINT(1)       NOT NULL DEFAULT 1
                                              COMMENT '1 = planned maintenance windows are excluded from uptime calculation',
     priority                ENUM('low', 'medium', 'high', 'critical')
@@ -3123,7 +3123,7 @@ CREATE TABLE IF NOT EXISTS sla_definitions (
 
 -- ---------------------------------------------------------------------------
 -- Table: device_config_backups
--- Purpose: Versioned configuration snapshots per device — MikroTik exports,
+-- Purpose: Versioned configuration snapshots per device â€” MikroTik exports,
 --          RouterOS backups, Cisco running-config, and similar captures with
 --          SHA-256 checksums for change detection and deduplication.
 -- ---------------------------------------------------------------------------
@@ -3172,30 +3172,30 @@ CREATE TABLE IF NOT EXISTS device_config_backups (
 --          and codigo_postal_fiscal must match the SAT taxpayer registry exactly.
 --          The facturar flag lives on contracts (per-contract), so the same
 --          client can have some contracts generating individual CFDIs and others
---          going to the factura pública aggregate (venta al público en general).
+--          going to the factura pÃºblica aggregate (venta al pÃºblico en general).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS client_mx_profiles (
     id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     client_id               BIGINT UNSIGNED NOT NULL
-                                COMMENT 'References clients(id) — one profile per client',
+                                COMMENT 'References clients(id) â€” one profile per client',
     rfc                     VARCHAR(13)     NOT NULL
-                                COMMENT 'Registro Federal de Contribuyentes — 12 chars for companies, 13 for individuals; XAXX010101000 for público en general',
+                                COMMENT 'Registro Federal de Contribuyentes â€” 12 chars for companies, 13 for individuals; XAXX010101000 for pÃºblico en general',
     rfc_unique_check        VARCHAR(13)     AS (CASE WHEN rfc = 'XAXX010101000' THEN NULL ELSE rfc END) STORED
-                                COMMENT 'Generated column for conditional uniqueness — NULL for público en general (allows duplicates), non-NULL for real RFCs (enforces uniqueness)',
+                                COMMENT 'Generated column for conditional uniqueness â€” NULL for pÃºblico en general (allows duplicates), non-NULL for real RFCs (enforces uniqueness)',
     curp                    VARCHAR(18)     NULL
-                                COMMENT 'Clave Única de Registro de Población — personal clients only',
+                                COMMENT 'Clave Ãšnica de Registro de PoblaciÃ³n â€” personal clients only',
     razon_social            VARCHAR(300)    NOT NULL
-                                COMMENT 'Legal name exactly as registered with SAT — must match for CFDI validation',
+                                COMMENT 'Legal name exactly as registered with SAT â€” must match for CFDI validation',
     regimen_fiscal          VARCHAR(3)      NOT NULL
                                 COMMENT 'SAT fiscal regime code from c_RegimenFiscal (e.g. 601, 612, 626)',
     codigo_postal_fiscal    VARCHAR(5)      NOT NULL
-                                COMMENT 'Fiscal ZIP code as registered with SAT — required on CFDI 4.0 receptor node',
+                                COMMENT 'Fiscal ZIP code as registered with SAT â€” required on CFDI 4.0 receptor node',
     uso_cfdi_default        VARCHAR(4)      NULL
-                                COMMENT 'Default CFDI use code from c_UsoCFDI (e.g. G03, S01) — pre-filled on new invoices',
+                                COMMENT 'Default CFDI use code from c_UsoCFDI (e.g. G03, S01) â€” pre-filled on new invoices',
     colonia                 VARCHAR(150)    NULL
-                                COMMENT 'Neighborhood — required for Mexican addresses on CFDI',
+                                COMMENT 'Neighborhood â€” required for Mexican addresses on CFDI',
     municipio               VARCHAR(150)    NULL
-                                COMMENT 'Municipality — required for Mexican addresses on CFDI',
+                                COMMENT 'Municipality â€” required for Mexican addresses on CFDI',
     exterior_number         VARCHAR(20)     NULL
                                 COMMENT 'Street exterior number',
     interior_number         VARCHAR(20)     NULL
@@ -3224,7 +3224,7 @@ CREATE TABLE IF NOT EXISTS client_mx_profiles (
 CREATE TABLE IF NOT EXISTS organization_mx_profiles (
     id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id         BIGINT UNSIGNED NOT NULL
-                                COMMENT 'References organizations(id) — one profile per organization',
+                                COMMENT 'References organizations(id) â€” one profile per organization',
 
     -- SAT taxpayer identity
     rfc                     VARCHAR(13)     NOT NULL
@@ -3242,19 +3242,19 @@ CREATE TABLE IF NOT EXISTS organization_mx_profiles (
     csd_certificate_pem     TEXT            NULL
                                 COMMENT 'CSD public certificate in PEM format (.cer)',
     csd_private_key_enc     TEXT            NULL
-                                COMMENT 'CSD private key encrypted at rest (.key) — app handles encryption',
+                                COMMENT 'CSD private key encrypted at rest (.key) â€” app handles encryption',
     csd_valid_from          DATE            NULL
                                 COMMENT 'CSD certificate validity start date',
     csd_valid_to            DATE            NULL
-                                COMMENT 'CSD certificate expiry date — alerts should fire before this date',
+                                COMMENT 'CSD certificate expiry date â€” alerts should fire before this date',
 
-    -- PAC (Proveedor Autorizado de Certificación) integration
+    -- PAC (Proveedor Autorizado de CertificaciÃ³n) integration
     pac_provider            VARCHAR(50)     NULL
                                 COMMENT 'PAC provider name (e.g. Finkok, TimbraSoft, SW Sapien)',
     pac_username            VARCHAR(255)    NULL
                                 COMMENT 'PAC API username',
     pac_password_enc        VARCHAR(500)    NULL
-                                COMMENT 'PAC API password encrypted at rest — app handles encryption',
+                                COMMENT 'PAC API password encrypted at rest â€” app handles encryption',
     pac_environment         ENUM('sandbox', 'production') NOT NULL DEFAULT 'sandbox'
                                 COMMENT 'sandbox = PAC test environment; production = live stamping',
 
@@ -3266,7 +3266,7 @@ CREATE TABLE IF NOT EXISTS organization_mx_profiles (
     cfdi_serie_pago         VARCHAR(10)     NOT NULL DEFAULT 'P'
                                 COMMENT 'Series prefix for CFDI tipo P (pago / payment complement)',
     cfdi_folio_next         BIGINT UNSIGNED NOT NULL DEFAULT 1
-                                COMMENT 'Next available folio number — incremented atomically by the app on each issue',
+                                COMMENT 'Next available folio number â€” incremented atomically by the app on each issue',
 
     -- Mexican fiscal address
     colonia                 VARCHAR(150)    NULL
@@ -3293,7 +3293,7 @@ CREATE TABLE IF NOT EXISTS organization_mx_profiles (
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_regimen_fiscal
--- Purpose: SAT catalog c_RegimenFiscal — fiscal regime codes used on CFDI 4.0
+-- Purpose: SAT catalog c_RegimenFiscal â€” fiscal regime codes used on CFDI 4.0
 --          issuer and receptor nodes.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sat_regimen_fiscal (
@@ -3309,11 +3309,11 @@ CREATE TABLE IF NOT EXISTS sat_regimen_fiscal (
     KEY idx_sat_regimen_fiscal_applies_to (applies_to),
     KEY idx_sat_regimen_fiscal_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SAT catalog: c_RegimenFiscal — fiscal regime codes for CFDI 4.0';
+  COMMENT='SAT catalog: c_RegimenFiscal â€” fiscal regime codes for CFDI 4.0';
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_uso_cfdi
--- Purpose: SAT catalog c_UsoCFDI — permitted use codes for the CFDI receptor.
+-- Purpose: SAT catalog c_UsoCFDI â€” permitted use codes for the CFDI receptor.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sat_uso_cfdi (
     code        VARCHAR(4)      NOT NULL
@@ -3328,11 +3328,11 @@ CREATE TABLE IF NOT EXISTS sat_uso_cfdi (
     KEY idx_sat_uso_cfdi_applies_to (applies_to),
     KEY idx_sat_uso_cfdi_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SAT catalog: c_UsoCFDI — permitted use codes for CFDI 4.0 receptor';
+  COMMENT='SAT catalog: c_UsoCFDI â€” permitted use codes for CFDI 4.0 receptor';
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_forma_pago
--- Purpose: SAT catalog c_FormaPago — how a payment was or will be made.
+-- Purpose: SAT catalog c_FormaPago â€” how a payment was or will be made.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sat_forma_pago (
     code        VARCHAR(2)      NOT NULL
@@ -3344,15 +3344,15 @@ CREATE TABLE IF NOT EXISTS sat_forma_pago (
     PRIMARY KEY (code),
     KEY idx_sat_forma_pago_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SAT catalog: c_FormaPago — how a payment was or will be made';
+  COMMENT='SAT catalog: c_FormaPago â€” how a payment was or will be made';
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_metodo_pago
--- Purpose: SAT catalog c_MetodoPago — PUE or PPD payment timing.
+-- Purpose: SAT catalog c_MetodoPago â€” PUE or PPD payment timing.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sat_metodo_pago (
     code        VARCHAR(3)      NOT NULL
-                    COMMENT 'SAT c_MetodoPago code: PUE (pago en una sola exhibición) or PPD (pago en parcialidades o diferido)',
+                    COMMENT 'SAT c_MetodoPago code: PUE (pago en una sola exhibiciÃ³n) or PPD (pago en parcialidades o diferido)',
     description VARCHAR(200)    NOT NULL
                     COMMENT 'Official SAT description in Spanish',
     status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
@@ -3360,11 +3360,11 @@ CREATE TABLE IF NOT EXISTS sat_metodo_pago (
     PRIMARY KEY (code),
     KEY idx_sat_metodo_pago_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SAT catalog: c_MetodoPago — PUE or PPD payment timing';
+  COMMENT='SAT catalog: c_MetodoPago â€” PUE or PPD payment timing';
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_tipo_comprobante
--- Purpose: SAT catalog c_TipoDeComprobante — CFDI document type.
+-- Purpose: SAT catalog c_TipoDeComprobante â€” CFDI document type.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sat_tipo_comprobante (
     code        VARCHAR(1)      NOT NULL
@@ -3376,11 +3376,11 @@ CREATE TABLE IF NOT EXISTS sat_tipo_comprobante (
     PRIMARY KEY (code),
     KEY idx_sat_tipo_comprobante_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SAT catalog: c_TipoDeComprobante — CFDI document type';
+  COMMENT='SAT catalog: c_TipoDeComprobante â€” CFDI document type';
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_moneda
--- Purpose: SAT catalog c_Moneda (subset) — currencies accepted in CFDI 4.0.
+-- Purpose: SAT catalog c_Moneda (subset) â€” currencies accepted in CFDI 4.0.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sat_moneda (
     code        VARCHAR(3)      NOT NULL
@@ -3394,7 +3394,7 @@ CREATE TABLE IF NOT EXISTS sat_moneda (
     PRIMARY KEY (code),
     KEY idx_sat_moneda_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SAT catalog: c_Moneda — currencies accepted in CFDI 4.0';
+  COMMENT='SAT catalog: c_Moneda â€” currencies accepted in CFDI 4.0';
 
 -- ---------------------------------------------------------------------------
 -- Seed data: SAT CFDI 4.0 catalog tables (migration 069)
@@ -3405,26 +3405,26 @@ INSERT IGNORE INTO sat_regimen_fiscal (code, description, applies_to, status) VA
 ('603', 'Personas Morales con Fines no Lucrativos',                                 'company',  'active'),
 ('605', 'Sueldos y Salarios e Ingresos Asimilados a Salarios',                      'personal', 'active'),
 ('606', 'Arrendamiento',                                                             'personal', 'active'),
-('608', 'Demás ingresos',                                                            'personal', 'active'),
-('610', 'Residentes en el Extranjero sin Establecimiento Permanente en México',      'both',     'active'),
-('612', 'Personas Físicas con Actividades Empresariales y Profesionales',            'personal', 'active'),
+('608', 'DemÃ¡s ingresos',                                                            'personal', 'active'),
+('610', 'Residentes en el Extranjero sin Establecimiento Permanente en MÃ©xico',      'both',     'active'),
+('612', 'Personas FÃ­sicas con Actividades Empresariales y Profesionales',            'personal', 'active'),
 ('614', 'Ingresos por intereses',                                                    'personal', 'active'),
 ('616', 'Sin obligaciones fiscales',                                                 'personal', 'active'),
-('620', 'Sociedades Cooperativas de Producción que optan por diferir sus ingresos',  'company',  'active'),
-('621', 'Incorporación Fiscal',                                                      'personal', 'active'),
-('622', 'Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras',                 'company',  'active'),
+('620', 'Sociedades Cooperativas de ProducciÃ³n que optan por diferir sus ingresos',  'company',  'active'),
+('621', 'IncorporaciÃ³n Fiscal',                                                      'personal', 'active'),
+('622', 'Actividades AgrÃ­colas, Ganaderas, SilvÃ­colas y Pesqueras',                 'company',  'active'),
 ('623', 'Opcional para Grupos de Sociedades',                                        'company',  'active'),
 ('624', 'Coordinados',                                                               'company',  'active'),
-('625', 'Régimen de las Actividades Empresariales con ingresos a través de Plataformas Tecnológicas', 'personal', 'active'),
-('626', 'Régimen Simplificado de Confianza',                                         'both',     'active'),
+('625', 'RÃ©gimen de las Actividades Empresariales con ingresos a travÃ©s de Plataformas TecnolÃ³gicas', 'personal', 'active'),
+('626', 'RÃ©gimen Simplificado de Confianza',                                         'both',     'active'),
 -- Additional regimes (migration 096)
-('607', 'Régimen de Enajenación o Adquisición de Bienes',                          'personal', 'active'),
-('609', 'Consolidación',                                                             'company',  'active'),
+('607', 'RÃ©gimen de EnajenaciÃ³n o AdquisiciÃ³n de Bienes',                          'personal', 'active'),
+('609', 'ConsolidaciÃ³n',                                                             'company',  'active'),
 ('611', 'Ingresos por Dividendos (y en general por las Sociedades y Asociaciones Civiles)', 'personal', 'active'),
-('615', 'Régimen de los ingresos por obtención de premios',                         'personal', 'active');
+('615', 'RÃ©gimen de los ingresos por obtenciÃ³n de premios',                         'personal', 'active');
 
 INSERT IGNORE INTO sat_uso_cfdi (code, description, applies_to, status) VALUES
-('G01', 'Adquisición de mercancias',                                        'both',     'active'),
+('G01', 'AdquisiciÃ³n de mercancias',                                        'both',     'active'),
 ('G02', 'Devoluciones, descuentos o bonificaciones',                        'both',     'active'),
 ('G03', 'Gastos en general',                                                'both',     'active'),
 ('I01', 'Construcciones',                                                   'both',     'active'),
@@ -3432,47 +3432,47 @@ INSERT IGNORE INTO sat_uso_cfdi (code, description, applies_to, status) VALUES
 ('I03', 'Equipo de transporte',                                             'both',     'active'),
 ('I04', 'Equipo de computo y accesorios',                                   'both',     'active'),
 ('I08', 'Otra maquinaria y equipo',                                         'both',     'active'),
-('D01', 'Honorarios médicos, dentales y gastos hospitalarios',              'personal', 'active'),
-('D02', 'Gastos médicos por incapacidad o discapacidad',                    'personal', 'active'),
+('D01', 'Honorarios mÃ©dicos, dentales y gastos hospitalarios',              'personal', 'active'),
+('D02', 'Gastos mÃ©dicos por incapacidad o discapacidad',                    'personal', 'active'),
 ('D03', 'Gastos funerales',                                                 'personal', 'active'),
 ('D04', 'Donativos',                                                        'personal', 'active'),
 ('P01', 'Por definir',                                                      'both',     'active'),
 ('S01', 'Sin efectos fiscales',                                             'both',     'active'),
 ('CP01', 'Pagos',                                                           'both',     'active'),
 -- Additional uso CFDI codes (migration 096)
-('D05', 'Primas por seguros de gastos médicos',                                                             'personal', 'active'),
-('D06', 'Gastos de transportación escolar obligatoria',                                                     'personal', 'active'),
-('D07', 'Depósitos en cuentas para el ahorro, primas que tengan como base planes de pensiones',             'personal', 'active'),
+('D05', 'Primas por seguros de gastos mÃ©dicos',                                                             'personal', 'active'),
+('D06', 'Gastos de transportaciÃ³n escolar obligatoria',                                                     'personal', 'active'),
+('D07', 'DepÃ³sitos en cuentas para el ahorro, primas que tengan como base planes de pensiones',             'personal', 'active'),
 ('D08', 'Pagos por servicios educativos (colegiaturas)',                                                    'personal', 'active'),
 ('D09', 'Aportaciones voluntarias al SAR',                                                                  'personal', 'active'),
-('D10', 'Primas por seguros de gastos médicos mayores',                                                     'personal', 'active');
+('D10', 'Primas por seguros de gastos mÃ©dicos mayores',                                                     'personal', 'active');
 
 INSERT IGNORE INTO sat_forma_pago (code, description, status) VALUES
 ('01', 'Efectivo',                                                          'active'),
 ('02', 'Cheque nominativo',                                                 'active'),
-('03', 'Transferencia electrónica de fondos',                               'active'),
-('04', 'Tarjeta de crédito',                                                'active'),
-('05', 'Monedero electrónico',                                              'active'),
-('06', 'Dinero electrónico',                                                'active'),
+('03', 'Transferencia electrÃ³nica de fondos',                               'active'),
+('04', 'Tarjeta de crÃ©dito',                                                'active'),
+('05', 'Monedero electrÃ³nico',                                              'active'),
+('06', 'Dinero electrÃ³nico',                                                'active'),
 ('08', 'Vales de despensa',                                                 'active'),
-('12', 'Dación en pago',                                                    'active'),
-('13', 'Pago por subrogación',                                              'active'),
-('14', 'Pago por consignación',                                             'active'),
-('15', 'Condonación',                                                       'active'),
-('17', 'Compensación',                                                      'active'),
-('23', 'Novación',                                                          'active'),
-('24', 'Confusión',                                                         'active'),
-('25', 'Remisión de deuda',                                                 'active'),
-('26', 'Prescripción o caducidad',                                          'active'),
-('27', 'A satisfacción del acreedor',                                       'active'),
-('28', 'Tarjeta de débito',                                                 'active'),
+('12', 'DaciÃ³n en pago',                                                    'active'),
+('13', 'Pago por subrogaciÃ³n',                                              'active'),
+('14', 'Pago por consignaciÃ³n',                                             'active'),
+('15', 'CondonaciÃ³n',                                                       'active'),
+('17', 'CompensaciÃ³n',                                                      'active'),
+('23', 'NovaciÃ³n',                                                          'active'),
+('24', 'ConfusiÃ³n',                                                         'active'),
+('25', 'RemisiÃ³n de deuda',                                                 'active'),
+('26', 'PrescripciÃ³n o caducidad',                                          'active'),
+('27', 'A satisfacciÃ³n del acreedor',                                       'active'),
+('28', 'Tarjeta de dÃ©bito',                                                 'active'),
 ('29', 'Tarjeta de servicios',                                              'active'),
-('30', 'Aplicación de anticipos',                                           'active'),
+('30', 'AplicaciÃ³n de anticipos',                                           'active'),
 ('31', 'Intermediario pagos',                                               'active'),
 ('99', 'Por definir',                                                       'active');
 
 INSERT IGNORE INTO sat_metodo_pago (code, description, status) VALUES
-('PUE', 'Pago en una sola exhibición',              'active'),
+('PUE', 'Pago en una sola exhibiciÃ³n',              'active'),
 ('PPD', 'Pago en parcialidades o diferido',         'active');
 
 INSERT IGNORE INTO sat_tipo_comprobante (code, description, status) VALUES
@@ -3480,17 +3480,17 @@ INSERT IGNORE INTO sat_tipo_comprobante (code, description, status) VALUES
 ('E', 'Egreso',     'active'),
 ('P', 'Pago',       'active'),
 ('T', 'Traslado',   'active'),
-('N', 'Nómina',     'active');
+('N', 'NÃ³mina',     'active');
 
 INSERT IGNORE INTO sat_moneda (code, description, decimals, status) VALUES
 ('MXN', 'Peso Mexicano',                    2, 'active'),
-('USD', 'Dólar americano',                  2, 'active'),
+('USD', 'DÃ³lar americano',                  2, 'active'),
 ('EUR', 'Euro',                             2, 'active'),
-('XXX', 'Los códigos asignados para las transacciones en que no intervenga ninguna moneda',      2, 'active');
+('XXX', 'Los cÃ³digos asignados para las transacciones en que no intervenga ninguna moneda',      2, 'active');
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_clave_prod_serv
--- Purpose: SAT catalog c_ClaveProdServ — product and service classification
+-- Purpose: SAT catalog c_ClaveProdServ â€” product and service classification
 --          codes required on every concept (line item) in a CFDI 4.0 document.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sat_clave_prod_serv (
@@ -3504,11 +3504,11 @@ CREATE TABLE IF NOT EXISTS sat_clave_prod_serv (
     PRIMARY KEY (code),
     KEY idx_sat_clave_prod_serv_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SAT catalog: c_ClaveProdServ — product and service classification codes for CFDI 4.0 concepts';
+  COMMENT='SAT catalog: c_ClaveProdServ â€” product and service classification codes for CFDI 4.0 concepts';
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_clave_unidad
--- Purpose: SAT catalog c_ClaveUnidad — unit-of-measure codes required on
+-- Purpose: SAT catalog c_ClaveUnidad â€” unit-of-measure codes required on
 --          every concept (line item) in a CFDI 4.0 document.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sat_clave_unidad (
@@ -3522,7 +3522,7 @@ CREATE TABLE IF NOT EXISTS sat_clave_unidad (
     PRIMARY KEY (code),
     KEY idx_sat_clave_unidad_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SAT catalog: c_ClaveUnidad — unit-of-measure codes for CFDI 4.0 concepts';
+  COMMENT='SAT catalog: c_ClaveUnidad â€” unit-of-measure codes for CFDI 4.0 concepts';
 
 -- ---------------------------------------------------------------------------
 -- Seed data: SAT c_ClaveProdServ and c_ClaveUnidad (migration 082)
@@ -3530,9 +3530,9 @@ CREATE TABLE IF NOT EXISTS sat_clave_unidad (
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO sat_clave_prod_serv (code, description, status) VALUES
 ('81161700', 'Servicios de acceso a Internet',                   'active'),
-('81161500', 'Servicios de telefonía y voz sobre IP (VoIP)',     'active'),
-('81112200', 'Soporte técnico',                                  'active'),
-('81112100', 'Mantenimiento y actualización de software',        'active'),
+('81161500', 'Servicios de telefonÃ­a y voz sobre IP (VoIP)',     'active'),
+('81112200', 'Soporte tÃ©cnico',                                  'active'),
+('81112100', 'Mantenimiento y actualizaciÃ³n de software',        'active'),
 ('43231500', 'Equipo de redes y telecomunicaciones',             'active'),
 ('43222600', 'Enrutadores y conmutadores de red (routers/switches)', 'active'),
 ('01010101', 'No aplica',                                        'active');
@@ -3575,7 +3575,7 @@ CREATE TABLE IF NOT EXISTS cfdi_documents (
     tipo_comprobante        VARCHAR(1)      NOT NULL
                                 COMMENT 'SAT c_TipoDeComprobante: I=ingreso, E=egreso, P=pago, T=traslado, N=nomina',
     uso_cfdi                VARCHAR(4)      NOT NULL
-                                COMMENT 'SAT c_UsoCFDI — receptor intended use (e.g. G03, S01)',
+                                COMMENT 'SAT c_UsoCFDI â€” receptor intended use (e.g. G03, S01)',
     metodo_pago             VARCHAR(3)      NULL
                                 COMMENT 'SAT c_MetodoPago: PUE or PPD',
     forma_pago              VARCHAR(2)      NULL
@@ -3589,9 +3589,9 @@ CREATE TABLE IF NOT EXISTS cfdi_documents (
 
     -- Export classification (mandatory in CFDI 4.0 even for domestic transactions)
     exportacion             ENUM('01','02','03') NOT NULL DEFAULT '01'
-                                COMMENT 'SAT Exportacion: 01=No exporta, 02=Exportación definitiva, 03=Exportación temporal',
+                                COMMENT 'SAT Exportacion: 01=No exporta, 02=ExportaciÃ³n definitiva, 03=ExportaciÃ³n temporal',
 
-    -- Receiver snapshot (denormalized at stamp time — must match SAT records)
+    -- Receiver snapshot (denormalized at stamp time â€” must match SAT records)
     receptor_rfc            VARCHAR(13)     NULL
                                 COMMENT 'Receiver RFC captured at stamp time',
     receptor_nombre         VARCHAR(300)    NULL
@@ -3646,7 +3646,7 @@ CREATE TABLE IF NOT EXISTS cfdi_documents (
     cancelled_at            DATETIME        NULL
                                 COMMENT 'Timestamp when SAT confirmed cancellation',
 
-    -- Source document linkage (polymorphic — at most one may be non-NULL)
+    -- Source document linkage (polymorphic â€” at most one may be non-NULL)
     invoice_id              BIGINT UNSIGNED NULL
                                 COMMENT 'Invoice this CFDI type-I belongs to; NULL for other types or drafts',
     credit_note_id          BIGINT UNSIGNED NULL
@@ -3707,7 +3707,7 @@ CREATE TABLE IF NOT EXISTS cfdi_documents (
 
 -- ---------------------------------------------------------------------------
 -- Table: cfdi_related_documents
--- Purpose: CfdiRelacionados (CFDI 4.0) — tracks relationships between CFDIs,
+-- Purpose: CfdiRelacionados (CFDI 4.0) â€” tracks relationships between CFDIs,
 --          e.g. credit note referencing original invoice, or substitution of
 --          a cancelled document.
 -- ---------------------------------------------------------------------------
@@ -3718,7 +3718,7 @@ CREATE TABLE IF NOT EXISTS cfdi_related_documents (
     related_uuid        CHAR(36)        NOT NULL
                             COMMENT 'UUID (folio fiscal) of the related CFDI',
     relationship_type   VARCHAR(2)      NOT NULL
-                            COMMENT 'SAT c_TipoRelacion code (e.g. 01=nota de crédito, 04=sustitución)',
+                            COMMENT 'SAT c_TipoRelacion code (e.g. 01=nota de crÃ©dito, 04=sustituciÃ³n)',
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
@@ -3731,7 +3731,7 @@ CREATE TABLE IF NOT EXISTS cfdi_related_documents (
 
 -- ---------------------------------------------------------------------------
 -- Table: cfdi_payment_complements
--- Purpose: Complemento de Pago 2.0 (Recibo Electrónico de Pago) headers.
+-- Purpose: Complemento de Pago 2.0 (Recibo ElectrÃ³nico de Pago) headers.
 --          One row per payment event that settles one or more PPD invoices.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS cfdi_payment_complements (
@@ -3743,9 +3743,9 @@ CREATE TABLE IF NOT EXISTS cfdi_payment_complements (
     payment_date        DATE            NOT NULL
                             COMMENT 'Date the payment was received (FechaPago)',
     forma_pago          VARCHAR(2)      NOT NULL
-                            COMMENT 'SAT c_FormaPago — how the payment was made (e.g. 03=transfer, 28=debit card)',
+                            COMMENT 'SAT c_FormaPago â€” how the payment was made (e.g. 03=transfer, 28=debit card)',
     moneda              VARCHAR(3)      NOT NULL DEFAULT 'MXN'
-                            COMMENT 'SAT c_Moneda — currency the payment was received in',
+                            COMMENT 'SAT c_Moneda â€” currency the payment was received in',
     tipo_cambio         DECIMAL(10, 4)  NULL
                             COMMENT 'Exchange rate to MXN when moneda != MXN',
     amount              DECIMAL(12, 2)  NOT NULL
@@ -3799,7 +3799,7 @@ CREATE TABLE IF NOT EXISTS cfdi_payment_complement_items (
 
     -- Currency of the related document
     moneda_dr           VARCHAR(3)      NOT NULL DEFAULT 'MXN'
-                            COMMENT 'SAT c_Moneda — currency of the document being paid (MonedaDR)',
+                            COMMENT 'SAT c_Moneda â€” currency of the document being paid (MonedaDR)',
     equivalencia_dr     DECIMAL(10, 4)  NOT NULL DEFAULT 1.0000
                             COMMENT 'Exchange rate between moneda_dr and the complement payment currency',
 
@@ -3817,7 +3817,7 @@ CREATE TABLE IF NOT EXISTS cfdi_payment_complement_items (
 
     -- Tax object indicator for this related document (Complemento de Pago 2.0)
     objeto_imp_dr       ENUM('01','02','03') NOT NULL DEFAULT '02'
-                            COMMENT 'SAT ObjetoImpDR on DoctoRelacionado: 01=No objeto, 02=Sí objeto, 03=Sí objeto y no obligado al desglose',
+                            COMMENT 'SAT ObjetoImpDR on DoctoRelacionado: 01=No objeto, 02=SÃ­ objeto, 03=SÃ­ objeto y no obligado al desglose',
 
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -3865,7 +3865,7 @@ CREATE TABLE IF NOT EXISTS cfdi_payment_complement_item_taxes (
 
 -- ---------------------------------------------------------------------------
 -- Table: cfdi_conceptos
--- Purpose: CFDI 4.0 concept (line item) rows — one per <Concepto> node inside
+-- Purpose: CFDI 4.0 concept (line item) rows â€” one per <Concepto> node inside
 --          a cfdi_document. Captures SAT-required fields: product/service key,
 --          unit key, quantity, description, unit price, line total, optional
 --          discount, and the SAT ObjetoImp indicator.
@@ -3895,13 +3895,13 @@ CREATE TABLE IF NOT EXISTS cfdi_conceptos (
     valor_unitario      DECIMAL(14, 4)      NOT NULL
                             COMMENT 'Unit price before taxes',
     importe             DECIMAL(14, 4)      NOT NULL
-                            COMMENT 'Line total: cantidad × valor_unitario (before discount)',
+                            COMMENT 'Line total: cantidad Ã— valor_unitario (before discount)',
     descuento           DECIMAL(14, 4)      NULL
                             COMMENT 'Discount amount applied to this line; NULL when no discount',
 
     -- SAT tax object indicator (ObjetoImp)
     objeto_imp          ENUM('01', '02', '03') NOT NULL DEFAULT '02'
-                            COMMENT 'SAT ObjetoImp: 01=No objeto de impuesto, 02=Sí objeto de impuesto, 03=Sí objeto del impuesto y no obligado al desglose',
+                            COMMENT 'SAT ObjetoImp: 01=No objeto de impuesto, 02=SÃ­ objeto de impuesto, 03=SÃ­ objeto del impuesto y no obligado al desglose',
 
     created_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -3916,7 +3916,7 @@ CREATE TABLE IF NOT EXISTS cfdi_conceptos (
     CONSTRAINT fk_cfdi_conceptos_clave_unidad FOREIGN KEY (clave_unidad)
         REFERENCES sat_clave_unidad (code) ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='CFDI 4.0 concept (line item) rows — one row per <Concepto> node inside a cfdi_document';
+  COMMENT='CFDI 4.0 concept (line item) rows â€” one row per <Concepto> node inside a cfdi_document';
 
 -- ---------------------------------------------------------------------------
 -- Table: cfdi_concepto_impuestos
@@ -3946,7 +3946,7 @@ CREATE TABLE IF NOT EXISTS cfdi_concepto_impuestos (
     base                DECIMAL(14, 4)      NOT NULL
                             COMMENT 'Taxable base amount for this line (importe - descuento of the parent concept)',
     importe             DECIMAL(14, 4)      NULL
-                            COMMENT 'Calculated tax amount: base × tasa_o_cuota; NULL when tipo_factor = Exento',
+                            COMMENT 'Calculated tax amount: base Ã— tasa_o_cuota; NULL when tipo_factor = Exento',
 
     created_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -3958,7 +3958,7 @@ CREATE TABLE IF NOT EXISTS cfdi_concepto_impuestos (
     CONSTRAINT fk_cfdi_ci_cfdi_concepto FOREIGN KEY (cfdi_concepto_id)
         REFERENCES cfdi_conceptos (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Per-line tax breakdown for CFDI 4.0 — one row per <Traslado> or <Retencion> inside a <Concepto>';
+  COMMENT='Per-line tax breakdown for CFDI 4.0 â€” one row per <Traslado> or <Retencion> inside a <Concepto>';
 
 -- ---------------------------------------------------------------------------
 -- Table: concession_titles
@@ -3988,7 +3988,7 @@ CREATE TABLE IF NOT EXISTS concession_titles (
     renewal_filed_at    DATE            NULL
                             COMMENT 'Date the renewal application was submitted to IFT/CRT',
     regulatory_body     ENUM('IFT', 'CRT') NOT NULL DEFAULT 'CRT'
-                            COMMENT 'IFT = Instituto Federal de Telecomunicaciones (pre-2025); CRT = Comisión de Regulación de Telecomunicaciones (from 2025)',
+                            COMMENT 'IFT = Instituto Federal de Telecomunicaciones (pre-2025); CRT = ComisiÃ³n de RegulaciÃ³n de Telecomunicaciones (from 2025)',
     document_file_id    BIGINT UNSIGNED NULL
                             COMMENT 'Reference to the official title document in the files table',
     status              ENUM('active', 'expired', 'revoked', 'pending_renewal')
@@ -4014,7 +4014,7 @@ CREATE TABLE IF NOT EXISTS concession_titles (
 
 -- ---------------------------------------------------------------------------
 -- Table: contract_templates_mx
--- Purpose: IFT/CRT-registered Carta de Adhesión templates. Mexican ISPs must
+-- Purpose: IFT/CRT-registered Carta de AdhesiÃ³n templates. Mexican ISPs must
 --          register their standard contract model with IFT/CRT. Contracts
 --          reference the specific registered template via FK.
 -- ---------------------------------------------------------------------------
@@ -4160,7 +4160,7 @@ CREATE TABLE IF NOT EXISTS ift_statistical_reports (
     coverage_municipalities     INT UNSIGNED    NULL
                                     COMMENT 'Number of municipalities with at least one active subscriber',
 
-    -- Revenue (optional — may be omitted if reported separately)
+    -- Revenue (optional â€” may be omitted if reported separately)
     revenue_total               DECIMAL(14, 2)  NULL
                                     COMMENT 'Total gross revenue for the period in local currency; NULL if not included in this report',
 
@@ -4209,7 +4209,7 @@ CREATE TABLE IF NOT EXISTS ift_statistical_reports (
 DELIMITER $$
 
 -- ---------------------------------------------------------------------------
--- 1. client_mx_profiles — require clients.locale = 'MX'
+-- 1. client_mx_profiles â€” require clients.locale = 'MX'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_client_mx_profiles_bi
 BEFORE INSERT ON client_mx_profiles
@@ -4238,7 +4238,7 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- 2. organization_mx_profiles — require organizations.locale = 'MX'
+-- 2. organization_mx_profiles â€” require organizations.locale = 'MX'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_organization_mx_profiles_bi
 BEFORE INSERT ON organization_mx_profiles
@@ -4267,7 +4267,7 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- 3. cfdi_documents — require clients.locale = 'MX'
+-- 3. cfdi_documents â€” require clients.locale = 'MX'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_cfdi_documents_bi
 BEFORE INSERT ON cfdi_documents
@@ -4296,7 +4296,7 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- 4. concession_titles — require organizations.locale = 'MX'
+-- 4. concession_titles â€” require organizations.locale = 'MX'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_concession_titles_bi
 BEFORE INSERT ON concession_titles
@@ -4325,7 +4325,7 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- 5. contract_templates_mx — require organizations.locale = 'MX'
+-- 5. contract_templates_mx â€” require organizations.locale = 'MX'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_contract_templates_mx_bi
 BEFORE INSERT ON contract_templates_mx
@@ -4354,7 +4354,7 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- 6. regulatory_filings — require organizations.locale = 'MX'
+-- 6. regulatory_filings â€” require organizations.locale = 'MX'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_regulatory_filings_bi
 BEFORE INSERT ON regulatory_filings
@@ -4383,7 +4383,7 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- 7. ift_statistical_reports — require organizations.locale = 'MX'
+-- 7. ift_statistical_reports â€” require organizations.locale = 'MX'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_ift_statistical_reports_bi
 BEFORE INSERT ON ift_statistical_reports
@@ -4412,7 +4412,7 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- 8. contracts — require clients.locale = 'MX' when
+-- 8. contracts â€” require clients.locale = 'MX' when
 --               contract_template_mx_id IS NOT NULL
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_contracts_mx_template_bi
@@ -4452,7 +4452,7 @@ END$$
 --          established by the enforcement triggers above.
 
 -- ---------------------------------------------------------------------------
--- clients — prevent locale downgrade from 'MX' to 'global'
+-- clients â€” prevent locale downgrade from 'MX' to 'global'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_clients_locale_downgrade_bu
 BEFORE UPDATE ON clients
@@ -4481,7 +4481,7 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- organizations — prevent locale downgrade from 'MX' to 'global'
+-- organizations â€” prevent locale downgrade from 'MX' to 'global'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_organizations_locale_downgrade_bu
 BEFORE UPDATE ON organizations
@@ -4541,10 +4541,10 @@ DELIMITER ;
 
 -- ---------------------------------------------------------------------------
 -- Table: factura_publica_invoices
--- Purpose: Factura pública (venta al público en general) periodic aggregation
+-- Purpose: Factura pÃºblica (venta al pÃºblico en general) periodic aggregation
 --          documents.  When MX-locale contracts have facturar = FALSE, their
---          invoices are aggregated into a periodic factura pública per the SAT
---          InformacionGlobal node fields (Periodicidad, Meses, Año).  One row
+--          invoices are aggregated into a periodic factura pÃºblica per the SAT
+--          InformacionGlobal node fields (Periodicidad, Meses, AÃ±o).  One row
 --          per organization per period.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS factura_publica_invoices (
@@ -4552,11 +4552,11 @@ CREATE TABLE IF NOT EXISTS factura_publica_invoices (
 
     -- Issuer
     organization_id         BIGINT UNSIGNED  NOT NULL
-                                COMMENT 'Organization (ISP) issuing this factura pública',
+                                COMMENT 'Organization (ISP) issuing this factura pÃºblica',
 
     -- Link to the stamped CFDI record (NULL while accumulating / draft)
     cfdi_document_id        BIGINT UNSIGNED  NULL
-                                COMMENT 'Stamped CFDI document record; NULL while the factura pública is still in draft',
+                                COMMENT 'Stamped CFDI document record; NULL while the factura pÃºblica is still in draft',
 
     -- SAT InformacionGlobal node fields
     periodicidad            ENUM('01', '02', '03', '04', '05') NOT NULL
@@ -4568,7 +4568,7 @@ CREATE TABLE IF NOT EXISTS factura_publica_invoices (
 
     -- Aggregated totals (denormalized for quick reads)
     subtotal                DECIMAL(14, 2)   NOT NULL DEFAULT 0.00
-                                COMMENT 'Sum of all público en general invoice subtotals in this period',
+                                COMMENT 'Sum of all pÃºblico en general invoice subtotals in this period',
     total_impuestos         DECIMAL(14, 2)   NOT NULL DEFAULT 0.00
                                 COMMENT 'Total transferred taxes for the period',
     total                   DECIMAL(14, 2)   NOT NULL DEFAULT 0.00
@@ -4576,7 +4576,7 @@ CREATE TABLE IF NOT EXISTS factura_publica_invoices (
 
     -- Lifecycle
     status                  ENUM('draft', 'stamped', 'cancelled') NOT NULL DEFAULT 'draft'
-                                COMMENT 'draft=accumulating invoices; stamped=factura pública issued via PAC; cancelled=voided',
+                                COMMENT 'draft=accumulating invoices; stamped=factura pÃºblica issued via PAC; cancelled=voided',
 
     created_at              TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -4598,19 +4598,19 @@ CREATE TABLE IF NOT EXISTS factura_publica_invoices (
                   '13','14','15','16','17','18')
     )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Factura pública (venta al público en general) — periodic aggregation of non-facturar sales per SAT CFDI 4.0 InformacionGlobal';
+  COMMENT='Factura pÃºblica (venta al pÃºblico en general) â€” periodic aggregation of non-facturar sales per SAT CFDI 4.0 InformacionGlobal';
 
 -- ---------------------------------------------------------------------------
 -- Table: factura_publica_invoice_items
 -- Purpose: Junction table linking individual invoices from contracts with
---          facturar = FALSE to their parent factura pública.  Each invoice
---          may belong to at most one factura pública document.
+--          facturar = FALSE to their parent factura pÃºblica.  Each invoice
+--          may belong to at most one factura pÃºblica document.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS factura_publica_invoice_items (
     id                              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 
     factura_publica_invoice_id      BIGINT UNSIGNED NOT NULL
-                                        COMMENT 'Parent factura pública document this invoice is aggregated into',
+                                        COMMENT 'Parent factura pÃºblica document this invoice is aggregated into',
     invoice_id                      BIGINT UNSIGNED NOT NULL
                                         COMMENT 'Individual invoice from a contract with facturar = FALSE',
 
@@ -4625,7 +4625,7 @@ CREATE TABLE IF NOT EXISTS factura_publica_invoice_items (
     CONSTRAINT fk_factura_publica_invoice_items_invoice FOREIGN KEY (invoice_id)
         REFERENCES invoices (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Links individual invoices to their parent factura pública — each invoice belongs to at most one factura pública';
+  COMMENT='Links individual invoices to their parent factura pÃºblica â€” each invoice belongs to at most one factura pÃºblica';
 
 SET FOREIGN_KEY_CHECKS = 1;
 
@@ -4633,7 +4633,7 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- Function: fn_predominant_forma_pago
 -- Migration: 091_add_factura_publica_stamping_safeguards
 -- Purpose: Returns the SAT FormaPago code (VARCHAR 2) that accounts for the
---          largest share of payments linked to the given factura pública.
+--          largest share of payments linked to the given factura pÃºblica.
 --          Defaults to '99' (Por definir) when no payments exist or when two
 --          or more codes tie for the highest total.
 --          Call at stamp time to populate cfdi_documents.forma_pago.
@@ -4719,7 +4719,7 @@ BEGIN
 
         IF v_unpaid_count > 0 THEN
             SIGNAL SQLSTATE '45000'
-                SET MESSAGE_TEXT = 'Cannot stamp factura pública: all linked invoices must have status = ''paid''. Remove or pay unpaid invoices before stamping.';
+                SET MESSAGE_TEXT = 'Cannot stamp factura pÃºblica: all linked invoices must have status = ''paid''. Remove or pay unpaid invoices before stamping.';
         END IF;
     END IF;
 END$$
@@ -4743,7 +4743,7 @@ BEGIN
 
     IF v_invoice_status IS NULL OR v_invoice_status != 'paid' THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Cannot add invoice to factura pública: invoice must have status = ''paid''.';
+            SET MESSAGE_TEXT = 'Cannot add invoice to factura pÃºblica: invoice must have status = ''paid''.';
     END IF;
 END$$
 
@@ -4817,7 +4817,7 @@ DELIMITER ;
 CREATE TABLE IF NOT EXISTS payment_gateways (
     id                       BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     organization_id          BIGINT UNSIGNED  NOT NULL                    COMMENT 'Tenant organization that owns this gateway config',
-    name                     VARCHAR(100)     NOT NULL                    COMMENT 'Friendly label, e.g. "Conekta Producción"',
+    name                     VARCHAR(100)     NOT NULL                    COMMENT 'Friendly label, e.g. "Conekta ProducciÃ³n"',
     provider                 ENUM('stripe','conekta','openpay','mercadopago','paypal','manual','other')
                                               NOT NULL                    COMMENT 'Payment provider identifier',
     environment              ENUM('sandbox','production')
@@ -4889,7 +4889,7 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
 -- ---------------------------------------------------------------------------
 -- Table: payment_retries
 -- Purpose: Tracks failed payment charges and schedules automatic retry
---          attempts with exponential backoff (4h → 24h → 72h, max 3).
+--          attempts with exponential backoff (4h â†’ 24h â†’ 72h, max 3).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS payment_retries (
     id                    BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -4939,7 +4939,7 @@ CREATE TABLE IF NOT EXISTS recurring_payment_profiles (
     token_reference     VARCHAR(500)        NOT NULL                   COMMENT 'Gateway customer ID or card token',
     card_brand          VARCHAR(20)         NULL                       COMMENT 'Card network: visa, mastercard, amex, etc.',
     card_last_four      CHAR(4)             NULL                       COMMENT 'Last four digits of the card number',
-    card_exp_month      TINYINT UNSIGNED    NULL                       COMMENT 'Card expiry month (1–12)',
+    card_exp_month      TINYINT UNSIGNED    NULL                       COMMENT 'Card expiry month (1â€“12)',
     card_exp_year       SMALLINT UNSIGNED   NULL                       COMMENT 'Card expiry year (4-digit)',
     is_default          TINYINT(1)          NOT NULL DEFAULT 0         COMMENT 'TRUE = preferred profile for autopay',
     status              ENUM('active','expired','revoked')
@@ -4965,13 +4965,13 @@ ALTER TABLE payment_retries
 
 -- ---------------------------------------------------------------------------
 -- Table: suspension_rules
--- Purpose: Configurable suspension rules per organization — defines when and
+-- Purpose: Configurable suspension rules per organization â€” defines when and
 --          how overdue clients should be notified, suspended, or disconnected.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS suspension_rules (
     id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED  NOT NULL                         COMMENT 'Tenant organization that owns this rule',
-    name                VARCHAR(150)     NOT NULL                         COMMENT 'Descriptive rule name, e.g. "Suspensión 30 días"',
+    name                VARCHAR(150)     NOT NULL                         COMMENT 'Descriptive rule name, e.g. "SuspensiÃ³n 30 dÃ­as"',
     days_past_due       INT UNSIGNED     NOT NULL                         COMMENT 'Number of days overdue before this rule triggers',
     grace_period_days   INT UNSIGNED     NOT NULL DEFAULT 0               COMMENT 'Additional grace days after trigger before action is executed',
     action              ENUM('auto_suspend','notify_only','auto_disconnect','soft_suspend')
@@ -5050,7 +5050,7 @@ CREATE TABLE IF NOT EXISTS csd_certificates (
     issuer_name           VARCHAR(300)     NULL                       COMMENT 'Certificate issuer DN as stored in the .cer',
     serial_number         VARCHAR(100)     NULL                       COMMENT 'X.509 serial number in hex',
     valid_from            DATETIME         NOT NULL                   COMMENT 'Certificate notBefore date/time',
-    valid_to              DATETIME         NOT NULL                   COMMENT 'Certificate notAfter date/time — used for expiry monitoring',
+    valid_to              DATETIME         NOT NULL                   COMMENT 'Certificate notAfter date/time â€” used for expiry monitoring',
     cer_pem               TEXT             NOT NULL                   COMMENT 'PEM-encoded public certificate (.cer converted to PEM)',
     key_pem_encrypted     TEXT             NOT NULL                   COMMENT 'Application-encrypted PEM-encoded private key (.key)',
     passphrase_encrypted  TEXT             NULL                       COMMENT 'Application-encrypted passphrase for the private key, if applicable',
@@ -5074,7 +5074,7 @@ CREATE TABLE IF NOT EXISTS csd_certificates (
 
 -- ---------------------------------------------------------------------------
 -- Table: pac_providers
--- Purpose: PAC (Proveedor Autorizado de Certificación) provider credentials and
+-- Purpose: PAC (Proveedor Autorizado de CertificaciÃ³n) provider credentials and
 --          endpoint configuration per organization. Supports multiple PAC vendors
 --          with sandbox/production environments.
 -- ---------------------------------------------------------------------------
@@ -5083,7 +5083,7 @@ CREATE TABLE IF NOT EXISTS pac_providers (
     organization_id       BIGINT UNSIGNED  NOT NULL                     COMMENT 'Tenant organization that owns this PAC config',
     provider_name         ENUM('finkok','sw_sapien','digicel','comercio_digital','facturapi','other')
                                            NOT NULL                     COMMENT 'PAC vendor identifier',
-    label                 VARCHAR(100)     NOT NULL                     COMMENT 'Friendly name, e.g. "Finkok Producción"',
+    label                 VARCHAR(100)     NOT NULL                     COMMENT 'Friendly name, e.g. "Finkok ProducciÃ³n"',
     environment           ENUM('sandbox','production')
                                            NOT NULL DEFAULT 'sandbox'   COMMENT 'PAC environment',
     api_url               VARCHAR(500)     NOT NULL                     COMMENT 'Base URL for the PAC API endpoint',
@@ -5362,7 +5362,7 @@ CREATE TABLE IF NOT EXISTS organization_users (
 CREATE TABLE IF NOT EXISTS plan_addons (
     id               BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     organization_id  BIGINT UNSIGNED  NOT NULL                     COMMENT 'Tenant organization that offers this add-on',
-    name             VARCHAR(150)     NOT NULL                     COMMENT 'Display name, e.g. "IP Estática", "Renta de Router"',
+    name             VARCHAR(150)     NOT NULL                     COMMENT 'Display name, e.g. "IP EstÃ¡tica", "Renta de Router"',
     description      TEXT             NULL                         COMMENT 'Detailed description shown to billing agents or on the client portal',
     addon_type       ENUM('static_ip','extra_ip_block','extra_bandwidth','equipment_rental','voip','iptv','other')
                                       NOT NULL                     COMMENT 'Category of add-on for reporting and processing logic',
@@ -5485,7 +5485,7 @@ CREATE TABLE IF NOT EXISTS speed_tests (
     upload_mbps      DECIMAL(10, 3)     NOT NULL                  COMMENT 'Measured upload speed in Mbps',
     latency_ms       DECIMAL(8, 2)      NULL                      COMMENT 'Round-trip latency in milliseconds',
     jitter_ms        DECIMAL(8, 2)      NULL                      COMMENT 'Latency jitter in milliseconds',
-    packet_loss_pct  DECIMAL(5, 2)      NULL                      COMMENT 'Packet loss percentage (0.00–100.00)',
+    packet_loss_pct  DECIMAL(5, 2)      NULL                      COMMENT 'Packet loss percentage (0.00â€“100.00)',
     ip_address       VARCHAR(45)        NULL                      COMMENT 'Public IP address observed during the test (IPv4 or IPv6)',
     notes            TEXT               NULL                      COMMENT 'Free-text observations or technician comments',
     tested_at        TIMESTAMP          NOT NULL                  COMMENT 'When the test measurement was taken',
@@ -5622,14 +5622,14 @@ CREATE TABLE IF NOT EXISTS network_health_snapshots (
     device_id                 BIGINT UNSIGNED   NULL                    COMMENT 'Device this snapshot is for; NULL if link-only snapshot',
     network_link_id           BIGINT UNSIGNED   NULL                    COMMENT 'Network link this snapshot is for; NULL if device-only snapshot',
     snapshot_date             DATE              NOT NULL                COMMENT 'Calendar date this snapshot covers (one row per day)',
-    uptime_pct                DECIMAL(5, 2)     NULL                    COMMENT 'Device/link uptime percentage for the day (0.00–100.00)',
+    uptime_pct                DECIMAL(5, 2)     NULL                    COMMENT 'Device/link uptime percentage for the day (0.00â€“100.00)',
     avg_latency_ms            DECIMAL(8, 2)     NULL                    COMMENT 'Average round-trip latency in milliseconds over the day',
     max_latency_ms            DECIMAL(8, 2)     NULL                    COMMENT 'Peak round-trip latency in milliseconds over the day',
     avg_throughput_in_mbps    DECIMAL(10, 3)    NULL                    COMMENT 'Average inbound throughput in Mbps over the day',
     avg_throughput_out_mbps   DECIMAL(10, 3)    NULL                    COMMENT 'Average outbound throughput in Mbps over the day',
     peak_throughput_in_mbps   DECIMAL(10, 3)    NULL                    COMMENT 'Peak inbound throughput in Mbps observed during the day',
     peak_throughput_out_mbps  DECIMAL(10, 3)    NULL                    COMMENT 'Peak outbound throughput in Mbps observed during the day',
-    packet_loss_pct           DECIMAL(5, 2)     NULL                    COMMENT 'Average packet loss percentage for the day (0.00–100.00)',
+    packet_loss_pct           DECIMAL(5, 2)     NULL                    COMMENT 'Average packet loss percentage for the day (0.00â€“100.00)',
     total_downtime_minutes    INT UNSIGNED      NOT NULL DEFAULT 0      COMMENT 'Total minutes of detected downtime during the day',
     created_at                TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -5657,13 +5657,13 @@ CREATE TABLE IF NOT EXISTS cfdi_cancellations (
     organization_id       BIGINT UNSIGNED  NOT NULL                    COMMENT 'Tenant organization that issued the CFDI',
     uuid                  CHAR(36)         NOT NULL                    COMMENT 'UUID (folio fiscal) of the CFDI being cancelled',
     motivo                ENUM('01','02','03','04')
-                                           NOT NULL                    COMMENT 'SAT cancellation reason: 01=CFDI con errores con relación, 02=CFDI con errores sin relación, 03=No se llevó a cabo la operación, 04=Operación nominativa relacionada en CFDI global',
+                                           NOT NULL                    COMMENT 'SAT cancellation reason: 01=CFDI con errores con relaciÃ³n, 02=CFDI con errores sin relaciÃ³n, 03=No se llevÃ³ a cabo la operaciÃ³n, 04=OperaciÃ³n nominativa relacionada en CFDI global',
     folio_sustitucion     CHAR(36)         NULL                        COMMENT 'UUID of the replacement CFDI; required when motivo=''01''',
     cancellation_status   ENUM('pending','accepted','rejected','cancelled_by_timeout')
                                            NOT NULL DEFAULT 'pending'  COMMENT 'SAT/PAC cancellation processing status',
     requested_at          TIMESTAMP        NOT NULL                    COMMENT 'Timestamp when the cancellation was submitted to the PAC/SAT',
     responded_at          TIMESTAMP        NULL                        COMMENT 'Timestamp when the SAT/PAC returned a final status',
-    acuse_xml             LONGTEXT         NULL                        COMMENT 'Raw acuse (acknowledgement) XML returned by the SAT — required for fiscal records',
+    acuse_xml             LONGTEXT         NULL                        COMMENT 'Raw acuse (acknowledgement) XML returned by the SAT â€” required for fiscal records',
     acuse_fecha           DATETIME         NULL                        COMMENT 'FechaCancelacion from the SAT acuse XML',
     pac_provider_id       BIGINT UNSIGNED  NULL                        COMMENT 'PAC provider used to submit the cancellation; NULL if submitted directly',
     error_message         TEXT             NULL                        COMMENT 'Error description if the cancellation was rejected or failed',
@@ -5692,14 +5692,14 @@ CREATE TABLE IF NOT EXISTS cfdi_cancellations (
 --          technician, readonly) and all granular permission slugs required
 --          for a functioning RBAC installation.  role_permissions rows map
 --          each role to the permissions appropriate for its scope.
---          Uses INSERT IGNORE — safe to re-run.
+--          Uses INSERT IGNORE â€” safe to re-run.
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO roles (name, description, is_system) VALUES
-    ('admin',      'Full system access — can manage all resources and settings', TRUE),
-    ('billing',    'Billing module access — invoices, payments, plans, and subscriptions', TRUE),
-    ('support',    'Support access — clients, tickets, and related communications', TRUE),
-    ('technician', 'Field / NOC technician — devices, jobs, network, and inventory', TRUE),
-    ('readonly',   'Read-only observer — can view all resources but cannot modify anything', TRUE);
+    ('admin',      'Full system access â€” can manage all resources and settings', TRUE),
+    ('billing',    'Billing module access â€” invoices, payments, plans, and subscriptions', TRUE),
+    ('support',    'Support access â€” clients, tickets, and related communications', TRUE),
+    ('technician', 'Field / NOC technician â€” devices, jobs, network, and inventory', TRUE),
+    ('readonly',   'Read-only observer â€” can view all resources but cannot modify anything', TRUE);
 
 INSERT IGNORE INTO permissions (name, description, module) VALUES
     ('clients.view',         'View client list and profiles',          'clients'),
@@ -5805,7 +5805,7 @@ WHERE r.name = 'readonly';
 -- ---------------------------------------------------------------------------
 -- Seed: default application settings (migration 120)
 -- Purpose: Populates the settings key-value store with sensible defaults for
---          a new installation.  Uses INSERT IGNORE — safe to re-run; existing
+--          a new installation.  Uses INSERT IGNORE â€” safe to re-run; existing
 --          administrator-configured values are never overwritten.
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO settings (setting_key, setting_value, description) VALUES
@@ -5840,11 +5840,11 @@ INSERT IGNORE INTO settings (setting_key, setting_value, description) VALUES
 -- Purpose: Inserts globally applicable default rates (organization_id = NULL)
 --          covering the most common tax scenarios for a multi-country ISP.
 --          Uses WHERE NOT EXISTS because tax_rates has no UNIQUE constraint
---          on name — fully idempotent on re-runs.
+--          on name â€” fully idempotent on re-runs.
 -- ---------------------------------------------------------------------------
 INSERT INTO tax_rates (organization_id, name, rate, description, is_default, status)
 SELECT NULL, 'Tax Exempt', 0.0000,
-       'Zero-rate — applies to tax-exempt services or clients', FALSE, 'active'
+       'Zero-rate â€” applies to tax-exempt services or clients', FALSE, 'active'
 WHERE NOT EXISTS (SELECT 1 FROM tax_rates WHERE name = 'Tax Exempt' AND organization_id IS NULL);
 
 INSERT INTO tax_rates (organization_id, name, rate, description, is_default, status)
@@ -5854,7 +5854,7 @@ WHERE NOT EXISTS (SELECT 1 FROM tax_rates WHERE name = 'Standard Tax 8%' AND org
 
 INSERT INTO tax_rates (organization_id, name, rate, description, is_default, status)
 SELECT NULL, 'IVA 16% (Mexico)', 0.1600,
-       'Mexican IVA (Impuesto al Valor Agregado) 16% — standard rate for most ISP services in Mexico', FALSE, 'active'
+       'Mexican IVA (Impuesto al Valor Agregado) 16% â€” standard rate for most ISP services in Mexico', FALSE, 'active'
 WHERE NOT EXISTS (SELECT 1 FROM tax_rates WHERE name = 'IVA 16% (Mexico)' AND organization_id IS NULL);
 
 INSERT INTO tax_rates (organization_id, name, rate, description, is_default, status)
@@ -5883,7 +5883,7 @@ WHERE EXISTS (SELECT 1 FROM organizations WHERE id = 1)
 -- ---------------------------------------------------------------------------
 -- Seed: core automation scheduled tasks (migration 123)
 -- Purpose: Inserts the five system-level automation jobs.  Uses INSERT IGNORE
---          — safe to re-run via the UNIQUE KEY on (organization_id, task_name).
+--          â€” safe to re-run via the UNIQUE KEY on (organization_id, task_name).
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO scheduled_tasks
     (organization_id, task_name, task_type, handler, description,
@@ -5975,7 +5975,7 @@ VALUES
     (NULL,
      'billing_cycle',
      'generate_invoice',
-     'Full automated billing cycle: generate invoices → email clients → send suspension warnings → suspend overdue contracts.',
+     'Full automated billing cycle: generate invoices â†’ email clients â†’ send suspension warnings â†’ suspend overdue contracts.',
      '0 2 * * *',
      'high',
      3,
@@ -5992,7 +5992,7 @@ VALUES
     (NULL,
      'database_backup',
      'maintenance',
-     'Daily database backup: mysqldump → gzip → local storage/backups/ + upload to S3/B2 cloud storage. Retains last 7 local copies.',
+     'Daily database backup: mysqldump â†’ gzip â†’ local storage/backups/ + upload to S3/B2 cloud storage. Retains last 7 local copies.',
      '0 3 * * *',
      'normal',
      2,
@@ -6043,7 +6043,7 @@ VALUES
     (NULL,
      'webhook_retry',
      'webhook_retry',
-     'Process due webhook retry deliveries — picks up retrying rows whose next_retry_at <= NOW(), makes one HTTP attempt per row, reschedules or dead-letters based on attempt count.',
+     'Process due webhook retry deliveries â€” picks up retrying rows whose next_retry_at <= NOW(), makes one HTTP attempt per row, reschedules or dead-letters based on attempt count.',
      '*/5 * * * *',
      'normal',
      1,
@@ -6069,7 +6069,7 @@ VALUES
 
 -- ---------------------------------------------------------------------------
 -- ALTER: add currency to expenses (migration 124)
--- Purpose: Idempotent guard — adds expenses.currency only if migration 051
+-- Purpose: Idempotent guard â€” adds expenses.currency only if migration 051
 --          has not already applied it.
 -- ---------------------------------------------------------------------------
 DROP PROCEDURE IF EXISTS _schema_add_expenses_currency;
@@ -6392,9 +6392,9 @@ DELIMITER ;
 -- ---------------------------------------------------------------------------
 -- Triggers: contract status FSM (migration 149)
 -- Purpose: Enforces valid contract status transitions.
---          pending → active | cancelled
---          active  → expired | cancelled
---          expired, cancelled → (terminal)
+--          pending â†’ active | cancelled
+--          active  â†’ expired | cancelled
+--          expired, cancelled â†’ (terminal)
 -- ---------------------------------------------------------------------------
 
 DELIMITER $$
@@ -6507,7 +6507,7 @@ DROP PROCEDURE IF EXISTS _schema_add_composite_indexes;
 
 -- ---------------------------------------------------------------------------
 -- Tables: organization_sso_configs, organization_sso_group_mappings,
---         sso_auth_states  (migration 165 — P2.1 SSO)
+--         sso_auth_states  (migration 165 â€” P2.1 SSO)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS organization_sso_configs (
     id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -6565,7 +6565,7 @@ CREATE TABLE IF NOT EXISTS sso_auth_states (
 
 
 -- ---------------------------------------------------------------------------
--- Per-tenant resource quotas  (migration 166 — P2.4)
+-- Per-tenant resource quotas  (migration 166 â€” P2.4)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS organization_quotas (
     id                    BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -6576,7 +6576,7 @@ CREATE TABLE IF NOT EXISTS organization_quotas (
     max_scheduled_tasks   INT UNSIGNED     NULL     COMMENT 'Max org-scoped scheduled tasks; NULL = unlimited',
     max_ai_tokens_month   INT UNSIGNED     NULL     COMMENT 'Max AI tokens consumed per calendar month; NULL = unlimited',
     ai_cost_month_usd     DECIMAL(12,6)    NULL     DEFAULT NULL
-                                                    COMMENT 'Running monthly AI cost total (USD) — updated daily by aiCostRollupWorker',
+                                                    COMMENT 'Running monthly AI cost total (USD) â€” updated daily by aiCostRollupWorker',
     ai_cost_rollup_month  CHAR(7)          NULL     DEFAULT NULL
                                                     COMMENT 'YYYY-MM of the last rollup (used to detect month boundary)',
     created_at            TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -6590,7 +6590,7 @@ CREATE TABLE IF NOT EXISTS organization_quotas (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Per-tenant database isolation configuration  (migration 167 — P2.6)
+-- Per-tenant database isolation configuration  (migration 167 â€” P2.6)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS organization_database_configs (
     id                    BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -6675,7 +6675,7 @@ CREATE TABLE IF NOT EXISTS profeco_complaints (
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
--- Table: ai_providers — LLM provider registry (migration 169)
+-- Table: ai_providers â€” LLM provider registry (migration 169)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ai_providers (
     id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -6709,7 +6709,7 @@ CREATE TABLE IF NOT EXISTS ai_providers (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ai_policies — per-org on/off switch + mode configuration (migration 169)
+-- Table: ai_policies â€” per-org on/off switch + mode configuration (migration 169)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ai_policies (
     id                      BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -6722,7 +6722,7 @@ CREATE TABLE IF NOT EXISTS ai_policies (
     mode                    ENUM('draft_only','suggest','auto_send')
                                              NOT NULL DEFAULT 'draft_only',
     auto_send_confidence    DECIMAL(3,2)     NOT NULL DEFAULT 0.85
-                                              COMMENT '0.00–1.00 confidence threshold for auto_send mode',
+                                              COMMENT '0.00â€“1.00 confidence threshold for auto_send mode',
     default_locale          VARCHAR(10)      NOT NULL DEFAULT 'es-MX',
     tone                    ENUM('formal','neutral','friendly')
                                              NOT NULL DEFAULT 'formal',
@@ -6746,7 +6746,7 @@ CREATE TABLE IF NOT EXISTS ai_policies (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ai_phrase_library — curated on-brand reply phrases (migration 169)
+-- Table: ai_phrase_library â€” curated on-brand reply phrases (migration 169)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ai_phrase_library (
     id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -6773,7 +6773,7 @@ CREATE TABLE IF NOT EXISTS ai_phrase_library (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ai_forbidden_terms — output-level content guardrails (migration 169)
+-- Table: ai_forbidden_terms â€” output-level content guardrails (migration 169)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ai_forbidden_terms (
     id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -6796,7 +6796,7 @@ CREATE TABLE IF NOT EXISTS ai_forbidden_terms (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ai_reply_logs — immutable audit trail for every AI action (migration 169)
+-- Table: ai_reply_logs â€” immutable audit trail for every AI action (migration 169)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ai_reply_logs (
     id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -6804,7 +6804,7 @@ CREATE TABLE IF NOT EXISTS ai_reply_logs (
     ticket_id           BIGINT UNSIGNED  NOT NULL,
     provider_id         BIGINT UNSIGNED  NULL     COMMENT 'ai_providers.id that produced this draft',
     classification      VARCHAR(50)      NULL     COMMENT 'Category assigned by classify step',
-    confidence          DECIMAL(5,4)     NULL     COMMENT '0.0000–1.0000 LLM-reported confidence score',
+    confidence          DECIMAL(5,4)     NULL     COMMENT '0.0000â€“1.0000 LLM-reported confidence score',
     context_snapshot    JSON             NULL     COMMENT 'topology + health snapshot sent to LLM (no PII after redact)',
     prompt_hash         VARCHAR(64)      NULL     COMMENT 'SHA-256 of the rendered system prompt (for dedup / audit)',
     draft_text          TEXT             NULL     COMMENT 'Raw draft returned by LLM',
@@ -6842,13 +6842,13 @@ CREATE TABLE IF NOT EXISTS ai_reply_logs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: contract_topology_paths — topology path cache CPE → edge (migration 169)
+-- Table: contract_topology_paths â€” topology path cache CPE â†’ edge (migration 169)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS contract_topology_paths (
     id          BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     contract_id BIGINT UNSIGNED  NOT NULL,
     path        JSON             NOT NULL
-                                  COMMENT 'Ordered [{device_id,role,link_id,medium}] CPE→edge',
+                                  COMMENT 'Ordered [{device_id,role,link_id,medium}] CPEâ†’edge',
     computed_at DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP
                                   COMMENT 'Timestamp of last computation; used for cache invalidation',
 
@@ -6881,29 +6881,29 @@ JOIN   permissions p ON p.name LIKE 'ai.%'
 WHERE  r.name = 'admin';
 
 -- =============================================================================
--- Interaction Tracking — isp-platform-features.md §1.3 (migrations 196-197)
+-- Interaction Tracking â€” isp-platform-features.md Â§1.3 (migrations 196-197)
 -- =============================================================================
 -- =============================================================================
 -- Migration 196: Interaction Tracking tables (client interactions, follow-up
 --                reminders, satisfaction surveys, ticket escalations)
 -- =============================================================================
--- Implements isp-platform-features.md §1.3 "Interaction Tracking":
---   • client_interactions   — manual interaction log (calls, visits, chats, …);
+-- Implements isp-platform-features.md Â§1.3 "Interaction Tracking":
+--   â€¢ client_interactions   â€” manual interaction log (calls, visits, chats, â€¦);
 --                              together with tickets, payments, email_logs and
 --                              sms_logs it feeds the per-client activity
 --                              timeline (interactionService.activityTimeline)
---   • follow_up_reminders    — scheduled follow-ups with automated due
+--   â€¢ follow_up_reminders    â€” scheduled follow-ups with automated due
 --                              notifications (taskRunner: follow_up_reminders)
---   • satisfaction_surveys   — NPS / CSAT surveys, auto-dispatched when a
+--   â€¢ satisfaction_surveys   â€” NPS / CSAT surveys, auto-dispatched when a
 --                              ticket is resolved (taskRunner:
 --                              dispatch_satisfaction_surveys)
---   • ticket_escalations     — escalation management for unresolved tickets,
+--   â€¢ ticket_escalations     â€” escalation management for unresolved tickets,
 --                              with hourly auto-escalation of stale tickets
 --                              (taskRunner: auto_escalate_tickets)
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
--- Table: client_interactions — manual interaction log
+-- Table: client_interactions â€” manual interaction log
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS client_interactions (
     id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -6938,7 +6938,7 @@ CREATE TABLE IF NOT EXISTS client_interactions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: follow_up_reminders — scheduled follow-ups per client
+-- Table: follow_up_reminders â€” scheduled follow-ups per client
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS follow_up_reminders (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -6981,7 +6981,7 @@ CREATE TABLE IF NOT EXISTS follow_up_reminders (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: satisfaction_surveys — NPS / CSAT responses
+-- Table: satisfaction_surveys â€” NPS / CSAT responses
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS satisfaction_surveys (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -7020,7 +7020,7 @@ CREATE TABLE IF NOT EXISTS satisfaction_surveys (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ticket_escalations — escalation chain for unresolved tickets
+-- Table: ticket_escalations â€” escalation chain for unresolved tickets
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ticket_escalations (
     id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -7054,7 +7054,7 @@ CREATE TABLE IF NOT EXISTS ticket_escalations (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Seed: scheduled tasks driving the automated parts of §1.3
+-- Seed: scheduled tasks driving the automated parts of Â§1.3
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO scheduled_tasks
     (organization_id, task_name, description, cron_expression, is_enabled, priority)
@@ -7080,7 +7080,7 @@ VALUES
 
 -- Migration: 197_seed_interaction_permissions
 -- Description: Seeds the RBAC permissions for the Interaction Tracking module
---              (isp-platform-features.md §1.3) and assigns them to the default
+--              (isp-platform-features.md Â§1.3) and assigns them to the default
 --              system roles.
 --
 --              Permission slugs (module = 'interactions'):
@@ -7167,7 +7167,7 @@ WHERE  r.name = 'readonly';
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
--- Table: communication_campaigns — bulk campaign definition and aggregate stats
+-- Table: communication_campaigns â€” bulk campaign definition and aggregate stats
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS communication_campaigns (
     id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -7218,7 +7218,7 @@ CREATE TABLE IF NOT EXISTS communication_campaigns (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: campaign_messages — per-recipient message records for a campaign
+-- Table: campaign_messages â€” per-recipient message records for a campaign
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS campaign_messages (
     id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -7258,7 +7258,7 @@ CREATE TABLE IF NOT EXISTS campaign_messages (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: client_dnd_preferences — per-customer per-channel Do Not Disturb
+-- Table: client_dnd_preferences â€” per-customer per-channel Do Not Disturb
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS client_dnd_preferences (
     id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -7349,7 +7349,7 @@ WHERE  r.name = 'readonly';
 
 
 -- =============================================================================
--- Migration 204: organization_invoice_settings — per-org invoice branding (§2.2B)
+-- Migration 204: organization_invoice_settings â€” per-org invoice branding (Â§2.2B)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS organization_invoice_settings (
     id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -7367,7 +7367,7 @@ CREATE TABLE IF NOT EXISTS organization_invoice_settings (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- Migration 206: late_fee_rules and invoice_late_fees tables (§2.2B)
+-- Migration 206: late_fee_rules and invoice_late_fees tables (Â§2.2B)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS late_fee_rules (
     id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -7406,7 +7406,7 @@ CREATE TABLE IF NOT EXISTS invoice_late_fees (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- Migration 208: payment_reminder_settings and payment_reminder_logs (§2.2B)
+-- Migration 208: payment_reminder_settings and payment_reminder_logs (Â§2.2B)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS payment_reminder_settings (
     id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -7436,4 +7436,136 @@ CREATE TABLE IF NOT EXISTS payment_reminder_logs (
     KEY idx_reminder_log_org (organization_id),
     CONSTRAINT fk_payment_reminder_logs_invoice FOREIGN KEY (invoice_id) REFERENCES invoices (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_payment_reminder_logs_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================================
+-- Migration 217: refund_requests â€” refund request workflow (Â§2.5.1)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS refund_requests (
+    id                          BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id             BIGINT UNSIGNED  NULL,
+    client_id                   BIGINT UNSIGNED  NOT NULL,
+    payment_id                  BIGINT UNSIGNED  NULL,
+    invoice_id                  BIGINT UNSIGNED  NULL,
+    amount                      DECIMAL(12,2)    NOT NULL,
+    reason                      ENUM('overcharge','duplicate','cancellation','service_issue','other') NOT NULL,
+    status                      ENUM('requested','under_review','approved','rejected','processed') NOT NULL DEFAULT 'requested',
+    requested_by                BIGINT UNSIGNED  NULL    COMMENT 'users.id',
+    reviewed_by                 BIGINT UNSIGNED  NULL,
+    review_notes                TEXT             NULL,
+    processed_at                DATETIME         NULL,
+    refund_method               ENUM('original_method','credit_balance','manual') NULL,
+    resulting_credit_note_id    BIGINT UNSIGNED  NULL,
+    gateway_refund_reference    VARCHAR(200)     NULL,
+    created_at                  TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at                  TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at                  DATETIME         NULL,
+    PRIMARY KEY (id),
+    KEY idx_refund_requests_organization_id (organization_id),
+    KEY idx_refund_requests_client_id (client_id),
+    KEY idx_refund_requests_payment_id (payment_id),
+    KEY idx_refund_requests_invoice_id (invoice_id),
+    KEY idx_refund_requests_status (status),
+    KEY idx_refund_requests_deleted_at (deleted_at),
+    CONSTRAINT fk_refund_requests_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================================
+-- Migration 219: billing_disputes and dispute_evidence tables (Â§2.5.2)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS billing_disputes (
+    id               BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id  BIGINT UNSIGNED  NULL,
+    client_id        BIGINT UNSIGNED  NOT NULL,
+    invoice_id       BIGINT UNSIGNED  NULL,
+    payment_id       BIGINT UNSIGNED  NULL,
+    type             ENUM('billing_error','service_quality','unauthorized_charge','other') NOT NULL,
+    status           ENUM('open','investigating','resolved_favor_client','resolved_favor_company','escalated') NOT NULL DEFAULT 'open',
+    description      TEXT             NOT NULL,
+    resolution_notes TEXT             NULL,
+    opened_by        BIGINT UNSIGNED  NULL,
+    resolved_by      BIGINT UNSIGNED  NULL,
+    resolved_at      DATETIME         NULL,
+    created_at       TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at       DATETIME         NULL,
+    PRIMARY KEY (id),
+    KEY idx_billing_disputes_organization_id (organization_id),
+    KEY idx_billing_disputes_client_id (client_id),
+    KEY idx_billing_disputes_status (status),
+    KEY idx_billing_disputes_deleted_at (deleted_at),
+    CONSTRAINT fk_billing_disputes_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS dispute_evidence (
+    id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED  NULL,
+    dispute_id      BIGINT UNSIGNED  NOT NULL,
+    filename        VARCHAR(255)     NOT NULL,
+    stored_path     VARCHAR(500)     NOT NULL,
+    mime_type       VARCHAR(100)     NULL,
+    size_bytes      INT UNSIGNED     NULL,
+    uploaded_by     BIGINT UNSIGNED  NULL,
+    note            TEXT             NULL,
+    created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_dispute_evidence_dispute_id (dispute_id),
+    KEY idx_dispute_evidence_organization_id (organization_id),
+    CONSTRAINT fk_dispute_evidence_dispute FOREIGN KEY (dispute_id)
+        REFERENCES billing_disputes (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_dispute_evidence_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================================
+-- Migration 221: chargebacks and billing_adjustments tables (Â§2.5.3 / Â§2.5.4)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS chargebacks (
+    id                        BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id           BIGINT UNSIGNED  NULL,
+    payment_id                BIGINT UNSIGNED  NULL,
+    gateway                   VARCHAR(50)      NULL    COMMENT 'stripe/conekta/etc',
+    gateway_dispute_id        VARCHAR(200)     NULL,
+    amount                    DECIMAL(12,2)    NOT NULL,
+    currency                  VARCHAR(3)       NOT NULL DEFAULT 'USD',
+    reason_code               VARCHAR(100)     NULL,
+    status                    ENUM('received','evidence_submitted','won','lost','accepted') NOT NULL DEFAULT 'received',
+    due_by                    DATE             NULL    COMMENT 'Deadline for evidence submission',
+    outcome_notes             TEXT             NULL,
+    linked_refund_request_id  BIGINT UNSIGNED  NULL,
+    created_at                TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at                TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at                DATETIME         NULL,
+    PRIMARY KEY (id),
+    KEY idx_chargebacks_organization_id (organization_id),
+    KEY idx_chargebacks_payment_id (payment_id),
+    UNIQUE KEY uq_chargebacks_gateway_dispute_id (gateway_dispute_id),
+    KEY idx_chargebacks_status (status),
+    KEY idx_chargebacks_deleted_at (deleted_at),
+    CONSTRAINT fk_chargebacks_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS billing_adjustments (
+    id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED  NULL,
+    client_id       BIGINT UNSIGNED  NOT NULL,
+    entity_type     ENUM('invoice','payment','credit_note','balance') NOT NULL,
+    entity_id       BIGINT UNSIGNED  NOT NULL,
+    adjustment_type ENUM('late_fee_waiver','discount','correction','write_off','other') NOT NULL,
+    amount_delta    DECIMAL(12,2)    NOT NULL COMMENT 'Positive = credit to client, negative = debit',
+    reason          TEXT             NOT NULL,
+    approved_by     BIGINT UNSIGNED  NULL,
+    created_by      BIGINT UNSIGNED  NULL,
+    created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_billing_adjustments_organization_id (organization_id),
+    KEY idx_billing_adjustments_client_id (client_id),
+    KEY idx_billing_adjustments_entity (entity_type, entity_id),
+    CONSTRAINT fk_billing_adjustments_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

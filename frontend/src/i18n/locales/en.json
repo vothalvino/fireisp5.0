@@ -68,6 +68,10 @@
     "suspensionRules": "⛔ Suspension Rules",
     "paymentPlans": "💳 Payment Plans",
     "cashReconciliation": "💰 Cash Reconciliation",
+    "refundRequests": "↩ Refund Requests",
+    "billingDisputes": "⚖️ Billing Disputes",
+    "chargebacks": "🔄 Chargebacks",
+    "billingAdjustments": "🧮 Billing Adjustments",
     "cfdi": "🏛️ CFDI",
     "plans": "📶 Plans",
     "quotes": "🧮 Quotes",
@@ -786,6 +790,178 @@
     "softSuspend": {
       "downloadKbps": "Throttled download speed (kbps)",
       "uploadKbps": "Throttled upload speed (kbps)"
+    }
+  },
+  "refundRequests": {
+    "title": "Refund Requests",
+    "newRequest": "New Refund Request",
+    "columns": {
+      "id": "ID",
+      "clientId": "Client ID",
+      "amount": "Amount",
+      "reason": "Reason",
+      "status": "Status",
+      "requestedBy": "Requested By",
+      "createdAt": "Created At"
+    },
+    "status": {
+      "requested": "Requested",
+      "under_review": "Under Review",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "processed": "Processed"
+    },
+    "reason": {
+      "overcharge": "Overcharge",
+      "duplicate": "Duplicate Payment",
+      "cancellation": "Cancellation",
+      "service_issue": "Service Issue",
+      "other": "Other"
+    },
+    "review": "Review",
+    "process": "Process",
+    "form": {
+      "clientId": "Client ID",
+      "amount": "Amount",
+      "reason": "Reason",
+      "paymentId": "Payment ID (optional)",
+      "invoiceId": "Invoice ID (optional)"
+    },
+    "reviewModal": {
+      "title": "Review Request",
+      "status": "Decision",
+      "notes": "Review Notes"
+    },
+    "processModal": {
+      "title": "Process Refund",
+      "method": "Refund Method",
+      "gatewayRef": "Gateway Reference (optional)",
+      "methods": {
+        "original_method": "Original Payment Method",
+        "credit_balance": "Credit Balance",
+        "manual": "Manual"
+      }
+    }
+  },
+  "billingDisputes": {
+    "title": "Billing Disputes",
+    "newDispute": "New Dispute",
+    "columns": {
+      "id": "ID",
+      "clientId": "Client ID",
+      "type": "Type",
+      "status": "Status",
+      "description": "Description",
+      "openedBy": "Opened By",
+      "createdAt": "Created At"
+    },
+    "status": {
+      "open": "Open",
+      "investigating": "Investigating",
+      "resolved_favor_client": "Resolved (Client)",
+      "resolved_favor_company": "Resolved (Company)",
+      "escalated": "Escalated"
+    },
+    "type": {
+      "billing_error": "Billing Error",
+      "service_quality": "Service Quality",
+      "unauthorized_charge": "Unauthorized Charge",
+      "other": "Other"
+    },
+    "transition": "Transition",
+    "evidence": "Evidence",
+    "form": {
+      "clientId": "Client ID",
+      "type": "Type",
+      "description": "Description",
+      "invoiceId": "Invoice ID (optional)",
+      "paymentId": "Payment ID (optional)"
+    },
+    "transitionModal": {
+      "title": "Transition Status",
+      "status": "New Status",
+      "notes": "Resolution Notes (optional)"
+    },
+    "evidencePanel": {
+      "title": "Evidence Files",
+      "upload": "Upload Evidence",
+      "note": "Note (optional)",
+      "chooseFile": "Choose file",
+      "download": "Download",
+      "noFiles": "No evidence files yet."
+    }
+  },
+  "chargebacks": {
+    "title": "Chargebacks",
+    "newChargeback": "Manual Chargeback",
+    "columns": {
+      "id": "ID",
+      "paymentId": "Payment ID",
+      "gateway": "Gateway",
+      "gatewayDisputeId": "Dispute ID",
+      "amount": "Amount",
+      "currency": "Currency",
+      "status": "Status",
+      "dueBy": "Due By",
+      "createdAt": "Created At"
+    },
+    "status": {
+      "received": "Received",
+      "evidence_submitted": "Evidence Submitted",
+      "won": "Won",
+      "lost": "Lost",
+      "accepted": "Accepted"
+    },
+    "update": "Update",
+    "form": {
+      "paymentId": "Payment ID (optional)",
+      "gateway": "Gateway (optional)",
+      "gatewayDisputeId": "Gateway Dispute ID (optional)",
+      "amount": "Amount",
+      "currency": "Currency",
+      "reasonCode": "Reason Code (optional)"
+    },
+    "updateModal": {
+      "title": "Update Chargeback",
+      "status": "Status",
+      "outcomeNotes": "Outcome Notes",
+      "dueBy": "Due By Date"
+    }
+  },
+  "billingAdjustments": {
+    "title": "Billing Adjustments",
+    "newAdjustment": "Manual Adjustment",
+    "columns": {
+      "id": "ID",
+      "clientId": "Client ID",
+      "entityType": "Entity Type",
+      "entityId": "Entity ID",
+      "adjustmentType": "Adjustment Type",
+      "amountDelta": "Amount Delta",
+      "reason": "Reason",
+      "approvedBy": "Approved By",
+      "createdAt": "Created At"
+    },
+    "entityType": {
+      "invoice": "Invoice",
+      "payment": "Payment",
+      "credit_note": "Credit Note",
+      "balance": "Balance"
+    },
+    "adjustmentType": {
+      "late_fee_waiver": "Late Fee Waiver",
+      "discount": "Discount",
+      "correction": "Correction",
+      "write_off": "Write-Off",
+      "other": "Other"
+    },
+    "form": {
+      "clientId": "Client ID",
+      "entityType": "Entity Type",
+      "entityId": "Entity ID",
+      "adjustmentType": "Adjustment Type",
+      "amountDelta": "Amount Delta",
+      "reason": "Reason"
     }
   }
 }

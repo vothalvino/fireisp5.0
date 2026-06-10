@@ -371,6 +371,22 @@
     {
       "name": "Cash Reconciliation",
       "description": "Field agent cash collection reconciliation sessions — §2.3"
+    },
+    {
+      "name": "Refund Requests",
+      "description": "Refund request workflow — create, review, and process refunds — §2.5.1"
+    },
+    {
+      "name": "Billing Disputes",
+      "description": "Dispute tracking with evidence attachment — §2.5.2"
+    },
+    {
+      "name": "Chargebacks",
+      "description": "Chargeback management with gateway webhook integration — §2.5.3"
+    },
+    {
+      "name": "Billing Adjustments",
+      "description": "Billing adjustment log with audit trail — §2.5.4"
     }
   ],
   "paths": {
@@ -17953,6 +17969,912 @@
         }
       }
     },
+    "/refund-requests": {
+      "get": {
+        "tags": [
+          "Refund Requests"
+        ],
+        "summary": "List refund-requests",
+        "operationId": "listRefundRequests",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RefundRequest[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Refund Requests"
+        ],
+        "summary": "Create a RefundRequest",
+        "operationId": "createRefundRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "RefundRequest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "RefundRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/refund-requests/{id}": {
+      "get": {
+        "tags": [
+          "Refund Requests"
+        ],
+        "summary": "Get a RefundRequest",
+        "operationId": "getRefundRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RefundRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Refund Requests"
+        ],
+        "summary": "Update a RefundRequest",
+        "operationId": "updateRefundRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "RefundRequest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "RefundRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Refund Requests"
+        ],
+        "summary": "Delete a RefundRequest",
+        "operationId": "deleteRefundRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/refund-requests/{id}/review": {
+      "post": {
+        "tags": [
+          "Refund Requests"
+        ],
+        "summary": "Approve or reject a refund request",
+        "operationId": "reviewRefundRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "refundRequests_reviewRefundRequestSchema",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "RefundRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/refund-requests/{id}/process": {
+      "post": {
+        "tags": [
+          "Refund Requests"
+        ],
+        "summary": "Process an approved refund request (issue credit, credit_note, or mark gateway refund)",
+        "operationId": "processRefundRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "refundRequests_processRefundRequestSchema",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "RefundRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/billing-disputes": {
+      "get": {
+        "tags": [
+          "Billing Disputes"
+        ],
+        "summary": "List billing-disputes",
+        "operationId": "listBillingDisputes",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "BillingDispute[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Billing Disputes"
+        ],
+        "summary": "Create a BillingDispute",
+        "operationId": "createBillingDispute",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "BillingDispute",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "BillingDispute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/billing-disputes/{id}": {
+      "get": {
+        "tags": [
+          "Billing Disputes"
+        ],
+        "summary": "Get a BillingDispute",
+        "operationId": "getBillingDispute",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "BillingDispute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Billing Disputes"
+        ],
+        "summary": "Update a BillingDispute",
+        "operationId": "updateBillingDispute",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "BillingDispute",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "BillingDispute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Billing Disputes"
+        ],
+        "summary": "Delete a BillingDispute",
+        "operationId": "deleteBillingDispute",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/billing-disputes/{id}/transition": {
+      "post": {
+        "tags": [
+          "Billing Disputes"
+        ],
+        "summary": "Transition dispute status (open → investigating → resolved)",
+        "operationId": "transitionBillingDispute",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "billingDisputes_transitionBillingDisputeSchema",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "BillingDispute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/billing-disputes/{id}/evidence": {
+      "get": {
+        "tags": [
+          "Billing Disputes"
+        ],
+        "summary": "List evidence files for a dispute",
+        "operationId": "listDisputeEvidence",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DisputeEvidence[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Billing Disputes"
+        ],
+        "summary": "Upload evidence file (multipart/form-data)",
+        "operationId": "uploadDisputeEvidence",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "DisputeEvidence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/billing-disputes/{id}/evidence/{evidenceId}/download": {
+      "get": {
+        "tags": [
+          "Billing Disputes"
+        ],
+        "summary": "Download evidence file",
+        "operationId": "downloadDisputeEvidence",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "evidenceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File download",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chargebacks": {
+      "get": {
+        "tags": [
+          "Chargebacks"
+        ],
+        "summary": "List chargebacks",
+        "operationId": "listChargebacks",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Chargeback[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Chargebacks"
+        ],
+        "summary": "Create a Chargeback",
+        "operationId": "createChargeback",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Chargeback",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Chargeback",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chargebacks/{id}": {
+      "get": {
+        "tags": [
+          "Chargebacks"
+        ],
+        "summary": "Get a Chargeback",
+        "operationId": "getChargeback",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Chargeback",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Chargebacks"
+        ],
+        "summary": "Update a Chargeback",
+        "operationId": "updateChargeback",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Chargeback",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Chargeback",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Chargebacks"
+        ],
+        "summary": "Delete a Chargeback",
+        "operationId": "deleteChargeback",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/billing-adjustments": {
+      "get": {
+        "tags": [
+          "Billing Adjustments"
+        ],
+        "summary": "List billing adjustments with filters",
+        "operationId": "listBillingAdjustments",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "entity_type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "invoice",
+                "payment",
+                "credit_note",
+                "balance"
+              ]
+            }
+          },
+          {
+            "name": "date_from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "BillingAdjustment[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Billing Adjustments"
+        ],
+        "summary": "Record a billing adjustment (also mirrors to audit_logs)",
+        "operationId": "createBillingAdjustment",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "billingAdjustments_createBillingAdjustmentSchema",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "BillingAdjustment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/billing-adjustments/{id}": {
+      "get": {
+        "tags": [
+          "Billing Adjustments"
+        ],
+        "summary": "Get a billing adjustment",
+        "operationId": "getBillingAdjustment",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "BillingAdjustment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ai/metrics": {
       "get": {
         "tags": [
@@ -18655,6 +19577,128 @@
           "allocations"
         ]
       },
+      "billingAdjustments_createBillingAdjustmentSchema": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number"
+          },
+          "entity_type": {
+            "type": "string",
+            "enum": [
+              "invoice",
+              "payment",
+              "credit_note",
+              "balance"
+            ]
+          },
+          "entity_id": {
+            "type": "number"
+          },
+          "adjustment_type": {
+            "type": "string",
+            "enum": [
+              "late_fee_waiver",
+              "discount",
+              "correction",
+              "write_off",
+              "other"
+            ]
+          },
+          "amount_delta": {
+            "type": "number"
+          },
+          "reason": {
+            "type": "string",
+            "minimum": 1
+          },
+          "approved_by": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "client_id",
+          "entity_type",
+          "entity_id",
+          "adjustment_type",
+          "amount_delta",
+          "reason"
+        ]
+      },
+      "billingDisputes_createBillingDisputeSchema": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "billing_error",
+              "service_quality",
+              "unauthorized_charge",
+              "other"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minimum": 1
+          },
+          "invoice_id": {
+            "type": "number"
+          },
+          "payment_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "client_id",
+          "type",
+          "description"
+        ]
+      },
+      "billingDisputes_updateBillingDisputeSchema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "billing_error",
+              "service_quality",
+              "unauthorized_charge",
+              "other"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minimum": 1
+          },
+          "resolution_notes": {
+            "type": "string"
+          }
+        }
+      },
+      "billingDisputes_transitionBillingDisputeSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "investigating",
+              "resolved_favor_client",
+              "resolved_favor_company",
+              "escalated"
+            ]
+          },
+          "resolution_notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
       "bulk_generateInvoices": {
         "type": "object",
         "properties": {}
@@ -18998,6 +20042,73 @@
         "required": [
           "cancellation_reason"
         ]
+      },
+      "chargebacks_createChargebackSchema": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 0.01
+          },
+          "currency": {
+            "type": "string",
+            "minimum": 3,
+            "maximum": 3
+          },
+          "payment_id": {
+            "type": "number"
+          },
+          "gateway": {
+            "type": "string"
+          },
+          "gateway_dispute_id": {
+            "type": "string"
+          },
+          "reason_code": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "received",
+              "evidence_submitted",
+              "won",
+              "lost",
+              "accepted"
+            ]
+          },
+          "due_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
+        ]
+      },
+      "chargebacks_updateChargebackSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "received",
+              "evidence_submitted",
+              "won",
+              "lost",
+              "accepted"
+            ]
+          },
+          "outcome_notes": {
+            "type": "string"
+          },
+          "due_by": {
+            "type": "string"
+          },
+          "linked_refund_request_id": {
+            "type": "number"
+          }
+        }
       },
       "checkout_createSession": {
         "type": "object",
@@ -24948,6 +26059,101 @@
             ]
           }
         }
+      },
+      "refundRequests_createRefundRequestSchema": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number"
+          },
+          "amount": {
+            "type": "number",
+            "minimum": 0.01
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "overcharge",
+              "duplicate",
+              "cancellation",
+              "service_issue",
+              "other"
+            ]
+          },
+          "payment_id": {
+            "type": "number"
+          },
+          "invoice_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "client_id",
+          "amount",
+          "reason"
+        ]
+      },
+      "refundRequests_updateRefundRequestSchema": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 0.01
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "overcharge",
+              "duplicate",
+              "cancellation",
+              "service_issue",
+              "other"
+            ]
+          },
+          "payment_id": {
+            "type": "number"
+          },
+          "invoice_id": {
+            "type": "number"
+          }
+        }
+      },
+      "refundRequests_reviewRefundRequestSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "rejected"
+            ]
+          },
+          "review_notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "refundRequests_processRefundRequestSchema": {
+        "type": "object",
+        "properties": {
+          "refund_method": {
+            "type": "string",
+            "enum": [
+              "original_method",
+              "credit_balance",
+              "manual"
+            ]
+          },
+          "gateway_refund_reference": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "refund_method"
+        ]
       },
       "regulatoryFilings_createRegulatoryFiling": {
         "type": "object",

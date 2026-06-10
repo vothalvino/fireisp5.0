@@ -102,6 +102,10 @@ import { PaymentTransactionList } from '@/pages/PaymentTransactionList';
 import { RecurringPaymentProfileList } from '@/pages/RecurringPaymentProfileList';
 import { PaymentPlanList } from '@/pages/PaymentPlanList';
 import { CashReconciliationList } from '@/pages/CashReconciliationList';
+import { RefundRequestList } from '@/pages/RefundRequestList';
+import { BillingDisputeList } from '@/pages/BillingDisputeList';
+import { ChargebackList } from '@/pages/ChargebackList';
+import { BillingAdjustmentList } from '@/pages/BillingAdjustmentList';
 import { AIAssistantSettings } from '@/pages/AIAssistantSettings';
 import { NotFound } from '@/pages/NotFound';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
@@ -203,6 +207,10 @@ export function App() {
                 <Route path="recurring-payment-profiles" element={<RecurringPaymentProfileList />} />
                 <Route path="payment-plans" element={<PaymentPlanList />} />
                 <Route path="cash-reconciliation" element={<CashReconciliationList />} />
+                <Route path="refund-requests" element={<RefundRequestList />} />
+                <Route path="billing-disputes" element={<BillingDisputeList />} />
+                <Route path="chargebacks" element={<ChargebackList />} />
+                <Route path="billing-adjustments" element={<BillingAdjustmentList />} />
                 <Route path="winback-campaigns" element={<WinbackCampaignList />} />
                 <Route path="churn-analytics" element={<ChurnAnalytics />} />
                 <Route path="csd-certificates" element={<CsdCertificateList />} />
