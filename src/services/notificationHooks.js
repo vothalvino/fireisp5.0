@@ -295,6 +295,33 @@ function registerHooks() {
         title: outage.title,
         severity: outage.severity,
       });
+
+      // Notify admins/support by email when a new outage is reported — §1.4
+      try {
+        const db = require('../config/database');
+        const [admins] = await db.query(
+          `SELECT u.email, u.first_name FROM users u
+           WHERE u.organization_id = ?
+             AND u.role IN ('admin', 'support')
+             AND u.status = 'active'
+             AND u.email IS NOT NULL`,
+          [organizationId],
+        );
+        const html = '<p>Se reportó una interrupción de servicio:</p>'
+          + `<p><strong>${outage.title}</strong></p>`
+          + (outage.severity ? `<p>Severidad: ${outage.severity}</p>` : '')
+          + (outage.started_at ? `<p>Inicio: ${new Date(outage.started_at).toISOString().replace('T', ' ').slice(0, 16)} UTC</p>` : '');
+        for (const admin of admins) {
+          await emailTransport.sendEmail({
+            organizationId,
+            to: admin.email,
+            subject: `Interrupción reportada: ${outage.title}`,
+            html,
+          }).catch(err2 => logger.warn({ err: err2, event: 'outage.reported' }, 'Admin outage email error'));
+        }
+      } catch (notifyErr) {
+        logger.warn({ err: notifyErr, event: 'outage.reported' }, 'Admin outage notification error');
+      }
     } catch (err) {
       logger.error({ err, event: 'outage.reported' }, 'Notification hook error');
     }
@@ -496,6 +523,77 @@ function registerHooks() {
       });
     } catch (err) {
       logger.error({ err, event: 'ticket.escalated' }, 'Notification hook error');
+    }
+  });
+
+  // --- Maintenance Scheduled — §1.4 ---
+  eventBus.on('maintenance.scheduled', async ({ organizationId, maintenance }) => {
+    try {
+      getBroadcast()(`org:${organizationId}:notifications`, 'maintenance.scheduled', {
+        id: maintenance.id,
+        title: maintenance.title,
+        scheduled_at: maintenance.scheduled_at,
+        estimated_duration_minutes: maintenance.estimated_duration_minutes,
+      });
+
+      await webhookService.dispatch(organizationId, 'maintenance.scheduled', {
+        id: maintenance.id,
+        title: maintenance.title,
+        description: maintenance.description,
+        scheduled_at: maintenance.scheduled_at,
+        estimated_duration_minutes: maintenance.estimated_duration_minutes,
+      });
+
+      // Email + SMS notification to relevant clients via admin contact
+      try {
+        const db = require('../config/database');
+        const scheduledAt = maintenance.scheduled_at
+          ? new Date(maintenance.scheduled_at).toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
+          : 'N/A';
+        const duration = maintenance.estimated_duration_minutes
+          ? `${maintenance.estimated_duration_minutes} minutos`
+          : 'duración estimada no disponible';
+
+        const html = '<p>Se ha programado un mantenimiento en su servicio:</p>'
+          + `<p><strong>${maintenance.title}</strong></p>`
+          + (maintenance.description ? `<p>${maintenance.description}</p>` : '')
+          + `<p>Fecha y hora: ${scheduledAt}</p>`
+          + `<p>Duración estimada: ${duration}</p>`
+          + '<p>Disculpe las molestias. Le notificaremos cuando el mantenimiento haya concluido.</p>';
+
+        const smsBody = `Mantenimiento programado: ${maintenance.title}. Fecha: ${scheduledAt}. Duración aprox.: ${duration}.`;
+
+        const [clients] = await db.query(
+          `SELECT c.id, c.email, c.phone, c.first_name, c.last_name
+           FROM clients c
+           WHERE c.organization_id = ?
+             AND c.status = 'active'`,
+          [organizationId],
+        );
+
+        for (const client of clients) {
+          if (client.email) {
+            await emailTransport.sendEmail({
+              organizationId,
+              to: client.email,
+              subject: `Aviso de mantenimiento: ${maintenance.title}`,
+              html,
+            }).catch(err2 => logger.warn({ err: err2 }, 'Maintenance email error'));
+          }
+          if (client.phone) {
+            await smsTransport.queueSms({
+              organizationId,
+              clientId: client.id,
+              to: client.phone,
+              body: smsBody,
+            }).catch(err2 => logger.warn({ err: err2 }, 'Maintenance SMS error'));
+          }
+        }
+      } catch (notifyErr) {
+        logger.warn({ err: notifyErr, event: 'maintenance.scheduled' }, 'Maintenance client notification error');
+      }
+    } catch (err) {
+      logger.error({ err, event: 'maintenance.scheduled' }, 'Notification hook error');
     }
   });
 

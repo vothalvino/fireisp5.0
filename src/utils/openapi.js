@@ -118,6 +118,7 @@ function generateSpec() {
       { name: 'FireRelay', description: 'Multi-node cluster management' },
       { name: 'Regulatory', description: 'Regulatory compliance filings' },
       { name: 'PROFECO Complaints', description: 'PROFECO consumer complaint register and export' },
+      { name: 'Communication', description: 'Bulk campaigns, delivery tracking, and DND preferences — §1.4' },
       { name: 'AI Assistant', description: 'AI reply assistant — policy, providers, phrase library, reply generation, audit logs' },
       { name: 'DSAR', description: 'Data subject access requests (LFPDPPP / GDPR)' },
       { name: 'DR Drill', description: 'Disaster-recovery drill status' },
@@ -659,6 +660,68 @@ function generateSpec() {
           responses: r200('AiReplyLog[]'),
         },
       },
+      // ---- Communication — §1.4 ----
+      ...crudPaths('communication-campaigns', 'Communication', 'CommunicationCampaign'),
+      '/communication-campaigns/{id}/restore': { post: { tags: ['Communication'], summary: 'Restore a soft-deleted campaign', operationId: 'restoreCommunicationCampaign', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('CommunicationCampaign') } },
+      '/communication-campaigns/{id}/dispatch': { post: { tags: ['Communication'], summary: 'Dispatch a campaign — build recipient list and queue messages', operationId: 'dispatchCommunicationCampaign', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DispatchResult') } },
+      '/communication-campaigns/{id}/messages': {
+        get: {
+          tags: ['Communication'],
+          summary: 'List per-recipient messages for a campaign',
+          operationId: 'listCampaignMessages',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            idParam(),
+            { name: 'status', in: 'query', schema: { type: 'string', enum: ['queued', 'sent', 'delivered', 'opened', 'bounced', 'failed'] } },
+            { name: 'page',   in: 'query', schema: { type: 'integer', default: 1 } },
+            { name: 'limit',  in: 'query', schema: { type: 'integer', default: 50 } },
+          ],
+          responses: r200('CampaignMessage[]'),
+        },
+      },
+      '/clients/{clientId}/dnd': {
+        get: {
+          tags: ['Communication'],
+          summary: 'Get DND preferences for a client',
+          operationId: 'getClientDnd',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'clientId', in: 'path', required: true, schema: { type: 'integer' } }],
+          responses: r200('DndPreference[]'),
+        },
+        put: {
+          tags: ['Communication'],
+          summary: 'Upsert all DND channel preferences for a client',
+          operationId: 'putClientDnd',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'clientId', in: 'path', required: true, schema: { type: 'integer' } }],
+          requestBody: jsonBody('DndPreference[]'),
+          responses: r200('DndPreference[]'),
+        },
+      },
+      '/clients/{clientId}/dnd/{channel}': {
+        patch: {
+          tags: ['Communication'],
+          summary: 'Upsert DND preference for a single channel',
+          operationId: 'patchClientDndChannel',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'clientId', in: 'path', required: true, schema: { type: 'integer' } },
+            { name: 'channel',  in: 'path', required: true, schema: { type: 'string', enum: ['email', 'sms', 'whatsapp', 'all'] } },
+          ],
+          requestBody: jsonBody('DndPreference'),
+          responses: r200('DndPreference'),
+        },
+      },
+      '/communication/delivery-webhook': {
+        post: {
+          tags: ['Communication'],
+          summary: 'Delivery status callback from provider (webhook)',
+          operationId: 'communicationDeliveryWebhook',
+          requestBody: jsonBody('DeliveryStatus'),
+          responses: r200('updated or skipped'),
+        },
+      },
+
       '/ai/metrics': {
         get: {
           tags: ['AI Assistant'],

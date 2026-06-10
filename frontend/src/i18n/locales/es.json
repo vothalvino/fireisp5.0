@@ -98,6 +98,7 @@
     "concessionTitles": "📑 Títulos de Concesión",
     "iftStatisticalReports": "📊 Reportes IFT",
     "facturasPublicas": "🧾 Facturas Públicas",
+    "communicationCampaigns": "📣 Campañas",
     "messageTemplates": "✉️ Plantillas de Mensajes",
     "jobs": "🛠️ Trabajos de Campo",
     "queueStats": "📥 Estado de Colas",
@@ -519,5 +520,109 @@
     "sent": "Respuesta enviada.",
     "edited": "Respuesta editada enviada.",
     "discarded": "Borrador descartado."
+  },
+  "communicationCampaigns": {
+    "title": "📣 Campañas de Comunicación",
+    "total": "total",
+    "description": "Envía correos masivos, SMS o WhatsApp a un conjunto filtrado de clientes. Rastrea entregas, aperturas y rebotes por campaña.",
+    "empty": "Sin campañas aún.",
+    "prevPage": "← Ant.",
+    "nextPage": "Sig. →",
+    "pageInfo": "Página {{page}} de {{total}}",
+    "cols": {
+      "id": "ID",
+      "name": "Nombre",
+      "channel": "Canal",
+      "status": "Estado",
+      "recipients": "Destinatarios",
+      "stats": "Enviado · Entregado · Abierto · Rebotado",
+      "actions": "Acciones"
+    },
+    "stats": {
+      "recipients": "Destinatarios",
+      "sent": "Enviados",
+      "delivered": "Entregados",
+      "opened": "Abiertos",
+      "bounced": "Rebotados",
+      "failed": "Fallidos"
+    },
+    "actions": {
+      "new": "Nueva campaña",
+      "create": "Crear",
+      "dispatch": "Enviar",
+      "details": "Detalles"
+    },
+    "form": {
+      "name": "Nombre de la campaña",
+      "channel": "Canal",
+      "template": "Plantilla de mensaje",
+      "noTemplate": "— Sin plantilla —",
+      "filterStatus": "Filtrar por estado de cliente",
+      "allStatuses": "Todos los estados",
+      "filterTag": "Filtrar por etiqueta / grupo",
+      "filterTagPlaceholder": "ej. zona-fibra",
+      "notes": "Notas"
+    },
+    "modal": {
+      "createTitle": "Nueva campaña de comunicación",
+      "editTitle": "Editar campaña"
+    },
+    "dispatch": {
+      "title": "Enviar campaña",
+      "confirm": "¿Enviar la campaña \"{{name}}\" por {{channel}} a todos los clientes que coincidan?",
+      "send": "Enviar ahora",
+      "sending": "Enviando…"
+    },
+    "delete": {
+      "confirm": "¿Eliminar la campaña \"{{name}}\"? Esta acción no se puede deshacer."
+    },
+    "messages": {
+      "title": "Mensajes de campaña",
+      "filterStatus": "Estado:",
+      "allStatuses": "Todos",
+      "empty": "Sin mensajes aún. Despacha la campaña para poblar esta lista.",
+      "loadError": "No se pudieron cargar los mensajes.",
+      "cols": {
+        "recipient": "Destinatario",
+        "status": "Estado",
+        "sentAt": "Enviado",
+        "deliveredAt": "Entregado",
+        "openedAt": "Abierto",
+        "error": "Error"
+      }
+    },
+    "errors": {
+      "loadFailed": "No se pudieron cargar las campañas.",
+      "createFailed": "No se pudo crear la campaña.",
+      "updateFailed": "No se pudo actualizar la campaña.",
+      "deleteFailed": "No se pudo eliminar la campaña.",
+      "dispatchFailed": "No se pudo despachar la campaña.",
+      "saveFailed": "No se pudo guardar.",
+      "nameRequired": "El nombre es obligatorio."
+    }
+  },
+  "clientDnd": {
+    "description": "Configura las preferencias de no-molestar por canal para este cliente. Los opt-outs se aplican a los envíos de marketing; los avisos transaccionales críticos no se ven afectados.",
+    "optedOut": "Dado de baja",
+    "subscribed": "Suscrito",
+    "cols": {
+      "channel": "Canal",
+      "status": "Estado",
+      "quietHours": "Horas silencio",
+      "reason": "Motivo",
+      "actions": "Acciones"
+    },
+    "form": {
+      "optOut": "Dado de baja (no enviar mensajes de marketing)",
+      "quietStart": "Silencio desde",
+      "quietEnd": "Hasta",
+      "reason": "Motivo",
+      "reasonPlaceholder": "Por qué se estableció el opt-out"
+    },
+    "note": "Los opt-outs solo suprimen los envíos masivos / de marketing. Las facturas, pagos y avisos de suspensión siempre se entregan.",
+    "errors": {
+      "loadFailed": "No se pudieron cargar las preferencias de comunicación.",
+      "saveFailed": "No se pudo guardar la preferencia."
+    }
   }
 }

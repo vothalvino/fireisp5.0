@@ -30,6 +30,7 @@ import { ClientGroupList } from '@/pages/ClientGroupList';
 import { LeadList } from '@/pages/LeadList';
 import { ServiceOrderList } from '@/pages/ServiceOrderList';
 import { WinbackCampaignList } from '@/pages/WinbackCampaignList';
+import { CommunicationCampaignList } from '@/pages/CommunicationCampaignList';
 import { ChurnAnalytics } from '@/pages/ChurnAnalytics';
 import { ContractList } from '@/pages/ContractList';
 import { InvoiceList } from '@/pages/InvoiceList';
@@ -146,6 +147,7 @@ export function App() {
                 <Route path="payments" element={<PaymentList />} />
                 <Route path="tickets" element={<TicketList />} />
                 <Route path="tickets/:id" element={<TicketDetail />} />
+                <Route path="communication-campaigns" element={<CommunicationCampaignList />} />
                 <Route path="follow-up-reminders" element={<FollowUpReminderList />} />
                 <Route path="satisfaction-surveys" element={<SatisfactionSurveyList />} />
                 <Route path="escalations" element={<EscalationList />} />

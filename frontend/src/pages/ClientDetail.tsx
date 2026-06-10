@@ -30,6 +30,7 @@ import {
 } from '@/components/ClientFormModal';
 import { ProfileExtrasTab, CustomFieldsTab, DocumentsTab, DuplicatesTab } from '@/pages/ClientProfileTabs';
 import { ActivityTimelineTab } from '@/pages/ClientActivityTab';
+import { ClientCommunicationPrefs } from '@/pages/ClientCommunicationPrefs';
 
 // ---------------------------------------------------------------------------
 // GraphQL query — fetches the client + all sub-resources in one request
@@ -265,7 +266,7 @@ function StatusBadge({ status, colorMap }: { status: string; colorMap?: Record<s
 // Tab types
 // ---------------------------------------------------------------------------
 
-type TabId = 'activity' | 'contracts' | 'invoices' | 'payments' | 'devices' | 'ledger' | 'contacts' | 'profile' | 'customFields' | 'documents' | 'duplicates';
+type TabId = 'activity' | 'contracts' | 'invoices' | 'payments' | 'devices' | 'ledger' | 'contacts' | 'profile' | 'customFields' | 'documents' | 'duplicates' | 'communication';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'activity',  label: '📅 Activity' },
@@ -279,6 +280,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'customFields', label: '🏷️ Custom Fields' },
   { id: 'documents', label: '📎 Documents' },
   { id: 'duplicates', label: '🔍 Duplicates' },
+  { id: 'communication', label: '📵 DND / Comms' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -914,6 +916,7 @@ export function ClientDetail() {
         {activeTab === 'customFields' && <CustomFieldsTab  clientId={Number(client.id)} canEdit={canEdit} />}
         {activeTab === 'documents'    && <DocumentsTab     clientId={Number(client.id)} canEdit={canEdit} />}
         {activeTab === 'duplicates'   && <DuplicatesTab    clientId={Number(client.id)} canEdit={canEdit} />}
+        {activeTab === 'communication' && <ClientCommunicationPrefs clientId={Number(client.id)} />}
       </div>
 
       {/* Modals */}

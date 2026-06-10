@@ -98,6 +98,7 @@
     "concessionTitles": "📑 Títulos de Concessão",
     "iftStatisticalReports": "📊 Relatórios IFT",
     "facturasPublicas": "🧾 Faturas Públicas",
+    "communicationCampaigns": "📣 Campanhas",
     "messageTemplates": "✉️ Modelos de Mensagem",
     "jobs": "🛠️ Ordens de Serviço",
     "queueStats": "📥 Status das Filas",
@@ -519,5 +520,109 @@
     "sent": "Resposta enviada.",
     "edited": "Resposta editada enviada.",
     "discarded": "Rascunho descartado."
+  },
+  "communicationCampaigns": {
+    "title": "📣 Campanhas de Comunicação",
+    "total": "total",
+    "description": "Envie e-mails em massa, SMS ou WhatsApp para um conjunto filtrado de clientes. Acompanhe entregas, aberturas e devoluções por campanha.",
+    "empty": "Nenhuma campanha ainda.",
+    "prevPage": "← Ant.",
+    "nextPage": "Próx. →",
+    "pageInfo": "Página {{page}} de {{total}}",
+    "cols": {
+      "id": "ID",
+      "name": "Nome",
+      "channel": "Canal",
+      "status": "Status",
+      "recipients": "Destinatários",
+      "stats": "Enviado · Entregue · Aberto · Devolvido",
+      "actions": "Ações"
+    },
+    "stats": {
+      "recipients": "Destinatários",
+      "sent": "Enviados",
+      "delivered": "Entregues",
+      "opened": "Abertos",
+      "bounced": "Devolvidos",
+      "failed": "Falhos"
+    },
+    "actions": {
+      "new": "Nova campanha",
+      "create": "Criar",
+      "dispatch": "Enviar",
+      "details": "Detalhes"
+    },
+    "form": {
+      "name": "Nome da campanha",
+      "channel": "Canal",
+      "template": "Modelo de mensagem",
+      "noTemplate": "— Sem modelo —",
+      "filterStatus": "Filtrar por status do cliente",
+      "allStatuses": "Todos os status",
+      "filterTag": "Filtrar por etiqueta / grupo",
+      "filterTagPlaceholder": "ex. zona-fibra",
+      "notes": "Notas"
+    },
+    "modal": {
+      "createTitle": "Nova campanha de comunicação",
+      "editTitle": "Editar campanha"
+    },
+    "dispatch": {
+      "title": "Enviar campanha",
+      "confirm": "Enviar a campanha \"{{name}}\" via {{channel}} para todos os clientes correspondentes?",
+      "send": "Enviar agora",
+      "sending": "Enviando…"
+    },
+    "delete": {
+      "confirm": "Excluir campanha \"{{name}}\"? Esta ação não pode ser desfeita."
+    },
+    "messages": {
+      "title": "Mensagens da campanha",
+      "filterStatus": "Status:",
+      "allStatuses": "Todos",
+      "empty": "Nenhuma mensagem ainda. Dispare a campanha para popular esta lista.",
+      "loadError": "Falha ao carregar mensagens.",
+      "cols": {
+        "recipient": "Destinatário",
+        "status": "Status",
+        "sentAt": "Enviado",
+        "deliveredAt": "Entregue",
+        "openedAt": "Aberto",
+        "error": "Erro"
+      }
+    },
+    "errors": {
+      "loadFailed": "Falha ao carregar campanhas.",
+      "createFailed": "Falha ao criar campanha.",
+      "updateFailed": "Falha ao atualizar campanha.",
+      "deleteFailed": "Falha ao excluir campanha.",
+      "dispatchFailed": "Falha ao despachar campanha.",
+      "saveFailed": "Falha ao salvar.",
+      "nameRequired": "O nome é obrigatório."
+    }
+  },
+  "clientDnd": {
+    "description": "Configure as preferências de não-perturbe por canal para este cliente. As exclusões se aplicam a envios de marketing; os avisos transacionais críticos não são afetados.",
+    "optedOut": "Cancelado",
+    "subscribed": "Inscrito",
+    "cols": {
+      "channel": "Canal",
+      "status": "Status",
+      "quietHours": "Horas silenciosas",
+      "reason": "Motivo",
+      "actions": "Ações"
+    },
+    "form": {
+      "optOut": "Cancelado (não enviar mensagens de marketing)",
+      "quietStart": "Silêncio a partir de",
+      "quietEnd": "Até",
+      "reason": "Motivo",
+      "reasonPlaceholder": "Por que o opt-out foi definido"
+    },
+    "note": "Os opt-outs suprimem apenas envios em massa / de marketing. Faturas, pagamentos e avisos de suspensão são sempre entregues.",
+    "errors": {
+      "loadFailed": "Falha ao carregar preferências de comunicação.",
+      "saveFailed": "Falha ao salvar preferência."
+    }
   }
 }

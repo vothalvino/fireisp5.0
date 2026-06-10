@@ -107,8 +107,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 133 tables)
-│   └── migrations/          # Individual numbered migration files (001–197)
+│   ├── schema.sql           # Combined schema (all 136 tables)
+│   └── migrations/          # Individual numbered migration files (001–199)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -293,6 +293,11 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 131 | `follow_up_reminders` | Scheduled client follow-ups — title/notes, `priority`, `status` (`pending`/`completed`/`cancelled`), `due_at`, assignee, optional originating interaction or ticket, and `notified_at` stamp so the due notification fires once |
 | 132 | `satisfaction_surveys` | NPS (0–10) / CSAT (1–5) surveys — client, optional ticket/interaction reference, `channel`, `status` (`pending`→`sent`→`responded`), score, respondent comment, and sent/responded timestamps |
 | 133 | `ticket_escalations` | Escalation chain for unresolved tickets — auto-incrementing `level` per ticket, escalated by/to attribution (NULL `escalated_by` = automatic), reason, `status` (`open`→`acknowledged`→`resolved`), and resolution notes |
+| 134 | `communication_campaigns` | Bulk campaign sends (email/SMS/WhatsApp) — `channel`, `status` (`draft`→`scheduled`→`sending`→`sent`/`cancelled`/`failed`), optional template and recipient filters (by client status, plan, or tag), aggregate counters (recipient, sent, delivered, opened, bounced, failed), scheduling timestamps, and `deleted_at` soft-delete |
+| 135 | `campaign_messages` | Per-recipient record for every campaign dispatch — `campaign_id`, optional `client_id`, `recipient` (email or phone), `channel`, `status` (`queued`→`sent`→`delivered`→`opened`/`bounced`/`failed`), `provider_message_id` for webhook correlation, and individual timestamp fields (queued, sent, delivered, opened, bounced) |
+| 136 | `client_dnd_preferences` | Per-customer per-channel Do Not Disturb preferences — `channel` (`email`/`sms`/`whatsapp`/`all`), `opt_out` flag for marketing/bulk sends, optional quiet-hours window (`quiet_hours_start`/`quiet_hours_end`), and free-form `reason`; unique on `(client_id, channel)` |
+
+> **Migrations 198–199 — Communication campaigns and DND (§1.4):** `198_create_communication_tables.sql` adds the `communication_campaigns`, `campaign_messages`, and `client_dnd_preferences` tables; adds `campaign_message_id` and `opened_at` columns to `email_logs`; adds `campaign_message_id` to `sms_logs`; and seeds the `campaign_send` scheduled task (`*/5 * * * *`) that processes queued campaign messages. `199_seed_communication_permissions.sql` seeds the `communication` RBAC module permissions (`campaigns.*`, `dnd.view`, `dnd.update`) and assigns them to the default roles.
 
 > **Migrations 196–197 — Interaction tracking (§1.3):** `196_create_interaction_tracking_tables.sql` adds the `client_interactions`, `follow_up_reminders`, `satisfaction_surveys`, and `ticket_escalations` tables and seeds three scheduled tasks: `follow_up_reminders` (notify assignees of due follow-ups, every 15 min), `dispatch_satisfaction_surveys` (auto-send CSAT surveys for resolved tickets, hourly), and `auto_escalate_tickets` (escalate tickets unresolved after 48 h, hourly). `197_seed_interaction_permissions.sql` seeds the `interactions` RBAC module permissions (`interactions.*`, `follow_ups.*`, `surveys.*`, `escalations.*`) and assigns them to the default roles. New endpoints: full CRUD under `/interactions`, `/follow-up-reminders` (plus `GET /follow-up-reminders/due`, `POST /follow-up-reminders/:id/complete`), `/satisfaction-surveys` (plus `GET /satisfaction-surveys/metrics`, `POST /satisfaction-surveys/:id/{send,respond}`), `/escalations` (plus `GET /escalations/candidates`, `POST /escalations/:id/transition`), and the unified timeline at `GET /clients/:id/timeline`. New event-bus events with email/SSE/webhook hooks: `followup.due`, `survey.requested`, `ticket.escalated`.
 
