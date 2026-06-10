@@ -124,6 +124,9 @@ function generateSpec() {
       { name: 'AI Assistant', description: 'AI reply assistant — policy, providers, phrase library, reply generation, audit logs' },
       { name: 'DSAR', description: 'Data subject access requests (LFPDPPP / GDPR)' },
       { name: 'DR Drill', description: 'Disaster-recovery drill status' },
+      { name: 'Invoice Settings', description: 'Per-org invoice branding — logo, color, footer legal text, payment instructions — §2.2B' },
+      { name: 'Late Fee Rules', description: 'Configurable late fee rules applied to overdue invoices — §2.2B' },
+      { name: 'Payment Reminders', description: 'Automated payment reminder schedule settings — §2.2B' },
     ],
     paths: {
       // ---- Auth ----
@@ -285,11 +288,37 @@ function generateSpec() {
       },
       '/invoices/generate': { post: { tags: ['Invoices'], summary: 'Generate invoice from contract', operationId: 'generateContractInvoice', security: [{ bearerAuth: [] }], requestBody: jsonBody('contract_id'), responses: r201('Invoice') } },
       '/invoices/{id}/payments': { get: { tags: ['Invoices'], summary: 'List invoice payments', operationId: 'listInvoicePayments', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('PaymentAllocation[]') } },
+      '/invoices/{id}/receipt': {
+        get: {
+          tags: ['Invoices'],
+          summary: 'Get thermal receipt for an invoice (plain text, 58mm or 80mm)',
+          operationId: 'getInvoiceThermalReceipt',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            idParam(),
+            { name: 'width', in: 'query', schema: { type: 'string', enum: ['58', '80'] }, description: 'Printer width in mm (default: 80)' },
+          ],
+          responses: { 200: { description: 'Plain-text thermal receipt', content: { 'text/plain': { schema: { type: 'string' } } } } },
+        },
+      },
 
       // ---- Payments ----
       ...crudPaths('payments', 'Payments', 'Payment'),
       '/payments/{id}/allocate': { post: { tags: ['Payments'], summary: 'Allocate payment to invoice', operationId: 'allocatePaymentToInvoice', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('payments_allocatePayment'), responses: r201('Allocation') } },
       '/payments/{id}/allocations': { get: { tags: ['Payments'], summary: 'List payment allocations', operationId: 'listPaymentAllocations', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Allocation[]') } },
+      '/payments/{id}/receipt': {
+        get: {
+          tags: ['Payments'],
+          summary: 'Get thermal receipt for a payment (plain text, 58mm or 80mm)',
+          operationId: 'getPaymentThermalReceipt',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            idParam(),
+            { name: 'width', in: 'query', schema: { type: 'string', enum: ['58', '80'] }, description: 'Printer width in mm (default: 80)' },
+          ],
+          responses: { 200: { description: 'Plain-text thermal receipt', content: { 'text/plain': { schema: { type: 'string' } } } } },
+        },
+      },
 
       // ---- Credit Notes ----
       ...crudPaths('credit-notes', 'Credit Notes', 'CreditNote'),
@@ -307,6 +336,29 @@ function generateSpec() {
       '/billing/generate-invoice': { post: { tags: ['Billing'], summary: 'Generate invoice for a contract', operationId: 'generateInvoice', security: [{ bearerAuth: [] }], requestBody: jsonBody('contract_id'), responses: r201('Invoice') } },
       '/billing/allocate-payment': { post: { tags: ['Billing'], summary: 'Allocate payment to invoices', operationId: 'allocatePayment', security: [{ bearerAuth: [] }], requestBody: jsonBody('payment_id + allocations'), responses: r201('Allocations') } },
       '/billing/bulk-generate': { post: { tags: ['Billing'], summary: 'Bulk generate invoices for all active contracts', operationId: 'bulkGenerate', security: [{ bearerAuth: [] }], responses: r200('Results') } },
+      '/billing/tax-reports': {
+        get: {
+          tags: ['Billing'],
+          summary: 'Export tax report (invoices, payments, or credit notes)',
+          operationId: 'exportTaxReports',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'from',   in: 'query', schema: { type: 'string', format: 'date' }, description: 'Start date (inclusive)' },
+            { name: 'to',     in: 'query', schema: { type: 'string', format: 'date' }, description: 'End date (inclusive)' },
+            { name: 'type',   in: 'query', schema: { type: 'string', enum: ['invoices', 'payments', 'credit_notes'] }, description: 'Document type (default: invoices)' },
+            { name: 'format', in: 'query', schema: { type: 'string', enum: ['json', 'csv'] }, description: 'Output format (default: json)' },
+          ],
+          responses: {
+            200: {
+              description: 'Tax report data',
+              content: {
+                'application/json': { schema: { type: 'object' } },
+                'text/csv': { schema: { type: 'string' } },
+              },
+            },
+          },
+        },
+      },
 
       // ---- Bulk Operations ----
       '/bulk/invoices/generate': { post: { tags: ['Bulk'], summary: 'Mass-generate invoices', operationId: 'bulkGenerateInvoices', security: [{ bearerAuth: [] }], requestBody: jsonBody('contract_ids'), responses: r200('Results') } },
@@ -671,6 +723,21 @@ function generateSpec() {
           responses: r200('AiReplyLog[]'),
         },
       },
+      // ---- Invoice Settings — §2.2B ----
+      '/invoice-settings': {
+        get: { tags: ['Invoice Settings'], summary: 'Get invoice branding settings for current org', operationId: 'getInvoiceSettings', security: [{ bearerAuth: [] }], responses: r200('InvoiceSettings') },
+        put: { tags: ['Invoice Settings'], summary: 'Upsert invoice branding settings', operationId: 'updateInvoiceSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('InvoiceSettings'), responses: r200('InvoiceSettings') },
+      },
+
+      // ---- Late Fee Rules — §2.2B ----
+      ...crudPaths('late-fee-rules', 'Late Fee Rules', 'LateFeeRule'),
+
+      // ---- Payment Reminders — §2.2B ----
+      '/payment-reminder-settings': {
+        get: { tags: ['Payment Reminders'], summary: 'Get payment reminder schedule settings', operationId: 'getPaymentReminderSettings', security: [{ bearerAuth: [] }], responses: r200('PaymentReminderSettings') },
+        put: { tags: ['Payment Reminders'], summary: 'Upsert payment reminder schedule settings', operationId: 'updatePaymentReminderSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('PaymentReminderSettings'), responses: r200('PaymentReminderSettings') },
+      },
+
       // ---- Communication — §1.4 ----
       ...crudPaths('communication-campaigns', 'Communication', 'CommunicationCampaign'),
       '/communication-campaigns/{id}/restore': { post: { tags: ['Communication'], summary: 'Restore a soft-deleted campaign', operationId: 'restoreCommunicationCampaign', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('CommunicationCampaign') } },

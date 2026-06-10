@@ -237,6 +237,23 @@ router.get('/:id/payments', requirePermission('payments.view'), async (req, res,
   } catch (err) { next(err); }
 });
 
+// Thermal receipt — plain-text monospaced format for 58mm or 80mm printers
+router.get('/:id/receipt', requirePermission('invoices.view'), async (req, res, next) => {
+  try {
+    const thermalReceiptService = require('../services/thermalReceiptService');
+    const widthStr = req.query.width;
+    const width = widthStr === '58' ? 32 : 48; // 58mm → 32 chars, 80mm → 48 chars (default)
+    const text = await thermalReceiptService.generateInvoiceThermalReceipt(
+      parseInt(req.params.id, 10),
+      { width },
+    );
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    res.send(text);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Send invoice email with PDF attachment to the client
 router.post('/:id/send-email', requirePermission('invoices.view'), async (req, res, next) => {
   try {

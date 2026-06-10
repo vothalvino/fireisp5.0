@@ -7242,3 +7242,93 @@ JOIN   permissions p ON p.name IN (
        )
 WHERE  r.name = 'readonly';
 
+
+-- =============================================================================
+-- Migration 204: organization_invoice_settings — per-org invoice branding (§2.2B)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS organization_invoice_settings (
+    id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id      BIGINT UNSIGNED NOT NULL,
+    logo_url             VARCHAR(500)    NULL,
+    header_color         VARCHAR(7)      NULL     DEFAULT '#1a5276',
+    footer_legal         TEXT            NULL,
+    payment_instructions TEXT            NULL,
+    created_at           TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at           TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_org_invoice_settings (organization_id),
+    CONSTRAINT fk_org_invoice_settings_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================================
+-- Migration 206: late_fee_rules and invoice_late_fees tables (§2.2B)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS late_fee_rules (
+    id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED  NOT NULL,
+    name                VARCHAR(255)     NOT NULL,
+    fee_type            ENUM('flat','percent') NOT NULL DEFAULT 'flat',
+    fee_amount          DECIMAL(10,2)    NOT NULL DEFAULT 0.00,
+    grace_period_days   INT              NOT NULL DEFAULT 0,
+    max_applications    INT              NULL,
+    is_active           TINYINT(1)       NOT NULL DEFAULT 1,
+    created_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_late_fee_rules_org (organization_id),
+    CONSTRAINT fk_late_fee_rules_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS invoice_late_fees (
+    id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    invoice_id          BIGINT UNSIGNED  NOT NULL,
+    late_fee_rule_id    BIGINT UNSIGNED  NOT NULL,
+    organization_id     BIGINT UNSIGNED  NOT NULL,
+    amount              DECIMAL(10,2)    NOT NULL,
+    applied_at          DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    applied_by          BIGINT UNSIGNED  NULL,
+    invoice_item_id     BIGINT UNSIGNED  NULL,
+    created_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_invoice_late_fees_invoice (invoice_id),
+    KEY idx_invoice_late_fees_rule (late_fee_rule_id),
+    KEY idx_invoice_late_fees_org (organization_id),
+    CONSTRAINT fk_invoice_late_fees_invoice FOREIGN KEY (invoice_id) REFERENCES invoices (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_invoice_late_fees_rule FOREIGN KEY (late_fee_rule_id) REFERENCES late_fee_rules (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_invoice_late_fees_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================================
+-- Migration 208: payment_reminder_settings and payment_reminder_logs (§2.2B)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS payment_reminder_settings (
+    id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED  NOT NULL,
+    days_before_due     JSON             NULL,
+    send_on_due         TINYINT(1)       NOT NULL DEFAULT 1,
+    days_after_due      JSON             NULL,
+    enabled             TINYINT(1)       NOT NULL DEFAULT 1,
+    created_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_payment_reminder_settings_org (organization_id),
+    CONSTRAINT fk_payment_reminder_settings_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS payment_reminder_logs (
+    id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    invoice_id          BIGINT UNSIGNED  NOT NULL,
+    organization_id     BIGINT UNSIGNED  NOT NULL,
+    stage               VARCHAR(50)      NOT NULL,
+    sent_at             DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    channel             ENUM('email','sms') NOT NULL DEFAULT 'email',
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_reminder_log_dedup (invoice_id, stage, channel),
+    KEY idx_reminder_log_invoice (invoice_id),
+    KEY idx_reminder_log_org (organization_id),
+    CONSTRAINT fk_payment_reminder_logs_invoice FOREIGN KEY (invoice_id) REFERENCES invoices (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_payment_reminder_logs_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

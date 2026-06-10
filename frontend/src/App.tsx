@@ -69,6 +69,10 @@ import { SnmpProfileList } from '@/pages/SnmpProfileList';
 import { DeviceConfigBackupList } from '@/pages/DeviceConfigBackupList';
 import { SuspensionRuleList } from '@/pages/SuspensionRuleList';
 import { Reports } from '@/pages/Reports';
+import { TaxReports } from '@/pages/TaxReports';
+import { InvoiceSettings } from '@/pages/InvoiceSettings';
+import { LateFeeRuleList } from '@/pages/LateFeeRuleList';
+import { PaymentReminderSettings } from '@/pages/PaymentReminderSettings';
 import { Settings } from '@/pages/Settings';
 import { ProfecoComplaints } from '@/pages/ProfecoComplaints';
 import { SlaDefinitionList } from '@/pages/SlaDefinitionList';
@@ -205,6 +209,10 @@ export function App() {
                 <Route path="ift-statistical-reports" element={<IftStatisticalReportList />} />
                 <Route path="facturas-publicas" element={<FacturaPublicaList />} />
                 <Route path="reports" element={<Reports />} />
+                <Route path="tax-reports" element={<TaxReports />} />
+                <Route path="invoice-settings" element={<InvoiceSettings />} />
+                <Route path="late-fee-rules" element={<LateFeeRuleList />} />
+                <Route path="payment-reminder-settings" element={<PaymentReminderSettings />} />
                 <Route path="profeco-complaints" element={<ProfecoComplaints />} />
               </Route>
             </Route>

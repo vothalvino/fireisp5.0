@@ -88,6 +88,10 @@
     "auditLogs": "📜 Registros de Auditoria",
     "scheduledTasks": "⏰ Tarefas Agendadas",
     "reports": "📈 Relatórios",
+    "taxReports": "🧾 Relatórios Fiscais",
+    "invoiceSettings": "🖨️ Personalização de Faturas",
+    "lateFeeRules": "⚠️ Regras de Multa",
+    "paymentReminderSettings": "🔔 Lembretes de Pagamento",
     "settings": "⚙️ Configurações",
     "profecoComplaints": "🏛️ PROFECO",
     "aiAssistant": "🤖 Assistente IA",
@@ -653,5 +657,67 @@
     "speedWindowUpload": "Upload (Mbps)",
     "speedWindowPriority": "Prioridade",
     "speedWindowStatus": "Status"
+  },
+  "invoiceSettings": {
+    "title": "Configurações de Fatura",
+    "logoUrl": "URL do Logo",
+    "logoUrlPlaceholder": "https://exemplo.com/logo.png",
+    "headerColor": "Cor do Cabeçalho",
+    "footerLegal": "Texto Legal do Rodapé",
+    "footerLegalPlaceholder": "Insira o aviso legal ou dados de registro da empresa…",
+    "paymentInstructions": "Instruções de Pagamento",
+    "paymentInstructionsPlaceholder": "Insira dados de transferência bancária, métodos de pagamento aceitos, etc.",
+    "saved": "Configurações salvas.",
+    "saveError": "Erro ao salvar as configurações."
+  },
+  "lateFeeRules": {
+    "title": "Regras de Multa por Atraso",
+    "newRule": "Nova Regra",
+    "name": "Nome da Regra",
+    "feeType": "Tipo de Multa",
+    "feeTypeFlat": "Valor Fixo",
+    "feeTypePercent": "Percentual da Fatura",
+    "feeAmount": "Valor da Multa",
+    "gracePeriodDays": "Dias de Carência",
+    "maxApplications": "Aplicações Máximas",
+    "maxApplicationsUnlimited": "Ilimitado",
+    "isActive": "Ativo",
+    "deleteConfirm": "Excluir esta regra de multa por atraso?",
+    "noRules": "Nenhuma regra de multa por atraso configurada."
+  },
+  "paymentReminders": {
+    "title": "Configurações de Lembretes de Pagamento",
+    "enabled": "Lembretes Habilitados",
+    "daysBefore": "Dias Antes do Vencimento (ex. 7,3,1)",
+    "sendOnDue": "Enviar na Data de Vencimento",
+    "daysAfter": "Dias Após o Vencimento (ex. 1,3,7,14)",
+    "saved": "Configurações salvas.",
+    "saveError": "Erro ao salvar as configurações."
+  },
+  "thermalReceipt": {
+    "title": "Recibo Térmico",
+    "invoiceTitle": "Recibo de Fatura",
+    "paymentTitle": "Recibo de Pagamento",
+    "print": "Imprimir",
+    "close": "Fechar",
+    "width": "Largura",
+    "width80": "80mm",
+    "width58": "58mm"
+  },
+  "taxReports": {
+    "title": "Exportação de Relatório Fiscal",
+    "description": "Exporte registros de faturamento para um intervalo de datas em CSV ou JSON.",
+    "from": "De",
+    "to": "Até",
+    "type": "Tipo de Documento",
+    "typeInvoices": "Faturas",
+    "typePayments": "Pagamentos",
+    "typeCreditNotes": "Notas de Crédito",
+    "format": "Formato",
+    "formatJson": "JSON",
+    "formatCsv": "CSV",
+    "export": "Exportar",
+    "exportError": "Falha na exportação. Tente novamente.",
+    "noData": "Nenhum registro encontrado para o período selecionado."
   }
 }

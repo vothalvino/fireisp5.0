@@ -61,6 +61,10 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/payment-transactions', labelKey: 'nav.paymentTransactions', requiredRole: 'billing' },
       { to: '/recurring-payment-profiles', labelKey: 'nav.recurringPaymentProfiles', requiredRole: 'billing' },
       { to: '/reports', labelKey: 'nav.reports', requiredRole: 'billing' },
+      { to: '/tax-reports', labelKey: 'nav.taxReports', requiredRole: 'billing' },
+      { to: '/invoice-settings', labelKey: 'nav.invoiceSettings', requiredRole: 'billing' },
+      { to: '/late-fee-rules', labelKey: 'nav.lateFeeRules', requiredRole: 'billing' },
+      { to: '/payment-reminder-settings', labelKey: 'nav.paymentReminderSettings', requiredRole: 'billing' },
     ],
   },
   {

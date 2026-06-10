@@ -351,6 +351,18 @@
     {
       "name": "DR Drill",
       "description": "Disaster-recovery drill status"
+    },
+    {
+      "name": "Invoice Settings",
+      "description": "Per-org invoice branding — logo, color, footer legal text, payment instructions — §2.2B"
+    },
+    {
+      "name": "Late Fee Rules",
+      "description": "Configurable late fee rules applied to overdue invoices — §2.2B"
+    },
+    {
+      "name": "Payment Reminders",
+      "description": "Automated payment reminder schedule settings — §2.2B"
     }
   ],
   "paths": {
@@ -5206,6 +5218,54 @@
         }
       }
     },
+    "/invoices/{id}/receipt": {
+      "get": {
+        "tags": [
+          "Invoices"
+        ],
+        "summary": "Get thermal receipt for an invoice (plain text, 58mm or 80mm)",
+        "operationId": "getInvoiceThermalReceipt",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "width",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "58",
+                "80"
+              ]
+            },
+            "description": "Printer width in mm (default: 80)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plain-text thermal receipt",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/payments": {
       "get": {
         "tags": [
@@ -5448,6 +5508,54 @@
               "application/json": {
                 "schema": {
                   "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/payments/{id}/receipt": {
+      "get": {
+        "tags": [
+          "Payments"
+        ],
+        "summary": "Get thermal receipt for a payment (plain text, 58mm or 80mm)",
+        "operationId": "getPaymentThermalReceipt",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "width",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "58",
+                "80"
+              ]
+            },
+            "description": "Printer width in mm (default: 80)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plain-text thermal receipt",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -6032,6 +6140,82 @@
               "application/json": {
                 "schema": {
                   "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/billing/tax-reports": {
+      "get": {
+        "tags": [
+          "Billing"
+        ],
+        "summary": "Export tax report (invoices, payments, or credit notes)",
+        "operationId": "exportTaxReports",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Start date (inclusive)"
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "End date (inclusive)"
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "invoices",
+                "payments",
+                "credit_notes"
+              ]
+            },
+            "description": "Document type (default: invoices)"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "csv"
+              ]
+            },
+            "description": "Output format (default: json)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tax report data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -16587,6 +16771,293 @@
         "responses": {
           "200": {
             "description": "AiReplyLog[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/invoice-settings": {
+      "get": {
+        "tags": [
+          "Invoice Settings"
+        ],
+        "summary": "Get invoice branding settings for current org",
+        "operationId": "getInvoiceSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "InvoiceSettings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Invoice Settings"
+        ],
+        "summary": "Upsert invoice branding settings",
+        "operationId": "updateInvoiceSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "InvoiceSettings",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "InvoiceSettings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/late-fee-rules": {
+      "get": {
+        "tags": [
+          "Late Fee Rules"
+        ],
+        "summary": "List late-fee-rules",
+        "operationId": "listLateFeeRules",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "LateFeeRule[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Late Fee Rules"
+        ],
+        "summary": "Create a LateFeeRule",
+        "operationId": "createLateFeeRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "LateFeeRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "LateFeeRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/late-fee-rules/{id}": {
+      "get": {
+        "tags": [
+          "Late Fee Rules"
+        ],
+        "summary": "Get a LateFeeRule",
+        "operationId": "getLateFeeRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "LateFeeRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Late Fee Rules"
+        ],
+        "summary": "Update a LateFeeRule",
+        "operationId": "updateLateFeeRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "LateFeeRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "LateFeeRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Late Fee Rules"
+        ],
+        "summary": "Delete a LateFeeRule",
+        "operationId": "deleteLateFeeRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/payment-reminder-settings": {
+      "get": {
+        "tags": [
+          "Payment Reminders"
+        ],
+        "summary": "Get payment reminder schedule settings",
+        "operationId": "getPaymentReminderSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PaymentReminderSettings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Payment Reminders"
+        ],
+        "summary": "Upsert payment reminder schedule settings",
+        "operationId": "updatePaymentReminderSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "PaymentReminderSettings",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PaymentReminderSettings",
             "content": {
               "application/json": {
                 "schema": {

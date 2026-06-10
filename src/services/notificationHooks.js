@@ -597,6 +597,37 @@ function registerHooks() {
     }
   });
 
+  // --- Invoice Late Fee Applied (§2.2 Phase B) ---
+  eventBus.on('invoice.late_fee_applied', async ({ organizationId, invoice, client, rule, fee_amount, currency }) => {
+    try {
+      if (client?.email) {
+        const subject = `Late Fee Applied — Invoice ${invoice.invoice_number}`;
+        const html = `<p>Dear ${client.name || 'Client'},</p>`
+          + `<p>A late fee of <strong>${currency} ${parseFloat(fee_amount).toFixed(2)}</strong> `
+          + `has been applied to invoice <strong>${invoice.invoice_number}</strong> `
+          + `as per your account's late fee policy (${rule.name}).</p>`
+          + '<p>Please arrange payment at your earliest convenience to avoid further charges.</p>';
+
+        await emailTransport.sendEmail({
+          organizationId,
+          to: client.email,
+          subject,
+          html,
+        });
+      }
+
+      getBroadcast()(`org:${organizationId}:notifications`, 'invoice.late_fee_applied', {
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        client_id: invoice.client_id,
+        fee_amount,
+        currency,
+      });
+    } catch (err) {
+      logger.error({ err, event: 'invoice.late_fee_applied' }, 'Notification hook error');
+    }
+  });
+
   logger.info('Notification hooks registered');
 }
 
