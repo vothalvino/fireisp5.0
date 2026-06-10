@@ -98,6 +98,7 @@
     "concessionTitles": "📑 Concession Titles",
     "iftStatisticalReports": "📊 IFT Reports",
     "facturasPublicas": "🧾 Public Invoices",
+    "communicationCampaigns": "📣 Campaigns",
     "messageTemplates": "✉️ Message Templates",
     "jobs": "🛠️ Field Jobs",
     "queueStats": "📥 Queue Status",
@@ -519,5 +520,109 @@
     "sent": "Reply sent.",
     "edited": "Edited reply sent.",
     "discarded": "Draft discarded."
+  },
+  "communicationCampaigns": {
+    "title": "📣 Communication Campaigns",
+    "total": "total",
+    "description": "Send bulk email, SMS, or WhatsApp messages to a filtered set of customers. Track delivery, opens, and bounces per campaign.",
+    "empty": "No campaigns yet.",
+    "prevPage": "← Prev",
+    "nextPage": "Next →",
+    "pageInfo": "Page {{page}} of {{total}}",
+    "cols": {
+      "id": "ID",
+      "name": "Name",
+      "channel": "Channel",
+      "status": "Status",
+      "recipients": "Recipients",
+      "stats": "Sent · Delivered · Opened · Bounced",
+      "actions": "Actions"
+    },
+    "stats": {
+      "recipients": "Recipients",
+      "sent": "Sent",
+      "delivered": "Delivered",
+      "opened": "Opened",
+      "bounced": "Bounced",
+      "failed": "Failed"
+    },
+    "actions": {
+      "new": "New Campaign",
+      "create": "Create",
+      "dispatch": "Send",
+      "details": "Details"
+    },
+    "form": {
+      "name": "Campaign name",
+      "channel": "Channel",
+      "template": "Message template",
+      "noTemplate": "— No template —",
+      "filterStatus": "Filter by client status",
+      "allStatuses": "All statuses",
+      "filterTag": "Filter by tag / group",
+      "filterTagPlaceholder": "e.g. fiber-zone",
+      "notes": "Notes"
+    },
+    "modal": {
+      "createTitle": "New Communication Campaign",
+      "editTitle": "Edit Campaign"
+    },
+    "dispatch": {
+      "title": "Send Campaign",
+      "confirm": "Dispatch campaign \"{{name}}\" via {{channel}} to all matching clients?",
+      "send": "Send Now",
+      "sending": "Sending…"
+    },
+    "delete": {
+      "confirm": "Delete campaign \"{{name}}\"? This cannot be undone."
+    },
+    "messages": {
+      "title": "Campaign Messages",
+      "filterStatus": "Status:",
+      "allStatuses": "All",
+      "empty": "No messages yet. Dispatch the campaign to populate this list.",
+      "loadError": "Failed to load messages.",
+      "cols": {
+        "recipient": "Recipient",
+        "status": "Status",
+        "sentAt": "Sent",
+        "deliveredAt": "Delivered",
+        "openedAt": "Opened",
+        "error": "Error"
+      }
+    },
+    "errors": {
+      "loadFailed": "Failed to load campaigns.",
+      "createFailed": "Failed to create campaign.",
+      "updateFailed": "Failed to update campaign.",
+      "deleteFailed": "Failed to delete campaign.",
+      "dispatchFailed": "Failed to dispatch campaign.",
+      "saveFailed": "Failed to save.",
+      "nameRequired": "Name is required."
+    }
+  },
+  "clientDnd": {
+    "description": "Configure per-channel opt-out preferences and quiet-hour windows for this customer. Opt-outs are enforced for marketing / bulk sends; critical transactional notices are not affected.",
+    "optedOut": "Opted out",
+    "subscribed": "Subscribed",
+    "cols": {
+      "channel": "Channel",
+      "status": "Status",
+      "quietHours": "Quiet hours",
+      "reason": "Reason",
+      "actions": "Actions"
+    },
+    "form": {
+      "optOut": "Opted out (do not send marketing messages)",
+      "quietStart": "Quiet from",
+      "quietEnd": "Until",
+      "reason": "Reason",
+      "reasonPlaceholder": "Why opt-out was set"
+    },
+    "note": "Opt-outs suppress bulk / marketing sends only. Invoice, payment, and service suspension notices are always delivered regardless of DND settings.",
+    "errors": {
+      "loadFailed": "Failed to load communication preferences.",
+      "saveFailed": "Failed to save preference."
+    }
   }
 }

@@ -337,6 +337,10 @@
       "description": "PROFECO consumer complaint register and export"
     },
     {
+      "name": "Communication",
+      "description": "Bulk campaigns, delivery tracking, and DND preferences — §1.4"
+    },
+    {
       "name": "AI Assistant",
       "description": "AI reply assistant — policy, providers, phrase library, reply generation, audit logs"
     },
@@ -16389,6 +16393,483 @@
         }
       }
     },
+    "/communication-campaigns": {
+      "get": {
+        "tags": [
+          "Communication"
+        ],
+        "summary": "List communication-campaigns",
+        "operationId": "listCommunicationCampaigns",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CommunicationCampaign[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Communication"
+        ],
+        "summary": "Create a CommunicationCampaign",
+        "operationId": "createCommunicationCampaign",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "CommunicationCampaign",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "CommunicationCampaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/communication-campaigns/{id}": {
+      "get": {
+        "tags": [
+          "Communication"
+        ],
+        "summary": "Get a CommunicationCampaign",
+        "operationId": "getCommunicationCampaign",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CommunicationCampaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Communication"
+        ],
+        "summary": "Update a CommunicationCampaign",
+        "operationId": "updateCommunicationCampaign",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "CommunicationCampaign",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CommunicationCampaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Communication"
+        ],
+        "summary": "Delete a CommunicationCampaign",
+        "operationId": "deleteCommunicationCampaign",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/communication-campaigns/{id}/restore": {
+      "post": {
+        "tags": [
+          "Communication"
+        ],
+        "summary": "Restore a soft-deleted campaign",
+        "operationId": "restoreCommunicationCampaign",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CommunicationCampaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/communication-campaigns/{id}/dispatch": {
+      "post": {
+        "tags": [
+          "Communication"
+        ],
+        "summary": "Dispatch a campaign — build recipient list and queue messages",
+        "operationId": "dispatchCommunicationCampaign",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DispatchResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/communication-campaigns/{id}/messages": {
+      "get": {
+        "tags": [
+          "Communication"
+        ],
+        "summary": "List per-recipient messages for a campaign",
+        "operationId": "listCampaignMessages",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "queued",
+                "sent",
+                "delivered",
+                "opened",
+                "bounced",
+                "failed"
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CampaignMessage[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clients/{clientId}/dnd": {
+      "get": {
+        "tags": [
+          "Communication"
+        ],
+        "summary": "Get DND preferences for a client",
+        "operationId": "getClientDnd",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DndPreference[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Communication"
+        ],
+        "summary": "Upsert all DND channel preferences for a client",
+        "operationId": "putClientDnd",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "DndPreference[]",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DndPreference[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clients/{clientId}/dnd/{channel}": {
+      "patch": {
+        "tags": [
+          "Communication"
+        ],
+        "summary": "Upsert DND preference for a single channel",
+        "operationId": "patchClientDndChannel",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "channel",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "email",
+                "sms",
+                "whatsapp",
+                "all"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "DndPreference",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DndPreference",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/communication/delivery-webhook": {
+      "post": {
+        "tags": [
+          "Communication"
+        ],
+        "summary": "Delivery status callback from provider (webhook)",
+        "operationId": "communicationDeliveryWebhook",
+        "requestBody": {
+          "description": "DeliveryStatus",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "updated or skipped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ai/metrics": {
       "get": {
         "tags": [
@@ -17917,6 +18398,150 @@
           "country": {
             "type": "string",
             "maximum": 2
+          }
+        }
+      },
+      "communicationCampaigns_createCommunicationCampaign": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "whatsapp"
+            ]
+          },
+          "template_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "filter_status": {
+            "type": "string",
+            "maximum": 50
+          },
+          "filter_plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "filter_tag": {
+            "type": "string",
+            "maximum": 100
+          },
+          "scheduled_at": {
+            "type": "string",
+            "maximum": 30
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "name",
+          "channel"
+        ]
+      },
+      "communicationCampaigns_updateCommunicationCampaign": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "whatsapp"
+            ]
+          },
+          "template_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "filter_status": {
+            "type": "string",
+            "maximum": 50
+          },
+          "filter_plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "filter_tag": {
+            "type": "string",
+            "maximum": 100
+          },
+          "scheduled_at": {
+            "type": "string",
+            "maximum": 30
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          }
+        }
+      },
+      "communicationCampaigns_patchCommunicationCampaign": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "whatsapp"
+            ]
+          },
+          "template_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "filter_status": {
+            "type": "string",
+            "maximum": 50
+          },
+          "filter_plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "filter_tag": {
+            "type": "string",
+            "maximum": 100
+          },
+          "scheduled_at": {
+            "type": "string",
+            "maximum": 30
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 65535
+          }
+        }
+      },
+      "communicationCampaigns_CHANNELS": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
           }
         }
       },

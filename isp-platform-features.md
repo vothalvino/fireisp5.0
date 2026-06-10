@@ -60,11 +60,11 @@
 - [x] Escalation management for unresolved issues
 
 ### 1.4 Communication
-- [ ] Bulk email, SMS, WhatsApp messaging
-- [ ] Automated notifications: payment due, payment received, outage alerts, maintenance windows
-- [ ] Personalized communication templates (HTML + variables)
-- [ ] Delivery tracking (opened, bounced, delivered)
-- [ ] DND (Do Not Disturb) management per customer preference
+- [x] Bulk email, SMS, WhatsApp messaging
+- [x] Automated notifications: payment due, payment received, outage alerts, maintenance windows
+- [x] Personalized communication templates (HTML + variables)
+- [x] Delivery tracking (opened, bounced, delivered)
+- [x] DND (Do Not Disturb) management per customer preference
 
 ---
 

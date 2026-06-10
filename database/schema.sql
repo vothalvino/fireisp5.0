@@ -2496,11 +2496,13 @@ CREATE TABLE IF NOT EXISTS email_logs (
     body             TEXT             NULL,
     template         VARCHAR(100)     NULL     COMMENT 'Template name used to render the message',
     template_id      BIGINT UNSIGNED  NULL     COMMENT 'Template used to render this message; NULL = ad-hoc / legacy',
+    campaign_message_id BIGINT UNSIGNED NULL   COMMENT 'Campaign message this send belongs to; NULL = non-campaign send',
     reference_type   VARCHAR(50)      NULL     COMMENT 'Entity type the message relates to, e.g. invoice, ticket',
     reference_id     BIGINT UNSIGNED  NULL     COMMENT 'ID of the referenced entity',
     status           ENUM('queued', 'sent', 'delivered', 'failed', 'bounced') NOT NULL DEFAULT 'queued',
     error_message    TEXT             NULL     COMMENT 'Delivery error details when status = failed or bounced',
     sent_at          TIMESTAMP        NULL,
+    opened_at        DATETIME         NULL     COMMENT 'Timestamp of first email open event',
     created_at       TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
@@ -2509,6 +2511,7 @@ CREATE TABLE IF NOT EXISTS email_logs (
     KEY idx_email_logs_reference (reference_type, reference_id),
     KEY idx_email_logs_sent_at (sent_at),
     KEY idx_email_logs_template_id (template_id),
+    KEY idx_email_logs_campaign_message (campaign_message_id),
     CONSTRAINT fk_email_logs_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_email_logs_user FOREIGN KEY (user_id)
@@ -5383,6 +5386,7 @@ CREATE TABLE IF NOT EXISTS sms_logs (
     direction            ENUM('outbound','inbound')
                                           NOT NULL DEFAULT 'outbound' COMMENT 'Message direction relative to the platform',
     template_id          BIGINT UNSIGNED  NULL                        COMMENT 'Message template used; NULL = ad-hoc message',
+    campaign_message_id  BIGINT UNSIGNED  NULL                        COMMENT 'Campaign message this send belongs to; NULL = non-campaign send',
     message_body         TEXT             NOT NULL                    COMMENT 'Full text content of the message',
     provider             VARCHAR(50)      NULL                        COMMENT 'SMS/WhatsApp provider name (e.g. twilio, infobip, messagebird)',
     provider_message_id  VARCHAR(100)     NULL                        COMMENT 'Provider-assigned message identifier for status lookups',
@@ -5401,6 +5405,7 @@ CREATE TABLE IF NOT EXISTS sms_logs (
     KEY idx_sms_logs_status (status),
     KEY idx_sms_logs_provider_message_id (provider_message_id),
     KEY idx_sms_logs_phone_number (phone_number),
+    KEY idx_sms_logs_campaign_message (campaign_message_id),
     CONSTRAINT fk_sms_logs_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_sms_logs_client FOREIGN KEY (client_id)
@@ -6988,6 +6993,191 @@ SELECT r.id, p.id
 FROM   roles r
 JOIN   permissions p ON p.name IN (
            'interactions.view','follow_ups.view','surveys.view','escalations.view'
+       )
+WHERE  r.name = 'readonly';
+
+-- =============================================================================
+-- Migration 198: Communication tables
+-- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- Table: communication_campaigns — bulk campaign definition and aggregate stats
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS communication_campaigns (
+    id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id  BIGINT UNSIGNED NULL
+                         COMMENT 'Tenant organization; NULL = single-tenant deployment',
+    name             VARCHAR(200)    NOT NULL COMMENT 'Human-readable campaign name',
+    channel          ENUM('email','sms','whatsapp')
+                         NOT NULL COMMENT 'Dispatch channel for this campaign',
+    status           ENUM('draft','scheduled','sending','sent','cancelled','failed')
+                         NOT NULL DEFAULT 'draft',
+    template_id      BIGINT UNSIGNED NULL
+                         COMMENT 'Message template used to render individual messages',
+    filter_status    VARCHAR(50)     NULL
+                         COMMENT 'Filter recipients by client status (e.g. active, suspended)',
+    filter_plan_id   BIGINT UNSIGNED NULL
+                         COMMENT 'Filter by plan id (optional)',
+    filter_tag       VARCHAR(100)    NULL
+                         COMMENT 'Filter by client tag/group label',
+    recipient_count  INT UNSIGNED    NOT NULL DEFAULT 0
+                         COMMENT 'Total recipients at dispatch time',
+    sent_count       INT UNSIGNED    NOT NULL DEFAULT 0,
+    delivered_count  INT UNSIGNED    NOT NULL DEFAULT 0,
+    opened_count     INT UNSIGNED    NOT NULL DEFAULT 0,
+    bounced_count    INT UNSIGNED    NOT NULL DEFAULT 0,
+    failed_count     INT UNSIGNED    NOT NULL DEFAULT 0,
+    scheduled_at     DATETIME        NULL,
+    started_at       DATETIME        NULL,
+    completed_at     DATETIME        NULL,
+    notes            TEXT            NULL,
+    created_by       BIGINT UNSIGNED NULL
+                         COMMENT 'Staff member (users.id) who created the campaign',
+    created_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at       DATETIME        DEFAULT NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_communication_campaigns_organization_id (organization_id),
+    KEY idx_communication_campaigns_status (status),
+    KEY idx_communication_campaigns_channel (channel),
+    KEY idx_communication_campaigns_template_id (template_id),
+    KEY idx_communication_campaigns_deleted_at (deleted_at),
+    CONSTRAINT fk_communication_campaigns_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_communication_campaigns_template FOREIGN KEY (template_id)
+        REFERENCES message_templates (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_communication_campaigns_created_by FOREIGN KEY (created_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: campaign_messages — per-recipient message records for a campaign
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS campaign_messages (
+    id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id      BIGINT UNSIGNED NULL
+                             COMMENT 'Tenant organization; NULL = single-tenant deployment',
+    campaign_id          BIGINT UNSIGNED NOT NULL,
+    client_id            BIGINT UNSIGNED NULL,
+    recipient            VARCHAR(320)    NOT NULL
+                             COMMENT 'Email address or phone number',
+    channel              ENUM('email','sms','whatsapp')
+                             NOT NULL,
+    status               ENUM('queued','sent','delivered','opened','bounced','failed')
+                             NOT NULL DEFAULT 'queued',
+    provider_message_id  VARCHAR(200)    NULL
+                             COMMENT 'Provider-assigned message SID/ID',
+    error_message        TEXT            NULL,
+    queued_at            DATETIME        NULL DEFAULT NULL,
+    sent_at              DATETIME        NULL DEFAULT NULL,
+    delivered_at         DATETIME        NULL DEFAULT NULL,
+    opened_at            DATETIME        NULL DEFAULT NULL,
+    bounced_at           DATETIME        NULL DEFAULT NULL,
+    created_at           TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at           TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_campaign_messages_organization_id (organization_id),
+    KEY idx_campaign_messages_campaign_status (campaign_id, status),
+    KEY idx_campaign_messages_client_id (client_id),
+    KEY idx_campaign_messages_provider_message_id (provider_message_id),
+    KEY idx_campaign_messages_status (status),
+    CONSTRAINT fk_campaign_messages_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_campaign_messages_campaign FOREIGN KEY (campaign_id)
+        REFERENCES communication_campaigns (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_campaign_messages_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: client_dnd_preferences — per-customer per-channel Do Not Disturb
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS client_dnd_preferences (
+    id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id    BIGINT UNSIGNED NULL
+                           COMMENT 'Tenant organization; NULL = single-tenant deployment',
+    client_id          BIGINT UNSIGNED NOT NULL,
+    channel            ENUM('email','sms','whatsapp','all')
+                           NOT NULL DEFAULT 'all',
+    opt_out            TINYINT(1)      NOT NULL DEFAULT 0
+                           COMMENT '1 = opted out from marketing/bulk sends',
+    quiet_hours_start  TIME            NULL
+                           COMMENT 'Local time quiet window start (e.g. 22:00:00)',
+    quiet_hours_end    TIME            NULL
+                           COMMENT 'Local time quiet window end (e.g. 08:00:00)',
+    reason             VARCHAR(300)    NULL
+                           COMMENT 'Why opt-out was set',
+    created_at         TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at         TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_client_channel (client_id, channel),
+    KEY idx_client_dnd_preferences_organization_id (organization_id),
+    KEY idx_client_dnd_preferences_client_id (client_id),
+    KEY idx_client_dnd_preferences_opt_out (opt_out),
+    CONSTRAINT fk_client_dnd_preferences_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_client_dnd_preferences_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================================
+-- Migration 199: Communication module RBAC permissions
+-- =============================================================================
+INSERT IGNORE INTO permissions (name, description, module) VALUES
+    ('campaigns.view',   'View communication campaigns and per-recipient delivery stats', 'communication'),
+    ('campaigns.create', 'Create bulk email/SMS/WhatsApp campaigns',                      'communication'),
+    ('campaigns.update', 'Edit and schedule communication campaigns',                     'communication'),
+    ('campaigns.delete', 'Delete communication campaigns',                                'communication'),
+    ('dnd.view',         'View client Do Not Disturb preferences',                        'communication'),
+    ('dnd.update',       'Set and update client Do Not Disturb preferences',              'communication');
+
+-- admin: every communication permission
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM   roles r
+JOIN   permissions p ON p.module = 'communication'
+WHERE  r.name = 'admin';
+
+-- support: campaign management and DND management (no hard deletes)
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM   roles r
+JOIN   permissions p ON p.name IN (
+           'campaigns.view','campaigns.create','campaigns.update',
+           'dnd.view','dnd.update'
+       )
+WHERE  r.name = 'support';
+
+-- billing: full campaign management plus DND (billing team sends payment notices)
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM   roles r
+JOIN   permissions p ON p.name IN (
+           'campaigns.view','campaigns.create','campaigns.update','campaigns.delete',
+           'dnd.view','dnd.update'
+       )
+WHERE  r.name = 'billing';
+
+-- technician: view campaigns and DND preferences (read-only for field staff)
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM   roles r
+JOIN   permissions p ON p.name IN (
+           'campaigns.view',
+           'dnd.view'
+       )
+WHERE  r.name = 'technician';
+
+-- readonly: view-only across the module
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM   roles r
+JOIN   permissions p ON p.name IN (
+           'campaigns.view',
+           'dnd.view'
        )
 WHERE  r.name = 'readonly';
 
