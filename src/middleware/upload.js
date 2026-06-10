@@ -101,4 +101,25 @@ const uploadMultiple = multer({
   limits: { fileSize: MAX_FILE_SIZE },
 }).array('files', 10);
 
-module.exports = { uploadSingle, uploadMultiple, STORAGE_ROOT, entityDir, ALLOWED_EXTENSIONS };
+/**
+ * Single-file upload that always stores under storage/clients (used for client
+ * ID document / photo uploads where the entity type is implicit). Field: "file".
+ */
+const uploadClientDocument = multer({
+  storage: multer.diskStorage({
+    destination(_req, _file, cb) {
+      const dir = path.join(STORAGE_ROOT, 'clients');
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename(_req, file, cb) {
+      const unique = crypto.randomBytes(16).toString('hex');
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, `${Date.now()}-${unique}${ext}`);
+    },
+  }),
+  fileFilter,
+  limits: { fileSize: MAX_FILE_SIZE },
+}).single('file');
+
+module.exports = { uploadSingle, uploadMultiple, uploadClientDocument, STORAGE_ROOT, entityDir, ALLOWED_EXTENSIONS };

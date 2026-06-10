@@ -31,7 +31,12 @@ const NAV_GROUPS: NavGroup[] = [
     titleKey: 'nav.sections.clients',
     items: [
       { to: '/clients', labelKey: 'nav.clients' },
+      { to: '/client-groups', labelKey: 'nav.clientGroups' },
+      { to: '/leads', labelKey: 'nav.leads' },
+      { to: '/service-orders', labelKey: 'nav.serviceOrders' },
       { to: '/contracts', labelKey: 'nav.contracts' },
+      { to: '/winback-campaigns', labelKey: 'nav.winbackCampaigns', requiredRole: 'billing' },
+      { to: '/churn-analytics', labelKey: 'nav.churnAnalytics', requiredRole: 'billing' },
       { to: '/tickets', labelKey: 'nav.tickets' },
     ],
   },

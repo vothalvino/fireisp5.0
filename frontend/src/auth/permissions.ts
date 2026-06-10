@@ -12,11 +12,20 @@
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
   admin: ['*'],
-  support: ['clients.create', 'clients.update'],
-  technician: ['devices.create', 'devices.update', 'devices.delete'],
-  billing: [],
-  'read-only': [],
-  readonly: [],
+  support: [
+    'clients.create', 'clients.update',
+    'leads.create', 'leads.update',
+    'service_orders.create', 'service_orders.update',
+    'winback.view', 'lifecycle.view',
+  ],
+  technician: ['devices.create', 'devices.update', 'devices.delete', 'service_orders.update'],
+  billing: [
+    'winback.view', 'winback.create', 'winback.update', 'winback.delete',
+    'lifecycle.view',
+    'suspension_rules.create', 'suspension_rules.update', 'suspension_rules.delete',
+  ],
+  'read-only': ['winback.view', 'lifecycle.view'],
+  readonly: ['winback.view', 'lifecycle.view'],
 };
 
 /**

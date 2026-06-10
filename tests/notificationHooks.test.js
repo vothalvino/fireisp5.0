@@ -355,4 +355,62 @@ describe('notificationHooks', () => {
       );
     });
   });
+
+  // =========================================================================
+  // service_order.activated
+  // =========================================================================
+  describe('service_order.activated', () => {
+    beforeEach(() => registerHooks());
+
+    test('sends welcome email, broadcasts SSE, and dispatches webhook', async () => {
+      await eventBus.emit('service_order.activated', {
+        organizationId: 1,
+        order: { id: 9, order_number: 'SO-000009', client_id: 5, contract_id: 12 },
+        client: { name: 'Acme', email: 'acme@example.com' },
+      });
+
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationId: 1, to: 'acme@example.com' }),
+      );
+      expect(broadcast).toHaveBeenCalledWith(
+        'org:1:notifications',
+        'service_order.activated',
+        expect.objectContaining({ order_id: 9, order_number: 'SO-000009' }),
+      );
+      expect(webhookService.dispatch).toHaveBeenCalledWith(
+        1,
+        'service_order.activated',
+        expect.objectContaining({ id: 9, order_number: 'SO-000009', contract_id: 12 }),
+      );
+    });
+
+    test('skips email when client is missing, still broadcasts and dispatches', async () => {
+      await eventBus.emit('service_order.activated', {
+        organizationId: 1,
+        order: { id: 9, order_number: 'SO-000009', client_id: null },
+        client: null,
+      });
+
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+      expect(broadcast).toHaveBeenCalled();
+      expect(webhookService.dispatch).toHaveBeenCalled();
+    });
+
+    test('catches and logs errors without propagating', async () => {
+      emailTransport.sendEmail.mockRejectedValueOnce(new Error('SMTP down'));
+
+      await expect(
+        eventBus.emit('service_order.activated', {
+          organizationId: 1,
+          order: { id: 9, order_number: 'SO-000009', client_id: 5 },
+          client: { email: 'fail@example.com' },
+        }),
+      ).resolves.not.toThrow();
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'service_order.activated' }),
+        'Notification hook error',
+      );
+    });
+  });
 });

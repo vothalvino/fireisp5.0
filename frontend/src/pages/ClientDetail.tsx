@@ -28,6 +28,7 @@ import {
   cancelBtn,
   type ClientFormInitial,
 } from '@/components/ClientFormModal';
+import { ProfileExtrasTab, CustomFieldsTab, DocumentsTab, DuplicatesTab } from '@/pages/ClientProfileTabs';
 
 // ---------------------------------------------------------------------------
 // GraphQL query — fetches the client + all sub-resources in one request
@@ -263,7 +264,7 @@ function StatusBadge({ status, colorMap }: { status: string; colorMap?: Record<s
 // Tab types
 // ---------------------------------------------------------------------------
 
-type TabId = 'contracts' | 'invoices' | 'payments' | 'devices' | 'ledger' | 'contacts';
+type TabId = 'contracts' | 'invoices' | 'payments' | 'devices' | 'ledger' | 'contacts' | 'profile' | 'customFields' | 'documents' | 'duplicates';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'contracts', label: '📄 Contracts' },
@@ -272,6 +273,10 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'devices',   label: '🖧 Devices' },
   { id: 'ledger',    label: '📒 Ledger' },
   { id: 'contacts',  label: '👤 Contacts' },
+  { id: 'profile',   label: '🧭 Profile' },
+  { id: 'customFields', label: '🏷️ Custom Fields' },
+  { id: 'documents', label: '📎 Documents' },
+  { id: 'duplicates', label: '🔍 Duplicates' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -789,6 +794,19 @@ export function ClientDetail() {
     enabled: Boolean(id),
   });
 
+  // Raw REST record supplies the §1.1 profile fields the GraphQL query does not
+  // expose (curp, credit_score, risk_rating, latitude, longitude) so the edit
+  // modal pre-fills them and does not clobber existing values on save.
+  const { data: clientRaw } = useQuery({
+    queryKey: ['client-raw', Number(id)],
+    queryFn: async () => {
+      const res = await api.GET('/clients/{id}', { params: { path: { id: Number(id) } } });
+      if (res.error) return null;
+      return (res.data as { data: Record<string, unknown> }).data;
+    },
+    enabled: Boolean(id),
+  });
+
   const refetchClient = () => queryClient.invalidateQueries({ queryKey: ['client-detail-gql', id] });
 
   if (isLoading) {
@@ -822,6 +840,11 @@ export function ClientDetail() {
     zip_code: client.zipCode,
     country: client.country,
     locale: client.locale,
+    curp: (clientRaw?.curp as string | null) ?? null,
+    credit_score: (clientRaw?.credit_score as number | null) ?? null,
+    risk_rating: (clientRaw?.risk_rating as string | null) ?? null,
+    latitude: (clientRaw?.latitude as number | string | null) ?? null,
+    longitude: (clientRaw?.longitude as number | string | null) ?? null,
   };
 
   return (
@@ -884,6 +907,10 @@ export function ClientDetail() {
             onAdd={() => setShowAddContact(true)}
           />
         )}
+        {activeTab === 'profile'      && <ProfileExtrasTab clientId={Number(client.id)} canEdit={canEdit} />}
+        {activeTab === 'customFields' && <CustomFieldsTab  clientId={Number(client.id)} canEdit={canEdit} />}
+        {activeTab === 'documents'    && <DocumentsTab     clientId={Number(client.id)} canEdit={canEdit} />}
+        {activeTab === 'duplicates'   && <DuplicatesTab    clientId={Number(client.id)} canEdit={canEdit} />}
       </div>
 
       {/* Modals */}

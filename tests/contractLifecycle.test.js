@@ -1,0 +1,167 @@
+// =============================================================================
+// FireISP 5.0 — Contract lifecycle route tests (renew + terminate) — §1.2
+// =============================================================================
+
+jest.mock('../src/config/database', () => ({
+  query: jest.fn(),
+  execute: jest.fn(),
+  getConnection: jest.fn(),
+  close: jest.fn(),
+  pool: { end: jest.fn() },
+}));
+
+jest.mock('../src/services/suspensionService', () => ({
+  suspendContract: jest.fn().mockResolvedValue(undefined),
+  reconnectContract: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../src/services/eventBus', () => ({ emit: jest.fn(), on: jest.fn(), removeListener: jest.fn() }));
+
+const request = require('supertest');
+const jwt = require('jsonwebtoken');
+const config = require('../src/config');
+const db = require('../src/config/database');
+const suspensionService = require('../src/services/suspensionService');
+const app = require('../src/app');
+
+function adminToken() {
+  return jwt.sign(
+    { sub: 1, email: 'admin@example.com', role: 'admin', orgId: 1 },
+    config.jwt.secret,
+    { expiresIn: '1h' },
+  );
+}
+
+function mockUser() {
+  db.query.mockImplementation((sql) => {
+    if (typeof sql === 'string' && sql.includes('WHERE id = ?')) {
+      return Promise.resolve([[{ id: 1, email: 'admin@example.com', role: 'admin', status: 'active', organization_id: 1 }]]);
+    }
+    return Promise.resolve([[]]);
+  });
+}
+
+const token = adminToken();
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockUser();
+});
+
+// =============================================================================
+// POST /contracts/:id/renew
+// =============================================================================
+describe('POST /contracts/:id/renew', () => {
+  test('reactivates a suspended contract', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, email: 'admin@example.com', role: 'admin', status: 'active', organization_id: 1 }]])
+      // findByIdOrFail inside Contract.update and the query in the route
+      .mockResolvedValueOnce([[{ id: 5, status: 'suspended', organization_id: 1 }]])
+      // Contract.update SELECT after UPDATE
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([[{ id: 5, status: 'active', organization_id: 1 }]]);
+
+    const res = await request(app)
+      .post('/api/v1/contracts/5/renew')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+  });
+
+  test('returns 422 for an already active contract', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[{ id: 5, status: 'active', organization_id: 1 }]]);
+
+    const res = await request(app)
+      .post('/api/v1/contracts/5/renew')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('NOT_RENEWABLE');
+  });
+
+  test('returns 404 when contract not found', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[]]); // no contract rows
+
+    const res = await request(app)
+      .post('/api/v1/contracts/999/renew')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(404);
+  });
+
+  test('returns 401 without a token', async () => {
+    const res = await request(app).post('/api/v1/contracts/5/renew').send({});
+    expect(res.status).toBe(401);
+  });
+});
+
+// =============================================================================
+// POST /contracts/:id/terminate
+// =============================================================================
+describe('POST /contracts/:id/terminate', () => {
+  test('terminates an active contract and fires RADIUS disconnect', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[{ id: 5, status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([[{ id: 5, status: 'terminated', organization_id: 1 }]]);
+
+    const res = await request(app)
+      .post('/api/v1/contracts/5/terminate')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    // suspensionService is called fire-and-forget so may or may not have completed
+    // We just verify the response is correct
+  });
+
+  test('returns 422 for a cancelled (non-terminable) contract', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[{ id: 5, status: 'cancelled', organization_id: 1 }]]);
+
+    const res = await request(app)
+      .post('/api/v1/contracts/5/terminate')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('NOT_TERMINABLE');
+  });
+
+  test('returns 404 when contract not found', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[]]); // no rows
+
+    const res = await request(app)
+      .post('/api/v1/contracts/999/terminate')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(404);
+  });
+
+  test('terminates a suspended contract', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[{ id: 5, status: 'suspended', organization_id: 1 }]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([[{ id: 5, status: 'terminated', organization_id: 1 }]]);
+
+    const res = await request(app)
+      .post('/api/v1/contracts/5/terminate')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+  });
+});

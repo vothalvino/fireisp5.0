@@ -1,5 +1,5 @@
 // =============================================================================
-// FireISP 5.0 — SuspensionRuleList page tests
+// FireISP 5.0 — SuspensionRuleList page tests (full CRUD — §1.2)
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -9,8 +9,17 @@ import { SuspensionRuleList } from '../SuspensionRuleList';
 
 const mockApiGet = vi.fn();
 vi.mock('@/api/client', () => ({
-  api: { GET: (...args: unknown[]) => mockApiGet(...args) },
+  api: {
+    GET: (...args: unknown[]) => mockApiGet(...args),
+    POST: vi.fn(),
+    PUT: vi.fn(),
+    DELETE: vi.fn(),
+  },
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
+}));
+
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 1, role: 'admin' } }),
 }));
 
 const rule1 = {
@@ -49,6 +58,20 @@ describe('SuspensionRuleList page', () => {
     await waitFor(() => expect(screen.getByText('Suspensión 30 días')).toBeInTheDocument());
   });
 
+  it('shows the grace period value in the table', async () => {
+    renderList();
+    await waitFor(() => expect(screen.getByText('3 days')).toBeInTheDocument());
+  });
+
+  it('shows New Rule and Edit/Delete buttons for admin', async () => {
+    renderList();
+    await waitFor(() => {
+      expect(screen.getByText('+ New Rule')).toBeInTheDocument();
+      expect(screen.getByText('Edit')).toBeInTheDocument();
+      expect(screen.getByText('Delete')).toBeInTheDocument();
+    });
+  });
+
   it('shows empty message when no rules', async () => {
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/suspension-rules')
@@ -59,3 +82,4 @@ describe('SuspensionRuleList page', () => {
     await waitFor(() => expect(screen.getByText(/No suspension rules configured/)).toBeInTheDocument());
   });
 });
+
