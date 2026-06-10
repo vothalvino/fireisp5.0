@@ -22551,6 +22551,63 @@
           }
         }
       },
+      "paymentTransactions_listPaymentTransactions": {
+        "type": "object",
+        "properties": {
+          "gateway_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "succeeded",
+              "failed",
+              "refunded"
+            ]
+          },
+          "currency": {
+            "type": "string",
+            "maximum": 3
+          },
+          "page": {
+            "type": "number",
+            "minimum": 1
+          },
+          "limit": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "paymentWebhooks_stripeWebhook": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type"
+        ]
+      },
+      "paymentWebhooks_conektaWebhook": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type"
+        ]
+      },
       "payments_createPayment": {
         "type": "object",
         "properties": {
@@ -22704,63 +22761,6 @@
         "required": [
           "invoice_id",
           "amount"
-        ]
-      },
-      "paymentTransactions_listPaymentTransactions": {
-        "type": "object",
-        "properties": {
-          "gateway_status": {
-            "type": "string",
-            "enum": [
-              "pending",
-              "succeeded",
-              "failed",
-              "refunded"
-            ]
-          },
-          "currency": {
-            "type": "string",
-            "maximum": 3
-          },
-          "page": {
-            "type": "number",
-            "minimum": 1
-          },
-          "limit": {
-            "type": "number",
-            "minimum": 1,
-            "maximum": 100
-          }
-        }
-      },
-      "paymentWebhooks_stripeWebhook": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "type"
-        ]
-      },
-      "paymentWebhooks_conektaWebhook": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "type"
         ]
       },
       "pdf_pdfById": {

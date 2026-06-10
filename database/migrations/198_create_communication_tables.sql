@@ -144,19 +144,43 @@ CREATE TABLE IF NOT EXISTS client_dnd_preferences (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Alter email_logs: add campaign_message_id and opened_at
+-- Alter email_logs (campaign_message_id, opened_at) and sms_logs
+-- (campaign_message_id). MySQL does not support ADD COLUMN IF NOT EXISTS, so
+-- use an idempotent stored-procedure guard (same pattern as migration 136).
 -- ---------------------------------------------------------------------------
-ALTER TABLE email_logs
-    ADD COLUMN IF NOT EXISTS campaign_message_id BIGINT UNSIGNED NULL AFTER template_id,
-    ADD COLUMN IF NOT EXISTS opened_at DATETIME NULL AFTER sent_at,
-    ADD KEY IF NOT EXISTS idx_email_logs_campaign_message (campaign_message_id);
+DROP PROCEDURE IF EXISTS migration_198_alter_message_logs;
+DELIMITER //
+CREATE PROCEDURE migration_198_alter_message_logs()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'email_logs' AND COLUMN_NAME = 'campaign_message_id'
+  ) THEN
+    ALTER TABLE email_logs
+      ADD COLUMN campaign_message_id BIGINT UNSIGNED NULL AFTER template_id,
+      ADD KEY idx_email_logs_campaign_message (campaign_message_id);
+  END IF;
 
--- ---------------------------------------------------------------------------
--- Alter sms_logs: add campaign_message_id
--- ---------------------------------------------------------------------------
-ALTER TABLE sms_logs
-    ADD COLUMN IF NOT EXISTS campaign_message_id BIGINT UNSIGNED NULL AFTER template_id,
-    ADD KEY IF NOT EXISTS idx_sms_logs_campaign_message (campaign_message_id);
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'email_logs' AND COLUMN_NAME = 'opened_at'
+  ) THEN
+    ALTER TABLE email_logs
+      ADD COLUMN opened_at DATETIME NULL AFTER sent_at;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sms_logs' AND COLUMN_NAME = 'campaign_message_id'
+  ) THEN
+    ALTER TABLE sms_logs
+      ADD COLUMN campaign_message_id BIGINT UNSIGNED NULL AFTER template_id,
+      ADD KEY idx_sms_logs_campaign_message (campaign_message_id);
+  END IF;
+END //
+DELIMITER ;
+CALL migration_198_alter_message_logs();
+DROP PROCEDURE IF EXISTS migration_198_alter_message_logs;
 
 -- ---------------------------------------------------------------------------
 -- Seed: scheduled task driving the campaign dispatch worker

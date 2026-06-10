@@ -2496,11 +2496,13 @@ CREATE TABLE IF NOT EXISTS email_logs (
     body             TEXT             NULL,
     template         VARCHAR(100)     NULL     COMMENT 'Template name used to render the message',
     template_id      BIGINT UNSIGNED  NULL     COMMENT 'Template used to render this message; NULL = ad-hoc / legacy',
+    campaign_message_id BIGINT UNSIGNED NULL   COMMENT 'Campaign message this send belongs to; NULL = non-campaign send',
     reference_type   VARCHAR(50)      NULL     COMMENT 'Entity type the message relates to, e.g. invoice, ticket',
     reference_id     BIGINT UNSIGNED  NULL     COMMENT 'ID of the referenced entity',
     status           ENUM('queued', 'sent', 'delivered', 'failed', 'bounced') NOT NULL DEFAULT 'queued',
     error_message    TEXT             NULL     COMMENT 'Delivery error details when status = failed or bounced',
     sent_at          TIMESTAMP        NULL,
+    opened_at        DATETIME         NULL     COMMENT 'Timestamp of first email open event',
     created_at       TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
@@ -2509,6 +2511,7 @@ CREATE TABLE IF NOT EXISTS email_logs (
     KEY idx_email_logs_reference (reference_type, reference_id),
     KEY idx_email_logs_sent_at (sent_at),
     KEY idx_email_logs_template_id (template_id),
+    KEY idx_email_logs_campaign_message (campaign_message_id),
     CONSTRAINT fk_email_logs_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_email_logs_user FOREIGN KEY (user_id)
@@ -5383,6 +5386,7 @@ CREATE TABLE IF NOT EXISTS sms_logs (
     direction            ENUM('outbound','inbound')
                                           NOT NULL DEFAULT 'outbound' COMMENT 'Message direction relative to the platform',
     template_id          BIGINT UNSIGNED  NULL                        COMMENT 'Message template used; NULL = ad-hoc message',
+    campaign_message_id  BIGINT UNSIGNED  NULL                        COMMENT 'Campaign message this send belongs to; NULL = non-campaign send',
     message_body         TEXT             NOT NULL                    COMMENT 'Full text content of the message',
     provider             VARCHAR(50)      NULL                        COMMENT 'SMS/WhatsApp provider name (e.g. twilio, infobip, messagebird)',
     provider_message_id  VARCHAR(100)     NULL                        COMMENT 'Provider-assigned message identifier for status lookups',
@@ -5401,6 +5405,7 @@ CREATE TABLE IF NOT EXISTS sms_logs (
     KEY idx_sms_logs_status (status),
     KEY idx_sms_logs_provider_message_id (provider_message_id),
     KEY idx_sms_logs_phone_number (phone_number),
+    KEY idx_sms_logs_campaign_message (campaign_message_id),
     CONSTRAINT fk_sms_logs_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_sms_logs_client FOREIGN KEY (client_id)

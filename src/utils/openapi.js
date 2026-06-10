@@ -17,7 +17,9 @@ function generateSpec() {
 
   // Load all schema files and convert to OpenAPI format
   if (fs.existsSync(schemaDir)) {
-    for (const file of fs.readdirSync(schemaDir).filter(f => f.endsWith('.js'))) {
+    // Sort so component schema order is deterministic across filesystems
+    // (readdir order differs between Windows and Linux → spec-drift CI failures)
+    for (const file of fs.readdirSync(schemaDir).filter(f => f.endsWith('.js')).sort()) {
       const name = file.replace('.js', '');
       const mod = require(path.join(schemaDir, file));
       for (const [key, schema] of Object.entries(mod)) {
