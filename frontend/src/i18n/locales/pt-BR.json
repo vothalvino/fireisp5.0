@@ -624,5 +624,34 @@
       "loadFailed": "Falha ao carregar preferências de comunicação.",
       "saveFailed": "Falha ao salvar preferência."
     }
+  },
+  "plans": {
+    "radiusSection": "Configuração RADIUS",
+    "radiusVendor": "Fornecedor RADIUS",
+    "radiusVendorGeneric": "Genérico (WISPr)",
+    "radiusRateLimitTemplate": "Modelo de limite de taxa",
+    "fupSection": "Política de Uso Justo (FUP)",
+    "fupThresholdGb": "Limite FUP (GB)",
+    "fupThresholdPercent": "Limite FUP (%)",
+    "fupDownloadSpeed": "Velocidade de download FUP (Mbps)",
+    "fupUploadSpeed": "Velocidade de upload FUP (Mbps)",
+    "overageSection": "Cobrança por excesso",
+    "overageMode": "Modo de excesso",
+    "overageModeNone": "Nenhum",
+    "overageModePerGb": "Por GB",
+    "overageModeUpgradePrompt": "Solicitar upgrade",
+    "overagePricePerGb": "Preço por GB excedente",
+    "trialSection": "Período de avaliação",
+    "trialDays": "Dias de avaliação",
+    "trialPrice": "Preço de avaliação",
+    "speedWindowsSection": "Janelas de velocidade por horário",
+    "speedWindowLabel": "Rótulo",
+    "speedWindowDayMask": "Dias (máscara de bits)",
+    "speedWindowStartTime": "Hora de início",
+    "speedWindowEndTime": "Hora de fim",
+    "speedWindowDownload": "Download (Mbps)",
+    "speedWindowUpload": "Upload (Mbps)",
+    "speedWindowPriority": "Prioridade",
+    "speedWindowStatus": "Status"
   }
 }

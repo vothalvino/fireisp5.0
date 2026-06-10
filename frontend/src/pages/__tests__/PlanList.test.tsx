@@ -60,4 +60,29 @@ describe('PlanList page', () => {
     renderPlanList();
     await waitFor(() => expect(screen.getByText(/No plans found/)).toBeInTheDocument());
   });
+
+  it('renders RADIUS Vendor label in plan modal', async () => {
+    renderPlanList();
+    await waitFor(() => expect(screen.getByText('Fibra 100')).toBeInTheDocument());
+    // Open New Plan modal
+    const newPlanBtn = screen.getByText('+ New Plan');
+    newPlanBtn.click();
+    await waitFor(() => expect(screen.getByLabelText('RADIUS vendor')).toBeInTheDocument());
+  });
+
+  it('renders Overage Mode select in plan modal', async () => {
+    renderPlanList();
+    await waitFor(() => expect(screen.getByText('Fibra 100')).toBeInTheDocument());
+    const newPlanBtn = screen.getByText('+ New Plan');
+    newPlanBtn.click();
+    await waitFor(() => expect(screen.getByLabelText('Overage mode')).toBeInTheDocument());
+  });
+
+  it('renders Free Trial Days input in plan modal', async () => {
+    renderPlanList();
+    await waitFor(() => expect(screen.getByText('Fibra 100')).toBeInTheDocument());
+    const newPlanBtn = screen.getByText('+ New Plan');
+    newPlanBtn.click();
+    await waitFor(() => expect(screen.getByLabelText('Free trial days')).toBeInTheDocument());
+  });
 });

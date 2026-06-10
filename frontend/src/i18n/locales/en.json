@@ -624,5 +624,34 @@
       "loadFailed": "Failed to load communication preferences.",
       "saveFailed": "Failed to save preference."
     }
+  },
+  "plans": {
+    "radiusSection": "RADIUS Configuration",
+    "radiusVendor": "RADIUS Vendor",
+    "radiusVendorGeneric": "Generic (WISPr)",
+    "radiusRateLimitTemplate": "Rate-Limit Template",
+    "fupSection": "Fair Use Policy (FUP)",
+    "fupThresholdGb": "FUP Threshold (GB)",
+    "fupThresholdPercent": "FUP Threshold (%)",
+    "fupDownloadSpeed": "FUP Download Speed (Mbps)",
+    "fupUploadSpeed": "FUP Upload Speed (Mbps)",
+    "overageSection": "Overage Billing",
+    "overageMode": "Overage Mode",
+    "overageModeNone": "None",
+    "overageModePerGb": "Per GB",
+    "overageModeUpgradePrompt": "Upgrade Prompt",
+    "overagePricePerGb": "Overage Price per GB",
+    "trialSection": "Free Trial",
+    "trialDays": "Trial Days",
+    "trialPrice": "Trial Price",
+    "speedWindowsSection": "Time-Based Speed Windows",
+    "speedWindowLabel": "Label",
+    "speedWindowDayMask": "Days (bitmask)",
+    "speedWindowStartTime": "Start Time",
+    "speedWindowEndTime": "End Time",
+    "speedWindowDownload": "Download (Mbps)",
+    "speedWindowUpload": "Upload (Mbps)",
+    "speedWindowPriority": "Priority",
+    "speedWindowStatus": "Status"
   }
 }

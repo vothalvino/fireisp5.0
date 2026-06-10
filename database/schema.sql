@@ -379,6 +379,16 @@ CREATE TABLE IF NOT EXISTS plans (
     billing_cycle   ENUM('monthly', 'quarterly', 'semi_annual', 'annual') NOT NULL DEFAULT 'monthly',
     burst_download_mbps INT UNSIGNED NULL COMMENT 'Burst download speed in Mbps',
     burst_upload_mbps   INT UNSIGNED NULL COMMENT 'Burst upload speed in Mbps',
+    radius_vendor       ENUM('mikrotik','cisco','juniper') NULL DEFAULT NULL,
+    radius_rate_limit_template VARCHAR(200) NULL,
+    fup_threshold_gb    DECIMAL(10,2) NULL COMMENT 'GB at which FUP kicks in; NULL = same as data_cap_gb',
+    fup_threshold_percent TINYINT UNSIGNED NULL COMMENT 'Percent of cap at which FUP kicks in',
+    fup_download_speed_mbps INT UNSIGNED NULL COMMENT 'Throttled download speed after FUP',
+    fup_upload_speed_mbps   INT UNSIGNED NULL COMMENT 'Throttled upload speed after FUP',
+    overage_mode        ENUM('none','per_gb','upgrade_prompt') NOT NULL DEFAULT 'none',
+    overage_price_per_gb DECIMAL(10,4) NULL,
+    trial_days          INT UNSIGNED NULL COMMENT 'Number of free trial days; NULL = no trial',
+    trial_price         DECIMAL(10,2) NOT NULL DEFAULT 0.00,
     priority        TINYINT UNSIGNED NULL COMMENT 'Plan priority 1-8 (1 = highest)',
     status          ENUM('active', 'inactive', 'archived') NOT NULL DEFAULT 'active',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -5249,7 +5259,7 @@ CREATE TABLE IF NOT EXISTS plan_addons (
     organization_id  BIGINT UNSIGNED  NOT NULL                     COMMENT 'Tenant organization that offers this add-on',
     name             VARCHAR(150)     NOT NULL                     COMMENT 'Display name, e.g. "IP Estática", "Renta de Router"',
     description      TEXT             NULL                         COMMENT 'Detailed description shown to billing agents or on the client portal',
-    addon_type       ENUM('static_ip','extra_ip_block','extra_bandwidth','equipment_rental','other')
+    addon_type       ENUM('static_ip','extra_ip_block','extra_bandwidth','equipment_rental','voip','iptv','other')
                                       NOT NULL                     COMMENT 'Category of add-on for reporting and processing logic',
     price            DECIMAL(10, 2)   NOT NULL                     COMMENT 'Base price per billing cycle',
     billing_cycle    ENUM('monthly','one_time','yearly')
@@ -5268,6 +5278,57 @@ CREATE TABLE IF NOT EXISTS plan_addons (
     KEY idx_plan_addons_deleted_at (deleted_at),
     CONSTRAINT fk_plan_addons_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: plan_throttle_logs
+-- Purpose: Audit log for FUP throttle and restore actions per contract.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS plan_throttle_logs (
+    id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL,
+    contract_id   BIGINT UNSIGNED NOT NULL,
+    action        ENUM('throttle','restore') NOT NULL,
+    reason        ENUM('fup','overage','manual') NOT NULL DEFAULT 'fup',
+    throttle_download_mbps INT UNSIGNED NULL,
+    throttle_upload_mbps   INT UNSIGNED NULL,
+    coa_sent      TINYINT(1) NOT NULL DEFAULT 0,
+    coa_response  VARCHAR(200) NULL,
+    notes         TEXT NULL,
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_plan_throttle_logs_contract_id (contract_id),
+    KEY idx_plan_throttle_logs_organization_id (organization_id),
+    KEY idx_plan_throttle_logs_created_at (created_at),
+    CONSTRAINT fk_plan_throttle_logs_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: plan_speed_windows
+-- Purpose: Time-based speed windows for plans (e.g., off-peak unlimited).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS plan_speed_windows (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    plan_id             BIGINT UNSIGNED NOT NULL,
+    organization_id     BIGINT UNSIGNED NULL,
+    label               VARCHAR(100) NOT NULL,
+    day_mask            TINYINT UNSIGNED NOT NULL DEFAULT 127 COMMENT 'bitmask: bit0=Sun,...,bit6=Sat; 127=all days',
+    start_time          TIME NOT NULL,
+    end_time            TIME NOT NULL,
+    download_speed_mbps INT UNSIGNED NOT NULL,
+    upload_speed_mbps   INT UNSIGNED NOT NULL,
+    priority            TINYINT UNSIGNED NOT NULL DEFAULT 10 COMMENT 'Lower number = higher priority when windows overlap',
+    status              ENUM('active','inactive') NOT NULL DEFAULT 'active',
+    created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME DEFAULT NULL,
+    PRIMARY KEY (id),
+    KEY idx_plan_speed_windows_plan_id (plan_id),
+    KEY idx_plan_speed_windows_organization_id (organization_id),
+    KEY idx_plan_speed_windows_status (status),
+    CONSTRAINT fk_plan_speed_windows_plan FOREIGN KEY (plan_id)
+        REFERENCES plans (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------

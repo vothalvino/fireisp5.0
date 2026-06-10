@@ -107,8 +107,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 136 tables)
-│   └── migrations/          # Individual numbered migration files (001–199)
+│   ├── schema.sql           # Combined schema (all 138 tables)
+│   └── migrations/          # Individual numbered migration files (001–203)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -296,6 +296,10 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 134 | `communication_campaigns` | Bulk campaign sends (email/SMS/WhatsApp) — `channel`, `status` (`draft`→`scheduled`→`sending`→`sent`/`cancelled`/`failed`), optional template and recipient filters (by client status, plan, or tag), aggregate counters (recipient, sent, delivered, opened, bounced, failed), scheduling timestamps, and `deleted_at` soft-delete |
 | 135 | `campaign_messages` | Per-recipient record for every campaign dispatch — `campaign_id`, optional `client_id`, `recipient` (email or phone), `channel`, `status` (`queued`→`sent`→`delivered`→`opened`/`bounced`/`failed`), `provider_message_id` for webhook correlation, and individual timestamp fields (queued, sent, delivered, opened, bounced) |
 | 136 | `client_dnd_preferences` | Per-customer per-channel Do Not Disturb preferences — `channel` (`email`/`sms`/`whatsapp`/`all`), `opt_out` flag for marketing/bulk sends, optional quiet-hours window (`quiet_hours_start`/`quiet_hours_end`), and free-form `reason`; unique on `(client_id, channel)` |
+| 137 | `plan_throttle_logs` | Audit log for FUP throttle and restore actions per contract — records throttle/restore events, RADIUS CoA sent/response, and reason (fup/overage/manual) |
+| 138 | `plan_speed_windows` | Time-based speed windows for plans — bitmask day-of-week scheduling, start/end time, per-window download/upload speeds, and priority ordering for overlap resolution |
+
+> **Migrations 200–203 — Plan billing features (§2.1):** `200_plan_billing_features.sql` adds ten columns to `plans` (`radius_vendor`, `radius_rate_limit_template`, `fup_threshold_gb`, `fup_threshold_percent`, `fup_download_speed_mbps`, `fup_upload_speed_mbps`, `overage_mode`, `overage_price_per_gb`, `trial_days`, `trial_price`) and creates `plan_throttle_logs` for FUP throttle audit; seeds `check_fup_thresholds` (every 15 min) and `convert_expired_trials` (hourly) scheduled tasks. `201_create_plan_speed_windows.sql` adds the `plan_speed_windows` table for time-based speed scheduling and seeds the `apply_speed_windows` task (every 5 min). `202_extend_plan_addons_enum.sql` extends `plan_addons.addon_type` with `voip` and `iptv` values. `203_seed_plan_feature_permissions.sql` seeds `plans.radius_attributes`, `plans.speed_windows`, and `plans.fup_throttle` RBAC permissions with role assignments.
 
 > **Migrations 198–199 — Communication campaigns and DND (§1.4):** `198_create_communication_tables.sql` adds the `communication_campaigns`, `campaign_messages`, and `client_dnd_preferences` tables; adds `campaign_message_id` and `opened_at` columns to `email_logs`; adds `campaign_message_id` to `sms_logs`; and seeds the `campaign_send` scheduled task (`*/5 * * * *`) that processes queued campaign messages. `199_seed_communication_permissions.sql` seeds the `communication` RBAC module permissions (`campaigns.*`, `dnd.view`, `dnd.update`) and assigns them to the default roles.
 

@@ -9,7 +9,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createPlan, updatePlan, patchPlan, createPlanAddon } = require('../middleware/schemas/plans');
+const { createPlan, updatePlan, patchPlan, createPlanAddon, createSpeedWindow } = require('../middleware/schemas/plans');
 const { httpCache } = require('../middleware/httpCache');
 const db = require('../config/database');
 
@@ -47,6 +47,77 @@ router.post('/addons', requirePermission('plans.create'), validate(createPlanAdd
     );
     const [rows] = await db.query('SELECT * FROM plan_addons WHERE id = ?', [result.insertId]);
     res.status(201).json({ data: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const { generateAttributes } = require('../services/radiusAttributeService');
+
+// RADIUS attributes preview
+router.get('/:id/radius-attributes', requirePermission('plans.view'), async (req, res, next) => {
+  try {
+    const plan = await Plan.findById(req.params.id, req.orgId);
+    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    const attributes = generateAttributes(plan);
+    res.json({ data: { plan_id: plan.id, vendor: plan.radius_vendor || 'generic', attributes } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Speed windows CRUD
+router.get('/:id/speed-windows', requirePermission('plans.view'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT * FROM plan_speed_windows WHERE plan_id = ? AND organization_id = ? AND deleted_at IS NULL ORDER BY priority ASC, id ASC',
+      [req.params.id, req.orgId],
+    );
+    res.json({ data: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:id/speed-windows', requirePermission('plans.create'), validate(createSpeedWindow), async (req, res, next) => {
+  try {
+    const { label, day_mask, start_time, end_time, download_speed_mbps, upload_speed_mbps, priority, status } = req.body;
+    const [result] = await db.query(
+      `INSERT INTO plan_speed_windows (plan_id, organization_id, label, day_mask, start_time, end_time, download_speed_mbps, upload_speed_mbps, priority, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.params.id, req.orgId, label, day_mask ?? 127, start_time, end_time, download_speed_mbps, upload_speed_mbps, priority ?? 10, status ?? 'active'],
+    );
+    const [rows] = await db.query('SELECT * FROM plan_speed_windows WHERE id = ?', [result.insertId]);
+    res.status(201).json({ data: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/:id/speed-windows/:windowId', requirePermission('plans.update'), validate(createSpeedWindow), async (req, res, next) => {
+  try {
+    const { label, day_mask, start_time, end_time, download_speed_mbps, upload_speed_mbps, priority, status } = req.body;
+    await db.query(
+      `UPDATE plan_speed_windows SET label=?, day_mask=?, start_time=?, end_time=?, download_speed_mbps=?, upload_speed_mbps=?, priority=?, status=?
+       WHERE id = ? AND plan_id = ? AND organization_id = ? AND deleted_at IS NULL`,
+      [label, day_mask ?? 127, start_time, end_time, download_speed_mbps, upload_speed_mbps, priority ?? 10, status ?? 'active',
+        req.params.windowId, req.params.id, req.orgId],
+    );
+    const [rows] = await db.query('SELECT * FROM plan_speed_windows WHERE id = ?', [req.params.windowId]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Speed window not found' });
+    res.json({ data: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/:id/speed-windows/:windowId', requirePermission('plans.update'), async (req, res, next) => {
+  try {
+    await db.query(
+      'UPDATE plan_speed_windows SET deleted_at = NOW() WHERE id = ? AND plan_id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [req.params.windowId, req.params.id, req.orgId],
+    );
+    res.status(204).end();
   } catch (err) {
     next(err);
   }

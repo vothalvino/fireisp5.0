@@ -11,11 +11,74 @@ const logger = require('../utils/logger').child({ service: 'billing' });
 const { InvoiceGenerationError } = require('../utils/errors');
 
 /**
+ * Check if a contract is currently within its free trial period.
+ *
+ * @param {object} contract - Contract row with start_date
+ * @param {object} plan - Plan row with trial_days
+ * @returns {boolean}
+ */
+function isContractInTrial(contract, plan) {
+  if (!plan.trial_days || plan.trial_days <= 0) return false;
+  const startDate = new Date(contract.start_date);
+  const trialEnd = new Date(startDate);
+  trialEnd.setDate(trialEnd.getDate() + plan.trial_days);
+  return new Date() < trialEnd;
+}
+
+/**
+ * Calculate overage charges for a contract within a billing period.
+ *
+ * @param {number} contractId
+ * @param {string|Date} periodStart
+ * @param {string|Date} periodEnd
+ * @returns {{ overage_gb: number, amount: number }}
+ */
+async function calculateOverageCharges(contractId, periodStart, periodEnd) {
+  const [rows] = await db.query(`
+    SELECT
+      p.data_cap_gb,
+      p.overage_mode,
+      p.overage_price_per_gb,
+      COALESCE(SUM(cl.bytes_in + cl.bytes_out), 0) AS bytes_used
+    FROM contracts c
+    JOIN plans p ON p.id = c.plan_id
+    LEFT JOIN connection_logs cl ON cl.contract_id = c.id
+      AND cl.event_type IN ('stop', 'interim-update')
+      AND cl.event_at >= ?
+      AND cl.event_at <= ?
+    WHERE c.id = ?
+    GROUP BY p.data_cap_gb, p.overage_mode, p.overage_price_per_gb
+  `, [periodStart, periodEnd, contractId]);
+
+  if (rows.length === 0) return { overage_gb: 0, amount: 0 };
+
+  const r = rows[0];
+  if (r.overage_mode !== 'per_gb' || !r.data_cap_gb || !r.overage_price_per_gb) {
+    return { overage_gb: 0, amount: 0 };
+  }
+
+  const BYTES_PER_GB = 1073741824;
+  const usedGb = r.bytes_used / BYTES_PER_GB;
+  const overageGb = Math.max(0, usedGb - parseFloat(r.data_cap_gb));
+
+  if (overageGb <= 0) return { overage_gb: 0, amount: 0 };
+
+  const amount = Math.round(overageGb * parseFloat(r.overage_price_per_gb) * 100) / 100;
+  return { overage_gb: parseFloat(overageGb.toFixed(3)), amount };
+}
+
+/**
  * Generate billing periods for a contract.
  * Creates the next billing period if one doesn't already exist.
  */
 async function generateBillingPeriod(contract) {
   logger.info({ contractId: contract.id }, 'Generating billing period');
+
+  // Skip trial contracts — no billing period during trial
+  if (contract._plan && isContractInTrial(contract, contract._plan)) {
+    logger.info({ contractId: contract.id }, 'Contract is in trial period, skipping billing period generation');
+    return null;
+  }
 
   // Check if there's already a pending period
   const [existing] = await db.query(
@@ -85,8 +148,9 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
       return Invoice.findById(lockedPeriods[0].invoice_id);
     }
 
-    // Get the effective price (override or plan price)
-    const price = contract.price_override || plan.price;
+    // Get the effective price (override or plan price; use trial_price if in trial)
+    const inTrial = isContractInTrial(contract, plan);
+    const price = inTrial ? parseFloat(plan.trial_price || 0) : (contract.price_override || plan.price);
     const currency = plan.currency || 'USD';
 
     // Get applicable tax rate
@@ -130,6 +194,27 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
        VALUES (?, ?, 1, ?, ?)`,
       [invoiceId, `${plan.name} — ${billingPeriod.period_start} to ${billingPeriod.period_end}`, price, price],
     );
+
+    // Add overage line item if applicable
+    if (!inTrial && plan.overage_mode === 'per_gb') {
+      const overage = await calculateOverageCharges(contract.id, billingPeriod.period_start, billingPeriod.period_end);
+      if (overage.overage_gb > 0) {
+        await conn.execute(
+          `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, amount)
+           VALUES (?, ?, ?, ?, ?)`,
+          [invoiceId, `Data overage — ${overage.overage_gb} GB @ ${plan.currency || 'USD'} ${plan.overage_price_per_gb}/GB`,
+            overage.overage_gb, parseFloat(plan.overage_price_per_gb), overage.amount],
+        );
+        // Update invoice totals for overage
+        const newSubtotal = subtotal + overage.amount;
+        const newTaxAmount = Math.round(newSubtotal * taxPct) / 100;
+        const newTotal = newSubtotal + newTaxAmount;
+        await conn.execute(
+          'UPDATE invoices SET subtotal = ?, tax_amount = ?, total = ? WHERE id = ?',
+          [newSubtotal, newTaxAmount, newTotal, invoiceId],
+        );
+      }
+    }
 
     // Add line items for contract add-ons
     const [addons] = await conn.execute(
@@ -228,4 +313,4 @@ async function recordPaymentCredit(payment, orgId) {
   );
 }
 
-module.exports = { generateBillingPeriod, generateInvoice, calculateProration, recordPaymentCredit };
+module.exports = { generateBillingPeriod, generateInvoice, calculateProration, recordPaymentCredit, isContractInTrial, calculateOverageCharges };

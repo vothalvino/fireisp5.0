@@ -4317,6 +4317,211 @@
         }
       }
     },
+    "/plans/{id}/radius-attributes": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Preview RADIUS attributes for a plan",
+        "operationId": "getPlanRadiusAttributes",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RadiusAttributes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/plans/{id}/speed-windows": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "List time-based speed windows for a plan",
+        "operationId": "listPlanSpeedWindows",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SpeedWindow[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Create a speed window for a plan",
+        "operationId": "createPlanSpeedWindow",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "plans_createSpeedWindow",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "SpeedWindow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/plans/{id}/speed-windows/{windowId}": {
+      "put": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Update a speed window",
+        "operationId": "updatePlanSpeedWindow",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "windowId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "plans_createSpeedWindow",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SpeedWindow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Soft-delete a speed window",
+        "operationId": "deletePlanSpeedWindow",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "windowId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
     "/contracts": {
       "get": {
         "tags": [
@@ -22988,6 +23193,8 @@
               "extra_ip_block",
               "extra_bandwidth",
               "equipment_rental",
+              "voip",
+              "iptv",
               "other"
             ]
           },
@@ -23018,6 +23225,54 @@
           "name",
           "addon_type",
           "price"
+        ]
+      },
+      "plans_createSpeedWindow": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "day_mask": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 127
+          },
+          "start_time": {
+            "type": "string"
+          },
+          "end_time": {
+            "type": "string"
+          },
+          "download_speed_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "upload_speed_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        },
+        "required": [
+          "label",
+          "start_time",
+          "end_time",
+          "download_speed_mbps",
+          "upload_speed_mbps"
         ]
       },
       "profeco_createProfecoComplaint": {

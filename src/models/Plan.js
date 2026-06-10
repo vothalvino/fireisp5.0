@@ -13,6 +13,11 @@ class Plan extends BaseModel {
       'upload_speed_mbps', 'price', 'currency', 'billing_cycle',
       'data_cap_gb', 'burst_download_mbps', 'burst_upload_mbps',
       'priority', 'status',
+      'radius_vendor', 'radius_rate_limit_template',
+      'fup_threshold_gb', 'fup_threshold_percent',
+      'fup_download_speed_mbps', 'fup_upload_speed_mbps',
+      'overage_mode', 'overage_price_per_gb',
+      'trial_days', 'trial_price',
     ];
   }
 
