@@ -66,6 +66,8 @@
     "snmpProfiles": "📶 Perfis SNMP",
     "deviceConfigBackups": "💾 Backups de Config.",
     "suspensionRules": "⛔ Regras de Suspensão",
+    "paymentPlans": "💳 Planos de Pagamento",
+    "cashReconciliation": "💰 Conciliação de Caixa",
     "cfdi": "🏛️ CFDI",
     "plans": "📶 Planos",
     "quotes": "🧮 Orçamentos",
@@ -719,5 +721,71 @@
     "export": "Exportar",
     "exportError": "Falha na exportação. Tente novamente.",
     "noData": "Nenhum registro encontrado para o período selecionado."
+  },
+  "paymentPlans": {
+    "title": "Planos de Pagamento",
+    "newPlan": "Novo Plano",
+    "columns": {
+      "id": "ID",
+      "client": "Cliente",
+      "total": "Total",
+      "installments": "Parcelas",
+      "frequency": "Frequência",
+      "status": "Status",
+      "createdAt": "Criado"
+    },
+    "status": {
+      "active": "Ativo",
+      "completed": "Concluído",
+      "defaulted": "Inadimplente",
+      "cancelled": "Cancelado"
+    },
+    "installmentStatus": {
+      "pending": "Pendente",
+      "paid": "Pago",
+      "overdue": "Vencido"
+    },
+    "form": {
+      "clientId": "ID do Cliente",
+      "invoiceId": "ID da Fatura (opcional)",
+      "totalAmount": "Valor Total",
+      "installmentCount": "Número de Parcelas",
+      "frequency": "Frequência",
+      "notes": "Observações",
+      "paymentId": "ID do Pagamento"
+    },
+    "pay": "Pagar Parcela",
+    "schedule": "Calendário de Parcelas"
+  },
+  "cashReconciliation": {
+    "title": "Conciliação de Caixa",
+    "openSession": "Abrir Sessão",
+    "columns": {
+      "id": "ID",
+      "agent": "Agente",
+      "status": "Status",
+      "openedAt": "Aberto em",
+      "closedAt": "Fechado em",
+      "expected": "Esperado",
+      "counted": "Contado",
+      "variance": "Diferença"
+    },
+    "status": {
+      "open": "Aberto",
+      "closed": "Fechado",
+      "approved": "Aprovado",
+      "disputed": "Contestado"
+    },
+    "close": "Fechar Sessão",
+    "approve": "Aprovar",
+    "countedTotal": "Total Contado",
+    "notes": "Observações",
+    "cashPayments": "Pagamentos em Dinheiro da Sessão"
+  },
+  "suspensionRulesPage": {
+    "softSuspend": {
+      "downloadKbps": "Velocidade de download limitada (kbps)",
+      "uploadKbps": "Velocidade de upload limitada (kbps)"
+    }
   }
 }

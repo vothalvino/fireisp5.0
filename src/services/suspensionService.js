@@ -22,17 +22,20 @@ async function evaluateRules(organizationId) {
   const results = [];
 
   for (const rule of rules) {
-    // Find contracts with past-due invoices exceeding the rule's threshold
+    // Find contracts with past-due invoices exceeding the rule's threshold.
+    // Exclude contracts whose client has suspension_exempt set.
     const [contracts] = await db.query(`
       SELECT c.*, i.id AS invoice_id, i.due_date, i.total,
              DATEDIFF(NOW(), i.due_date) AS days_overdue
       FROM contracts c
       JOIN invoices i ON i.contract_id = c.id AND i.organization_id = ?
+      JOIN clients cl ON cl.id = c.client_id
       WHERE c.organization_id = ?
         AND c.status = 'active'
         AND i.status = 'issued'
         AND DATEDIFF(NOW(), i.due_date) >= ?
         AND DATEDIFF(NOW(), i.due_date) < ? + ?
+        AND COALESCE(cl.suspension_exempt, 0) = 0
     `, [organizationId, organizationId, rule.days_past_due,
       rule.days_past_due, rule.grace_period_days || 0]);
 
@@ -48,6 +51,12 @@ async function evaluateRules(organizationId) {
  * Suspend a contract. Changes status, logs the event, and sends RADIUS Disconnect-Request.
  */
 async function suspendContract(contractId, ruleId, userId, invoiceId) {
+  const exemptCheck = await isClientSuspensionExempt(contractId);
+  if (exemptCheck.exempt) {
+    logger.info({ contractId, reason: exemptCheck.reason }, 'Skipping suspension — client is suspension-exempt');
+    return { skipped: true, reason: exemptCheck.reason };
+  }
+
   logger.info({ contractId, ruleId, invoiceId }, 'Suspending contract');
   const conn = await db.getConnection();
   try {
@@ -123,6 +132,65 @@ async function reconnectContract(contractId, userId, invoiceId) {
   } finally {
     conn.release();
   }
+}
+
+/**
+ * Soft-suspend a contract: send RADIUS CoA with throttled speeds but leave the
+ * contract status as 'active'. Records a 'soft_suspend' entry in suspension_logs.
+ */
+async function softSuspendContract(contractId, ruleId, userId, invoiceId, downloadKbps, uploadKbps) {
+  const exemptCheck = await isClientSuspensionExempt(contractId);
+  if (exemptCheck.exempt) {
+    logger.info({ contractId, reason: exemptCheck.reason }, 'Skipping soft suspension — client is suspension-exempt');
+    return { skipped: true, reason: exemptCheck.reason };
+  }
+
+  logger.info({ contractId, ruleId, invoiceId, downloadKbps, uploadKbps }, 'Soft-suspending contract');
+
+  let coaSent = false;
+  let coaResponse;
+  try {
+    const coaResult = await sendRadiusCoA(contractId, 'soft_suspend');
+    coaSent = coaResult.sent;
+    coaResponse = JSON.stringify({
+      action: 'soft_suspend',
+      download_kbps: downloadKbps,
+      upload_kbps: uploadKbps,
+      result: coaResult.response,
+    });
+  } catch (_coaErr) {
+    coaResponse = JSON.stringify({ action: 'soft_suspend', download_kbps: downloadKbps, upload_kbps: uploadKbps, result: 'CoA send failed' });
+  }
+
+  await db.query(
+    `INSERT INTO suspension_logs (contract_id, suspension_rule_id, action, performed_by, invoice_id, coa_sent, coa_response, suspended_at)
+     VALUES (?, ?, 'soft_suspend', ?, ?, ?, ?, NOW())`,
+    [contractId, ruleId, userId, invoiceId, coaSent, coaResponse],
+  );
+}
+
+/**
+ * Check whether the client associated with a contract has suspension_exempt set.
+ * Returns { exempt: boolean, reason: string|null }.
+ */
+async function isClientSuspensionExempt(contractId) {
+  const [rows] = await db.query(
+    `SELECT cl.suspension_exempt, cl.suspension_exempt_reason
+     FROM contracts ct
+     JOIN clients cl ON cl.id = ct.client_id
+     WHERE ct.id = ?
+     LIMIT 1`,
+    [contractId],
+  );
+
+  if (rows.length === 0) {
+    return { exempt: false, reason: null };
+  }
+
+  return {
+    exempt: !!rows[0].suspension_exempt,
+    reason: rows[0].suspension_exempt_reason || null,
+  };
 }
 
 /**
@@ -255,4 +323,4 @@ function sendRadiusPacket(nasIp, port, secret, code, username) {
   });
 }
 
-module.exports = { evaluateRules, suspendContract, reconnectContract, sendRadiusDisconnect, sendRadiusCoA, sendRadiusPacket };
+module.exports = { evaluateRules, suspendContract, softSuspendContract, reconnectContract, isClientSuspensionExempt, sendRadiusDisconnect, sendRadiusCoA, sendRadiusPacket };

@@ -100,6 +100,8 @@ import { TaxRateList } from '@/pages/TaxRateList';
 import { PaymentGatewayList } from '@/pages/PaymentGatewayList';
 import { PaymentTransactionList } from '@/pages/PaymentTransactionList';
 import { RecurringPaymentProfileList } from '@/pages/RecurringPaymentProfileList';
+import { PaymentPlanList } from '@/pages/PaymentPlanList';
+import { CashReconciliationList } from '@/pages/CashReconciliationList';
 import { AIAssistantSettings } from '@/pages/AIAssistantSettings';
 import { NotFound } from '@/pages/NotFound';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
@@ -199,6 +201,8 @@ export function App() {
                 <Route path="payment-gateways" element={<PaymentGatewayList />} />
                 <Route path="payment-transactions" element={<PaymentTransactionList />} />
                 <Route path="recurring-payment-profiles" element={<RecurringPaymentProfileList />} />
+                <Route path="payment-plans" element={<PaymentPlanList />} />
+                <Route path="cash-reconciliation" element={<CashReconciliationList />} />
                 <Route path="winback-campaigns" element={<WinbackCampaignList />} />
                 <Route path="churn-analytics" element={<ChurnAnalytics />} />
                 <Route path="csd-certificates" element={<CsdCertificateList />} />

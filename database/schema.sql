@@ -75,6 +75,8 @@ CREATE TABLE IF NOT EXISTS clients (
     portal_login_attempts      TINYINT      NOT NULL DEFAULT 0,
     portal_locked_until        TIMESTAMP    NULL,
     version         INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
+    suspension_exempt        TINYINT(1)   NOT NULL DEFAULT 0   COMMENT 'When 1, suspension rules will never be applied to this client',
+    suspension_exempt_reason VARCHAR(500) NULL                 COMMENT 'Optional explanation for why this client is exempt from suspension',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
@@ -773,6 +775,107 @@ CREATE TABLE IF NOT EXISTS payment_allocations (
         REFERENCES payments (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_payment_allocations_invoice FOREIGN KEY (invoice_id)
         REFERENCES invoices (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: payment_plans
+-- Purpose: Payment plan for splitting invoices into installments
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS payment_plans (
+    id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED  NULL,
+    client_id           BIGINT UNSIGNED  NOT NULL,
+    total_amount        DECIMAL(12,2)    NOT NULL,
+    installment_count   INT UNSIGNED     NOT NULL DEFAULT 1,
+    frequency           ENUM('weekly','biweekly','monthly') NOT NULL DEFAULT 'monthly',
+    status              ENUM('active','completed','defaulted','cancelled') NOT NULL DEFAULT 'active',
+    notes               TEXT             NULL,
+    created_by          BIGINT UNSIGNED  NULL,
+    created_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME         NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_payment_plans_organization_id (organization_id),
+    KEY idx_payment_plans_client_id (client_id),
+    KEY idx_payment_plans_status (status),
+    KEY idx_payment_plans_deleted_at (deleted_at),
+    CONSTRAINT fk_payment_plans_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_payment_plans_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_payment_plans_created_by FOREIGN KEY (created_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: payment_plan_installments
+-- Purpose: Individual installment records for a payment plan
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS payment_plan_installments (
+    id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED  NULL,
+    plan_id             BIGINT UNSIGNED  NOT NULL,
+    invoice_id          BIGINT UNSIGNED  NULL     COMMENT 'Invoice this installment covers; NULL until invoice is generated',
+    sequence            INT UNSIGNED     NOT NULL COMMENT 'Order of this installment within the plan (1-based)',
+    amount              DECIMAL(12,2)    NOT NULL,
+    due_date            DATE             NOT NULL,
+    status              ENUM('pending','paid','overdue') NOT NULL DEFAULT 'pending',
+    paid_payment_id     BIGINT UNSIGNED  NULL     COMMENT 'Payment record that settled this installment',
+    paid_at             DATETIME         NULL,
+    created_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_plan_sequence (plan_id, sequence),
+    KEY idx_payment_plan_installments_organization_id (organization_id),
+    KEY idx_payment_plan_installments_plan_id (plan_id),
+    KEY idx_payment_plan_installments_invoice_id (invoice_id),
+    KEY idx_payment_plan_installments_status (status),
+    KEY idx_payment_plan_installments_due_date (due_date),
+    CONSTRAINT fk_ppi_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_ppi_plan FOREIGN KEY (plan_id)
+        REFERENCES payment_plans (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_ppi_invoice FOREIGN KEY (invoice_id)
+        REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_ppi_paid_payment FOREIGN KEY (paid_payment_id)
+        REFERENCES payments (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: cash_reconciliation_sessions
+-- Purpose: Field agent cash collection reconciliation sessions
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cash_reconciliation_sessions (
+    id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED  NULL,
+    agent_user_id       BIGINT UNSIGNED  NOT NULL COMMENT 'Field agent who opened this session',
+    opened_at           DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    closed_at           DATETIME         NULL,
+    expected_total      DECIMAL(12,2)    NULL     COMMENT 'System-computed total of cash payments recorded during session window',
+    counted_total       DECIMAL(12,2)    NULL     COMMENT 'Physical cash count submitted by the agent at close',
+    variance            DECIMAL(12,2)    NULL     COMMENT 'counted_total - expected_total; negative = short, positive = over',
+    status              ENUM('open','closed','approved','disputed') NOT NULL DEFAULT 'open',
+    notes               TEXT             NULL,
+    approved_by         BIGINT UNSIGNED  NULL     COMMENT 'Supervisor who approved or disputed the session',
+    approved_at         DATETIME         NULL,
+    created_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME         NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_cash_recon_organization_id (organization_id),
+    KEY idx_cash_recon_agent_user_id (agent_user_id),
+    KEY idx_cash_recon_status (status),
+    KEY idx_cash_recon_opened_at (opened_at),
+    KEY idx_cash_recon_deleted_at (deleted_at),
+    CONSTRAINT fk_cash_recon_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cash_recon_agent FOREIGN KEY (agent_user_id)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cash_recon_approved_by FOREIGN KEY (approved_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -4871,8 +4974,10 @@ CREATE TABLE IF NOT EXISTS suspension_rules (
     name                VARCHAR(150)     NOT NULL                         COMMENT 'Descriptive rule name, e.g. "Suspensión 30 días"',
     days_past_due       INT UNSIGNED     NOT NULL                         COMMENT 'Number of days overdue before this rule triggers',
     grace_period_days   INT UNSIGNED     NOT NULL DEFAULT 0               COMMENT 'Additional grace days after trigger before action is executed',
-    action              ENUM('auto_suspend','notify_only','auto_disconnect')
+    action              ENUM('auto_suspend','notify_only','auto_disconnect','soft_suspend')
                                          NOT NULL                         COMMENT 'Action to perform when rule fires',
+    soft_suspend_download_kbps INT UNSIGNED NULL DEFAULT 128              COMMENT 'Throttled download speed (kbps) applied during soft suspension; NULL = inherit plan default',
+    soft_suspend_upload_kbps   INT UNSIGNED NULL DEFAULT 128              COMMENT 'Throttled upload speed (kbps) applied during soft suspension; NULL = inherit plan default',
     notify_before_days  INT UNSIGNED     NULL                             COMMENT 'Send a warning notification this many days before suspension; NULL = no advance notice',
     apply_to_plan_ids   JSON             NULL                             COMMENT 'JSON array of plan IDs this rule applies to; NULL = applies to all plans',
     is_active           TINYINT(1)       NOT NULL DEFAULT 1               COMMENT 'FALSE = rule is disabled and will not be evaluated',

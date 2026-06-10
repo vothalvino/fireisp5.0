@@ -66,6 +66,8 @@
     "snmpProfiles": "📶 Perfiles SNMP",
     "deviceConfigBackups": "💾 Respaldos de Config.",
     "suspensionRules": "⛔ Reglas de Suspensión",
+    "paymentPlans": "💳 Planes de Pago",
+    "cashReconciliation": "💰 Conciliación de Efectivo",
     "cfdi": "🏛️ CFDI",
     "plans": "📶 Planes",
     "quotes": "🧮 Cotizaciones",
@@ -719,5 +721,71 @@
     "export": "Exportar",
     "exportError": "Error al exportar. Inténtelo de nuevo.",
     "noData": "No se encontraron registros para el período seleccionado."
+  },
+  "paymentPlans": {
+    "title": "Planes de Pago",
+    "newPlan": "Nuevo Plan",
+    "columns": {
+      "id": "ID",
+      "client": "Cliente",
+      "total": "Total",
+      "installments": "Cuotas",
+      "frequency": "Frecuencia",
+      "status": "Estado",
+      "createdAt": "Creado"
+    },
+    "status": {
+      "active": "Activo",
+      "completed": "Completado",
+      "defaulted": "Incumplido",
+      "cancelled": "Cancelado"
+    },
+    "installmentStatus": {
+      "pending": "Pendiente",
+      "paid": "Pagado",
+      "overdue": "Vencido"
+    },
+    "form": {
+      "clientId": "ID de Cliente",
+      "invoiceId": "ID de Factura (opcional)",
+      "totalAmount": "Monto Total",
+      "installmentCount": "Número de Cuotas",
+      "frequency": "Frecuencia",
+      "notes": "Notas",
+      "paymentId": "ID de Pago"
+    },
+    "pay": "Pagar Cuota",
+    "schedule": "Calendario de Pagos"
+  },
+  "cashReconciliation": {
+    "title": "Conciliación de Efectivo",
+    "openSession": "Abrir Sesión",
+    "columns": {
+      "id": "ID",
+      "agent": "Agente",
+      "status": "Estado",
+      "openedAt": "Abierto",
+      "closedAt": "Cerrado",
+      "expected": "Esperado",
+      "counted": "Contado",
+      "variance": "Diferencia"
+    },
+    "status": {
+      "open": "Abierto",
+      "closed": "Cerrado",
+      "approved": "Aprobado",
+      "disputed": "Disputado"
+    },
+    "close": "Cerrar Sesión",
+    "approve": "Aprobar",
+    "countedTotal": "Total Contado",
+    "notes": "Notas",
+    "cashPayments": "Pagos en Efectivo de la Sesión"
+  },
+  "suspensionRulesPage": {
+    "softSuspend": {
+      "downloadKbps": "Velocidad de descarga limitada (kbps)",
+      "uploadKbps": "Velocidad de subida limitada (kbps)"
+    }
   }
 }

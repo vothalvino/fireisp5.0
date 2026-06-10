@@ -91,6 +91,8 @@ describe('suspensionService', () => {
   describe('suspendContract', () => {
     test('suspends contract and logs event within transaction', async () => {
       mockConnection.execute.mockResolvedValue([{ affectedRows: 1 }]);
+      // isClientSuspensionExempt: client NOT exempt
+      db.query.mockResolvedValueOnce([[{ suspension_exempt: 0, suspension_exempt_reason: null }]]);
       // RADIUS lookup returns empty (no RADIUS account)
       db.query.mockResolvedValueOnce([[]]);
 
@@ -112,6 +114,8 @@ describe('suspensionService', () => {
     });
 
     test('rolls back on error and releases connection', async () => {
+      // isClientSuspensionExempt: client NOT exempt
+      db.query.mockResolvedValueOnce([[{ suspension_exempt: 0, suspension_exempt_reason: null }]]);
       mockConnection.execute.mockRejectedValueOnce(new Error('DB fail'));
 
       await expect(

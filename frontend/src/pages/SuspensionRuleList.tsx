@@ -52,10 +52,12 @@ interface RuleFormBody {
   action: string;
   notify_before_days?: number;
   is_enabled?: boolean;
+  soft_suspend_download_kbps?: number;
+  soft_suspend_upload_kbps?: number;
 }
 
 const DEFAULT_PAGE_SIZE = 50;
-const ACTIONS = ['auto_suspend', 'auto_disconnect', 'notify_only'] as const;
+const ACTIONS = ['auto_suspend', 'auto_disconnect', 'notify_only', 'soft_suspend'] as const;
 
 // ---------------------------------------------------------------------------
 // Fetch helpers
@@ -78,6 +80,7 @@ function ActionBadge({ action }: { action: string }) {
     auto_suspend:     { bg: '#fef3c7', color: '#92400e' },
     auto_disconnect:  { bg: '#fee2e2', color: '#991b1b' },
     notify_only:      { bg: '#dbeafe', color: '#1e40af' },
+    soft_suspend:     { bg: '#ede9fe', color: '#5b21b6' },
   };
   const s = map[action] ?? { bg: '#f3f4f6', color: '#374151' };
   return (
@@ -117,6 +120,8 @@ function RuleFormModal({
     action: initial?.action ?? 'auto_suspend',
     notify_before_days: initial?.notify_before_days ?? undefined,
     is_enabled: initial !== undefined ? Boolean(initial.is_active) : true,
+    soft_suspend_download_kbps: 128,
+    soft_suspend_upload_kbps: 128,
   });
   const [error, setError] = useState('');
 
@@ -150,6 +155,10 @@ function RuleFormModal({
     };
     const n = Number(form.notify_before_days);
     if (form.notify_before_days !== undefined && !Number.isNaN(n)) body.notify_before_days = n;
+    if (form.action === 'soft_suspend') {
+      body.soft_suspend_download_kbps = Number(form.soft_suspend_download_kbps) || 128;
+      body.soft_suspend_upload_kbps = Number(form.soft_suspend_upload_kbps) || 128;
+    }
     setError('');
     mutation.mutate(body);
   }
@@ -185,6 +194,18 @@ function RuleFormModal({
             onChange={e => setForm(p => ({ ...p, action: e.target.value }))}>
             {ACTIONS.map(a => <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>)}
           </select>
+
+          {form.action === 'soft_suspend' && (
+            <>
+              <label style={labelStyle}>Throttled download speed (kbps)</label>
+              <input style={inputStyle} type="number" min={1} value={form.soft_suspend_download_kbps ?? 128}
+                onChange={e => setForm(p => ({ ...p, soft_suspend_download_kbps: Number(e.target.value) }))} />
+
+              <label style={labelStyle}>Throttled upload speed (kbps)</label>
+              <input style={inputStyle} type="number" min={1} value={form.soft_suspend_upload_kbps ?? 128}
+                onChange={e => setForm(p => ({ ...p, soft_suspend_upload_kbps: Number(e.target.value) }))} />
+            </>
+          )}
 
           <label style={labelStyle}>Advance notice (days before suspension to notify, blank = none)</label>
           <input style={inputStyle} type="number" min={0} value={form.notify_before_days ?? ''}

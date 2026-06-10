@@ -363,6 +363,14 @@
     {
       "name": "Payment Reminders",
       "description": "Automated payment reminder schedule settings — §2.2B"
+    },
+    {
+      "name": "Payment Plans",
+      "description": "Payment plan / installment management for overdue invoices — §2.3"
+    },
+    {
+      "name": "Cash Reconciliation",
+      "description": "Field agent cash collection reconciliation sessions — §2.3"
     }
   ],
   "paths": {
@@ -17069,6 +17077,405 @@
         }
       }
     },
+    "/payment-plans": {
+      "get": {
+        "tags": [
+          "Payment Plans"
+        ],
+        "summary": "List payment-plans",
+        "operationId": "listPaymentPlans",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PaymentPlan[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Payment Plans"
+        ],
+        "summary": "Create a PaymentPlan",
+        "operationId": "createPaymentPlan",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "PaymentPlan",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "PaymentPlan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/payment-plans/{id}": {
+      "get": {
+        "tags": [
+          "Payment Plans"
+        ],
+        "summary": "Get a PaymentPlan",
+        "operationId": "getPaymentPlan",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PaymentPlan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Payment Plans"
+        ],
+        "summary": "Update a PaymentPlan",
+        "operationId": "updatePaymentPlan",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "PaymentPlan",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PaymentPlan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Payment Plans"
+        ],
+        "summary": "Delete a PaymentPlan",
+        "operationId": "deletePaymentPlan",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/payment-plans/{id}/installments/{seq}/pay": {
+      "post": {
+        "tags": [
+          "Payment Plans"
+        ],
+        "summary": "Record payment for a specific installment",
+        "operationId": "payPlanInstallment",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "seq",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "paymentPlans_payInstallmentSchema",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Installment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cash-reconciliation/sessions": {
+      "get": {
+        "tags": [
+          "Cash Reconciliation"
+        ],
+        "summary": "List cash reconciliation sessions",
+        "operationId": "listCashReconciliationSessions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CashReconciliationSession[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Cash Reconciliation"
+        ],
+        "summary": "Open a new cash reconciliation session",
+        "operationId": "openCashReconciliationSession",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "cashReconciliation_openSessionSchema",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "CashReconciliationSession",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cash-reconciliation/sessions/{id}": {
+      "get": {
+        "tags": [
+          "Cash Reconciliation"
+        ],
+        "summary": "Get session detail with included cash payments",
+        "operationId": "getCashReconciliationSession",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CashReconciliationSession",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cash-reconciliation/sessions/{id}/close": {
+      "post": {
+        "tags": [
+          "Cash Reconciliation"
+        ],
+        "summary": "Close a session with counted total",
+        "operationId": "closeCashReconciliationSession",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "cashReconciliation_closeSessionSchema",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CashReconciliationSession",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cash-reconciliation/sessions/{id}/approve": {
+      "post": {
+        "tags": [
+          "Cash Reconciliation"
+        ],
+        "summary": "Approve a closed reconciliation session",
+        "operationId": "approveCashReconciliationSession",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CashReconciliationSession",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/communication-campaigns": {
       "get": {
         "tags": [
@@ -18278,6 +18685,26 @@
         "required": [
           "subject",
           "body"
+        ]
+      },
+      "cashReconciliation_openSessionSchema": {
+        "type": "object",
+        "properties": {
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "cashReconciliation_closeSessionSchema": {
+        "type": "object",
+        "properties": {
+          "counted_total": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "counted_total"
         ]
       },
       "cfdi_generateXml": {
@@ -23227,6 +23654,74 @@
           }
         }
       },
+      "paymentPlans_createPaymentPlan": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "invoice_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "total_amount": {
+            "type": "number",
+            "minimum": 0.01
+          },
+          "installment_count": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 60
+          },
+          "frequency": {
+            "type": "string",
+            "enum": [
+              "weekly",
+              "biweekly",
+              "monthly"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_id",
+          "total_amount",
+          "installment_count",
+          "frequency"
+        ]
+      },
+      "paymentPlans_updatePaymentPlan": {
+        "type": "object",
+        "properties": {
+          "notes": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "completed",
+              "defaulted",
+              "cancelled"
+            ]
+          }
+        }
+      },
+      "paymentPlans_payInstallmentSchema": {
+        "type": "object",
+        "properties": {
+          "payment_id": {
+            "type": "number",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "payment_id"
+        ]
+      },
       "paymentTransactions_listPaymentTransactions": {
         "type": "object",
         "properties": {
@@ -25709,7 +26204,8 @@
             "enum": [
               "auto_suspend",
               "notify_only",
-              "auto_disconnect"
+              "auto_disconnect",
+              "soft_suspend"
             ]
           },
           "notify_days_before": {
@@ -25718,6 +26214,14 @@
           },
           "is_enabled": {
             "type": "boolean"
+          },
+          "soft_suspend_download_kbps": {
+            "type": "number",
+            "minimum": 1
+          },
+          "soft_suspend_upload_kbps": {
+            "type": "number",
+            "minimum": 1
           }
         },
         "required": [
@@ -25747,7 +26251,8 @@
             "enum": [
               "auto_suspend",
               "notify_only",
-              "auto_disconnect"
+              "auto_disconnect",
+              "soft_suspend"
             ]
           },
           "notify_days_before": {
@@ -25756,6 +26261,14 @@
           },
           "is_enabled": {
             "type": "boolean"
+          },
+          "soft_suspend_download_kbps": {
+            "type": "number",
+            "minimum": 1
+          },
+          "soft_suspend_upload_kbps": {
+            "type": "number",
+            "minimum": 1
           }
         }
       },

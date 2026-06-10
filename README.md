@@ -107,8 +107,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 143 tables)
-│   └── migrations/          # Individual numbered migration files (001–210)
+│   ├── schema.sql           # Combined schema (all 146 tables)
+│   └── migrations/          # Individual numbered migration files (001–216)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -303,6 +303,12 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 141 | `invoice_late_fees` | Audit trail of late fee applications to overdue invoices — links to the rule, the created line item, and the performer (NULL = system) |
 | 142 | `payment_reminder_settings` | Per-org payment reminder schedule — days before/after due date and on-due-date send flags, with enabled toggle |
 | 143 | `payment_reminder_logs` | Idempotency log for sent payment reminders — unique on `(invoice_id, stage, channel)` to prevent duplicate sends |
+| 144 | `payment_plans` | Payment plan for splitting invoices into installments |
+| 145 | `payment_plan_installments` | Individual installment records for a payment plan |
+| 146 | `cash_reconciliation_sessions` | Field agent cash collection reconciliation sessions |
+
+> **Migrations 211–216 — §2.3+§2.4 (Payment Plans, Cash Reconciliation, Soft Suspension, Suspension Exempt):**
+> Adds payment plan / installment management (211–212), cash reconciliation sessions (213–214), soft-suspend ENUM + speed columns on suspension_rules (215), and suspension_exempt columns on clients (216).
 
 > **Migrations 204–210 — Billing & Subscription Management Phase B (§2.2B):** `204_create_organization_invoice_settings.sql` adds the `organization_invoice_settings` table for per-org invoice branding (logo URL, header color, footer legal text, payment instructions); `pdfService.generateInvoicePdf` now reads these settings. `205_seed_invoice_settings_permissions.sql` seeds `invoice_settings.view` and `invoice_settings.update`. `206_create_late_fee_tables.sql` adds `late_fee_rules` and `invoice_late_fees` tables and seeds the `apply_late_fees` scheduled task (daily 02:00). `207_seed_late_fee_permissions.sql` seeds `late_fees.view` and `late_fees.manage`. `208_create_payment_reminder_tables.sql` adds `payment_reminder_settings` and `payment_reminder_logs` tables and seeds the `send_payment_reminders` scheduled task (hourly). `209_seed_payment_reminder_permissions.sql` seeds `payment_reminders.view` and `payment_reminders.manage`. `210_seed_tax_report_permissions.sql` seeds `billing.tax_reports`. New endpoints: `GET/PUT /invoice-settings`, `GET/POST/PUT/DELETE /late-fee-rules`, `GET/PUT /payment-reminder-settings`, `GET /billing/tax-reports`, `GET /invoices/:id/receipt`, `GET /payments/:id/receipt`.
 

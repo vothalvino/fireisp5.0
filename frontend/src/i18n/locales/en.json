@@ -66,6 +66,8 @@
     "snmpProfiles": "📶 SNMP Profiles",
     "deviceConfigBackups": "💾 Config Backups",
     "suspensionRules": "⛔ Suspension Rules",
+    "paymentPlans": "💳 Payment Plans",
+    "cashReconciliation": "💰 Cash Reconciliation",
     "cfdi": "🏛️ CFDI",
     "plans": "📶 Plans",
     "quotes": "🧮 Quotes",
@@ -719,5 +721,71 @@
     "export": "Export",
     "exportError": "Export failed. Please try again.",
     "noData": "No records found for the selected period."
+  },
+  "paymentPlans": {
+    "title": "Payment Plans",
+    "newPlan": "New Plan",
+    "columns": {
+      "id": "ID",
+      "client": "Client",
+      "total": "Total",
+      "installments": "Installments",
+      "frequency": "Frequency",
+      "status": "Status",
+      "createdAt": "Created"
+    },
+    "status": {
+      "active": "Active",
+      "completed": "Completed",
+      "defaulted": "Defaulted",
+      "cancelled": "Cancelled"
+    },
+    "installmentStatus": {
+      "pending": "Pending",
+      "paid": "Paid",
+      "overdue": "Overdue"
+    },
+    "form": {
+      "clientId": "Client ID",
+      "invoiceId": "Invoice ID (optional)",
+      "totalAmount": "Total Amount",
+      "installmentCount": "Number of Installments",
+      "frequency": "Frequency",
+      "notes": "Notes",
+      "paymentId": "Payment ID"
+    },
+    "pay": "Pay Installment",
+    "schedule": "Installment Schedule"
+  },
+  "cashReconciliation": {
+    "title": "Cash Reconciliation",
+    "openSession": "Open Session",
+    "columns": {
+      "id": "ID",
+      "agent": "Agent",
+      "status": "Status",
+      "openedAt": "Opened At",
+      "closedAt": "Closed At",
+      "expected": "Expected",
+      "counted": "Counted",
+      "variance": "Variance"
+    },
+    "status": {
+      "open": "Open",
+      "closed": "Closed",
+      "approved": "Approved",
+      "disputed": "Disputed"
+    },
+    "close": "Close Session",
+    "approve": "Approve",
+    "countedTotal": "Counted Total",
+    "notes": "Notes",
+    "cashPayments": "Cash Payments in Session"
+  },
+  "suspensionRulesPage": {
+    "softSuspend": {
+      "downloadKbps": "Throttled download speed (kbps)",
+      "uploadKbps": "Throttled upload speed (kbps)"
+    }
   }
 }

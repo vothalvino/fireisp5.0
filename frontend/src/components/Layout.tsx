@@ -65,6 +65,8 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/invoice-settings', labelKey: 'nav.invoiceSettings', requiredRole: 'billing' },
       { to: '/late-fee-rules', labelKey: 'nav.lateFeeRules', requiredRole: 'billing' },
       { to: '/payment-reminder-settings', labelKey: 'nav.paymentReminderSettings', requiredRole: 'billing' },
+      { to: '/payment-plans', labelKey: 'nav.paymentPlans', requiredRole: 'billing' },
+      { to: '/cash-reconciliation', labelKey: 'nav.cashReconciliation', requiredRole: 'billing' },
     ],
   },
   {
