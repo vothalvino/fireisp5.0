@@ -29,6 +29,7 @@ import {
   type ClientFormInitial,
 } from '@/components/ClientFormModal';
 import { ProfileExtrasTab, CustomFieldsTab, DocumentsTab, DuplicatesTab } from '@/pages/ClientProfileTabs';
+import { ActivityTimelineTab } from '@/pages/ClientActivityTab';
 
 // ---------------------------------------------------------------------------
 // GraphQL query — fetches the client + all sub-resources in one request
@@ -264,9 +265,10 @@ function StatusBadge({ status, colorMap }: { status: string; colorMap?: Record<s
 // Tab types
 // ---------------------------------------------------------------------------
 
-type TabId = 'contracts' | 'invoices' | 'payments' | 'devices' | 'ledger' | 'contacts' | 'profile' | 'customFields' | 'documents' | 'duplicates';
+type TabId = 'activity' | 'contracts' | 'invoices' | 'payments' | 'devices' | 'ledger' | 'contacts' | 'profile' | 'customFields' | 'documents' | 'duplicates';
 
 const TABS: { id: TabId; label: string }[] = [
+  { id: 'activity',  label: '📅 Activity' },
   { id: 'contracts', label: '📄 Contracts' },
   { id: 'invoices',  label: '🧾 Invoices' },
   { id: 'payments',  label: '💳 Payments' },
@@ -895,6 +897,7 @@ export function ClientDetail() {
 
       {/* Tab content */}
       <div style={styles.tabContent}>
+        {activeTab === 'activity'  && <ActivityTimelineTab clientId={Number(client.id)} />}
         {activeTab === 'contracts' && <ContractsTab contracts={client.contracts} />}
         {activeTab === 'invoices'  && <InvoicesTab  invoices={client.invoices}   />}
         {activeTab === 'payments'  && <PaymentsTab  payments={client.payments}   />}

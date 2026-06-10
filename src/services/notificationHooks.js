@@ -400,6 +400,105 @@ function registerHooks() {
     }
   });
 
+  // --- Follow-up Reminder Due — §1.3 ---
+  eventBus.on('followup.due', async ({ organizationId, reminder }) => {
+    try {
+      if (reminder.assignee_email) {
+        const html = `<p>Hola ${reminder.assignee_first_name || ''},</p>`
+          + `<p>Tienes un seguimiento pendiente con el cliente <strong>${reminder.client_name || reminder.client_id}</strong>:</p>`
+          + `<p><strong>${reminder.title}</strong></p>`
+          + (reminder.notes ? `<p>${reminder.notes}</p>` : '')
+          + `<p>Vencimiento: ${reminder.due_at ? new Date(reminder.due_at).toISOString().slice(0, 16).replace('T', ' ') : 'N/A'}</p>`;
+        await emailTransport.sendEmail({
+          organizationId,
+          to: reminder.assignee_email,
+          subject: `Seguimiento pendiente: ${reminder.title}`,
+          html,
+        });
+      }
+
+      getBroadcast()(`org:${organizationId}:notifications`, 'followup.due', {
+        reminder_id: reminder.id,
+        client_id: reminder.client_id,
+        title: reminder.title,
+        due_at: reminder.due_at,
+        assigned_to: reminder.assigned_to,
+      });
+
+      await webhookService.dispatch(organizationId, 'followup.due', {
+        id: reminder.id,
+        client_id: reminder.client_id,
+        title: reminder.title,
+        due_at: reminder.due_at,
+      });
+    } catch (err) {
+      logger.error({ err, event: 'followup.due' }, 'Notification hook error');
+    }
+  });
+
+  // --- Satisfaction Survey Requested — §1.3 ---
+  eventBus.on('survey.requested', async ({ organizationId, survey, client, ticket }) => {
+    try {
+      if (client?.email && survey.channel === 'email') {
+        const isNps = survey.survey_type === 'nps';
+        const scale = isNps ? '0 a 10' : '1 a 5';
+        const question = isNps
+          ? '¿Qué tan probable es que nos recomiendes a un amigo o colega?'
+          : '¿Qué tan satisfecho quedaste con la atención recibida?';
+        const context = ticket ? `<p>Referencia: ticket "${ticket.subject}".</p>` : '';
+        const html = `<p>Hola ${client.name || ''},</p>`
+          + `<p>${question}</p>${context}`
+          + `<p>Responde a este correo con una calificación de <strong>${scale}</strong> y, si lo deseas, un comentario.</p>`
+          + '<p>¡Gracias por ayudarnos a mejorar!</p>';
+        await emailTransport.sendEmail({
+          organizationId,
+          to: client.email,
+          subject: isNps ? 'Tu opinión nos importa — encuesta rápida' : '¿Cómo fue tu experiencia de soporte?',
+          html,
+        });
+      }
+
+      getBroadcast()(`org:${organizationId}:notifications`, 'survey.requested', {
+        survey_id: survey.id,
+        client_id: survey.client_id,
+        survey_type: survey.survey_type,
+        ticket_id: survey.ticket_id,
+      });
+
+      await webhookService.dispatch(organizationId, 'survey.requested', {
+        id: survey.id,
+        client_id: survey.client_id,
+        survey_type: survey.survey_type,
+        ticket_id: survey.ticket_id,
+      });
+    } catch (err) {
+      logger.error({ err, event: 'survey.requested' }, 'Notification hook error');
+    }
+  });
+
+  // --- Ticket Escalated — §1.3 ---
+  eventBus.on('ticket.escalated', async ({ organizationId, escalation, ticket }) => {
+    try {
+      getBroadcast()(`org:${organizationId}:notifications`, 'ticket.escalated', {
+        escalation_id: escalation.id,
+        ticket_id: ticket.id,
+        subject: ticket.subject,
+        level: escalation.level,
+        reason: escalation.reason,
+      });
+
+      await webhookService.dispatch(organizationId, 'ticket.escalated', {
+        id: escalation.id,
+        ticket_id: ticket.id,
+        level: escalation.level,
+        reason: escalation.reason,
+        escalated_to: escalation.escalated_to,
+      });
+    } catch (err) {
+      logger.error({ err, event: 'ticket.escalated' }, 'Notification hook error');
+    }
+  });
+
   logger.info('Notification hooks registered');
 }
 

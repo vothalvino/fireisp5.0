@@ -38,6 +38,9 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/winback-campaigns', labelKey: 'nav.winbackCampaigns', requiredRole: 'billing' },
       { to: '/churn-analytics', labelKey: 'nav.churnAnalytics', requiredRole: 'billing' },
       { to: '/tickets', labelKey: 'nav.tickets' },
+      { to: '/follow-up-reminders', labelKey: 'nav.followUps' },
+      { to: '/satisfaction-surveys', labelKey: 'nav.surveys' },
+      { to: '/escalations', labelKey: 'nav.escalations' },
     ],
   },
   {

@@ -37,6 +37,9 @@ import { InvoiceDetail } from '@/pages/InvoiceDetail';
 import { PaymentList } from '@/pages/PaymentList';
 import { TicketList } from '@/pages/TicketList';
 import { TicketDetail } from '@/pages/TicketDetail';
+import { FollowUpReminderList } from '@/pages/FollowUpReminderList';
+import { SatisfactionSurveyList } from '@/pages/SatisfactionSurveyList';
+import { EscalationList } from '@/pages/EscalationList';
 import { DeviceMap } from '@/pages/DeviceMap';
 import { UserList } from '@/pages/UserList';
 import { CfdiList } from '@/pages/CfdiList';
@@ -143,6 +146,9 @@ export function App() {
                 <Route path="payments" element={<PaymentList />} />
                 <Route path="tickets" element={<TicketList />} />
                 <Route path="tickets/:id" element={<TicketDetail />} />
+                <Route path="follow-up-reminders" element={<FollowUpReminderList />} />
+                <Route path="satisfaction-surveys" element={<SatisfactionSurveyList />} />
+                <Route path="escalations" element={<EscalationList />} />
                 <Route path="devices" element={<DeviceMap />} />
               </Route>
             </Route>

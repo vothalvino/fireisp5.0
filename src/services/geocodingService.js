@@ -22,7 +22,7 @@ const GOOGLE_GEOCODE_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
  */
 function formatAddress({ address, city, state, zip_code, country } = {}) {
   return [address, city, state, zip_code, country]
-    .map(p => (p == null ? '' : String(p).trim()))
+    .map(p => String(p ?? '').trim())
     .filter(Boolean)
     .join(', ');
 }

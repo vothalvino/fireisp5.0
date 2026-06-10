@@ -148,7 +148,7 @@ class TunnelServer extends EventEmitter {
     ws.on('close', (code, reason) => {
       clearTimeout(authTimeout);
       if (ws._nodeId) {
-        this._onAgentDisconnect(ws._nodeId, code, reason.toString());
+        this._onAgentDisconnect(ws, code, reason.toString());
       }
     });
 
@@ -271,8 +271,21 @@ class TunnelServer extends EventEmitter {
     }
   }
 
-  _onAgentDisconnect(nodeId, code, reason) {
-    this._clearPingTimer(this._agents.get(nodeId));
+  _onAgentDisconnect(ws, code, reason) {
+    const nodeId = ws._nodeId;
+
+    // Always release this socket's own ping timer.
+    this._clearPingTimer(ws);
+
+    // If this socket was already superseded by a newer connection for the same
+    // node_id (see the replacement path in _handleAuth), the map now points at
+    // the live socket. The stale socket's close must NOT evict that entry, mark
+    // the node offline, or emit a disconnect — the node is still connected.
+    if (this._agents.get(nodeId) !== ws) {
+      logger.debug({ nodeId, code, reason }, 'Tunnel: stale (replaced) agent socket closed');
+      return;
+    }
+
     this._agents.delete(nodeId);
 
     logger.info({ nodeId, code, reason }, 'Tunnel: agent disconnected');

@@ -183,7 +183,7 @@ class Client extends BaseModel {
 
       // Files (ID documents, photos, notification logs).
       const [files] = await conn.query(
-        `UPDATE files SET entity_id = ? WHERE entity_type = 'client' AND entity_id = ?`,
+        'UPDATE files SET entity_id = ? WHERE entity_type = \'client\' AND entity_id = ?',
         [targetId, sourceId],
       );
       if (files.affectedRows > 0) moved.files = files.affectedRows;
