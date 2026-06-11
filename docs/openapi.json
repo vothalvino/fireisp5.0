@@ -463,6 +463,42 @@
     {
       "name": "CPE Profiles",
       "description": "CPE provisioning profile templates with inheritance, parameter mappings, vendor seeds — §8.2"
+    },
+    {
+      "name": "Wireless AP Sectors",
+      "description": "AP sector RF configuration management — azimuth, frequency, channel, power, encryption — §9.1"
+    },
+    {
+      "name": "Wireless Channel Plans",
+      "description": "AP channel assignment registry per site for frequency conflict avoidance — §9.1"
+    },
+    {
+      "name": "Wireless Clients",
+      "description": "Wireless CPE client session snapshots per AP poll — §9.1"
+    },
+    {
+      "name": "Wireless Channel Interference",
+      "description": "Detected RF channel interference records per sector/site — §9.1"
+    },
+    {
+      "name": "AP Command Jobs",
+      "description": "AP remote command jobs for power/frequency/reboot adjustments — §9.1"
+    },
+    {
+      "name": "PTP Links",
+      "description": "PTP/PTMP link monitoring — signal, modulation, throughput, failover state — §9.2"
+    },
+    {
+      "name": "Link Planning",
+      "description": "Link budget calculator — haversine distance, FSPL, Fresnel zone, saved runs — §9.2"
+    },
+    {
+      "name": "RF Metrics",
+      "description": "RF metric dashboards — noise floor, air utilization, GPS sync, signal distribution — §9.3"
+    },
+    {
+      "name": "Spectrum Scans",
+      "description": "AP spectrum scan results — raw scan data, peak interference, channel recommendations — §9.3"
     }
   ],
   "paths": {
@@ -30153,6 +30189,1249 @@
         }
       }
     },
+    "/wireless/ap-sectors": {
+      "get": {
+        "tags": [
+          "Wireless AP Sectors"
+        ],
+        "summary": "List AP sector configurations",
+        "operationId": "listApSectorConfigs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ApSectorConfig[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Wireless AP Sectors"
+        ],
+        "summary": "Create AP sector configuration",
+        "operationId": "createApSectorConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "wirelessSectors_createApSectorConfig",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ApSectorConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wireless/ap-sectors/{id}": {
+      "get": {
+        "tags": [
+          "Wireless AP Sectors"
+        ],
+        "summary": "Get AP sector configuration",
+        "operationId": "getApSectorConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ApSectorConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Wireless AP Sectors"
+        ],
+        "summary": "Update AP sector configuration",
+        "operationId": "updateApSectorConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "wirelessSectors_updateApSectorConfig",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ApSectorConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Wireless AP Sectors"
+        ],
+        "summary": "Soft-delete AP sector configuration",
+        "operationId": "deleteApSectorConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/wireless/ap-sectors/{id}/restore": {
+      "post": {
+        "tags": [
+          "Wireless AP Sectors"
+        ],
+        "summary": "Restore soft-deleted AP sector config",
+        "operationId": "restoreApSectorConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ApSectorConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wireless/channel-plans": {
+      "get": {
+        "tags": [
+          "Wireless Channel Plans"
+        ],
+        "summary": "List AP channel plans",
+        "operationId": "listApChannelPlans",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ApChannelPlan[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Wireless Channel Plans"
+        ],
+        "summary": "Create AP channel plan",
+        "operationId": "createApChannelPlan",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "wirelessSectors_createApChannelPlan",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ApChannelPlan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wireless/channel-plans/{id}": {
+      "get": {
+        "tags": [
+          "Wireless Channel Plans"
+        ],
+        "summary": "Get AP channel plan",
+        "operationId": "getApChannelPlan",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ApChannelPlan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Wireless Channel Plans"
+        ],
+        "summary": "Update AP channel plan",
+        "operationId": "updateApChannelPlan",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "wirelessSectors_updateApChannelPlan",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ApChannelPlan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Wireless Channel Plans"
+        ],
+        "summary": "Soft-delete AP channel plan",
+        "operationId": "deleteApChannelPlan",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/wireless/channel-plans/{id}/restore": {
+      "post": {
+        "tags": [
+          "Wireless Channel Plans"
+        ],
+        "summary": "Restore soft-deleted AP channel plan",
+        "operationId": "restoreApChannelPlan",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ApChannelPlan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wireless/channel-plans/conflicts/{siteId}": {
+      "get": {
+        "tags": [
+          "Wireless Channel Plans"
+        ],
+        "summary": "Detect frequency conflicts within a site",
+        "operationId": "detectChannelConflicts",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "siteId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ChannelConflict[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wireless/clients": {
+      "get": {
+        "tags": [
+          "Wireless Clients"
+        ],
+        "summary": "List wireless client session snapshots",
+        "operationId": "listWirelessClientSessions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "WirelessClientSession[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wireless/clients/batch": {
+      "post": {
+        "tags": [
+          "Wireless Clients"
+        ],
+        "summary": "Ingest batch of client session snapshots from AP poll",
+        "operationId": "batchIngestWirelessSessions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "sessions[]",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ recorded: number }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wireless/channel-interference": {
+      "get": {
+        "tags": [
+          "Wireless Channel Interference"
+        ],
+        "summary": "List channel interference records",
+        "operationId": "listChannelInterference",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ChannelInterference[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Wireless Channel Interference"
+        ],
+        "summary": "Record channel interference detection",
+        "operationId": "createChannelInterference",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "wirelessSectors_createChannelInterference",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ChannelInterference",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wireless/channel-interference/{id}": {
+      "put": {
+        "tags": [
+          "Wireless Channel Interference"
+        ],
+        "summary": "Update channel interference record",
+        "operationId": "updateChannelInterference",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "wirelessSectors_updateChannelInterference",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ChannelInterference",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Wireless Channel Interference"
+        ],
+        "summary": "Soft-delete channel interference record",
+        "operationId": "deleteChannelInterference",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/wireless/ap-commands": {
+      "get": {
+        "tags": [
+          "AP Command Jobs"
+        ],
+        "summary": "List AP remote command jobs",
+        "operationId": "listApCommandJobs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ApCommandJob[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "AP Command Jobs"
+        ],
+        "summary": "Create AP remote command job",
+        "operationId": "createApCommandJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "wirelessSectors_createApCommandJob",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ApCommandJob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wireless/ap-commands/{id}": {
+      "get": {
+        "tags": [
+          "AP Command Jobs"
+        ],
+        "summary": "Get AP command job",
+        "operationId": "getApCommandJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ApCommandJob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "AP Command Jobs"
+        ],
+        "summary": "Update AP command job",
+        "operationId": "updateApCommandJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "wirelessSectors_updateApCommandJob",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ApCommandJob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wireless/ap-commands/{id}/cancel": {
+      "post": {
+        "tags": [
+          "AP Command Jobs"
+        ],
+        "summary": "Cancel a pending/queued AP command job",
+        "operationId": "cancelApCommandJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ApCommandJob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wireless/network-links/{id}/ptp-metrics": {
+      "get": {
+        "tags": [
+          "PTP Links"
+        ],
+        "summary": "Get PTP link signal/modulation/throughput metrics and session history",
+        "operationId": "getPtpLinkMetrics",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "hours",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 24
+            },
+            "description": "Lookback window in hours for session history"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PtpLinkMetrics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wireless/link-planning/calculate": {
+      "post": {
+        "tags": [
+          "Link Planning"
+        ],
+        "summary": "Calculate link budget (pure — no DB save)",
+        "operationId": "calculateLinkBudget",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "lat_a, lon_a, lat_b, lon_b, frequency_mhz, tx_power_dbm, antenna gains, cable_loss_db",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "LinkBudgetResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wireless/link-planning": {
+      "get": {
+        "tags": [
+          "Link Planning"
+        ],
+        "summary": "List saved link planning calculator runs",
+        "operationId": "listLinkPlanningCalcs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "LinkPlanningCalc[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Link Planning"
+        ],
+        "summary": "Save a link planning calculator run",
+        "operationId": "saveLinkPlanningCalc",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "LinkPlanningCalc input",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "LinkPlanningCalc",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wireless/link-planning/{id}": {
+      "get": {
+        "tags": [
+          "Link Planning"
+        ],
+        "summary": "Get a saved link planning calc",
+        "operationId": "getLinkPlanningCalc",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "LinkPlanningCalc",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Link Planning"
+        ],
+        "summary": "Update a saved link planning calc",
+        "operationId": "updateLinkPlanningCalc",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "LinkPlanningCalc update",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "LinkPlanningCalc",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Link Planning"
+        ],
+        "summary": "Delete a saved link planning calc",
+        "operationId": "deleteLinkPlanningCalc",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/wireless/clients/signal-distribution": {
+      "get": {
+        "tags": [
+          "RF Metrics"
+        ],
+        "summary": "Signal strength histogram bucketed in 10 dBm ranges",
+        "operationId": "getSignalDistribution",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "hours",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 24
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SignalDistribution",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wireless/spectrum-scans": {
+      "get": {
+        "tags": [
+          "Spectrum Scans"
+        ],
+        "summary": "List spectrum scan results",
+        "operationId": "listSpectrumScans",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "in_progress",
+                "completed",
+                "failed"
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SpectrumScan[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Spectrum Scans"
+        ],
+        "summary": "Create a spectrum scan record (live scanning requires hardware integration)",
+        "operationId": "createSpectrumScan",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "SpectrumScan input",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "SpectrumScan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wireless/spectrum-scans/{id}": {
+      "get": {
+        "tags": [
+          "Spectrum Scans"
+        ],
+        "summary": "Get a spectrum scan result",
+        "operationId": "getSpectrumScan",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SpectrumScan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/acs/cwmp": {
       "post": {
         "tags": [
@@ -44808,6 +46087,382 @@
           },
           "3": {
             "type": "string"
+          }
+        }
+      },
+      "wirelessSectors_createApChannelPlan": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "frequency_mhz": {
+            "type": "number",
+            "minimum": 1
+          },
+          "channel_width_mhz": {
+            "type": "number",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        },
+        "required": [
+          "site_id",
+          "name",
+          "frequency_mhz",
+          "channel_width_mhz"
+        ]
+      },
+      "wirelessSectors_updateApChannelPlan": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "frequency_mhz": {
+            "type": "number",
+            "minimum": 1
+          },
+          "channel_width_mhz": {
+            "type": "number",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        }
+      },
+      "wirelessSectors_createApSectorConfig": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "sector_azimuth_deg": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 359
+          },
+          "sector_width_deg": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 360
+          },
+          "frequency_mhz": {
+            "type": "number",
+            "minimum": 1
+          },
+          "channel_width_mhz": {
+            "type": "number",
+            "minimum": 1
+          },
+          "tx_power_dbm": {
+            "type": "number",
+            "minimum": -30,
+            "maximum": 60
+          },
+          "encryption": {
+            "type": "string",
+            "enum": [
+              "none",
+              "wpa2",
+              "wpa3",
+              "mixed"
+            ]
+          },
+          "channel_plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "antenna_gain_dbi": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 60
+          },
+          "height_m": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 999.9
+          },
+          "polarization": {
+            "type": "string",
+            "enum": [
+              "vertical",
+              "horizontal",
+              "dual",
+              "cross"
+            ]
+          },
+          "max_clients": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 32767
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        },
+        "required": [
+          "device_id"
+        ]
+      },
+      "wirelessSectors_updateApSectorConfig": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "sector_azimuth_deg": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 359
+          },
+          "sector_width_deg": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 360
+          },
+          "frequency_mhz": {
+            "type": "number",
+            "minimum": 1
+          },
+          "channel_width_mhz": {
+            "type": "number",
+            "minimum": 1
+          },
+          "tx_power_dbm": {
+            "type": "number",
+            "minimum": -30,
+            "maximum": 60
+          },
+          "encryption": {
+            "type": "string",
+            "enum": [
+              "none",
+              "wpa2",
+              "wpa3",
+              "mixed"
+            ]
+          },
+          "channel_plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "antenna_gain_dbi": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 60
+          },
+          "height_m": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 999.9
+          },
+          "polarization": {
+            "type": "string",
+            "enum": [
+              "vertical",
+              "horizontal",
+              "dual",
+              "cross"
+            ]
+          },
+          "max_clients": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 32767
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        }
+      },
+      "wirelessSectors_createApCommandJob": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "command_type": {
+            "type": "string",
+            "enum": [
+              "set_tx_power",
+              "set_frequency",
+              "set_channel_width",
+              "reboot",
+              "other"
+            ]
+          },
+          "target_value": {
+            "type": "string",
+            "maximum": 255
+          },
+          "scheduled_at": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        },
+        "required": [
+          "device_id",
+          "command_type"
+        ]
+      },
+      "wirelessSectors_updateApCommandJob": {
+        "type": "object",
+        "properties": {
+          "command_type": {
+            "type": "string",
+            "enum": [
+              "set_tx_power",
+              "set_frequency",
+              "set_channel_width",
+              "reboot",
+              "other"
+            ]
+          },
+          "target_value": {
+            "type": "string",
+            "maximum": 255
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "queued",
+              "in_progress",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "scheduled_at": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        }
+      },
+      "wirelessSectors_createChannelInterference": {
+        "type": "object",
+        "properties": {
+          "ap_sector_config_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "site_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "detected_at": {
+            "type": "string"
+          },
+          "frequency_mhz": {
+            "type": "number",
+            "minimum": 1
+          },
+          "channel_width_mhz": {
+            "type": "number",
+            "minimum": 1
+          },
+          "interference_level": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ]
+          },
+          "conflicting_ap_mac": {
+            "type": "string",
+            "maximum": 17
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        },
+        "required": [
+          "detected_at",
+          "interference_level"
+        ]
+      },
+      "wirelessSectors_updateChannelInterference": {
+        "type": "object",
+        "properties": {
+          "ap_sector_config_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "site_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "detected_at": {
+            "type": "string"
+          },
+          "frequency_mhz": {
+            "type": "number",
+            "minimum": 1
+          },
+          "channel_width_mhz": {
+            "type": "number",
+            "minimum": 1
+          },
+          "interference_level": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ]
+          },
+          "conflicting_ap_mac": {
+            "type": "string",
+            "maximum": 17
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
           }
         }
       }
