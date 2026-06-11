@@ -1,9 +1,10 @@
 // =============================================================================
-// FireISP 5.0 — CWMP XML Parser/Builder (§8.1)
+// FireISP 5.0 — CWMP XML Parser/Builder (§8.1/§8.3)
 // =============================================================================
 // Hand-rolled CWMP/SOAP XML subset. No external XML library.
 // Handles: Inform, GetParameterValues/Names/Response, SetParameterValues/Response,
-//          Download/Response, TransferComplete, Fault envelopes.
+//          Download/Response, TransferComplete, Fault envelopes,
+//          FactoryReset, IPPingDiagnostics, TraceRouteDiagnostics (§8.3).
 // =============================================================================
 
 'use strict';
@@ -72,6 +73,12 @@ function extractMessageId(xml) {
  * Detect the CWMP message type from the SOAP body.
  */
 function detectMessageType(xml) {
+  // §8.3: Check DiagnosticsComplete BEFORE the generic Inform check,
+  // since a DiagnosticsComplete arrives as an Inform with event code '8 DIAGNOSTICS COMPLETE'.
+  if (xml.includes('8 DIAGNOSTICS COMPLETE') || xml.includes('DiagnosticsComplete')) {
+    return 'DiagnosticsComplete';
+  }
+
   const types = [
     'Inform', 'GetParameterValuesResponse', 'SetParameterValuesResponse',
     'GetParameterNamesResponse', 'DownloadResponse', 'TransferCompleteResponse', 'Fault',
@@ -180,6 +187,8 @@ function parseCwmpEnvelope(xmlString) {
   let payload;
   switch (messageType) {
     case 'Inform':
+    case 'DiagnosticsComplete':
+      // DiagnosticsComplete arrives as an Inform with event code '8 DIAGNOSTICS COMPLETE'
       payload = parseInform(xml);
       break;
     case 'GetParameterValuesResponse':
@@ -283,6 +292,47 @@ function buildReboot(messageId) {
     </cwmp:Reboot>`);
 }
 
+// §8.3 — FactoryReset RPC
+function buildFactoryReset(messageId) {
+  return wrapEnvelope(messageId, '<cwmp:FactoryReset></cwmp:FactoryReset>');
+}
+
+// §8.3 — IPPingDiagnostics: first SetParameterValues to configure, then GetParameterValues for results.
+// We use a SetParameterValues to kick off the diagnostic by writing DiagnosticsState=Requested.
+function buildStartPingDiagnostic(messageId, params) {
+  const host = params.host || '8.8.8.8';
+  const count = params.numberOfRepetitions || 3;
+  const timeout = params.timeout || 1000;
+  // Standard TR-098/TR-181 diagnostic path
+  const basePath = params.basePath || 'InternetGatewayDevice.IPPingDiagnostics.';
+  const pvList = [
+    { name: `${basePath}DiagnosticsState`, value: 'Requested', type: 'xsd:string' },
+    { name: `${basePath}Host`,             value: String(host), type: 'xsd:string' },
+    { name: `${basePath}NumberOfRepetitions`, value: String(count), type: 'xsd:unsignedInt' },
+    { name: `${basePath}Timeout`,          value: String(timeout), type: 'xsd:unsignedInt' },
+  ];
+  return buildSetParameterValues(messageId, { parameterValueList: pvList });
+}
+
+// §8.3 — TraceRouteDiagnostics: SetParameterValues to start
+function buildStartTracerouteDiagnostic(messageId, params) {
+  const host = params.host || '8.8.8.8';
+  const maxHops = params.maxHopCount || 30;
+  const basePath = params.basePath || 'InternetGatewayDevice.TraceRouteDiagnostics.';
+  const pvList = [
+    { name: `${basePath}DiagnosticsState`, value: 'Requested', type: 'xsd:string' },
+    { name: `${basePath}Host`,             value: String(host), type: 'xsd:string' },
+    { name: `${basePath}MaxHopCount`,      value: String(maxHops), type: 'xsd:unsignedInt' },
+  ];
+  return buildSetParameterValues(messageId, { parameterValueList: pvList });
+}
+
+// §8.3 — Read diagnostic results: GetParameterValues for the results subtree
+function buildGetDiagnosticResults(messageId, params) {
+  const paths = params.paths || [];
+  return buildGetParameterValues(messageId, { parameterNames: paths });
+}
+
 function buildEmpty(messageId) {
   return wrapEnvelope(messageId, '');
 }
@@ -294,21 +344,36 @@ function buildEmpty(messageId) {
 /**
  * Build a CWMP SOAP response/request XML string.
  * @param {string} messageId
- * @param {string} type - 'InformResponse'|'GetParameterValues'|'SetParameterValues'|'GetParameterNames'|'Download'|'Reboot'|'Empty'
+ * @param {string} type - 'InformResponse'|'GetParameterValues'|'SetParameterValues'|
+ *                        'GetParameterNames'|'Download'|'Reboot'|'FactoryReset'|
+ *                        'StartPingDiagnostic'|'StartTracerouteDiagnostic'|
+ *                        'GetDiagnosticResults'|'Empty'
  * @param {object} [params]
  * @returns {string}
  */
 function buildCwmpResponse(messageId, type, params = {}) {
   switch (type) {
-    case 'InformResponse':        return buildInformResponse(messageId);
-    case 'GetParameterValues':    return buildGetParameterValues(messageId, params);
-    case 'SetParameterValues':    return buildSetParameterValues(messageId, params);
-    case 'GetParameterNames':     return buildGetParameterNames(messageId, params);
-    case 'Download':              return buildDownload(messageId, params);
-    case 'Reboot':                return buildReboot(messageId);
+    case 'InformResponse':              return buildInformResponse(messageId);
+    case 'GetParameterValues':          return buildGetParameterValues(messageId, params);
+    case 'SetParameterValues':          return buildSetParameterValues(messageId, params);
+    case 'GetParameterNames':           return buildGetParameterNames(messageId, params);
+    case 'Download':                    return buildDownload(messageId, params);
+    case 'Reboot':                      return buildReboot(messageId);
+    case 'FactoryReset':                return buildFactoryReset(messageId);
+    case 'StartPingDiagnostic':         return buildStartPingDiagnostic(messageId, params);
+    case 'StartTracerouteDiagnostic':   return buildStartTracerouteDiagnostic(messageId, params);
+    case 'GetDiagnosticResults':        return buildGetDiagnosticResults(messageId, params);
     case 'Empty':
-    default:                      return buildEmpty(messageId);
+    default:                            return buildEmpty(messageId);
   }
 }
 
-module.exports = { parseCwmpEnvelope, buildCwmpResponse };
+module.exports = {
+  parseCwmpEnvelope,
+  buildCwmpResponse,
+  // Export individual builders for diagnostics service
+  buildStartPingDiagnostic,
+  buildStartTracerouteDiagnostic,
+  buildGetDiagnosticResults,
+  buildFactoryReset,
+};

@@ -1,9 +1,12 @@
 // =============================================================================
-// FireISP 5.0 — ACS (Auto Configuration Server) Service (§8.1)
+// FireISP 5.0 — ACS (Auto Configuration Server) Service (§8.1/§8.3)
 // =============================================================================
 // Handles incoming CWMP/TR-069 HTTP requests from CPE devices.
 // Endpoint: POST /acs/cwmp — mounted OUTSIDE the authenticated /api/v1 surface.
 // CPE authentication: HTTP Basic with per-CPE acs_username/acs_password_hash.
+// §8.3: session events and errors are logged to cpe_session_logs.
+// §8.3: DiagnosticsComplete Inform events route to cpeDiagnosticsService.
+// §8.4: On Inform, tryAutoLinkSubscriber is called to match serial → subscriber.
 // =============================================================================
 'use strict';
 
@@ -12,6 +15,9 @@ const db = require('../config/database');
 const CpeDevice = require('../models/CpeDevice');
 const { parseCwmpEnvelope, buildCwmpResponse } = require('./cwmpXml');
 const cwmpSessionService = require('./cwmpSessionService');
+const cpeDiagnosticsService = require('./cpeDiagnosticsService');
+const cpeSessionLogService = require('./cpeSessionLogService');
+const cpeInventoryService = require('./cpeInventoryService');
 const logger = require('../utils/logger').child({ service: 'acsService' });
 
 // ---------------------------------------------------------------------------
@@ -52,7 +58,10 @@ async function handleCwmpRequest(req, res) {
       return res.status(200).send('');
     }
 
-    // 2. HTTP Basic authentication
+    // 2. Normalize body to XML string early (needed for logging)
+    const xmlString = typeof body === 'string' ? body : JSON.stringify(body);
+
+    // 3. HTTP Basic authentication
     let cpeDevice = null;
     const authHeader = req.headers['authorization'] || '';
     if (authHeader.startsWith('Basic ')) {
@@ -63,17 +72,24 @@ async function handleCwmpRequest(req, res) {
         const username = decoded.slice(0, colonIdx);
         const password = decoded.slice(colonIdx + 1);
         cpeDevice = await verifyAcsCredentials(username, password);
+        if (!cpeDevice) {
+          // §8.3: log auth failure
+          cpeSessionLogService.logSessionEvent({
+            eventType: 'auth_failure',
+            remoteIp: req.ip || null,
+            rawBody: xmlString,
+          }).catch(() => {});
+        }
       }
     }
 
-    // 3. Parse CWMP envelope
-    const xmlString = typeof body === 'string' ? body : JSON.stringify(body);
+    // 4. Parse CWMP envelope
     const { messageType, id: msgId, payload } = parseCwmpEnvelope(xmlString);
 
     logger.debug({ messageType, msgId }, 'CWMP message received');
 
-    // 4. Handle Inform (device may not be authenticated yet — auto-register)
-    if (messageType === 'Inform') {
+    // 5. Handle Inform and DiagnosticsComplete (device may not be authenticated yet — auto-register)
+    if (messageType === 'Inform' || messageType === 'DiagnosticsComplete') {
       const { deviceId: cwmpDeviceId } = payload;
       const serialNumber = cwmpDeviceId.serialNumber || '';
       const oui = cwmpDeviceId.oui || '';
@@ -115,6 +131,34 @@ async function handleCwmpRequest(req, res) {
         [req.ip || null, cpeDevice.id],
       );
 
+      // §8.3: handle diagnostics complete event
+      if (messageType === 'DiagnosticsComplete') {
+        cpeDiagnosticsService.handleDiagnosticsComplete(cpeDevice, payload).catch(err =>
+          logger.warn({ err: err.message, cpeDeviceId: cpeDevice.id }, 'handleDiagnosticsComplete failed'),
+        );
+        // Log inform event
+        cpeSessionLogService.logSessionEvent({
+          orgId: cpeDevice.organization_id,
+          cpeDeviceId: cpeDevice.id,
+          eventType: 'inform',
+          messageType: 'DiagnosticsComplete',
+          remoteIp: req.ip || null,
+        }).catch(() => {});
+      } else {
+        // §8.4: attempt auto-link subscriber on each Inform
+        cpeInventoryService.tryAutoLinkSubscriber(cpeDevice).catch(err =>
+          logger.debug({ err: err.message, cpeDeviceId: cpeDevice.id }, 'tryAutoLinkSubscriber skipped'),
+        );
+        // §8.3: log inform event
+        cpeSessionLogService.logSessionEvent({
+          orgId: cpeDevice.organization_id,
+          cpeDeviceId: cpeDevice.id,
+          eventType: 'inform',
+          messageType: 'Inform',
+          remoteIp: req.ip || null,
+        }).catch(() => {});
+      }
+
       await cwmpSessionService.handleInform(cpeDevice, payload, cpeDevice.organization_id);
 
       // Check for queued tasks
@@ -124,6 +168,14 @@ async function handleCwmpRequest(req, res) {
           "UPDATE cpe_tasks SET status = 'in_progress', started_at = NOW() WHERE id = ?",
           [nextTask.id],
         );
+        // §8.3: log task dispatched
+        cpeSessionLogService.logSessionEvent({
+          orgId: cpeDevice.organization_id,
+          cpeDeviceId: cpeDevice.id,
+          eventType: 'task_dispatched',
+          taskType: nextTask.task_type,
+          remoteIp: req.ip || null,
+        }).catch(() => {});
         const taskXml = cwmpSessionService.buildResponseForTask(nextTask);
         return res
           .status(200)
@@ -137,7 +189,7 @@ async function handleCwmpRequest(req, res) {
         .send(buildCwmpResponse(msgId, 'InformResponse'));
     }
 
-    // 5. Handle task responses — need authenticated device
+    // 6. Handle task responses — need authenticated device
     if (!cpeDevice) {
       return res.status(401).set('Content-Type', 'text/xml').send('');
     }
@@ -151,12 +203,45 @@ async function handleCwmpRequest(req, res) {
 
     if (activeTask) {
       if (messageType === 'Fault') {
+        const faultMsg = `${payload.faultCode}: ${payload.faultString}`;
         await db.query(
           'UPDATE cpe_tasks SET status = ?, error_message = ?, completed_at = NOW() WHERE id = ?',
-          ['failed', `${payload.faultCode}: ${payload.faultString}`, activeTask.id],
+          ['failed', faultMsg, activeTask.id],
         );
+        // §8.3: log fault
+        cpeSessionLogService.logSessionEvent({
+          orgId: cpeDevice.organization_id,
+          cpeDeviceId: cpeDevice.id,
+          eventType: 'fault',
+          messageType: 'Fault',
+          taskType: activeTask.task_type,
+          faultCode: payload.faultCode,
+          faultString: payload.faultString,
+          remoteIp: req.ip || null,
+          rawBody: xmlString,
+        }).catch(() => {});
       } else {
+        // §8.3: check if this is a diagnostic result response
+        const taskParams = activeTask.parameters
+          ? (typeof activeTask.parameters === 'string' ? JSON.parse(activeTask.parameters) : activeTask.parameters)
+          : {};
+        if (taskParams && taskParams._diagId && messageType === 'GetParameterValuesResponse') {
+          await cpeDiagnosticsService.storeDiagnosticResults(
+            cpeDevice.id,
+            payload.parameterList || [],
+            taskParams,
+          );
+        }
         await cwmpSessionService.processTaskResponse(activeTask, payload);
+        // §8.3: log task response
+        cpeSessionLogService.logSessionEvent({
+          orgId: cpeDevice.organization_id,
+          cpeDeviceId: cpeDevice.id,
+          eventType: 'task_response',
+          messageType,
+          taskType: activeTask.task_type,
+          remoteIp: req.ip || null,
+        }).catch(() => {});
       }
     }
 

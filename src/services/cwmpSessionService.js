@@ -117,6 +117,18 @@ function buildResponseForTask(task) {
       });
     case 'reboot':
       return buildCwmpResponse(msgId, 'Reboot');
+    case 'factory_reset':
+      return buildCwmpResponse(msgId, 'FactoryReset');
+    // §8.3 diagnostic task types
+    case 'ping_diagnostic':
+      return buildCwmpResponse(msgId, 'StartPingDiagnostic', params);
+    case 'traceroute_diagnostic':
+      return buildCwmpResponse(msgId, 'StartTracerouteDiagnostic', params);
+    case 'wifi_diagnostics':
+    case 'wan_diagnostics': {
+      const paths = Array.isArray(params) ? params : (params.paths || []);
+      return buildCwmpResponse(msgId, 'GetParameterValues', { parameterNames: paths });
+    }
     default:
       return buildCwmpResponse(msgId, 'Empty');
   }
