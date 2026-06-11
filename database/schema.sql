@@ -509,6 +509,8 @@ CREATE TABLE IF NOT EXISTS radius (
     ipv6_pool_id  BIGINT UNSIGNED NULL     COMMENT 'IPv6 pool for dynamic prefix delegation (PPPoE dual-stack)',
     mac_address   VARCHAR(17)     NULL COMMENT 'MAC address in XX:XX:XX:XX:XX:XX format',
     profile       VARCHAR(100)    NULL COMMENT 'RADIUS profile / bandwidth profile name',
+    auth_method   ENUM('pppoe','mac','dot1x','eap_tls') NOT NULL DEFAULT 'pppoe'
+                      COMMENT 'Authentication method used by this subscriber account',
     status        ENUM('active', 'inactive', 'suspended') NOT NULL DEFAULT 'active',
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -7569,3 +7571,123 @@ CREATE TABLE IF NOT EXISTS billing_adjustments (
     CONSTRAINT fk_billing_adjustments_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: radcheck
+-- Purpose: Standard FreeRADIUS per-user check attributes (Cleartext-Password,
+--          Auth-Type, TLS-Cert-Serial) — populated by radius_sync task (§3.1)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS radcheck (
+    id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    username  VARCHAR(64)     NOT NULL DEFAULT '',
+    attribute VARCHAR(64)     NOT NULL DEFAULT '',
+    op        CHAR(2)         NOT NULL DEFAULT '==',
+    value     VARCHAR(253)    NOT NULL DEFAULT '',
+
+    PRIMARY KEY (id),
+    KEY idx_radcheck_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: radreply
+-- Purpose: Standard FreeRADIUS per-user reply attributes — populated by radius_sync task
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS radreply (
+    id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    username  VARCHAR(64)     NOT NULL DEFAULT '',
+    attribute VARCHAR(64)     NOT NULL DEFAULT '',
+    op        CHAR(2)         NOT NULL DEFAULT '=',
+    value     VARCHAR(253)    NOT NULL DEFAULT '',
+
+    PRIMARY KEY (id),
+    KEY idx_radreply_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: radusergroup
+-- Purpose: Standard FreeRADIUS user → group membership
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS radusergroup (
+    id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    username  VARCHAR(64)     NOT NULL DEFAULT '',
+    groupname VARCHAR(64)     NOT NULL DEFAULT '',
+    priority  INT             NOT NULL DEFAULT 1,
+
+    PRIMARY KEY (id),
+    KEY idx_radusergroup_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: radgroupcheck
+-- Purpose: Standard FreeRADIUS per-group check attributes
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS radgroupcheck (
+    id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    groupname VARCHAR(64)     NOT NULL DEFAULT '',
+    attribute VARCHAR(64)     NOT NULL DEFAULT '',
+    op        CHAR(2)         NOT NULL DEFAULT '==',
+    value     VARCHAR(253)    NOT NULL DEFAULT '',
+
+    PRIMARY KEY (id),
+    KEY idx_radgroupcheck_groupname (groupname)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: radgroupreply
+-- Purpose: Standard FreeRADIUS per-group reply attributes (vendor speed attrs)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS radgroupreply (
+    id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    groupname VARCHAR(64)     NOT NULL DEFAULT '',
+    attribute VARCHAR(64)     NOT NULL DEFAULT '',
+    op        CHAR(2)         NOT NULL DEFAULT '=',
+    value     VARCHAR(253)    NOT NULL DEFAULT '',
+
+    PRIMARY KEY (id),
+    KEY idx_radgroupreply_groupname (groupname)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: subscriber_certificates
+-- Purpose: EAP-TLS subscriber certificate metadata registry (§3.1)
+-- NOTE: FireISP is a metadata registry only — it does NOT generate or sign
+--       certificates. Use an external CA (easy-rsa, step-ca, Vault PKI, etc.)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS subscriber_certificates (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL
+                            COMMENT 'Tenant organization; NULL = single-tenant deployment',
+    radius_account_id   BIGINT UNSIGNED NULL
+                            COMMENT 'Linked RADIUS account (radius.id)',
+    client_id           BIGINT UNSIGNED NULL
+                            COMMENT 'Linked subscriber (clients.id)',
+    common_name         VARCHAR(255)    NOT NULL
+                            COMMENT 'Certificate CN, typically the RADIUS username',
+    serial_number       VARCHAR(100)    NOT NULL
+                            COMMENT 'Certificate serial number (hex string)',
+    fingerprint_sha256  VARCHAR(64)     NOT NULL
+                            COMMENT 'SHA-256 fingerprint of the certificate (hex, no colons)',
+    valid_from          DATETIME        NOT NULL,
+    valid_until         DATETIME        NOT NULL,
+    status              ENUM('active','revoked','expired')
+                            NOT NULL DEFAULT 'active',
+    revoked_at          DATETIME        NULL,
+    revocation_reason   VARCHAR(255)    NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_subscriber_certificates_org_id (organization_id),
+    KEY idx_subscriber_certificates_radius_account_id (radius_account_id),
+    KEY idx_subscriber_certificates_client_id (client_id),
+    KEY idx_subscriber_certificates_status (status),
+    KEY idx_subscriber_certificates_valid_until (valid_until),
+    CONSTRAINT fk_subscriber_certificates_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_subscriber_certificates_radius_account FOREIGN KEY (radius_account_id)
+        REFERENCES radius (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_subscriber_certificates_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET FOREIGN_KEY_CHECKS = 1;

@@ -69,7 +69,12 @@ async function runTask(taskName, organizationId = null) {
     case 'webhook_retry':
       return webhookService.processRetries();
     case 'radius_sync':
-      return radiusService.syncAllAccounts(organizationId);
+      return Promise.all([
+        radiusService.syncAllAccounts(organizationId),
+        radiusService.syncFreeradiusTables(organizationId),
+      ]).then(([accounts, tables]) => ({ ...accounts, freeradius: tables }));
+    case 'check_certificate_expiry':
+      return radiusService.checkCertificateExpiry(organizationId);
     case 'populate_revenue_summary':
       return { message: 'Revenue summary is populated by MySQL scheduled event' };
     case 'populate_network_health_snapshots':

@@ -59,5 +59,12 @@
     "deleted": "Eliminado exitosamente",
     "exported": "Exportación completada",
     "imported": "Importación completada"
+  },
+  "radius": {
+    "sync_complete": "Sincronización RADIUS completada: {{synced}} cuentas, {{errors}} errores",
+    "freeradius_sync_complete": "Sincronización de tablas FreeRADIUS completada: {{synced}} usuarios, {{plans}} planes",
+    "certificate_expiry_warning": "{{count}} certificado(s) de suscriptor vence(n) en los próximos 30 días",
+    "certificate_revoked": "Certificado revocado exitosamente",
+    "certificate_already_revoked": "El certificado ya fue revocado"
   }
 }

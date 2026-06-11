@@ -10,7 +10,7 @@ const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createRadius, updateRadius } = require('../middleware/schemas/radius');
-const { disconnectSession } = require('../services/radiusService');
+const { disconnectSession, syncFreeradiusTables } = require('../services/radiusService');
 
 const router = Router();
 const ctrl = crudController(Radius);
@@ -30,6 +30,16 @@ router.get('/contract/:contractId', requirePermission('devices.view'), async (re
   try {
     const accounts = await Radius.findByContract(req.params.contractId);
     res.json({ data: accounts });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Manually trigger FreeRADIUS SQL table sync for this org
+router.post('/sync-freeradius', requirePermission('radius.sync'), async (req, res, next) => {
+  try {
+    const result = await syncFreeradiusTables(req.orgId);
+    res.json({ data: result });
   } catch (err) {
     next(err);
   }

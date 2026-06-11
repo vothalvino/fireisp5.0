@@ -47,6 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/vothalvino/fireisp5.0/main/install.
 All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 
 > **Full deployment guide:** [`docs/deployment.md`](docs/deployment.md) covers bare-metal, Docker Compose, Kubernetes, TLS setup, MySQL tuning, and a production checklist.
+> **FreeRADIUS integration:** [`docs/freeradius/README.md`](docs/freeradius/README.md) covers installing FreeRADIUS 3.x, pointing `rlm_sql` at the FireISP MySQL database, enabling PPPoE/MAB/802.1X/EAP-TLS, and generating `clients.conf` from the `nas` table.
 
 ## Features
 
@@ -107,8 +108,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 151 tables)
-│   └── migrations/          # Individual numbered migration files (001–222)
+│   ├── schema.sql           # Combined schema (all 157 tables)
+│   └── migrations/          # Individual numbered migration files (001–224)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -311,6 +312,15 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 149 | `dispute_evidence` | File attachments for billing disputes (reuses multer upload infrastructure) |
 | 150 | `chargebacks` | Chargeback management; auto-created from gateway webhook dispute events |
 | 151 | `billing_adjustments` | Immutable billing adjustment log — written by refund processing, chargeback resolution, and manual admin actions; mirrors to audit_logs |
+| 152 | `radcheck` | Standard FreeRADIUS per-user check attributes (Cleartext-Password, Auth-Type, TLS-Cert-Serial) — populated by `radius_sync` task from FireISP state |
+| 153 | `radreply` | Standard FreeRADIUS per-user reply attributes — populated by `radius_sync` task |
+| 154 | `radusergroup` | Standard FreeRADIUS user → group membership — maps each subscriber username to their plan group |
+| 155 | `radgroupcheck` | Standard FreeRADIUS per-group check attributes |
+| 156 | `radgroupreply` | Standard FreeRADIUS per-group reply attributes — contains vendor speed attributes (MikroTik/Cisco/Juniper/WISPr) generated per plan by `radiusAttributeService` |
+| 157 | `subscriber_certificates` | EAP-TLS subscriber certificate metadata registry — CN, serial, SHA-256 fingerprint, validity window, and revocation tracking; FireISP stores metadata only (no CA/key generation) |
+
+> **Migrations 223–224 — §3.1 RADIUS/AAA Phase A:**
+> `223_create_freeradius_standard_tables.sql` adds the five standard FreeRADIUS SQL tables (`radcheck`, `radreply`, `radusergroup`, `radgroupcheck`, `radgroupreply`) required by FreeRADIUS `rlm_sql`; adds `auth_method ENUM('pppoe','mac','dot1x','eap_tls')` to the `radius` table (stored-procedure guard); creates the `subscriber_certificates` table for EAP-TLS certificate metadata; and seeds the `check_certificate_expiry` scheduled task (daily 06:00). `radiusService.syncFreeradiusTables()` materializes these tables from FireISP state — radcheck rows are auth-method-aware (Cleartext-Password for PPPoE/dot1x/EAP-TLS, Auth-Type or MAC-as-password for MAB, TLS-Cert-Serial for EAP-TLS), radgroupreply rows carry vendor speed attributes from `radiusAttributeService`. MAB password mode is configurable via org setting `mab_password_mode`. `224_seed_radius_aaa_permissions.sql` seeds `subscriber_certificates.*` and `radius.sync` RBAC permissions. New endpoints: `POST /radius/sync-freeradius`, full CRUD under `/subscriber-certificates` plus `POST /subscriber-certificates/:id/revoke`, `GET /subscriber-certificates/radius-account/:id`, `GET /subscriber-certificates/client/:id`. FreeRADIUS setup guide in `docs/freeradius/`.
 
 > **Migrations 217–222 — §2.5 (Refund Requests, Disputes, Chargebacks, Billing Adjustments):**
 > Adds `refund_requests` table (217) with status lifecycle `requested → under_review → approved/rejected → processed`; RBAC seeds (218); `billing_disputes` + `dispute_evidence` tables (219) with multipart evidence upload reusing the existing upload middleware; dispute RBAC seeds (220); `chargebacks` + `billing_adjustments` tables (221); chargeback/adjustment RBAC seeds (222). `paymentGatewayService.handleWebhookEvent` now auto-creates a chargeback row when a dispute webhook is received. `billingAdjustmentService.record()` is called from refund processing and mirrors each adjustment into `audit_logs`. New events: `refund.requested` (webhook dispatch to billing staff), `refund.processed` (email to client + webhook).

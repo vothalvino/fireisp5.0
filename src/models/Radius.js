@@ -12,7 +12,7 @@ class Radius extends BaseModel {
       'contract_id', 'nas_id', 'username', 'password',
       'ip_address', 'ipv4_pool_id', 'ipv6_address',
       'ipv6_delegated_prefix', 'ipv6_prefix_len', 'ipv6_pool_id',
-      'status',
+      'mac_address', 'profile', 'status', 'auth_method',
     ];
   }
 

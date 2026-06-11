@@ -13,6 +13,7 @@ const createRadius = {
   mac_address: { type: 'string', max: 17 },
   profile: { type: 'string', max: 100 },
   status: { type: 'string', enum: ['active', 'inactive', 'suspended'] },
+  auth_method: { type: 'string', enum: ['pppoe', 'mac', 'dot1x', 'eap_tls'] },
 };
 
 const updateRadius = {
@@ -26,6 +27,7 @@ const updateRadius = {
   mac_address: { type: 'string', max: 17 },
   profile: { type: 'string', max: 100 },
   status: { type: 'string', enum: ['active', 'inactive', 'suspended'] },
+  auth_method: { type: 'string', enum: ['pppoe', 'mac', 'dot1x', 'eap_tls'] },
 };
 
 module.exports = { createRadius, updateRadius };
