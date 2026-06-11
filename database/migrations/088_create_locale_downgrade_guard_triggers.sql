@@ -20,6 +20,7 @@ DELIMITER $$
 -- =========================================================================
 -- clients — prevent locale downgrade from 'MX' to 'global'
 -- =========================================================================
+DROP TRIGGER IF EXISTS trg_clients_locale_downgrade_bu$$
 CREATE TRIGGER trg_clients_locale_downgrade_bu
 BEFORE UPDATE ON clients
 FOR EACH ROW
@@ -49,6 +50,7 @@ END$$
 -- =========================================================================
 -- organizations — prevent locale downgrade from 'MX' to 'global'
 -- =========================================================================
+DROP TRIGGER IF EXISTS trg_organizations_locale_downgrade_bu$$
 CREATE TRIGGER trg_organizations_locale_downgrade_bu
 BEFORE UPDATE ON organizations
 FOR EACH ROW

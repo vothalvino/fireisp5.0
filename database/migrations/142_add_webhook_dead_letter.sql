@@ -13,6 +13,23 @@ ALTER TABLE webhook_deliveries
     COMMENT 'Delivery status; dead_letter = all retries exhausted';
 
 -- Index for dead-letter dashboard queries
-CREATE INDEX idx_webhook_deliveries_dead_letter
-  ON webhook_deliveries (status, webhook_id)
-  COMMENT 'Fast lookup for dead-letter deliveries needing manual review';
+-- Guarded with an INFORMATION_SCHEMA check so the migration is safely
+-- re-runnable after a partial failure.
+DROP PROCEDURE IF EXISTS migration_142_add_dead_letter_index;
+DELIMITER //
+CREATE PROCEDURE migration_142_add_dead_letter_index()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'webhook_deliveries'
+      AND INDEX_NAME   = 'idx_webhook_deliveries_dead_letter'
+  ) THEN
+    CREATE INDEX idx_webhook_deliveries_dead_letter
+      ON webhook_deliveries (status, webhook_id)
+      COMMENT 'Fast lookup for dead-letter deliveries needing manual review';
+  END IF;
+END //
+DELIMITER ;
+CALL migration_142_add_dead_letter_index();
+DROP PROCEDURE IF EXISTS migration_142_add_dead_letter_index;

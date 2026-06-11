@@ -36,20 +36,52 @@ ALTER TABLE client_balance_ledger
   MODIFY COLUMN entry_date DATE NOT NULL DEFAULT (CURRENT_DATE)
     COMMENT 'Accounting date of this ledger entry';
 
--- 3. Add amount column used by billingService (convenience alias; NOT NULL with default 0)
-ALTER TABLE client_balance_ledger
-  ADD COLUMN amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00
-    COMMENT 'Convenience field used by billingService; mirrors the debit or credit value'
-    AFTER description;
+-- 3/4/5. Add the amount, currency, and reference_type columns.
+-- Guarded with INFORMATION_SCHEMA checks so the migration is safely
+-- re-runnable after a partial failure.
+DROP PROCEDURE IF EXISTS migration_176_add_ledger_columns;
+DELIMITER //
+CREATE PROCEDURE migration_176_add_ledger_columns()
+BEGIN
+  -- 3. Add amount column used by billingService (convenience alias; NOT NULL with default 0)
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'client_balance_ledger'
+      AND COLUMN_NAME  = 'amount'
+  ) THEN
+    ALTER TABLE client_balance_ledger
+      ADD COLUMN amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00
+        COMMENT 'Convenience field used by billingService; mirrors the debit or credit value'
+        AFTER description;
+  END IF;
 
--- 4. Add currency column used by recordPaymentCredit
-ALTER TABLE client_balance_ledger
-  ADD COLUMN currency VARCHAR(3) NULL
-    COMMENT 'ISO 4217 currency code for the entry (e.g. MXN, USD)'
-    AFTER amount;
+  -- 4. Add currency column used by recordPaymentCredit
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'client_balance_ledger'
+      AND COLUMN_NAME  = 'currency'
+  ) THEN
+    ALTER TABLE client_balance_ledger
+      ADD COLUMN currency VARCHAR(3) NULL
+        COMMENT 'ISO 4217 currency code for the entry (e.g. MXN, USD)'
+        AFTER amount;
+  END IF;
 
--- 5. Add reference_type column used by both generateInvoice and recordPaymentCredit
-ALTER TABLE client_balance_ledger
-  ADD COLUMN reference_type VARCHAR(50) NULL
-    COMMENT 'Polymorphic type tag for reference_id (invoice, payment, etc.)'
-    AFTER currency;
+  -- 5. Add reference_type column used by both generateInvoice and recordPaymentCredit
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'client_balance_ledger'
+      AND COLUMN_NAME  = 'reference_type'
+  ) THEN
+    ALTER TABLE client_balance_ledger
+      ADD COLUMN reference_type VARCHAR(50) NULL
+        COMMENT 'Polymorphic type tag for reference_id (invoice, payment, etc.)'
+        AFTER currency;
+  END IF;
+END //
+DELIMITER ;
+CALL migration_176_add_ledger_columns();
+DROP PROCEDURE IF EXISTS migration_176_add_ledger_columns;

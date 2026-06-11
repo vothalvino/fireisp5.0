@@ -13,9 +13,27 @@
 
 SET FOREIGN_KEY_CHECKS = 0;
 
-ALTER TABLE cfdi_documents
-    ADD COLUMN exportacion ENUM('01','02','03') NOT NULL DEFAULT '01'
-        COMMENT 'SAT Exportacion: 01=No exporta, 02=Exportación definitiva, 03=Exportación temporal'
-        AFTER tipo_cambio;
+-- ---------------------------------------------------------------------------
+-- cfdi_documents: exportacion column (guarded for safe re-run)
+-- ---------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS migration_092_add_cfdi_documents_exportacion;
+DELIMITER //
+CREATE PROCEDURE migration_092_add_cfdi_documents_exportacion()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'cfdi_documents'
+      AND COLUMN_NAME  = 'exportacion'
+  ) THEN
+    ALTER TABLE cfdi_documents
+        ADD COLUMN exportacion ENUM('01','02','03') NOT NULL DEFAULT '01'
+            COMMENT 'SAT Exportacion: 01=No exporta, 02=Exportación definitiva, 03=Exportación temporal'
+            AFTER tipo_cambio;
+  END IF;
+END //
+DELIMITER ;
+CALL migration_092_add_cfdi_documents_exportacion();
+DROP PROCEDURE IF EXISTS migration_092_add_cfdi_documents_exportacion;
 
 SET FOREIGN_KEY_CHECKS = 1;

@@ -23,11 +23,27 @@ SET FOREIGN_KEY_CHECKS = 0;
 
 -- -----------------------------------------------------------------------
 -- 1. Add objeto_imp_dr to cfdi_payment_complement_items
+--    (guarded with a stored procedure so the file is safe to re-run)
 -- -----------------------------------------------------------------------
-ALTER TABLE cfdi_payment_complement_items
-    ADD COLUMN objeto_imp_dr ENUM('01','02','03') NOT NULL DEFAULT '02'
-        COMMENT 'SAT ObjetoImpDR on DoctoRelacionado: 01=No objeto, 02=Sí objeto, 03=Sí objeto y no obligado al desglose'
-        AFTER imp_saldo_insoluto;
+DROP PROCEDURE IF EXISTS migration_093_add_objeto_imp_dr;
+DELIMITER //
+CREATE PROCEDURE migration_093_add_objeto_imp_dr()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'cfdi_payment_complement_items'
+      AND COLUMN_NAME  = 'objeto_imp_dr'
+  ) THEN
+    ALTER TABLE cfdi_payment_complement_items
+        ADD COLUMN objeto_imp_dr ENUM('01','02','03') NOT NULL DEFAULT '02'
+            COMMENT 'SAT ObjetoImpDR on DoctoRelacionado: 01=No objeto, 02=Sí objeto, 03=Sí objeto y no obligado al desglose'
+            AFTER imp_saldo_insoluto;
+  END IF;
+END //
+DELIMITER ;
+CALL migration_093_add_objeto_imp_dr();
+DROP PROCEDURE IF EXISTS migration_093_add_objeto_imp_dr;
 
 -- -----------------------------------------------------------------------
 -- 2. Create cfdi_payment_complement_item_taxes
