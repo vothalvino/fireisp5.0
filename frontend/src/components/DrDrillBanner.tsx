@@ -32,7 +32,14 @@ interface DrDrillStatus {
 // ---------------------------------------------------------------------------
 
 async function fetchDrillStatus(): Promise<DrDrillStatus> {
-  const res = await api.GET('/dr-drill/status' as Parameters<typeof api.GET>[0]);
+  // Call through a loose signature: `Parameters<typeof api.GET>[0]` forces
+  // TypeScript to instantiate the client's full path union (TS2589 once the
+  // OpenAPI schema grew past ~470 paths), and the typed response is discarded
+  // below anyway.
+  const get = api.GET as unknown as (
+    path: string,
+  ) => Promise<{ data?: unknown; error?: unknown }>;
+  const res = await get('/dr-drill/status');
   if (res.error) throw new Error('Failed to load DR drill status');
   return (res.data as unknown as { data: DrDrillStatus }).data;
 }
