@@ -53,7 +53,8 @@ describe('snmpPoller', () => {
           id: 1, oid: '1.3.6.1.2.1.1.3', metric_column: 'cpu_usage',
           label: 'CPU', oid_type: 'gauge', is_per_interface: false,
         }]])
-        .mockResolvedValueOnce([]);          // INSERT metric row
+        .mockResolvedValueOnce([])           // INSERT metric row
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE last_polled_at
 
       mockSession.get.mockImplementation((oids, cb) => {
         cb(null, [{ oid: '1.3.6.1.2.1.1.3', value: 55 }]);
@@ -75,7 +76,8 @@ describe('snmpPoller', () => {
         .mockResolvedValueOnce([[{
           id: 1, oid: '1.3.6.1.2.1.1.3', metric_column: 'cpu_usage',
           label: 'CPU', oid_type: 'gauge', is_per_interface: false,
-        }]]);
+        }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE last_poll_error
 
       mockSession.get.mockImplementation((oids, cb) => {
         cb(new Error('SNMP timeout'));
