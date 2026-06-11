@@ -212,3 +212,136 @@ Plan speed attributes are written to `radgroupreply` by `radiusAttributeService.
 | `juniper` | `ERX-Qos-Profile-Name`, `ERX-Input-Gigapkts` |
 
 Set `plans.radius_vendor` in the plan editor to match your NAS vendor.
+
+---
+
+## Session and idle timeouts
+
+Set `plans.session_timeout_seconds` and/or `plans.idle_timeout_seconds` in the plan editor.
+When set, `syncFreeradiusTables()` writes the corresponding `radgroupreply` rows:
+
+```
+plan_7  Session-Timeout := 86400   # 24-hour max session
+plan_7  Idle-Timeout    := 1800    # disconnect after 30 min idle
+```
+
+FreeRADIUS enforces these via its `expiration` and `logintime` modules already enabled in Step 3.
+
+---
+
+## Simultaneous session limits
+
+Set `plans.simultaneous_use` (default 1) for a plan-wide limit.
+Override per account with `radius.simultaneous_use`.
+
+The sync writes a `radcheck` row:
+```
+username  Simultaneous-Use := 2
+```
+
+FreeRADIUS enforces this via the `radutmp` or `sql-session-log` module. Enable `radutmp` in the
+`authorize {}` and `session {}` sections of your `sites-available/default`.
+
+The `kick_duplicate_sessions` scheduled task (every 5 minutes) also enforces limits at the
+FireISP layer by sending Disconnect-Request for the oldest excess sessions.
+
+---
+
+## Time-based access restriction (Login-Time)
+
+Create `plan_access_windows` entries for a plan. The sync builds a `radgroupcheck` row:
+
+```
+plan_7  Login-Time := Wk0800-1800,Sa0900-1300
+```
+
+Day codes: `Su Mo Tu We Th Fr Sa`, shorthand `Wk` (Mon-Fri), `Al` (all days).
+FreeRADIUS enforces this via the `logintime` module — already included in Step 3's `authorize {}`.
+
+---
+
+## VLAN assignment via RADIUS
+
+Set `radius.vlan_id` (and optionally `radius.inner_vlan_id` for QinQ) on the subscriber account.
+The sync writes per-user `radreply` rows:
+
+```
+username  Tunnel-Type           := VLAN
+username  Tunnel-Medium-Type    := IEEE-802
+username  Tunnel-Private-Group-Id := 100       # outer VLAN
+
+# QinQ: inner tag uses FreeRADIUS tag notation
+username  Tunnel-Private-Group-Id:1 := 200     # inner VLAN
+```
+
+On MikroTik RouterOS the NAS must be configured to apply VLAN tags based on these AVPs.
+On Cisco IOS-XE use `tunnel-type` / `tunnel-medium-type` / `tunnel-private-group-id` under the
+subscriber interface template.
+
+---
+
+## Walled garden for unpaid subscribers
+
+FireISP supports placing unpaid subscribers into a walled garden (captive portal) as an alternative
+to full suspension.
+
+### How it works
+
+1. A `suspension_rules` row with `action = 'walled_garden'` triggers `walledGardenSuspendContract()`.
+2. The function sends a RADIUS CoA with `Mikrotik-Address-List := <address_list_name>` to the NAS.
+3. A `suspension_logs` row is written (`action = 'walled_garden'`).
+4. `syncFreeradiusTables()` is immediately triggered so that any NAS-initiated re-auth also gets
+   the address-list attribute.
+5. When the subscriber pays, `walledGardenReconnect()` clears the `suspension_logs.restored_at`,
+   sends a CoA to remove the restriction, and re-syncs.
+
+Configure the walled garden in **Settings → Walled Garden** (requires `walled_garden.update` permission):
+
+| Field | Purpose |
+|-------|---------|
+| **Enable** | Toggle walled garden enforcement for this org |
+| **Redirect URL** | Captive portal / payment page URL for NAS redirect rules |
+| **Address List Name** | MikroTik address-list name (default: `walled_garden`) |
+| **Allowed Destinations** | Hosts/CIDRs reachable from the walled garden (reference only — configure on NAS) |
+
+### NAS-side configuration
+
+**MikroTik** — add a firewall rule to redirect walled garden clients:
+
+```routeros
+/ip firewall mangle
+add chain=prerouting src-address-list=walled_garden action=mark-connection \
+    new-connection-mark=walled passthrough=yes
+
+/ip firewall nat
+add chain=dstnat connection-mark=walled action=redirect to-ports=80 \
+    comment="Walled garden HTTP redirect"
+```
+
+Replace with your captive portal IP / redirect URL as appropriate.
+
+**Cisco** — use url-redirect VSA (Cisco-AVPair) approach instead of Mikrotik-Address-List:
+
+```
+Cisco-AVPair = "url-redirect=https://portal.isp.example.com/pay"
+Cisco-AVPair = "url-redirect-acl=WALLED_GARDEN_ACL"
+```
+
+Modify `walledGardenSuspendContract()` in `radiusService.js` if Cisco url-redirect AVPairs are
+preferred over the MikroTik address-list approach.
+
+---
+
+## Per-session route injection (Framed-Route)
+
+Add entries in the **RADIUS Account → Routes** editor (requires `radius_account_routes.create`).
+Each route generates one `radreply` row:
+
+```
+username  Framed-Route += 192.168.10.0/24 10.0.0.1 1
+username  Framed-Route += 10.20.0.0/16
+```
+
+Format: `<destination> [<gateway>] [<metric>]` (RFC 2865 §5.22).
+FreeRADIUS returns all `Framed-Route +=` rows to the NAS; the NAS installs them as static routes
+for the subscriber's session.

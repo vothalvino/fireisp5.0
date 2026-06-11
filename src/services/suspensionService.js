@@ -132,6 +132,18 @@ async function reconnectContract(contractId, userId, invoiceId) {
   } finally {
     conn.release();
   }
+
+  // Lift any open walled-garden restriction so the next re-auth leaves the
+  // address list (lazy require — radiusService requires this module too)
+  const [walled] = await db.query(
+    `SELECT id FROM suspension_logs
+     WHERE contract_id = ? AND action = 'walled_garden' AND restored_at IS NULL LIMIT 1`,
+    [contractId],
+  );
+  if (walled.length > 0) {
+    const radiusService = require('./radiusService');
+    await radiusService.walledGardenReconnect(contractId, userId);
+  }
 }
 
 /**

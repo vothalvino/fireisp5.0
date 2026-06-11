@@ -13,6 +13,7 @@ class Radius extends BaseModel {
       'ip_address', 'ipv4_pool_id', 'ipv6_address',
       'ipv6_delegated_prefix', 'ipv6_prefix_len', 'ipv6_pool_id',
       'mac_address', 'profile', 'status', 'auth_method',
+      'simultaneous_use', 'vlan_id', 'inner_vlan_id',
     ];
   }
 

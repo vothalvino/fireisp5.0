@@ -41,7 +41,11 @@ function noSettingReply() {
  *   1. settings query (mab_password_mode)
  *   2. subscriber list query
  *   3. subscriber_certificates query
- *   4+ DELETE / INSERT per subscriber + plan
+ *   4. plan_access_windows query (Phase B)
+ *   5. radius_account_routes query (Phase B)
+ *   6. organization_walled_garden_settings query (Phase B)
+ *   7. suspension_logs / walled usernames query (Phase B)
+ *   8+ DELETE / INSERT per subscriber + plan
  */
 function setupMockDb({ mabMode, subscribers, certs, planId, planVendor }) {
   const calls = [];
@@ -53,12 +57,28 @@ function setupMockDb({ mabMode, subscribers, certs, planId, planVendor }) {
       return Promise.resolve(mabMode ? settingQueryReply(mabMode) : noSettingReply());
     }
     // 2. Subscribers
-    if (sql.includes('FROM radius r')) {
+    if (sql.includes('FROM radius r') && sql.includes('LEFT JOIN contracts')) {
       return Promise.resolve([subscribers]);
     }
     // 3. Certificates
     if (sql.includes('FROM subscriber_certificates')) {
       return Promise.resolve([certs || []]);
+    }
+    // 4. Phase B: plan_access_windows
+    if (sql.includes('FROM plan_access_windows')) {
+      return Promise.resolve([[]]);
+    }
+    // 5. Phase B: radius_account_routes
+    if (sql.includes('FROM radius_account_routes')) {
+      return Promise.resolve([[]]);
+    }
+    // 6. Phase B: walled garden settings
+    if (sql.includes('FROM organization_walled_garden_settings')) {
+      return Promise.resolve([[]]);
+    }
+    // 7. Phase B: walled usernames (suspension_logs join)
+    if (sql.includes('suspension_logs') && sql.includes('walled_garden')) {
+      return Promise.resolve([[]]);
     }
     // DELETE / INSERT — return success
     return Promise.resolve([{ affectedRows: 1 }]);

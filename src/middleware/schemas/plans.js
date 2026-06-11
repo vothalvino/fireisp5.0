@@ -56,4 +56,12 @@ const createSpeedWindow = {
   status: { type: 'string', enum: ['active', 'inactive'] },
 };
 
-module.exports = { createPlan, updatePlan, patchPlan, createPlanAddon, createSpeedWindow };
+const createAccessWindow = {
+  label: { type: 'string', required: true, min: 1, max: 100 },
+  day_mask: { type: 'number', min: 1, max: 127 },
+  start_time: { type: 'string', required: true },
+  end_time: { type: 'string', required: true },
+  status: { type: 'string', enum: ['active', 'inactive'] },
+};
+
+module.exports = { createPlan, updatePlan, patchPlan, createPlanAddon, createSpeedWindow, createAccessWindow };
