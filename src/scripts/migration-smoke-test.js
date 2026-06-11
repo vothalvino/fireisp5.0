@@ -268,6 +268,49 @@ async function runSmokeTest() {
     'Column-level comparison complete',
   );
 
+  // -------------------------------------------------------------------------
+  // 4. Partition capacity check — every RANGE-partitioned table must have a
+  //    named partition whose upper bound is in the future, i.e. current rows
+  //    must not be landing in the catch-all p_future partition. Guards
+  //    against the hardcoded-partition ceiling regressing (migrations
+  //    025/032; maintenance fixed in 248).
+  // -------------------------------------------------------------------------
+  const [partRows] = await db.query(
+    `SELECT table_name,
+            MAX(CAST(partition_description AS UNSIGNED)) AS max_bound
+     FROM information_schema.partitions
+     WHERE table_schema = ?
+       AND partition_method = 'RANGE'
+       AND partition_name IS NOT NULL
+       AND partition_description != 'MAXVALUE'
+     GROUP BY table_name`,
+    [dbName],
+  );
+
+  const nowTs = Math.floor(Date.now() / 1000);
+  const uncoveredPartitions = [];
+  for (const row of partRows) {
+    const tbl = (row.TABLE_NAME || row.table_name).toLowerCase();
+    const maxBound = Number(row.max_bound);
+    if (!Number.isFinite(maxBound) || maxBound <= nowTs) {
+      uncoveredPartitions.push(`${tbl} (max partition bound ${row.max_bound})`);
+    }
+  }
+
+  if (uncoveredPartitions.length > 0) {
+    logger.error(
+      { tables: uncoveredPartitions },
+      'Partitioned tables have no named partition covering the current time — ' +
+        'rows are landing in p_future; partition maintenance is not keeping up',
+    );
+    passed = false;
+  } else if (partRows.length > 0) {
+    logger.info(
+      { partitionedTables: partRows.length },
+      'Partition capacity check passed — all partitioned tables cover the current time',
+    );
+  }
+
   return passed;
 }
 
