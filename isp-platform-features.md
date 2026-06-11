@@ -366,24 +366,24 @@
 ## 9. Wireless / WISP Management
 
 ### 9.1 Sector / AP Management
-- [ ] AP registration (MikroTik, Ubiquiti, Cambium, Mimosa, Tariff, Radwin, Siklu)
-- [ ] Sector/AP monitoring: status, clients, noise floor, channel, frequency
-- [ ] Client (CPE) per AP: signal, SNR, CCQ/throughput, distance, rate
-- [ ] Channel planning and interference detection
-- [ ] Power and frequency remote adjustment
-- [ ] Scheduled speed profiles (day vs. night rates)
+- [x] AP registration (MikroTik, Ubiquiti, Cambium, Mimosa, Tariff, Radwin, Siklu)
+- [x] Sector/AP monitoring: status, clients, noise floor, channel, frequency
+- [x] Client (CPE) per AP: signal, SNR, CCQ/throughput, distance, rate
+- [x] Channel planning and interference detection
+- [x] Power and frequency remote adjustment
+- [x] Scheduled speed profiles (day vs. night rates)
 
 ### 9.2 PTMP / PTP Links
-- [ ] Link planning tool (Fresnel zone, distance, frequency)
-- [ ] PTP link monitoring: Tx/Rx signal, modulation, throughput
-- [ ] Backup/failover link management
+- [x] Link planning tool (Fresnel zone, distance, frequency)
+- [x] PTP link monitoring: Tx/Rx signal, modulation, throughput
+- [x] Backup/failover link management
 
 ### 9.3 RF Metrics
-- [ ] Noise floor polling per AP
-- [ ] Air utilization / duty cycle per channel
-- [ ] Client signal strength distribution graph
-- [ ] Spectrum analysis integration (where hardware supports)
-- [ ] GPS sync monitoring for TDMA systems
+- [x] Noise floor polling per AP
+- [x] Air utilization / duty cycle per channel
+- [x] Client signal strength distribution graph
+- [x] Spectrum analysis integration (where hardware supports)
+- [x] GPS sync monitoring for TDMA systems
 
 ---
 
