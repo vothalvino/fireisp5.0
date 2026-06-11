@@ -38,7 +38,7 @@ async function poll() {
     WHERE d.snmp_enabled = 1
       AND d.ip_address IS NOT NULL
       AND d.snmp_profile_id IS NOT NULL
-      AND d.status = 'online'
+      AND d.deleted_at IS NULL
   `);
 
   let polled = 0;
@@ -48,15 +48,25 @@ async function poll() {
   for (let i = 0; i < devices.length; i += POLL_CONCURRENCY) {
     const batch = devices.slice(i, i + POLL_CONCURRENCY);
     const results = await Promise.allSettled(
-      batch.map(device => pollDevice(device)),
+      batch.map(device => pollDevice(device).then(() => device.id)),
     );
 
-    for (const result of results) {
+    for (let j = 0; j < results.length; j++) {
+      const result = results[j];
+      const device = batch[j];
       if (result.status === 'fulfilled') {
         polled++;
+        await db.query(
+          'UPDATE devices SET last_polled_at = NOW(), last_poll_error = NULL WHERE id = ?',
+          [device.id],
+        ).catch(() => {});
       } else {
         errors++;
         logger.error({ err: result.reason }, 'SNMP poll failed');
+        await db.query(
+          'UPDATE devices SET last_poll_error = ? WHERE id = ?',
+          [String(result.reason?.message || result.reason), device.id],
+        ).catch(() => {});
       }
     }
   }

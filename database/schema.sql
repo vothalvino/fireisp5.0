@@ -598,6 +598,14 @@ CREATE TABLE IF NOT EXISTS devices (
     snmp_port     SMALLINT UNSIGNED NULL DEFAULT 161 COMMENT 'SNMP UDP port',
     snmp_profile_id BIGINT UNSIGNED NULL
                                        COMMENT 'Explicit SNMP profile override; NULL = auto-match by manufacturer/model/type',
+    snmp_v3_security_name VARCHAR(255) NULL COMMENT 'SNMPv3 security name (USM user) — migration 250',
+    snmp_v3_auth_protocol ENUM('none','md5','sha','sha256','sha512') NULL DEFAULT 'sha' COMMENT 'SNMPv3 authentication protocol — migration 250',
+    snmp_v3_auth_key_encrypted VARCHAR(512) NULL COMMENT 'SNMPv3 auth passphrase — encrypted at app layer — migration 250',
+    snmp_v3_priv_protocol ENUM('none','des','aes128','aes256') NULL DEFAULT 'aes128' COMMENT 'SNMPv3 privacy protocol — migration 250',
+    snmp_v3_priv_key_encrypted VARCHAR(512) NULL COMMENT 'SNMPv3 privacy passphrase — encrypted at app layer — migration 250',
+    snmp_v3_context_name VARCHAR(255) NULL COMMENT 'SNMPv3 context name (optional) — migration 250',
+    last_polled_at DATETIME NULL COMMENT 'Timestamp of last successful SNMP poll — migration 250',
+    last_poll_error TEXT NULL COMMENT 'Last SNMP poll error message if any — migration 250',
     status        ENUM('online', 'offline', 'maintenance') NOT NULL DEFAULT 'offline',
     notes         TEXT            NULL,
     firerelay_node_id VARCHAR(64) NULL
@@ -1594,6 +1602,149 @@ CREATE TABLE IF NOT EXISTS snmp_traps (
     INDEX idx_snmp_traps_device_received (device_id, received_at),
     INDEX idx_snmp_traps_type            (trap_type),
     INDEX idx_snmp_traps_received        (received_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: device_groups  §6.1 Device Discovery & Onboarding (migration 249)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS device_groups (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization',
+    name            VARCHAR(200)    NOT NULL,
+    description     TEXT            NULL,
+    group_type      ENUM('type','location','region','olt','custom') NOT NULL DEFAULT 'custom'
+                                             COMMENT 'Grouping criterion',
+    color           VARCHAR(7)      NULL     COMMENT 'Hex color for UI display',
+    status          ENUM('active','inactive') NOT NULL DEFAULT 'active',
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        NULL,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_device_groups_org_name (organization_id, name),
+    KEY idx_device_groups_organization_id (organization_id),
+    KEY idx_device_groups_status (status),
+    KEY idx_device_groups_deleted_at (deleted_at),
+    CONSTRAINT fk_device_groups_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: device_group_members  §6.1 (migration 249)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS device_group_members (
+    device_group_id BIGINT UNSIGNED NOT NULL,
+    device_id       BIGINT UNSIGNED NOT NULL,
+    added_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (device_group_id, device_id),
+    KEY idx_dgm_device_id (device_id),
+    CONSTRAINT fk_dgm_group FOREIGN KEY (device_group_id)
+        REFERENCES device_groups (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_dgm_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: discovery_scans  §6.1 (migration 250)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS discovery_scans (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id         BIGINT UNSIGNED NULL,
+    name                    VARCHAR(200)    NOT NULL,
+    cidr_ranges             JSON            NOT NULL COMMENT 'Array of CIDR strings to scan',
+    snmp_version            ENUM('v1','v2c','v3') NOT NULL DEFAULT 'v2c',
+    snmp_community          VARCHAR(255)    NULL     COMMENT 'Community string for v1/v2c scans',
+    snmp_v3_security_name   VARCHAR(255)    NULL,
+    snmp_v3_auth_protocol   ENUM('none','md5','sha','sha256','sha512') NULL DEFAULT 'sha',
+    snmp_v3_auth_key_encrypted VARCHAR(512) NULL     COMMENT 'Encrypted SNMPv3 auth key',
+    snmp_v3_priv_protocol   ENUM('none','des','aes128','aes256') NULL DEFAULT 'aes128',
+    snmp_v3_priv_key_encrypted VARCHAR(512) NULL     COMMENT 'Encrypted SNMPv3 priv key',
+    snmp_port               SMALLINT UNSIGNED NOT NULL DEFAULT 161,
+    timeout_ms              INT UNSIGNED    NOT NULL DEFAULT 3000,
+    concurrency             INT UNSIGNED    NOT NULL DEFAULT 50,
+    status                  ENUM('pending','running','completed','failed','cancelled') NOT NULL DEFAULT 'pending',
+    scan_started_at         DATETIME        NULL,
+    scan_completed_at       DATETIME        NULL,
+    total_hosts             INT UNSIGNED    NULL,
+    scanned_hosts           INT UNSIGNED    NOT NULL DEFAULT 0,
+    discovered_hosts        INT UNSIGNED    NOT NULL DEFAULT 0,
+    error_message           TEXT            NULL,
+    created_by              BIGINT UNSIGNED NULL,
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at              DATETIME        NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_discovery_scans_org (organization_id),
+    KEY idx_discovery_scans_status (status),
+    KEY idx_discovery_scans_deleted_at (deleted_at),
+    CONSTRAINT fk_discovery_scans_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_discovery_scans_created_by FOREIGN KEY (created_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: discovery_results  §6.1 (migration 250)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS discovery_results (
+    id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    scan_id              BIGINT UNSIGNED NOT NULL,
+    organization_id      BIGINT UNSIGNED NULL,
+    ip_address           VARCHAR(45)     NOT NULL,
+    hostname             VARCHAR(255)    NULL,
+    sys_descr            TEXT            NULL,
+    sys_oid              VARCHAR(255)    NULL,
+    snmp_version         TINYINT UNSIGNED NOT NULL DEFAULT 2,
+    manufacturer         VARCHAR(100)    NULL,
+    model                VARCHAR(100)    NULL,
+    device_type          ENUM('outdoor_cpe','indoor_cpe','ptp','ptmp_ap','olt','router','switch','onu','other') NULL,
+    suggested_profile_id BIGINT UNSIGNED NULL,
+    status               ENUM('pending_review','onboarded','ignored') NOT NULL DEFAULT 'pending_review',
+    device_id            BIGINT UNSIGNED NULL,
+    discovered_at        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_discovery_results_scan_id (scan_id),
+    KEY idx_discovery_results_org (organization_id),
+    KEY idx_discovery_results_status (status),
+    KEY idx_discovery_results_ip (ip_address),
+    CONSTRAINT fk_dr_scan FOREIGN KEY (scan_id)
+        REFERENCES discovery_scans (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_dr_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_dr_profile FOREIGN KEY (suggested_profile_id)
+        REFERENCES snmp_profiles (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_dr_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: snmp_trap_forwarding_rules  §6.1 (migration 251)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS snmp_trap_forwarding_rules (
+    id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id      BIGINT UNSIGNED NULL,
+    name                 VARCHAR(200)    NOT NULL,
+    match_trap_type      VARCHAR(64)     NULL,
+    match_source_ip      VARCHAR(45)     NULL,
+    match_oid_prefix     VARCHAR(255)    NULL,
+    forward_to_url       VARCHAR(500)    NULL,
+    forward_to_email     VARCHAR(255)    NULL,
+    forward_to_webhook_id BIGINT UNSIGNED NULL,
+    transform_template   TEXT            NULL,
+    is_active            BOOLEAN         NOT NULL DEFAULT TRUE,
+    created_at           TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at           TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at           DATETIME        NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_stfr_org (organization_id),
+    KEY idx_stfr_active (is_active),
+    KEY idx_stfr_deleted_at (deleted_at),
+    CONSTRAINT fk_stfr_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------

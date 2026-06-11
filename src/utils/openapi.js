@@ -141,6 +141,9 @@ function generateSpec() {
       { name: 'PTR Records', description: 'Reverse DNS PTR record management — §5.1' },
       { name: 'IPv6 Management', description: 'DHCPv6, SLAAC, RA management, RA Guard, subnet visualization — §5.2' },
       { name: 'Transition Mechanisms', description: 'IPv6 transition mechanisms: 6rd, DS-Lite, MAP-E/MAP-T, 464XLAT — §5.4' },
+      { name: 'Device Groups', description: 'Device group management — logical grouping by type/location/region/OLT — §6.1' },
+      { name: 'Discovery Scans', description: 'Network device discovery via SNMP scan — §6.1' },
+      { name: 'Trap Forwarding Rules', description: 'SNMP trap forwarding rule management — §6.1' },
     ],
     paths: {
       // ---- Auth ----
@@ -1035,6 +1038,34 @@ function generateSpec() {
         put: { tags: ['Transition Mechanisms'], summary: 'Update a 464XLAT configuration', operationId: 'update464XlatConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('transitionMechanisms_updateTransitionMechanism'), responses: r200('Xlat464Config') },
         delete: { tags: ['Transition Mechanisms'], summary: 'Delete a 464XLAT configuration', operationId: 'delete464XlatConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
       },
+
+      // ---- Device Groups §6.1 ----
+      ...crudPaths('device-groups', 'Device Groups', 'DeviceGroup'),
+      '/device-groups/{id}/restore': { post: { tags: ['Device Groups'], summary: 'Restore a soft-deleted device group', operationId: 'restoreDeviceGroup', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DeviceGroup') } },
+      '/device-groups/{id}/members': {
+        get: { tags: ['Device Groups'], summary: 'List devices in a group', operationId: 'listDeviceGroupMembers', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Device[]') },
+        post: { tags: ['Device Groups'], summary: 'Add devices to a group', operationId: 'addDeviceGroupMembers', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('deviceGroups_addGroupMembers'), responses: r200('Added count') },
+      },
+      '/device-groups/{id}/members/{deviceId}': {
+        delete: { tags: ['Device Groups'], summary: 'Remove a device from a group', operationId: 'removeDeviceGroupMember', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'deviceId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+
+      // ---- Discovery Scans §6.1 ----
+      ...crudPaths('discovery-scans', 'Discovery Scans', 'DiscoveryScan'),
+      '/discovery-scans/{id}/restore': { post: { tags: ['Discovery Scans'], summary: 'Restore a soft-deleted scan', operationId: 'restoreDiscoveryScan', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DiscoveryScan') } },
+      '/discovery-scans/{id}/results': {
+        get: { tags: ['Discovery Scans'], summary: 'List discovery results for a scan', operationId: 'listDiscoveryResults', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DiscoveryResult[]') },
+      },
+      '/discovery-scans/{id}/results/{resultId}/onboard': {
+        post: { tags: ['Discovery Scans'], summary: 'Onboard a discovered device', operationId: 'onboardDiscoveryResult', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'resultId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('Device override fields'), responses: r201('Device') },
+      },
+      '/discovery-scans/{id}/results/{resultId}/ignore': {
+        post: { tags: ['Discovery Scans'], summary: 'Ignore a discovery result', operationId: 'ignoreDiscoveryResult', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'resultId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('Message') },
+      },
+
+      // ---- Trap Forwarding Rules §6.1 ----
+      ...crudPaths('trap-forwarding-rules', 'Trap Forwarding Rules', 'TrapForwardingRule'),
+      '/trap-forwarding-rules/{id}/restore': { post: { tags: ['Trap Forwarding Rules'], summary: 'Restore a soft-deleted trap forwarding rule', operationId: 'restoreTrapForwardingRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('TrapForwardingRule') } },
     },
     components: {
       securitySchemes: {

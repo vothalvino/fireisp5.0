@@ -108,8 +108,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 173 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–248)
+│   ├── schema.sql           # Combined schema (all 178 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–254)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -334,8 +334,13 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 171 | `ds_lite_configs` | DS-Lite AFTR (Address Family Transition Router) configuration; enables IPv4 connectivity for subscribers on IPv6-only access networks |
 | 172 | `map_rules` | MAP-E and MAP-T rule definitions; provides stateless IPv4/IPv6 address mapping for scalable IPv4 address sharing |
 | 173 | `xlat464_configs` | 464XLAT PLAT/CLAT configuration; enables IPv4 application connectivity in IPv6-only subscriber networks via stateful NAT64 |
+| 174 | `device_groups` | Logical device groupings (§6.1) — organize network devices by type, location, region, or OLT for bulk operations and filtered monitoring views |
+| 175 | `device_group_members` | Junction table linking devices to device groups (§6.1) — many-to-many with cascade deletes |
+| 176 | `discovery_scans` | Network discovery scan jobs (§6.1) — CIDR-range SNMP probes with full SNMPv3 credential support, scan state tracking, and host counters |
+| 177 | `discovery_results` | Per-host results from discovery scans (§6.1) — stores sysDescr/sysOID, auto-matched SNMP profile, and onboarding status (pending_review/onboarded/ignored) |
+| 178 | `snmp_trap_forwarding_rules` | Configurable SNMP trap routing rules (§6.1) — match by trap_type/source_ip/OID prefix and forward to HTTP URL, email, or registered webhook |
 
-> **Migration 165–173 table count note:** See migrations 241–246 below for the §5 Dual Stack tables.
+> **Migration 165–173 table count note:** See migrations 241–246 below for the §5 Dual Stack tables. See migrations 249–254 for §6.1–6.3 SNMP & NMS tables.
 
 > **Migration 241 — DHCP Server Integration (§5.1):** `241_create_dhcp_integration.sql` creates `dhcp_servers` (DHCP server registry supporting ISC Kea and MikroTik) and `dhcp_static_reservations` (MAC-to-IP bindings with DHCP Option 82 circuit/remote-id for subscriber identification). Foreign keys to `ip_pools`, `clients`, and `contracts` allow reservations to be linked to ISP provisioning data.
 
@@ -348,6 +353,20 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 245 — IPv6 Transition Mechanisms (§5.4):** `245_create_transition_mechanisms.sql` creates four tables: `tunnel_6rd_configs` (6rd Border Relay + IPv6 prefix), `ds_lite_configs` (DS-Lite AFTR address), `map_rules` (MAP-E/MAP-T rule definitions with EA-bits), and `xlat464_configs` (464XLAT PLAT/CLAT/DNS64 prefixes). Together these support the four major IPv4-to-IPv6 transition mechanisms.
 
 > **Migration 246 — Dual-Stack Permissions Seed (§5):** `246_seed_dual_stack_permissions.sql` seeds 25 permissions (`dhcp_servers.*`, `dhcp_reservations.*`, `nat_pools.*`, `ptr_records.*`, `ra_guard.*`, `transition_mechanisms.*`, `ipv6.management`) and assigns them to roles: admin (all 25), technician (all view permissions + ipv6.management), readonly (view permissions only).
+
+> **Migrations 247–248 — Partition maintenance repair:** `247_repair_scheduled_tasks_seeds.sql` deduplicates and repairs ENUM-corrupted `scheduled_tasks` rows from prior seed migrations. `248_automate_partition_capacity_maintenance.sql` fixes `snmp_maintain_partitions()` and `connection_logs_maintain_partitions()` to start from the current month (not next month), and immediately materializes partitions for the current month through +3 months.
+
+> **Migration 249 — Device Groups (§6.1):** `249_create_device_groups.sql` creates `device_groups` (org-scoped logical grouping by type/location/region/OLT/custom) and `device_group_members` junction table. Enables technicians to organize network devices for bulk operations and filtered monitoring views.
+
+> **Migration 250 — SNMPv3 and Discovery (§6.1):** `250_snmpv3_and_discovery.sql` adds 8 SNMPv3 columns to `devices` (security name, auth/priv protocols, encrypted credentials, context name, last_polled_at, last_poll_error) via INFORMATION_SCHEMA-guarded procedures. Creates `discovery_scans` (CIDR-based network scan jobs with full SNMPv3 credential support) and `discovery_results` (per-host scan outcomes with auto-matched profile suggestions and onboarding status tracking).
+
+> **Migration 251 — SNMP Trap Forwarding Rules (§6.1):** `251_snmp_trap_forwarding_rules.sql` creates `snmp_trap_forwarding_rules` with match criteria (trap_type, source_ip, OID prefix) and forwarding targets (HTTP URL, email, webhook ID). Extends the existing trap receiver for configurable routing.
+
+> **Migration 252 — Vendor SNMP Profile Seeds (§6.2):** `252_seed_vendor_snmp_profiles.sql` seeds 8 new `snmp_profiles` with OID mappings: Cisco IOS (CISCO-PROCESS-MIB CPU, CISCO-MEMORY-POOL-MIB), Juniper JunOS (jnxOperatingCPU/Buffer), Huawei VRP (hwAvgDuty5min/hwEntityMemUsage), ZTE ZXAN (zxAnSysMgr CPU/memory), Generic Switch (IF-MIB + PoE RFC 3621), Generic UPS (RFC 1628 UPS-MIB), SFP Diagnostics (ENTITY-SENSOR-MIB Rx/Tx power), Environmental Sensors (ENTITY-SENSOR-MIB temperature/humidity). All ride the existing `snmp_metrics` rollup pipeline.
+
+> **Migration 253 — SNMP Discovery Permissions (§6.1–6.3):** `253_seed_snmp_discovery_permissions.sql` seeds 12 permissions: `device_groups.*` (4), `discovery_scans.*` (4), `trap_forwarding.*` (4). Role matrix: admin (all 12), technician (5 operational permissions), readonly (3 view-only).
+
+> **Migration 254 — Discovery Scheduled Tasks (§6.1):** `254_seed_discovery_scheduled_tasks.sql` seeds `snmp_discovery_poll` (every 5 min, snmp_poll type) and `snmp_trap_receiver` (one-shot, high priority) using the WHERE NOT EXISTS idempotency guard.
 
 > **Migrations 237–240 — §4 PPPoE Management Phase B (Service Profiles, Diagnostics, Permissions):**
 > `237_create_pppoe_service_profiles.sql` creates `pppoe_service_profiles` table and adds guarded `service_profile_id` columns to `ip_pools` and `radius` (both FK→pppoe_service_profiles ON DELETE SET NULL). `238_create_radpostauth.sql` adds `radpostauth` table (no FKs — FreeRADIUS writes directly). `239_create_pppoe_event_logs.sql` adds `pppoe_event_logs` table (no FKs on organization_id/nas_id for loose-coupling syslog ingest). `240_seed_pppoe_phase_b_permissions.sql` seeds 6 RBAC permissions (`pppoe_service_profiles.view/create/update/delete`, `pppoe.diagnostics`, `pppoe.events_ingest`) and registers the `scan_auth_failures` scheduled task (every 15 min). New services: `pppoeDiagnosticsService` with `classifyAuthFailures()` (org-scoped radpostauth query, reason classification: bad_password/unknown_user/session_limit/no_pool/other), `detectMtuIssues()` (profile MTU > 1492 advisory + heuristic LCP-failure/MTU-mismatch advisory), `scanAuthFailures()` (scheduler handler, emits `pppoe.auth_failures` events). `syncFreeradiusTables()` extended: loads active service profiles per org, determines effective profile per subscriber (account-level `service_profile_id` overrides pool-level), emits `Framed-MTU`, `MS-Primary-DNS-Server`, `MS-Secondary-DNS-Server`, `Session-Timeout`, `Idle-Timeout`, `Filter-Id`, `Mikrotik-Address-List`, and `Mikrotik-Rate-Limit` radreply rows. RouterOS log line parser `parseRouterOsLogLine()` handles PADI/PADS/LCP/IPCP/AUTH/PADT patterns. New API endpoints: full CRUD under `/pppoe-service-profiles` + restore; `GET /pppoe/diagnostics/auth-failures`, `GET /pppoe/diagnostics/mtu-issues`, `GET /pppoe/events` (JWT auth); `POST /pppoe/events` (M2M secret auth via `X-Pppoe-Secret` header or `Authorization: Bearer`). Env vars: `PPPOE_EVENTS_SECRET` (M2M secret, falls back to `RADIUS_ACCOUNTING_SECRET`).
