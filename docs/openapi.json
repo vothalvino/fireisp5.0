@@ -455,6 +455,14 @@
     {
       "name": "ONU Management",
       "description": "FTTH ONU provisioning, profiles, optical diagnostics, whitelist, OMCI/Wi-Fi config, firmware jobs — §7.2"
+    },
+    {
+      "name": "CPE Management",
+      "description": "CWMP/TR-069 CPE device registry, task queue, firmware versions and campaigns — §8.1"
+    },
+    {
+      "name": "CPE Profiles",
+      "description": "CPE provisioning profile templates with inheritance, parameter mappings, vendor seeds — §8.2"
     }
   ],
   "paths": {
@@ -28479,6 +28487,1703 @@
           }
         }
       }
+    },
+    "/cpe-management/devices": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "List CPE devices",
+        "operationId": "listCpeDevices",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Search filter"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "manufacturer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeDevice[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Register a CPE device",
+        "operationId": "createCpeDevice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "cpeDevices_createCpeDevice",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "CpeDevice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Get a CPE device with latest parameters",
+        "operationId": "getCpeDevice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeDevice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Update a CPE device",
+        "operationId": "updateCpeDevice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "cpeDevices_updateCpeDevice",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CpeDevice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Soft-delete a CPE device",
+        "operationId": "deleteCpeDevice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/parameters": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "List stored TR-069 parameters for a device",
+        "operationId": "listCpeParameters",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeParameter[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/tasks": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "List pending/completed tasks for a device",
+        "operationId": "listCpeTasks",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeTask[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Queue a task for a device (e.g. GetParameterValues, Reboot)",
+        "operationId": "createCpeTask",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "cpeTasks_createCpeTask",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "CpeTask",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/reboot": {
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Queue a Reboot task for a device",
+        "operationId": "rebootCpeDevice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "CpeTask",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/factory-reset": {
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Queue a FactoryReset task for a device",
+        "operationId": "factoryResetCpeDevice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "CpeTask",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/batch-parameter-push": {
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Push SetParameterValues tasks to multiple devices",
+        "operationId": "batchParameterPush",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "cpeBatchPush",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "BatchPushResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/firmware-versions": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "List firmware versions",
+        "operationId": "listCpeFirmwareVersions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeFirmwareVersion[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Create a firmware version record",
+        "operationId": "createCpeFirmwareVersion",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "cpeFirmwareVersions_createCpeFirmwareVersion",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "CpeFirmwareVersion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/firmware-versions/{id}": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Get a firmware version",
+        "operationId": "getCpeFirmwareVersion",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeFirmwareVersion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Update a firmware version",
+        "operationId": "updateCpeFirmwareVersion",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "cpeFirmwareVersions_updateCpeFirmwareVersion",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CpeFirmwareVersion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Delete a firmware version",
+        "operationId": "deleteCpeFirmwareVersion",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/cpe-management/firmware-campaigns": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "List firmware upgrade campaigns",
+        "operationId": "listCpeFirmwareCampaigns",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeFirmwareCampaign[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Create a firmware upgrade campaign",
+        "operationId": "createCpeFirmwareCampaign",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "cpeFirmwareCampaigns_createCpeFirmwareCampaign",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "CpeFirmwareCampaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/firmware-campaigns/{id}": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Get a firmware campaign",
+        "operationId": "getCpeFirmwareCampaign",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeFirmwareCampaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Update a firmware campaign",
+        "operationId": "updateCpeFirmwareCampaign",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "cpeFirmwareCampaigns_updateCpeFirmwareCampaign",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CpeFirmwareCampaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Delete a firmware campaign",
+        "operationId": "deleteCpeFirmwareCampaign",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/cpe-management/firmware-campaigns/{id}/launch": {
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Launch a firmware campaign (queues Download tasks per matching device)",
+        "operationId": "launchCpeFirmwareCampaign",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CampaignLaunchResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/diagnostics": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "List diagnostic results for a CPE device",
+        "operationId": "listCpeDiagnostics",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeDiagnostic[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Queue a TR-069 diagnostic (ping, traceroute, wifi_snapshot, ethernet_status, wan_diagnostics)",
+        "operationId": "createCpeDiagnostic",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "cpeDiagnostics_create",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "CpeDiagnostic",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/diagnostics/{diagId}": {
+      "delete": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Delete a CPE diagnostic record",
+        "operationId": "deleteCpeDiagnostic",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "diagId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/session-logs": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "List CWMP session logs for a CPE device",
+        "operationId": "listCpeDeviceSessionLogs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "event_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeSessionLog[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Delete all session logs for a CPE device",
+        "operationId": "deleteCpeDeviceSessionLogs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DeletedCount",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/session-logs": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "List CWMP session logs org-wide",
+        "operationId": "listCpeSessionLogs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "event_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeSessionLog[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/lifecycle": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Get lifecycle state history for a CPE device",
+        "operationId": "getCpeLifecycleHistory",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeLifecycleHistory[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/lifecycle/transition": {
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Transition a CPE device lifecycle state",
+        "operationId": "transitionCpeLifecycleState",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "cpeLifecycle_transition",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CpeDevice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/subscriber-link": {
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Link or unlink a subscriber to a CPE device",
+        "operationId": "linkCpeSubscriber",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "cpeSubscriberLink",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CpeDevice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/swap": {
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Swap an active CPE with a new in-stock device",
+        "operationId": "swapCpeDevice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "cpeSwap",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CpeSwapResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/depreciation": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Get computed depreciation/book value for a CPE device",
+        "operationId": "getCpeDepreciation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeDepreciation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-profiles": {
+      "get": {
+        "tags": [
+          "CPE Profiles"
+        ],
+        "summary": "List CPE provisioning profiles",
+        "operationId": "listCpeProfiles",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeProfile[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "CPE Profiles"
+        ],
+        "summary": "Create a CPE profile",
+        "operationId": "createCpeProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "cpeProfiles_createCpeProfile",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "CpeProfile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-profiles/{id}": {
+      "get": {
+        "tags": [
+          "CPE Profiles"
+        ],
+        "summary": "Get a CPE profile",
+        "operationId": "getCpeProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeProfile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "CPE Profiles"
+        ],
+        "summary": "Update a CPE profile",
+        "operationId": "updateCpeProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "cpeProfiles_updateCpeProfile",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CpeProfile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "CPE Profiles"
+        ],
+        "summary": "Soft-delete a CPE profile",
+        "operationId": "deleteCpeProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/cpe-profiles/{id}/resolve": {
+      "post": {
+        "tags": [
+          "CPE Profiles"
+        ],
+        "summary": "Resolve the merged parameter set for a profile (inheritance chain + context mappings)",
+        "operationId": "resolveCpeProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "cpeProfiles_resolveCpeProfile",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ResolvedProfile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-profiles/{id}/mappings": {
+      "get": {
+        "tags": [
+          "CPE Profiles"
+        ],
+        "summary": "List parameter mappings for a profile",
+        "operationId": "listCpeProfileMappings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeParameterMapping[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "CPE Profiles"
+        ],
+        "summary": "Add a parameter mapping to a profile",
+        "operationId": "createCpeProfileMapping",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "cpeParameterMappings_createCpeParameterMapping",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "CpeParameterMapping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-profiles/{id}/mappings/{mappingId}": {
+      "put": {
+        "tags": [
+          "CPE Profiles"
+        ],
+        "summary": "Update a parameter mapping",
+        "operationId": "updateCpeProfileMapping",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "mappingId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "cpeParameterMappings_updateCpeParameterMapping",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CpeParameterMapping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "CPE Profiles"
+        ],
+        "summary": "Delete a parameter mapping",
+        "operationId": "deleteCpeProfileMapping",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "mappingId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/acs/cwmp": {
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "CWMP/TR-069 ACS endpoint — CPE-to-server SOAP over HTTP (HTTP Basic auth)",
+        "operationId": "acsCwmp",
+        "requestBody": {
+          "description": "CWMP SOAP XML envelope",
+          "required": false,
+          "content": {
+            "text/xml": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CWMP SOAP Response XML",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -31124,6 +32829,602 @@
             ]
           }
         }
+      },
+      "cpeDevices_createCpeDevice": {
+        "type": "object",
+        "properties": {
+          "serial_number": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "oui": {
+            "type": "string",
+            "minimum": 6,
+            "maximum": 6
+          },
+          "product_class": {
+            "type": "string",
+            "maximum": 64
+          },
+          "hardware_version": {
+            "type": "string",
+            "maximum": 64
+          },
+          "software_version": {
+            "type": "string",
+            "maximum": 64
+          },
+          "firmware_version": {
+            "type": "string",
+            "maximum": 64
+          },
+          "manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "model_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "acs_username": {
+            "type": "string",
+            "maximum": 100
+          },
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "contract_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "cpe_profile_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "provisioning",
+              "active",
+              "error",
+              "offline"
+            ]
+          },
+          "wan_ip": {
+            "type": "string",
+            "maximum": 45
+          },
+          "lan_subnet": {
+            "type": "string",
+            "maximum": 18
+          },
+          "wifi_ssid": {
+            "type": "string",
+            "maximum": 64
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 10000
+          }
+        },
+        "required": [
+          "serial_number",
+          "oui"
+        ]
+      },
+      "cpeDevices_updateCpeDevice": {
+        "type": "object",
+        "properties": {
+          "serial_number": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "oui": {
+            "type": "string",
+            "minimum": 6,
+            "maximum": 6
+          },
+          "product_class": {
+            "type": "string",
+            "maximum": 64
+          },
+          "hardware_version": {
+            "type": "string",
+            "maximum": 64
+          },
+          "software_version": {
+            "type": "string",
+            "maximum": 64
+          },
+          "firmware_version": {
+            "type": "string",
+            "maximum": 64
+          },
+          "manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "model_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "acs_username": {
+            "type": "string",
+            "maximum": 100
+          },
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "contract_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "cpe_profile_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "provisioning",
+              "active",
+              "error",
+              "offline"
+            ]
+          },
+          "wan_ip": {
+            "type": "string",
+            "maximum": 45
+          },
+          "lan_subnet": {
+            "type": "string",
+            "maximum": 18
+          },
+          "wifi_ssid": {
+            "type": "string",
+            "maximum": 64
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 10000
+          }
+        }
+      },
+      "cpeFirmwareCampaigns_createCpeFirmwareCampaign": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "firmware_version_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "target_manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "target_model": {
+            "type": "string",
+            "maximum": 100
+          },
+          "target_profile_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "target_device_ids": {
+            "type": "string"
+          },
+          "scheduled_at": {
+            "type": "string",
+            "maximum": 30
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 10000
+          }
+        },
+        "required": [
+          "name",
+          "firmware_version_id"
+        ]
+      },
+      "cpeFirmwareCampaigns_updateCpeFirmwareCampaign": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "firmware_version_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "target_manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "target_model": {
+            "type": "string",
+            "maximum": 100
+          },
+          "target_profile_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "target_device_ids": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "scheduled",
+              "running",
+              "done",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "scheduled_at": {
+            "type": "string",
+            "maximum": 30
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 10000
+          }
+        }
+      },
+      "cpeFirmwareVersions_createCpeFirmwareVersion": {
+        "type": "object",
+        "properties": {
+          "manufacturer": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "model_name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "version": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "firmware_url": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 512
+          },
+          "file_size_bytes": {
+            "type": "number",
+            "minimum": 0
+          },
+          "checksum": {
+            "type": "string",
+            "maximum": 128
+          },
+          "checksum_type": {
+            "type": "string",
+            "enum": [
+              "md5",
+              "sha1",
+              "sha256"
+            ]
+          },
+          "is_stable": {
+            "type": "boolean"
+          },
+          "release_notes": {
+            "type": "string",
+            "maximum": 10000
+          }
+        },
+        "required": [
+          "manufacturer",
+          "model_name",
+          "version",
+          "firmware_url"
+        ]
+      },
+      "cpeFirmwareVersions_updateCpeFirmwareVersion": {
+        "type": "object",
+        "properties": {
+          "manufacturer": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "model_name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "version": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "firmware_url": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 512
+          },
+          "file_size_bytes": {
+            "type": "number",
+            "minimum": 0
+          },
+          "checksum": {
+            "type": "string",
+            "maximum": 128
+          },
+          "checksum_type": {
+            "type": "string",
+            "enum": [
+              "md5",
+              "sha1",
+              "sha256"
+            ]
+          },
+          "is_stable": {
+            "type": "boolean"
+          },
+          "release_notes": {
+            "type": "string",
+            "maximum": 10000
+          }
+        }
+      },
+      "cpeParameterMappings_createCpeParameterMapping": {
+        "type": "object",
+        "properties": {
+          "parameter_path": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 512
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "static",
+              "contract_field",
+              "plan_field",
+              "device_field"
+            ]
+          },
+          "source_field": {
+            "type": "string",
+            "maximum": 100
+          },
+          "static_value": {
+            "type": "string",
+            "maximum": 10000
+          }
+        },
+        "required": [
+          "parameter_path",
+          "source_type"
+        ]
+      },
+      "cpeParameterMappings_updateCpeParameterMapping": {
+        "type": "object",
+        "properties": {
+          "parameter_path": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 512
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "static",
+              "contract_field",
+              "plan_field",
+              "device_field"
+            ]
+          },
+          "source_field": {
+            "type": "string",
+            "maximum": 100
+          },
+          "static_value": {
+            "type": "string",
+            "maximum": 10000
+          }
+        }
+      },
+      "cpeProfiles_createCpeProfile": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 10000
+          },
+          "parent_profile_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "model_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "wifi_ssid_template": {
+            "type": "string",
+            "maximum": 64
+          },
+          "wifi_security": {
+            "type": "string",
+            "maximum": 20
+          },
+          "wifi_channel": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 165
+          },
+          "wifi_band": {
+            "type": "string",
+            "enum": [
+              "2.4GHz",
+              "5GHz",
+              "dual"
+            ]
+          },
+          "wan_mode": {
+            "type": "string",
+            "enum": [
+              "dhcp",
+              "pppoe",
+              "static"
+            ]
+          },
+          "wan_vlan_id": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 4094
+          },
+          "parameters": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "draft"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "cpeProfiles_updateCpeProfile": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 10000
+          },
+          "parent_profile_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "model_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "wifi_ssid_template": {
+            "type": "string",
+            "maximum": 64
+          },
+          "wifi_security": {
+            "type": "string",
+            "maximum": 20
+          },
+          "wifi_channel": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 165
+          },
+          "wifi_band": {
+            "type": "string",
+            "enum": [
+              "2.4GHz",
+              "5GHz",
+              "dual"
+            ]
+          },
+          "wan_mode": {
+            "type": "string",
+            "enum": [
+              "dhcp",
+              "pppoe",
+              "static"
+            ]
+          },
+          "wan_vlan_id": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 4094
+          },
+          "parameters": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "draft"
+            ]
+          }
+        }
+      },
+      "cpeTasks_createCpeTask": {
+        "type": "object",
+        "properties": {
+          "task_type": {
+            "type": "string",
+            "enum": [
+              "get_parameter_values",
+              "set_parameter_values",
+              "get_parameter_names",
+              "download",
+              "reboot",
+              "factory_reset",
+              "add_object",
+              "delete_object"
+            ]
+          },
+          "parameters": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 10
+          }
+        },
+        "required": [
+          "task_type"
+        ]
       },
       "creditNotes_createCreditNote": {
         "type": "object",

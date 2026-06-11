@@ -332,34 +332,34 @@
 ## 8. TR-069 Auto Configuration Server (ACS)
 
 ### 8.1 CPE Management
-- [ ] Auto-provisioning of CPE on first boot (zero-touch)
-- [ ] Supported devices: TP-Link, ZTE, Huawei, Fiberhome, VSOL, D-Link, Netis, Tenda, and CWMP/TR-069 compliant devices
-- [ ] Parameter tree browsing per CPE
-- [ ] Read/write parameters: Wi-Fi SSID, password, channel, WAN config, firmware URL
-- [ ] Batch parameter push (multi-CPE)
-- [ ] Scheduled firmware upgrade campaigns
-- [ ] Firmware version inventory per model
+- [x] Auto-provisioning of CPE on first boot (zero-touch)
+- [x] Supported devices: TP-Link, ZTE, Huawei, Fiberhome, VSOL, D-Link, Netis, Tenda, and CWMP/TR-069 compliant devices
+- [x] Parameter tree browsing per CPE
+- [x] Read/write parameters: Wi-Fi SSID, password, channel, WAN config, firmware URL
+- [x] Batch parameter push (multi-CPE)
+- [x] Scheduled firmware upgrade campaigns
+- [x] Firmware version inventory per model
 
 ### 8.2 Profiles & Templates
-- [ ] CPE profile templates per service plan
-- [ ] Configuration template inheritance and overrides
-- [ ] Automatic parameter mapping (e.g., internet VLAN → WAN config)
-- [ ] Pre-configured templates per vendor/model
+- [x] CPE profile templates per service plan
+- [x] Configuration template inheritance and overrides
+- [x] Automatic parameter mapping (e.g., internet VLAN → WAN config)
+- [x] Pre-configured templates per vendor/model
 
 ### 8.3 Diagnostics
-- [ ] Ping / traceroute from ACS to CPE
-- [ ] Wi-Fi signal strength and client count
-- [ ] Ethernet port status
-- [ ] WAN connection diagnostics
-- [ ] Factory reset remote command
-- [ ] Reboot remote command
-- [ ] Session log for CWMP (TR-069 protocol) communication errors
+- [x] Ping / traceroute from ACS to CPE
+- [x] Wi-Fi signal strength and client count
+- [x] Ethernet port status
+- [x] WAN connection diagnostics
+- [x] Factory reset remote command
+- [x] Reboot remote command
+- [x] Session log for CWMP (TR-069 protocol) communication errors
 
 ### 8.4 Inventory
-- [ ] CPE assignment to subscriber (auto-link via serial number/NAS port)
-- [ ] CPE lifecycle: in-stock → assigned → active → returned → RMA
-- [ ] CPE swap workflow (return old, assign new)
-- [ ] CPE depreciation tracking
+- [x] CPE assignment to subscriber (auto-link via serial number/NAS port)
+- [x] CPE lifecycle: in-stock → assigned → active → returned → RMA
+- [x] CPE swap workflow (return old, assign new)
+- [x] CPE depreciation tracking
 
 ---
 
