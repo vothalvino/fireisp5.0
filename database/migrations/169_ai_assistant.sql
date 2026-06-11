@@ -212,36 +212,91 @@ CREATE TABLE IF NOT EXISTS contract_topology_paths (
 
 -- ---------------------------------------------------------------------------
 -- 7. network_links — add medium + role columns for topology traversal
+--    (guarded so the migration is safely re-runnable after a partial failure)
 -- ---------------------------------------------------------------------------
 
-ALTER TABLE network_links
-    ADD COLUMN medium
-        ENUM('fiber','wireless','copper') NULL
-        COMMENT 'Physical medium of the link'
-        AFTER capacity_mbps,
-    ADD COLUMN role
-        ENUM('access','distribution','backhaul','core') NULL
-        COMMENT 'Logical role in the network topology'
-        AFTER medium;
+DROP PROCEDURE IF EXISTS migration_169_add_network_links_columns;
+DELIMITER //
+CREATE PROCEDURE migration_169_add_network_links_columns()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'network_links'
+      AND COLUMN_NAME  = 'medium'
+  ) THEN
+    ALTER TABLE network_links
+        ADD COLUMN medium
+            ENUM('fiber','wireless','copper') NULL
+            COMMENT 'Physical medium of the link'
+            AFTER capacity_mbps;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'network_links'
+      AND COLUMN_NAME  = 'role'
+  ) THEN
+    ALTER TABLE network_links
+        ADD COLUMN role
+            ENUM('access','distribution','backhaul','core') NULL
+            COMMENT 'Logical role in the network topology'
+            AFTER medium;
+  END IF;
+END //
+DELIMITER ;
+CALL migration_169_add_network_links_columns();
+DROP PROCEDURE IF EXISTS migration_169_add_network_links_columns;
 
 -- ---------------------------------------------------------------------------
 -- 8. devices — add role column for topology traversal
 -- ---------------------------------------------------------------------------
 
-ALTER TABLE devices
-    ADD COLUMN role
-        ENUM('access','distribution','backhaul','core') NULL
-        COMMENT 'Logical role of this device in the network topology'
-        AFTER firerelay_node_id;
+DROP PROCEDURE IF EXISTS migration_169_add_devices_role;
+DELIMITER //
+CREATE PROCEDURE migration_169_add_devices_role()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'devices'
+      AND COLUMN_NAME  = 'role'
+  ) THEN
+    ALTER TABLE devices
+        ADD COLUMN role
+            ENUM('access','distribution','backhaul','core') NULL
+            COMMENT 'Logical role of this device in the network topology'
+            AFTER firerelay_node_id;
+  END IF;
+END //
+DELIMITER ;
+CALL migration_169_add_devices_role();
+DROP PROCEDURE IF EXISTS migration_169_add_devices_role;
 
 -- ---------------------------------------------------------------------------
 -- 9. organization_quotas — add ai_tokens_month counter
 -- ---------------------------------------------------------------------------
 
-ALTER TABLE organization_quotas
-    ADD COLUMN max_ai_tokens_month
-        INT UNSIGNED NULL
-        COMMENT 'Max AI tokens consumed per calendar month; NULL = unlimited'
-        AFTER max_scheduled_tasks;
+DROP PROCEDURE IF EXISTS migration_169_add_org_quotas_ai_tokens;
+DELIMITER //
+CREATE PROCEDURE migration_169_add_org_quotas_ai_tokens()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'organization_quotas'
+      AND COLUMN_NAME  = 'max_ai_tokens_month'
+  ) THEN
+    ALTER TABLE organization_quotas
+        ADD COLUMN max_ai_tokens_month
+            INT UNSIGNED NULL
+            COMMENT 'Max AI tokens consumed per calendar month; NULL = unlimited'
+            AFTER max_scheduled_tasks;
+  END IF;
+END //
+DELIMITER ;
+CALL migration_169_add_org_quotas_ai_tokens();
+DROP PROCEDURE IF EXISTS migration_169_add_org_quotas_ai_tokens;
 
 SET FOREIGN_KEY_CHECKS = 1;

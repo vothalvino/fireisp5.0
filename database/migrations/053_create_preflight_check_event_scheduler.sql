@@ -21,7 +21,7 @@
 --              detect a misconfigured server before it causes data loss or
 --              compliance violations:
 --
---                  CALL preflight_check_event_scheduler();
+--                  CALL preflight_check_event_scheduler()
 --
 --              The procedure raises SQLSTATE '45000' with a descriptive message
 --              if the event scheduler is OFF or DISABLED.  It returns silently

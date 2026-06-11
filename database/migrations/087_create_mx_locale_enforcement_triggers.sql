@@ -30,6 +30,7 @@ DELIMITER $$
 -- =========================================================================
 -- 1. client_mx_profiles — require clients.locale = 'MX'
 -- =========================================================================
+DROP TRIGGER IF EXISTS trg_client_mx_profiles_bi$$
 CREATE TRIGGER trg_client_mx_profiles_bi
 BEFORE INSERT ON client_mx_profiles
 FOR EACH ROW
@@ -42,6 +43,7 @@ BEGIN
     END IF;
 END$$
 
+DROP TRIGGER IF EXISTS trg_client_mx_profiles_bu$$
 CREATE TRIGGER trg_client_mx_profiles_bu
 BEFORE UPDATE ON client_mx_profiles
 FOR EACH ROW
@@ -59,6 +61,7 @@ END$$
 -- =========================================================================
 -- 2. organization_mx_profiles — require organizations.locale = 'MX'
 -- =========================================================================
+DROP TRIGGER IF EXISTS trg_organization_mx_profiles_bi$$
 CREATE TRIGGER trg_organization_mx_profiles_bi
 BEFORE INSERT ON organization_mx_profiles
 FOR EACH ROW
@@ -71,6 +74,7 @@ BEGIN
     END IF;
 END$$
 
+DROP TRIGGER IF EXISTS trg_organization_mx_profiles_bu$$
 CREATE TRIGGER trg_organization_mx_profiles_bu
 BEFORE UPDATE ON organization_mx_profiles
 FOR EACH ROW
@@ -88,6 +92,7 @@ END$$
 -- =========================================================================
 -- 3. cfdi_documents — require clients.locale = 'MX'
 -- =========================================================================
+DROP TRIGGER IF EXISTS trg_cfdi_documents_bi$$
 CREATE TRIGGER trg_cfdi_documents_bi
 BEFORE INSERT ON cfdi_documents
 FOR EACH ROW
@@ -100,6 +105,7 @@ BEGIN
     END IF;
 END$$
 
+DROP TRIGGER IF EXISTS trg_cfdi_documents_bu$$
 CREATE TRIGGER trg_cfdi_documents_bu
 BEFORE UPDATE ON cfdi_documents
 FOR EACH ROW
@@ -117,6 +123,7 @@ END$$
 -- =========================================================================
 -- 4. concession_titles — require organizations.locale = 'MX'
 -- =========================================================================
+DROP TRIGGER IF EXISTS trg_concession_titles_bi$$
 CREATE TRIGGER trg_concession_titles_bi
 BEFORE INSERT ON concession_titles
 FOR EACH ROW
@@ -129,6 +136,7 @@ BEGIN
     END IF;
 END$$
 
+DROP TRIGGER IF EXISTS trg_concession_titles_bu$$
 CREATE TRIGGER trg_concession_titles_bu
 BEFORE UPDATE ON concession_titles
 FOR EACH ROW
@@ -146,6 +154,7 @@ END$$
 -- =========================================================================
 -- 5. contract_templates_mx — require organizations.locale = 'MX'
 -- =========================================================================
+DROP TRIGGER IF EXISTS trg_contract_templates_mx_bi$$
 CREATE TRIGGER trg_contract_templates_mx_bi
 BEFORE INSERT ON contract_templates_mx
 FOR EACH ROW
@@ -158,6 +167,7 @@ BEGIN
     END IF;
 END$$
 
+DROP TRIGGER IF EXISTS trg_contract_templates_mx_bu$$
 CREATE TRIGGER trg_contract_templates_mx_bu
 BEFORE UPDATE ON contract_templates_mx
 FOR EACH ROW
@@ -175,6 +185,7 @@ END$$
 -- =========================================================================
 -- 6. regulatory_filings — require organizations.locale = 'MX'
 -- =========================================================================
+DROP TRIGGER IF EXISTS trg_regulatory_filings_bi$$
 CREATE TRIGGER trg_regulatory_filings_bi
 BEFORE INSERT ON regulatory_filings
 FOR EACH ROW
@@ -187,6 +198,7 @@ BEGIN
     END IF;
 END$$
 
+DROP TRIGGER IF EXISTS trg_regulatory_filings_bu$$
 CREATE TRIGGER trg_regulatory_filings_bu
 BEFORE UPDATE ON regulatory_filings
 FOR EACH ROW
@@ -204,6 +216,7 @@ END$$
 -- =========================================================================
 -- 7. ift_statistical_reports — require organizations.locale = 'MX'
 -- =========================================================================
+DROP TRIGGER IF EXISTS trg_ift_statistical_reports_bi$$
 CREATE TRIGGER trg_ift_statistical_reports_bi
 BEFORE INSERT ON ift_statistical_reports
 FOR EACH ROW
@@ -216,6 +229,7 @@ BEGIN
     END IF;
 END$$
 
+DROP TRIGGER IF EXISTS trg_ift_statistical_reports_bu$$
 CREATE TRIGGER trg_ift_statistical_reports_bu
 BEFORE UPDATE ON ift_statistical_reports
 FOR EACH ROW
@@ -234,6 +248,7 @@ END$$
 -- 8. contracts — require clients.locale = 'MX' when
 --                contract_template_mx_id IS NOT NULL
 -- =========================================================================
+DROP TRIGGER IF EXISTS trg_contracts_mx_template_bi$$
 CREATE TRIGGER trg_contracts_mx_template_bi
 BEFORE INSERT ON contracts
 FOR EACH ROW
@@ -248,6 +263,7 @@ BEGIN
     END IF;
 END$$
 
+DROP TRIGGER IF EXISTS trg_contracts_mx_template_bu$$
 CREATE TRIGGER trg_contracts_mx_template_bu
 BEFORE UPDATE ON contracts
 FOR EACH ROW

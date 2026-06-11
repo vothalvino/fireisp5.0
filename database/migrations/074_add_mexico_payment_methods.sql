@@ -13,6 +13,10 @@
 --                sat_forma_pago  — SAT c_FormaPago code to stamp on the CFDI pago complement
 --                clabe           — 18-digit CLABE interbank key (for SPEI and CoDi)
 --                bank_name       — Name of the bank for SPEI / CoDi transactions
+--
+--              Column additions use stored-procedure IF NOT EXISTS guards so
+--              the file is safe to re-run after a mid-file failure.  The
+--              MODIFY COLUMN below is naturally re-runnable and stays bare.
 
 ALTER TABLE payments
     MODIFY COLUMN payment_method
@@ -31,17 +35,49 @@ ALTER TABLE payments
         ) NOT NULL DEFAULT 'cash'
         COMMENT 'Payment instrument; MX methods: oxxo_pay, spei, codi, convenience_store, digital_wallet';
 
-ALTER TABLE payments
-    ADD COLUMN sat_forma_pago VARCHAR(2) NULL
-        COMMENT 'SAT c_FormaPago code used to stamp on CFDI pago complement (e.g. 01=cash, 03=SPEI, 06=CoDi)'
-        AFTER payment_method;
+-- ---------------------------------------------------------------------------
+-- payments: sat_forma_pago, clabe, bank_name columns
+-- ---------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS migration_074_add_payments_mx_columns;
+DELIMITER //
+CREATE PROCEDURE migration_074_add_payments_mx_columns()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'payments'
+      AND COLUMN_NAME  = 'sat_forma_pago'
+  ) THEN
+    ALTER TABLE payments
+        ADD COLUMN sat_forma_pago VARCHAR(2) NULL
+            COMMENT 'SAT c_FormaPago code used to stamp on CFDI pago complement (e.g. 01=cash, 03=SPEI, 06=CoDi)'
+            AFTER payment_method;
+  END IF;
 
-ALTER TABLE payments
-    ADD COLUMN clabe VARCHAR(18) NULL
-        COMMENT '18-digit CLABE interbank key — required for SPEI and CoDi transactions'
-        AFTER reference_number;
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'payments'
+      AND COLUMN_NAME  = 'clabe'
+  ) THEN
+    ALTER TABLE payments
+        ADD COLUMN clabe VARCHAR(18) NULL
+            COMMENT '18-digit CLABE interbank key — required for SPEI and CoDi transactions'
+            AFTER reference_number;
+  END IF;
 
-ALTER TABLE payments
-    ADD COLUMN bank_name VARCHAR(100) NULL
-        COMMENT 'Bank name for SPEI / CoDi transactions'
-        AFTER clabe;
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'payments'
+      AND COLUMN_NAME  = 'bank_name'
+  ) THEN
+    ALTER TABLE payments
+        ADD COLUMN bank_name VARCHAR(100) NULL
+            COMMENT 'Bank name for SPEI / CoDi transactions'
+            AFTER clabe;
+  END IF;
+END //
+DELIMITER ;
+CALL migration_074_add_payments_mx_columns();
+DROP PROCEDURE IF EXISTS migration_074_add_payments_mx_columns;

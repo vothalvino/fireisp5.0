@@ -10,15 +10,44 @@
 -- 3. The status ENUM ('open','in_progress','resolved','closed') is missing
 --    `'waiting'`, which both the API validation schema and the frontend
 --    STATUSES list expose as a valid value.
+--
+-- The rename and the column add are guarded with INFORMATION_SCHEMA checks so
+-- the migration is safely re-runnable after a partial failure; the MODIFY
+-- COLUMN is naturally re-runnable and stays bare.
 
--- 1. Rename title → subject
-ALTER TABLE tickets
-  CHANGE COLUMN `title` `subject` VARCHAR(255) NOT NULL;
+SET @db_name = DATABASE();
+
+-- 1. Rename title → subject (only when `title` still exists and `subject`
+--    does not — i.e. the rename has not already happened).
+SET @has_tickets_title = (
+  SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = @db_name AND TABLE_NAME = 'tickets'
+    AND COLUMN_NAME = 'title'
+);
+SET @has_tickets_subject = (
+  SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = @db_name AND TABLE_NAME = 'tickets'
+    AND COLUMN_NAME = 'subject'
+);
+SET @sql = IF(
+  @has_tickets_title = 1 AND @has_tickets_subject = 0,
+  'ALTER TABLE tickets CHANGE COLUMN `title` `subject` VARCHAR(255) NOT NULL',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 2. Add the notes column (after description, where it belongs logically)
-ALTER TABLE tickets
-  ADD COLUMN `notes` TEXT NULL COMMENT 'Internal operator notes on this ticket'
-  AFTER `description`;
+SET @has_tickets_notes = (
+  SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = @db_name AND TABLE_NAME = 'tickets'
+    AND COLUMN_NAME = 'notes'
+);
+SET @sql = IF(
+  @has_tickets_notes = 0,
+  'ALTER TABLE tickets ADD COLUMN `notes` TEXT NULL COMMENT ''Internal operator notes on this ticket'' AFTER `description`',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 3. Expand the status ENUM to include 'waiting'
 ALTER TABLE tickets

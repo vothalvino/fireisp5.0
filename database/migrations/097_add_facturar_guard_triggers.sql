@@ -11,6 +11,7 @@
 
 DELIMITER $$
 
+DROP TRIGGER IF EXISTS trg_contracts_facturar_bi$$
 CREATE TRIGGER trg_contracts_facturar_bi
 BEFORE INSERT ON contracts
 FOR EACH ROW
@@ -25,6 +26,7 @@ BEGIN
     END IF;
 END$$
 
+DROP TRIGGER IF EXISTS trg_contracts_facturar_bu$$
 CREATE TRIGGER trg_contracts_facturar_bu
 BEFORE UPDATE ON contracts
 FOR EACH ROW

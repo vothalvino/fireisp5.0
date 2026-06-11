@@ -24,7 +24,7 @@
 --
 --                 Business rule: Only paid invoices may be included in a
 --                 stamped factura pública.  Including unpaid invoices forces
---                 the ISP to pay taxes on revenue it has not yet collected;
+--                 the ISP to pay taxes on revenue it has not yet collected --
 --                 if the client later cancels or never pays, the ISP cannot
 --                 recover those taxes.
 --
@@ -48,6 +48,7 @@ DELIMITER $$
 --    Returns the SAT FormaPago code that accounts for the largest share of
 --    payments linked to the given factura pública.  Tie or no-data → '99'.
 -- =========================================================================
+DROP FUNCTION IF EXISTS fn_predominant_forma_pago$$
 CREATE FUNCTION fn_predominant_forma_pago(
     p_factura_publica_invoice_id BIGINT UNSIGNED
 )
@@ -112,6 +113,7 @@ END$$
 -- 2. trg_factura_publica_invoices_bu
 --    Block status → 'stamped' when any linked invoice is not 'paid'.
 -- =========================================================================
+DROP TRIGGER IF EXISTS trg_factura_publica_invoices_bu$$
 CREATE TRIGGER trg_factura_publica_invoices_bu
 BEFORE UPDATE ON factura_publica_invoices
 FOR EACH ROW
@@ -136,6 +138,7 @@ END$$
 -- 3. trg_factura_publica_invoice_items_bi
 --    Reject inserting a row when the referenced invoice is not 'paid'.
 -- =========================================================================
+DROP TRIGGER IF EXISTS trg_factura_publica_invoice_items_bi$$
 CREATE TRIGGER trg_factura_publica_invoice_items_bi
 BEFORE INSERT ON factura_publica_invoice_items
 FOR EACH ROW

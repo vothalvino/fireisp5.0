@@ -7,11 +7,37 @@
 -- =============================================================================
 
 -- Part 1 — add firerelay_node_id to devices
-ALTER TABLE devices
-  ADD COLUMN firerelay_node_id VARCHAR(64) NULL
-    COMMENT 'FireRelay agent node that can reach this device via RouterOS API'
-    AFTER notes,
-  ADD KEY idx_devices_firerelay_node_id (firerelay_node_id);
+-- Guarded with INFORMATION_SCHEMA checks so the migration is safely
+-- re-runnable after a partial failure.
+DROP PROCEDURE IF EXISTS migration_158_add_firerelay_node_id;
+DELIMITER //
+CREATE PROCEDURE migration_158_add_firerelay_node_id()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'devices'
+      AND COLUMN_NAME  = 'firerelay_node_id'
+  ) THEN
+    ALTER TABLE devices
+      ADD COLUMN firerelay_node_id VARCHAR(64) NULL
+        COMMENT 'FireRelay agent node that can reach this device via RouterOS API'
+        AFTER notes;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'devices'
+      AND INDEX_NAME   = 'idx_devices_firerelay_node_id'
+  ) THEN
+    ALTER TABLE devices
+      ADD KEY idx_devices_firerelay_node_id (firerelay_node_id);
+  END IF;
+END //
+DELIMITER ;
+CALL migration_158_add_firerelay_node_id();
+DROP PROCEDURE IF EXISTS migration_158_add_firerelay_node_id;
 
 -- Note: no FK is added because firerelay_nodes rows may not exist in all
 -- deployments (standalone mode), and the agent connection is the authoritative

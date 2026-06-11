@@ -12,22 +12,75 @@
 --
 --              Backfill: clients that already have a CURP value (Mexican personal
 --              clients) are automatically set to locale = 'MX'.
+--
+--              Column / key additions use stored-procedure IF NOT EXISTS guards
+--              so the file is safe to re-run after a mid-file failure.
 
-ALTER TABLE clients
-    ADD COLUMN locale ENUM('global', 'MX') NOT NULL DEFAULT 'global'
-        COMMENT 'Regional compliance switch: global = no country-specific requirements; MX = SAT CFDI 4.0 + IFT/CRT compliance required'
-        AFTER client_type;
+-- ---------------------------------------------------------------------------
+-- clients: locale column + key
+-- ---------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS migration_065_add_clients_locale;
+DELIMITER //
+CREATE PROCEDURE migration_065_add_clients_locale()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'clients'
+      AND COLUMN_NAME  = 'locale'
+  ) THEN
+    ALTER TABLE clients
+        ADD COLUMN locale ENUM('global', 'MX') NOT NULL DEFAULT 'global'
+            COMMENT 'Regional compliance switch: global = no country-specific requirements; MX = SAT CFDI 4.0 + IFT/CRT compliance required'
+            AFTER client_type;
+  END IF;
 
-ALTER TABLE clients
-    ADD KEY idx_clients_locale (locale);
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'clients'
+      AND INDEX_NAME   = 'idx_clients_locale'
+  ) THEN
+    ALTER TABLE clients
+        ADD KEY idx_clients_locale (locale);
+  END IF;
+END //
+DELIMITER ;
+CALL migration_065_add_clients_locale();
+DROP PROCEDURE IF EXISTS migration_065_add_clients_locale;
 
-ALTER TABLE organizations
-    ADD COLUMN locale ENUM('global', 'MX') NOT NULL DEFAULT 'global'
-        COMMENT 'Regional compliance switch: global = no country-specific requirements; MX = SAT CFDI 4.0 + IFT/CRT compliance required'
-        AFTER name;
+-- ---------------------------------------------------------------------------
+-- organizations: locale column + key
+-- ---------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS migration_065_add_organizations_locale;
+DELIMITER //
+CREATE PROCEDURE migration_065_add_organizations_locale()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'organizations'
+      AND COLUMN_NAME  = 'locale'
+  ) THEN
+    ALTER TABLE organizations
+        ADD COLUMN locale ENUM('global', 'MX') NOT NULL DEFAULT 'global'
+            COMMENT 'Regional compliance switch: global = no country-specific requirements; MX = SAT CFDI 4.0 + IFT/CRT compliance required'
+            AFTER name;
+  END IF;
 
-ALTER TABLE organizations
-    ADD KEY idx_organizations_locale (locale);
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'organizations'
+      AND INDEX_NAME   = 'idx_organizations_locale'
+  ) THEN
+    ALTER TABLE organizations
+        ADD KEY idx_organizations_locale (locale);
+  END IF;
+END //
+DELIMITER ;
+CALL migration_065_add_organizations_locale();
+DROP PROCEDURE IF EXISTS migration_065_add_organizations_locale;
 
 -- Backfill: mark existing clients that have a CURP as Mexican
 UPDATE clients SET locale = 'MX' WHERE curp IS NOT NULL;

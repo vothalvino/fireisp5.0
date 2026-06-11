@@ -19,10 +19,29 @@
 -- populated by callers on INSERT, so it is added as a regular persisted
 -- column and back-filled from the existing generated `total` value.
 
-ALTER TABLE invoice_items
-  ADD COLUMN amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00
-    COMMENT 'Line-item total amount (quantity × unit_price); populated on INSERT by billingService and Invoice.addItem'
-    AFTER unit_price;
+-- Guarded with an INFORMATION_SCHEMA check so the migration is safely
+-- re-runnable after a partial failure.  The full-table back-fill runs only
+-- when the column is first created, so a re-run never overwrites amounts
+-- written by the application after the initial run.
+DROP PROCEDURE IF EXISTS migration_178_add_invoice_items_amount;
+DELIMITER //
+CREATE PROCEDURE migration_178_add_invoice_items_amount()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'invoice_items'
+      AND COLUMN_NAME  = 'amount'
+  ) THEN
+    ALTER TABLE invoice_items
+      ADD COLUMN amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00
+        COMMENT 'Line-item total amount (quantity × unit_price); populated on INSERT by billingService and Invoice.addItem'
+        AFTER unit_price;
 
--- Back-fill existing rows from the generated total column
-UPDATE invoice_items SET amount = total;
+    -- Back-fill existing rows from the generated total column
+    UPDATE invoice_items SET amount = total;
+  END IF;
+END //
+DELIMITER ;
+CALL migration_178_add_invoice_items_amount();
+DROP PROCEDURE IF EXISTS migration_178_add_invoice_items_amount;
