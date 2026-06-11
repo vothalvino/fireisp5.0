@@ -108,8 +108,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 192 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–265)
+│   ├── schema.sql           # Combined schema (all 208 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–273)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -352,6 +352,22 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 189 | `config_backup_schedules` | Per-device or per-org config backup schedules (§6.6) — extends the global nightly task with custom cron expressions per device |
 | 190 | `config_compliance_rules` | Config compliance audit rules (§6.6) — keyword/regex rules (must_contain, must_not_contain, regex_match, regex_not_match) with severity levels |
 | 191 | `config_compliance_results` | Config compliance audit results (§6.6) — pass/fail/error per rule per backup, indexed by device and evaluation time |
+| 192 | `olt_ports` | PON and uplink port inventory per OLT device (§7.1) — slot/port index, port type (gpon/epon/xgspon/uplink), admin/oper state, ONU count, Tx/Rx optical power, bandwidth utilization, last_polled_at |
+| 193 | `onu_profiles` | PON service profile templates (§7.2) — T-CONT ID, DBA profile name, assured/max bandwidth, GEM port ID, service/client VLAN, VLAN mode (transparent/tag/translate/double_tag/untagged), linked plan |
+| 194 | `onu_details` | GPON/EPON ONU detail extension to devices (§7.2) — serial number, LOID/password (encrypted at app layer), onu_state (online/offline/los/dying_gasp/power_off/loc/unconfigured), OLT-assigned onu_id, ranging distance, line/service profile names, WAN mode, last provision job link |
+| 195 | `onu_optical_metrics` | Per-ONU optical diagnostic time-series (§7.2) — Tx power (dBm), Rx power (dBm), temperature (°C), voltage (V), bias current (mA), OLT-side Rx power; no FKs (metrics write pattern), 90-day retention via nightly cleanup |
+| 196 | `onu_whitelist` | ONU MAC/SN allow-block list per OLT (§7.2) — entry_type (mac/serial_number), entry_value, list_type (allow/block); unique on (olt_device_id, entry_type, entry_value) |
+| 197 | `onu_omci_configs` | OMCI/TR-069 Wi-Fi and WAN config records per ONU (§7.2) — config_type, Wi-Fi SSID/band/channel/security, Wi-Fi password (encrypted at app layer), WAN mode/IP mode/addresses, delivery_method (omci/tr069/ssh_cli/manual/pending), apply_status, raw_config JSON |
+| 198 | `onu_firmware_jobs` | ONU firmware upgrade and reboot job scheduler (§7.2) — job_type (firmware_upgrade/reboot/provision/factory_reset), scope (single_onu/olt_port/olt_device/region), firmware URL and version, scheduled_at, status, per-device result_summary JSON; background job processor dispatches pending jobs |
+| 199 | `olt_vendor_capabilities` | Per-vendor OLT management capability matrix (§7.1) — vendor, model_pattern, protocols JSON array (snmp/tl1/netconf/ssh_cli), snmp_profile_name, CLI template references, NETCONF schema, OMCI support flag, enterprise OID root; global (not org-scoped); seeds for Huawei/ZTE/VSOL/C-Data/WOLCK/Calix |
+| 200 | `olt_splitters` | PON splitter inventory (§7.1) — ratio (1:2 through 1:128), splitter_type (optical/wdm), linked to site and OLT port, installation date, status (active/inactive/damaged/removed) |
+| 201 | `onu_migration_jobs` | ONU port migration job records (§7.3) — transactional ONU reassignment from source to target PON port, status lifecycle (pending/queued/in_progress/completed/failed/cancelled), scheduled_at, result_detail JSON |
+| 202 | `fiber_routes` | Fiber route path records (§7.4) — CO-to-splitter-to-ONU paths, route_type (trunk/distribution/drop/feeder/other), parent_route_id self-FK for hierarchical routes, from/to device/port/ONU/splitter FKs, total_length_m, fiber_count, gis_path JSON |
+| 203 | `odf_frames` | Optical Distribution Frame inventory (§7.4) — ODF frame per site, total_ports, frame_type, manufacturer/model, status (active/inactive/damaged/removed) |
+| 204 | `odf_ports` | ODF port records within an ODF frame (§7.4) — port_number (unique per frame), connector_type (sc/lc/fc/st/mpo/other), fiber_route_id link, status; CASCADE deletes when frame is removed |
+| 205 | `odf_cross_connects` | ODF cross-connect patch cord records (§7.4) — port_a_id and port_b_id FKs (RESTRICT delete), patch_cord_type, patch_cord_length_m, status (active/inactive/removed) |
+| 206 | `otdr_test_results` | OTDR test result records (§7.4) — fault_detected flag, fault_distance_m, fault_type (fiber_break/splice_loss/connector_loss/bend_loss/reflection/other), events JSON, sor_file_path, job_status (pending/running/completed/failed) |
+| 207 | `sfp_inventory` | SFP transceiver lifecycle tracking (§7.4) — form_factor (sfp/sfp_plus/sfp28/qsfp/qsfp_plus/xfp/gbic/other), vendor/part/serial, wavelength_nm, max_distance_km, lifecycle_status (installed/spare/faulty/retired), links to devices and inventory_items; DDM diagnostics via snmp_metrics sfp_* columns |
 
 > **Migration 165–173 table count note:** See migrations 241–246 below for the §5 Dual Stack tables. See migrations 249–263 for §6.1–6.6 SNMP & NMS tables.
 
@@ -632,6 +648,22 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 171 — AI RBAC permissions seed:** `171_seed_ai_permissions.sql` inserts the seven granular AI permission slugs (`ai.policy.read`, `ai.policy.write`, `ai.phrases.read`, `ai.phrases.write`, `ai.reply.draft`, `ai.reply.send`, `ai.providers.write`) into `permissions` and grants them to the `admin` role via `role_permissions`. Uses `INSERT IGNORE` for idempotent re-runs.
 
 > **Migration 172 — `embedding_model` on ai_providers:** `172_add_embedding_model_to_ai_providers.sql` adds `embedding_model VARCHAR(120) NULL` to `ai_providers`. When populated and `VECTOR_RETRIEVAL_ENABLED=true`, the `vectorStoreService` uses this model via `llmProviderService.embed()` to generate embeddings for ChromaDB upserts and similarity queries in the RAG pipeline.
+
+> **Migration 266 — FTTH OLT & ONU management tables (§7.1/§7.2):** `266_create_ftth_olt_onu_tables.sql` creates seven FTTH-specific tables: `olt_ports` (PON/uplink port inventory per OLT, with Tx/Rx optical power and ONU count), `onu_profiles` (service profile templates: T-CONT/GEM port/DBA/VLAN mapping), `onu_details` (per-ONU provisioning detail extending the `devices` row: SN, LOID/Password encrypted, state, ranging distance, profile assignment, WAN mode), `onu_optical_metrics` (per-ONU optical diagnostic time-series: Tx power, Rx power, temperature, voltage, bias current), `onu_whitelist` (MAC/SN allow-block list per OLT), `onu_omci_configs` (OMCI-style Wi-Fi SSID/password and WAN config records — delivery via OMCI/TR-069/SSH-CLI job layer), and `onu_firmware_jobs` (batch firmware upgrade and reboot scheduler: scoped to single ONU, PON port, or full OLT). OLTs and ONUs are existing device records (`type='olt'/'onu'`); these tables add GPON domain detail without a parallel device registry.
+
+> **Migration 267 — FTTH vendor capability profiles + splitter inventory (§7.1):** `267_create_ftth_vendor_splitter_tables.sql` creates `olt_vendor_capabilities` (global per-vendor capability matrix mapping vendor/model to supported protocols, SNMP profile, CLI template names, NETCONF schema, OMCI flag, and enterprise OID root — seeds rows for Huawei MA5800/EA5800, ZTE C300/C320/C600, VSOL V1600, C-Data 1600/9000, WOLCK WNM, and Calix E7) and `olt_splitters` (PON splitter inventory: 1:2 through 1:128 ratios, linked to site and OLT port). Also adds the deferred `fk_onu_details_provision_job` FK on `onu_details.last_provision_job_id → onu_firmware_jobs` via guarded stored procedure.
+
+> **Migration 268 — FTTH RBAC permissions seed (§7.1/§7.2):** `268_seed_ftth_permissions.sql` seeds 32 permissions covering `olt_management.*`, `olt_ports.*`, `olt_splitters.*`, `onu_management.*`, `onu_profiles.*`, `onu_whitelist.*`, `onu_omci_configs.*`, and `onu_firmware_jobs.*`. Role matrix: admin (all 32), technician (all *.view + onu_management.update + onu_whitelist.create + onu_omci_configs.create + onu_firmware_jobs.create = 12), readonly (*.view only = 8).
+
+> **Migration 269 — FTTH scheduled task seeds (§7.1/§7.2):** `269_seed_ftth_scheduled_tasks.sql` seeds six global scheduled tasks: `ftth_olt_chassis_poll` (every 5 min, SNMP chassis metrics), `ftth_olt_port_metrics_poll` (every 5 min, PON port Tx/Rx/ONU count), `ftth_onu_discovery` (every 15 min, scan OLTs for new ONUs), `ftth_onu_optical_poll` (every 10 min, per-ONU optical diagnostics), `ftth_onu_firmware_job_processor` (every 1 min, dispatch pending firmware/reboot jobs), and `ftth_onu_optical_metrics_cleanup` (nightly, delete rows older than 90 days).
+
+> **Migration 270 — PON Port Management enhancements (§7.3):** `270_pon_port_management.sql` extends `olt_ports` with 6 new columns via guarded stored procedures: `maintenance_mode` (TINYINT), `maintenance_note` (VARCHAR 255), `maintenance_by` / `maintenance_at` (audit trail), `xgspon_mode` (ENUM gpon/xgspon_2_5g/xgspon_10g/auto/none), `xgspon_mode_validated`. Creates `onu_migration_jobs` table (ONU transactional port reassignment records, RESTRICT deletes on port FKs, status lifecycle pending→queued→in_progress→completed/failed/cancelled).
+
+> **Migration 271 — PON Port Management permissions (§7.3):** `271_seed_pon_port_permissions.sql` seeds 8 permissions: `olt_ports.shutdown`, `olt_ports.configure_mode`, `olt_ports.utilization`, `olt_ports.power_budget`, `onu_migration_jobs.view/create/update/delete`. Admin gets all 8; technician gets utilization/power_budget/shutdown/configure_mode + onu_migration_jobs.view/create; readonly gets utilization/power_budget + onu_migration_jobs.view.
+
+> **Migration 272 — Fiber Plant Management tables (§7.4):** `272_fiber_plant_management.sql` creates 6 new tables: `fiber_routes` (CO→splitter→ONU path hierarchy with parent_route_id self-FK, GIS path JSON, from/to device/port/ONU/splitter FKs), `odf_frames` (ODF physical inventory per site), `odf_ports` (port records within a frame, UNIQUE on frame+port_number, CASCADE on frame delete), `odf_cross_connects` (patch cord records between two ODF ports, RESTRICT deletes), `otdr_test_results` (fault detection records with fault_type ENUM, events JSON, sor_file_path; live I/O = honest stub), `sfp_inventory` (SFP lifecycle: installed/spare/faulty/retired; links to devices and inventory_items; DDM diagnostics via existing snmp_metrics sfp_* columns from migration 255).
+
+> **Migration 273 — Fiber Plant Management permissions (§7.4):** `273_seed_fiber_plant_permissions.sql` seeds 24 permissions covering `fiber_routes.*` (4), `odf_frames.*` (4), `odf_ports.*` (4), `odf_cross_connects.*` (4), `otdr_tests.*` (4), `sfp_inventory.*` (4). Admin gets all 24; technician gets all views + fiber_routes/odf/sfp create+update + otdr_tests.create (16 total); readonly gets all 6 *.view permissions.
 
 ### Venta al Público en General (Factura Pública)
 
