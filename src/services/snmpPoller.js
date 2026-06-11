@@ -12,7 +12,9 @@ const db = require('../config/database');
 const logger = require('../utils/logger').child({ service: 'snmpPoller' });
 
 // Columns in snmp_metrics that a profile OID may target.
+// Includes base columns (migrations 001-248) and §6.2 extended metrics (migration 255).
 const VALID_METRIC_COLUMNS = new Set([
+  // §6.0 base metrics
   'if_in_octets',
   'if_out_octets',
   'if_in_errors',
@@ -21,6 +23,19 @@ const VALID_METRIC_COLUMNS = new Set([
   'memory_usage',
   'signal_strength',
   'latency_ms',
+  // §6.2 extended device monitoring metrics
+  'voltage_mv',
+  'temperature_c',
+  'fan_speed_rpm',
+  'if_in_discards',
+  'if_out_discards',
+  'sfp_tx_power_dbm',
+  'sfp_rx_power_dbm',
+  'sfp_temperature_c',
+  'ups_battery_pct',
+  'ups_runtime_min',
+  'poe_power_mw',
+  'humidity_pct',
 ]);
 
 // Configurable concurrency for parallel polling (default: 10 devices at a time)
@@ -177,8 +192,12 @@ async function insertMetricRow(deviceId, interfaceId, metrics) {
        (device_id, interface_id,
         if_in_octets, if_out_octets, if_in_errors, if_out_errors,
         cpu_usage, memory_usage, signal_strength, latency_ms,
+        voltage_mv, temperature_c, fan_speed_rpm,
+        if_in_discards, if_out_discards,
+        sfp_tx_power_dbm, sfp_rx_power_dbm, sfp_temperature_c,
+        ups_battery_pct, ups_runtime_min, poe_power_mw, humidity_pct,
         polled_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
     [
       deviceId,
       interfaceId,
@@ -190,6 +209,18 @@ async function insertMetricRow(deviceId, interfaceId, metrics) {
       metrics.memory_usage ?? null,
       metrics.signal_strength ?? null,
       metrics.latency_ms ?? null,
+      metrics.voltage_mv ?? null,
+      metrics.temperature_c ?? null,
+      metrics.fan_speed_rpm ?? null,
+      metrics.if_in_discards ?? null,
+      metrics.if_out_discards ?? null,
+      metrics.sfp_tx_power_dbm ?? null,
+      metrics.sfp_rx_power_dbm ?? null,
+      metrics.sfp_temperature_c ?? null,
+      metrics.ups_battery_pct ?? null,
+      metrics.ups_runtime_min ?? null,
+      metrics.poe_power_mw ?? null,
+      metrics.humidity_pct ?? null,
     ],
   );
 }

@@ -144,6 +144,7 @@ function generateSpec() {
       { name: 'Device Groups', description: 'Device group management — logical grouping by type/location/region/OLT — §6.1' },
       { name: 'Discovery Scans', description: 'Network device discovery via SNMP scan — §6.1' },
       { name: 'Trap Forwarding Rules', description: 'SNMP trap forwarding rule management — §6.1' },
+      { name: 'SNMP Metrics', description: 'Bandwidth graphs, top talkers, interface utilization, error counters — §6.2/6.3' },
     ],
     paths: {
       // ---- Auth ----
@@ -1066,6 +1067,23 @@ function generateSpec() {
       // ---- Trap Forwarding Rules §6.1 ----
       ...crudPaths('trap-forwarding-rules', 'Trap Forwarding Rules', 'TrapForwardingRule'),
       '/trap-forwarding-rules/{id}/restore': { post: { tags: ['Trap Forwarding Rules'], summary: 'Restore a soft-deleted trap forwarding rule', operationId: 'restoreTrapForwardingRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('TrapForwardingRule') } },
+
+      // ---- SNMP Metrics §6.2/6.3 ----
+      '/snmp-metrics': {
+        get: { tags: ['SNMP Metrics'], summary: 'Time-series metrics for a device', operationId: 'getSnmpMetrics', security: [{ bearerAuth: [] }], parameters: [{ name: 'device_id', in: 'query', required: true, schema: { type: 'integer' } }, { name: 'resolution', in: 'query', schema: { type: 'string', enum: ['raw', '1hr', '1day'], default: '1hr' } }, { name: 'hours', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 8760 } }, { name: 'interface_id', in: 'query', schema: { type: 'string' } }], responses: r200('SnmpMetricsResponse') },
+      },
+      '/snmp-metrics/devices': {
+        get: { tags: ['SNMP Metrics'], summary: 'List SNMP-enabled devices', operationId: 'listSnmpDevices', security: [{ bearerAuth: [] }], responses: r200('Device[]') },
+      },
+      '/snmp-metrics/top-talkers': {
+        get: { tags: ['SNMP Metrics'], summary: 'Top interfaces by total bytes', operationId: 'getTopTalkers', security: [{ bearerAuth: [] }], parameters: [{ name: 'hours', in: 'query', schema: { type: 'integer', default: 24 } }, { name: 'limit', in: 'query', schema: { type: 'integer', default: 10, maximum: 100 } }], responses: r200('TopTalkersResponse') },
+      },
+      '/snmp-metrics/interfaces/{deviceId}': {
+        get: { tags: ['SNMP Metrics'], summary: 'Per-interface utilization stats for a device', operationId: 'getInterfaceStats', security: [{ bearerAuth: [] }], parameters: [{ name: 'deviceId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('InterfaceStatsResponse') },
+      },
+      '/snmp-metrics/errors': {
+        get: { tags: ['SNMP Metrics'], summary: 'Error and discard counters per interface', operationId: 'getInterfaceErrors', security: [{ bearerAuth: [] }], parameters: [{ name: 'device_id', in: 'query', required: true, schema: { type: 'integer' } }, { name: 'hours', in: 'query', schema: { type: 'integer', default: 24 } }], responses: r200('InterfaceErrorsResponse') },
+      },
     },
     components: {
       securitySchemes: {

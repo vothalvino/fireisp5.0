@@ -431,6 +431,10 @@
     {
       "name": "Trap Forwarding Rules",
       "description": "SNMP trap forwarding rule management — §6.1"
+    },
+    {
+      "name": "SNMP Metrics",
+      "description": "Bandwidth graphs, top talkers, interface utilization, error counters — §6.2/6.3"
     }
   ],
   "paths": {
@@ -23021,6 +23025,222 @@
         "responses": {
           "200": {
             "description": "TrapForwardingRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snmp-metrics": {
+      "get": {
+        "tags": [
+          "SNMP Metrics"
+        ],
+        "summary": "Time-series metrics for a device",
+        "operationId": "getSnmpMetrics",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "resolution",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "raw",
+                "1hr",
+                "1day"
+              ],
+              "default": "1hr"
+            }
+          },
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8760
+            }
+          },
+          {
+            "name": "interface_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnmpMetricsResponse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snmp-metrics/devices": {
+      "get": {
+        "tags": [
+          "SNMP Metrics"
+        ],
+        "summary": "List SNMP-enabled devices",
+        "operationId": "listSnmpDevices",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Device[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snmp-metrics/top-talkers": {
+      "get": {
+        "tags": [
+          "SNMP Metrics"
+        ],
+        "summary": "Top interfaces by total bytes",
+        "operationId": "getTopTalkers",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 24
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TopTalkersResponse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snmp-metrics/interfaces/{deviceId}": {
+      "get": {
+        "tags": [
+          "SNMP Metrics"
+        ],
+        "summary": "Per-interface utilization stats for a device",
+        "operationId": "getInterfaceStats",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "InterfaceStatsResponse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snmp-metrics/errors": {
+      "get": {
+        "tags": [
+          "SNMP Metrics"
+        ],
+        "summary": "Error and discard counters per interface",
+        "operationId": "getInterfaceErrors",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 24
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "InterfaceErrorsResponse",
             "content": {
               "application/json": {
                 "schema": {
