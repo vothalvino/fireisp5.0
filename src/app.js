@@ -149,6 +149,9 @@ const transitionMechanismRoutes = require('./routes/transitionMechanisms');
 const oltManagementRoutes = require('./routes/oltManagement');
 const onuManagementRoutes = require('./routes/onuManagement');
 const fiberPlantRoutes = require('./routes/fiberPlantManagement');
+const cpeManagementRoutes = require('./routes/cpeManagement');
+const cpeProfileRoutes = require('./routes/cpeProfiles');
+const acsService = require('./services/acsService');
 const graphqlMiddleware = require('./graphql');
 
 const crypto = require('crypto');
@@ -383,6 +386,13 @@ app.get('/health/ready', async (_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// ACS (CWMP/TR-069) endpoint — OUTSIDE authenticated /api/v1 surface
+// CPEs send text/xml; must NOT use JSON body parser here
+// ---------------------------------------------------------------------------
+app.use('/acs', express.text({ type: '*/*' }));
+app.post('/acs/cwmp', acsService.handleCwmpRequest);
+
+// ---------------------------------------------------------------------------
 // API routes — build a single v1 router, mount at /api and /api/v1
 // ---------------------------------------------------------------------------
 const v1 = express.Router();
@@ -516,6 +526,8 @@ v1.use('/transition-mechanisms', transitionMechanismRoutes);
 v1.use('/olt-management', oltManagementRoutes);
 v1.use('/onu-management', onuManagementRoutes);
 v1.use('/fiber-plant', fiberPlantRoutes);
+v1.use('/cpe-management', cpeManagementRoutes);
+v1.use('/cpe-profiles', cpeProfileRoutes);
 v1.use('/graphql', authenticate, orgScope, graphqlMiddleware);
 
 // Mount v1 at both /api (backward compat) and /api/v1 (versioned)
