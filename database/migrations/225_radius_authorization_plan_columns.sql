@@ -151,13 +151,22 @@ DROP PROCEDURE IF EXISTS migration_225_add_radius_inner_vlan_id;
 
 -- ---------------------------------------------------------------------------
 -- Seed: kick_duplicate_sessions scheduled task (item 11)
+--
+-- Idempotency note: INSERT ... SELECT ... WHERE NOT EXISTS — the UNIQUE KEY
+-- on (organization_id, task_name) never collides when organization_id is
+-- NULL, so INSERT IGNORE would duplicate the row on re-run.
 -- ---------------------------------------------------------------------------
-INSERT IGNORE INTO scheduled_tasks
+INSERT INTO scheduled_tasks
     (organization_id, task_name, description, cron_expression, is_enabled, priority)
-VALUES
-    (NULL,
-     'kick_duplicate_sessions',
-     'Find subscribers with more active sessions than their simultaneous_use limit allows and disconnect the oldest excess sessions via RADIUS Disconnect-Request',
-     '*/5 * * * *',
-     TRUE,
-     'normal');
+SELECT
+    NULL,
+    'kick_duplicate_sessions',
+    'Find subscribers with more active sessions than their simultaneous_use limit allows and disconnect the oldest excess sessions via RADIUS Disconnect-Request',
+    '*/5 * * * *',
+    TRUE,
+    'normal'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'kick_duplicate_sessions' AND organization_id IS NULL
+);

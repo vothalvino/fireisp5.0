@@ -151,13 +151,22 @@ CREATE TABLE IF NOT EXISTS subscriber_certificates (
 
 -- ---------------------------------------------------------------------------
 -- Seed: scheduled task for certificate expiry monitoring
+--
+-- Idempotency note: INSERT ... SELECT ... WHERE NOT EXISTS — the UNIQUE KEY
+-- on (organization_id, task_name) never collides when organization_id is
+-- NULL, so INSERT IGNORE would duplicate the row on re-run.
 -- ---------------------------------------------------------------------------
-INSERT IGNORE INTO scheduled_tasks
+INSERT INTO scheduled_tasks
     (organization_id, task_name, description, cron_expression, is_enabled, priority)
-VALUES
-    (NULL,
-     'check_certificate_expiry',
-     'Check subscriber EAP-TLS certificates expiring within 30 days and log warnings',
-     '0 6 * * *',
-     TRUE,
-     'normal');
+SELECT
+    NULL,
+    'check_certificate_expiry',
+    'Check subscriber EAP-TLS certificates expiring within 30 days and log warnings',
+    '0 6 * * *',
+    TRUE,
+    'normal'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'check_certificate_expiry' AND organization_id IS NULL
+);

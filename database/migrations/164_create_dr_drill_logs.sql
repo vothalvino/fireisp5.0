@@ -42,18 +42,30 @@ CREATE TABLE IF NOT EXISTS dr_drill_logs (
 -- ---------------------------------------------------------------------------
 -- Seed: quarterly_dr_drill scheduled task
 -- Cron  0 2 1 1,4,7,10 *  =  02:00 on 1 Jan, 1 Apr, 1 Jul, 1 Oct
+--
+-- Idempotency note: uses INSERT ... SELECT ... WHERE NOT EXISTS because the
+-- UNIQUE KEY on (organization_id, task_name) never collides when
+-- organization_id is NULL, so INSERT IGNORE would duplicate the row on re-run.
+-- task_type is 'backup' — the previous value 'maintenance' is not part of the
+-- task_type ENUM (see migration 047) and was silently stored as '' by
+-- INSERT IGNORE; 'backup' matches the drill's backup-and-verify purpose.
 -- ---------------------------------------------------------------------------
 
-INSERT IGNORE INTO scheduled_tasks
+INSERT INTO scheduled_tasks
     (organization_id, task_name, task_type, description,
      cron_expression, priority, max_retries, timeout_seconds, is_enabled)
-VALUES
-    (NULL,
-     'quarterly_dr_drill',
-     'maintenance',
-     'Quarterly automated DR drill: take a backup, verify size, run Phase-4 referential-integrity and financial-consistency checks, record pass/fail in dr_drill_logs. Phases 2-3 (drop + restore) remain manual per docs/dr-drill.md.',
-     '0 2 1 1,4,7,10 *',   -- 02:00 on 1 Jan / 1 Apr / 1 Jul / 1 Oct
-     'normal',
-     1,
-     3600,
-     TRUE);
+SELECT
+    NULL,
+    'quarterly_dr_drill',
+    'backup',
+    'Quarterly automated DR drill: take a backup, verify size, run Phase-4 referential-integrity and financial-consistency checks, record pass/fail in dr_drill_logs. Phases 2-3 (drop + restore) remain manual per docs/dr-drill.md.',
+    '0 2 1 1,4,7,10 *',   -- 02:00 on 1 Jan / 1 Apr / 1 Jul / 1 Oct
+    'normal',
+    1,
+    3600,
+    TRUE
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'quarterly_dr_drill' AND organization_id IS NULL
+);

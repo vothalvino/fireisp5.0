@@ -25,5 +25,13 @@ CREATE TABLE IF NOT EXISTS plan_speed_windows (
         REFERENCES plans (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT IGNORE INTO scheduled_tasks (organization_id, task_name, description, cron_expression, is_enabled, priority)
-VALUES (NULL, 'apply_speed_windows', 'Apply active time-based speed windows via RADIUS CoA at window boundaries', '*/5 * * * *', TRUE, 'normal');
+-- Idempotency note: INSERT ... SELECT ... WHERE NOT EXISTS — the UNIQUE KEY
+-- on (organization_id, task_name) never collides when organization_id is
+-- NULL, so INSERT IGNORE would duplicate the row on re-run.
+INSERT INTO scheduled_tasks (organization_id, task_name, description, cron_expression, is_enabled, priority)
+SELECT NULL, 'apply_speed_windows', 'Apply active time-based speed windows via RADIUS CoA at window boundaries', '*/5 * * * *', TRUE, 'normal'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'apply_speed_windows' AND organization_id IS NULL
+);

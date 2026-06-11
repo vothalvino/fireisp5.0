@@ -184,13 +184,22 @@ DROP PROCEDURE IF EXISTS migration_198_alter_message_logs;
 
 -- ---------------------------------------------------------------------------
 -- Seed: scheduled task driving the campaign dispatch worker
+--
+-- Idempotency note: uses INSERT ... SELECT ... WHERE NOT EXISTS because the
+-- UNIQUE KEY on (organization_id, task_name) never collides when
+-- organization_id is NULL, so INSERT IGNORE would duplicate the row on re-run.
 -- ---------------------------------------------------------------------------
-INSERT IGNORE INTO scheduled_tasks
+INSERT INTO scheduled_tasks
     (organization_id, task_name, description, cron_expression, is_enabled, priority)
-VALUES
-    (NULL,
-     'campaign_send',
-     'Process queued campaign messages and dispatch them via email/SMS/WhatsApp',
-     '*/5 * * * *',
-     TRUE,
-     'normal');
+SELECT
+    NULL,
+    'campaign_send',
+    'Process queued campaign messages and dispatch them via email/SMS/WhatsApp',
+    '*/5 * * * *',
+    TRUE,
+    'normal'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'campaign_send' AND organization_id IS NULL
+);
