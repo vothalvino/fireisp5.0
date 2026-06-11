@@ -199,37 +199,37 @@
 ## 5. Dual Stack (IPv4 + IPv6)
 
 ### 5.1 IPv4 Management
-- [ ] DHCP server integration (ISC Kea, MikroTik DHCP)
-- [ ] Static DHCP reservations by MAC
-- [ ] DHCP Option 82 (Relay Agent Information) for subscriber binding
-- [ ] IPAM (IP Address Management): subnet planner, utilization, conflict detection
-- [ ] NAT management for CGNAT deployments (if applicable)
-- [ ] Reverse DNS (PTR) management
+- [x] DHCP server integration (ISC Kea, MikroTik DHCP)
+- [x] Static DHCP reservations by MAC
+- [x] DHCP Option 82 (Relay Agent Information) for subscriber binding
+- [x] IPAM (IP Address Management): subnet planner, utilization, conflict detection
+- [x] NAT management for CGNAT deployments (if applicable)
+- [x] Reverse DNS (PTR) management
 
 ### 5.2 IPv6 Management
-- [ ] DHCPv6 server: stateful address assignment
-- [ ] Stateless Address Autoconfiguration (SLAAC) support
-- [ ] Prefix delegation (/64 per subscriber, /56 for routed home networks)
-- [ ] Router Advertisement (RA) management on OLT/BNG
-- [ ] IPv6 address pools per NAS / per OLT / per region
-- [ ] IPv6 /64 subnet visualization and planning
-- [ ] Dual-stack session correlation (IPv4 + IPv6 on same PPPoE session)
-- [ ] IPv6 RA Guard on switches
+- [x] DHCPv6 server: stateful address assignment
+- [x] Stateless Address Autoconfiguration (SLAAC) support
+- [x] Prefix delegation (/64 per subscriber, /56 for routed home networks)
+- [x] Router Advertisement (RA) management on OLT/BNG
+- [x] IPv6 address pools per NAS / per OLT / per region
+- [x] IPv6 /64 subnet visualization and planning
+- [x] Dual-stack session correlation (IPv4 + IPv6 on same PPPoE session)
+- [x] IPv6 RA Guard on switches
 
 ### 5.3 Dual Stack Session Management
-- [ ] Single PPPoE session carrying both IPv4 and IPv6 (IPv6CP)
-- [ ] Separate RADIUS attributes for v4/v6 (Framed-IP-Address + Delegated-IPv6-Prefix)
-- [ ] Dual-stack speed profiles (same rate limit for v4 and v6 traffic)
-- [ ] Per-stack accounting separation
-- [ ] Dual-stack DNS server assignment
-- [ ] v4-only, v6-only, and dual-stack plan types
-- [ ] NAT64/DNS64 for v6-only customers needing v4 access
+- [x] Single PPPoE session carrying both IPv4 and IPv6 (IPv6CP)
+- [x] Separate RADIUS attributes for v4/v6 (Framed-IP-Address + Delegated-IPv6-Prefix)
+- [x] Dual-stack speed profiles (same rate limit for v4 and v6 traffic)
+- [x] Per-stack accounting separation
+- [x] Dual-stack DNS server assignment
+- [x] v4-only, v6-only, and dual-stack plan types
+- [x] NAT64/DNS64 for v6-only customers needing v4 access
 
 ### 5.4 Transition Mechanisms
-- [ ] 6rd (IPv6 Rapid Deployment) tunnel broker support
-- [ ] DS-Lite (Dual-Stack Lite) for CGNAT + IPv6 deployments
-- [ ] MAP-E / MAP-T mapping rules
-- [ ] 464XLAT support configuration templates
+- [x] 6rd (IPv6 Rapid Deployment) tunnel broker support
+- [x] DS-Lite (Dual-Stack Lite) for CGNAT + IPv6 deployments
+- [x] MAP-E / MAP-T mapping rules
+- [x] 464XLAT support configuration templates
 
 ---
 
