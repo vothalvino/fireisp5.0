@@ -291,26 +291,26 @@
 ## 7. FTTH — OLT & ONU Management
 
 ### 7.1 OLT Management
-- [ ] Supported vendors: Huawei MA5800/EA5800, ZTE C300/C320/C600, VSOL V1600/W40/W80, C-Data 1600/9000, WOLCK WNM Series, Calix E7
-- [ ] Remote management via SNMP / TL1 / NETCONF / SSH CLI
-- [ ] OLT chassis monitoring: CPU, memory, temperature, PSU, fan, uplink card
-- [ ] PON port monitoring: Tx/Rx optical power, ONU count, bandwidth utilization
-- [ ] GPON/EPON/XGSPON profile management
-- [ ] Splitter management (1:8, 1:16, 1:32, 1:64, 1:128)
+- [x] Supported vendors: Huawei MA5800/EA5800, ZTE C300/C320/C600, VSOL V1600/W40/W80, C-Data 1600/9000, WOLCK WNM Series, Calix E7 (capability records + seed data; live protocol drivers are stubs)
+- [ ] Remote management via SNMP / TL1 / NETCONF / SSH CLI (stub service interface; ftth_onu_firmware_job_processor dispatches — no live session driver yet)
+- [x] OLT chassis monitoring: CPU, memory, temperature, PSU, fan, uplink card (GET /olt-management/:id/chassis reads from snmp_metrics)
+- [x] PON port monitoring: Tx/Rx optical power, ONU count, bandwidth utilization (olt_ports table + API)
+- [x] GPON/EPON/XGSPON profile management (onu_profiles table, technology enum)
+- [x] Splitter management (1:8, 1:16, 1:32, 1:64, 1:128) (olt_splitters CRUD + UI)
 
 ### 7.2 ONU Management
-- [ ] Auto-discovery of new ONUs (plug-and-play)
-- [ ] ONU provisioning: serial number (SN), LOID/Password, profile assignment
-- [ ] ONU profiles: service plan → PON profile mapping
-- [ ] ONU status: online/offline/los/dying-gasp/power-off/loc
-- [ ] Per-ONU optical diagnostics: Tx power, Rx power, temperature, voltage, bias current
-- [ ] ONU distance measurement (ranging)
-- [ ] ONU firmware upgrade scheduler (batch by OLT/region)
-- [ ] ONU reboot remote command
-- [ ] ONU whitelist/blacklist by MAC or serial number
-- [ ] ONU line profile parameters: T-CONT, GEM port, DBA, VLAN mapping
-- [ ] Bridge/router mode configuration per ONU
-- [ ] Wi-Fi SSID/password management via TR-069 or OMCI
+- [x] Auto-discovery of new ONUs (plug-and-play) (ftth_onu_discovery scheduled task seeded; onu_whitelist pre-auth store; actual MAC/SN trap handler is a stub)
+- [x] ONU provisioning: serial number (SN), LOID/Password, profile assignment (POST /onu-management/details/:id/provision — records intent in onu_firmware_jobs)
+- [x] ONU profiles: service plan → PON profile mapping (onu_profiles with plan_id FK, T-CONT/GEM/VLAN fields)
+- [x] ONU status: online/offline/los/dying-gasp/power-off/loc (onu_state ENUM on onu_details; status badge in UI)
+- [x] Per-ONU optical diagnostics: Tx power, Rx power, temperature, voltage, bias current (onu_optical_metrics table + GET /details/:id/optical-metrics + UI history table)
+- [x] ONU distance measurement (ranging) (ranging_distance_m column on onu_details)
+- [x] ONU firmware upgrade scheduler (batch by OLT/region) (onu_firmware_jobs with scope: single_onu/olt_port/full_olt; UI + POST /firmware-jobs)
+- [x] ONU reboot remote command (POST /onu-management/details/:id/reboot → job row; dispatched by processor)
+- [x] ONU whitelist/blacklist by MAC or serial number (onu_whitelist with entry_type: serial/loid/mac; UI + CRUD API)
+- [x] ONU line profile parameters: T-CONT, GEM port, DBA, VLAN mapping (onu_profiles fields; line_profile_name/service_profile_name on onu_details)
+- [x] Bridge/router mode configuration per ONU (wan_mode column on onu_details; IPoE/PPPoE/bridged)
+- [x] Wi-Fi SSID/password management via TR-069 or OMCI (onu_omci_configs: wifi_ssid, wifi_password_encrypted, wifi_band; delivery_method: omci/tr069/manual; UI + CRUD API)
 
 ### 7.3 PON Port Management
 - [ ] PON port utilization dashboard
