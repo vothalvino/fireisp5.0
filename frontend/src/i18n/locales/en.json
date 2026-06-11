@@ -1883,5 +1883,100 @@
     "cancel": "Cancel",
     "loading": "Loading...",
     "notFound": "Not found"
+  },
+  "cpeManagement": {
+    "title": "CPE Management",
+    "subtitle": "Manage CPE devices provisioned via CWMP/TR-069. Register devices, push parameter tasks, and run firmware upgrade campaigns.",
+    "tabs": {
+      "devices": "CPE Devices",
+      "firmware": "Firmware",
+      "campaigns": "Campaigns"
+    },
+    "devices": {
+      "title": "CPE Devices",
+      "newDevice": "Register Device",
+      "createTitle": "Register CPE Device",
+      "editTitle": "Edit CPE Device",
+      "serialNumber": "Serial Number",
+      "oui": "OUI",
+      "manufacturer": "Manufacturer",
+      "model": "Model",
+      "status": "Status",
+      "lastInform": "Last Inform",
+      "profile": "Profile",
+      "contract": "Contract",
+      "empty": "No CPE devices found.",
+      "error": "Failed to load CPE devices."
+    },
+    "tasks": {
+      "title": "Tasks",
+      "newTask": "Queue Task",
+      "taskType": "Task Type",
+      "status": "Status",
+      "priority": "Priority",
+      "queuedAt": "Queued At",
+      "empty": "No tasks.",
+      "error": "Failed to load tasks."
+    },
+    "firmware": {
+      "title": "Firmware Versions",
+      "newVersion": "Add Firmware Version",
+      "createTitle": "Add Firmware Version",
+      "manufacturer": "Manufacturer",
+      "model": "Model",
+      "version": "Version",
+      "url": "Firmware URL",
+      "stable": "Stable",
+      "empty": "No firmware versions.",
+      "error": "Failed to load firmware versions."
+    },
+    "campaigns": {
+      "title": "Firmware Campaigns",
+      "newCampaign": "New Campaign",
+      "createTitle": "New Firmware Campaign",
+      "name": "Campaign Name",
+      "firmwareVersion": "Firmware Version",
+      "status": "Status",
+      "scheduledAt": "Scheduled At",
+      "devices": "Devices",
+      "empty": "No firmware campaigns.",
+      "error": "Failed to load campaigns."
+    }
+  },
+  "cpeProfiles": {
+    "title": "CPE Profiles",
+    "subtitle": "Manage CPE provisioning profiles and parameter mappings for zero-touch provisioning.",
+    "tabs": {
+      "profiles": "Profiles",
+      "mappings": "Parameter Mappings"
+    },
+    "profiles": {
+      "title": "Profiles",
+      "newProfile": "New Profile",
+      "createTitle": "Create CPE Profile",
+      "editTitle": "Edit CPE Profile",
+      "name": "Profile Name",
+      "manufacturer": "Manufacturer",
+      "model": "Model",
+      "parent": "Parent Profile",
+      "plan": "Service Plan",
+      "wifiSsid": "Wi-Fi SSID Template",
+      "wifiBand": "Wi-Fi Band",
+      "wanMode": "WAN Mode",
+      "status": "Status",
+      "empty": "No profiles found.",
+      "error": "Failed to load profiles."
+    },
+    "mappings": {
+      "title": "Parameter Mappings",
+      "newMapping": "Add Mapping",
+      "createTitle": "Add Parameter Mapping",
+      "parameterPath": "Parameter Path",
+      "sourceType": "Source Type",
+      "sourceField": "Source Field",
+      "staticValue": "Static Value",
+      "empty": "No mappings. Select a profile first.",
+      "error": "Failed to load mappings."
+    }
   }
 }

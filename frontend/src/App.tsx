@@ -133,6 +133,8 @@ import { OltManagementPage } from '@/pages/OltManagementPage';
 import { OnuManagementPage } from '@/pages/OnuManagementPage';
 import { PonPortManagementPage } from '@/pages/PonPortManagementPage';
 import { FiberPlantManagementPage } from '@/pages/FiberPlantManagementPage';
+import { CpeManagementPage } from '@/pages/CpeManagementPage';
+import { CpeProfilesPage } from '@/pages/CpeProfilesPage';
 import { NotFound } from '@/pages/NotFound';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
 
@@ -240,6 +242,8 @@ export function App() {
                 <Route path="onu-management" element={<OnuManagementPage />} />
                 <Route path="pon-port-management" element={<PonPortManagementPage />} />
                 <Route path="fiber-plant-management" element={<FiberPlantManagementPage />} />
+                <Route path="cpe-management" element={<CpeManagementPage />} />
+                <Route path="cpe-profiles" element={<CpeProfilesPage />} />
               </Route>
             </Route>
 

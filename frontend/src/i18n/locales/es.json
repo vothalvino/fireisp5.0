@@ -1883,5 +1883,100 @@
     "cancel": "Cancelar",
     "loading": "Cargando...",
     "notFound": "No encontrado"
+  },
+  "cpeManagement": {
+    "title": "Gestión de CPE",
+    "subtitle": "Gestione dispositivos CPE aprovisionados via CWMP/TR-069. Registre dispositivos, envíe tareas de parámetros y ejecute campañas de actualización de firmware.",
+    "tabs": {
+      "devices": "Dispositivos CPE",
+      "firmware": "Firmware",
+      "campaigns": "Campañas"
+    },
+    "devices": {
+      "title": "Dispositivos CPE",
+      "newDevice": "Registrar Dispositivo",
+      "createTitle": "Registrar Dispositivo CPE",
+      "editTitle": "Editar Dispositivo CPE",
+      "serialNumber": "Número de Serie",
+      "oui": "OUI",
+      "manufacturer": "Fabricante",
+      "model": "Modelo",
+      "status": "Estado",
+      "lastInform": "Último Inform",
+      "profile": "Perfil",
+      "contract": "Contrato",
+      "empty": "No se encontraron dispositivos CPE.",
+      "error": "Error al cargar los dispositivos CPE."
+    },
+    "tasks": {
+      "title": "Tareas",
+      "newTask": "Encolar Tarea",
+      "taskType": "Tipo de Tarea",
+      "status": "Estado",
+      "priority": "Prioridad",
+      "queuedAt": "Encolado el",
+      "empty": "Sin tareas.",
+      "error": "Error al cargar las tareas."
+    },
+    "firmware": {
+      "title": "Versiones de Firmware",
+      "newVersion": "Agregar Versión",
+      "createTitle": "Agregar Versión de Firmware",
+      "manufacturer": "Fabricante",
+      "model": "Modelo",
+      "version": "Versión",
+      "url": "URL del Firmware",
+      "stable": "Estable",
+      "empty": "Sin versiones de firmware.",
+      "error": "Error al cargar las versiones de firmware."
+    },
+    "campaigns": {
+      "title": "Campañas de Firmware",
+      "newCampaign": "Nueva Campaña",
+      "createTitle": "Nueva Campaña de Firmware",
+      "name": "Nombre de la Campaña",
+      "firmwareVersion": "Versión de Firmware",
+      "status": "Estado",
+      "scheduledAt": "Programado Para",
+      "devices": "Dispositivos",
+      "empty": "Sin campañas de firmware.",
+      "error": "Error al cargar las campañas."
+    }
+  },
+  "cpeProfiles": {
+    "title": "Perfiles CPE",
+    "subtitle": "Gestione perfiles de aprovisionamiento CPE y mapeos de parámetros para aprovisionamiento cero-toque.",
+    "tabs": {
+      "profiles": "Perfiles",
+      "mappings": "Mapeos de Parámetros"
+    },
+    "profiles": {
+      "title": "Perfiles",
+      "newProfile": "Nuevo Perfil",
+      "createTitle": "Crear Perfil CPE",
+      "editTitle": "Editar Perfil CPE",
+      "name": "Nombre del Perfil",
+      "manufacturer": "Fabricante",
+      "model": "Modelo",
+      "parent": "Perfil Padre",
+      "plan": "Plan de Servicio",
+      "wifiSsid": "Plantilla SSID Wi-Fi",
+      "wifiBand": "Banda Wi-Fi",
+      "wanMode": "Modo WAN",
+      "status": "Estado",
+      "empty": "No se encontraron perfiles.",
+      "error": "Error al cargar los perfiles."
+    },
+    "mappings": {
+      "title": "Mapeos de Parámetros",
+      "newMapping": "Agregar Mapeo",
+      "createTitle": "Agregar Mapeo de Parámetros",
+      "parameterPath": "Ruta de Parámetro",
+      "sourceType": "Tipo de Fuente",
+      "sourceField": "Campo Fuente",
+      "staticValue": "Valor Estático",
+      "empty": "Sin mapeos. Seleccione un perfil primero.",
+      "error": "Error al cargar los mapeos."
+    }
   }
 }

@@ -9832,4 +9832,194 @@ CREATE TABLE IF NOT EXISTS sfp_inventory (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='SFP transceiver lifecycle and DDM diagnostics (§7.4)';
 
+-- ---------------------------------------------------------------------------
+-- §8.1 CPE Device Registry (migration 274)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cpe_devices (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    serial_number       VARCHAR(64)     NOT NULL,
+    oui                 VARCHAR(6)      NOT NULL COMMENT 'OUI from CWMP DeviceId.OUI (6 hex chars)',
+    product_class       VARCHAR(64)     NULL,
+    hardware_version    VARCHAR(64)     NULL,
+    software_version    VARCHAR(64)     NULL,
+    firmware_version    VARCHAR(64)     NULL,
+    manufacturer        VARCHAR(100)    NULL,
+    model_name          VARCHAR(100)    NULL,
+    acs_username        VARCHAR(100)    NULL,
+    acs_password_hash   VARCHAR(255)    NULL,
+    device_id           BIGINT UNSIGNED NULL COMMENT 'FK to devices table (indoor_cpe/outdoor_cpe types)',
+    contract_id         BIGINT UNSIGNED NULL,
+    cpe_profile_id      BIGINT UNSIGNED NULL COMMENT 'FK to cpe_profiles, added in migration 276',
+    status              ENUM('new','provisioning','active','error','offline') NOT NULL DEFAULT 'new',
+    last_inform_at      DATETIME        NULL,
+    last_inform_ip      VARCHAR(45)     NULL,
+    wan_ip              VARCHAR(45)     NULL,
+    lan_subnet          VARCHAR(18)     NULL,
+    wifi_ssid           VARCHAR(64)     NULL,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_cpe_devices_serial_oui (serial_number, oui),
+    KEY idx_cpe_devices_organization_id (organization_id),
+    KEY idx_cpe_devices_status (status),
+    KEY idx_cpe_devices_device_id (device_id),
+    KEY idx_cpe_devices_contract_id (contract_id),
+    KEY idx_cpe_devices_cpe_profile_id (cpe_profile_id),
+    KEY idx_cpe_devices_deleted_at (deleted_at),
+    CONSTRAINT fk_cpe_devices_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_devices_device FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_devices_contract FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='TR-069/CWMP CPE device registry (§8.1)';
+
+CREATE TABLE IF NOT EXISTS cpe_parameters (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    cpe_device_id       BIGINT UNSIGNED NOT NULL,
+    organization_id     BIGINT UNSIGNED NULL,
+    parameter_path      VARCHAR(512)    NOT NULL COMMENT 'TR-069 parameter path e.g. Device.WiFi.SSID.1.SSID',
+    parameter_value     TEXT            NULL,
+    is_writable         TINYINT(1)      NOT NULL DEFAULT 0,
+    last_fetched_at     DATETIME        NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_cpe_param (cpe_device_id, parameter_path(255)),
+    KEY idx_cpe_parameters_org (organization_id),
+    KEY idx_cpe_parameters_cpe (cpe_device_id),
+    CONSTRAINT fk_cpe_parameters_device FOREIGN KEY (cpe_device_id) REFERENCES cpe_devices(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_parameters_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='TR-069 parameter tree per CPE (§8.1)';
+
+CREATE TABLE IF NOT EXISTS cpe_tasks (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    cpe_device_id       BIGINT UNSIGNED NOT NULL,
+    task_type           ENUM('get_parameter_values','set_parameter_values','get_parameter_names','download','reboot','factory_reset','add_object','delete_object') NOT NULL,
+    parameters          JSON            NULL COMMENT 'For set: [{path, value}], for get: [path,...], for download: {url, fileType, fileSize}',
+    status              ENUM('queued','in_progress','done','failed') NOT NULL DEFAULT 'queued',
+    priority            TINYINT UNSIGNED NOT NULL DEFAULT 5 COMMENT '1=highest 10=lowest',
+    result              JSON            NULL,
+    error_message       TEXT            NULL,
+    created_by          BIGINT UNSIGNED NULL,
+    queued_at           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at          DATETIME        NULL,
+    completed_at        DATETIME        NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_cpe_tasks_org (organization_id),
+    KEY idx_cpe_tasks_device_status (cpe_device_id, status),
+    KEY idx_cpe_tasks_status (status),
+    CONSTRAINT fk_cpe_tasks_device FOREIGN KEY (cpe_device_id) REFERENCES cpe_devices(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_tasks_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_tasks_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Queued CWMP tasks per CPE device (§8.1)';
+
+-- ---------------------------------------------------------------------------
+-- §8.2 CPE Profiles, Mappings, Firmware (migration 275)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cpe_profiles (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id         BIGINT UNSIGNED NULL,
+    name                    VARCHAR(100)    NOT NULL,
+    description             TEXT            NULL,
+    parent_profile_id       BIGINT UNSIGNED NULL COMMENT 'NULL = base profile; non-null = child that inherits+overrides',
+    plan_id                 BIGINT UNSIGNED NULL COMMENT 'FK to plans - auto-apply this profile for CPEs on this plan',
+    manufacturer            VARCHAR(100)    NULL COMMENT 'NULL = any manufacturer',
+    model_name              VARCHAR(100)    NULL COMMENT 'NULL = any model',
+    wifi_ssid_template      VARCHAR(64)     NULL COMMENT 'Template string, {{serial}} substituted at provision time',
+    wifi_security           VARCHAR(20)     NULL DEFAULT 'WPA2-PSK',
+    wifi_channel            TINYINT UNSIGNED NULL,
+    wifi_band               ENUM('2.4GHz','5GHz','dual') NULL DEFAULT 'dual',
+    wan_mode                ENUM('dhcp','pppoe','static') NULL DEFAULT 'dhcp',
+    wan_vlan_id             SMALLINT UNSIGNED NULL,
+    parameters              JSON            NULL COMMENT 'Static parameter key/value map to push on provision',
+    status                  ENUM('active','inactive','draft') NOT NULL DEFAULT 'active',
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at              DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_cpe_profiles_org (organization_id),
+    KEY idx_cpe_profiles_plan (plan_id),
+    KEY idx_cpe_profiles_parent (parent_profile_id),
+    KEY idx_cpe_profiles_deleted_at (deleted_at),
+    CONSTRAINT fk_cpe_profiles_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_profiles_plan FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_profiles_parent FOREIGN KEY (parent_profile_id) REFERENCES cpe_profiles(id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='CPE provisioning profiles per service plan (§8.2)';
+
+CREATE TABLE IF NOT EXISTS cpe_parameter_mappings (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    cpe_profile_id      BIGINT UNSIGNED NOT NULL,
+    parameter_path      VARCHAR(512)    NOT NULL COMMENT 'TR-069 parameter path',
+    source_type         ENUM('static','contract_field','plan_field','device_field') NOT NULL DEFAULT 'static',
+    source_field        VARCHAR(100)    NULL COMMENT 'Field name on contract/plan/device when source_type != static',
+    static_value        TEXT            NULL COMMENT 'Value when source_type=static',
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_cpe_param_mappings_org (organization_id),
+    KEY idx_cpe_param_mappings_profile (cpe_profile_id),
+    CONSTRAINT fk_cpe_param_mappings_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_param_mappings_profile FOREIGN KEY (cpe_profile_id) REFERENCES cpe_profiles(id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Automatic parameter mapping rules for CPE profiles (§8.2)';
+
+CREATE TABLE IF NOT EXISTS cpe_firmware_versions (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    manufacturer        VARCHAR(100)    NOT NULL,
+    model_name          VARCHAR(100)    NOT NULL,
+    version             VARCHAR(64)     NOT NULL,
+    firmware_url        VARCHAR(512)    NOT NULL,
+    file_size_bytes     BIGINT UNSIGNED NULL,
+    checksum            VARCHAR(128)    NULL,
+    checksum_type       ENUM('md5','sha1','sha256') NULL DEFAULT 'md5',
+    is_stable           TINYINT(1)      NOT NULL DEFAULT 1,
+    release_notes       TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_cpe_fw_ver (manufacturer, model_name, version),
+    KEY idx_cpe_fw_org (organization_id),
+    KEY idx_cpe_fw_deleted_at (deleted_at),
+    CONSTRAINT fk_cpe_fw_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Firmware version inventory per CPE model (§8.1)';
+
+CREATE TABLE IF NOT EXISTS cpe_firmware_campaigns (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id         BIGINT UNSIGNED NULL,
+    name                    VARCHAR(100)    NOT NULL,
+    firmware_version_id     BIGINT UNSIGNED NOT NULL,
+    target_manufacturer     VARCHAR(100)    NULL,
+    target_model            VARCHAR(100)    NULL,
+    target_profile_id       BIGINT UNSIGNED NULL,
+    target_device_ids       JSON            NULL COMMENT 'Array of cpe_device IDs for ad-hoc targeting',
+    status                  ENUM('scheduled','running','done','failed','cancelled') NOT NULL DEFAULT 'scheduled',
+    scheduled_at            DATETIME        NULL,
+    started_at              DATETIME        NULL,
+    completed_at            DATETIME        NULL,
+    total_devices           INT UNSIGNED    NOT NULL DEFAULT 0,
+    completed_devices       INT UNSIGNED    NOT NULL DEFAULT 0,
+    failed_devices          INT UNSIGNED    NOT NULL DEFAULT 0,
+    result_summary          JSON            NULL,
+    created_by              BIGINT UNSIGNED NULL,
+    notes                   TEXT            NULL,
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at              DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_cpe_fw_camp_org (organization_id),
+    KEY idx_cpe_fw_camp_status (status),
+    KEY idx_cpe_fw_camp_scheduled_at (scheduled_at),
+    KEY idx_cpe_fw_camp_deleted_at (deleted_at),
+    CONSTRAINT fk_cpe_fw_camp_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_fw_camp_fw FOREIGN KEY (firmware_version_id) REFERENCES cpe_firmware_versions(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_fw_camp_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_fw_camp_profile FOREIGN KEY (target_profile_id) REFERENCES cpe_profiles(id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Batch firmware upgrade campaigns (§8.1)';
+
 SET FOREIGN_KEY_CHECKS = 1;

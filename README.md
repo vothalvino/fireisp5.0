@@ -108,8 +108,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 208 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–273)
+│   ├── schema.sql           # Combined schema (all 215 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–276)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -368,6 +368,13 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 205 | `odf_cross_connects` | ODF cross-connect patch cord records (§7.4) — port_a_id and port_b_id FKs (RESTRICT delete), patch_cord_type, patch_cord_length_m, status (active/inactive/removed) |
 | 206 | `otdr_test_results` | OTDR test result records (§7.4) — fault_detected flag, fault_distance_m, fault_type (fiber_break/splice_loss/connector_loss/bend_loss/reflection/other), events JSON, sor_file_path, job_status (pending/running/completed/failed) |
 | 207 | `sfp_inventory` | SFP transceiver lifecycle tracking (§7.4) — form_factor (sfp/sfp_plus/sfp28/qsfp/qsfp_plus/xfp/gbic/other), vendor/part/serial, wavelength_nm, max_distance_km, lifecycle_status (installed/spare/faulty/retired), links to devices and inventory_items; DDM diagnostics via snmp_metrics sfp_* columns |
+| 208 | `cpe_devices` | TR-069/CWMP CPE device registry (§8.1) — serial_number+OUI (unique), acs_username/password_hash for HTTP Basic auth, status ENUM (new/provisioning/active/error/offline), last_inform_at/ip, wan_ip, lan_subnet, wifi_ssid; FKs to organizations, devices, contracts, cpe_profiles |
+| 209 | `cpe_parameters` | TR-069 parameter tree per CPE (§8.1) — parameter_path (up to 512 chars), parameter_value TEXT, is_writable flag, last_fetched_at; UNIQUE on (cpe_device_id, parameter_path(255)); CASCADE on device delete |
+| 210 | `cpe_tasks` | Queued CWMP tasks per CPE device (§8.1) — task_type ENUM (get/set parameter values, download, reboot, factory_reset, etc.), parameters JSON, status (queued/in_progress/done/failed), priority TINYINT (1=highest), result/error JSON |
+| 211 | `cpe_profiles` | CPE provisioning profile templates with inheritance (§8.2) — parent_profile_id self-FK for up to 5-level chain, plan_id for auto-apply, manufacturer/model filters, wifi_ssid_template with {{serial}} substitution, parameters JSON for static push |
+| 212 | `cpe_parameter_mappings` | Automatic parameter mapping rules for CPE profiles (§8.2) — source_type ENUM (static/contract_field/plan_field/device_field), static_value or source_field; CASCADE on profile delete |
+| 213 | `cpe_firmware_versions` | Firmware version inventory per CPE model (§8.1) — manufacturer+model+version (unique), firmware_url, file_size_bytes, checksum/checksum_type (md5/sha1/sha256), is_stable flag |
+| 214 | `cpe_firmware_campaigns` | Batch firmware upgrade campaigns (§8.1) — target by manufacturer/model/profile/ad-hoc device IDs JSON, status (scheduled/running/done/failed/cancelled), progress counters (total/completed/failed_devices), result_summary JSON |
 
 > **Migration 165–173 table count note:** See migrations 241–246 below for the §5 Dual Stack tables. See migrations 249–263 for §6.1–6.6 SNMP & NMS tables.
 
@@ -664,6 +671,8 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 272 — Fiber Plant Management tables (§7.4):** `272_fiber_plant_management.sql` creates 6 new tables: `fiber_routes` (CO→splitter→ONU path hierarchy with parent_route_id self-FK, GIS path JSON, from/to device/port/ONU/splitter FKs), `odf_frames` (ODF physical inventory per site), `odf_ports` (port records within a frame, UNIQUE on frame+port_number, CASCADE on frame delete), `odf_cross_connects` (patch cord records between two ODF ports, RESTRICT deletes), `otdr_test_results` (fault detection records with fault_type ENUM, events JSON, sor_file_path; live I/O = honest stub), `sfp_inventory` (SFP lifecycle: installed/spare/faulty/retired; links to devices and inventory_items; DDM diagnostics via existing snmp_metrics sfp_* columns from migration 255).
 
 > **Migration 273 — Fiber Plant Management permissions (§7.4):** `273_seed_fiber_plant_permissions.sql` seeds 24 permissions covering `fiber_routes.*` (4), `odf_frames.*` (4), `odf_ports.*` (4), `odf_cross_connects.*` (4), `otdr_tests.*` (4), `sfp_inventory.*` (4). Admin gets all 24; technician gets all views + fiber_routes/odf/sfp create+update + otdr_tests.create (16 total); readonly gets all 6 *.view permissions.
+
+> **Migration 274–276 — CPE Management & Profiles (§8.1/§8.2):** `274_cpe_devices_and_tasks.sql` creates `cpe_devices` (TR-069/CWMP CPE registry with HTTP Basic ACS auth, status machine new→provisioning→active/error/offline), `cpe_parameters` (parameter tree storage, UNIQUE on device+path), and `cpe_tasks` (CWMP task queue with 8 task_type values, priority 1–10). `275_cpe_profiles_and_firmware.sql` creates `cpe_profiles` (provisioning templates with self-referencing parent_profile_id for up to 5-level inheritance, plan auto-apply, WiFi/WAN config fields), `cpe_parameter_mappings` (static/contract/plan/device-field source rules), `cpe_firmware_versions` (manufacturer+model+version unique, checksum types), and `cpe_firmware_campaigns` (batch firmware push with device targeting by manufacturer/model/profile/ad-hoc IDs). `276_cpe_fk_permissions_seeds.sql` wires the deferred FK `fk_cpe_devices_cpe_profile` via INFORMATION_SCHEMA-guarded procedure, seeds 26 permissions across `cpe_management.*` (8) and `cpe_profiles.*` (6), grants admin all 26, and seeds 8 vendor default profiles (TP-Link, ZTE, Huawei, Fiberhome, VSOL, D-Link, Netis, Tenda).
 
 ### Venta al Público en General (Factura Pública)
 
