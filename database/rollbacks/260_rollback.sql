@@ -35,9 +35,6 @@ BEGIN
   IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'alert_rules' AND CONSTRAINT_NAME = 'fk_alert_rules_escalation_chain') THEN
     ALTER TABLE alert_rules DROP FOREIGN KEY fk_alert_rules_escalation_chain;
   END IF;
-  IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'alert_rules' AND COLUMN_NAME = 'auto_create_ticket') THEN
-    ALTER TABLE alert_rules DROP COLUMN auto_create_ticket;
-  END IF;
   IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'alert_rules' AND COLUMN_NAME = 'baseline_stddev_multiplier') THEN
     ALTER TABLE alert_rules DROP COLUMN baseline_stddev_multiplier;
   END IF;

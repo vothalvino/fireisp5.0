@@ -138,9 +138,6 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'alert_rules' AND COLUMN_NAME = 'baseline_stddev_multiplier') THEN
     ALTER TABLE alert_rules ADD COLUMN baseline_stddev_multiplier DECIMAL(4,2) NOT NULL DEFAULT 2.00 AFTER baseline_lookback_hours;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'alert_rules' AND COLUMN_NAME = 'auto_create_ticket') THEN
-    ALTER TABLE alert_rules ADD COLUMN auto_create_ticket TINYINT(1) NOT NULL DEFAULT 0;
-  END IF;
 END$$
 DELIMITER ;
 CALL migration_260_alter_alert_rules();
