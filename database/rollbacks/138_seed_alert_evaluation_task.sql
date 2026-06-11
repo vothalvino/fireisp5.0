@@ -4,4 +4,6 @@
 -- Reverses migration 138.
 -- =============================================================================
 
-DELETE FROM scheduled_tasks WHERE task_name = 'alert_evaluation';
+DELETE FROM scheduled_tasks
+WHERE task_name = 'alert_evaluation'
+  AND organization_id IS NULL;

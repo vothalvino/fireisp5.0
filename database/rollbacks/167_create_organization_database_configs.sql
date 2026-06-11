@@ -1,9 +1,8 @@
 -- =============================================================================
--- FireISP 5.0 — Rollback 145: Remove data_retention scheduled task
+-- FireISP 5.0 — Rollback 167: Drop organization_database_configs table
 -- =============================================================================
--- Reverses migration 145.
+-- Reverses migration 167.  No other table references
+-- organization_database_configs.
 -- =============================================================================
 
-DELETE FROM scheduled_tasks
-WHERE task_name = 'data_retention'
-  AND organization_id IS NULL;
+DROP TABLE IF EXISTS organization_database_configs;

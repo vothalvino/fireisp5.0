@@ -40,3 +40,12 @@ END //
 DELIMITER ;
 CALL rollback_200_plan_billing_features();
 DROP PROCEDURE IF EXISTS rollback_200_plan_billing_features;
+
+-- Remove the scheduled tasks seeded by migration 200 (global rows only)
+DELETE FROM scheduled_tasks
+WHERE task_name = 'check_fup_thresholds'
+  AND organization_id IS NULL;
+
+DELETE FROM scheduled_tasks
+WHERE task_name = 'convert_expired_trials'
+  AND organization_id IS NULL;
