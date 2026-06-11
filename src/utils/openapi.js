@@ -1263,6 +1263,103 @@ function generateSpec() {
       '/onu-management/firmware-jobs/{id}/cancel': {
         post: { tags: ['ONU Management'], summary: 'Cancel a pending/queued firmware or reboot job', operationId: 'cancelOnuFirmwareJob', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('OnuFirmwareJob') },
       },
+
+      // ---- PON Port Management §7.3 ----
+      '/olt-management/ports/{portId}/utilization': {
+        get: { tags: ['PON Port Management'], summary: 'PON port utilization dashboard (ONU counts, optical power spread, bandwidth)', operationId: 'getPonPortUtilization', security: [{ bearerAuth: [] }], parameters: [{ name: 'portId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('PonPortUtilization') },
+      },
+      '/olt-management/ports/{portId}/onus': {
+        get: { tags: ['PON Port Management'], summary: 'List ONUs on a PON port (filter by state: online/offline/los/…)', operationId: 'listOnusForPort', security: [{ bearerAuth: [] }], parameters: [{ name: 'portId', in: 'path', required: true, schema: { type: 'integer' } }, { name: 'state', in: 'query', schema: { type: 'string' } }], responses: r200('OnuSummary[]') },
+      },
+      '/olt-management/power-budget': {
+        post: { tags: ['PON Port Management'], summary: 'Calculate optical power budget (splitter loss + fiber distance + margin)', operationId: 'calculatePowerBudget', security: [{ bearerAuth: [] }], requestBody: jsonBody('PowerBudgetRequest'), responses: r200('PowerBudgetResult') },
+      },
+      '/olt-management/ports/{portId}/shutdown': {
+        post: { tags: ['PON Port Management'], summary: 'Set or clear maintenance mode on a PON port', operationId: 'setPonPortShutdown', security: [{ bearerAuth: [] }], parameters: [{ name: 'portId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('PortShutdownRequest'), responses: r200('OltPort') },
+      },
+      '/olt-management/ports/{portId}/xgspon-mode': {
+        post: { tags: ['PON Port Management'], summary: 'Configure XGS-PON sub-mode on a dual-mode PON port', operationId: 'configurePonPortXgsPonMode', security: [{ bearerAuth: [] }], parameters: [{ name: 'portId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('XgsPonModeRequest'), responses: r200('OltPort') },
+      },
+      '/olt-management/onu-migrations': {
+        get: { tags: ['PON Port Management'], summary: 'List ONU port migration jobs', operationId: 'listOnuMigrationJobs', security: [{ bearerAuth: [] }], responses: r200('OnuMigrationJob[]') },
+        post: { tags: ['PON Port Management'], summary: 'Create an ONU port migration job (transactional reassignment)', operationId: 'createOnuMigrationJob', security: [{ bearerAuth: [] }], requestBody: jsonBody('onuMigrationJobs_createOnuMigrationJob'), responses: r201('OnuMigrationJob') },
+      },
+      '/olt-management/onu-migrations/{jobId}': {
+        get: { tags: ['PON Port Management'], summary: 'Get an ONU migration job', operationId: 'getOnuMigrationJob', security: [{ bearerAuth: [] }], parameters: [{ name: 'jobId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('OnuMigrationJob') },
+        patch: { tags: ['PON Port Management'], summary: 'Update an ONU migration job (cancel, reschedule)', operationId: 'patchOnuMigrationJob', security: [{ bearerAuth: [] }], parameters: [{ name: 'jobId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('onuMigrationJobs_patchOnuMigrationJob'), responses: r200('OnuMigrationJob') },
+        delete: { tags: ['PON Port Management'], summary: 'Soft-delete an ONU migration job', operationId: 'deleteOnuMigrationJob', security: [{ bearerAuth: [] }], parameters: [{ name: 'jobId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/olt-management/onu-migrations/{jobId}/cancel': {
+        post: { tags: ['PON Port Management'], summary: 'Cancel a pending ONU migration job', operationId: 'cancelOnuMigrationJob', security: [{ bearerAuth: [] }], parameters: [{ name: 'jobId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('OnuMigrationJob') },
+      },
+
+      // ---- Fiber Plant Management §7.4 ----
+      '/fiber-plant/fiber-routes': {
+        get: { tags: ['Fiber Plant Management'], summary: 'List fiber route segments', operationId: 'listFiberRoutes', security: [{ bearerAuth: [] }], responses: r200('FiberRoute[]') },
+        post: { tags: ['Fiber Plant Management'], summary: 'Create a fiber route segment', operationId: 'createFiberRoute', security: [{ bearerAuth: [] }], requestBody: jsonBody('fiberRoutes_createFiberRoute'), responses: r201('FiberRoute') },
+      },
+      '/fiber-plant/fiber-routes/{id}': {
+        get: { tags: ['Fiber Plant Management'], summary: 'Get a fiber route segment', operationId: 'getFiberRoute', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('FiberRoute') },
+        put: { tags: ['Fiber Plant Management'], summary: 'Update a fiber route segment', operationId: 'updateFiberRoute', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('fiberRoutes_updateFiberRoute'), responses: r200('FiberRoute') },
+        patch: { tags: ['Fiber Plant Management'], summary: 'Partially update a fiber route segment', operationId: 'patchFiberRoute', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('fiberRoutes_patchFiberRoute'), responses: r200('FiberRoute') },
+        delete: { tags: ['Fiber Plant Management'], summary: 'Soft-delete a fiber route segment', operationId: 'deleteFiberRoute', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/fiber-plant/fiber-routes/port/{portId}/path': {
+        get: { tags: ['Fiber Plant Management'], summary: 'Get the full fiber path for a PON port (trunk → distribution → drop)', operationId: 'getFiberPathForPort', security: [{ bearerAuth: [] }], parameters: [{ name: 'portId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('FiberRoute[]') },
+      },
+      '/fiber-plant/fiber-routes/onu/{onuDetailId}/path': {
+        get: { tags: ['Fiber Plant Management'], summary: 'Get the fiber path leading to a specific ONU', operationId: 'getFiberPathForOnu', security: [{ bearerAuth: [] }], parameters: [{ name: 'onuDetailId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('FiberRoute[]') },
+      },
+      '/fiber-plant/odf/frames': {
+        get: { tags: ['Fiber Plant Management'], summary: 'List ODF frame inventory', operationId: 'listOdfFrames', security: [{ bearerAuth: [] }], responses: r200('OdfFrame[]') },
+        post: { tags: ['Fiber Plant Management'], summary: 'Create an ODF frame record', operationId: 'createOdfFrame', security: [{ bearerAuth: [] }], requestBody: jsonBody('odfFrames_createOdfFrame'), responses: r201('OdfFrame') },
+      },
+      '/fiber-plant/odf/frames/{id}': {
+        get: { tags: ['Fiber Plant Management'], summary: 'Get an ODF frame with its port list', operationId: 'getOdfFrame', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('OdfFrameWithPorts') },
+        put: { tags: ['Fiber Plant Management'], summary: 'Update an ODF frame', operationId: 'updateOdfFrame', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('odfFrames_updateOdfFrame'), responses: r200('OdfFrame') },
+        patch: { tags: ['Fiber Plant Management'], summary: 'Partially update an ODF frame', operationId: 'patchOdfFrame', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('odfFrames_patchOdfFrame'), responses: r200('OdfFrame') },
+        delete: { tags: ['Fiber Plant Management'], summary: 'Soft-delete an ODF frame', operationId: 'deleteOdfFrame', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/fiber-plant/odf/ports': {
+        get: { tags: ['Fiber Plant Management'], summary: 'List ODF fiber ports', operationId: 'listOdfPorts', security: [{ bearerAuth: [] }], responses: r200('OdfPort[]') },
+        post: { tags: ['Fiber Plant Management'], summary: 'Create an ODF port record', operationId: 'createOdfPort', security: [{ bearerAuth: [] }], requestBody: jsonBody('odfFrames_createOdfPort'), responses: r201('OdfPort') },
+      },
+      '/fiber-plant/odf/ports/{id}': {
+        get: { tags: ['Fiber Plant Management'], summary: 'Get an ODF port', operationId: 'getOdfPort', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('OdfPort') },
+        patch: { tags: ['Fiber Plant Management'], summary: 'Update ODF port status/label', operationId: 'patchOdfPort', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('odfFrames_patchOdfPort'), responses: r200('OdfPort') },
+        delete: { tags: ['Fiber Plant Management'], summary: 'Soft-delete an ODF port', operationId: 'deleteOdfPort', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/fiber-plant/odf/cross-connects': {
+        get: { tags: ['Fiber Plant Management'], summary: 'List ODF patch-cord cross-connects', operationId: 'listOdfCrossConnects', security: [{ bearerAuth: [] }], responses: r200('OdfCrossConnect[]') },
+        post: { tags: ['Fiber Plant Management'], summary: 'Create a cross-connect record', operationId: 'createOdfCrossConnect', security: [{ bearerAuth: [] }], requestBody: jsonBody('odfFrames_createOdfCrossConnect'), responses: r201('OdfCrossConnect') },
+      },
+      '/fiber-plant/odf/cross-connects/{id}': {
+        get: { tags: ['Fiber Plant Management'], summary: 'Get a cross-connect record', operationId: 'getOdfCrossConnect', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('OdfCrossConnect') },
+        patch: { tags: ['Fiber Plant Management'], summary: 'Update a cross-connect record', operationId: 'patchOdfCrossConnect', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('odfFrames_patchOdfCrossConnect'), responses: r200('OdfCrossConnect') },
+        delete: { tags: ['Fiber Plant Management'], summary: 'Soft-delete a cross-connect record', operationId: 'deleteOdfCrossConnect', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/fiber-plant/otdr/tests': {
+        get: { tags: ['Fiber Plant Management'], summary: 'List OTDR test results', operationId: 'listOtdrTests', security: [{ bearerAuth: [] }], responses: r200('OtdrTestResult[]') },
+        post: { tags: ['Fiber Plant Management'], summary: 'Create/import an OTDR test result (live I/O stubbed; job_status tracks acquisition)', operationId: 'createOtdrTest', security: [{ bearerAuth: [] }], requestBody: jsonBody('otdrTests_createOtdrTest'), responses: r201('OtdrTestResult') },
+      },
+      '/fiber-plant/otdr/tests/{id}': {
+        get: { tags: ['Fiber Plant Management'], summary: 'Get an OTDR test result', operationId: 'getOtdrTest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('OtdrTestResult') },
+        patch: { tags: ['Fiber Plant Management'], summary: 'Update an OTDR test record (job status, fault info)', operationId: 'patchOtdrTest', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('otdrTests_patchOtdrTest'), responses: r200('OtdrTestResult') },
+        delete: { tags: ['Fiber Plant Management'], summary: 'Soft-delete an OTDR test record', operationId: 'deleteOtdrTest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/fiber-plant/sfp': {
+        get: { tags: ['Fiber Plant Management'], summary: 'List SFP module lifecycle inventory', operationId: 'listSfpInventory', security: [{ bearerAuth: [] }], responses: r200('SfpInventory[]') },
+        post: { tags: ['Fiber Plant Management'], summary: 'Add an SFP module record', operationId: 'createSfpInventory', security: [{ bearerAuth: [] }], requestBody: jsonBody('sfpInventory_createSfpInventory'), responses: r201('SfpInventory') },
+      },
+      '/fiber-plant/sfp/{id}': {
+        get: { tags: ['Fiber Plant Management'], summary: 'Get an SFP inventory record', operationId: 'getSfpInventory', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SfpInventory') },
+        put: { tags: ['Fiber Plant Management'], summary: 'Update an SFP inventory record', operationId: 'updateSfpInventory', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('sfpInventory_updateSfpInventory'), responses: r200('SfpInventory') },
+        patch: { tags: ['Fiber Plant Management'], summary: 'Partial update SFP lifecycle status/port assignment', operationId: 'patchSfpInventory', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('sfpInventory_patchSfpInventory'), responses: r200('SfpInventory') },
+        delete: { tags: ['Fiber Plant Management'], summary: 'Soft-delete an SFP inventory record', operationId: 'deleteSfpInventory', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/fiber-plant/sfp/{id}/diagnostics': {
+        get: { tags: ['Fiber Plant Management'], summary: 'Get SFP SNMP DDM diagnostics (Tx/Rx power, temperature) for an installed SFP', operationId: 'getSfpDiagnostics', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SfpDiagnostics') },
+      },
     },
     components: {
       securitySchemes: {

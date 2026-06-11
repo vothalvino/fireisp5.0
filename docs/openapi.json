@@ -26827,6 +26827,1658 @@
           }
         }
       }
+    },
+    "/olt-management/ports/{portId}/utilization": {
+      "get": {
+        "tags": [
+          "PON Port Management"
+        ],
+        "summary": "PON port utilization dashboard (ONU counts, optical power spread, bandwidth)",
+        "operationId": "getPonPortUtilization",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "portId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PonPortUtilization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/olt-management/ports/{portId}/onus": {
+      "get": {
+        "tags": [
+          "PON Port Management"
+        ],
+        "summary": "List ONUs on a PON port (filter by state: online/offline/los/…)",
+        "operationId": "listOnusForPort",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "portId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuSummary[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/olt-management/power-budget": {
+      "post": {
+        "tags": [
+          "PON Port Management"
+        ],
+        "summary": "Calculate optical power budget (splitter loss + fiber distance + margin)",
+        "operationId": "calculatePowerBudget",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "PowerBudgetRequest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PowerBudgetResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/olt-management/ports/{portId}/shutdown": {
+      "post": {
+        "tags": [
+          "PON Port Management"
+        ],
+        "summary": "Set or clear maintenance mode on a PON port",
+        "operationId": "setPonPortShutdown",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "portId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "PortShutdownRequest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OltPort",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/olt-management/ports/{portId}/xgspon-mode": {
+      "post": {
+        "tags": [
+          "PON Port Management"
+        ],
+        "summary": "Configure XGS-PON sub-mode on a dual-mode PON port",
+        "operationId": "configurePonPortXgsPonMode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "portId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "XgsPonModeRequest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OltPort",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/olt-management/onu-migrations": {
+      "get": {
+        "tags": [
+          "PON Port Management"
+        ],
+        "summary": "List ONU port migration jobs",
+        "operationId": "listOnuMigrationJobs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuMigrationJob[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "PON Port Management"
+        ],
+        "summary": "Create an ONU port migration job (transactional reassignment)",
+        "operationId": "createOnuMigrationJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "onuMigrationJobs_createOnuMigrationJob",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OnuMigrationJob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/olt-management/onu-migrations/{jobId}": {
+      "get": {
+        "tags": [
+          "PON Port Management"
+        ],
+        "summary": "Get an ONU migration job",
+        "operationId": "getOnuMigrationJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuMigrationJob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "PON Port Management"
+        ],
+        "summary": "Update an ONU migration job (cancel, reschedule)",
+        "operationId": "patchOnuMigrationJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "onuMigrationJobs_patchOnuMigrationJob",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OnuMigrationJob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "PON Port Management"
+        ],
+        "summary": "Soft-delete an ONU migration job",
+        "operationId": "deleteOnuMigrationJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/olt-management/onu-migrations/{jobId}/cancel": {
+      "post": {
+        "tags": [
+          "PON Port Management"
+        ],
+        "summary": "Cancel a pending ONU migration job",
+        "operationId": "cancelOnuMigrationJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuMigrationJob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fiber-plant/fiber-routes": {
+      "get": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "List fiber route segments",
+        "operationId": "listFiberRoutes",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FiberRoute[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Create a fiber route segment",
+        "operationId": "createFiberRoute",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "fiberRoutes_createFiberRoute",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "FiberRoute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fiber-plant/fiber-routes/{id}": {
+      "get": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Get a fiber route segment",
+        "operationId": "getFiberRoute",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FiberRoute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Update a fiber route segment",
+        "operationId": "updateFiberRoute",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "fiberRoutes_updateFiberRoute",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "FiberRoute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Partially update a fiber route segment",
+        "operationId": "patchFiberRoute",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "fiberRoutes_patchFiberRoute",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "FiberRoute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Soft-delete a fiber route segment",
+        "operationId": "deleteFiberRoute",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/fiber-plant/fiber-routes/port/{portId}/path": {
+      "get": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Get the full fiber path for a PON port (trunk → distribution → drop)",
+        "operationId": "getFiberPathForPort",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "portId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FiberRoute[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fiber-plant/fiber-routes/onu/{onuDetailId}/path": {
+      "get": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Get the fiber path leading to a specific ONU",
+        "operationId": "getFiberPathForOnu",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "onuDetailId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FiberRoute[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fiber-plant/odf/frames": {
+      "get": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "List ODF frame inventory",
+        "operationId": "listOdfFrames",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OdfFrame[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Create an ODF frame record",
+        "operationId": "createOdfFrame",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "odfFrames_createOdfFrame",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OdfFrame",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fiber-plant/odf/frames/{id}": {
+      "get": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Get an ODF frame with its port list",
+        "operationId": "getOdfFrame",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OdfFrameWithPorts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Update an ODF frame",
+        "operationId": "updateOdfFrame",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "odfFrames_updateOdfFrame",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OdfFrame",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Partially update an ODF frame",
+        "operationId": "patchOdfFrame",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "odfFrames_patchOdfFrame",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OdfFrame",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Soft-delete an ODF frame",
+        "operationId": "deleteOdfFrame",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/fiber-plant/odf/ports": {
+      "get": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "List ODF fiber ports",
+        "operationId": "listOdfPorts",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OdfPort[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Create an ODF port record",
+        "operationId": "createOdfPort",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "odfFrames_createOdfPort",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OdfPort",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fiber-plant/odf/ports/{id}": {
+      "get": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Get an ODF port",
+        "operationId": "getOdfPort",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OdfPort",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Update ODF port status/label",
+        "operationId": "patchOdfPort",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "odfFrames_patchOdfPort",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OdfPort",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Soft-delete an ODF port",
+        "operationId": "deleteOdfPort",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/fiber-plant/odf/cross-connects": {
+      "get": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "List ODF patch-cord cross-connects",
+        "operationId": "listOdfCrossConnects",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OdfCrossConnect[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Create a cross-connect record",
+        "operationId": "createOdfCrossConnect",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "odfFrames_createOdfCrossConnect",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OdfCrossConnect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fiber-plant/odf/cross-connects/{id}": {
+      "get": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Get a cross-connect record",
+        "operationId": "getOdfCrossConnect",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OdfCrossConnect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Update a cross-connect record",
+        "operationId": "patchOdfCrossConnect",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "odfFrames_patchOdfCrossConnect",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OdfCrossConnect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Soft-delete a cross-connect record",
+        "operationId": "deleteOdfCrossConnect",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/fiber-plant/otdr/tests": {
+      "get": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "List OTDR test results",
+        "operationId": "listOtdrTests",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OtdrTestResult[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Create/import an OTDR test result (live I/O stubbed; job_status tracks acquisition)",
+        "operationId": "createOtdrTest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "otdrTests_createOtdrTest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OtdrTestResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fiber-plant/otdr/tests/{id}": {
+      "get": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Get an OTDR test result",
+        "operationId": "getOtdrTest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OtdrTestResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Update an OTDR test record (job status, fault info)",
+        "operationId": "patchOtdrTest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "otdrTests_patchOtdrTest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OtdrTestResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Soft-delete an OTDR test record",
+        "operationId": "deleteOtdrTest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/fiber-plant/sfp": {
+      "get": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "List SFP module lifecycle inventory",
+        "operationId": "listSfpInventory",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SfpInventory[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Add an SFP module record",
+        "operationId": "createSfpInventory",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "sfpInventory_createSfpInventory",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "SfpInventory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fiber-plant/sfp/{id}": {
+      "get": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Get an SFP inventory record",
+        "operationId": "getSfpInventory",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SfpInventory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Update an SFP inventory record",
+        "operationId": "updateSfpInventory",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "sfpInventory_updateSfpInventory",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SfpInventory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Partial update SFP lifecycle status/port assignment",
+        "operationId": "patchSfpInventory",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "sfpInventory_patchSfpInventory",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SfpInventory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Soft-delete an SFP inventory record",
+        "operationId": "deleteSfpInventory",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/fiber-plant/sfp/{id}/diagnostics": {
+      "get": {
+        "tags": [
+          "Fiber Plant Management"
+        ],
+        "summary": "Get SFP SNMP DDM diagnostics (Tx/Rx power, temperature) for an installed SFP",
+        "operationId": "getSfpDiagnostics",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SfpDiagnostics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -30765,6 +32417,240 @@
           "invoice_id"
         ]
       },
+      "fiberRoutes_createFiberRoute": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "route_type": {
+            "type": "string",
+            "enum": [
+              "trunk",
+              "distribution",
+              "drop",
+              "feeder",
+              "other"
+            ]
+          },
+          "parent_route_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "from_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "from_olt_port_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "from_splitter_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "to_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "to_splitter_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "to_onu_detail_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "cable_length_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cable_type": {
+            "type": "string",
+            "maximum": 50
+          },
+          "attenuation_db": {
+            "type": "number",
+            "minimum": 0
+          },
+          "installed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "damaged",
+              "removed"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "fiberRoutes_updateFiberRoute": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "route_type": {
+            "type": "string",
+            "enum": [
+              "trunk",
+              "distribution",
+              "drop",
+              "feeder",
+              "other"
+            ]
+          },
+          "parent_route_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "from_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "from_olt_port_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "from_splitter_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "to_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "to_splitter_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "to_onu_detail_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "cable_length_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cable_type": {
+            "type": "string",
+            "maximum": 50
+          },
+          "attenuation_db": {
+            "type": "number",
+            "minimum": 0
+          },
+          "installed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "damaged",
+              "removed"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        }
+      },
+      "fiberRoutes_patchFiberRoute": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "route_type": {
+            "type": "string",
+            "enum": [
+              "trunk",
+              "distribution",
+              "drop",
+              "feeder",
+              "other"
+            ]
+          },
+          "parent_route_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "from_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "from_olt_port_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "from_splitter_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "to_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "to_splitter_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "to_onu_detail_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "cable_length_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cable_type": {
+            "type": "string",
+            "maximum": 50
+          },
+          "attenuation_db": {
+            "type": "number",
+            "minimum": 0
+          },
+          "installed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "damaged",
+              "removed"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        }
+      },
       "files_createFile": {
         "type": "object",
         "properties": {
@@ -33373,6 +35259,435 @@
           }
         }
       },
+      "odfFrames_createOdfFrame": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "site_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "frame_type": {
+            "type": "string",
+            "enum": [
+              "rack",
+              "wall_mount",
+              "splice_closure",
+              "patch_panel",
+              "other"
+            ]
+          },
+          "port_count": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "fiber_type": {
+            "type": "string",
+            "enum": [
+              "sm",
+              "mm",
+              "om3",
+              "om4",
+              "other"
+            ]
+          },
+          "connector_type": {
+            "type": "string",
+            "enum": [
+              "sc",
+              "lc",
+              "fc",
+              "st",
+              "mtp",
+              "other"
+            ]
+          },
+          "installed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "decommissioned"
+            ]
+          },
+          "location_detail": {
+            "type": "string",
+            "maximum": 255
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "odfFrames_updateOdfFrame": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "site_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "frame_type": {
+            "type": "string",
+            "enum": [
+              "rack",
+              "wall_mount",
+              "splice_closure",
+              "patch_panel",
+              "other"
+            ]
+          },
+          "port_count": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "fiber_type": {
+            "type": "string",
+            "enum": [
+              "sm",
+              "mm",
+              "om3",
+              "om4",
+              "other"
+            ]
+          },
+          "connector_type": {
+            "type": "string",
+            "enum": [
+              "sc",
+              "lc",
+              "fc",
+              "st",
+              "mtp",
+              "other"
+            ]
+          },
+          "installed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "decommissioned"
+            ]
+          },
+          "location_detail": {
+            "type": "string",
+            "maximum": 255
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        }
+      },
+      "odfFrames_patchOdfFrame": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "site_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "frame_type": {
+            "type": "string",
+            "enum": [
+              "rack",
+              "wall_mount",
+              "splice_closure",
+              "patch_panel",
+              "other"
+            ]
+          },
+          "port_count": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "fiber_type": {
+            "type": "string",
+            "enum": [
+              "sm",
+              "mm",
+              "om3",
+              "om4",
+              "other"
+            ]
+          },
+          "connector_type": {
+            "type": "string",
+            "enum": [
+              "sc",
+              "lc",
+              "fc",
+              "st",
+              "mtp",
+              "other"
+            ]
+          },
+          "installed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "decommissioned"
+            ]
+          },
+          "location_detail": {
+            "type": "string",
+            "maximum": 255
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        }
+      },
+      "odfFrames_createOdfPort": {
+        "type": "object",
+        "properties": {
+          "odf_frame_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "port_number": {
+            "type": "number",
+            "minimum": 1
+          },
+          "port_label": {
+            "type": "string",
+            "maximum": 50
+          },
+          "port_status": {
+            "type": "string",
+            "enum": [
+              "empty",
+              "connected",
+              "dirty",
+              "damaged",
+              "reserved"
+            ]
+          },
+          "connected_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "cable_label": {
+            "type": "string",
+            "maximum": 100
+          },
+          "splitter_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        },
+        "required": [
+          "odf_frame_id",
+          "port_number"
+        ]
+      },
+      "odfFrames_updateOdfPort": {
+        "type": "object",
+        "properties": {
+          "port_label": {
+            "type": "string",
+            "maximum": 50
+          },
+          "port_status": {
+            "type": "string",
+            "enum": [
+              "empty",
+              "connected",
+              "dirty",
+              "damaged",
+              "reserved"
+            ]
+          },
+          "connected_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "cable_label": {
+            "type": "string",
+            "maximum": 100
+          },
+          "splitter_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        }
+      },
+      "odfFrames_patchOdfPort": {
+        "type": "object",
+        "properties": {
+          "port_label": {
+            "type": "string",
+            "maximum": 50
+          },
+          "port_status": {
+            "type": "string",
+            "enum": [
+              "empty",
+              "connected",
+              "dirty",
+              "damaged",
+              "reserved"
+            ]
+          },
+          "connected_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "cable_label": {
+            "type": "string",
+            "maximum": 100
+          },
+          "splitter_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        }
+      },
+      "odfFrames_createOdfCrossConnect": {
+        "type": "object",
+        "properties": {
+          "port_a_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "port_b_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "patch_cord_label": {
+            "type": "string",
+            "maximum": 100
+          },
+          "patch_cord_length_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "installed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "removed"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        },
+        "required": [
+          "port_a_id",
+          "port_b_id"
+        ]
+      },
+      "odfFrames_updateOdfCrossConnect": {
+        "type": "object",
+        "properties": {
+          "patch_cord_label": {
+            "type": "string",
+            "maximum": 100
+          },
+          "patch_cord_length_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "installed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "removed"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        }
+      },
+      "odfFrames_patchOdfCrossConnect": {
+        "type": "object",
+        "properties": {
+          "patch_cord_label": {
+            "type": "string",
+            "maximum": 100
+          },
+          "patch_cord_length_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "installed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "removed"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        }
+      },
       "oltPorts_createOltPort": {
         "type": "object",
         "properties": {
@@ -34027,6 +36342,90 @@
           "scheduled_at": {
             "type": "string",
             "maximum": 30
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        }
+      },
+      "onuMigrationJobs_createOnuMigrationJob": {
+        "type": "object",
+        "properties": {
+          "onu_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "source_olt_port_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "target_olt_port_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "source_olt_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "target_olt_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "scheduled_at": {
+            "type": "string",
+            "maximum": 30
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "onu_device_id",
+          "source_olt_port_id",
+          "target_olt_port_id"
+        ]
+      },
+      "onuMigrationJobs_updateOnuMigrationJob": {
+        "type": "object",
+        "properties": {
+          "scheduled_at": {
+            "type": "string",
+            "maximum": 30
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        }
+      },
+      "onuMigrationJobs_patchOnuMigrationJob": {
+        "type": "object",
+        "properties": {
+          "scheduled_at": {
+            "type": "string",
+            "maximum": 30
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
           },
           "notes": {
             "type": "string",
@@ -34837,6 +37236,233 @@
         "required": [
           "value"
         ]
+      },
+      "otdrTests_createOtdrTest": {
+        "type": "object",
+        "properties": {
+          "fiber_route_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "olt_port_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "olt_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "test_type": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "scheduled",
+              "fault_locate",
+              "baseline",
+              "acceptance"
+            ]
+          },
+          "wavelength_nm": {
+            "type": "number",
+            "minimum": 800,
+            "maximum": 2000
+          },
+          "pulse_width_ns": {
+            "type": "number",
+            "minimum": 1
+          },
+          "range_m": {
+            "type": "number",
+            "minimum": 1
+          },
+          "total_loss_db": {
+            "type": "number",
+            "minimum": 0
+          },
+          "total_length_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "fault_detected": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "fault_distance_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "fault_type": {
+            "type": "string",
+            "enum": [
+              "reflection",
+              "break",
+              "high_splice",
+              "end_of_fiber",
+              "unknown"
+            ]
+          },
+          "sor_file_path": {
+            "type": "string",
+            "maximum": 512
+          },
+          "job_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed",
+              "failed",
+              "imported"
+            ]
+          },
+          "tested_at": {
+            "type": "string",
+            "maximum": 30
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        }
+      },
+      "otdrTests_updateOtdrTest": {
+        "type": "object",
+        "properties": {
+          "fiber_route_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "olt_port_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "test_type": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "scheduled",
+              "fault_locate",
+              "baseline",
+              "acceptance"
+            ]
+          },
+          "wavelength_nm": {
+            "type": "number",
+            "minimum": 800,
+            "maximum": 2000
+          },
+          "total_loss_db": {
+            "type": "number",
+            "minimum": 0
+          },
+          "total_length_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "fault_detected": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "fault_distance_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "fault_type": {
+            "type": "string",
+            "enum": [
+              "reflection",
+              "break",
+              "high_splice",
+              "end_of_fiber",
+              "unknown"
+            ]
+          },
+          "job_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed",
+              "failed",
+              "imported"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        }
+      },
+      "otdrTests_patchOtdrTest": {
+        "type": "object",
+        "properties": {
+          "fiber_route_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "olt_port_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "test_type": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "scheduled",
+              "fault_locate",
+              "baseline",
+              "acceptance"
+            ]
+          },
+          "wavelength_nm": {
+            "type": "number",
+            "minimum": 800,
+            "maximum": 2000
+          },
+          "total_loss_db": {
+            "type": "number",
+            "minimum": 0
+          },
+          "total_length_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "fault_detected": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "fault_distance_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "fault_type": {
+            "type": "string",
+            "enum": [
+              "reflection",
+              "break",
+              "high_splice",
+              "end_of_fiber",
+              "unknown"
+            ]
+          },
+          "job_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed",
+              "failed",
+              "imported"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        }
       },
       "outages_createOutage": {
         "type": "object",
@@ -37641,6 +40267,273 @@
         "required": [
           "value"
         ]
+      },
+      "sfpInventory_createSfpInventory": {
+        "type": "object",
+        "properties": {
+          "serial_number": {
+            "type": "string",
+            "maximum": 64
+          },
+          "vendor_name": {
+            "type": "string",
+            "maximum": 64
+          },
+          "part_number": {
+            "type": "string",
+            "maximum": 64
+          },
+          "form_factor": {
+            "type": "string",
+            "enum": [
+              "sfp",
+              "sfp_plus",
+              "sfp28",
+              "qsfp",
+              "qsfp_plus",
+              "xfp",
+              "gbic",
+              "other"
+            ]
+          },
+          "fiber_type": {
+            "type": "string",
+            "enum": [
+              "sm",
+              "mm",
+              "copper"
+            ]
+          },
+          "wavelength_nm": {
+            "type": "number",
+            "minimum": 800,
+            "maximum": 2000
+          },
+          "max_distance_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "speed_gbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "lifecycle_status": {
+            "type": "string",
+            "enum": [
+              "in_stock",
+              "installed",
+              "removed",
+              "failed",
+              "retired"
+            ]
+          },
+          "installed_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "port_name": {
+            "type": "string",
+            "maximum": 50
+          },
+          "installed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "removed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "failure_reason": {
+            "type": "string",
+            "maximum": 2000
+          },
+          "inventory_item_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        }
+      },
+      "sfpInventory_updateSfpInventory": {
+        "type": "object",
+        "properties": {
+          "serial_number": {
+            "type": "string",
+            "maximum": 64
+          },
+          "vendor_name": {
+            "type": "string",
+            "maximum": 64
+          },
+          "part_number": {
+            "type": "string",
+            "maximum": 64
+          },
+          "form_factor": {
+            "type": "string",
+            "enum": [
+              "sfp",
+              "sfp_plus",
+              "sfp28",
+              "qsfp",
+              "qsfp_plus",
+              "xfp",
+              "gbic",
+              "other"
+            ]
+          },
+          "fiber_type": {
+            "type": "string",
+            "enum": [
+              "sm",
+              "mm",
+              "copper"
+            ]
+          },
+          "wavelength_nm": {
+            "type": "number",
+            "minimum": 800,
+            "maximum": 2000
+          },
+          "max_distance_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "speed_gbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "lifecycle_status": {
+            "type": "string",
+            "enum": [
+              "in_stock",
+              "installed",
+              "removed",
+              "failed",
+              "retired"
+            ]
+          },
+          "installed_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "port_name": {
+            "type": "string",
+            "maximum": 50
+          },
+          "installed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "removed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "failure_reason": {
+            "type": "string",
+            "maximum": 2000
+          },
+          "inventory_item_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        }
+      },
+      "sfpInventory_patchSfpInventory": {
+        "type": "object",
+        "properties": {
+          "serial_number": {
+            "type": "string",
+            "maximum": 64
+          },
+          "vendor_name": {
+            "type": "string",
+            "maximum": 64
+          },
+          "part_number": {
+            "type": "string",
+            "maximum": 64
+          },
+          "form_factor": {
+            "type": "string",
+            "enum": [
+              "sfp",
+              "sfp_plus",
+              "sfp28",
+              "qsfp",
+              "qsfp_plus",
+              "xfp",
+              "gbic",
+              "other"
+            ]
+          },
+          "fiber_type": {
+            "type": "string",
+            "enum": [
+              "sm",
+              "mm",
+              "copper"
+            ]
+          },
+          "wavelength_nm": {
+            "type": "number",
+            "minimum": 800,
+            "maximum": 2000
+          },
+          "max_distance_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "speed_gbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "lifecycle_status": {
+            "type": "string",
+            "enum": [
+              "in_stock",
+              "installed",
+              "removed",
+              "failed",
+              "retired"
+            ]
+          },
+          "installed_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "port_name": {
+            "type": "string",
+            "maximum": 50
+          },
+          "installed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "removed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "failure_reason": {
+            "type": "string",
+            "maximum": 2000
+          },
+          "inventory_item_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        }
       },
       "sites_createSite": {
         "type": "object",

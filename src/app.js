@@ -148,6 +148,7 @@ const ipv6ManagementRoutes = require('./routes/ipv6Management');
 const transitionMechanismRoutes = require('./routes/transitionMechanisms');
 const oltManagementRoutes = require('./routes/oltManagement');
 const onuManagementRoutes = require('./routes/onuManagement');
+const fiberPlantRoutes = require('./routes/fiberPlantManagement');
 const graphqlMiddleware = require('./graphql');
 
 const crypto = require('crypto');
@@ -514,6 +515,7 @@ v1.use('/ipv6', ipv6ManagementRoutes);
 v1.use('/transition-mechanisms', transitionMechanismRoutes);
 v1.use('/olt-management', oltManagementRoutes);
 v1.use('/onu-management', onuManagementRoutes);
+v1.use('/fiber-plant', fiberPlantRoutes);
 v1.use('/graphql', authenticate, orgScope, graphqlMiddleware);
 
 // Mount v1 at both /api (backward compat) and /api/v1 (versioned)

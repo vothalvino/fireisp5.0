@@ -8978,6 +8978,13 @@ CREATE TABLE IF NOT EXISTS olt_ports (
     bandwidth_down_bps  BIGINT UNSIGNED NULL,
     last_polled_at      DATETIME        NULL,
     notes               TEXT            NULL,
+    -- §7.3 PON Port Management columns (migration 270)
+    maintenance_mode      TINYINT(1)    NOT NULL DEFAULT 0,
+    maintenance_note      VARCHAR(255)  NULL,
+    maintenance_by        BIGINT UNSIGNED NULL,
+    maintenance_at        DATETIME      NULL,
+    xgspon_mode           ENUM('gpon','xgspon_2_5g','xgspon_10g','auto','none') NOT NULL DEFAULT 'none',
+    xgspon_mode_validated TINYINT(1)    NOT NULL DEFAULT 0,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
@@ -8991,7 +8998,7 @@ CREATE TABLE IF NOT EXISTS olt_ports (
     CONSTRAINT fk_olt_ports_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_olt_ports_olt_device FOREIGN KEY (olt_device_id) REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='PON and uplink port inventory per OLT (§7.1)';
+  COMMENT='PON and uplink port inventory per OLT (§7.1/§7.3)';
 
 -- ---------------------------------------------------------------------------
 -- Table: onu_profiles
@@ -9272,5 +9279,228 @@ CREATE TABLE IF NOT EXISTS olt_splitters (
     CONSTRAINT fk_olt_splitters_olt_port FOREIGN KEY (olt_port_id) REFERENCES olt_ports (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='PON splitter inventory (§7.1 splitter management)';
+
+-- ---------------------------------------------------------------------------
+-- Table: onu_migration_jobs
+-- Purpose: ONU port migration job records — transactional port reassignment (§7.3)
+-- Migration: 270
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS onu_migration_jobs (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    onu_device_id       BIGINT UNSIGNED NOT NULL,
+    source_olt_port_id  BIGINT UNSIGNED NOT NULL,
+    target_olt_port_id  BIGINT UNSIGNED NOT NULL,
+    status              ENUM('pending','queued','in_progress','completed','failed','cancelled') NOT NULL DEFAULT 'pending',
+    scheduled_at        DATETIME        NULL,
+    started_at          DATETIME        NULL,
+    completed_at        DATETIME        NULL,
+    result_detail       JSON            NULL,
+    created_by          BIGINT UNSIGNED NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_onu_migration_jobs_org (organization_id),
+    KEY idx_onu_migration_jobs_onu (onu_device_id),
+    KEY idx_onu_migration_jobs_status (status),
+    KEY idx_onu_migration_jobs_deleted_at (deleted_at),
+    CONSTRAINT fk_onu_mig_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_mig_source_port FOREIGN KEY (source_olt_port_id) REFERENCES olt_ports (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_mig_target_port FOREIGN KEY (target_olt_port_id) REFERENCES olt_ports (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='ONU migration job records (§7.3)';
+
+-- ---------------------------------------------------------------------------
+-- Table: fiber_routes
+-- Purpose: Fiber route path records from CO to splitter to ONU (§7.4)
+-- Migration: 272
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS fiber_routes (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    name                VARCHAR(120)    NOT NULL,
+    route_type          ENUM('trunk','distribution','drop','feeder','other') NOT NULL DEFAULT 'drop',
+    status              ENUM('active','inactive','planned','decommissioned') NOT NULL DEFAULT 'active',
+    parent_route_id     BIGINT UNSIGNED NULL,
+    from_device_id      BIGINT UNSIGNED NULL,
+    from_olt_port_id    BIGINT UNSIGNED NULL,
+    to_device_id        BIGINT UNSIGNED NULL,
+    to_olt_port_id      BIGINT UNSIGNED NULL,
+    to_onu_detail_id    BIGINT UNSIGNED NULL,
+    to_splitter_id      BIGINT UNSIGNED NULL,
+    total_length_m      INT UNSIGNED    NULL,
+    fiber_count         SMALLINT UNSIGNED NULL,
+    cable_type          VARCHAR(50)     NULL,
+    installation_date   DATE            NULL,
+    gis_path            JSON            NULL,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_fiber_routes_org (organization_id),
+    KEY idx_fiber_routes_status (status),
+    KEY idx_fiber_routes_deleted_at (deleted_at),
+    CONSTRAINT fk_fiber_route_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_fiber_route_parent FOREIGN KEY (parent_route_id) REFERENCES fiber_routes (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Fiber plant route records (§7.4)';
+
+-- ---------------------------------------------------------------------------
+-- Table: odf_frames
+-- Purpose: Optical Distribution Frame physical inventory (§7.4)
+-- Migration: 272
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS odf_frames (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    site_id             BIGINT UNSIGNED NULL,
+    name                VARCHAR(100)    NOT NULL,
+    location_detail     VARCHAR(255)    NULL,
+    total_ports         SMALLINT UNSIGNED NOT NULL DEFAULT 24,
+    frame_type          VARCHAR(50)     NULL,
+    manufacturer        VARCHAR(100)    NULL,
+    model               VARCHAR(100)    NULL,
+    status              ENUM('active','inactive','damaged','removed') NOT NULL DEFAULT 'active',
+    installed_at        DATE            NULL,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_odf_frames_org (organization_id),
+    KEY idx_odf_frames_site (site_id),
+    KEY idx_odf_frames_deleted_at (deleted_at),
+    CONSTRAINT fk_odf_frame_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_odf_frame_site FOREIGN KEY (site_id) REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='ODF frame inventory (§7.4)';
+
+-- ---------------------------------------------------------------------------
+-- Table: odf_ports
+-- Purpose: Individual ODF port records within an ODF frame (§7.4)
+-- Migration: 272
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS odf_ports (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    odf_frame_id        BIGINT UNSIGNED NOT NULL,
+    port_number         SMALLINT UNSIGNED NOT NULL,
+    connector_type      ENUM('sc','lc','fc','st','mpo','other') NOT NULL DEFAULT 'sc',
+    fiber_route_id      BIGINT UNSIGNED NULL,
+    status              ENUM('active','inactive','damaged') NOT NULL DEFAULT 'active',
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_odf_port (odf_frame_id, port_number),
+    KEY idx_odf_ports_fiber_route (fiber_route_id),
+    CONSTRAINT fk_odf_port_frame FOREIGN KEY (odf_frame_id) REFERENCES odf_frames (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_odf_port_fiber_route FOREIGN KEY (fiber_route_id) REFERENCES fiber_routes (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='ODF port records within an ODF frame (§7.4)';
+
+-- ---------------------------------------------------------------------------
+-- Table: odf_cross_connects
+-- Purpose: Cross-connect patch records between two ODF ports (§7.4)
+-- Migration: 272
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS odf_cross_connects (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    port_a_id           BIGINT UNSIGNED NOT NULL,
+    port_b_id           BIGINT UNSIGNED NOT NULL,
+    patch_cord_type     VARCHAR(50)     NULL,
+    patch_cord_length_m DECIMAL(6,2)    NULL,
+    status              ENUM('active','inactive','removed') NOT NULL DEFAULT 'active',
+    installed_at        DATE            NULL,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_odf_cc_org (organization_id),
+    KEY idx_odf_cc_port_a (port_a_id),
+    KEY idx_odf_cc_port_b (port_b_id),
+    KEY idx_odf_cc_deleted_at (deleted_at),
+    CONSTRAINT fk_odf_cc_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_odf_cc_port_a FOREIGN KEY (port_a_id) REFERENCES odf_ports (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_odf_cc_port_b FOREIGN KEY (port_b_id) REFERENCES odf_ports (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='ODF cross-connect patch records (§7.4)';
+
+-- ---------------------------------------------------------------------------
+-- Table: otdr_test_results
+-- Purpose: OTDR test result records and fault location storage (§7.4)
+-- Migration: 272
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS otdr_test_results (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    device_id           BIGINT UNSIGNED NULL,
+    olt_port_id         BIGINT UNSIGNED NULL,
+    fiber_route_id      BIGINT UNSIGNED NULL,
+    test_date           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    wavelength_nm       SMALLINT UNSIGNED NULL,
+    fiber_length_m      INT UNSIGNED    NULL,
+    fault_detected      TINYINT(1)      NOT NULL DEFAULT 0,
+    fault_distance_m    INT UNSIGNED    NULL,
+    fault_type          ENUM('fiber_break','splice_loss','connector_loss','bend_loss','reflection','other') NULL,
+    insertion_loss_db   DECIMAL(6,2)    NULL,
+    return_loss_db      DECIMAL(6,2)    NULL,
+    events              JSON            NULL,
+    sor_file_path       VARCHAR(500)    NULL,
+    job_status          ENUM('pending','running','completed','failed') NOT NULL DEFAULT 'pending',
+    test_type           VARCHAR(50)     NULL,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_otdr_org (organization_id),
+    KEY idx_otdr_device (device_id),
+    KEY idx_otdr_olt_port (olt_port_id),
+    KEY idx_otdr_fault_detected (fault_detected),
+    KEY idx_otdr_deleted_at (deleted_at),
+    CONSTRAINT fk_otdr_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_otdr_device FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_otdr_olt_port FOREIGN KEY (olt_port_id) REFERENCES olt_ports (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='OTDR test results and fault location records (§7.4)';
+
+-- ---------------------------------------------------------------------------
+-- Table: sfp_inventory
+-- Purpose: SFP transceiver lifecycle tracking and DDM diagnostics (§7.4)
+-- Migration: 272
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sfp_inventory (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    device_id           BIGINT UNSIGNED NULL,
+    inventory_item_id   BIGINT UNSIGNED NULL,
+    sfp_port_name       VARCHAR(50)     NULL,
+    form_factor         ENUM('sfp','sfp_plus','sfp28','qsfp','qsfp_plus','xfp','gbic','other') NOT NULL DEFAULT 'sfp_plus',
+    vendor_name         VARCHAR(100)    NULL,
+    part_number         VARCHAR(100)    NULL,
+    serial_number       VARCHAR(100)    NULL,
+    wavelength_nm       SMALLINT UNSIGNED NULL,
+    max_distance_km     DECIMAL(8,2)    NULL,
+    connector_type      VARCHAR(20)     NULL,
+    lifecycle_status    ENUM('installed','spare','faulty','retired') NOT NULL DEFAULT 'spare',
+    installed_at        DATETIME        NULL,
+    retired_at          DATETIME        NULL,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_sfp_inventory_org (organization_id),
+    KEY idx_sfp_inventory_device (device_id),
+    KEY idx_sfp_inventory_lifecycle (lifecycle_status),
+    KEY idx_sfp_inventory_deleted_at (deleted_at),
+    CONSTRAINT fk_sfp_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_sfp_device FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='SFP transceiver lifecycle and DDM diagnostics (§7.4)';
 
 SET FOREIGN_KEY_CHECKS = 1;

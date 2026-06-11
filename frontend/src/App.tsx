@@ -131,6 +131,8 @@ import { BillingAdjustmentList } from '@/pages/BillingAdjustmentList';
 import { AIAssistantSettings } from '@/pages/AIAssistantSettings';
 import { OltManagementPage } from '@/pages/OltManagementPage';
 import { OnuManagementPage } from '@/pages/OnuManagementPage';
+import { PonPortManagementPage } from '@/pages/PonPortManagementPage';
+import { FiberPlantManagementPage } from '@/pages/FiberPlantManagementPage';
 import { NotFound } from '@/pages/NotFound';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
 
@@ -236,6 +238,8 @@ export function App() {
                 <Route path="alert-suppression-rules" element={<AlertSuppressionList />} />
                 <Route path="olt-management" element={<OltManagementPage />} />
                 <Route path="onu-management" element={<OnuManagementPage />} />
+                <Route path="pon-port-management" element={<PonPortManagementPage />} />
+                <Route path="fiber-plant-management" element={<FiberPlantManagementPage />} />
               </Route>
             </Route>
 
