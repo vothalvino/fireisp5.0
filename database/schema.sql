@@ -1059,6 +1059,15 @@ CREATE TABLE IF NOT EXISTS ip_pools (
     dns_primary VARCHAR(45)     NULL     COMMENT 'Primary DNS server',
     dns_secondary VARCHAR(45)   NULL     COMMENT 'Secondary DNS server',
     site_id     BIGINT UNSIGNED NULL     COMMENT 'Site / POP the pool is served from',
+    nas_id      BIGINT UNSIGNED NULL     COMMENT 'NAS device serving this pool; NULL = not tied to a specific NAS',
+    service_type ENUM('residential','business','corporate','government','mixed') NULL DEFAULT 'mixed'
+                                         COMMENT 'Subscriber class this pool is intended to serve',
+    default_prefix_len TINYINT UNSIGNED  NULL
+                                         COMMENT 'IPv6 prefix delegation length assigned to subscribers (e.g. 48, 56, 64); NULL for IPv4 pools or when PD is unused',
+    excluded_ranges TEXT                 NULL
+                                         COMMENT 'Comma- or newline-separated IP ranges to skip during dynamic allocation (e.g. management addresses)',
+    last_alerted_threshold TINYINT UNSIGNED NULL
+                                         COMMENT 'Last utilization % threshold that fired an alert (75 or 90); reset to NULL when usage drops below 75%',
     notes       TEXT            NULL,
     status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1070,12 +1079,15 @@ CREATE TABLE IF NOT EXISTS ip_pools (
     KEY idx_ip_pools_organization_id (organization_id),
     KEY idx_ip_pools_ip_version (ip_version),
     KEY idx_ip_pools_site_id (site_id),
+    KEY idx_ip_pools_nas_id (nas_id),
     KEY idx_ip_pools_status (status),
     KEY idx_ip_pools_deleted_at (deleted_at),
     CONSTRAINT fk_ip_pools_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_ip_pools_site FOREIGN KEY (site_id)
-        REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_ip_pools_nas FOREIGN KEY (nas_id)
+        REFERENCES nas (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------

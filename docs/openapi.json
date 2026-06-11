@@ -9088,6 +9088,42 @@
         }
       }
     },
+    "/radius/sessions/disconnect-batch": {
+      "post": {
+        "tags": [
+          "RADIUS"
+        ],
+        "summary": "Batch force-disconnect PPPoE sessions by session ID or username",
+        "operationId": "batchDisconnectSessions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "BatchDisconnect request",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "BatchDisconnect result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/subscriber-certificates": {
       "get": {
         "tags": [
@@ -9900,6 +9936,124 @@
         }
       }
     },
+    "/ip-pools/utilization": {
+      "get": {
+        "tags": [
+          "IP Pools"
+        ],
+        "summary": "List utilization for all IP pools in the org",
+        "operationId": "listIpPoolUtilization",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "IpPoolUtilization[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ip-pools/{id}/utilization": {
+      "get": {
+        "tags": [
+          "IP Pools"
+        ],
+        "summary": "Get utilization for a single IP pool",
+        "operationId": "getIpPoolUtilization",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "IpPoolUtilization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ip-pools/{id}/assign-next": {
+      "post": {
+        "tags": [
+          "IP Pools"
+        ],
+        "summary": "Dynamically assign the next free IP from a pool",
+        "operationId": "assignNextFreeIp",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Assign-next request",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "IpAssignment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "IP assignment created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ip-assignments": {
       "get": {
         "tags": [
@@ -10442,6 +10596,58 @@
         "responses": {
           "200": {
             "description": "Session[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connection-logs/active/summary": {
+      "get": {
+        "tags": [
+          "Connection Logs"
+        ],
+        "summary": "Active session counts grouped by NAS and port",
+        "operationId": "getActiveSessionSummary",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ActiveSessionSummary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connection-logs/binding-report": {
+      "get": {
+        "tags": [
+          "Connection Logs"
+        ],
+        "summary": "IP binding history export (JSON or CSV)",
+        "operationId": "getBindingReport",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "BindingReport[]",
             "content": {
               "application/json": {
                 "schema": {
@@ -24471,6 +24677,29 @@
             "type": "number",
             "minimum": 1
           },
+          "nas_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "service_type": {
+            "type": "string",
+            "enum": [
+              "residential",
+              "business",
+              "corporate",
+              "government",
+              "mixed"
+            ]
+          },
+          "default_prefix_len": {
+            "type": "number",
+            "minimum": 48,
+            "maximum": 128
+          },
+          "excluded_ranges": {
+            "type": "string",
+            "maximum": 10000
+          },
           "notes": {
             "type": "string",
             "maximum": 5000
@@ -24530,6 +24759,29 @@
           "site_id": {
             "type": "number",
             "minimum": 1
+          },
+          "nas_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "service_type": {
+            "type": "string",
+            "enum": [
+              "residential",
+              "business",
+              "corporate",
+              "government",
+              "mixed"
+            ]
+          },
+          "default_prefix_len": {
+            "type": "number",
+            "minimum": 48,
+            "maximum": 128
+          },
+          "excluded_ranges": {
+            "type": "string",
+            "maximum": 10000
           },
           "notes": {
             "type": "string",

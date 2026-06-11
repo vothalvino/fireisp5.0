@@ -9,9 +9,9 @@ class IpPool extends BaseModel {
 
   static get fillable() {
     return [
-      'organization_id', 'site_id', 'name', 'network', 'subnet_mask',
-      'gateway', 'ip_version', 'dns_primary', 'dns_secondary',
-      'pool_type', 'status', 'notes',
+      'organization_id', 'site_id', 'nas_id', 'name', 'network', 'subnet_mask',
+      'gateway', 'ip_version', 'dns_primary', 'dns_secondary', 'service_type',
+      'default_prefix_len', 'excluded_ranges', 'pool_type', 'status', 'notes',
     ];
   }
 

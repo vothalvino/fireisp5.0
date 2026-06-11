@@ -109,7 +109,7 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 fireisp5.0/
 ├── database/                # Database schema and migrations
 │   ├── schema.sql           # Combined schema (all 161 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–234)
+│   └── migrations/          # Individual numbered migration files (001–236)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -322,6 +322,9 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 159 | `organization_walled_garden_settings` | Per-org walled garden configuration: enabled flag, captive portal redirect URL, MikroTik address-list name, allowed destinations for NAS ACL reference |
 | 160 | `radius_account_routes` | Per-RADIUS-account static route injection; each non-deleted row becomes one `Framed-Route` radreply attribute (`destination [gateway] [metric]`) during sync |
 | 161 | `mac_move_events` | MAC move event log — written by accounting ingest when the same RADIUS username is seen from a different Calling-Station-Id or NAS between sessions |
+
+> **Migrations 235–236 — §4.1 PPPoE Management Phase A (Pool Enhancements, Permissions):**
+> `235_ip_pools_pppoe_enhancements.sql` adds five guarded columns to `ip_pools`: `nas_id` (FK→nas, for NAS-pool binding), `service_type` ENUM, `default_prefix_len` (IPv6 PD), `excluded_ranges` TEXT, and `last_alerted_threshold` TINYINT (utilization crossing tracker). `236_seed_pppoe_management_permissions.sql` seeds five RBAC permissions (`ip_pools.assign`, `ip_pools.utilization`, `ip_pools.binding_report`, `connection_logs.summary`, `radius.batch_disconnect`) with role assignments, and registers the `check_pool_utilization` hourly scheduled task.
 
 > **Migrations 230–234 — §3.3+§3.4 RADIUS/AAA Phase C (Accounting, CoA hardening, NAS health):**
 > `230_radius_accounting_ingest_columns.sql` adds 6 columns to `connection_logs` via stored-procedure guards (partitioned table): `acct_session_id` (Acct-Session-Id), `nas_port_id`, `called_station_id`, `calling_station_id`, `framed_ip`, `framed_ipv6_prefix`; adds index on `acct_session_id`. `231_create_mac_move_events.sql` adds `mac_move_events` table (no FK constraints — loose refs for compliance). `232_nas_registry_enhancements.sql` adds `coa_port`, `location`, `site_id` (FK→sites SET NULL), `secondary_nas_id` (self-ref FK SET NULL), `health_status`, `last_health_check_at` to `nas`. `233_radius_accounting_retention_setting.sql` seeds `purge_radius_accounting` (daily 03:00) and `nas_health_check` (*/5 * * * *) scheduled tasks. `234_seed_radius_accounting_permissions.sql` seeds `radius.accounting_ingest`, `radius.cdr_export`, `radius.coa`, `radius.mac_move_events.view`, `nas.health` RBAC permissions.

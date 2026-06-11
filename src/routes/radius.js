@@ -295,4 +295,99 @@ router.get('/mac-move-events', requirePermission('radius.mac_move_events.view'),
   }
 });
 
+// =============================================================================
+// Batch force-disconnect (PPPoE Management Phase A)
+// =============================================================================
+
+router.post('/sessions/disconnect-batch', requirePermission('radius.batch_disconnect'), async (req, res, next) => {
+  try {
+    const { acct_session_ids, usernames } = req.body;
+
+    if (!acct_session_ids && !usernames) {
+      return res.status(400).json({ error: 'Provide acct_session_ids or usernames' });
+    }
+
+    const ids = acct_session_ids || [];
+    const names = usernames || [];
+    const totalCount = ids.length + names.length;
+
+    if (totalCount > 100) {
+      return res.status(400).json({ error: 'Maximum 100 sessions per batch' });
+    }
+    if (totalCount === 0) {
+      return res.status(400).json({ error: 'At least one session identifier required' });
+    }
+
+    const results = [];
+
+    // Disconnect by acct_session_ids (session_id values in connection_logs)
+    for (const sessionId of ids) {
+      const [rows] = await db.query(
+        `SELECT DISTINCT cl.contract_id FROM connection_logs cl
+         WHERE cl.session_id = ? AND cl.event_type = 'start'
+           AND NOT EXISTS (
+             SELECT 1 FROM connection_logs cl2
+             WHERE cl2.session_id = cl.session_id
+               AND cl2.contract_id = cl.contract_id
+               AND cl2.event_type = 'stop'
+           )
+         LIMIT 1`,
+        [sessionId],
+      );
+      if (!rows.length) {
+        results.push({ session_id: sessionId, success: false, error: 'Session not found or already stopped' });
+        continue;
+      }
+      try {
+        await disconnectSession(rows[0].contract_id);
+        await auditLog.log({
+          userId: req.user.id,
+          organizationId: req.orgId,
+          action: 'disconnect',
+          tableName: 'connection_logs',
+          recordId: rows[0].contract_id,
+          newValues: { session_id: sessionId, initiated_by: 'batch_disconnect' },
+        });
+        results.push({ session_id: sessionId, success: true });
+      } catch (err) {
+        results.push({ session_id: sessionId, success: false, error: err.message });
+      }
+    }
+
+    // Disconnect by usernames
+    for (const username of names) {
+      const [rows] = await db.query(
+        'SELECT contract_id FROM radius WHERE username = ? LIMIT 1',
+        [username],
+      );
+      if (!rows.length) {
+        results.push({ username, success: false, error: 'RADIUS account not found' });
+        continue;
+      }
+      try {
+        await disconnectSession(rows[0].contract_id);
+        await auditLog.log({
+          userId: req.user.id,
+          organizationId: req.orgId,
+          action: 'disconnect',
+          tableName: 'radius',
+          recordId: rows[0].contract_id,
+          newValues: { username, initiated_by: 'batch_disconnect' },
+        });
+        results.push({ username, success: true });
+      } catch (err) {
+        results.push({ username, success: false, error: err.message });
+      }
+    }
+
+    const succeeded = results.filter(r => r.success).length;
+    res.json({
+      data: results,
+      meta: { total: results.length, succeeded, failed: results.length - succeeded },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

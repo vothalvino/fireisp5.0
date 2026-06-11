@@ -982,6 +982,30 @@
       "reason": "Motivo"
     }
   },
+  "radius_sessions": {
+    "mac_filter_placeholder": "Endereço MAC…",
+    "nas_port_column": "Porta NAS",
+    "mac_column": "MAC",
+    "uptime_column": "Tempo ativo",
+    "batch_disconnect": "Desconectar selecionados ({{count}})",
+    "nas_summary_title": "Resumo NAS",
+    "select_all": "Selecionar tudo",
+    "batch_success": "{{succeeded}} desconectados, {{failed}} com erro"
+  },
+  "ip_pools": {
+    "nas_label": "NAS",
+    "service_type_label": "Tipo de serviço",
+    "default_prefix_len_label": "Tamanho do prefixo padrão",
+    "excluded_ranges_label": "Intervalos excluídos",
+    "utilization_column": "Utilização",
+    "service_types": {
+      "residential": "Residencial",
+      "business": "Empresarial",
+      "corporate": "Corporativo",
+      "government": "Governo",
+      "mixed": "Misto"
+    }
+  },
   "radius": {
     "vlanSection": "Atribuição de VLAN",
     "vlanId": "ID da VLAN",

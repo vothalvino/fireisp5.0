@@ -453,6 +453,7 @@ function generateSpec() {
       '/radius/cdr': { get: { tags: ['RADIUS'], summary: 'Export CDR session records from connection_logs', operationId: 'exportRadiusCdr', security: [{ bearerAuth: [] }], parameters: [{ name: 'from', in: 'query', required: true, schema: { type: 'string', format: 'date' } }, { name: 'to', in: 'query', required: true, schema: { type: 'string', format: 'date' } }, { name: 'username', in: 'query', schema: { type: 'string' } }, { name: 'format', in: 'query', schema: { type: 'string', enum: ['json', 'csv'] } }], responses: r200('CDR rows or CSV') } },
       '/radius/coa': { post: { tags: ['RADIUS'], summary: 'Send dynamic CoA-Request to NAS for a subscriber', operationId: 'sendDynamicCoA', security: [{ bearerAuth: [] }], requestBody: jsonBody('Dynamic CoA request'), responses: r200('CoA result') } },
       '/radius/mac-move-events': { get: { tags: ['RADIUS'], summary: 'List MAC move events detected during accounting ingest', operationId: 'listMacMoveEvents', security: [{ bearerAuth: [] }], responses: r200('MacMoveEvent[]') } },
+      '/radius/sessions/disconnect-batch': { post: { tags: ['RADIUS'], summary: 'Batch force-disconnect PPPoE sessions by session ID or username', operationId: 'batchDisconnectSessions', security: [{ bearerAuth: [] }], requestBody: jsonBody('BatchDisconnect request'), responses: r200('BatchDisconnect result') } },
 
       // ---- Subscriber Certificates ----
       ...crudPaths('subscriber-certificates', 'Subscriber Certificates', 'SubscriberCertificate'),
@@ -471,6 +472,9 @@ function generateSpec() {
 
       // ---- IP Pools ----
       ...crudPaths('ip-pools', 'IP Pools', 'IpPool'),
+      '/ip-pools/utilization': { get: { tags: ['IP Pools'], summary: 'List utilization for all IP pools in the org', operationId: 'listIpPoolUtilization', security: [{ bearerAuth: [] }], responses: r200('IpPoolUtilization[]') } },
+      '/ip-pools/{id}/utilization': { get: { tags: ['IP Pools'], summary: 'Get utilization for a single IP pool', operationId: 'getIpPoolUtilization', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('IpPoolUtilization') } },
+      '/ip-pools/{id}/assign-next': { post: { tags: ['IP Pools'], summary: 'Dynamically assign the next free IP from a pool', operationId: 'assignNextFreeIp', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('Assign-next request'), responses: { 201: { description: 'IP assignment created', content: { 'application/json': { schema: { type: 'object' } } } }, ...r200('IpAssignment') } } },
 
       // ---- IP Assignments ----
       ...crudPaths('ip-assignments', 'IP Assignments', 'IpAssignment'),
@@ -484,6 +488,8 @@ function generateSpec() {
       // ---- Connection Logs ----
       '/connection-logs': { get: { tags: ['Connection Logs'], summary: 'List connection logs', operationId: 'listConnectionLogs', security: [{ bearerAuth: [] }], responses: r200('ConnectionLog[]') } },
       '/connection-logs/active': { get: { tags: ['Connection Logs'], summary: 'List active PPPoE sessions (start events with no stop)', operationId: 'listActiveRadiusSessions', security: [{ bearerAuth: [] }], responses: r200('Session[]') } },
+      '/connection-logs/active/summary': { get: { tags: ['Connection Logs'], summary: 'Active session counts grouped by NAS and port', operationId: 'getActiveSessionSummary', security: [{ bearerAuth: [] }], responses: r200('ActiveSessionSummary') } },
+      '/connection-logs/binding-report': { get: { tags: ['Connection Logs'], summary: 'IP binding history export (JSON or CSV)', operationId: 'getBindingReport', security: [{ bearerAuth: [] }], responses: r200('BindingReport[]') } },
       '/connection-logs/daily-usage': { get: { tags: ['Connection Logs'], summary: 'Daily data usage aggregated per client', operationId: 'getDailyUsage', security: [{ bearerAuth: [] }], responses: r200('DailyUsage[]') } },
       '/connection-logs/top-consumers': { get: { tags: ['Connection Logs'], summary: 'Top N clients by data usage in a period', operationId: 'getTopConsumers', security: [{ bearerAuth: [] }], responses: r200('TopConsumer[]') } },
 

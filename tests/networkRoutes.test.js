@@ -126,6 +126,7 @@ describe('IP Pool Routes — /api/ip-pools', () => {
     test('creates an IP pool and returns 201', async () => {
       mockAuthUser();
       db.query
+        .mockResolvedValueOnce([[]])                                  // assertNoOverlap (no peers)
         .mockResolvedValueOnce([{ insertId: 2, affectedRows: 1 }])  // INSERT
         .mockResolvedValueOnce([[{ ...mockIpPool, id: 2 }]])         // findById
         .mockResolvedValueOnce([{ affectedRows: 1 }]);               // auditLog
@@ -145,7 +146,8 @@ describe('IP Pool Routes — /api/ip-pools', () => {
     test('updates an IP pool', async () => {
       mockAuthUser();
       db.query
-        .mockResolvedValueOnce([[mockIpPool]])                                    // findByIdOrFail
+        .mockResolvedValueOnce([[mockIpPool]])                                    // findByIdOrFail (existing)
+        .mockResolvedValueOnce([[]])                                              // assertNoOverlap (no peers)
         .mockResolvedValueOnce([{ affectedRows: 1 }])                            // UPDATE
         .mockResolvedValueOnce([[{ ...mockIpPool, name: 'WAN Pool' }]])           // findById
         .mockResolvedValueOnce([{ affectedRows: 1 }]);                           // auditLog

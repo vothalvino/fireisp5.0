@@ -662,6 +662,35 @@ function registerHooks() {
     }
   });
 
+  // --- IP Pool Utilization Threshold ---
+  eventBus.on('ip_pool.threshold', async ({ organizationId, pool, percent, threshold, assigned, usable }) => {
+    try {
+      const db = require('../config/database');
+      const [admins] = await db.query(
+        `SELECT u.email, u.first_name FROM users u
+         WHERE u.organization_id = ?
+           AND u.role IN ('admin', 'technician')
+           AND u.status = 'active'
+           AND u.email IS NOT NULL`,
+        [organizationId],
+      );
+      const html = `<p>IP Pool <strong>${pool.name}</strong> (${pool.network}) has reached `
+        + `<strong>${percent}%</strong> utilization (${assigned}/${usable} addresses assigned).</p>`
+        + `<p>Threshold crossed: ${threshold}%</p>`
+        + '<p>Consider expanding the pool or adding a new one.</p>';
+      for (const admin of admins) {
+        await emailTransport.sendEmail({
+          organizationId,
+          to: admin.email,
+          subject: `IP Pool Alert: ${pool.name} at ${percent}% capacity`,
+          html,
+        }).catch(err2 => logger.warn({ err: err2, event: 'ip_pool.threshold' }, 'Admin pool threshold email error'));
+      }
+    } catch (err) {
+      logger.error({ err, event: 'ip_pool.threshold' }, 'Notification hook error');
+    }
+  });
+
   logger.info('Notification hooks registered');
 }
 

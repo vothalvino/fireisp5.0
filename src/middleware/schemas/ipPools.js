@@ -12,6 +12,10 @@ const createIpPool = {
   dns_secondary: { type: 'string', max: 45 },
   pool_type: { type: 'string', max: 50 },
   site_id: { type: 'number', min: 1 },
+  nas_id: { type: 'number', min: 1 },
+  service_type: { type: 'string', enum: ['residential', 'business', 'corporate', 'government', 'mixed'] },
+  default_prefix_len: { type: 'number', min: 48, max: 128 },
+  excluded_ranges: { type: 'string', max: 10000 },
   notes: { type: 'string', max: 5000 },
   status: { type: 'string', enum: ['active', 'inactive'] },
 };
@@ -26,6 +30,10 @@ const updateIpPool = {
   dns_secondary: { type: 'string', max: 45 },
   pool_type: { type: 'string', max: 50 },
   site_id: { type: 'number', min: 1 },
+  nas_id: { type: 'number', min: 1 },
+  service_type: { type: 'string', enum: ['residential', 'business', 'corporate', 'government', 'mixed'] },
+  default_prefix_len: { type: 'number', min: 48, max: 128 },
+  excluded_ranges: { type: 'string', max: 10000 },
   notes: { type: 'string', max: 5000 },
   status: { type: 'string', enum: ['active', 'inactive'] },
 };
