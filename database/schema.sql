@@ -1400,6 +1400,14 @@ CREATE TABLE IF NOT EXISTS snmp_metrics (
     humidity_pct       DECIMAL(5,2)    NULL       COMMENT 'Environmental relative humidity percentage',
     -- §6.2 gap metrics (migration 264)
     if_oper_status     TINYINT         NULL       COMMENT 'IF-MIB ifOperStatus: 1=up 2=down 3=testing 7=lowerLayerDown',
+    -- §9.1 wireless/RF metrics (migration 279)
+    noise_floor_dbm    SMALLINT        NULL       COMMENT '§9.1 RF noise floor in dBm',
+    air_util_pct       TINYINT         NULL       COMMENT '§9.1 Airtime utilization percentage (0–100)',
+    gps_sync_status    TINYINT         NULL       COMMENT '§9.1 GPS sync status: 1=synced 0=not-synced',
+    snr_db             SMALLINT        NULL       COMMENT '§9.1 Signal-to-noise ratio in dB',
+    ccq_pct            SMALLINT        NULL       COMMENT '§9.1 Client Connection Quality percentage (0–100)',
+    tx_rate_mbps       DECIMAL(8,2)    NULL       COMMENT '§9.1 Wireless transmit modulation rate in Mbps',
+    rx_rate_mbps       DECIMAL(8,2)    NULL       COMMENT '§9.1 Wireless receive modulation rate in Mbps',
     polled_at          TIMESTAMP       NOT NULL   COMMENT 'Timestamp of the SNMP poll',
     created_at         TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -1493,6 +1501,28 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1hr (
     avg_if_oper_status      DECIMAL(4,2)    NULL     COMMENT 'Average ifOperStatus in the period',
     min_if_oper_status      TINYINT         NULL     COMMENT 'Min ifOperStatus in the period',
     max_if_oper_status      TINYINT         NULL     COMMENT 'Max ifOperStatus in the period',
+    -- §9.1 wireless/RF metrics (migration 279)
+    avg_noise_floor_dbm     DECIMAL(7,2)    NULL     COMMENT 'Average noise floor dBm',
+    min_noise_floor_dbm     SMALLINT        NULL     COMMENT 'Min noise floor dBm',
+    max_noise_floor_dbm     SMALLINT        NULL     COMMENT 'Max noise floor dBm',
+    avg_air_util_pct        DECIMAL(5,2)    NULL     COMMENT 'Average airtime utilization %',
+    min_air_util_pct        TINYINT         NULL     COMMENT 'Min airtime utilization %',
+    max_air_util_pct        TINYINT         NULL     COMMENT 'Max airtime utilization %',
+    avg_gps_sync_status     DECIMAL(4,2)    NULL     COMMENT 'Average GPS sync status',
+    min_gps_sync_status     TINYINT         NULL     COMMENT 'Min GPS sync status',
+    max_gps_sync_status     TINYINT         NULL     COMMENT 'Max GPS sync status',
+    avg_snr_db              DECIMAL(7,2)    NULL     COMMENT 'Average SNR dB',
+    min_snr_db              SMALLINT        NULL     COMMENT 'Min SNR dB',
+    max_snr_db              SMALLINT        NULL     COMMENT 'Max SNR dB',
+    avg_ccq_pct             DECIMAL(5,2)    NULL     COMMENT 'Average CCQ %',
+    min_ccq_pct             SMALLINT        NULL     COMMENT 'Min CCQ %',
+    max_ccq_pct             SMALLINT        NULL     COMMENT 'Max CCQ %',
+    avg_tx_rate_mbps        DECIMAL(10,4)   NULL     COMMENT 'Average Tx rate Mbps',
+    min_tx_rate_mbps        DECIMAL(8,2)    NULL     COMMENT 'Min Tx rate Mbps',
+    max_tx_rate_mbps        DECIMAL(8,2)    NULL     COMMENT 'Max Tx rate Mbps',
+    avg_rx_rate_mbps        DECIMAL(10,4)   NULL     COMMENT 'Average Rx rate Mbps',
+    min_rx_rate_mbps        DECIMAL(8,2)    NULL     COMMENT 'Min Rx rate Mbps',
+    max_rx_rate_mbps        DECIMAL(8,2)    NULL     COMMENT 'Max Rx rate Mbps',
     sample_count            INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Number of raw samples aggregated',
     created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -1579,6 +1609,28 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1day (
     avg_if_oper_status      DECIMAL(4,2)    NULL     COMMENT 'Average ifOperStatus in the period',
     min_if_oper_status      TINYINT         NULL     COMMENT 'Min ifOperStatus in the period',
     max_if_oper_status      TINYINT         NULL     COMMENT 'Max ifOperStatus in the period',
+    -- §9.1 wireless/RF metrics (migration 279)
+    avg_noise_floor_dbm     DECIMAL(7,2)    NULL     COMMENT 'Average noise floor dBm',
+    min_noise_floor_dbm     SMALLINT        NULL     COMMENT 'Min noise floor dBm',
+    max_noise_floor_dbm     SMALLINT        NULL     COMMENT 'Max noise floor dBm',
+    avg_air_util_pct        DECIMAL(5,2)    NULL     COMMENT 'Average airtime utilization %',
+    min_air_util_pct        TINYINT         NULL     COMMENT 'Min airtime utilization %',
+    max_air_util_pct        TINYINT         NULL     COMMENT 'Max airtime utilization %',
+    avg_gps_sync_status     DECIMAL(4,2)    NULL     COMMENT 'Average GPS sync status',
+    min_gps_sync_status     TINYINT         NULL     COMMENT 'Min GPS sync status',
+    max_gps_sync_status     TINYINT         NULL     COMMENT 'Max GPS sync status',
+    avg_snr_db              DECIMAL(7,2)    NULL     COMMENT 'Average SNR dB',
+    min_snr_db              SMALLINT        NULL     COMMENT 'Min SNR dB',
+    max_snr_db              SMALLINT        NULL     COMMENT 'Max SNR dB',
+    avg_ccq_pct             DECIMAL(5,2)    NULL     COMMENT 'Average CCQ %',
+    min_ccq_pct             SMALLINT        NULL     COMMENT 'Min CCQ %',
+    max_ccq_pct             SMALLINT        NULL     COMMENT 'Max CCQ %',
+    avg_tx_rate_mbps        DECIMAL(10,4)   NULL     COMMENT 'Average Tx rate Mbps',
+    min_tx_rate_mbps        DECIMAL(8,2)    NULL     COMMENT 'Min Tx rate Mbps',
+    max_tx_rate_mbps        DECIMAL(8,2)    NULL     COMMENT 'Max Tx rate Mbps',
+    avg_rx_rate_mbps        DECIMAL(10,4)   NULL     COMMENT 'Average Rx rate Mbps',
+    min_rx_rate_mbps        DECIMAL(8,2)    NULL     COMMENT 'Min Rx rate Mbps',
+    max_rx_rate_mbps        DECIMAL(8,2)    NULL     COMMENT 'Max Rx rate Mbps',
     sample_count            INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Number of hourly samples aggregated',
     created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -1662,6 +1714,28 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1month (
     avg_if_oper_status  DECIMAL(4,2)    NULL,
     min_if_oper_status  TINYINT         NULL,
     max_if_oper_status  TINYINT         NULL,
+    -- §9.1 wireless/RF metrics (migration 279)
+    avg_noise_floor_dbm DECIMAL(7,2)    NULL,
+    min_noise_floor_dbm SMALLINT        NULL,
+    max_noise_floor_dbm SMALLINT        NULL,
+    avg_air_util_pct    DECIMAL(5,2)    NULL,
+    min_air_util_pct    TINYINT         NULL,
+    max_air_util_pct    TINYINT         NULL,
+    avg_gps_sync_status DECIMAL(4,2)    NULL,
+    min_gps_sync_status TINYINT         NULL,
+    max_gps_sync_status TINYINT         NULL,
+    avg_snr_db          DECIMAL(7,2)    NULL,
+    min_snr_db          SMALLINT        NULL,
+    max_snr_db          SMALLINT        NULL,
+    avg_ccq_pct         DECIMAL(5,2)    NULL,
+    min_ccq_pct         SMALLINT        NULL,
+    max_ccq_pct         SMALLINT        NULL,
+    avg_tx_rate_mbps    DECIMAL(10,4)   NULL,
+    min_tx_rate_mbps    DECIMAL(8,2)    NULL,
+    max_tx_rate_mbps    DECIMAL(8,2)    NULL,
+    avg_rx_rate_mbps    DECIMAL(10,4)   NULL,
+    min_rx_rate_mbps    DECIMAL(8,2)    NULL,
+    max_rx_rate_mbps    DECIMAL(8,2)    NULL,
     sample_count        INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Number of daily samples aggregated',
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -2086,6 +2160,116 @@ JOIN (
     SELECT '1.3.6.1.4.1.161.19.3.1.4.1.0',         'cpu_usage',                   'Cambium CPU (%)',       'gauge',   FALSE, NULL, 60
 ) o
 WHERE p.name = 'Cambium Networks';
+
+-- ---------------------------------------------------------------------------
+-- Seed: §9.1 new vendor snmp_profiles — Mimosa, Tarana, Radwin, Siklu
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO snmp_profiles
+    (name, manufacturer, model_pattern, device_type, snmp_version, poll_interval_sec, is_default, description)
+VALUES
+    (
+        'Mimosa Networks',
+        'Mimosa', 'A[2-9]|B[2-9]|C[2-9]', NULL,
+        'v2c', 60, FALSE,
+        'Mimosa Networks A/B/C-series wireless backhaul and PTMP access points. '
+        'Uses Mimosa enterprise MIB (OID prefix 1.3.6.1.4.1.43356) for signal, '
+        'noise floor, CCQ, air utilization, and modulation rates.'
+    ),
+    (
+        'Tarana Wireless',
+        'Tarana', 'G1|G1A|G1B', NULL,
+        'v2c', 60, FALSE,
+        'Tarana Wireless G1 fixed wireless access system. '
+        'Uses Tarana enterprise MIB (OID prefix 1.3.6.1.4.1.50536) for DL/UL signal, '
+        'noise floor, SNR, and GPS sync status.'
+    ),
+    (
+        'Radwin',
+        'Radwin', '2000|5000|JET', NULL,
+        'v2c', 60, FALSE,
+        'Radwin 2000/5000 series PTP/PTMP wireless broadband systems. '
+        'Uses Radwin enterprise MIB (OID prefix 1.3.6.1.4.1.4329) for signal, '
+        'modulation, airtime utilization, and Tx power.'
+    ),
+    (
+        'Siklu',
+        'Siklu', 'EH-[0-9]|BreezeULTRA|MultiHaul', NULL,
+        'v2c', 60, FALSE,
+        'Siklu E-band / V-band mmWave wireless links. '
+        'Uses Siklu enterprise MIB (OID prefix 1.3.6.1.4.1.31926) for RSL, '
+        'TSL, SNR, modulation, and link budget metrics.'
+    );
+
+-- Mimosa Networks OIDs
+INSERT IGNORE INTO snmp_profile_oids
+    (profile_id, oid, metric_column, label, oid_type, is_per_interface, transform, sort_order)
+SELECT p.id, o.oid, o.metric_column, o.label, o.oid_type, o.is_per_interface, o.transform, o.sort_order
+FROM snmp_profiles p
+JOIN (
+    SELECT '1.3.6.1.2.1.2.2.1.10'         AS oid, 'if_in_octets'    AS metric_column, 'Inbound Octets'              AS label, 'counter' AS oid_type, TRUE  AS is_per_interface, NULL AS transform, 10 AS sort_order UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.16',               'if_out_octets',                    'Outbound Octets',             'counter', TRUE,  NULL, 20 UNION ALL
+    SELECT '1.3.6.1.4.1.43356.2.1.1.1.1',        'cpu_usage',                        'Mimosa CPU (%)',              'gauge',   FALSE, NULL, 50 UNION ALL
+    SELECT '1.3.6.1.4.1.43356.2.1.2.1.1.1',      'signal_strength',                  'Mimosa Rx Signal (dBm)',      'gauge',   FALSE, NULL, 60 UNION ALL
+    SELECT '1.3.6.1.4.1.43356.2.1.2.1.1.2',      'noise_floor_dbm',                  'Mimosa Noise Floor (dBm)',    'gauge',   FALSE, NULL, 70 UNION ALL
+    SELECT '1.3.6.1.4.1.43356.2.1.2.1.1.4',      'snr_db',                           'Mimosa SNR (dB)',             'gauge',   FALSE, NULL, 80 UNION ALL
+    SELECT '1.3.6.1.4.1.43356.2.1.2.1.1.7',      'air_util_pct',                     'Mimosa Airtime Util (%)',     'gauge',   FALSE, NULL, 90 UNION ALL
+    SELECT '1.3.6.1.4.1.43356.2.1.2.1.1.10',     'tx_rate_mbps',                     'Mimosa DL Rate (Mbps)',       'gauge',   FALSE, NULL, 100 UNION ALL
+    SELECT '1.3.6.1.4.1.43356.2.1.2.1.1.11',     'rx_rate_mbps',                     'Mimosa UL Rate (Mbps)',       'gauge',   FALSE, NULL, 110
+) o
+WHERE p.name = 'Mimosa Networks';
+
+-- Tarana Wireless OIDs
+INSERT IGNORE INTO snmp_profile_oids
+    (profile_id, oid, metric_column, label, oid_type, is_per_interface, transform, sort_order)
+SELECT p.id, o.oid, o.metric_column, o.label, o.oid_type, o.is_per_interface, o.transform, o.sort_order
+FROM snmp_profiles p
+JOIN (
+    SELECT '1.3.6.1.2.1.2.2.1.10'         AS oid, 'if_in_octets'    AS metric_column, 'Inbound Octets'               AS label, 'counter' AS oid_type, TRUE  AS is_per_interface, NULL AS transform, 10 AS sort_order UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.16',               'if_out_octets',                    'Outbound Octets',              'counter', TRUE,  NULL, 20 UNION ALL
+    SELECT '1.3.6.1.4.1.50536.1.2.1.1',          'cpu_usage',                        'Tarana CPU (%)',               'gauge',   FALSE, NULL, 50 UNION ALL
+    SELECT '1.3.6.1.4.1.50536.1.1.1.1',          'signal_strength',                  'Tarana DL RSSI (dBm)',         'gauge',   FALSE, NULL, 60 UNION ALL
+    SELECT '1.3.6.1.4.1.50536.1.1.1.2',          'noise_floor_dbm',                  'Tarana Noise Floor (dBm)',     'gauge',   FALSE, NULL, 70 UNION ALL
+    SELECT '1.3.6.1.4.1.50536.1.1.1.3',          'snr_db',                           'Tarana SNR (dB)',              'gauge',   FALSE, NULL, 80 UNION ALL
+    SELECT '1.3.6.1.4.1.50536.1.1.1.4',          'gps_sync_status',                  'Tarana GPS Sync (1=synced)',   'gauge',   FALSE, NULL, 90 UNION ALL
+    SELECT '1.3.6.1.4.1.50536.1.1.1.7',          'air_util_pct',                     'Tarana Airtime Util (%)',      'gauge',   FALSE, NULL, 100 UNION ALL
+    SELECT '1.3.6.1.4.1.50536.1.1.1.5',          'tx_rate_mbps',                     'Tarana DL Capacity (Mbps)',    'gauge',   FALSE, NULL, 110 UNION ALL
+    SELECT '1.3.6.1.4.1.50536.1.1.1.6',          'rx_rate_mbps',                     'Tarana UL Capacity (Mbps)',    'gauge',   FALSE, NULL, 120
+) o
+WHERE p.name = 'Tarana Wireless';
+
+-- Radwin OIDs
+INSERT IGNORE INTO snmp_profile_oids
+    (profile_id, oid, metric_column, label, oid_type, is_per_interface, transform, sort_order)
+SELECT p.id, o.oid, o.metric_column, o.label, o.oid_type, o.is_per_interface, o.transform, o.sort_order
+FROM snmp_profiles p
+JOIN (
+    SELECT '1.3.6.1.2.1.2.2.1.10'             AS oid, 'if_in_octets'    AS metric_column, 'Inbound Octets'               AS label, 'counter' AS oid_type, TRUE  AS is_per_interface, NULL AS transform, 10 AS sort_order UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.16',                   'if_out_octets',                    'Outbound Octets',              'counter', TRUE,  NULL, 20 UNION ALL
+    SELECT '1.3.6.1.4.1.4329.5.1.1.1.4',             'cpu_usage',                        'Radwin CPU (%)',               'gauge',   FALSE, NULL, 50 UNION ALL
+    SELECT '1.3.6.1.4.1.4329.5.2.2.1.1.14',          'signal_strength',                  'Radwin RSL (dBm)',             'gauge',   FALSE, NULL, 60 UNION ALL
+    SELECT '1.3.6.1.4.1.4329.5.2.2.1.1.17',          'noise_floor_dbm',                  'Radwin Noise Floor (dBm)',     'gauge',   FALSE, NULL, 70 UNION ALL
+    SELECT '1.3.6.1.4.1.4329.5.2.2.1.1.16',          'snr_db',                           'Radwin SNR (dB)',              'gauge',   FALSE, NULL, 80 UNION ALL
+    SELECT '1.3.6.1.4.1.4329.5.2.2.1.1.25',          'air_util_pct',                     'Radwin Airtime Util (%)',      'gauge',   FALSE, NULL, 90
+) o
+WHERE p.name = 'Radwin';
+
+-- Siklu OIDs
+INSERT IGNORE INTO snmp_profile_oids
+    (profile_id, oid, metric_column, label, oid_type, is_per_interface, transform, sort_order)
+SELECT p.id, o.oid, o.metric_column, o.label, o.oid_type, o.is_per_interface, o.transform, o.sort_order
+FROM snmp_profiles p
+JOIN (
+    SELECT '1.3.6.1.2.1.2.2.1.10'         AS oid, 'if_in_octets'    AS metric_column, 'Inbound Octets'               AS label, 'counter' AS oid_type, TRUE  AS is_per_interface, NULL AS transform, 10 AS sort_order UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.16',               'if_out_octets',                    'Outbound Octets',              'counter', TRUE,  NULL, 20 UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.14',               'if_in_errors',                     'Inbound Errors',               'counter', TRUE,  NULL, 30 UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.20',               'if_out_errors',                    'Outbound Errors',              'counter', TRUE,  NULL, 40 UNION ALL
+    SELECT '1.3.6.1.4.1.31926.1.1.1.1',          'cpu_usage',                        'Siklu CPU (%)',                'gauge',   FALSE, NULL, 50 UNION ALL
+    SELECT '1.3.6.1.4.1.31926.1.4.1.1.1',        'signal_strength',                  'Siklu RSL (dBm)',              'gauge',   FALSE, NULL, 60 UNION ALL
+    SELECT '1.3.6.1.4.1.31926.1.4.1.1.3',        'snr_db',                           'Siklu SNR (dB)',               'gauge',   FALSE, NULL, 80 UNION ALL
+    SELECT '1.3.6.1.4.1.31926.1.4.1.1.7',        'tx_rate_mbps',                     'Siklu Tx Capacity (Mbps)',     'gauge',   FALSE, NULL, 100 UNION ALL
+    SELECT '1.3.6.1.4.1.31926.1.4.1.1.8',        'rx_rate_mbps',                     'Siklu Rx Capacity (Mbps)',     'gauge',   FALSE, NULL, 110
+) o
+WHERE p.name = 'Siklu';
 
 -- =============================================================================
 -- Connection Logs (Compliance & Usage)
@@ -3013,6 +3197,185 @@ CREATE TABLE IF NOT EXISTS network_links (
         REFERENCES devices (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT chk_network_links_different_devices CHECK (device_a_id != device_b_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: ap_channel_plans (§9.1)
+-- Purpose: Channel assignment registry per site for AP frequency planning.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ap_channel_plans (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization; NULL = single-tenant deployment',
+    site_id         BIGINT UNSIGNED NOT NULL COMMENT 'Site this channel plan belongs to',
+    name            VARCHAR(100)    NOT NULL COMMENT 'Descriptive name for this channel plan',
+    frequency_mhz   INT             NOT NULL COMMENT 'Center frequency in MHz (e.g. 5180, 5785)',
+    channel_width_mhz SMALLINT      NOT NULL COMMENT 'Channel width in MHz (e.g. 20, 40, 80)',
+    notes           TEXT            NULL,
+    status          ENUM('active','inactive') NOT NULL DEFAULT 'active',
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_ap_channel_plans_organization_id (organization_id),
+    KEY idx_ap_channel_plans_site_id (site_id),
+    KEY idx_ap_channel_plans_status (status),
+    KEY idx_ap_channel_plans_deleted_at (deleted_at),
+    CONSTRAINT fk_ap_channel_plans_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_ap_channel_plans_site FOREIGN KEY (site_id)
+        REFERENCES sites (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Channel assignment registry per site for AP frequency planning';
+
+-- ---------------------------------------------------------------------------
+-- Table: ap_sector_configs (§9.1)
+-- Purpose: AP-specific wireless RF configuration per sector device.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ap_sector_configs (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL     COMMENT 'Tenant organization; NULL = single-tenant deployment',
+    device_id           BIGINT UNSIGNED NOT NULL COMMENT 'AP/PTP device (type=ptmp_ap or ptp)',
+    sector_azimuth_deg  SMALLINT        NULL     COMMENT 'Sector azimuth bearing in degrees (0–359)',
+    sector_width_deg    SMALLINT        NULL     COMMENT 'Sector beam width in degrees',
+    frequency_mhz       INT             NULL     COMMENT 'Operating frequency in MHz',
+    channel_width_mhz   SMALLINT        NULL     COMMENT 'Channel width in MHz',
+    tx_power_dbm        SMALLINT        NULL     COMMENT 'Transmit power in dBm',
+    encryption          ENUM('none','wpa2','wpa3','mixed') NOT NULL DEFAULT 'wpa2'
+                            COMMENT 'Wireless encryption mode',
+    channel_plan_id     BIGINT UNSIGNED NULL     COMMENT 'FK to ap_channel_plans (nullable)',
+    antenna_gain_dbi    DECIMAL(4,1)    NULL     COMMENT 'Antenna gain in dBi',
+    height_m            DECIMAL(5,1)    NULL     COMMENT 'Antenna height above ground in metres',
+    polarization        ENUM('vertical','horizontal','dual','cross') NULL
+                            COMMENT 'Antenna polarization',
+    max_clients         SMALLINT        NULL     COMMENT 'Maximum subscriber connections per sector',
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        DEFAULT NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_ap_sector_configs_organization_id (organization_id),
+    KEY idx_ap_sector_configs_device_id (device_id),
+    KEY idx_ap_sector_configs_channel_plan_id (channel_plan_id),
+    KEY idx_ap_sector_configs_deleted_at (deleted_at),
+    CONSTRAINT fk_ap_sector_configs_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_ap_sector_configs_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_ap_sector_configs_channel_plan FOREIGN KEY (channel_plan_id)
+        REFERENCES ap_channel_plans (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='AP/PTP wireless RF configuration per sector device';
+
+-- ---------------------------------------------------------------------------
+-- Table: wireless_client_sessions (§9.1)
+-- Purpose: Append-only CPE client state snapshots per AP poll.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS wireless_client_sessions (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL     COMMENT 'Tenant organization',
+    device_id           BIGINT UNSIGNED NOT NULL COMMENT 'AP device that observed this client',
+    client_device_id    BIGINT UNSIGNED NULL     COMMENT 'CPE device record (NULL if unknown)',
+    mac_address         VARCHAR(17)     NOT NULL COMMENT 'Client MAC address (AA:BB:CC:DD:EE:FF)',
+    ip_address          VARCHAR(45)     NULL     COMMENT 'Client IP address (IPv4 or IPv6)',
+    signal_dbm          SMALLINT        NULL     COMMENT 'Received signal level in dBm',
+    noise_floor_dbm     SMALLINT        NULL     COMMENT 'Noise floor at AP in dBm',
+    snr_db              SMALLINT        NULL     COMMENT 'Signal-to-noise ratio in dB',
+    ccq_pct             SMALLINT        NULL     COMMENT 'Client Connection Quality percentage (0–100)',
+    tx_rate_mbps        DECIMAL(8,2)    NULL     COMMENT 'Transmit rate in Mbps',
+    rx_rate_mbps        DECIMAL(8,2)    NULL     COMMENT 'Receive rate in Mbps',
+    distance_m          INT             NULL     COMMENT 'Distance from AP in metres',
+    connected_at        DATETIME        NULL     COMMENT 'Session association time (NULL if unknown)',
+    last_seen_at        DATETIME        NOT NULL COMMENT 'Timestamp of this observation',
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_wcs_organization_id (organization_id),
+    KEY idx_wcs_device_id (device_id),
+    KEY idx_wcs_client_device_id (client_device_id),
+    KEY idx_wcs_mac_address (mac_address),
+    KEY idx_wcs_last_seen_at (last_seen_at),
+    CONSTRAINT fk_wcs_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_wcs_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_wcs_client_device FOREIGN KEY (client_device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Append-only CPE client state snapshots per AP poll';
+
+-- ---------------------------------------------------------------------------
+-- Table: ap_command_jobs (§9.1)
+-- Purpose: Remote AP command jobs for power/frequency/reboot adjustments.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ap_command_jobs (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization',
+    device_id       BIGINT UNSIGNED NOT NULL COMMENT 'Target AP/PTP device',
+    command_type    ENUM('set_tx_power','set_frequency','set_channel_width','reboot','other')
+                        NOT NULL DEFAULT 'other'
+                        COMMENT 'Type of remote command to execute',
+    target_value    VARCHAR(255)    NULL     COMMENT 'Target value for the command (e.g. new frequency)',
+    status          ENUM('pending','queued','in_progress','completed','failed','cancelled')
+                        NOT NULL DEFAULT 'pending',
+    scheduled_at    DATETIME        NULL     COMMENT 'When the command should execute (NULL = immediate)',
+    started_at      DATETIME        NULL     COMMENT 'When execution started',
+    completed_at    DATETIME        NULL     COMMENT 'When execution completed or failed',
+    result_output   TEXT            NULL     COMMENT 'Device response / stdout',
+    error_message   TEXT            NULL     COMMENT 'Error detail on failure',
+    created_by      BIGINT UNSIGNED NULL     COMMENT 'User who created this job (no FK — soft ref)',
+    notes           TEXT            NULL,
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_ap_command_jobs_organization_id (organization_id),
+    KEY idx_ap_command_jobs_device_id (device_id),
+    KEY idx_ap_command_jobs_status (status),
+    KEY idx_ap_command_jobs_scheduled_at (scheduled_at),
+    KEY idx_ap_command_jobs_deleted_at (deleted_at),
+    CONSTRAINT fk_ap_command_jobs_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_ap_command_jobs_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Remote AP command jobs for power/frequency/reboot adjustments';
+
+-- ---------------------------------------------------------------------------
+-- Table: wireless_channel_interference (§9.1)
+-- Purpose: Detected RF channel interference records per sector/site.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS wireless_channel_interference (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL     COMMENT 'Tenant organization',
+    ap_sector_config_id BIGINT UNSIGNED NULL     COMMENT 'AP sector where interference was detected',
+    site_id             BIGINT UNSIGNED NULL     COMMENT 'Site where interference was detected',
+    detected_at         DATETIME        NOT NULL COMMENT 'When interference was observed',
+    frequency_mhz       INT             NULL     COMMENT 'Affected frequency in MHz',
+    channel_width_mhz   SMALLINT        NULL     COMMENT 'Affected channel width in MHz',
+    interference_level  ENUM('low','medium','high','critical') NOT NULL DEFAULT 'medium',
+    conflicting_ap_mac  VARCHAR(17)     NULL     COMMENT 'MAC of the conflicting AP if known',
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        DEFAULT NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_wci_organization_id (organization_id),
+    KEY idx_wci_ap_sector_config_id (ap_sector_config_id),
+    KEY idx_wci_site_id (site_id),
+    KEY idx_wci_detected_at (detected_at),
+    KEY idx_wci_interference_level (interference_level),
+    KEY idx_wci_deleted_at (deleted_at),
+    CONSTRAINT fk_wci_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_wci_ap_sector_config FOREIGN KEY (ap_sector_config_id)
+        REFERENCES ap_sector_configs (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_wci_site FOREIGN KEY (site_id)
+        REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Detected RF channel interference records per sector/site';
 
 -- ---------------------------------------------------------------------------
 -- Table: settings

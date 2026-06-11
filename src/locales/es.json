@@ -60,6 +60,28 @@
     "exported": "Exportación completada",
     "imported": "Importación completada"
   },
+  "wireless": {
+    "sector_created": "Configuración de sector AP creada",
+    "sector_updated": "Configuración de sector AP actualizada",
+    "sector_deleted": "Configuración de sector AP eliminada",
+    "sector_restored": "Configuración de sector AP restaurada",
+    "sector_not_found": "Configuración de sector AP no encontrada",
+    "channel_plan_created": "Plan de canal AP creado",
+    "channel_plan_updated": "Plan de canal AP actualizado",
+    "channel_plan_deleted": "Plan de canal AP eliminado",
+    "channel_plan_restored": "Plan de canal AP restaurado",
+    "channel_plan_not_found": "Plan de canal AP no encontrado",
+    "interference_recorded": "Interferencia de canal registrada",
+    "interference_updated": "Registro de interferencia de canal actualizado",
+    "interference_deleted": "Registro de interferencia de canal eliminado",
+    "command_job_created": "Trabajo de comando AP creado",
+    "command_job_cancelled": "Trabajo de comando AP cancelado",
+    "command_job_not_found": "Trabajo de comando AP no encontrado",
+    "command_job_cannot_cancel": "Solo se pueden cancelar trabajos en estado pendiente o en cola",
+    "sessions_recorded": "{{count}} sesión(es) de cliente inalámbrico registrada(s)",
+    "device_not_found": "Dispositivo AP no encontrado",
+    "device_invalid_type": "El dispositivo debe ser de tipo ptmp_ap, ptp, outdoor_cpe o indoor_cpe"
+  },
   "radius": {
     "sync_complete": "Sincronización RADIUS completada: {{synced}} cuentas, {{errors}} errores",
     "freeradius_sync_complete": "Sincronización de tablas FreeRADIUS completada: {{synced}} usuarios, {{plans}} planes",

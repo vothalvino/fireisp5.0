@@ -151,6 +151,7 @@ const onuManagementRoutes = require('./routes/onuManagement');
 const fiberPlantRoutes = require('./routes/fiberPlantManagement');
 const cpeManagementRoutes = require('./routes/cpeManagement');
 const cpeProfileRoutes = require('./routes/cpeProfiles');
+const wirelessManagementRoutes = require('./routes/wirelessManagement');
 const acsService = require('./services/acsService');
 const graphqlMiddleware = require('./graphql');
 
@@ -528,6 +529,7 @@ v1.use('/onu-management', onuManagementRoutes);
 v1.use('/fiber-plant', fiberPlantRoutes);
 v1.use('/cpe-management', cpeManagementRoutes);
 v1.use('/cpe-profiles', cpeProfileRoutes);
+v1.use('/wireless', wirelessManagementRoutes);
 v1.use('/graphql', authenticate, orgScope, graphqlMiddleware);
 
 // Mount v1 at both /api (backward compat) and /api/v1 (versioned)

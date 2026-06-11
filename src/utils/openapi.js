@@ -152,6 +152,11 @@ function generateSpec() {
       { name: 'ONU Management', description: 'FTTH ONU provisioning, profiles, optical diagnostics, whitelist, OMCI/Wi-Fi config, firmware jobs — §7.2' },
       { name: 'CPE Management', description: 'CWMP/TR-069 CPE device registry, task queue, firmware versions and campaigns — §8.1' },
       { name: 'CPE Profiles', description: 'CPE provisioning profile templates with inheritance, parameter mappings, vendor seeds — §8.2' },
+      { name: 'Wireless AP Sectors', description: 'AP sector RF configuration management — azimuth, frequency, channel, power, encryption — §9.1' },
+      { name: 'Wireless Channel Plans', description: 'AP channel assignment registry per site for frequency conflict avoidance — §9.1' },
+      { name: 'Wireless Clients', description: 'Wireless CPE client session snapshots per AP poll — §9.1' },
+      { name: 'Wireless Channel Interference', description: 'Detected RF channel interference records per sector/site — §9.1' },
+      { name: 'AP Command Jobs', description: 'AP remote command jobs for power/frequency/reboot adjustments — §9.1' },
     ],
     paths: {
       // ---- Auth ----
@@ -1464,6 +1469,68 @@ function generateSpec() {
       '/cpe-profiles/{id}/mappings/{mappingId}': {
         put: { tags: ['CPE Profiles'], summary: 'Update a parameter mapping', operationId: 'updateCpeProfileMapping', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'mappingId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('cpeParameterMappings_updateCpeParameterMapping'), responses: r200('CpeParameterMapping') },
         delete: { tags: ['CPE Profiles'], summary: 'Delete a parameter mapping', operationId: 'deleteCpeProfileMapping', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'mappingId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+
+      // ---- Wireless AP Sectors §9.1 ----
+      '/wireless/ap-sectors': {
+        get: { tags: ['Wireless AP Sectors'], summary: 'List AP sector configurations', operationId: 'listApSectorConfigs', security: [{ bearerAuth: [] }], responses: r200('ApSectorConfig[]') },
+        post: { tags: ['Wireless AP Sectors'], summary: 'Create AP sector configuration', operationId: 'createApSectorConfig', security: [{ bearerAuth: [] }], requestBody: jsonBody('wirelessSectors_createApSectorConfig'), responses: r201('ApSectorConfig') },
+      },
+      '/wireless/ap-sectors/{id}': {
+        get: { tags: ['Wireless AP Sectors'], summary: 'Get AP sector configuration', operationId: 'getApSectorConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ApSectorConfig') },
+        put: { tags: ['Wireless AP Sectors'], summary: 'Update AP sector configuration', operationId: 'updateApSectorConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('wirelessSectors_updateApSectorConfig'), responses: r200('ApSectorConfig') },
+        delete: { tags: ['Wireless AP Sectors'], summary: 'Soft-delete AP sector configuration', operationId: 'deleteApSectorConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/wireless/ap-sectors/{id}/restore': {
+        post: { tags: ['Wireless AP Sectors'], summary: 'Restore soft-deleted AP sector config', operationId: 'restoreApSectorConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ApSectorConfig') },
+      },
+
+      // ---- Wireless Channel Plans §9.1 ----
+      '/wireless/channel-plans': {
+        get: { tags: ['Wireless Channel Plans'], summary: 'List AP channel plans', operationId: 'listApChannelPlans', security: [{ bearerAuth: [] }], responses: r200('ApChannelPlan[]') },
+        post: { tags: ['Wireless Channel Plans'], summary: 'Create AP channel plan', operationId: 'createApChannelPlan', security: [{ bearerAuth: [] }], requestBody: jsonBody('wirelessSectors_createApChannelPlan'), responses: r201('ApChannelPlan') },
+      },
+      '/wireless/channel-plans/{id}': {
+        get: { tags: ['Wireless Channel Plans'], summary: 'Get AP channel plan', operationId: 'getApChannelPlan', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ApChannelPlan') },
+        put: { tags: ['Wireless Channel Plans'], summary: 'Update AP channel plan', operationId: 'updateApChannelPlan', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('wirelessSectors_updateApChannelPlan'), responses: r200('ApChannelPlan') },
+        delete: { tags: ['Wireless Channel Plans'], summary: 'Soft-delete AP channel plan', operationId: 'deleteApChannelPlan', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/wireless/channel-plans/{id}/restore': {
+        post: { tags: ['Wireless Channel Plans'], summary: 'Restore soft-deleted AP channel plan', operationId: 'restoreApChannelPlan', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ApChannelPlan') },
+      },
+      '/wireless/channel-plans/conflicts/{siteId}': {
+        get: { tags: ['Wireless Channel Plans'], summary: 'Detect frequency conflicts within a site', operationId: 'detectChannelConflicts', security: [{ bearerAuth: [] }], parameters: [{ name: 'siteId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('ChannelConflict[]') },
+      },
+
+      // ---- Wireless Client Sessions §9.1 ----
+      '/wireless/clients': {
+        get: { tags: ['Wireless Clients'], summary: 'List wireless client session snapshots', operationId: 'listWirelessClientSessions', security: [{ bearerAuth: [] }], responses: r200('WirelessClientSession[]') },
+      },
+      '/wireless/clients/batch': {
+        post: { tags: ['Wireless Clients'], summary: 'Ingest batch of client session snapshots from AP poll', operationId: 'batchIngestWirelessSessions', security: [{ bearerAuth: [] }], requestBody: jsonBody('sessions[]'), responses: r201('{ recorded: number }') },
+      },
+
+      // ---- Wireless Channel Interference §9.1 ----
+      '/wireless/channel-interference': {
+        get: { tags: ['Wireless Channel Interference'], summary: 'List channel interference records', operationId: 'listChannelInterference', security: [{ bearerAuth: [] }], responses: r200('ChannelInterference[]') },
+        post: { tags: ['Wireless Channel Interference'], summary: 'Record channel interference detection', operationId: 'createChannelInterference', security: [{ bearerAuth: [] }], requestBody: jsonBody('wirelessSectors_createChannelInterference'), responses: r201('ChannelInterference') },
+      },
+      '/wireless/channel-interference/{id}': {
+        put: { tags: ['Wireless Channel Interference'], summary: 'Update channel interference record', operationId: 'updateChannelInterference', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('wirelessSectors_updateChannelInterference'), responses: r200('ChannelInterference') },
+        delete: { tags: ['Wireless Channel Interference'], summary: 'Soft-delete channel interference record', operationId: 'deleteChannelInterference', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+
+      // ---- AP Command Jobs §9.1 ----
+      '/wireless/ap-commands': {
+        get: { tags: ['AP Command Jobs'], summary: 'List AP remote command jobs', operationId: 'listApCommandJobs', security: [{ bearerAuth: [] }], responses: r200('ApCommandJob[]') },
+        post: { tags: ['AP Command Jobs'], summary: 'Create AP remote command job', operationId: 'createApCommandJob', security: [{ bearerAuth: [] }], requestBody: jsonBody('wirelessSectors_createApCommandJob'), responses: r201('ApCommandJob') },
+      },
+      '/wireless/ap-commands/{id}': {
+        get: { tags: ['AP Command Jobs'], summary: 'Get AP command job', operationId: 'getApCommandJob', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ApCommandJob') },
+        put: { tags: ['AP Command Jobs'], summary: 'Update AP command job', operationId: 'updateApCommandJob', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('wirelessSectors_updateApCommandJob'), responses: r200('ApCommandJob') },
+      },
+      '/wireless/ap-commands/{id}/cancel': {
+        post: { tags: ['AP Command Jobs'], summary: 'Cancel a pending/queued AP command job', operationId: 'cancelApCommandJob', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ApCommandJob') },
       },
 
       // ---- ACS / CWMP (outside /api/v1) ----

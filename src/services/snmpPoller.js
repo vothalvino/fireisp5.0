@@ -44,6 +44,14 @@ const VALID_METRIC_COLUMNS = new Set([
   'humidity_pct',
   // §6.2 gap metrics (migration 264)
   'if_oper_status',
+  // §9.1 wireless/RF metrics (migration 279)
+  'noise_floor_dbm',
+  'air_util_pct',
+  'gps_sync_status',
+  'snr_db',
+  'ccq_pct',
+  'tx_rate_mbps',
+  'rx_rate_mbps',
 ]);
 
 // Configurable concurrency for parallel polling (default: 10 devices at a time)
