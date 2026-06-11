@@ -63,7 +63,7 @@ INSERT INTO scheduled_tasks
 SELECT
     NULL,
     'ftth_onu_discovery',
-    'maintenance',
+    'snmp_poll',
     'services/ftth/onuDiscoveryHandler',
     'Scan OLT devices for newly connected ONUs, create onu_details records with state=unconfigured, and check against onu_whitelist',
     '*/15 * * * *',
@@ -105,7 +105,7 @@ INSERT INTO scheduled_tasks
 SELECT
     NULL,
     'ftth_onu_firmware_job_processor',
-    'maintenance',
+    'other',
     'services/ftth/onuFirmwareJobProcessor',
     'Pick up pending onu_firmware_jobs whose scheduled_at <= NOW() and execute via OLT CLI stub; update job status on completion',
     '* * * * *',
