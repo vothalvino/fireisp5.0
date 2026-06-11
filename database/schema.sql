@@ -1590,13 +1590,97 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1day (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
+-- Table: snmp_metrics_1month
+-- Purpose: Monthly aggregates of SNMP metrics.  Wide-table design: one row per
+--          device / interface per month.  Retained 3 years (migration 265).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS snmp_metrics_1month (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    device_id           BIGINT UNSIGNED NOT NULL,
+    interface_id        VARCHAR(64)     NOT NULL DEFAULT '' COMMENT 'SNMP ifIndex or ifDescr; empty string for device-level metrics',
+    period_start        DATE            NOT NULL             COMMENT 'First day of the monthly aggregation window',
+    avg_if_in_octets    DECIMAL(20,4)   NULL,
+    min_if_in_octets    BIGINT          NULL,
+    max_if_in_octets    BIGINT          NULL,
+    avg_if_out_octets   DECIMAL(20,4)   NULL,
+    min_if_out_octets   BIGINT          NULL,
+    max_if_out_octets   BIGINT          NULL,
+    avg_if_in_errors    DECIMAL(20,4)   NULL,
+    min_if_in_errors    BIGINT          NULL,
+    max_if_in_errors    BIGINT          NULL,
+    avg_if_out_errors   DECIMAL(20,4)   NULL,
+    min_if_out_errors   BIGINT          NULL,
+    max_if_out_errors   BIGINT          NULL,
+    avg_cpu_usage       DECIMAL(5,2)    NULL,
+    min_cpu_usage       SMALLINT        NULL,
+    max_cpu_usage       SMALLINT        NULL,
+    avg_memory_usage    DECIMAL(5,2)    NULL,
+    min_memory_usage    SMALLINT        NULL,
+    max_memory_usage    SMALLINT        NULL,
+    avg_signal_strength DECIMAL(7,2)    NULL,
+    min_signal_strength INTEGER         NULL,
+    max_signal_strength INTEGER         NULL,
+    avg_latency_ms      DECIMAL(10,2)   NULL,
+    min_latency_ms      DECIMAL(10,2)   NULL,
+    max_latency_ms      DECIMAL(10,2)   NULL,
+    avg_voltage_mv      DECIMAL(12,4)   NULL,
+    min_voltage_mv      INT             NULL,
+    max_voltage_mv      INT             NULL,
+    avg_temperature_c   DECIMAL(8,4)    NULL,
+    min_temperature_c   DECIMAL(6,2)    NULL,
+    max_temperature_c   DECIMAL(6,2)    NULL,
+    avg_fan_speed_rpm   DECIMAL(10,2)   NULL,
+    min_fan_speed_rpm   INT             NULL,
+    max_fan_speed_rpm   INT             NULL,
+    avg_if_in_discards  DECIMAL(20,4)   NULL,
+    min_if_in_discards  BIGINT          NULL,
+    max_if_in_discards  BIGINT          NULL,
+    avg_if_out_discards DECIMAL(20,4)   NULL,
+    min_if_out_discards BIGINT          NULL,
+    max_if_out_discards BIGINT          NULL,
+    avg_sfp_tx_power_dbm DECIMAL(10,4)  NULL,
+    min_sfp_tx_power_dbm DECIMAL(8,4)   NULL,
+    max_sfp_tx_power_dbm DECIMAL(8,4)   NULL,
+    avg_sfp_rx_power_dbm DECIMAL(10,4)  NULL,
+    min_sfp_rx_power_dbm DECIMAL(8,4)   NULL,
+    max_sfp_rx_power_dbm DECIMAL(8,4)   NULL,
+    avg_sfp_temperature_c DECIMAL(8,4)  NULL,
+    min_sfp_temperature_c DECIMAL(6,2)  NULL,
+    max_sfp_temperature_c DECIMAL(6,2)  NULL,
+    avg_ups_battery_pct DECIMAL(5,2)    NULL,
+    min_ups_battery_pct SMALLINT        NULL,
+    max_ups_battery_pct SMALLINT        NULL,
+    avg_ups_runtime_min DECIMAL(10,2)   NULL,
+    min_ups_runtime_min INT             NULL,
+    max_ups_runtime_min INT             NULL,
+    avg_poe_power_mw    DECIMAL(12,4)   NULL,
+    min_poe_power_mw    INT             NULL,
+    max_poe_power_mw    INT             NULL,
+    avg_humidity_pct    DECIMAL(7,4)    NULL,
+    min_humidity_pct    DECIMAL(5,2)    NULL,
+    max_humidity_pct    DECIMAL(5,2)    NULL,
+    avg_if_oper_status  DECIMAL(4,2)    NULL,
+    min_if_oper_status  TINYINT         NULL,
+    max_if_oper_status  TINYINT         NULL,
+    sample_count        INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Number of daily samples aggregated',
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_snmp_1month_device_iface_period (device_id, interface_id, period_start),
+    KEY idx_snmp_1month_period_start (period_start),
+    CONSTRAINT fk_snmp_1month_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Monthly SNMP metric aggregates — retained 3 years';
+
+-- ---------------------------------------------------------------------------
 -- Table: snmp_rollup_state
 -- Purpose: High-watermark table tracking the last successfully processed
 --          timestamp for each rollup tier.  Enables rollup procedures to
 --          catch up automatically after a missed run or server restart.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS snmp_rollup_state (
-    rollup_name    VARCHAR(32)  NOT NULL COMMENT 'Rollup tier identifier (1hr, 1day)',
+    rollup_name    VARCHAR(32)  NOT NULL COMMENT 'Rollup tier identifier (1hr, 1day, 1month)',
     last_processed TIMESTAMP    NULL     COMMENT 'High-watermark: last successfully processed timestamp',
     updated_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
