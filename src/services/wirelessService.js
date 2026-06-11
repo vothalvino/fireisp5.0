@@ -1,14 +1,18 @@
 'use strict';
 
 // =============================================================================
-// FireISP 5.0 — Wireless/WISP Management Service (§9.1)
+// FireISP 5.0 — Wireless/WISP Management Service (§9.1 + §9.2 + §9.3)
 // =============================================================================
 // Provides domain logic for:
-//   • AP sector configuration management
-//   • Channel plan management and conflict detection
-//   • Wireless client session snapshots
-//   • Channel interference detection and recording
-//   • AP remote command job management
+//   • AP sector configuration management               (§9.1)
+//   • Channel plan management and conflict detection   (§9.1)
+//   • Wireless client session snapshots                (§9.1)
+//   • Channel interference detection and recording     (§9.1)
+//   • AP remote command job management                 (§9.1)
+//   • Link planning calculator (haversine/FSPL/Fresnel)(§9.2)
+//   • PTP link metrics retrieval                       (§9.2)
+//   • Spectrum scan storage                            (§9.3)
+//   • Signal distribution histogram                   (§9.3)
 // =============================================================================
 
 const db = require('../config/database');
@@ -520,6 +524,470 @@ async function cancelApCommandJob(id, orgId) {
   return getApCommandJob(id, orgId);
 }
 
+// =============================================================================
+// §9.2 Link Planning Calculator
+// =============================================================================
+
+/** Earth radius in km */
+const EARTH_RADIUS_KM = 6371.0;
+
+/**
+ * Haversine great-circle distance between two lat/lon pairs.
+ * Returns distance in kilometres.
+ */
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const toRad = deg => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(a));
+}
+
+/**
+ * Free-Space Path Loss (FSPL) in dB.
+ * Formula: 20*log10(d_km * f_mhz * 4π / (c / 1e6))
+ * Simplified: FSPL = 20*log10(d_km) + 20*log10(f_mhz) + 32.4447
+ */
+function fsplDb(distanceKm, frequencyMhz) {
+  if (distanceKm <= 0 || frequencyMhz <= 0) return 0;
+  return 20 * Math.log10(distanceKm) + 20 * Math.log10(frequencyMhz) + 32.4447;
+}
+
+/**
+ * First Fresnel zone radius at the path midpoint, in metres.
+ * r = 17.3 * sqrt(d_km / (4 * f_ghz))
+ * where d_km is total path length and f_ghz is frequency in GHz.
+ */
+function fresnelRadiusM(distanceKm, frequencyMhz) {
+  if (distanceKm <= 0 || frequencyMhz <= 0) return 0;
+  const fGhz = frequencyMhz / 1000;
+  return 17.3 * Math.sqrt(distanceKm / (4 * fGhz));
+}
+
+/**
+ * Pure link budget calculator — no DB access.
+ * Computes haversine distance, FSPL, Fresnel zone, clearance, and link budget.
+ *
+ * @param {object} params
+ * @param {number} params.lat_a - Latitude of site A
+ * @param {number} params.lon_a - Longitude of site A
+ * @param {number} params.lat_b - Latitude of site B
+ * @param {number} params.lon_b - Longitude of site B
+ * @param {number} params.frequency_mhz - Operating frequency in MHz
+ * @param {number} [params.tx_power_dbm] - Transmit power in dBm
+ * @param {number} [params.antenna_gain_a_dbi] - Antenna gain at site A in dBi
+ * @param {number} [params.antenna_gain_b_dbi] - Antenna gain at site B in dBi
+ * @param {number} [params.cable_loss_db] - Cable/connector loss in dB (default 0)
+ * @returns {object} Computed results
+ */
+function calculateLinkBudget({
+  lat_a,
+  lon_a,
+  lat_b,
+  lon_b,
+  frequency_mhz,
+  tx_power_dbm = null,
+  antenna_gain_a_dbi = null,
+  antenna_gain_b_dbi = null,
+  cable_loss_db = 0,
+}) {
+  const distanceKm = haversineKm(
+    parseFloat(lat_a),
+    parseFloat(lon_a),
+    parseFloat(lat_b),
+    parseFloat(lon_b),
+  );
+  const fspl = fsplDb(distanceKm, frequency_mhz);
+  const fresnelR = fresnelRadiusM(distanceKm, frequency_mhz);
+  const clearanceRequired = 0.6 * fresnelR;
+
+  let linkBudget = null;
+  if (tx_power_dbm !== null && antenna_gain_a_dbi !== null && antenna_gain_b_dbi !== null) {
+    linkBudget =
+      parseFloat(tx_power_dbm) +
+      parseFloat(antenna_gain_a_dbi) +
+      parseFloat(antenna_gain_b_dbi) -
+      fspl -
+      parseFloat(cable_loss_db || 0);
+  }
+
+  return {
+    distance_km: Math.round(distanceKm * 10000) / 10000,
+    fspl_db: Math.round(fspl * 10000) / 10000,
+    fresnel_radius_m: Math.round(fresnelR * 10000) / 10000,
+    clearance_required_m: Math.round(clearanceRequired * 10000) / 10000,
+    link_budget_db: linkBudget !== null ? Math.round(linkBudget * 10000) / 10000 : null,
+  };
+}
+
+/**
+ * Resolve coordinates for a link planning calculation.
+ * If site_a_id / site_b_id are given, fetch lat/lon from sites table;
+ * otherwise use the lat/lon overrides from the request body.
+ */
+async function _resolveCalcCoords(orgId, { site_a_id, site_b_id, lat_a, lon_a, lat_b, lon_b }) {
+  let coordA = { lat: lat_a, lon: lon_a };
+  let coordB = { lat: lat_b, lon: lon_b };
+
+  if (site_a_id) {
+    const [rows] = await db.query(
+      'SELECT latitude, longitude FROM sites WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
+      [site_a_id, orgId],
+    );
+    if (rows.length) {
+      coordA = { lat: rows[0].latitude, lon: rows[0].longitude };
+    }
+  }
+  if (site_b_id) {
+    const [rows] = await db.query(
+      'SELECT latitude, longitude FROM sites WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
+      [site_b_id, orgId],
+    );
+    if (rows.length) {
+      coordB = { lat: rows[0].latitude, lon: rows[0].longitude };
+    }
+  }
+  return { coordA, coordB };
+}
+
+/**
+ * Save a link planning calc to the DB (runs the calculator internally).
+ */
+async function saveCalc(body, orgId) {
+  const { coordA, coordB } = await _resolveCalcCoords(orgId, body);
+
+  const computed = calculateLinkBudget({
+    lat_a: coordA.lat,
+    lon_a: coordA.lon,
+    lat_b: coordB.lat,
+    lon_b: coordB.lon,
+    frequency_mhz: body.frequency_mhz,
+    tx_power_dbm: body.tx_power_dbm,
+    antenna_gain_a_dbi: body.antenna_gain_a_dbi,
+    antenna_gain_b_dbi: body.antenna_gain_b_dbi,
+    cable_loss_db: body.cable_loss_db,
+  });
+
+  const { organization_id: _o, id: _i, created_at: _c, updated_at: _u, deleted_at: _d, ...fields } = body;
+  const row = {
+    organization_id: orgId,
+    ...fields,
+    lat_a: coordA.lat,
+    lon_a: coordA.lon,
+    lat_b: coordB.lat,
+    lon_b: coordB.lon,
+    ...computed,
+  };
+
+  const [result] = await db.query('INSERT INTO link_planning_calcs SET ?', [row]);
+  return getCalc(result.insertId, orgId);
+}
+
+/**
+ * List saved link planning calcs for an org (paginated).
+ */
+async function listCalcs(orgId, page = 1, limit = 20) {
+  const offset = (page - 1) * limit;
+  const [rows] = await db.query(
+    `SELECT lpc.*,
+            sa.name AS site_a_name, sb.name AS site_b_name
+     FROM link_planning_calcs lpc
+     LEFT JOIN sites sa ON sa.id = lpc.site_a_id
+     LEFT JOIN sites sb ON sb.id = lpc.site_b_id
+     WHERE (lpc.organization_id = ? OR lpc.organization_id IS NULL)
+       AND lpc.deleted_at IS NULL
+     ORDER BY lpc.created_at DESC
+     LIMIT ? OFFSET ?`,
+    [orgId, Number(limit), Number(offset)],
+  );
+  const [[{ total }]] = await db.query(
+    'SELECT COUNT(*) AS total FROM link_planning_calcs WHERE (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
+    [orgId],
+  );
+  return { data: rows, total, page: Number(page), limit: Number(limit) };
+}
+
+/**
+ * Get a single saved link planning calc.
+ */
+async function getCalc(id, orgId) {
+  const [rows] = await db.query(
+    `SELECT lpc.*,
+            sa.name AS site_a_name, sb.name AS site_b_name
+     FROM link_planning_calcs lpc
+     LEFT JOIN sites sa ON sa.id = lpc.site_a_id
+     LEFT JOIN sites sb ON sb.id = lpc.site_b_id
+     WHERE lpc.id = ?
+       AND (lpc.organization_id = ? OR lpc.organization_id IS NULL)
+       AND lpc.deleted_at IS NULL`,
+    [id, orgId],
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Update a saved link planning calc (recalculates if coordinate/freq fields change).
+ */
+async function updateCalc(id, orgId, body) {
+  const existing = await getCalc(id, orgId);
+  if (!existing) {
+    const err = new Error('Link planning calc not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const merged = { ...existing, ...body };
+  const { coordA, coordB } = await _resolveCalcCoords(orgId, merged);
+  const computed = calculateLinkBudget({
+    lat_a: coordA.lat,
+    lon_a: coordA.lon,
+    lat_b: coordB.lat,
+    lon_b: coordB.lon,
+    frequency_mhz: merged.frequency_mhz,
+    tx_power_dbm: merged.tx_power_dbm,
+    antenna_gain_a_dbi: merged.antenna_gain_a_dbi,
+    antenna_gain_b_dbi: merged.antenna_gain_b_dbi,
+    cable_loss_db: merged.cable_loss_db,
+  });
+
+  const { organization_id: _o, id: _i, created_at: _c, deleted_at: _d, ...fields } = body;
+  await db.query(
+    'UPDATE link_planning_calcs SET ? WHERE id = ? AND (organization_id = ? OR organization_id IS NULL)',
+    [{ ...fields, ...computed, updated_at: new Date() }, id, orgId],
+  );
+  return getCalc(id, orgId);
+}
+
+/**
+ * Soft-delete a saved link planning calc.
+ */
+async function deleteCalc(id, orgId) {
+  const existing = await getCalc(id, orgId);
+  if (!existing) {
+    const err = new Error('Link planning calc not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  await db.query(
+    'UPDATE link_planning_calcs SET deleted_at = NOW() WHERE id = ? AND (organization_id = ? OR organization_id IS NULL)',
+    [id, orgId],
+  );
+}
+
+// =============================================================================
+// §9.2 PTP Link Metrics
+// =============================================================================
+
+/**
+ * Get PTP link metrics for a specific network_links row.
+ * Returns current signal/modulation/throughput data from the link record,
+ * plus a time-series summary from wireless_client_sessions for linked devices.
+ *
+ * @param {string|number} linkId
+ * @param {string|number} orgId
+ * @param {number} hours - lookback window in hours (default 24)
+ */
+async function getPtpLinkMetrics(linkId, orgId, hours = 24) {
+  const [linkRows] = await db.query(
+    `SELECT nl.id, nl.link_type, nl.status, nl.capacity_mbps,
+            nl.tx_signal_dbm, nl.rx_signal_dbm, nl.modulation,
+            nl.tx_throughput_mbps, nl.rx_throughput_mbps, nl.link_budget_db,
+            nl.failover_link_id, nl.is_primary, nl.failover_state,
+            da.hostname AS device_a_hostname, da.ip_address AS device_a_ip,
+            db_dev.hostname AS device_b_hostname, db_dev.ip_address AS device_b_ip
+     FROM network_links nl
+     LEFT JOIN devices da ON da.id = nl.device_a_id
+     LEFT JOIN devices db_dev ON db_dev.id = nl.device_b_id
+     WHERE nl.id = ?
+       AND (nl.organization_id = ? OR nl.organization_id IS NULL)
+       AND nl.deleted_at IS NULL`,
+    [linkId, orgId],
+  );
+  if (!linkRows.length) return null;
+
+  const link = linkRows[0];
+
+  // Collect recent client session data from both endpoint devices as a proxy
+  // for signal history (true PTP history requires a dedicated time-series store)
+  const since = new Date(Date.now() - hours * 3600 * 1000);
+  const [sessionRows] = await db.query(
+    `SELECT wcs.device_id, wcs.signal_dbm, wcs.noise_floor_dbm, wcs.snr_db,
+            wcs.tx_rate_mbps, wcs.rx_rate_mbps, wcs.last_seen_at
+     FROM wireless_client_sessions wcs
+     WHERE wcs.device_id IN (
+         SELECT device_a_id FROM network_links WHERE id = ?
+         UNION
+         SELECT device_b_id FROM network_links WHERE id = ?
+     )
+       AND (wcs.organization_id = ? OR wcs.organization_id IS NULL)
+       AND wcs.last_seen_at >= ?
+     ORDER BY wcs.last_seen_at DESC
+     LIMIT 200`,
+    [linkId, linkId, orgId, since],
+  );
+
+  return {
+    link,
+    session_history: sessionRows,
+    history_hours: hours,
+  };
+}
+
+// =============================================================================
+// §9.3 RF Metrics — Signal Distribution
+// =============================================================================
+
+/**
+ * Build a signal strength histogram from wireless_client_sessions.
+ * Buckets: [-100,-90), [-90,-80), [-80,-70), [-70,-60), [-60,-50), [-50,0)
+ *
+ * @param {string|number} deviceId - AP device to filter by (optional if null = all org APs)
+ * @param {string|number} orgId
+ * @param {number} hours - lookback window in hours (default 24)
+ */
+async function getSignalDistribution(deviceId, orgId, hours = 24) {
+  const since = new Date(Date.now() - hours * 3600 * 1000);
+  const params = [orgId, since];
+
+  let deviceFilter = '';
+  if (deviceId) {
+    deviceFilter = ' AND wcs.device_id = ?';
+    params.push(deviceId);
+  }
+
+  const [rows] = await db.query(
+    `SELECT
+        SUM(CASE WHEN signal_dbm >= -100 AND signal_dbm < -90 THEN 1 ELSE 0 END) AS bucket_100_90,
+        SUM(CASE WHEN signal_dbm >= -90  AND signal_dbm < -80 THEN 1 ELSE 0 END) AS bucket_90_80,
+        SUM(CASE WHEN signal_dbm >= -80  AND signal_dbm < -70 THEN 1 ELSE 0 END) AS bucket_80_70,
+        SUM(CASE WHEN signal_dbm >= -70  AND signal_dbm < -60 THEN 1 ELSE 0 END) AS bucket_70_60,
+        SUM(CASE WHEN signal_dbm >= -60  AND signal_dbm < -50 THEN 1 ELSE 0 END) AS bucket_60_50,
+        SUM(CASE WHEN signal_dbm >= -50             THEN 1 ELSE 0 END) AS bucket_50_0,
+        COUNT(signal_dbm) AS total_sessions
+     FROM wireless_client_sessions wcs
+     WHERE (wcs.organization_id = ? OR wcs.organization_id IS NULL)
+       AND wcs.last_seen_at >= ?
+       AND wcs.signal_dbm IS NOT NULL${deviceFilter}`,
+    params,
+  );
+
+  const r = rows[0];
+  return {
+    buckets: [
+      { range: '[-100,-90)', label: '-100 to -90 dBm', count: Number(r.bucket_100_90) },
+      { range: '[-90,-80)',  label: '-90 to -80 dBm',  count: Number(r.bucket_90_80) },
+      { range: '[-80,-70)',  label: '-80 to -70 dBm',  count: Number(r.bucket_80_70) },
+      { range: '[-70,-60)',  label: '-70 to -60 dBm',  count: Number(r.bucket_70_60) },
+      { range: '[-60,-50)',  label: '-60 to -50 dBm',  count: Number(r.bucket_60_50) },
+      { range: '[-50,0)',    label: '-50 to 0 dBm',    count: Number(r.bucket_50_0) },
+    ],
+    total_sessions: Number(r.total_sessions),
+    device_id: deviceId || null,
+    hours,
+  };
+}
+
+// =============================================================================
+// §9.3 Spectrum Scans
+// =============================================================================
+
+/**
+ * List spectrum scan results for an org.
+ */
+async function listSpectrumScans(orgId, { deviceId, status, page = 1, limit = 20 } = {}) {
+  const offset = (page - 1) * limit;
+  let sql = `
+    SELECT ssr.*, d.hostname AS device_hostname, d.ip_address AS device_ip
+    FROM spectrum_scan_results ssr
+    LEFT JOIN devices d ON d.id = ssr.device_id
+    WHERE (ssr.organization_id = ? OR ssr.organization_id IS NULL)
+      AND ssr.deleted_at IS NULL
+  `;
+  const params = [orgId];
+
+  if (deviceId) {
+    sql += ' AND ssr.device_id = ?';
+    params.push(deviceId);
+  }
+  if (status) {
+    sql += ' AND ssr.status = ?';
+    params.push(status);
+  }
+  sql += ' ORDER BY ssr.created_at DESC LIMIT ? OFFSET ?';
+  params.push(Number(limit), Number(offset));
+
+  const [rows] = await db.query(sql, params);
+
+  let countSql = 'SELECT COUNT(*) AS total FROM spectrum_scan_results WHERE (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL';
+  const countParams = [orgId];
+  if (deviceId) {
+    countSql += ' AND device_id = ?';
+    countParams.push(deviceId);
+  }
+  if (status) {
+    countSql += ' AND status = ?';
+    countParams.push(status);
+  }
+  const [[{ total }]] = await db.query(countSql, countParams);
+
+  return { data: rows, total, page: Number(page), limit: Number(limit) };
+}
+
+/**
+ * Get a single spectrum scan result.
+ */
+async function getSpectrumScan(id, orgId) {
+  const [rows] = await db.query(
+    `SELECT ssr.*, d.hostname AS device_hostname
+     FROM spectrum_scan_results ssr
+     LEFT JOIN devices d ON d.id = ssr.device_id
+     WHERE ssr.id = ?
+       AND (ssr.organization_id = ? OR ssr.organization_id IS NULL)
+       AND ssr.deleted_at IS NULL`,
+    [id, orgId],
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Create a new spectrum scan record.
+ * STUB: Live scanning requires hardware support. Sets status='completed' with
+ * null scan_data and a note that live scanning requires hardware integration.
+ *
+ * @param {object} body - Request body
+ * @param {string|number} orgId
+ */
+async function createSpectrumScan(body, orgId) {
+  // Verify the AP device belongs to this org
+  const [devRows] = await db.query(
+    'SELECT id, type FROM devices WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
+    [body.device_id, orgId],
+  );
+  if (!devRows.length) {
+    const err = new Error('Device not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const { organization_id: _o, id: _i, created_at: _c, updated_at: _u, deleted_at: _d, ...fields } = body;
+  const row = {
+    organization_id: orgId,
+    ...fields,
+    status: 'completed',
+    started_at: new Date(),
+    completed_at: new Date(),
+    scan_data: null,
+    notes: (fields.notes ? fields.notes + ' | ' : '') +
+      'Live spectrum scanning requires hardware support — scan_data populated by AP firmware integration',
+  };
+
+  const [result] = await db.query('INSERT INTO spectrum_scan_results SET ?', [row]);
+  logger.info({ orgId, scanId: result.insertId, deviceId: body.device_id }, 'spectrum scan record created (stub)');
+  return getSpectrumScan(result.insertId, orgId);
+}
+
 module.exports = {
   // AP sector configs
   listApSectorConfigs,
@@ -549,4 +1017,19 @@ module.exports = {
   getApCommandJob,
   createApCommandJob,
   cancelApCommandJob,
+  // §9.2 Link planning calculator
+  calculateLinkBudget,
+  saveCalc,
+  listCalcs,
+  getCalc,
+  updateCalc,
+  deleteCalc,
+  // §9.2 PTP link metrics
+  getPtpLinkMetrics,
+  // §9.3 RF metrics
+  getSignalDistribution,
+  // §9.3 Spectrum scans
+  listSpectrumScans,
+  getSpectrumScan,
+  createSpectrumScan,
 };

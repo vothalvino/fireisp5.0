@@ -80,7 +80,16 @@
     "command_job_cannot_cancel": "Somente trabalhos pendentes ou na fila podem ser cancelados",
     "sessions_recorded": "{{count}} sessão(ões) de cliente sem fio registrada(s)",
     "device_not_found": "Dispositivo AP não encontrado",
-    "device_invalid_type": "O dispositivo deve ser do tipo ptmp_ap, ptp, outdoor_cpe ou indoor_cpe"
+    "device_invalid_type": "O dispositivo deve ser do tipo ptmp_ap, ptp, outdoor_cpe ou indoor_cpe",
+    "link_calc_created": "Cálculo de planejamento de enlace salvo",
+    "link_calc_updated": "Cálculo de planejamento de enlace atualizado",
+    "link_calc_deleted": "Cálculo de planejamento de enlace excluído",
+    "link_calc_not_found": "Cálculo de planejamento de enlace não encontrado",
+    "link_not_found": "Link de rede não encontrado",
+    "spectrum_scan_created": "Registro de varredura espectral criado (stub — varredura ao vivo requer integração de hardware)",
+    "spectrum_scan_not_found": "Varredura espectral não encontrada",
+    "spectrum_scan_device_required": "device_id é obrigatório para varreduras espectrais",
+    "spectrum_scan_freq_required": "frequency_start_mhz e frequency_end_mhz são obrigatórios"
   },
   "radius": {
     "sync_complete": "Sincronização RADIUS concluída: {{synced}} contas, {{errors}} erros",

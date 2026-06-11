@@ -1,16 +1,20 @@
 'use strict';
 
 // =============================================================================
-// FireISP 5.0 — Wireless/WISP Management Routes (§9.1)
+// FireISP 5.0 — Wireless/WISP Management Routes (§9.1 + §9.2 + §9.3)
 // =============================================================================
 // Mounted at /api/v1/wireless
 //
 // Resources:
-//   /wireless/ap-sectors              — AP sector configurations
-//   /wireless/channel-plans           — AP channel plans per site
-//   /wireless/clients                 — Wireless client session snapshots
-//   /wireless/channel-interference    — Channel interference records
-//   /wireless/ap-commands             — AP remote command jobs
+//   /wireless/ap-sectors              — AP sector configurations           (§9.1)
+//   /wireless/channel-plans           — AP channel plans per site          (§9.1)
+//   /wireless/clients                 — Wireless client session snapshots  (§9.1)
+//   /wireless/channel-interference    — Channel interference records       (§9.1)
+//   /wireless/ap-commands             — AP remote command jobs             (§9.1)
+//   /wireless/link-planning           — Link budget calculator runs        (§9.2)
+//   /wireless/network-links/:id/ptp-metrics — PTP link metrics            (§9.2)
+//   /wireless/clients/signal-distribution   — Signal histogram            (§9.3)
+//   /wireless/spectrum-scans          — Spectrum scan results              (§9.3)
 // =============================================================================
 
 const { Router } = require('express');
@@ -339,6 +343,173 @@ router.put('/ap-commands/:id', requirePermission('ap_commands.create'), validate
 router.post('/ap-commands/:id/cancel', requirePermission('ap_commands.create'), async (req, res, next) => {
   try {
     const record = await wirelessService.cancelApCommandJob(req.params.id, req.orgId);
+    res.json({ data: record });
+  } catch (err) { next(err); }
+});
+
+// =============================================================================
+// §9.2 Link Planning Calculator
+// =============================================================================
+
+/**
+ * POST /wireless/link-planning/calculate
+ * Pure calculator — no DB save. Returns computed distance, FSPL, Fresnel, link budget.
+ */
+router.post('/link-planning/calculate', requirePermission('link_planning.view'), async (req, res, next) => {
+  try {
+    const { lat_a, lon_a, lat_b, lon_b, frequency_mhz, tx_power_dbm, antenna_gain_a_dbi, antenna_gain_b_dbi, cable_loss_db } = req.body;
+    if (lat_a === null || lat_a === undefined || lon_a === null || lon_a === undefined || lat_b === null || lat_b === undefined || lon_b === null || lon_b === undefined || !frequency_mhz) {
+      return res.status(400).json({ error: 'lat_a, lon_a, lat_b, lon_b, and frequency_mhz are required' });
+    }
+    const result = wirelessService.calculateLinkBudget({
+      lat_a, lon_a, lat_b, lon_b, frequency_mhz, tx_power_dbm, antenna_gain_a_dbi, antenna_gain_b_dbi, cable_loss_db,
+    });
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /wireless/link-planning
+ * List saved link planning calculator runs.
+ */
+router.get('/link-planning', requirePermission('link_planning.view'), async (req, res, next) => {
+  try {
+    const { page, limit } = req.query;
+    const result = await wirelessService.listCalcs(
+      req.orgId,
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 20,
+    );
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /wireless/link-planning
+ * Save a new link planning calculator run (computes results automatically).
+ */
+router.post('/link-planning', requirePermission('link_planning.create'), async (req, res, next) => {
+  try {
+    const record = await wirelessService.saveCalc(req.body, req.orgId);
+    res.status(201).json({ data: record });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /wireless/link-planning/:id
+ */
+router.get('/link-planning/:id', requirePermission('link_planning.view'), async (req, res, next) => {
+  try {
+    const record = await wirelessService.getCalc(req.params.id, req.orgId);
+    if (!record) return res.status(404).json({ error: 'Link planning calc not found' });
+    res.json({ data: record });
+  } catch (err) { next(err); }
+});
+
+/**
+ * PUT /wireless/link-planning/:id
+ */
+router.put('/link-planning/:id', requirePermission('link_planning.update'), async (req, res, next) => {
+  try {
+    const record = await wirelessService.updateCalc(req.params.id, req.orgId, req.body);
+    res.json({ data: record });
+  } catch (err) { next(err); }
+});
+
+/**
+ * DELETE /wireless/link-planning/:id
+ */
+router.delete('/link-planning/:id', requirePermission('link_planning.delete'), async (req, res, next) => {
+  try {
+    await wirelessService.deleteCalc(req.params.id, req.orgId);
+    res.status(204).send();
+  } catch (err) { next(err); }
+});
+
+// =============================================================================
+// §9.2 PTP Link Metrics
+// =============================================================================
+
+/**
+ * GET /wireless/network-links/:id/ptp-metrics
+ * Returns PTP link signal/modulation/throughput data + client session history.
+ * Optional ?hours= query parameter (default 24).
+ */
+router.get('/network-links/:id/ptp-metrics', requirePermission('ptp_links.view'), async (req, res, next) => {
+  try {
+    const hours = req.query.hours ? parseInt(req.query.hours, 10) : 24;
+    const result = await wirelessService.getPtpLinkMetrics(req.params.id, req.orgId, hours);
+    if (!result) return res.status(404).json({ error: 'Network link not found' });
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// =============================================================================
+// §9.3 RF Metrics — Signal Distribution
+// =============================================================================
+
+/**
+ * GET /wireless/clients/signal-distribution
+ * Returns signal strength histogram bucketed in 10 dBm ranges.
+ * Optional ?device_id= and ?hours= query parameters.
+ */
+router.get('/clients/signal-distribution', requirePermission('rf_metrics.view'), async (req, res, next) => {
+  try {
+    const { device_id: deviceId, hours } = req.query;
+    const result = await wirelessService.getSignalDistribution(
+      deviceId || null,
+      req.orgId,
+      hours ? parseInt(hours, 10) : 24,
+    );
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// =============================================================================
+// §9.3 Spectrum Scans
+// =============================================================================
+
+/**
+ * GET /wireless/spectrum-scans
+ * List spectrum scan results. Optional ?device_id=, ?status=, ?page=, ?limit=.
+ */
+router.get('/spectrum-scans', requirePermission('spectrum_scans.view'), async (req, res, next) => {
+  try {
+    const { device_id: deviceId, status, page, limit } = req.query;
+    const result = await wirelessService.listSpectrumScans(req.orgId, {
+      deviceId,
+      status,
+      page: page ? parseInt(page, 10) : 1,
+      limit: limit ? parseInt(limit, 10) : 20,
+    });
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /wireless/spectrum-scans
+ * Create a new spectrum scan record (hardware scan is stubbed).
+ */
+router.post('/spectrum-scans', requirePermission('spectrum_scans.create'), async (req, res, next) => {
+  try {
+    if (!req.body.device_id) {
+      return res.status(400).json({ error: 'device_id is required' });
+    }
+    if (!req.body.frequency_start_mhz || !req.body.frequency_end_mhz) {
+      return res.status(400).json({ error: 'frequency_start_mhz and frequency_end_mhz are required' });
+    }
+    const record = await wirelessService.createSpectrumScan(req.body, req.orgId);
+    res.status(201).json({ data: record });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /wireless/spectrum-scans/:id
+ */
+router.get('/spectrum-scans/:id', requirePermission('spectrum_scans.view'), async (req, res, next) => {
+  try {
+    const record = await wirelessService.getSpectrumScan(req.params.id, req.orgId);
+    if (!record) return res.status(404).json({ error: 'Spectrum scan not found' });
     res.json({ data: record });
   } catch (err) { next(err); }
 });

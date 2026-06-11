@@ -2271,6 +2271,55 @@ JOIN (
 ) o
 WHERE p.name = 'Siklu';
 
+-- ---------------------------------------------------------------------------
+-- §9.3 GPS sync OID seeds (migration 284)
+-- ---------------------------------------------------------------------------
+-- Ubiquiti airOS — ubntAirIfGpsSync (airMAX TDMA MIB)
+INSERT IGNORE INTO snmp_profile_oids
+    (profile_id, oid, metric_column, label, oid_type, is_per_interface, transform, sort_order)
+SELECT
+    p.id,
+    '1.3.6.1.4.1.41112.1.6.1.2.1.5',
+    'gps_sync_status',
+    'airMAX GPS Sync (1=synced)',
+    'gauge',
+    FALSE,
+    NULL,
+    140
+FROM snmp_profiles p
+WHERE p.name = 'Ubiquiti airOS';
+
+-- Mimosa Networks — mimosaGpsSync
+INSERT IGNORE INTO snmp_profile_oids
+    (profile_id, oid, metric_column, label, oid_type, is_per_interface, transform, sort_order)
+SELECT
+    p.id,
+    '1.3.6.1.4.1.43356.2.1.2.1.1.8',
+    'gps_sync_status',
+    'Mimosa GPS Sync (1=synced)',
+    'gauge',
+    FALSE,
+    NULL,
+    115
+FROM snmp_profiles p
+WHERE p.name = 'Mimosa Networks';
+
+-- ---------------------------------------------------------------------------
+-- §9.3 Scheduled task: wireless AP sector poll (migration 284)
+-- ---------------------------------------------------------------------------
+INSERT INTO scheduled_tasks
+    (task_name, task_type, cron_expression, priority, is_enabled, description)
+SELECT
+    'wireless_ap_sector_poll',
+    'snmp_poll',
+    '*/5 * * * *',
+    'normal',
+    TRUE,
+    'Poll AP sector metrics: noise floor, air utilization, connected clients, GPS sync'
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks WHERE task_name = 'wireless_ap_sector_poll'
+);
+
 -- =============================================================================
 -- Connection Logs (Compliance & Usage)
 -- =============================================================================
@@ -3168,6 +3217,16 @@ CREATE TABLE IF NOT EXISTS network_links (
                         NOT NULL DEFAULT 'fiber'
                         COMMENT 'Physical or logical medium connecting the two devices',
     capacity_mbps   INT UNSIGNED    NULL      COMMENT 'Link capacity in Mbps (e.g. 1000 = 1 Gbps)',
+    -- §9.2 PTP/wireless monitoring columns (migration 282)
+    tx_signal_dbm   DECIMAL(7,2)    NULL      COMMENT 'Tx signal strength in dBm (PTP/wireless links)',
+    rx_signal_dbm   DECIMAL(7,2)    NULL      COMMENT 'Rx signal strength in dBm (PTP/wireless links)',
+    modulation      VARCHAR(50)     NULL      COMMENT 'Modulation mode e.g. QPSK, 16QAM, 64QAM, 256QAM, 1024QAM',
+    tx_throughput_mbps DECIMAL(10,3) NULL     COMMENT 'Current Tx throughput in Mbps',
+    rx_throughput_mbps DECIMAL(10,3) NULL     COMMENT 'Current Rx throughput in Mbps',
+    link_budget_db  DECIMAL(7,2)    NULL      COMMENT 'Calculated link budget in dB (FSPL - losses + Tx power + gain)',
+    failover_link_id BIGINT UNSIGNED NULL     COMMENT 'FK to network_links — backup link for failover (no FK constraint)',
+    is_primary      TINYINT(1)      NOT NULL DEFAULT 1 COMMENT '1=primary link, 0=backup/failover link',
+    failover_state  ENUM('normal','failed_over','recovering') NOT NULL DEFAULT 'normal',
     medium          ENUM('fiber','wireless','copper') NULL
                         COMMENT 'Physical medium of the link',
     role            ENUM('access','distribution','backhaul','core') NULL
@@ -3376,6 +3435,83 @@ CREATE TABLE IF NOT EXISTS wireless_channel_interference (
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Detected RF channel interference records per sector/site';
+
+-- ---------------------------------------------------------------------------
+-- Table: link_planning_calcs (§9.2)
+-- Purpose: Saved link budget calculator runs — stores inputs and computed
+--          FSPL, Fresnel zone radius, clearance, and link budget.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS link_planning_calcs (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    name                VARCHAR(100)    NOT NULL,
+    site_a_id           BIGINT UNSIGNED NULL     COMMENT 'FK to sites (site A endpoint)',
+    site_b_id           BIGINT UNSIGNED NULL     COMMENT 'FK to sites (site B endpoint)',
+    lat_a               DECIMAL(10,8)   NULL,
+    lon_a               DECIMAL(11,8)   NULL,
+    lat_b               DECIMAL(10,8)   NULL,
+    lon_b               DECIMAL(11,8)   NULL,
+    frequency_mhz       INT             NOT NULL COMMENT 'Operating frequency in MHz',
+    tx_power_dbm        DECIMAL(6,2)    NULL,
+    antenna_gain_a_dbi  DECIMAL(5,2)    NULL,
+    antenna_gain_b_dbi  DECIMAL(5,2)    NULL,
+    cable_loss_db       DECIMAL(5,2)    NULL DEFAULT 0,
+    distance_km         DECIMAL(10,4)   NULL COMMENT 'Great-circle distance in km',
+    fspl_db             DECIMAL(8,4)    NULL COMMENT 'Free-space path loss in dB',
+    fresnel_radius_m    DECIMAL(8,4)    NULL COMMENT 'First Fresnel zone radius at midpoint in metres',
+    clearance_required_m DECIMAL(8,4)  NULL COMMENT '0.6 * first Fresnel zone radius (minimum clearance)',
+    link_budget_db      DECIMAL(8,4)    NULL COMMENT 'Estimated link budget = TxPower + GainA + GainB - FSPL - CableLoss',
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        DEFAULT NULL,
+    PRIMARY KEY (id),
+    KEY idx_link_planning_calcs_org (organization_id),
+    KEY idx_link_planning_calcs_deleted_at (deleted_at),
+    CONSTRAINT fk_lpc_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_lpc_site_a FOREIGN KEY (site_a_id)
+        REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_lpc_site_b FOREIGN KEY (site_b_id)
+        REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Saved link budget calculator runs with computed FSPL, Fresnel zone, and link budget (§9.2)';
+
+-- ---------------------------------------------------------------------------
+-- Table: spectrum_scan_results (§9.3)
+-- Purpose: AP spectrum scan results — raw scan_data JSON, peak interference,
+--          and channel recommendation from wireless spectrum analysis.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS spectrum_scan_results (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id         BIGINT UNSIGNED NULL,
+    device_id               BIGINT UNSIGNED NOT NULL  COMMENT 'AP device that performed the scan',
+    scan_type               ENUM('scheduled','manual','triggered') NOT NULL DEFAULT 'manual',
+    frequency_start_mhz     INT             NOT NULL,
+    frequency_end_mhz       INT             NOT NULL,
+    channel_width_mhz       SMALLINT        NOT NULL DEFAULT 20,
+    scan_data               JSON            NULL      COMMENT 'Raw spectrum data: [{freq_mhz: N, power_dbm: N}]',
+    peak_interference_dbm   DECIMAL(7,2)    NULL,
+    recommended_channel_mhz INT             NULL      COMMENT 'Clearest channel identified',
+    status                  ENUM('pending','in_progress','completed','failed') NOT NULL DEFAULT 'pending',
+    started_at              DATETIME        NULL,
+    completed_at            DATETIME        NULL,
+    error_message           TEXT            NULL,
+    notes                   TEXT            NULL,
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at              DATETIME        DEFAULT NULL,
+    PRIMARY KEY (id),
+    KEY idx_spectrum_scans_device (device_id),
+    KEY idx_spectrum_scans_org (organization_id),
+    KEY idx_spectrum_scans_status (status),
+    KEY idx_spectrum_scans_deleted_at (deleted_at),
+    CONSTRAINT fk_spectrum_scans_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_spectrum_scans_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='AP spectrum scan results — raw scan_data JSON + recommendation (§9.3)';
 
 -- ---------------------------------------------------------------------------
 -- Table: settings

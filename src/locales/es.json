@@ -80,7 +80,16 @@
     "command_job_cannot_cancel": "Solo se pueden cancelar trabajos en estado pendiente o en cola",
     "sessions_recorded": "{{count}} sesión(es) de cliente inalámbrico registrada(s)",
     "device_not_found": "Dispositivo AP no encontrado",
-    "device_invalid_type": "El dispositivo debe ser de tipo ptmp_ap, ptp, outdoor_cpe o indoor_cpe"
+    "device_invalid_type": "El dispositivo debe ser de tipo ptmp_ap, ptp, outdoor_cpe o indoor_cpe",
+    "link_calc_created": "Cálculo de planificación de enlace guardado",
+    "link_calc_updated": "Cálculo de planificación de enlace actualizado",
+    "link_calc_deleted": "Cálculo de planificación de enlace eliminado",
+    "link_calc_not_found": "Cálculo de planificación de enlace no encontrado",
+    "link_not_found": "Enlace de red no encontrado",
+    "spectrum_scan_created": "Registro de escaneo espectral creado (simulado — el escaneo en vivo requiere integración de hardware)",
+    "spectrum_scan_not_found": "Escaneo espectral no encontrado",
+    "spectrum_scan_device_required": "Se requiere device_id para escaneos espectrales",
+    "spectrum_scan_freq_required": "Se requieren frequency_start_mhz y frequency_end_mhz"
   },
   "radius": {
     "sync_complete": "Sincronización RADIUS completada: {{synced}} cuentas, {{errors}} errores",

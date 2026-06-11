@@ -108,8 +108,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 218 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–278)
+│   ├── schema.sql           # Combined schema (all 224 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–285)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -383,6 +383,8 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 220 | `wireless_client_sessions` | Append-only CPE client state snapshots per AP poll (§9.1) — mac_address, ip_address, signal_dbm, noise_floor_dbm, snr_db, ccq_pct, tx_rate_mbps, rx_rate_mbps, distance_m, last_seen_at; FKs to devices (AP + CPE, SET NULL on delete) |
 | 221 | `ap_command_jobs` | Remote AP command jobs for power/frequency/reboot adjustments (§9.1) — command_type ENUM (set_tx_power/set_frequency/set_channel_width/reboot/other), target_value, status ENUM (pending/queued/in_progress/completed/failed/cancelled), scheduled_at, result_output, error_message; FK to devices |
 | 222 | `wireless_channel_interference` | Detected RF channel interference records per sector/site (§9.1) — detected_at, frequency_mhz, channel_width_mhz, interference_level ENUM (low/medium/high/critical), conflicting_ap_mac; FKs to ap_sector_configs + sites (SET NULL on delete) |
+| 223 | `link_planning_calcs` | Saved link budget calculator runs (§9.2) — site_a/b FKs or lat/lon overrides, frequency_mhz, tx_power_dbm, antenna gains, cable loss; computed distance_km, fspl_db, fresnel_radius_m, clearance_required_m, link_budget_db stored for history display |
+| 224 | `spectrum_scan_results` | AP spectrum scan results (§9.3) — device_id, scan_type ENUM (scheduled/manual/triggered), frequency_start/end_mhz, channel_width_mhz, scan_data JSON array of {freq_mhz, power_dbm} objects, peak_interference_dbm, recommended_channel_mhz, status ENUM; FK to devices (RESTRICT on delete) |
 
 > **Migration 165–173 table count note:** See migrations 241–246 below for the §5 Dual Stack tables. See migrations 249–263 for §6.1–6.6 SNMP & NMS tables.
 
@@ -691,6 +693,12 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 277 — CPE Diagnostics & Session Logs (§8.3):** `277_cpe_diagnostics_and_session_logs.sql` creates `cpe_diagnostics` (ping/traceroute/wifi_snapshot/ethernet_status/wan_diagnostics result store with status machine pending→running→completed/failed, result JSON, target_host) and `cpe_session_logs` (CWMP event log for all inform/task/fault/auth events; raw_body truncated at 2000 chars). Extends `cpe_tasks.task_type` ENUM with ping_diagnostic/traceroute_diagnostic/wifi_diagnostics/wan_diagnostics via INFORMATION_SCHEMA-guarded stored procedure. Seeds 5 permissions (cpe_diagnostics.view/create/delete + cpe_session_logs.view/delete) and a nightly cleanup scheduled task (0 3 * * *, cleanup type, keeps 90 days).
 
 > **Migration 278 — CPE Inventory Lifecycle (§8.4):** `278_cpe_inventory_lifecycle.sql` extends `cpe_devices` with lifecycle_state ENUM (in_stock/assigned/active/returned/rma), subscriber_id FK to clients, subscriber_linked_at timestamp, and depreciation fields (purchase_cost, purchase_date, depreciation_method straight_line/declining_balance, useful_life_months, salvage_value) via INFORMATION_SCHEMA-guarded ALTERs. Creates `cpe_lifecycle_history` (immutable FSM audit trail). Seeds 5 permissions (cpe_inventory.view/manage/swap/link + cpe_lifecycle_history.view).
+
+> **Migrations 279–281 — WISP/Wireless Management (§9.1):** `279_wireless_ap_sector_tables.sql` creates 5 tables: `ap_channel_plans` (channel registry per site for frequency conflict avoidance), `ap_sector_configs` (RF configuration per AP sector device — azimuth/frequency/power/encryption), `wireless_client_sessions` (append-only CPE client state snapshots per AP poll), `ap_command_jobs` (remote AP command queue for power/frequency/reboot), `wireless_channel_interference` (RF interference records). Also adds wireless RF metric columns to `snmp_metrics` and `snmp_metrics_1month` (noise_floor_dbm, air_util_pct, gps_sync_status, snr_db, ccq_pct, tx/rx_rate_mbps) via stored-procedure guards. `280_wireless_vendor_oid_seeds.sql` adds SNMP profiles for Mimosa, Tarana, Radwin, Siklu and extends Ubiquiti/MikroTik profiles with RF OIDs. `281_seed_wireless_permissions.sql` seeds 15 permissions across 5 permission sets.
+
+> **Migrations 282–283 — PTP/PTMP Links + Link Planning Calculator (§9.2):** `282_ptp_link_extensions.sql` adds 9 columns to `network_links` via INFORMATION_SCHEMA-guarded stored procedure (tx_signal_dbm, rx_signal_dbm, modulation, tx_throughput_mbps, rx_throughput_mbps, link_budget_db, failover_link_id, is_primary, failover_state); creates `link_planning_calcs` table for saved link budget calculator runs (haversine distance, FSPL, Fresnel zone radius, clearance, link budget). `283_seed_link_planning_permissions.sql` seeds 8 permissions: ptp_links.view/update, link_planning.view/create/update/delete, link_failover.view/manage.
+
+> **Migrations 284–285 — RF Metrics + Spectrum Scans (§9.3):** `284_rf_spectrum_scan_tables.sql` creates `spectrum_scan_results` table (scan_type ENUM, frequency range, scan_data JSON array of {freq_mhz, power_dbm}, peak_interference_dbm, recommended_channel_mhz, status ENUM); adds GPS sync OIDs for Ubiquiti airOS (ubntAirIfGpsSync 1.3.6.1.4.1.41112.1.6.1.2.1.5) and Mimosa Networks (mimosaGpsSync 1.3.6.1.4.1.43356.2.1.2.1.1.8); seeds `wireless_ap_sector_poll` scheduled task (every 5 minutes, snmp_poll type). `285_seed_rf_metrics_permissions.sql` seeds 4 permissions: spectrum_scans.view/create/delete + rf_metrics.view.
 
 ### Venta al Público en General (Factura Pública)
 

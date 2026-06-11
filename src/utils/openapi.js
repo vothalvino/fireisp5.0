@@ -157,6 +157,10 @@ function generateSpec() {
       { name: 'Wireless Clients', description: 'Wireless CPE client session snapshots per AP poll — §9.1' },
       { name: 'Wireless Channel Interference', description: 'Detected RF channel interference records per sector/site — §9.1' },
       { name: 'AP Command Jobs', description: 'AP remote command jobs for power/frequency/reboot adjustments — §9.1' },
+      { name: 'PTP Links', description: 'PTP/PTMP link monitoring — signal, modulation, throughput, failover state — §9.2' },
+      { name: 'Link Planning', description: 'Link budget calculator — haversine distance, FSPL, Fresnel zone, saved runs — §9.2' },
+      { name: 'RF Metrics', description: 'RF metric dashboards — noise floor, air utilization, GPS sync, signal distribution — §9.3' },
+      { name: 'Spectrum Scans', description: 'AP spectrum scan results — raw scan data, peak interference, channel recommendations — §9.3' },
     ],
     paths: {
       // ---- Auth ----
@@ -1531,6 +1535,39 @@ function generateSpec() {
       },
       '/wireless/ap-commands/{id}/cancel': {
         post: { tags: ['AP Command Jobs'], summary: 'Cancel a pending/queued AP command job', operationId: 'cancelApCommandJob', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ApCommandJob') },
+      },
+
+      // ---- PTP Links §9.2 ----
+      '/wireless/network-links/{id}/ptp-metrics': {
+        get: { tags: ['PTP Links'], summary: 'Get PTP link signal/modulation/throughput metrics and session history', operationId: 'getPtpLinkMetrics', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'hours', in: 'query', required: false, schema: { type: 'integer', default: 24 }, description: 'Lookback window in hours for session history' }], responses: r200('PtpLinkMetrics') },
+      },
+
+      // ---- Link Planning §9.2 ----
+      '/wireless/link-planning/calculate': {
+        post: { tags: ['Link Planning'], summary: 'Calculate link budget (pure — no DB save)', operationId: 'calculateLinkBudget', security: [{ bearerAuth: [] }], requestBody: jsonBody('lat_a, lon_a, lat_b, lon_b, frequency_mhz, tx_power_dbm, antenna gains, cable_loss_db'), responses: r200('LinkBudgetResult') },
+      },
+      '/wireless/link-planning': {
+        get: { tags: ['Link Planning'], summary: 'List saved link planning calculator runs', operationId: 'listLinkPlanningCalcs', security: [{ bearerAuth: [] }], responses: r200('LinkPlanningCalc[]') },
+        post: { tags: ['Link Planning'], summary: 'Save a link planning calculator run', operationId: 'saveLinkPlanningCalc', security: [{ bearerAuth: [] }], requestBody: jsonBody('LinkPlanningCalc input'), responses: r201('LinkPlanningCalc') },
+      },
+      '/wireless/link-planning/{id}': {
+        get: { tags: ['Link Planning'], summary: 'Get a saved link planning calc', operationId: 'getLinkPlanningCalc', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('LinkPlanningCalc') },
+        put: { tags: ['Link Planning'], summary: 'Update a saved link planning calc', operationId: 'updateLinkPlanningCalc', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('LinkPlanningCalc update'), responses: r200('LinkPlanningCalc') },
+        delete: { tags: ['Link Planning'], summary: 'Delete a saved link planning calc', operationId: 'deleteLinkPlanningCalc', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+
+      // ---- RF Metrics §9.3 ----
+      '/wireless/clients/signal-distribution': {
+        get: { tags: ['RF Metrics'], summary: 'Signal strength histogram bucketed in 10 dBm ranges', operationId: 'getSignalDistribution', security: [{ bearerAuth: [] }], parameters: [{ name: 'device_id', in: 'query', required: false, schema: { type: 'integer' } }, { name: 'hours', in: 'query', required: false, schema: { type: 'integer', default: 24 } }], responses: r200('SignalDistribution') },
+      },
+
+      // ---- Spectrum Scans §9.3 ----
+      '/wireless/spectrum-scans': {
+        get: { tags: ['Spectrum Scans'], summary: 'List spectrum scan results', operationId: 'listSpectrumScans', security: [{ bearerAuth: [] }], parameters: [{ name: 'device_id', in: 'query', required: false, schema: { type: 'integer' } }, { name: 'status', in: 'query', required: false, schema: { type: 'string', enum: ['pending', 'in_progress', 'completed', 'failed'] } }, { name: 'page', in: 'query', required: false, schema: { type: 'integer' } }, { name: 'limit', in: 'query', required: false, schema: { type: 'integer' } }], responses: r200('SpectrumScan[]') },
+        post: { tags: ['Spectrum Scans'], summary: 'Create a spectrum scan record (live scanning requires hardware integration)', operationId: 'createSpectrumScan', security: [{ bearerAuth: [] }], requestBody: jsonBody('SpectrumScan input'), responses: r201('SpectrumScan') },
+      },
+      '/wireless/spectrum-scans/{id}': {
+        get: { tags: ['Spectrum Scans'], summary: 'Get a spectrum scan result', operationId: 'getSpectrumScan', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SpectrumScan') },
       },
 
       // ---- ACS / CWMP (outside /api/v1) ----

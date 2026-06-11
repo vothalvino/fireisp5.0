@@ -80,7 +80,16 @@
     "command_job_cannot_cancel": "Only pending or queued jobs can be cancelled",
     "sessions_recorded": "{{count}} wireless client session(s) recorded",
     "device_not_found": "AP device not found",
-    "device_invalid_type": "Device must be of type ptmp_ap, ptp, outdoor_cpe, or indoor_cpe"
+    "device_invalid_type": "Device must be of type ptmp_ap, ptp, outdoor_cpe, or indoor_cpe",
+    "link_calc_created": "Link planning calculation saved",
+    "link_calc_updated": "Link planning calculation updated",
+    "link_calc_deleted": "Link planning calculation deleted",
+    "link_calc_not_found": "Link planning calculation not found",
+    "link_not_found": "Network link not found",
+    "spectrum_scan_created": "Spectrum scan record created (stub — live scanning requires hardware integration)",
+    "spectrum_scan_not_found": "Spectrum scan not found",
+    "spectrum_scan_device_required": "device_id is required for spectrum scans",
+    "spectrum_scan_freq_required": "frequency_start_mhz and frequency_end_mhz are required"
   },
   "radius": {
     "sync_complete": "RADIUS sync completed: {{synced}} accounts, {{errors}} errors",
