@@ -1,0 +1,95 @@
+'use strict';
+
+// =============================================================================
+// FireISP 5.0 — PTR Record Routes (§5 Dual Stack)
+// =============================================================================
+
+const { Router } = require('express');
+const db = require('../config/database');
+const { authenticate } = require('../middleware/auth');
+const { orgScope } = require('../middleware/orgScope');
+const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createPtrRecord, updatePtrRecord } = require('../middleware/schemas/ptrRecords');
+
+const router = Router();
+router.use(authenticate);
+router.use(orgScope);
+
+router.get('/', requirePermission('ptr_records.view'), async (req, res, next) => {
+  try {
+    const { page = 1, limit = 25, status } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(Math.max(1, parseInt(limit, 10) || 25), 100);
+    const offset = (pageNum - 1) * limitNum;
+
+    let sql = 'SELECT * FROM ptr_records WHERE organization_id = ? AND deleted_at IS NULL';
+    const params = [req.orgId];
+    if (status) { sql += ' AND status = ?'; params.push(status); }
+
+    const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) AS total');
+    const [countRows] = await db.query(countSql, params);
+    const total = countRows[0].total;
+
+    sql += ` ORDER BY created_at DESC LIMIT ${limitNum} OFFSET ${offset}`;
+    const [rows] = await db.query(sql, params);
+    res.json({ data: rows, meta: { total, page: pageNum, limit: limitNum } });
+  } catch (err) { next(err); }
+});
+
+router.get('/:id', requirePermission('ptr_records.view'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT * FROM ptr_records WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [req.params.id, req.orgId],
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json({ data: rows[0] });
+  } catch (err) { next(err); }
+});
+
+router.post('/', requirePermission('ptr_records.create'), validate(createPtrRecord), async (req, res, next) => {
+  try {
+    const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...fields } = req.body;
+    const [result] = await db.query(
+      'INSERT INTO ptr_records SET ?',
+      [{ organization_id: req.orgId, ...fields }],
+    );
+    const [rows] = await db.query('SELECT * FROM ptr_records WHERE id = ?', [result.insertId]);
+    res.status(201).json({ data: rows[0] });
+  } catch (err) { next(err); }
+});
+
+router.put('/:id', requirePermission('ptr_records.update'), validate(updatePtrRecord), async (req, res, next) => {
+  try {
+    const [check] = await db.query(
+      'SELECT id FROM ptr_records WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [req.params.id, req.orgId],
+    );
+    if (!check.length) return res.status(404).json({ error: 'Not found' });
+    const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...updateData } = req.body;
+    await db.query(
+      'UPDATE ptr_records SET ?, updated_at = NOW() WHERE id = ? AND organization_id = ?',
+      [updateData, req.params.id, req.orgId],
+    );
+    const [rows] = await db.query('SELECT * FROM ptr_records WHERE id = ?', [req.params.id]);
+    res.json({ data: rows[0] });
+  } catch (err) { next(err); }
+});
+
+router.delete('/:id', requirePermission('ptr_records.delete'), async (req, res, next) => {
+  try {
+    const [check] = await db.query(
+      'SELECT id FROM ptr_records WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [req.params.id, req.orgId],
+    );
+    if (!check.length) return res.status(404).json({ error: 'Not found' });
+    await db.query(
+      'UPDATE ptr_records SET deleted_at = NOW() WHERE id = ? AND organization_id = ?',
+      [req.params.id, req.orgId],
+    );
+    res.status(204).send();
+  } catch (err) { next(err); }
+});
+
+module.exports = router;
