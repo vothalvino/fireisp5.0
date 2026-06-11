@@ -439,9 +439,6 @@ jobs:
         ports:
           - 3306:3306
         options: >-
-          --character-set-server=utf8mb4
-          --collation-server=utf8mb4_unicode_ci
-          --host-cache-size=0
           --health-cmd="mysqladmin ping --silent"
           --health-interval=10s
           --health-timeout=5s
