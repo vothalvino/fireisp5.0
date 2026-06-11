@@ -29276,6 +29276,501 @@
         }
       }
     },
+    "/cpe-management/devices/{id}/diagnostics": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "List diagnostic results for a CPE device",
+        "operationId": "listCpeDiagnostics",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeDiagnostic[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Queue a TR-069 diagnostic (ping, traceroute, wifi_snapshot, ethernet_status, wan_diagnostics)",
+        "operationId": "createCpeDiagnostic",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "cpeDiagnostics_create",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "CpeDiagnostic",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/diagnostics/{diagId}": {
+      "delete": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Delete a CPE diagnostic record",
+        "operationId": "deleteCpeDiagnostic",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "diagId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/session-logs": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "List CWMP session logs for a CPE device",
+        "operationId": "listCpeDeviceSessionLogs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "event_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeSessionLog[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Delete all session logs for a CPE device",
+        "operationId": "deleteCpeDeviceSessionLogs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DeletedCount",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/session-logs": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "List CWMP session logs org-wide",
+        "operationId": "listCpeSessionLogs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "event_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeSessionLog[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/lifecycle": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Get lifecycle state history for a CPE device",
+        "operationId": "getCpeLifecycleHistory",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeLifecycleHistory[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/lifecycle/transition": {
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Transition a CPE device lifecycle state",
+        "operationId": "transitionCpeLifecycleState",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "cpeLifecycle_transition",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CpeDevice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/subscriber-link": {
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Link or unlink a subscriber to a CPE device",
+        "operationId": "linkCpeSubscriber",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "cpeSubscriberLink",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CpeDevice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/swap": {
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Swap an active CPE with a new in-stock device",
+        "operationId": "swapCpeDevice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "cpeSwap",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CpeSwapResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/{id}/depreciation": {
+      "get": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Get computed depreciation/book value for a CPE device",
+        "operationId": "getCpeDepreciation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeDepreciation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/cpe-profiles": {
       "get": {
         "tags": [

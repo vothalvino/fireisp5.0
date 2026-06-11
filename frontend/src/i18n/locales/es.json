@@ -1978,5 +1978,115 @@
       "empty": "Sin mapeos. Seleccione un perfil primero.",
       "error": "Error al cargar los mapeos."
     }
+  },
+  "cpeDiagnostics": {
+    "title": "Diagnósticos CPE",
+    "subtitle": "Ejecute diagnósticos TR-069 (ping, traceroute, Wi-Fi, WAN) en dispositivos CPE y vea los registros de sesión CWMP.",
+    "tabs": {
+      "diagnostics": "Diagnósticos",
+      "sessionLogs": "Registros de Sesión"
+    },
+    "diagTypes": {
+      "ping": "Ping IP",
+      "traceroute": "Traceroute",
+      "wifi_snapshot": "Snapshot Wi-Fi",
+      "ethernet_status": "Estado Ethernet",
+      "wan_diagnostics": "Diagnóstico WAN"
+    },
+    "run": "Ejecutar Diagnóstico",
+    "running": "Ejecutando…",
+    "diagType": "Tipo de Diagnóstico",
+    "targetHost": "Host Destino (opcional)",
+    "targetHostHint": "IP o nombre de host para ping/traceroute",
+    "status": "Estado",
+    "result": "Resultado",
+    "completedAt": "Completado",
+    "queuedTask": "Tarea en cola",
+    "empty": "No se encontraron diagnósticos.",
+    "error": "Error al cargar los diagnósticos.",
+    "sessionLogs": {
+      "title": "Registros de Sesión CWMP",
+      "eventType": "Tipo de Evento",
+      "messageType": "Tipo de Mensaje",
+      "taskType": "Tipo de Tarea",
+      "faultCode": "Código de Fallo",
+      "faultString": "Descripción del Fallo",
+      "remoteIp": "IP Remota",
+      "createdAt": "Fecha/Hora",
+      "allEvents": "Todos los Eventos",
+      "empty": "No se encontraron registros de sesión.",
+      "error": "Error al cargar los registros de sesión.",
+      "clearLogs": "Limpiar Registros",
+      "clearConfirm": "¿Eliminar todos los registros de sesión de este dispositivo?"
+    }
+  },
+  "cpeInventory": {
+    "title": "Inventario CPE",
+    "subtitle": "Gestione el ciclo de vida del CPE, vínculos de suscriptores, flujo de intercambio y seguimiento de depreciación.",
+    "tabs": {
+      "lifecycle": "Ciclo de Vida",
+      "subscribers": "Vínculo Suscriptor",
+      "swap": "Intercambiar Equipo",
+      "depreciation": "Depreciación"
+    },
+    "lifecycle": {
+      "title": "Estado del Ciclo de Vida",
+      "currentState": "Estado Actual",
+      "transition": "Transición",
+      "toState": "Nuevo Estado",
+      "reason": "Motivo (opcional)",
+      "apply": "Aplicar Transición",
+      "history": "Historial de Estados",
+      "fromState": "Desde",
+      "performedBy": "Por",
+      "empty": "Sin historial de ciclo de vida.",
+      "error": "Error al cargar el historial.",
+      "states": {
+        "in_stock": "En Stock",
+        "assigned": "Asignado",
+        "active": "Activo",
+        "returned": "Devuelto",
+        "rma": "RMA"
+      }
+    },
+    "subscribers": {
+      "title": "Vínculo Suscriptor",
+      "current": "Suscriptor Actual",
+      "notLinked": "Sin vincular",
+      "subscriberId": "ID Suscriptor",
+      "linkedAt": "Vinculado",
+      "link": "Vincular Suscriptor",
+      "unlink": "Desvincular",
+      "error": "Error al actualizar el vínculo."
+    },
+    "swap": {
+      "title": "Intercambiar Equipo",
+      "description": "Devuelva el CPE actual y asigne un nuevo equipo en stock. Los datos de suscriptor y perfil se heredan.",
+      "oldDevice": "Equipo a Devolver",
+      "newDevice": "Equipo de Reemplazo (en stock)",
+      "reason": "Motivo",
+      "execute": "Ejecutar Intercambio",
+      "success": "Intercambio completado.",
+      "error": "Error en el intercambio."
+    },
+    "depreciation": {
+      "title": "Depreciación",
+      "purchaseCost": "Costo de Compra",
+      "purchaseDate": "Fecha de Compra",
+      "method": "Método de Depreciación",
+      "usefulLifeMonths": "Vida Útil (meses)",
+      "salvageValue": "Valor Residual",
+      "currentValue": "Valor en Libros Actual",
+      "accumulated": "Depreciación Acumulada",
+      "elapsedMonths": "Meses Transcurridos",
+      "remainingMonths": "Meses Restantes",
+      "methods": {
+        "none": "Ninguno",
+        "straight_line": "Línea Recta",
+        "declining_balance": "Saldo Decreciente"
+      },
+      "notConfigured": "Sin datos de depreciación. Configure costo de compra, fecha y método en el dispositivo.",
+      "error": "Error al cargar la depreciación."
+    }
   }
 }

@@ -1978,5 +1978,115 @@
       "empty": "Sem mapeamentos. Selecione um perfil primeiro.",
       "error": "Falha ao carregar os mapeamentos."
     }
+  },
+  "cpeDiagnostics": {
+    "title": "Diagnósticos CPE",
+    "subtitle": "Execute diagnósticos TR-069 (ping, traceroute, Wi-Fi, WAN) em dispositivos CPE e veja os registros de sessão CWMP.",
+    "tabs": {
+      "diagnostics": "Diagnósticos",
+      "sessionLogs": "Registros de Sessão"
+    },
+    "diagTypes": {
+      "ping": "Ping IP",
+      "traceroute": "Traceroute",
+      "wifi_snapshot": "Snapshot Wi-Fi",
+      "ethernet_status": "Status Ethernet",
+      "wan_diagnostics": "Diagnóstico WAN"
+    },
+    "run": "Executar Diagnóstico",
+    "running": "Executando…",
+    "diagType": "Tipo de Diagnóstico",
+    "targetHost": "Host de Destino (opcional)",
+    "targetHostHint": "IP ou nome do host para ping/traceroute",
+    "status": "Status",
+    "result": "Resultado",
+    "completedAt": "Concluído Em",
+    "queuedTask": "Tarefa na fila",
+    "empty": "Nenhum diagnóstico encontrado.",
+    "error": "Falha ao carregar os diagnósticos.",
+    "sessionLogs": {
+      "title": "Registros de Sessão CWMP",
+      "eventType": "Tipo de Evento",
+      "messageType": "Tipo de Mensagem",
+      "taskType": "Tipo de Tarefa",
+      "faultCode": "Código de Falha",
+      "faultString": "Descrição da Falha",
+      "remoteIp": "IP Remoto",
+      "createdAt": "Data/Hora",
+      "allEvents": "Todos os Eventos",
+      "empty": "Nenhum registro de sessão encontrado.",
+      "error": "Falha ao carregar registros de sessão.",
+      "clearLogs": "Limpar Registros",
+      "clearConfirm": "Excluir todos os registros de sessão deste dispositivo?"
+    }
+  },
+  "cpeInventory": {
+    "title": "Inventário CPE",
+    "subtitle": "Gerencie o ciclo de vida do CPE, vínculos de assinantes, fluxo de troca e rastreamento de depreciação.",
+    "tabs": {
+      "lifecycle": "Ciclo de Vida",
+      "subscribers": "Vínculo Assinante",
+      "swap": "Trocar Equipamento",
+      "depreciation": "Depreciação"
+    },
+    "lifecycle": {
+      "title": "Estado do Ciclo de Vida",
+      "currentState": "Estado Atual",
+      "transition": "Transição",
+      "toState": "Novo Estado",
+      "reason": "Motivo (opcional)",
+      "apply": "Aplicar Transição",
+      "history": "Histórico de Estados",
+      "fromState": "De",
+      "performedBy": "Por",
+      "empty": "Sem histórico de ciclo de vida.",
+      "error": "Falha ao carregar o histórico.",
+      "states": {
+        "in_stock": "Em Estoque",
+        "assigned": "Atribuído",
+        "active": "Ativo",
+        "returned": "Devolvido",
+        "rma": "RMA"
+      }
+    },
+    "subscribers": {
+      "title": "Vínculo de Assinante",
+      "current": "Assinante Atual",
+      "notLinked": "Não vinculado",
+      "subscriberId": "ID do Assinante",
+      "linkedAt": "Vinculado Em",
+      "link": "Vincular Assinante",
+      "unlink": "Desvincular",
+      "error": "Falha ao atualizar o vínculo."
+    },
+    "swap": {
+      "title": "Trocar Equipamento",
+      "description": "Devolva o CPE atual e atribua um novo equipamento em estoque. As configurações de assinante e perfil são herdadas.",
+      "oldDevice": "Equipamento a Devolver",
+      "newDevice": "Equipamento de Substituição (em estoque)",
+      "reason": "Motivo",
+      "execute": "Executar Troca",
+      "success": "Troca concluída.",
+      "error": "Falha na troca."
+    },
+    "depreciation": {
+      "title": "Depreciação",
+      "purchaseCost": "Custo de Compra",
+      "purchaseDate": "Data de Compra",
+      "method": "Método de Depreciação",
+      "usefulLifeMonths": "Vida Útil (meses)",
+      "salvageValue": "Valor Residual",
+      "currentValue": "Valor Contábil Atual",
+      "accumulated": "Depreciação Acumulada",
+      "elapsedMonths": "Meses Decorridos",
+      "remainingMonths": "Meses Restantes",
+      "methods": {
+        "none": "Nenhum",
+        "straight_line": "Linha Reta",
+        "declining_balance": "Saldo Decrescente"
+      },
+      "notConfigured": "Sem dados de depreciação. Configure custo de compra, data e método no dispositivo.",
+      "error": "Falha ao carregar a depreciação."
+    }
   }
 }

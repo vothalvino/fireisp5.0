@@ -1411,6 +1411,39 @@ function generateSpec() {
         post: { tags: ['CPE Management'], summary: 'Launch a firmware campaign (queues Download tasks per matching device)', operationId: 'launchCpeFirmwareCampaign', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('CampaignLaunchResult') },
       },
 
+      // ---- §8.3 Diagnostics ----
+      '/cpe-management/devices/{id}/diagnostics': {
+        get: { tags: ['CPE Management'], summary: 'List diagnostic results for a CPE device', operationId: 'listCpeDiagnostics', security: [{ bearerAuth: [] }], parameters: [idParam(), pageParam(), limitParam()], responses: r200('CpeDiagnostic[]') },
+        post: { tags: ['CPE Management'], summary: 'Queue a TR-069 diagnostic (ping, traceroute, wifi_snapshot, ethernet_status, wan_diagnostics)', operationId: 'createCpeDiagnostic', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('cpeDiagnostics_create'), responses: r201('CpeDiagnostic') },
+      },
+      '/cpe-management/devices/{id}/diagnostics/{diagId}': {
+        delete: { tags: ['CPE Management'], summary: 'Delete a CPE diagnostic record', operationId: 'deleteCpeDiagnostic', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'diagId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/cpe-management/devices/{id}/session-logs': {
+        get: { tags: ['CPE Management'], summary: 'List CWMP session logs for a CPE device', operationId: 'listCpeDeviceSessionLogs', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'event_type', in: 'query', required: false, schema: { type: 'string' } }, pageParam(), limitParam()], responses: r200('CpeSessionLog[]') },
+        delete: { tags: ['CPE Management'], summary: 'Delete all session logs for a CPE device', operationId: 'deleteCpeDeviceSessionLogs', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DeletedCount') },
+      },
+      '/cpe-management/session-logs': {
+        get: { tags: ['CPE Management'], summary: 'List CWMP session logs org-wide', operationId: 'listCpeSessionLogs', security: [{ bearerAuth: [] }], parameters: [{ name: 'event_type', in: 'query', required: false, schema: { type: 'string' } }, pageParam(), limitParam()], responses: r200('CpeSessionLog[]') },
+      },
+
+      // ---- §8.4 Inventory ----
+      '/cpe-management/devices/{id}/lifecycle': {
+        get: { tags: ['CPE Management'], summary: 'Get lifecycle state history for a CPE device', operationId: 'getCpeLifecycleHistory', security: [{ bearerAuth: [] }], parameters: [idParam(), pageParam(), limitParam()], responses: r200('CpeLifecycleHistory[]') },
+      },
+      '/cpe-management/devices/{id}/lifecycle/transition': {
+        post: { tags: ['CPE Management'], summary: 'Transition a CPE device lifecycle state', operationId: 'transitionCpeLifecycleState', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('cpeLifecycle_transition'), responses: r200('CpeDevice') },
+      },
+      '/cpe-management/devices/{id}/subscriber-link': {
+        post: { tags: ['CPE Management'], summary: 'Link or unlink a subscriber to a CPE device', operationId: 'linkCpeSubscriber', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('cpeSubscriberLink'), responses: r200('CpeDevice') },
+      },
+      '/cpe-management/devices/swap': {
+        post: { tags: ['CPE Management'], summary: 'Swap an active CPE with a new in-stock device', operationId: 'swapCpeDevice', security: [{ bearerAuth: [] }], requestBody: jsonBody('cpeSwap'), responses: r200('CpeSwapResult') },
+      },
+      '/cpe-management/devices/{id}/depreciation': {
+        get: { tags: ['CPE Management'], summary: 'Get computed depreciation/book value for a CPE device', operationId: 'getCpeDepreciation', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('CpeDepreciation') },
+      },
+
       // ---- CPE Profiles §8.2 ----
       '/cpe-profiles': {
         get: { tags: ['CPE Profiles'], summary: 'List CPE provisioning profiles', operationId: 'listCpeProfiles', security: [{ bearerAuth: [] }], responses: r200('CpeProfile[]') },
@@ -1471,6 +1504,12 @@ function searchParam() {
 }
 function localeParam() {
   return { name: 'locale', in: 'query', required: false, schema: { type: 'string', enum: ['en', 'es'], default: 'en' }, description: 'PDF language' };
+}
+function pageParam() {
+  return { name: 'page', in: 'query', required: false, schema: { type: 'integer' } };
+}
+function limitParam() {
+  return { name: 'limit', in: 'query', required: false, schema: { type: 'integer' } };
 }
 
 /**

@@ -1,5 +1,5 @@
 // =============================================================================
-// FireISP 5.0 — CPE Management Routes (§8.1)
+// FireISP 5.0 — CPE Management Routes (§8.1/§8.3/§8.4)
 // =============================================================================
 // Mounted at /api/v1/cpe-management
 // =============================================================================
@@ -31,6 +31,11 @@ const {
   updateCpeFirmwareCampaign,
 } = require('../middleware/schemas/cpeFirmwareCampaigns');
 const bcrypt = require('bcryptjs');
+// §8.3
+const cpeDiagnosticsService = require('../services/cpeDiagnosticsService');
+const cpeSessionLogService = require('../services/cpeSessionLogService');
+// §8.4
+const cpeInventoryService = require('../services/cpeInventoryService');
 
 const router = Router();
 
@@ -343,6 +348,177 @@ router.delete('/firmware-campaigns/:id', requirePermission('cpe_firmware_campaig
   try {
     await CpeFirmwareCampaign.delete(req.params.id, req.orgId);
     res.status(204).send();
+  } catch (err) { next(err); }
+});
+
+// ===========================================================================
+// §8.3 — Diagnostics
+// ===========================================================================
+
+// List diagnostic results for a device
+router.get('/devices/:id/diagnostics', requirePermission('cpe_diagnostics.view'), async (req, res, next) => {
+  try {
+    await CpeDevice.findByIdOrFail(req.params.id, req.orgId);
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
+    const result = await cpeDiagnosticsService.getDiagnosticList({
+      cpeDeviceId: parseInt(req.params.id, 10),
+      orgId: req.orgId,
+      page,
+      limit,
+    });
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// Queue a new diagnostic
+router.post('/devices/:id/diagnostics', requirePermission('cpe_diagnostics.create'), async (req, res, next) => {
+  try {
+    await CpeDevice.findByIdOrFail(req.params.id, req.orgId);
+    const { diag_type, target_host } = req.body;
+    const allowed = ['ping', 'traceroute', 'wifi_snapshot', 'ethernet_status', 'wan_diagnostics'];
+    if (!diag_type || !allowed.includes(diag_type)) {
+      return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: `diag_type must be one of: ${allowed.join(', ')}` } });
+    }
+    const result = await cpeDiagnosticsService.queueDiagnosticTask({
+      cpeDeviceId: parseInt(req.params.id, 10),
+      orgId: req.orgId,
+      diagType: diag_type,
+      targetHost: target_host || null,
+      createdBy: req.user?.id || null,
+    });
+    res.status(201).json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// Delete (soft-delete) a diagnostic record
+router.delete('/devices/:id/diagnostics/:diagId', requirePermission('cpe_diagnostics.delete'), async (req, res, next) => {
+  try {
+    await CpeDevice.findByIdOrFail(req.params.id, req.orgId);
+    await cpeDiagnosticsService.deleteDiagnostic(req.params.diagId, req.orgId);
+    res.status(204).send();
+  } catch (err) { next(err); }
+});
+
+// Session logs — device-scoped
+router.get('/devices/:id/session-logs', requirePermission('cpe_session_logs.view'), async (req, res, next) => {
+  try {
+    await CpeDevice.findByIdOrFail(req.params.id, req.orgId);
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const result = await cpeSessionLogService.getSessionLogs({
+      cpeDeviceId: parseInt(req.params.id, 10),
+      orgId: req.orgId,
+      eventType: req.query.event_type || null,
+      page,
+      limit,
+    });
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// Delete session logs for a device
+router.delete('/devices/:id/session-logs', requirePermission('cpe_session_logs.delete'), async (req, res, next) => {
+  try {
+    await CpeDevice.findByIdOrFail(req.params.id, req.orgId);
+    const deleted = await cpeSessionLogService.deleteLogs({
+      cpeDeviceId: parseInt(req.params.id, 10),
+      orgId: req.orgId,
+    });
+    res.json({ data: { deleted } });
+  } catch (err) { next(err); }
+});
+
+// Organization-wide session logs
+router.get('/session-logs', requirePermission('cpe_session_logs.view'), async (req, res, next) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const result = await cpeSessionLogService.getSessionLogs({
+      orgId: req.orgId,
+      eventType: req.query.event_type || null,
+      page,
+      limit,
+    });
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// ===========================================================================
+// §8.4 — Inventory / Lifecycle
+// ===========================================================================
+
+// Get lifecycle history for a device
+router.get('/devices/:id/lifecycle', requirePermission('cpe_lifecycle_history.view'), async (req, res, next) => {
+  try {
+    await CpeDevice.findByIdOrFail(req.params.id, req.orgId);
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const result = await cpeInventoryService.getLifecycleHistory({
+      cpeDeviceId: parseInt(req.params.id, 10),
+      orgId: req.orgId,
+      page,
+      limit,
+    });
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// Transition lifecycle state
+router.post('/devices/:id/lifecycle/transition', requirePermission('cpe_inventory.manage'), async (req, res, next) => {
+  try {
+    await CpeDevice.findByIdOrFail(req.params.id, req.orgId);
+    const { to_state, reason } = req.body;
+    if (!to_state) {
+      return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'to_state is required' } });
+    }
+    const device = await cpeInventoryService.transitionLifecycleState(
+      parseInt(req.params.id, 10),
+      to_state,
+      { orgId: req.orgId, performedBy: req.user?.id || null, reason: reason || null },
+    );
+    res.json({ data: device });
+  } catch (err) { next(err); }
+});
+
+// Link / unlink subscriber
+router.post('/devices/:id/subscriber-link', requirePermission('cpe_inventory.link'), async (req, res, next) => {
+  try {
+    await CpeDevice.findByIdOrFail(req.params.id, req.orgId);
+    const { subscriber_id } = req.body;
+    const device = await cpeInventoryService.linkSubscriber(
+      parseInt(req.params.id, 10),
+      subscriber_id || null,
+      { orgId: req.orgId, performedBy: req.user?.id || null },
+    );
+    res.json({ data: device });
+  } catch (err) { next(err); }
+});
+
+// Swap workflow
+router.post('/devices/swap', requirePermission('cpe_inventory.swap'), async (req, res, next) => {
+  try {
+    const { old_device_id, new_device_id, reason } = req.body;
+    if (!old_device_id || !new_device_id) {
+      return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'old_device_id and new_device_id are required' } });
+    }
+    const result = await cpeInventoryService.swapDevice({
+      oldDeviceId: parseInt(old_device_id, 10),
+      newDeviceId: parseInt(new_device_id, 10),
+      orgId: req.orgId,
+      performedBy: req.user?.id || null,
+      reason: reason || 'CPE swap',
+    });
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// Get depreciation for a device
+router.get('/devices/:id/depreciation', requirePermission('cpe_inventory.view'), async (req, res, next) => {
+  try {
+    const device = await CpeDevice.findByIdOrFail(req.params.id, req.orgId);
+    const depreciation = cpeInventoryService.computeDepreciation(device);
+    res.json({ data: { ...depreciation, device_id: device.id } });
   } catch (err) { next(err); }
 });
 

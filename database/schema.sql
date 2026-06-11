@@ -9858,6 +9858,16 @@ CREATE TABLE IF NOT EXISTS cpe_devices (
     lan_subnet          VARCHAR(18)     NULL,
     wifi_ssid           VARCHAR(64)     NULL,
     notes               TEXT            NULL,
+    lifecycle_state     ENUM('in_stock','assigned','active','returned','rma') NOT NULL DEFAULT 'in_stock'
+                            COMMENT 'CPE lifecycle: in_stock→assigned→active→returned|rma',
+    subscriber_id       BIGINT UNSIGNED NULL COMMENT 'FK to clients — subscriber this CPE is assigned to',
+    subscriber_linked_at DATETIME       NULL COMMENT 'When subscriber_id was last set (auto-link or manual)',
+    purchase_cost       DECIMAL(12,2)   NULL COMMENT 'Original purchase cost for depreciation calculation',
+    purchase_date       DATE            NULL COMMENT 'Purchase date — depreciation start',
+    depreciation_method ENUM('straight_line','declining_balance','none') NOT NULL DEFAULT 'none'
+                            COMMENT 'Depreciation method applied to this device',
+    useful_life_months  SMALLINT UNSIGNED NULL DEFAULT 60 COMMENT 'Expected useful life in months',
+    salvage_value       DECIMAL(12,2)   NULL DEFAULT 0.00 COMMENT 'Residual/salvage value at end of useful life',
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
@@ -9868,10 +9878,12 @@ CREATE TABLE IF NOT EXISTS cpe_devices (
     KEY idx_cpe_devices_device_id (device_id),
     KEY idx_cpe_devices_contract_id (contract_id),
     KEY idx_cpe_devices_cpe_profile_id (cpe_profile_id),
+    KEY idx_cpe_devices_subscriber (subscriber_id),
     KEY idx_cpe_devices_deleted_at (deleted_at),
     CONSTRAINT fk_cpe_devices_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_devices_device FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_cpe_devices_contract FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE SET NULL ON UPDATE CASCADE
+    CONSTRAINT fk_cpe_devices_contract FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_devices_subscriber FOREIGN KEY (subscriber_id) REFERENCES clients(id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='TR-069/CWMP CPE device registry (§8.1)';
 
 CREATE TABLE IF NOT EXISTS cpe_parameters (
@@ -9896,7 +9908,7 @@ CREATE TABLE IF NOT EXISTS cpe_tasks (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
     cpe_device_id       BIGINT UNSIGNED NOT NULL,
-    task_type           ENUM('get_parameter_values','set_parameter_values','get_parameter_names','download','reboot','factory_reset','add_object','delete_object') NOT NULL,
+    task_type           ENUM('get_parameter_values','set_parameter_values','get_parameter_names','download','reboot','factory_reset','add_object','delete_object','ping_diagnostic','traceroute_diagnostic','wifi_diagnostics','wan_diagnostics') NOT NULL,
     parameters          JSON            NULL COMMENT 'For set: [{path, value}], for get: [path,...], for download: {url, fileType, fileSize}',
     status              ENUM('queued','in_progress','done','failed') NOT NULL DEFAULT 'queued',
     priority            TINYINT UNSIGNED NOT NULL DEFAULT 5 COMMENT '1=highest 10=lowest',
@@ -10021,5 +10033,77 @@ CREATE TABLE IF NOT EXISTS cpe_firmware_campaigns (
     CONSTRAINT fk_cpe_fw_camp_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_fw_camp_profile FOREIGN KEY (target_profile_id) REFERENCES cpe_profiles(id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Batch firmware upgrade campaigns (§8.1)';
+
+-- ---------------------------------------------------------------------------
+-- §8.3 Diagnostics (migration 277)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cpe_diagnostics (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    cpe_device_id       BIGINT UNSIGNED NOT NULL,
+    cpe_task_id         BIGINT UNSIGNED NULL COMMENT 'FK to the cpe_tasks row that triggered this diagnostic',
+    diag_type           ENUM('ping','traceroute','wifi_snapshot','ethernet_status','wan_diagnostics') NOT NULL,
+    status              ENUM('pending','running','complete','error') NOT NULL DEFAULT 'pending',
+    target_host         VARCHAR(253)    NULL COMMENT 'IP/hostname for ping and traceroute',
+    result              JSON            NULL COMMENT 'Structured results: latency_ms, hops[], signal_dbm, client_count, port_stats, wan_details, etc.',
+    error_message       TEXT            NULL,
+    started_at          DATETIME        NULL,
+    completed_at        DATETIME        NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_cpe_diag_org (organization_id),
+    KEY idx_cpe_diag_device (cpe_device_id),
+    KEY idx_cpe_diag_task (cpe_task_id),
+    KEY idx_cpe_diag_type_status (diag_type, status),
+    KEY idx_cpe_diag_deleted_at (deleted_at),
+    CONSTRAINT fk_cpe_diag_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_diag_device FOREIGN KEY (cpe_device_id) REFERENCES cpe_devices(id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='TR-069 diagnostic run results per CPE device (§8.3)';
+
+CREATE TABLE IF NOT EXISTS cpe_session_logs (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    cpe_device_id       BIGINT UNSIGNED NULL COMMENT 'NULL when device cannot be identified',
+    session_id          VARCHAR(64)     NULL COMMENT 'Optional client-supplied session identifier',
+    event_type          ENUM('inform','task_dispatched','task_response','fault','auth_failure','parse_error','session_error') NOT NULL DEFAULT 'session_error',
+    message_type        VARCHAR(64)     NULL COMMENT 'CWMP SOAP message type (Inform, Fault, etc.)',
+    task_type           VARCHAR(64)     NULL COMMENT 'cpe_tasks.task_type when event_type=task_dispatched/task_response',
+    fault_code          VARCHAR(16)     NULL,
+    fault_string        TEXT            NULL,
+    remote_ip           VARCHAR(45)     NULL,
+    raw_excerpt         TEXT            NULL COMMENT 'First 2000 chars of SOAP envelope for debugging',
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_cpe_sl_org (organization_id),
+    KEY idx_cpe_sl_device (cpe_device_id),
+    KEY idx_cpe_sl_event (event_type),
+    KEY idx_cpe_sl_created_at (created_at),
+    CONSTRAINT fk_cpe_sl_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='CWMP session event and error log per CPE device (§8.3)';
+
+-- ---------------------------------------------------------------------------
+-- §8.4 Inventory (migration 278)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cpe_lifecycle_history (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    cpe_device_id       BIGINT UNSIGNED NOT NULL,
+    from_state          ENUM('in_stock','assigned','active','returned','rma') NULL
+                            COMMENT 'NULL for the initial record (device created)',
+    to_state            ENUM('in_stock','assigned','active','returned','rma') NOT NULL,
+    reason              VARCHAR(255)    NULL COMMENT 'Human-readable reason: swap, decommission, return, etc.',
+    swap_in_device_id   BIGINT UNSIGNED NULL COMMENT 'For swap events: the device being swapped IN (new)',
+    swap_out_device_id  BIGINT UNSIGNED NULL COMMENT 'For swap events: the device being swapped OUT (old)',
+    performed_by        BIGINT UNSIGNED NULL COMMENT 'FK to users — who performed the transition',
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_cpe_lh_org (organization_id),
+    KEY idx_cpe_lh_device (cpe_device_id),
+    KEY idx_cpe_lh_created_at (created_at),
+    CONSTRAINT fk_cpe_lh_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_lh_device FOREIGN KEY (cpe_device_id) REFERENCES cpe_devices(id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Immutable lifecycle state transition audit trail per CPE device (§8.4)';
 
 SET FOREIGN_KEY_CHECKS = 1;

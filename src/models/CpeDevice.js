@@ -1,5 +1,5 @@
 // =============================================================================
-// FireISP 5.0 — CpeDevice Model (§8.1)
+// FireISP 5.0 — CpeDevice Model (§8.1/§8.4)
 // =============================================================================
 
 const BaseModel = require('./BaseModel');
@@ -15,6 +15,10 @@ class CpeDevice extends BaseModel {
       'device_id', 'contract_id', 'cpe_profile_id', 'status',
       'last_inform_at', 'last_inform_ip', 'wan_ip', 'lan_subnet',
       'wifi_ssid', 'notes',
+      // §8.4 inventory fields
+      'lifecycle_state', 'subscriber_id', 'subscriber_linked_at',
+      'purchase_cost', 'purchase_date', 'depreciation_method',
+      'useful_life_months', 'salvage_value',
     ];
   }
 

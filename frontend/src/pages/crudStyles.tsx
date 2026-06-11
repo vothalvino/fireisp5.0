@@ -7,6 +7,17 @@
 // =============================================================================
 
 export const styles = {
+  // §8.3/§8.4 helpers
+  container: { padding: '1.5rem', fontFamily: 'var(--font-sans)', maxWidth: 1280 },
+  title: { margin: '0 0 4px', fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' },
+  subtitle: { color: '#6b7280', marginTop: 0, marginBottom: 24 },
+  label: { display: 'block', marginBottom: 4, fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' },
+  input: { padding: '0.45rem 0.65rem', border: '1px solid var(--input-border)', borderRadius: 6, fontSize: '0.85rem', color: 'var(--text-primary)' },
+  primaryButton: { padding: '0.5rem 1rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 },
+  dangerButton: { padding: '0.35rem 0.75rem', background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 6, cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600 },
+  pageButton: { padding: '0.35rem 0.85rem', border: '1px solid var(--border-strong)', borderRadius: 5, background: 'var(--bg-card)', cursor: 'pointer', fontSize: '0.82rem', color: 'var(--text-secondary)' },
+  emptyCell: { padding: '1.5rem', textAlign: 'center' as const, color: '#9ca3af', fontStyle: 'italic' as const },
+  errorText: { color: '#dc2626', fontSize: '0.82rem', margin: '8px 0 0' },
   page: {
     padding: '1.5rem',
     fontFamily: 'var(--font-sans)',

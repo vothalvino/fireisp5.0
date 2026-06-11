@@ -1978,5 +1978,115 @@
       "empty": "No mappings. Select a profile first.",
       "error": "Failed to load mappings."
     }
+  },
+  "cpeDiagnostics": {
+    "title": "CPE Diagnostics",
+    "subtitle": "Run TR-069 diagnostics (ping, traceroute, Wi-Fi, WAN) on CPE devices and view CWMP session logs.",
+    "tabs": {
+      "diagnostics": "Diagnostics",
+      "sessionLogs": "Session Logs"
+    },
+    "diagTypes": {
+      "ping": "IP Ping",
+      "traceroute": "Traceroute",
+      "wifi_snapshot": "Wi-Fi Snapshot",
+      "ethernet_status": "Ethernet Status",
+      "wan_diagnostics": "WAN Diagnostics"
+    },
+    "run": "Run Diagnostic",
+    "running": "Running…",
+    "diagType": "Diagnostic Type",
+    "targetHost": "Target Host (optional)",
+    "targetHostHint": "IP or hostname for ping/traceroute",
+    "status": "Status",
+    "result": "Result",
+    "completedAt": "Completed At",
+    "queuedTask": "Queued task",
+    "empty": "No diagnostics found.",
+    "error": "Failed to load diagnostics.",
+    "sessionLogs": {
+      "title": "CWMP Session Logs",
+      "eventType": "Event Type",
+      "messageType": "Message Type",
+      "taskType": "Task Type",
+      "faultCode": "Fault Code",
+      "faultString": "Fault String",
+      "remoteIp": "Remote IP",
+      "createdAt": "Timestamp",
+      "allEvents": "All Events",
+      "empty": "No session logs found.",
+      "error": "Failed to load session logs.",
+      "clearLogs": "Clear Logs",
+      "clearConfirm": "Delete all session logs for this device?"
+    }
+  },
+  "cpeInventory": {
+    "title": "CPE Inventory",
+    "subtitle": "Manage CPE lifecycle, subscriber links, swap workflow, and depreciation tracking.",
+    "tabs": {
+      "lifecycle": "Lifecycle",
+      "subscribers": "Subscriber Link",
+      "swap": "Swap Device",
+      "depreciation": "Depreciation"
+    },
+    "lifecycle": {
+      "title": "Lifecycle State",
+      "currentState": "Current State",
+      "transition": "Transition",
+      "toState": "New State",
+      "reason": "Reason (optional)",
+      "apply": "Apply Transition",
+      "history": "State History",
+      "fromState": "From",
+      "performedBy": "By",
+      "empty": "No lifecycle history.",
+      "error": "Failed to load lifecycle history.",
+      "states": {
+        "in_stock": "In Stock",
+        "assigned": "Assigned",
+        "active": "Active",
+        "returned": "Returned",
+        "rma": "RMA"
+      }
+    },
+    "subscribers": {
+      "title": "Subscriber Link",
+      "current": "Current Subscriber",
+      "notLinked": "Not linked",
+      "subscriberId": "Subscriber ID",
+      "linkedAt": "Linked At",
+      "link": "Link Subscriber",
+      "unlink": "Unlink",
+      "error": "Failed to update subscriber link."
+    },
+    "swap": {
+      "title": "Swap Device",
+      "description": "Return the current CPE and assign a new in-stock device. Subscriber and profile settings are inherited.",
+      "oldDevice": "Device to Return",
+      "newDevice": "Replacement Device (in-stock)",
+      "reason": "Reason",
+      "execute": "Execute Swap",
+      "success": "Swap completed.",
+      "error": "Swap failed."
+    },
+    "depreciation": {
+      "title": "Depreciation",
+      "purchaseCost": "Purchase Cost",
+      "purchaseDate": "Purchase Date",
+      "method": "Depreciation Method",
+      "usefulLifeMonths": "Useful Life (months)",
+      "salvageValue": "Salvage Value",
+      "currentValue": "Current Book Value",
+      "accumulated": "Accumulated Depreciation",
+      "elapsedMonths": "Elapsed Months",
+      "remainingMonths": "Remaining Months",
+      "methods": {
+        "none": "None",
+        "straight_line": "Straight Line",
+        "declining_balance": "Declining Balance"
+      },
+      "notConfigured": "No depreciation data. Set purchase cost, date, and method on the device.",
+      "error": "Failed to load depreciation."
+    }
   }
 }

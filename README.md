@@ -108,8 +108,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 215 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–276)
+│   ├── schema.sql           # Combined schema (all 218 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–278)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -375,6 +375,9 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 212 | `cpe_parameter_mappings` | Automatic parameter mapping rules for CPE profiles (§8.2) — source_type ENUM (static/contract_field/plan_field/device_field), static_value or source_field; CASCADE on profile delete |
 | 213 | `cpe_firmware_versions` | Firmware version inventory per CPE model (§8.1) — manufacturer+model+version (unique), firmware_url, file_size_bytes, checksum/checksum_type (md5/sha1/sha256), is_stable flag |
 | 214 | `cpe_firmware_campaigns` | Batch firmware upgrade campaigns (§8.1) — target by manufacturer/model/profile/ad-hoc device IDs JSON, status (scheduled/running/done/failed/cancelled), progress counters (total/completed/failed_devices), result_summary JSON |
+| 215 | `cpe_diagnostics` | TR-069 diagnostic snapshots (§8.3) — stores ping/traceroute/wifi_snapshot/ethernet_status/wan_diagnostics results keyed by cpe_device_id; result JSON, diag_type ENUM, status (pending/running/completed/failed), target_host for active probes |
+| 216 | `cpe_session_logs` | ACS CWMP session event log (§8.3) — records inform/task_dispatched/task_response/fault/auth_failure/parse_error/session_error events with raw_body (truncated to 2000 chars) for CWMP debugging and compliance audit; cleaned up by scheduled task |
+| 217 | `cpe_lifecycle_history` | Immutable CPE lifecycle state transition audit trail (§8.4) — records every in_stock/assigned/active/returned/rma transition with previous_state, new_state, actor_id, and free-text reason for inventory accountability |
 
 > **Migration 165–173 table count note:** See migrations 241–246 below for the §5 Dual Stack tables. See migrations 249–263 for §6.1–6.6 SNMP & NMS tables.
 
@@ -673,6 +676,10 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 273 — Fiber Plant Management permissions (§7.4):** `273_seed_fiber_plant_permissions.sql` seeds 24 permissions covering `fiber_routes.*` (4), `odf_frames.*` (4), `odf_ports.*` (4), `odf_cross_connects.*` (4), `otdr_tests.*` (4), `sfp_inventory.*` (4). Admin gets all 24; technician gets all views + fiber_routes/odf/sfp create+update + otdr_tests.create (16 total); readonly gets all 6 *.view permissions.
 
 > **Migration 274–276 — CPE Management & Profiles (§8.1/§8.2):** `274_cpe_devices_and_tasks.sql` creates `cpe_devices` (TR-069/CWMP CPE registry with HTTP Basic ACS auth, status machine new→provisioning→active/error/offline), `cpe_parameters` (parameter tree storage, UNIQUE on device+path), and `cpe_tasks` (CWMP task queue with 8 task_type values, priority 1–10). `275_cpe_profiles_and_firmware.sql` creates `cpe_profiles` (provisioning templates with self-referencing parent_profile_id for up to 5-level inheritance, plan auto-apply, WiFi/WAN config fields), `cpe_parameter_mappings` (static/contract/plan/device-field source rules), `cpe_firmware_versions` (manufacturer+model+version unique, checksum types), and `cpe_firmware_campaigns` (batch firmware push with device targeting by manufacturer/model/profile/ad-hoc IDs). `276_cpe_fk_permissions_seeds.sql` wires the deferred FK `fk_cpe_devices_cpe_profile` via INFORMATION_SCHEMA-guarded procedure, seeds 26 permissions across `cpe_management.*` (8) and `cpe_profiles.*` (6), grants admin all 26, and seeds 8 vendor default profiles (TP-Link, ZTE, Huawei, Fiberhome, VSOL, D-Link, Netis, Tenda).
+
+> **Migration 277 — CPE Diagnostics & Session Logs (§8.3):** `277_cpe_diagnostics_and_session_logs.sql` creates `cpe_diagnostics` (ping/traceroute/wifi_snapshot/ethernet_status/wan_diagnostics result store with status machine pending→running→completed/failed, result JSON, target_host) and `cpe_session_logs` (CWMP event log for all inform/task/fault/auth events; raw_body truncated at 2000 chars). Extends `cpe_tasks.task_type` ENUM with ping_diagnostic/traceroute_diagnostic/wifi_diagnostics/wan_diagnostics via INFORMATION_SCHEMA-guarded stored procedure. Seeds 5 permissions (cpe_diagnostics.view/create/delete + cpe_session_logs.view/delete) and a nightly cleanup scheduled task (0 3 * * *, cleanup type, keeps 90 days).
+
+> **Migration 278 — CPE Inventory Lifecycle (§8.4):** `278_cpe_inventory_lifecycle.sql` extends `cpe_devices` with lifecycle_state ENUM (in_stock/assigned/active/returned/rma), subscriber_id FK to clients, subscriber_linked_at timestamp, and depreciation fields (purchase_cost, purchase_date, depreciation_method straight_line/declining_balance, useful_life_months, salvage_value) via INFORMATION_SCHEMA-guarded ALTERs. Creates `cpe_lifecycle_history` (immutable FSM audit trail). Seeds 5 permissions (cpe_inventory.view/manage/swap/link + cpe_lifecycle_history.view).
 
 ### Venta al Público en General (Factura Pública)
 

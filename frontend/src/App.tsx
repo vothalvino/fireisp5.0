@@ -135,6 +135,8 @@ import { PonPortManagementPage } from '@/pages/PonPortManagementPage';
 import { FiberPlantManagementPage } from '@/pages/FiberPlantManagementPage';
 import { CpeManagementPage } from '@/pages/CpeManagementPage';
 import { CpeProfilesPage } from '@/pages/CpeProfilesPage';
+import { CpeDiagnosticsPage } from '@/pages/CpeDiagnosticsPage';
+import { CpeInventoryPage } from '@/pages/CpeInventoryPage';
 import { NotFound } from '@/pages/NotFound';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
 
@@ -244,6 +246,8 @@ export function App() {
                 <Route path="fiber-plant-management" element={<FiberPlantManagementPage />} />
                 <Route path="cpe-management" element={<CpeManagementPage />} />
                 <Route path="cpe-profiles" element={<CpeProfilesPage />} />
+                <Route path="cpe-diagnostics" element={<CpeDiagnosticsPage />} />
+                <Route path="cpe-inventory" element={<CpeInventoryPage />} />
               </Route>
             </Route>
 
