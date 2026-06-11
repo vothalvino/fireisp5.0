@@ -91,13 +91,16 @@ function extractSchemaColumns(sqlContent) {
     // Skip blank lines and SQL comments.
     if (!trimmed || trimmed.startsWith('--')) continue;
 
-    // Skip index / FK / constraint lines.
-    if (/^(PRIMARY\s+KEY|UNIQUE\s+KEY|KEY\s|INDEX\s|SPATIAL\s+KEY|FULLTEXT\s|CONSTRAINT\s|FOREIGN\s+KEY)/i.test(trimmed)) continue;
+    // Skip index / FK / constraint lines (including table-level CHECK constraints).
+    if (/^(PRIMARY\s+KEY|UNIQUE\s+KEY|KEY\s|INDEX\s|SPATIAL\s+KEY|FULLTEXT\s|CONSTRAINT\s|FOREIGN\s+KEY|CHECK\s*\()/i.test(trimmed)) continue;
 
     // Skip lines that are continuations of a previous column definition:
     // closing paren, quoted strings (ENUM values), or continuation keywords.
+    // A continuation COMMENT is always followed by a string literal — a line
+    // like "comment TEXT NULL ..." is a column actually named comment and
+    // must NOT be skipped.
     if (/^[)'"]/.test(trimmed)) continue;
-    if (/^(COMMENT\s|NOT\s+NULL|NULL\b|DEFAULT\s|REFERENCES\s|AFTER\s|ON\s+DELETE|ON\s+UPDATE|COLLATE\s)/i.test(trimmed)) continue;
+    if (/^(COMMENT\s+'|NOT\s+NULL|NULL\b|DEFAULT\s|REFERENCES\s|AFTER\s|ON\s+DELETE|ON\s+UPDATE|COLLATE\s)/i.test(trimmed)) continue;
 
     // First identifier on the line is the column name.
     const colM = trimmed.match(/^`?(\w+)`?/);
