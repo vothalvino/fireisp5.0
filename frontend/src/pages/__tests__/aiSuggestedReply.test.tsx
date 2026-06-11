@@ -172,14 +172,21 @@ describe('AiSuggestedReplyPanel', () => {
     mockFetchImpl();
     renderTicketDetail();
 
+    // Wait for the ticket to load first so the JSDOM environment is fully
+    // initialised before we check for the AI panel (avoids a cold-start
+    // timeout in heavily-parallelised CI runs).
+    await waitFor(() => {
+      expect(screen.queryByText(/Internet very slow/i)).toBeTruthy();
+    }, { timeout: 3000 });
+
     await waitFor(() => {
       expect(screen.queryByText(/AI Suggested Reply/i)).toBeTruthy();
-    });
+    }, { timeout: 3000 });
 
     // shows draft text
     await waitFor(() => {
       expect(screen.getByTestId('ai-draft-text')).toBeTruthy();
-    });
+    }, { timeout: 3000 });
     expect(screen.getByTestId('ai-draft-text').textContent).toContain('backhaul issue');
   });
 
