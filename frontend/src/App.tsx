@@ -68,6 +68,9 @@ import { TransitionMechanismsPage } from '@/pages/TransitionMechanismsPage';
 import { DeviceGroupList } from '@/pages/DeviceGroupList';
 import { DiscoveryScanList } from '@/pages/DiscoveryScanList';
 import { TrapForwardingRuleList } from '@/pages/TrapForwardingRuleList';
+import { PollerNodeList } from '@/pages/PollerNodeList';
+import { DevicePollingConfigList } from '@/pages/DevicePollingConfigList';
+import { PollerPerformanceDashboard } from '@/pages/PollerPerformanceDashboard';
 import { IpPoolList } from '@/pages/IpPoolList';
 import { IpAssignmentList } from '@/pages/IpAssignmentList';
 import { VlanList } from '@/pages/VlanList';
@@ -210,6 +213,9 @@ export function App() {
                 <Route path="device-groups" element={<DeviceGroupList />} />
                 <Route path="discovery-scans" element={<DiscoveryScanList />} />
                 <Route path="trap-forwarding-rules" element={<TrapForwardingRuleList />} />
+                <Route path="poller-nodes" element={<PollerNodeList />} />
+                <Route path="device-polling-configs" element={<DevicePollingConfigList />} />
+                <Route path="poller-performance" element={<PollerPerformanceDashboard />} />
               </Route>
             </Route>
 

@@ -23251,6 +23251,479 @@
           }
         }
       }
+    },
+    "/poller-nodes": {
+      "get": {
+        "tags": [
+          "Poller Nodes"
+        ],
+        "summary": "List poller-nodes",
+        "operationId": "listPollerNodes",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PollerNode[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Poller Nodes"
+        ],
+        "summary": "Create a PollerNode",
+        "operationId": "createPollerNode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "PollerNode",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "PollerNode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/poller-nodes/{id}": {
+      "get": {
+        "tags": [
+          "Poller Nodes"
+        ],
+        "summary": "Get a PollerNode",
+        "operationId": "getPollerNode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PollerNode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Poller Nodes"
+        ],
+        "summary": "Update a PollerNode",
+        "operationId": "updatePollerNode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "PollerNode",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PollerNode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Poller Nodes"
+        ],
+        "summary": "Delete a PollerNode",
+        "operationId": "deletePollerNode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/poller-nodes/{id}/performance": {
+      "get": {
+        "tags": [
+          "Poller Nodes"
+        ],
+        "summary": "Performance history for a poller node",
+        "operationId": "getPollerNodePerformance",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 24
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PollerPerformanceHistory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-polling-configs": {
+      "get": {
+        "tags": [
+          "Device Polling Configs"
+        ],
+        "summary": "List device-polling-configs",
+        "operationId": "listDevicePollingConfigs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DevicePollingConfig[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Device Polling Configs"
+        ],
+        "summary": "Create a DevicePollingConfig",
+        "operationId": "createDevicePollingConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "DevicePollingConfig",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "DevicePollingConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-polling-configs/{id}": {
+      "get": {
+        "tags": [
+          "Device Polling Configs"
+        ],
+        "summary": "Get a DevicePollingConfig",
+        "operationId": "getDevicePollingConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DevicePollingConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Device Polling Configs"
+        ],
+        "summary": "Update a DevicePollingConfig",
+        "operationId": "updateDevicePollingConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "DevicePollingConfig",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DevicePollingConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Device Polling Configs"
+        ],
+        "summary": "Delete a DevicePollingConfig",
+        "operationId": "deleteDevicePollingConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/poller-performance": {
+      "get": {
+        "tags": [
+          "Poller Performance"
+        ],
+        "summary": "List poller performance snapshots",
+        "operationId": "listPollerPerformanceSnapshots",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 24
+            }
+          },
+          {
+            "name": "node_id",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PollerPerformanceSnapshot[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/poller-performance/dashboard": {
+      "get": {
+        "tags": [
+          "Poller Performance"
+        ],
+        "summary": "Aggregated poller performance dashboard",
+        "operationId": "getPollerPerformanceDashboard",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 24
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PollerPerformanceDashboard",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -25913,6 +26386,116 @@
         "required": [
           "device_ids"
         ]
+      },
+      "devicePollingConfigs_createDevicePollingConfig": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "device_type": {
+            "type": "string",
+            "maximum": 50
+          },
+          "poller_node_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "poll_interval_sec": {
+            "type": "number",
+            "minimum": 10,
+            "maximum": 86400
+          },
+          "bulk_get_enabled": {
+            "type": "boolean"
+          },
+          "max_repetitions": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "timeout_ms": {
+            "type": "number",
+            "minimum": 100,
+            "maximum": 60000
+          },
+          "retries": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "failover_node_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "adaptive_polling_enabled": {
+            "type": "boolean"
+          },
+          "adaptive_min_interval_sec": {
+            "type": "number",
+            "minimum": 10,
+            "maximum": 3600
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "devicePollingConfigs_updateDevicePollingConfig": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "device_type": {
+            "type": "string",
+            "maximum": 50
+          },
+          "poller_node_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "poll_interval_sec": {
+            "type": "number",
+            "minimum": 10,
+            "maximum": 86400
+          },
+          "bulk_get_enabled": {
+            "type": "boolean"
+          },
+          "max_repetitions": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "timeout_ms": {
+            "type": "number",
+            "minimum": 100,
+            "maximum": 60000
+          },
+          "retries": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "failover_node_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "adaptive_polling_enabled": {
+            "type": "boolean"
+          },
+          "adaptive_min_interval_sec": {
+            "type": "number",
+            "minimum": 10,
+            "maximum": 3600
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        }
       },
       "devices_createDevice": {
         "type": "object",
@@ -30424,6 +31007,84 @@
           "start_time",
           "end_time"
         ]
+      },
+      "pollerNodes_createPollerNode": {
+        "type": "object",
+        "properties": {
+          "node_identifier": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "draining",
+              "maintenance",
+              "offline"
+            ]
+          },
+          "api_url": {
+            "type": "string",
+            "maximum": 512
+          },
+          "max_concurrent_polls": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "node_identifier",
+          "name"
+        ]
+      },
+      "pollerNodes_updatePollerNode": {
+        "type": "object",
+        "properties": {
+          "node_identifier": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "draining",
+              "maintenance",
+              "offline"
+            ]
+          },
+          "api_url": {
+            "type": "string",
+            "maximum": 512
+          },
+          "max_concurrent_polls": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "current_queue_depth": {
+            "type": "number",
+            "minimum": 0
+          },
+          "avg_poll_duration_ms": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
       },
       "pppoeServiceProfiles_createPppoeServiceProfile": {
         "type": "object",

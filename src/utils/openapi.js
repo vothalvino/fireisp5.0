@@ -1084,6 +1084,23 @@ function generateSpec() {
       '/snmp-metrics/errors': {
         get: { tags: ['SNMP Metrics'], summary: 'Error and discard counters per interface', operationId: 'getInterfaceErrors', security: [{ bearerAuth: [] }], parameters: [{ name: 'device_id', in: 'query', required: true, schema: { type: 'integer' } }, { name: 'hours', in: 'query', schema: { type: 'integer', default: 24 } }], responses: r200('InterfaceErrorsResponse') },
       },
+
+      // ---- Poller Nodes §6.4 ----
+      ...crudPaths('poller-nodes', 'Poller Nodes', 'PollerNode'),
+      '/poller-nodes/{id}/performance': {
+        get: { tags: ['Poller Nodes'], summary: 'Performance history for a poller node', operationId: 'getPollerNodePerformance', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'hours', in: 'query', schema: { type: 'integer', default: 24 } }], responses: r200('PollerPerformanceHistory') },
+      },
+
+      // ---- Device Polling Configs §6.4 ----
+      ...crudPaths('device-polling-configs', 'Device Polling Configs', 'DevicePollingConfig'),
+
+      // ---- Poller Performance §6.4 ----
+      '/poller-performance': {
+        get: { tags: ['Poller Performance'], summary: 'List poller performance snapshots', operationId: 'listPollerPerformanceSnapshots', security: [{ bearerAuth: [] }], parameters: [{ name: 'hours', in: 'query', schema: { type: 'integer', default: 24 } }, { name: 'node_id', in: 'query', schema: { type: 'integer' } }, { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } }, { name: 'limit', in: 'query', schema: { type: 'integer', default: 50 } }], responses: r200('PollerPerformanceSnapshot[]') },
+      },
+      '/poller-performance/dashboard': {
+        get: { tags: ['Poller Performance'], summary: 'Aggregated poller performance dashboard', operationId: 'getPollerPerformanceDashboard', security: [{ bearerAuth: [] }], parameters: [{ name: 'hours', in: 'query', schema: { type: 'integer', default: 24 } }], responses: r200('PollerPerformanceDashboard') },
+      },
     },
     components: {
       securitySchemes: {
