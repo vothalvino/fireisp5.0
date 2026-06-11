@@ -148,6 +148,8 @@ function generateSpec() {
       { name: 'Config Templates', description: 'Configuration template management — §6.6' },
       { name: 'Config Backup Schedules', description: 'Per-device/org backup schedule management — §6.6' },
       { name: 'Config Compliance Rules', description: 'Configuration compliance rules and audit — §6.6' },
+      { name: 'OLT Management', description: 'FTTH OLT device management: PON ports, chassis metrics, splitter inventory, vendor capabilities — §7.1' },
+      { name: 'ONU Management', description: 'FTTH ONU provisioning, profiles, optical diagnostics, whitelist, OMCI/Wi-Fi config, firmware jobs — §7.2' },
     ],
     paths: {
       // ---- Auth ----
@@ -1166,6 +1168,101 @@ function generateSpec() {
       ...crudPaths('config-compliance-rules', 'Config Compliance Rules', 'ConfigComplianceRule'),
       '/config-compliance-rules/results': { get: { tags: ['Config Compliance Rules'], summary: 'List compliance audit results', operationId: 'listComplianceRulesResults', security: [{ bearerAuth: [] }], responses: r200('ComplianceResult[]') } },
       '/config-compliance-rules/run': { post: { tags: ['Config Compliance Rules'], summary: 'Run compliance audit on a backup', operationId: 'runComplianceAudit', security: [{ bearerAuth: [] }], requestBody: jsonBody('ComplianceRunRequest'), responses: r200('ComplianceRunResult') } },
+
+      // ---- OLT Management §7.1 ----
+      '/olt-management/{id}/ports': {
+        get: { tags: ['OLT Management'], summary: 'List PON/uplink ports for an OLT', operationId: 'listOltPorts', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('OltPort[]') },
+        post: { tags: ['OLT Management'], summary: 'Create a port record for an OLT', operationId: 'createOltPort', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('oltPorts_createOltPort'), responses: r201('OltPort') },
+      },
+      '/olt-management/{id}/chassis': {
+        get: { tags: ['OLT Management'], summary: 'Get latest SNMP chassis metrics for an OLT (CPU, memory, temperature)', operationId: 'getOltChassisSummary', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('OltChassisSummary') },
+      },
+      '/olt-management/{id}/onus': {
+        get: { tags: ['OLT Management'], summary: 'List ONUs registered on an OLT (with status and profile)', operationId: 'listOltOnus', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'state', in: 'query', schema: { type: 'string' } }, { name: 'port_id', in: 'query', schema: { type: 'integer' } }], responses: r200('OnuSummary[]') },
+      },
+      '/olt-management/{id}/vendor-caps': {
+        get: { tags: ['OLT Management'], summary: 'Get vendor capability record for an OLT device', operationId: 'getOltVendorCaps', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('OltVendorCapability') },
+      },
+      '/olt-management/ports': {
+        get: { tags: ['OLT Management'], summary: 'List all OLT ports for the org', operationId: 'listAllOltPorts', security: [{ bearerAuth: [] }], responses: r200('OltPort[]') },
+      },
+      '/olt-management/ports/{portId}': {
+        get: { tags: ['OLT Management'], summary: 'Get an OLT port', operationId: 'getOltPort', security: [{ bearerAuth: [] }], parameters: [{ name: 'portId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('OltPort') },
+        put: { tags: ['OLT Management'], summary: 'Update an OLT port', operationId: 'updateOltPort', security: [{ bearerAuth: [] }], parameters: [{ name: 'portId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('oltPorts_updateOltPort'), responses: r200('OltPort') },
+        patch: { tags: ['OLT Management'], summary: 'Partially update an OLT port', operationId: 'patchOltPort', security: [{ bearerAuth: [] }], parameters: [{ name: 'portId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('oltPorts_patchOltPort'), responses: r200('OltPort') },
+        delete: { tags: ['OLT Management'], summary: 'Soft-delete an OLT port', operationId: 'deleteOltPort', security: [{ bearerAuth: [] }], parameters: [{ name: 'portId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/olt-management/splitters': {
+        get: { tags: ['OLT Management'], summary: 'List splitter inventory for the org', operationId: 'listOltSplitters', security: [{ bearerAuth: [] }], responses: r200('OltSplitter[]') },
+        post: { tags: ['OLT Management'], summary: 'Create a splitter record', operationId: 'createOltSplitter', security: [{ bearerAuth: [] }], requestBody: jsonBody('oltSplitters_createOltSplitter'), responses: r201('OltSplitter') },
+      },
+      '/olt-management/splitters/{splitterId}': {
+        get: { tags: ['OLT Management'], summary: 'Get a splitter', operationId: 'getOltSplitter', security: [{ bearerAuth: [] }], parameters: [{ name: 'splitterId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('OltSplitter') },
+        put: { tags: ['OLT Management'], summary: 'Update a splitter', operationId: 'updateOltSplitter', security: [{ bearerAuth: [] }], parameters: [{ name: 'splitterId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('oltSplitters_updateOltSplitter'), responses: r200('OltSplitter') },
+        patch: { tags: ['OLT Management'], summary: 'Partially update a splitter', operationId: 'patchOltSplitter', security: [{ bearerAuth: [] }], parameters: [{ name: 'splitterId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('oltSplitters_patchOltSplitter'), responses: r200('OltSplitter') },
+        delete: { tags: ['OLT Management'], summary: 'Soft-delete a splitter', operationId: 'deleteOltSplitter', security: [{ bearerAuth: [] }], parameters: [{ name: 'splitterId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+
+      // ---- ONU Management §7.2 ----
+      '/onu-management/profiles': {
+        get: { tags: ['ONU Management'], summary: 'List ONU service profile templates', operationId: 'listOnuProfiles', security: [{ bearerAuth: [] }], responses: r200('OnuProfile[]') },
+        post: { tags: ['ONU Management'], summary: 'Create an ONU service profile', operationId: 'createOnuProfile', security: [{ bearerAuth: [] }], requestBody: jsonBody('onuProfiles_createOnuProfile'), responses: r201('OnuProfile') },
+      },
+      '/onu-management/profiles/{id}': {
+        get: { tags: ['ONU Management'], summary: 'Get an ONU service profile', operationId: 'getOnuProfile', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('OnuProfile') },
+        put: { tags: ['ONU Management'], summary: 'Update an ONU service profile', operationId: 'updateOnuProfile', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('onuProfiles_updateOnuProfile'), responses: r200('OnuProfile') },
+        patch: { tags: ['ONU Management'], summary: 'Partially update an ONU service profile', operationId: 'patchOnuProfile', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('onuProfiles_patchOnuProfile'), responses: r200('OnuProfile') },
+        delete: { tags: ['ONU Management'], summary: 'Delete an ONU service profile', operationId: 'deleteOnuProfile', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/onu-management/details': {
+        get: { tags: ['ONU Management'], summary: 'List ONU provisioning detail records', operationId: 'listOnuDetails', security: [{ bearerAuth: [] }], responses: r200('OnuDetail[]') },
+        post: { tags: ['ONU Management'], summary: 'Create an ONU detail record', operationId: 'createOnuDetail', security: [{ bearerAuth: [] }], requestBody: jsonBody('onuDetails_createOnuDetail'), responses: r201('OnuDetail') },
+      },
+      '/onu-management/details/{id}': {
+        get: { tags: ['ONU Management'], summary: 'Get an ONU detail record', operationId: 'getOnuDetail', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('OnuDetail') },
+        put: { tags: ['ONU Management'], summary: 'Update an ONU detail record', operationId: 'updateOnuDetail', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('onuDetails_updateOnuDetail'), responses: r200('OnuDetail') },
+        patch: { tags: ['ONU Management'], summary: 'Partially update an ONU detail record', operationId: 'patchOnuDetail', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('onuDetails_patchOnuDetail'), responses: r200('OnuDetail') },
+        delete: { tags: ['ONU Management'], summary: 'Delete an ONU detail record', operationId: 'deleteOnuDetail', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/onu-management/details/{id}/optical-metrics': {
+        get: { tags: ['ONU Management'], summary: 'Get optical diagnostic history for an ONU (Tx/Rx power, temperature, voltage, bias current)', operationId: 'getOnuOpticalMetrics', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } }], responses: r200('OnuOpticalMetric[]') },
+      },
+      '/onu-management/details/{id}/provision': {
+        post: { tags: ['ONU Management'], summary: 'Trigger ONU provisioning (records intent; dispatched by background processor)', operationId: 'provisionOnu', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('ProvisionOnuRequest'), responses: { 202: { description: 'Provision job queued', content: { 'application/json': { schema: { type: 'object' } } } } } },
+      },
+      '/onu-management/details/{id}/reboot': {
+        post: { tags: ['ONU Management'], summary: 'Schedule remote ONU reboot (job dispatched by background processor)', operationId: 'rebootOnu', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: { 202: { description: 'Reboot job queued', content: { 'application/json': { schema: { type: 'object' } } } } } },
+      },
+      '/onu-management/whitelist': {
+        get: { tags: ['ONU Management'], summary: 'List ONU MAC/SN allow-block list entries', operationId: 'listOnuWhitelist', security: [{ bearerAuth: [] }], responses: r200('OnuWhitelistEntry[]') },
+        post: { tags: ['ONU Management'], summary: 'Add an entry to the ONU allow-block list', operationId: 'createOnuWhitelistEntry', security: [{ bearerAuth: [] }], requestBody: jsonBody('onuWhitelist_createOnuWhitelistEntry'), responses: r201('OnuWhitelistEntry') },
+      },
+      '/onu-management/whitelist/{id}': {
+        get: { tags: ['ONU Management'], summary: 'Get a whitelist entry', operationId: 'getOnuWhitelistEntry', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('OnuWhitelistEntry') },
+        put: { tags: ['ONU Management'], summary: 'Update a whitelist entry', operationId: 'updateOnuWhitelistEntry', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('onuWhitelist_updateOnuWhitelistEntry'), responses: r200('OnuWhitelistEntry') },
+        delete: { tags: ['ONU Management'], summary: 'Remove a whitelist entry', operationId: 'deleteOnuWhitelistEntry', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/onu-management/omci-configs': {
+        get: { tags: ['ONU Management'], summary: 'List OMCI/TR-069 config records', operationId: 'listOnuOmciConfigs', security: [{ bearerAuth: [] }], responses: r200('OnuOmciConfig[]') },
+        post: { tags: ['ONU Management'], summary: 'Create an OMCI/TR-069 config record (Wi-Fi SSID/password, WAN mode)', operationId: 'createOnuOmciConfig', security: [{ bearerAuth: [] }], requestBody: jsonBody('onuOmciConfigs_createOnuOmciConfig'), responses: r201('OnuOmciConfig') },
+      },
+      '/onu-management/omci-configs/{id}': {
+        get: { tags: ['ONU Management'], summary: 'Get an OMCI/TR-069 config record', operationId: 'getOnuOmciConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('OnuOmciConfig') },
+        put: { tags: ['ONU Management'], summary: 'Update an OMCI/TR-069 config record', operationId: 'updateOnuOmciConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('onuOmciConfigs_updateOnuOmciConfig'), responses: r200('OnuOmciConfig') },
+        delete: { tags: ['ONU Management'], summary: 'Delete an OMCI/TR-069 config record', operationId: 'deleteOnuOmciConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/onu-management/firmware-jobs': {
+        get: { tags: ['ONU Management'], summary: 'List ONU firmware upgrade and reboot jobs', operationId: 'listOnuFirmwareJobs', security: [{ bearerAuth: [] }], responses: r200('OnuFirmwareJob[]') },
+        post: { tags: ['ONU Management'], summary: 'Schedule a firmware upgrade or batch reboot job', operationId: 'createOnuFirmwareJob', security: [{ bearerAuth: [] }], requestBody: jsonBody('onuFirmwareJobs_createOnuFirmwareJob'), responses: r201('OnuFirmwareJob') },
+      },
+      '/onu-management/firmware-jobs/{id}': {
+        get: { tags: ['ONU Management'], summary: 'Get a firmware/reboot job', operationId: 'getOnuFirmwareJob', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('OnuFirmwareJob') },
+        put: { tags: ['ONU Management'], summary: 'Update a firmware/reboot job (reschedule or add notes)', operationId: 'updateOnuFirmwareJob', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('onuFirmwareJobs_updateOnuFirmwareJob'), responses: r200('OnuFirmwareJob') },
+        delete: { tags: ['ONU Management'], summary: 'Delete a firmware/reboot job', operationId: 'deleteOnuFirmwareJob', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/onu-management/firmware-jobs/{id}/cancel': {
+        post: { tags: ['ONU Management'], summary: 'Cancel a pending/queued firmware or reboot job', operationId: 'cancelOnuFirmwareJob', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('OnuFirmwareJob') },
+      },
     },
     components: {
       securitySchemes: {

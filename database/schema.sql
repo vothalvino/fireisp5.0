@@ -8954,4 +8954,323 @@ CREATE TABLE IF NOT EXISTS config_compliance_results (
   CONSTRAINT fk_ccres_device FOREIGN KEY (device_id) REFERENCES devices(id)                 ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ---------------------------------------------------------------------------
+-- Table: olt_ports
+-- Purpose: Physical PON and uplink port inventory per OLT device (§7.1)
+-- Migration: 266
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS olt_ports (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    olt_device_id       BIGINT UNSIGNED NOT NULL,
+    port_index          INT UNSIGNED    NOT NULL,
+    port_name           VARCHAR(50)     NOT NULL,
+    port_type           ENUM('gpon','epon','xgspon','uplink','cascade','other') NOT NULL DEFAULT 'gpon',
+    slot_no             TINYINT UNSIGNED NULL,
+    port_no             TINYINT UNSIGNED NULL,
+    admin_status        ENUM('up','down') NOT NULL DEFAULT 'up',
+    oper_status         ENUM('up','down','testing','unknown','notPresent','lowerLayerDown') NOT NULL DEFAULT 'unknown',
+    onu_count           SMALLINT UNSIGNED NULL DEFAULT 0,
+    max_onus            SMALLINT UNSIGNED NULL DEFAULT 128,
+    tx_power_dbm        DECIMAL(6,2)    NULL,
+    rx_power_dbm        DECIMAL(6,2)    NULL,
+    bandwidth_up_bps    BIGINT UNSIGNED NULL,
+    bandwidth_down_bps  BIGINT UNSIGNED NULL,
+    last_polled_at      DATETIME        NULL,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_olt_ports_device_port (olt_device_id, port_index),
+    KEY idx_olt_ports_organization_id (organization_id),
+    KEY idx_olt_ports_olt_device_id (olt_device_id),
+    KEY idx_olt_ports_port_type (port_type),
+    KEY idx_olt_ports_oper_status (oper_status),
+    KEY idx_olt_ports_deleted_at (deleted_at),
+    CONSTRAINT fk_olt_ports_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_olt_ports_olt_device FOREIGN KEY (olt_device_id) REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='PON and uplink port inventory per OLT (§7.1)';
+
+-- ---------------------------------------------------------------------------
+-- Table: onu_profiles
+-- Purpose: PON service profile templates (T-CONT/GEM/DBA/VLAN) (§7.2)
+-- Migration: 266
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS onu_profiles (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    name                VARCHAR(100)    NOT NULL,
+    technology          ENUM('gpon','epon','xgspon','other') NOT NULL DEFAULT 'gpon',
+    tcont_id            TINYINT UNSIGNED NULL,
+    dba_profile_name    VARCHAR(100)    NULL,
+    assured_bw_kbps     INT UNSIGNED    NULL,
+    max_bw_kbps         INT UNSIGNED    NULL,
+    gem_port_id         SMALLINT UNSIGNED NULL,
+    service_vlan        SMALLINT UNSIGNED NULL,
+    client_vlan         SMALLINT UNSIGNED NULL,
+    vlan_mode           ENUM('transparent','tag','translate','double_tag','untagged') NOT NULL DEFAULT 'tag',
+    plan_id             BIGINT UNSIGNED NULL,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_onu_profiles_org_name (organization_id, name),
+    KEY idx_onu_profiles_organization_id (organization_id),
+    KEY idx_onu_profiles_technology (technology),
+    KEY idx_onu_profiles_plan_id (plan_id),
+    KEY idx_onu_profiles_deleted_at (deleted_at),
+    CONSTRAINT fk_onu_profiles_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_profiles_plan FOREIGN KEY (plan_id) REFERENCES plans (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='PON service profile templates (T-CONT/GEM/DBA/VLAN) (§7.2)';
+
+-- ---------------------------------------------------------------------------
+-- Table: onu_details
+-- Purpose: GPON/EPON ONU detail extension to devices (§7.2)
+-- Migration: 266
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS onu_details (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id         BIGINT UNSIGNED NULL,
+    device_id               BIGINT UNSIGNED NOT NULL,
+    olt_device_id           BIGINT UNSIGNED NULL,
+    olt_port_id             BIGINT UNSIGNED NULL,
+    onu_profile_id          BIGINT UNSIGNED NULL,
+    serial_number           VARCHAR(20)     NULL,
+    loid                    VARCHAR(64)     NULL,
+    loid_password_encrypted VARCHAR(255)    NULL,
+    onu_state               ENUM('online','offline','los','dying_gasp','power_off','loc','unconfigured','unknown') NOT NULL DEFAULT 'unknown',
+    last_status_at          DATETIME        NULL,
+    onu_id                  SMALLINT UNSIGNED NULL,
+    ranging_distance_m      INT UNSIGNED    NULL,
+    line_profile_name       VARCHAR(100)    NULL,
+    service_profile_name    VARCHAR(100)    NULL,
+    wan_mode                ENUM('bridge','router','mixed') NOT NULL DEFAULT 'bridge',
+    last_provision_job_id   BIGINT UNSIGNED NULL,
+    notes                   TEXT            NULL,
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at              DATETIME        NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_onu_details_device_id (device_id),
+    KEY idx_onu_details_organization_id (organization_id),
+    KEY idx_onu_details_olt_device_id (olt_device_id),
+    KEY idx_onu_details_olt_port_id (olt_port_id),
+    KEY idx_onu_details_onu_profile_id (onu_profile_id),
+    KEY idx_onu_details_onu_state (onu_state),
+    KEY idx_onu_details_serial_number (serial_number),
+    KEY idx_onu_details_deleted_at (deleted_at),
+    CONSTRAINT fk_onu_details_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_details_device FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_details_olt_device FOREIGN KEY (olt_device_id) REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_details_olt_port FOREIGN KEY (olt_port_id) REFERENCES olt_ports (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_details_onu_profile FOREIGN KEY (onu_profile_id) REFERENCES onu_profiles (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='GPON/EPON ONU detail extension to devices (§7.2)';
+
+-- ---------------------------------------------------------------------------
+-- Table: onu_optical_metrics
+-- Purpose: Per-ONU optical diagnostic time-series (§7.2)
+-- Migration: 266
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS onu_optical_metrics (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    device_id           BIGINT UNSIGNED NOT NULL,
+    olt_device_id       BIGINT UNSIGNED NULL,
+    olt_port_id         BIGINT UNSIGNED NULL,
+    polled_at           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    tx_power_dbm        DECIMAL(6,2)    NULL,
+    rx_power_dbm        DECIMAL(6,2)    NULL,
+    temperature_c       DECIMAL(6,2)    NULL,
+    voltage_v           DECIMAL(6,3)    NULL,
+    bias_current_ma     DECIMAL(8,3)    NULL,
+    olt_rx_power_dbm    DECIMAL(6,2)    NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_onu_optical_device_polled (device_id, polled_at DESC),
+    KEY idx_onu_optical_organization (organization_id),
+    KEY idx_onu_optical_olt_port (olt_port_id),
+    KEY idx_onu_optical_polled_at (polled_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Per-ONU optical diagnostic time-series (§7.2)';
+
+-- ---------------------------------------------------------------------------
+-- Table: onu_whitelist
+-- Purpose: ONU MAC/SN allow-block list per OLT (§7.2)
+-- Migration: 266
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS onu_whitelist (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    olt_device_id       BIGINT UNSIGNED NOT NULL,
+    entry_type          ENUM('mac','serial_number') NOT NULL DEFAULT 'serial_number',
+    entry_value         VARCHAR(64)     NOT NULL,
+    list_type           ENUM('allow','block') NOT NULL DEFAULT 'allow',
+    device_id           BIGINT UNSIGNED NULL,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_onu_whitelist_olt_entry (olt_device_id, entry_type, entry_value),
+    KEY idx_onu_whitelist_organization_id (organization_id),
+    KEY idx_onu_whitelist_olt_device_id (olt_device_id),
+    KEY idx_onu_whitelist_list_type (list_type),
+    KEY idx_onu_whitelist_device_id (device_id),
+    KEY idx_onu_whitelist_deleted_at (deleted_at),
+    CONSTRAINT fk_onu_whitelist_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_whitelist_olt_device FOREIGN KEY (olt_device_id) REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_whitelist_device FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='ONU MAC/SN allow-block list per OLT (§7.2)';
+
+-- ---------------------------------------------------------------------------
+-- Table: onu_omci_configs
+-- Purpose: OMCI/TR-069 Wi-Fi and WAN config records per ONU (§7.2)
+-- Migration: 266
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS onu_omci_configs (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id         BIGINT UNSIGNED NULL,
+    device_id               BIGINT UNSIGNED NOT NULL,
+    config_type             ENUM('wifi','wan','lan','voip','omci_raw','tr069','other') NOT NULL DEFAULT 'wifi',
+    wifi_ssid               VARCHAR(64)     NULL,
+    wifi_password_encrypted VARCHAR(512)    NULL,
+    wifi_band               ENUM('2.4ghz','5ghz','both') NULL DEFAULT 'both',
+    wifi_channel            TINYINT UNSIGNED NULL,
+    wifi_security           ENUM('open','wep','wpa2','wpa3') NULL DEFAULT 'wpa2',
+    wan_mode                ENUM('bridge','router','mixed') NULL,
+    wan_ip_mode             ENUM('dhcp','static','pppoe') NULL,
+    wan_ip_address          VARCHAR(45)     NULL,
+    wan_netmask             VARCHAR(45)     NULL,
+    wan_gateway             VARCHAR(45)     NULL,
+    delivery_method         ENUM('omci','tr069','ssh_cli','manual','pending') NOT NULL DEFAULT 'pending',
+    applied_at              DATETIME        NULL,
+    apply_status            ENUM('pending','in_progress','applied','failed','superseded') NOT NULL DEFAULT 'pending',
+    apply_error             TEXT            NULL,
+    raw_config              JSON            NULL,
+    notes                   TEXT            NULL,
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at              DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_onu_omci_configs_organization_id (organization_id),
+    KEY idx_onu_omci_configs_device_id (device_id),
+    KEY idx_onu_omci_configs_config_type (config_type),
+    KEY idx_onu_omci_configs_apply_status (apply_status),
+    KEY idx_onu_omci_configs_deleted_at (deleted_at),
+    CONSTRAINT fk_onu_omci_configs_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_omci_configs_device FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='OMCI / TR-069 Wi-Fi and WAN config records per ONU (§7.2)';
+
+-- ---------------------------------------------------------------------------
+-- Table: onu_firmware_jobs
+-- Purpose: ONU firmware upgrade and reboot job scheduler (§7.2)
+-- Migration: 266
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS onu_firmware_jobs (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    job_type            ENUM('firmware_upgrade','reboot','provision','factory_reset','other') NOT NULL DEFAULT 'firmware_upgrade',
+    scope               ENUM('single_onu','olt_port','olt_device','region','all') NOT NULL DEFAULT 'single_onu',
+    onu_device_id       BIGINT UNSIGNED NULL,
+    olt_device_id       BIGINT UNSIGNED NULL,
+    olt_port_id         BIGINT UNSIGNED NULL,
+    firmware_version    VARCHAR(100)    NULL,
+    firmware_url        VARCHAR(1024)   NULL,
+    scheduled_at        DATETIME        NULL,
+    started_at          DATETIME        NULL,
+    completed_at        DATETIME        NULL,
+    status              ENUM('pending','queued','in_progress','completed','failed','cancelled','partial') NOT NULL DEFAULT 'pending',
+    total_devices       INT UNSIGNED    NULL DEFAULT 0,
+    completed_devices   INT UNSIGNED    NULL DEFAULT 0,
+    failed_devices      INT UNSIGNED    NULL DEFAULT 0,
+    result_summary      JSON            NULL,
+    error_message       TEXT            NULL,
+    created_by          BIGINT UNSIGNED NULL,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_onu_firmware_jobs_organization_id (organization_id),
+    KEY idx_onu_firmware_jobs_onu_device_id (onu_device_id),
+    KEY idx_onu_firmware_jobs_olt_device_id (olt_device_id),
+    KEY idx_onu_firmware_jobs_olt_port_id (olt_port_id),
+    KEY idx_onu_firmware_jobs_status (status),
+    KEY idx_onu_firmware_jobs_scheduled_at (scheduled_at),
+    KEY idx_onu_firmware_jobs_deleted_at (deleted_at),
+    CONSTRAINT fk_onu_firmware_jobs_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_firmware_jobs_onu_device FOREIGN KEY (onu_device_id) REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_firmware_jobs_olt_device FOREIGN KEY (olt_device_id) REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_firmware_jobs_olt_port FOREIGN KEY (olt_port_id) REFERENCES olt_ports (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_firmware_jobs_created_by FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='ONU firmware upgrade and reboot job scheduler (§7.2)';
+
+-- ---------------------------------------------------------------------------
+-- Table: olt_vendor_capabilities
+-- Purpose: Per-vendor OLT management capability matrix (§7.1)
+-- Migration: 267
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS olt_vendor_capabilities (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    vendor              VARCHAR(50)     NOT NULL,
+    model_pattern       VARCHAR(100)    NOT NULL,
+    protocols           JSON            NOT NULL,
+    snmp_profile_name   VARCHAR(100)    NULL,
+    provision_template  VARCHAR(100)    NULL,
+    firmware_template   VARCHAR(100)    NULL,
+    reboot_template     VARCHAR(100)    NULL,
+    netconf_schema      VARCHAR(255)    NULL,
+    tl1_command_set     VARCHAR(50)     NULL,
+    omci_supported      TINYINT(1)      NOT NULL DEFAULT 0,
+    enterprise_oid      VARCHAR(100)    NULL,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_olt_vendor_model (vendor, model_pattern),
+    KEY idx_olt_vendor_capabilities_vendor (vendor)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Per-vendor OLT management capability matrix (§7.1)';
+
+-- ---------------------------------------------------------------------------
+-- Table: olt_splitters
+-- Purpose: PON splitter inventory (§7.1 splitter management)
+-- Migration: 267
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS olt_splitters (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    name                VARCHAR(100)    NOT NULL,
+    site_id             BIGINT UNSIGNED NULL,
+    olt_port_id         BIGINT UNSIGNED NULL,
+    ratio               ENUM('1:2','1:4','1:8','1:16','1:32','1:64','1:128') NOT NULL DEFAULT '1:32',
+    splitter_type       ENUM('optical','wdm','other') NOT NULL DEFAULT 'optical',
+    location_detail     VARCHAR(255)    NULL,
+    installed_at        DATE            NULL,
+    status              ENUM('active','inactive','damaged','removed') NOT NULL DEFAULT 'active',
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_olt_splitters_organization_id (organization_id),
+    KEY idx_olt_splitters_site_id (site_id),
+    KEY idx_olt_splitters_olt_port_id (olt_port_id),
+    KEY idx_olt_splitters_ratio (ratio),
+    KEY idx_olt_splitters_status (status),
+    KEY idx_olt_splitters_deleted_at (deleted_at),
+    CONSTRAINT fk_olt_splitters_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_olt_splitters_site FOREIGN KEY (site_id) REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_olt_splitters_olt_port FOREIGN KEY (olt_port_id) REFERENCES olt_ports (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='PON splitter inventory (§7.1 splitter management)';
+
 SET FOREIGN_KEY_CHECKS = 1;

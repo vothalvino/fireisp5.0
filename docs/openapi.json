@@ -447,6 +447,14 @@
     {
       "name": "Config Compliance Rules",
       "description": "Configuration compliance rules and audit — §6.6"
+    },
+    {
+      "name": "OLT Management",
+      "description": "FTTH OLT device management: PON ports, chassis metrics, splitter inventory, vendor capabilities — §7.1"
+    },
+    {
+      "name": "ONU Management",
+      "description": "FTTH ONU provisioning, profiles, optical diagnostics, whitelist, OMCI/Wi-Fi config, firmware jobs — §7.2"
     }
   ],
   "paths": {
@@ -25144,6 +25152,1681 @@
           }
         }
       }
+    },
+    "/olt-management/{id}/ports": {
+      "get": {
+        "tags": [
+          "OLT Management"
+        ],
+        "summary": "List PON/uplink ports for an OLT",
+        "operationId": "listOltPorts",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OltPort[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "OLT Management"
+        ],
+        "summary": "Create a port record for an OLT",
+        "operationId": "createOltPort",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "oltPorts_createOltPort",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OltPort",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/olt-management/{id}/chassis": {
+      "get": {
+        "tags": [
+          "OLT Management"
+        ],
+        "summary": "Get latest SNMP chassis metrics for an OLT (CPU, memory, temperature)",
+        "operationId": "getOltChassisSummary",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OltChassisSummary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/olt-management/{id}/onus": {
+      "get": {
+        "tags": [
+          "OLT Management"
+        ],
+        "summary": "List ONUs registered on an OLT (with status and profile)",
+        "operationId": "listOltOnus",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "port_id",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuSummary[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/olt-management/{id}/vendor-caps": {
+      "get": {
+        "tags": [
+          "OLT Management"
+        ],
+        "summary": "Get vendor capability record for an OLT device",
+        "operationId": "getOltVendorCaps",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OltVendorCapability",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/olt-management/ports": {
+      "get": {
+        "tags": [
+          "OLT Management"
+        ],
+        "summary": "List all OLT ports for the org",
+        "operationId": "listAllOltPorts",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OltPort[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/olt-management/ports/{portId}": {
+      "get": {
+        "tags": [
+          "OLT Management"
+        ],
+        "summary": "Get an OLT port",
+        "operationId": "getOltPort",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "portId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OltPort",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "OLT Management"
+        ],
+        "summary": "Update an OLT port",
+        "operationId": "updateOltPort",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "portId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "oltPorts_updateOltPort",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OltPort",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "OLT Management"
+        ],
+        "summary": "Partially update an OLT port",
+        "operationId": "patchOltPort",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "portId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "oltPorts_patchOltPort",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OltPort",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "OLT Management"
+        ],
+        "summary": "Soft-delete an OLT port",
+        "operationId": "deleteOltPort",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "portId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/olt-management/splitters": {
+      "get": {
+        "tags": [
+          "OLT Management"
+        ],
+        "summary": "List splitter inventory for the org",
+        "operationId": "listOltSplitters",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OltSplitter[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "OLT Management"
+        ],
+        "summary": "Create a splitter record",
+        "operationId": "createOltSplitter",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "oltSplitters_createOltSplitter",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OltSplitter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/olt-management/splitters/{splitterId}": {
+      "get": {
+        "tags": [
+          "OLT Management"
+        ],
+        "summary": "Get a splitter",
+        "operationId": "getOltSplitter",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "splitterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OltSplitter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "OLT Management"
+        ],
+        "summary": "Update a splitter",
+        "operationId": "updateOltSplitter",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "splitterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "oltSplitters_updateOltSplitter",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OltSplitter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "OLT Management"
+        ],
+        "summary": "Partially update a splitter",
+        "operationId": "patchOltSplitter",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "splitterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "oltSplitters_patchOltSplitter",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OltSplitter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "OLT Management"
+        ],
+        "summary": "Soft-delete a splitter",
+        "operationId": "deleteOltSplitter",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "splitterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/onu-management/profiles": {
+      "get": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "List ONU service profile templates",
+        "operationId": "listOnuProfiles",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuProfile[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Create an ONU service profile",
+        "operationId": "createOnuProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "onuProfiles_createOnuProfile",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OnuProfile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/onu-management/profiles/{id}": {
+      "get": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Get an ONU service profile",
+        "operationId": "getOnuProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuProfile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Update an ONU service profile",
+        "operationId": "updateOnuProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "onuProfiles_updateOnuProfile",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OnuProfile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Partially update an ONU service profile",
+        "operationId": "patchOnuProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "onuProfiles_patchOnuProfile",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OnuProfile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Delete an ONU service profile",
+        "operationId": "deleteOnuProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/onu-management/details": {
+      "get": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "List ONU provisioning detail records",
+        "operationId": "listOnuDetails",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuDetail[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Create an ONU detail record",
+        "operationId": "createOnuDetail",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "onuDetails_createOnuDetail",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OnuDetail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/onu-management/details/{id}": {
+      "get": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Get an ONU detail record",
+        "operationId": "getOnuDetail",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuDetail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Update an ONU detail record",
+        "operationId": "updateOnuDetail",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "onuDetails_updateOnuDetail",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OnuDetail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Partially update an ONU detail record",
+        "operationId": "patchOnuDetail",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "onuDetails_patchOnuDetail",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OnuDetail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Delete an ONU detail record",
+        "operationId": "deleteOnuDetail",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/onu-management/details/{id}/optical-metrics": {
+      "get": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Get optical diagnostic history for an ONU (Tx/Rx power, temperature, voltage, bias current)",
+        "operationId": "getOnuOpticalMetrics",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuOpticalMetric[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/onu-management/details/{id}/provision": {
+      "post": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Trigger ONU provisioning (records intent; dispatched by background processor)",
+        "operationId": "provisionOnu",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "ProvisionOnuRequest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Provision job queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/onu-management/details/{id}/reboot": {
+      "post": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Schedule remote ONU reboot (job dispatched by background processor)",
+        "operationId": "rebootOnu",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Reboot job queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/onu-management/whitelist": {
+      "get": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "List ONU MAC/SN allow-block list entries",
+        "operationId": "listOnuWhitelist",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuWhitelistEntry[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Add an entry to the ONU allow-block list",
+        "operationId": "createOnuWhitelistEntry",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "onuWhitelist_createOnuWhitelistEntry",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OnuWhitelistEntry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/onu-management/whitelist/{id}": {
+      "get": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Get a whitelist entry",
+        "operationId": "getOnuWhitelistEntry",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuWhitelistEntry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Update a whitelist entry",
+        "operationId": "updateOnuWhitelistEntry",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "onuWhitelist_updateOnuWhitelistEntry",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OnuWhitelistEntry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Remove a whitelist entry",
+        "operationId": "deleteOnuWhitelistEntry",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/onu-management/omci-configs": {
+      "get": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "List OMCI/TR-069 config records",
+        "operationId": "listOnuOmciConfigs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuOmciConfig[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Create an OMCI/TR-069 config record (Wi-Fi SSID/password, WAN mode)",
+        "operationId": "createOnuOmciConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "onuOmciConfigs_createOnuOmciConfig",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OnuOmciConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/onu-management/omci-configs/{id}": {
+      "get": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Get an OMCI/TR-069 config record",
+        "operationId": "getOnuOmciConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuOmciConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Update an OMCI/TR-069 config record",
+        "operationId": "updateOnuOmciConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "onuOmciConfigs_updateOnuOmciConfig",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OnuOmciConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Delete an OMCI/TR-069 config record",
+        "operationId": "deleteOnuOmciConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/onu-management/firmware-jobs": {
+      "get": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "List ONU firmware upgrade and reboot jobs",
+        "operationId": "listOnuFirmwareJobs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuFirmwareJob[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Schedule a firmware upgrade or batch reboot job",
+        "operationId": "createOnuFirmwareJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "onuFirmwareJobs_createOnuFirmwareJob",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OnuFirmwareJob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/onu-management/firmware-jobs/{id}": {
+      "get": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Get a firmware/reboot job",
+        "operationId": "getOnuFirmwareJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuFirmwareJob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Update a firmware/reboot job (reschedule or add notes)",
+        "operationId": "updateOnuFirmwareJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "onuFirmwareJobs_updateOnuFirmwareJob",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OnuFirmwareJob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Delete a firmware/reboot job",
+        "operationId": "deleteOnuFirmwareJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/onu-management/firmware-jobs/{id}/cancel": {
+      "post": {
+        "tags": [
+          "ONU Management"
+        ],
+        "summary": "Cancel a pending/queued firmware or reboot job",
+        "operationId": "cancelOnuFirmwareJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OnuFirmwareJob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -31687,6 +33370,1252 @@
               "maintenance",
               "decommissioned"
             ]
+          }
+        }
+      },
+      "oltPorts_createOltPort": {
+        "type": "object",
+        "properties": {
+          "olt_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "port_index": {
+            "type": "number",
+            "minimum": 0
+          },
+          "port_name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "port_type": {
+            "type": "string",
+            "enum": [
+              "gpon",
+              "epon",
+              "xgspon",
+              "uplink",
+              "cascade",
+              "other"
+            ]
+          },
+          "slot_no": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "port_no": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "admin_status": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down"
+            ]
+          },
+          "max_onus": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 256
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "olt_device_id",
+          "port_index",
+          "port_name"
+        ]
+      },
+      "oltPorts_updateOltPort": {
+        "type": "object",
+        "properties": {
+          "port_name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "port_type": {
+            "type": "string",
+            "enum": [
+              "gpon",
+              "epon",
+              "xgspon",
+              "uplink",
+              "cascade",
+              "other"
+            ]
+          },
+          "slot_no": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "port_no": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "admin_status": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down"
+            ]
+          },
+          "max_onus": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 256
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        }
+      },
+      "oltPorts_patchOltPort": {
+        "type": "object",
+        "properties": {
+          "port_name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "port_type": {
+            "type": "string",
+            "enum": [
+              "gpon",
+              "epon",
+              "xgspon",
+              "uplink",
+              "cascade",
+              "other"
+            ]
+          },
+          "slot_no": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "port_no": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "admin_status": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down"
+            ]
+          },
+          "max_onus": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 256
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        }
+      },
+      "oltSplitters_createOltSplitter": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "site_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "olt_port_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "ratio": {
+            "type": "string",
+            "enum": [
+              "1:2",
+              "1:4",
+              "1:8",
+              "1:16",
+              "1:32",
+              "1:64",
+              "1:128"
+            ]
+          },
+          "splitter_type": {
+            "type": "string",
+            "enum": [
+              "optical",
+              "wdm",
+              "other"
+            ]
+          },
+          "location_detail": {
+            "type": "string",
+            "maximum": 255
+          },
+          "installed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "damaged",
+              "removed"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "oltSplitters_updateOltSplitter": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "site_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "olt_port_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "ratio": {
+            "type": "string",
+            "enum": [
+              "1:2",
+              "1:4",
+              "1:8",
+              "1:16",
+              "1:32",
+              "1:64",
+              "1:128"
+            ]
+          },
+          "splitter_type": {
+            "type": "string",
+            "enum": [
+              "optical",
+              "wdm",
+              "other"
+            ]
+          },
+          "location_detail": {
+            "type": "string",
+            "maximum": 255
+          },
+          "installed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "damaged",
+              "removed"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        }
+      },
+      "oltSplitters_patchOltSplitter": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "site_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "olt_port_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "ratio": {
+            "type": "string",
+            "enum": [
+              "1:2",
+              "1:4",
+              "1:8",
+              "1:16",
+              "1:32",
+              "1:64",
+              "1:128"
+            ]
+          },
+          "splitter_type": {
+            "type": "string",
+            "enum": [
+              "optical",
+              "wdm",
+              "other"
+            ]
+          },
+          "location_detail": {
+            "type": "string",
+            "maximum": 255
+          },
+          "installed_at": {
+            "type": "string",
+            "maximum": 10
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "damaged",
+              "removed"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        }
+      },
+      "onuDetails_createOnuDetail": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "olt_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "olt_port_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "onu_profile_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "serial_number": {
+            "type": "string",
+            "maximum": 20
+          },
+          "loid": {
+            "type": "string",
+            "maximum": 64
+          },
+          "loid_password_encrypted": {
+            "type": "string",
+            "maximum": 255
+          },
+          "onu_state": {
+            "type": "string",
+            "enum": [
+              "online",
+              "offline",
+              "los",
+              "dying_gasp",
+              "power_off",
+              "loc",
+              "unconfigured",
+              "unknown"
+            ]
+          },
+          "onu_id": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 127
+          },
+          "ranging_distance_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "line_profile_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "service_profile_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "wan_mode": {
+            "type": "string",
+            "enum": [
+              "bridge",
+              "router",
+              "mixed"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "device_id"
+        ]
+      },
+      "onuDetails_updateOnuDetail": {
+        "type": "object",
+        "properties": {
+          "olt_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "olt_port_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "onu_profile_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "serial_number": {
+            "type": "string",
+            "maximum": 20
+          },
+          "loid": {
+            "type": "string",
+            "maximum": 64
+          },
+          "loid_password_encrypted": {
+            "type": "string",
+            "maximum": 255
+          },
+          "onu_state": {
+            "type": "string",
+            "enum": [
+              "online",
+              "offline",
+              "los",
+              "dying_gasp",
+              "power_off",
+              "loc",
+              "unconfigured",
+              "unknown"
+            ]
+          },
+          "onu_id": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 127
+          },
+          "ranging_distance_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "line_profile_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "service_profile_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "wan_mode": {
+            "type": "string",
+            "enum": [
+              "bridge",
+              "router",
+              "mixed"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        }
+      },
+      "onuDetails_patchOnuDetail": {
+        "type": "object",
+        "properties": {
+          "olt_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "olt_port_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "onu_profile_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "serial_number": {
+            "type": "string",
+            "maximum": 20
+          },
+          "loid": {
+            "type": "string",
+            "maximum": 64
+          },
+          "loid_password_encrypted": {
+            "type": "string",
+            "maximum": 255
+          },
+          "onu_state": {
+            "type": "string",
+            "enum": [
+              "online",
+              "offline",
+              "los",
+              "dying_gasp",
+              "power_off",
+              "loc",
+              "unconfigured",
+              "unknown"
+            ]
+          },
+          "onu_id": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 127
+          },
+          "ranging_distance_m": {
+            "type": "number",
+            "minimum": 0
+          },
+          "line_profile_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "service_profile_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "wan_mode": {
+            "type": "string",
+            "enum": [
+              "bridge",
+              "router",
+              "mixed"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        }
+      },
+      "onuFirmwareJobs_createOnuFirmwareJob": {
+        "type": "object",
+        "properties": {
+          "job_type": {
+            "type": "string",
+            "enum": [
+              "firmware_upgrade",
+              "reboot",
+              "provision",
+              "factory_reset",
+              "other"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "single_onu",
+              "olt_port",
+              "olt_device",
+              "region",
+              "all"
+            ]
+          },
+          "onu_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "olt_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "olt_port_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "firmware_version": {
+            "type": "string",
+            "maximum": 100
+          },
+          "firmware_url": {
+            "type": "string",
+            "maximum": 1024
+          },
+          "scheduled_at": {
+            "type": "string",
+            "maximum": 30
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "job_type",
+          "scope"
+        ]
+      },
+      "onuFirmwareJobs_updateOnuFirmwareJob": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "queued",
+              "in_progress",
+              "completed",
+              "failed",
+              "cancelled",
+              "partial"
+            ]
+          },
+          "scheduled_at": {
+            "type": "string",
+            "maximum": 30
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        }
+      },
+      "onuFirmwareJobs_patchOnuFirmwareJob": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "queued",
+              "in_progress",
+              "completed",
+              "failed",
+              "cancelled",
+              "partial"
+            ]
+          },
+          "scheduled_at": {
+            "type": "string",
+            "maximum": 30
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        }
+      },
+      "onuOmciConfigs_createOnuOmciConfig": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "config_type": {
+            "type": "string",
+            "enum": [
+              "wifi",
+              "wan",
+              "lan",
+              "voip",
+              "omci_raw",
+              "tr069",
+              "other"
+            ]
+          },
+          "wifi_ssid": {
+            "type": "string",
+            "maximum": 64
+          },
+          "wifi_password_encrypted": {
+            "type": "string",
+            "maximum": 512
+          },
+          "wifi_band": {
+            "type": "string",
+            "enum": [
+              "2.4ghz",
+              "5ghz",
+              "both"
+            ]
+          },
+          "wifi_channel": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 165
+          },
+          "wifi_security": {
+            "type": "string",
+            "enum": [
+              "open",
+              "wep",
+              "wpa2",
+              "wpa3"
+            ]
+          },
+          "wan_mode": {
+            "type": "string",
+            "enum": [
+              "bridge",
+              "router",
+              "mixed"
+            ]
+          },
+          "wan_ip_mode": {
+            "type": "string",
+            "enum": [
+              "dhcp",
+              "static",
+              "pppoe"
+            ]
+          },
+          "wan_ip_address": {
+            "type": "string",
+            "maximum": 45
+          },
+          "wan_netmask": {
+            "type": "string",
+            "maximum": 45
+          },
+          "wan_gateway": {
+            "type": "string",
+            "maximum": 45
+          },
+          "delivery_method": {
+            "type": "string",
+            "enum": [
+              "omci",
+              "tr069",
+              "ssh_cli",
+              "manual",
+              "pending"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "device_id"
+        ]
+      },
+      "onuOmciConfigs_updateOnuOmciConfig": {
+        "type": "object",
+        "properties": {
+          "config_type": {
+            "type": "string",
+            "enum": [
+              "wifi",
+              "wan",
+              "lan",
+              "voip",
+              "omci_raw",
+              "tr069",
+              "other"
+            ]
+          },
+          "wifi_ssid": {
+            "type": "string",
+            "maximum": 64
+          },
+          "wifi_password_encrypted": {
+            "type": "string",
+            "maximum": 512
+          },
+          "wifi_band": {
+            "type": "string",
+            "enum": [
+              "2.4ghz",
+              "5ghz",
+              "both"
+            ]
+          },
+          "wifi_channel": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 165
+          },
+          "wifi_security": {
+            "type": "string",
+            "enum": [
+              "open",
+              "wep",
+              "wpa2",
+              "wpa3"
+            ]
+          },
+          "wan_mode": {
+            "type": "string",
+            "enum": [
+              "bridge",
+              "router",
+              "mixed"
+            ]
+          },
+          "wan_ip_mode": {
+            "type": "string",
+            "enum": [
+              "dhcp",
+              "static",
+              "pppoe"
+            ]
+          },
+          "wan_ip_address": {
+            "type": "string",
+            "maximum": 45
+          },
+          "wan_netmask": {
+            "type": "string",
+            "maximum": 45
+          },
+          "wan_gateway": {
+            "type": "string",
+            "maximum": 45
+          },
+          "delivery_method": {
+            "type": "string",
+            "enum": [
+              "omci",
+              "tr069",
+              "ssh_cli",
+              "manual",
+              "pending"
+            ]
+          },
+          "apply_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_progress",
+              "applied",
+              "failed",
+              "superseded"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        }
+      },
+      "onuOmciConfigs_patchOnuOmciConfig": {
+        "type": "object",
+        "properties": {
+          "config_type": {
+            "type": "string",
+            "enum": [
+              "wifi",
+              "wan",
+              "lan",
+              "voip",
+              "omci_raw",
+              "tr069",
+              "other"
+            ]
+          },
+          "wifi_ssid": {
+            "type": "string",
+            "maximum": 64
+          },
+          "wifi_password_encrypted": {
+            "type": "string",
+            "maximum": 512
+          },
+          "wifi_band": {
+            "type": "string",
+            "enum": [
+              "2.4ghz",
+              "5ghz",
+              "both"
+            ]
+          },
+          "wifi_channel": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 165
+          },
+          "wifi_security": {
+            "type": "string",
+            "enum": [
+              "open",
+              "wep",
+              "wpa2",
+              "wpa3"
+            ]
+          },
+          "wan_mode": {
+            "type": "string",
+            "enum": [
+              "bridge",
+              "router",
+              "mixed"
+            ]
+          },
+          "wan_ip_mode": {
+            "type": "string",
+            "enum": [
+              "dhcp",
+              "static",
+              "pppoe"
+            ]
+          },
+          "wan_ip_address": {
+            "type": "string",
+            "maximum": 45
+          },
+          "wan_netmask": {
+            "type": "string",
+            "maximum": 45
+          },
+          "wan_gateway": {
+            "type": "string",
+            "maximum": 45
+          },
+          "delivery_method": {
+            "type": "string",
+            "enum": [
+              "omci",
+              "tr069",
+              "ssh_cli",
+              "manual",
+              "pending"
+            ]
+          },
+          "apply_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_progress",
+              "applied",
+              "failed",
+              "superseded"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        }
+      },
+      "onuProfiles_createOnuProfile": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "technology": {
+            "type": "string",
+            "enum": [
+              "gpon",
+              "epon",
+              "xgspon",
+              "other"
+            ]
+          },
+          "tcont_id": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 7
+          },
+          "dba_profile_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "assured_bw_kbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "max_bw_kbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "gem_port_id": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 4095
+          },
+          "service_vlan": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 4094
+          },
+          "client_vlan": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 4094
+          },
+          "vlan_mode": {
+            "type": "string",
+            "enum": [
+              "transparent",
+              "tag",
+              "translate",
+              "double_tag",
+              "untagged"
+            ]
+          },
+          "plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "onuProfiles_updateOnuProfile": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "technology": {
+            "type": "string",
+            "enum": [
+              "gpon",
+              "epon",
+              "xgspon",
+              "other"
+            ]
+          },
+          "tcont_id": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 7
+          },
+          "dba_profile_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "assured_bw_kbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "max_bw_kbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "gem_port_id": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 4095
+          },
+          "service_vlan": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 4094
+          },
+          "client_vlan": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 4094
+          },
+          "vlan_mode": {
+            "type": "string",
+            "enum": [
+              "transparent",
+              "tag",
+              "translate",
+              "double_tag",
+              "untagged"
+            ]
+          },
+          "plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        }
+      },
+      "onuProfiles_patchOnuProfile": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "technology": {
+            "type": "string",
+            "enum": [
+              "gpon",
+              "epon",
+              "xgspon",
+              "other"
+            ]
+          },
+          "tcont_id": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 7
+          },
+          "dba_profile_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "assured_bw_kbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "max_bw_kbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "gem_port_id": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 4095
+          },
+          "service_vlan": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 4094
+          },
+          "client_vlan": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 4094
+          },
+          "vlan_mode": {
+            "type": "string",
+            "enum": [
+              "transparent",
+              "tag",
+              "translate",
+              "double_tag",
+              "untagged"
+            ]
+          },
+          "plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        }
+      },
+      "onuWhitelist_createOnuWhitelistEntry": {
+        "type": "object",
+        "properties": {
+          "olt_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "entry_type": {
+            "type": "string",
+            "enum": [
+              "mac",
+              "serial_number"
+            ]
+          },
+          "entry_value": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "list_type": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "block"
+            ]
+          },
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "olt_device_id",
+          "entry_type",
+          "entry_value"
+        ]
+      },
+      "onuWhitelist_updateOnuWhitelistEntry": {
+        "type": "object",
+        "properties": {
+          "list_type": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "block"
+            ]
+          },
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        }
+      },
+      "onuWhitelist_patchOnuWhitelistEntry": {
+        "type": "object",
+        "properties": {
+          "list_type": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "block"
+            ]
+          },
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
           }
         }
       },
