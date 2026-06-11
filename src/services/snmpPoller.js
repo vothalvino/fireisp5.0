@@ -42,6 +42,8 @@ const VALID_METRIC_COLUMNS = new Set([
   'ups_runtime_min',
   'poe_power_mw',
   'humidity_pct',
+  // §6.2 gap metrics (migration 264)
+  'if_oper_status',
 ]);
 
 // Configurable concurrency for parallel polling (default: 10 devices at a time)
@@ -199,8 +201,9 @@ async function insertMetricRow(deviceId, interfaceId, metrics) {
         if_in_discards, if_out_discards,
         sfp_tx_power_dbm, sfp_rx_power_dbm, sfp_temperature_c,
         ups_battery_pct, ups_runtime_min, poe_power_mw, humidity_pct,
+        if_oper_status,
         polled_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
     [
       deviceId,
       interfaceId,
@@ -224,6 +227,7 @@ async function insertMetricRow(deviceId, interfaceId, metrics) {
       metrics.ups_runtime_min ?? null,
       metrics.poe_power_mw ?? null,
       metrics.humidity_pct ?? null,
+      metrics.if_oper_status ?? null,
     ],
   );
 }

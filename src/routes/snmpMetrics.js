@@ -136,6 +136,7 @@ router.get('/interfaces/:deviceId', requirePermission('snmp_metrics.interfaces')
               m.avg_sfp_tx_power_dbm, m.avg_sfp_rx_power_dbm,
               m.avg_sfp_temperature_c,
               m.avg_poe_power_mw,
+              m.avg_if_oper_status, m.min_if_oper_status,
               m.period_start
        FROM snmp_metrics_1hr m
        INNER JOIN (

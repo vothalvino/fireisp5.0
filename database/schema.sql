@@ -1398,6 +1398,8 @@ CREATE TABLE IF NOT EXISTS snmp_metrics (
     ups_runtime_min    INT             NULL       COMMENT 'UPS estimated runtime remaining in minutes',
     poe_power_mw       INT             NULL       COMMENT 'PoE port power draw in milliwatts',
     humidity_pct       DECIMAL(5,2)    NULL       COMMENT 'Environmental relative humidity percentage',
+    -- §6.2 gap metrics (migration 264)
+    if_oper_status     TINYINT         NULL       COMMENT 'IF-MIB ifOperStatus: 1=up 2=down 3=testing 7=lowerLayerDown',
     polled_at          TIMESTAMP       NOT NULL   COMMENT 'Timestamp of the SNMP poll',
     created_at         TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -1487,6 +1489,10 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1hr (
     avg_humidity_pct        DECIMAL(7,4)    NULL,
     min_humidity_pct        DECIMAL(5,2)    NULL,
     max_humidity_pct        DECIMAL(5,2)    NULL,
+    -- §6.2 gap metrics (migration 264)
+    avg_if_oper_status      DECIMAL(4,2)    NULL     COMMENT 'Average ifOperStatus in the period',
+    min_if_oper_status      TINYINT         NULL     COMMENT 'Min ifOperStatus in the period',
+    max_if_oper_status      TINYINT         NULL     COMMENT 'Max ifOperStatus in the period',
     sample_count            INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Number of raw samples aggregated',
     created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -1569,6 +1575,10 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1day (
     avg_humidity_pct        DECIMAL(7,4)    NULL,
     min_humidity_pct        DECIMAL(5,2)    NULL,
     max_humidity_pct        DECIMAL(5,2)    NULL,
+    -- §6.2 gap metrics (migration 264)
+    avg_if_oper_status      DECIMAL(4,2)    NULL     COMMENT 'Average ifOperStatus in the period',
+    min_if_oper_status      TINYINT         NULL     COMMENT 'Min ifOperStatus in the period',
+    max_if_oper_status      TINYINT         NULL     COMMENT 'Max ifOperStatus in the period',
     sample_count            INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Number of hourly samples aggregated',
     created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
