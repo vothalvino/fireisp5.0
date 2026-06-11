@@ -8349,6 +8349,78 @@
         }
       }
     },
+    "/nas/{id}/health": {
+      "get": {
+        "tags": [
+          "NAS"
+        ],
+        "summary": "Get health status for a NAS device",
+        "operationId": "getNasHealth",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "NAS health status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/nas/{id}/health-check": {
+      "post": {
+        "tags": [
+          "NAS"
+        ],
+        "summary": "Trigger manual health check probe for org NAS devices",
+        "operationId": "triggerNasHealthCheck",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Health check results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/radius": {
       "get": {
         "tags": [
@@ -8858,6 +8930,153 @@
         "responses": {
           "200": {
             "description": "Kick result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/radius/accounting": {
+      "post": {
+        "tags": [
+          "RADIUS"
+        ],
+        "summary": "Ingest FreeRADIUS accounting record (Start/Stop/Interim-Update) — machine-to-machine, secret auth",
+        "operationId": "ingestRadiusAccounting",
+        "responses": {
+          "200": {
+            "description": "Ingest result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/radius/cdr": {
+      "get": {
+        "tags": [
+          "RADIUS"
+        ],
+        "summary": "Export CDR session records from connection_logs",
+        "operationId": "exportRadiusCdr",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "csv"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CDR rows or CSV",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/radius/coa": {
+      "post": {
+        "tags": [
+          "RADIUS"
+        ],
+        "summary": "Send dynamic CoA-Request to NAS for a subscriber",
+        "operationId": "sendDynamicCoA",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Dynamic CoA request",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CoA result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/radius/mac-move-events": {
+      "get": {
+        "tags": [
+          "RADIUS"
+        ],
+        "summary": "List MAC move events detected during accounting ingest",
+        "operationId": "listMacMoveEvents",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MacMoveEvent[]",
             "content": {
               "application/json": {
                 "schema": {
@@ -24828,6 +25047,31 @@
             "type": "number",
             "minimum": 0
           },
+          "coa_port": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "location": {
+            "type": "string",
+            "maximum": 200
+          },
+          "site_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "secondary_nas_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "health_status": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "up",
+              "down"
+            ]
+          },
           "description": {
             "type": "string",
             "maximum": 5000
@@ -24874,6 +25118,31 @@
           "ports": {
             "type": "number",
             "minimum": 0
+          },
+          "coa_port": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "location": {
+            "type": "string",
+            "maximum": 200
+          },
+          "site_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "secondary_nas_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "health_status": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "up",
+              "down"
+            ]
           },
           "description": {
             "type": "string",

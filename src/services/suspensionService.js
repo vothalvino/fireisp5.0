@@ -219,7 +219,7 @@ async function isClientSuspensionExempt(contractId) {
 async function sendRadiusDisconnect(contractId) {
   // Look up the RADIUS account and NAS for this contract
   const [radiusRows] = await db.query(
-    `SELECT r.username, r.nas_id, n.ip_address AS nas_ip, n.coa_port, n.secret
+    `SELECT r.username, r.nas_id, n.ip_address AS nas_ip, n.coa_port, n.secret, n.secondary_nas_id
      FROM radius r
      JOIN nas n ON n.id = r.nas_id
      WHERE r.contract_id = ?
@@ -231,15 +231,14 @@ async function sendRadiusDisconnect(contractId) {
     return { sent: false, response: 'No RADIUS account found for contract' };
   }
 
-  const { username, nas_ip, coa_port, secret } = radiusRows[0];
-  const port = coa_port || 3799;
+  const nas = radiusRows[0];
 
-  if (!secret) {
+  if (!nas.secret) {
     logger.error({ contractId }, 'NAS RADIUS secret is not configured — cannot send Disconnect-Request');
     return { sent: false, response: 'NAS RADIUS secret not configured' };
   }
 
-  return sendRadiusPacket(nas_ip, port, secret, 40, username);
+  return sendWithFailover(nas, 40, nas.username);
 }
 
 /**
@@ -247,7 +246,7 @@ async function sendRadiusDisconnect(contractId) {
  */
 async function sendRadiusCoA(contractId, _action) {
   const [radiusRows] = await db.query(
-    `SELECT r.username, r.nas_id, n.ip_address AS nas_ip, n.coa_port, n.secret
+    `SELECT r.username, r.nas_id, n.ip_address AS nas_ip, n.coa_port, n.secret, n.secondary_nas_id
      FROM radius r
      JOIN nas n ON n.id = r.nas_id
      WHERE r.contract_id = ?
@@ -259,15 +258,19 @@ async function sendRadiusCoA(contractId, _action) {
     return { sent: false, response: 'No RADIUS account found for contract' };
   }
 
-  const { username, nas_ip, coa_port, secret } = radiusRows[0];
-  const port = coa_port || 3799;
+  const nas = radiusRows[0];
 
-  if (!secret) {
+  if (!nas.secret) {
     logger.error({ contractId }, 'NAS RADIUS secret is not configured — cannot send CoA-Request');
     return { sent: false, response: 'NAS RADIUS secret not configured' };
   }
 
-  return sendRadiusPacket(nas_ip, port, secret, 43, username);
+  // TODO: for 'soft_suspend' action, encode Mikrotik-Rate-Limit or similar VSA
+  // based on the suspension rule's soft_suspend_download_kbps / upload_kbps.
+  // The radiusCoaEncoder module supports encodeMikrotikRateLimit() for this.
+  // Requires the caller to pass ruleId / kbps values into this function.
+
+  return sendWithFailover(nas, 43, nas.username);
 }
 
 /**
@@ -277,8 +280,15 @@ async function sendRadiusCoA(contractId, _action) {
  * @param {string} secret - RADIUS shared secret
  * @param {number} code - RADIUS code (40=Disconnect, 43=CoA)
  * @param {string} username - User-Name attribute
+ * @param {Array<{name: string, value: string}>} [extraAttributes=[]] - additional named attributes
  */
-function sendRadiusPacket(nasIp, port, secret, code, username) {
+function sendRadiusPacket(nasIp, port, secret, code, username, extraAttributes = []) {
+  const {
+    encodeNamedAttributes,
+    buildRadiusPacket,
+    computeRequestAuthenticator,
+  } = require('./radiusCoaEncoder');
+
   return new Promise((resolve) => {
     const socket = dgram.createSocket('udp4');
     const identifier = crypto.randomInt(0, 256);
@@ -287,34 +297,21 @@ function sendRadiusPacket(nasIp, port, secret, code, username) {
       resolve({ sent: true, response: 'Timeout — no response from NAS' });
     }, 5000);
 
-    // Build a minimal RADIUS packet
-    // User-Name attribute (type 1)
-    const usernameAttr = Buffer.alloc(2 + username.length);
-    usernameAttr[0] = 1; // User-Name type
-    usernameAttr[1] = 2 + username.length;
-    usernameAttr.write(username, 2);
+    // Build attributes: User-Name first, then any caller-supplied extras
+    const userNameBuf = encodeNamedAttributes([{ name: 'User-Name', value: username }]);
+    const extraBuf = extraAttributes.length > 0
+      ? encodeNamedAttributes(extraAttributes)
+      : Buffer.alloc(0);
+    const attributesBuffer = Buffer.concat([userNameBuf, extraBuf]);
 
-    // RADIUS packet header (20 bytes) + attributes
-    const attrLen = usernameAttr.length;
-    const packet = Buffer.alloc(20 + attrLen);
-    packet[0] = code;          // Code
-    packet[1] = identifier;    // Identifier
-    packet.writeUInt16BE(20 + attrLen, 2); // Length
-    // Authenticator (16 bytes at offset 4) — filled with random, then HMAC'd
-    const authenticatorRandom = crypto.randomBytes(16);
-    authenticatorRandom.copy(packet, 4);
-    usernameAttr.copy(packet, 20);
+    // Build packet with a zero authenticator placeholder, then compute the real one
+    const zeroAuth = Buffer.alloc(16);
+    const packet = buildRadiusPacket(code, identifier, zeroAuth, attributesBuffer);
 
     // Compute Request Authenticator per RFC 2865 §3:
-    // MD5(Code + ID + Length + 16 zero bytes + Attributes + Secret)
-    // Note: MD5 is mandated by the RADIUS protocol spec — not a free choice.
-    const authBuf = Buffer.alloc(20 + attrLen);
-    packet.copy(authBuf, 0, 0, 20 + attrLen);
-    authBuf.fill(0, 4, 20); // Zero out authenticator
-    const md5 = crypto.createHash('md5');
-    md5.update(authBuf);
-    md5.update(Buffer.from(secret));
-    const authenticator = md5.digest();
+    // MD5(Code + ID + Length + 16-zero-bytes + Attributes + Secret)
+    // Note: MD5 is mandated by the RADIUS protocol spec — not a free algorithmic choice.
+    const authenticator = computeRequestAuthenticator(packet, secret);
     authenticator.copy(packet, 4);
 
     socket.on('message', (msg) => {
@@ -333,6 +330,46 @@ function sendRadiusPacket(nasIp, port, secret, code, username) {
 
     socket.send(packet, port, nasIp);
   });
+}
+
+/**
+ * Send a RADIUS packet with automatic failover to a secondary NAS.
+ *
+ * @param {object} nas - NAS row with ip_address, coa_port, secret, secondary_nas_id
+ * @param {number} code - RADIUS code (40=Disconnect, 43=CoA)
+ * @param {string} username - User-Name attribute value
+ * @param {Array<{name: string, value: string}>} [extraAttributes=[]]
+ * @returns {Promise<{sent: boolean, response: string}>}
+ */
+async function sendWithFailover(nas, code, username, extraAttributes = []) {
+  const port = nas.coa_port || 3799;
+  const result = await sendRadiusPacket(nas.ip_address, port, nas.secret, code, username, extraAttributes);
+
+  if (!result.sent && nas.secondary_nas_id) {
+    logger.warn(
+      { primaryNasIp: nas.ip_address, secondaryNasId: nas.secondary_nas_id },
+      'Primary NAS send failed — attempting failover to secondary NAS',
+    );
+
+    const [secondaryRows] = await db.query(
+      'SELECT ip_address, coa_port, secret FROM nas WHERE id = ? LIMIT 1',
+      [nas.secondary_nas_id],
+    );
+
+    if (secondaryRows.length > 0) {
+      const secondary = secondaryRows[0];
+      const secondaryPort = secondary.coa_port || 3799;
+      logger.info(
+        { secondaryNasIp: secondary.ip_address, secondaryPort },
+        'Sending RADIUS packet via secondary NAS',
+      );
+      return sendRadiusPacket(secondary.ip_address, secondaryPort, secondary.secret, code, username, extraAttributes);
+    }
+
+    logger.error({ secondaryNasId: nas.secondary_nas_id }, 'Secondary NAS not found — failover aborted');
+  }
+
+  return result;
 }
 
 module.exports = { evaluateRules, suspendContract, softSuspendContract, reconnectContract, isClientSuspensionExempt, sendRadiusDisconnect, sendRadiusCoA, sendRadiusPacket };

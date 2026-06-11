@@ -7762,4 +7762,50 @@ CREATE TABLE IF NOT EXISTS radius_account_routes (
         REFERENCES radius (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ---------------------------------------------------------------------------
+-- Table: mac_move_events (migration 231 — §3.3 Phase C)
+-- Purpose: Records MAC-address move events detected during RADIUS accounting
+--          ingest (same username, different Calling-Station-Id or NAS).
+--          No FK constraints — loose references for compliance resilience.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS mac_move_events (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL
+                        COMMENT 'Tenant organization; NULL = single-tenant (no FK)',
+    username        VARCHAR(64)     NOT NULL  COMMENT 'RADIUS username',
+    old_mac         VARCHAR(17)     NULL      COMMENT 'Previous Calling-Station-Id (raw)',
+    new_mac         VARCHAR(17)     NULL      COMMENT 'New Calling-Station-Id detected',
+    old_nas_id      BIGINT UNSIGNED NULL      COMMENT 'Previous NAS (loose ref to nas.id)',
+    new_nas_id      BIGINT UNSIGNED NULL      COMMENT 'New NAS (loose ref to nas.id)',
+    detected_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_mac_move_org         (organization_id),
+    KEY idx_mac_move_username    (username),
+    KEY idx_mac_move_detected_at (detected_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Columns added to connection_logs by migration 230 (§3.3 Phase C):
+--   acct_session_id     VARCHAR(64)  NULL
+--   nas_port_id         VARCHAR(100) NULL
+--   called_station_id   VARCHAR(100) NULL
+--   calling_station_id  VARCHAR(100) NULL
+--   framed_ip           VARCHAR(45)  NULL
+--   framed_ipv6_prefix  VARCHAR(64)  NULL
+-- Applied via stored-procedure guards (ALTER TABLE IF NOT EXISTS equivalent).
+-- See migration 230 for the exact DDL.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Columns added to nas by migration 232 (§3.4 Phase C):
+--   coa_port           SMALLINT UNSIGNED NULL DEFAULT 3799
+--   location           VARCHAR(200)      NULL
+--   site_id            BIGINT UNSIGNED   NULL  (FK → sites ON DELETE SET NULL)
+--   secondary_nas_id   BIGINT UNSIGNED   NULL  (self-ref FK ON DELETE SET NULL)
+--   health_status      ENUM('unknown','up','down') NOT NULL DEFAULT 'unknown'
+--   last_health_check_at DATETIME        NULL
+-- Applied via stored-procedure guards. See migration 232.
+-- ---------------------------------------------------------------------------
+
 SET FOREIGN_KEY_CHECKS = 1;

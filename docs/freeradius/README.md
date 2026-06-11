@@ -332,6 +332,127 @@ preferred over the MikroTik address-list approach.
 
 ---
 
+## RADIUS Accounting ingest (rlm_rest)
+
+FireISP exposes a machine-to-machine endpoint that FreeRADIUS can POST accounting records to:
+
+```
+POST /api/v1/radius/accounting
+```
+
+The endpoint requires no JWT token. Authentication uses a shared secret sent in either:
+
+- `X-Radius-Secret: <secret>` header, or
+- `Authorization: Bearer <secret>` header
+
+Set the shared secret in `RADIUS_ACCOUNTING_SECRET` (backend env var). Leave it unset to disable
+authentication checks (not recommended in production).
+
+### FreeRADIUS rlm_rest configuration
+
+Install `rlm_rest` (bundled in FreeRADIUS ≥ 3.0). Create or edit
+`/etc/freeradius/3.0/mods-available/rest`:
+
+```apacheconf
+rest {
+    # Base URL of your FireISP backend
+    connect_uri = "https://isp.example.com"
+
+    accounting {
+        uri = "${..connect_uri}/api/v1/radius/accounting"
+        method = 'post'
+        body = 'json'
+        tls = ${..tls}
+
+        header {
+            X-Radius-Secret = "<RADIUS_ACCOUNTING_SECRET value>"
+        }
+    }
+
+    # 2-second connect / 5-second request timeouts
+    connect_timeout = 2.0
+    timeout = 5.0
+}
+```
+
+Enable the module:
+
+```bash
+cd /etc/freeradius/3.0/mods-enabled
+ln -s ../mods-available/rest rest
+```
+
+### Accounting section
+
+In `/etc/freeradius/3.0/sites-available/default`, add `rest` to the accounting section
+(after `sql` so SQL always runs even if the REST call fails):
+
+```apacheconf
+accounting {
+    detail
+    unix
+    sql
+    rest
+    -ldap
+    exec
+    attr_filter.accounting_response
+}
+```
+
+### JSON payload format
+
+FreeRADIUS sends attributes using their standard hyphenated names. FireISP accepts both
+hyphenated (`Acct-Status-Type`) and camelCase (`AcctStatusType`) forms. The minimum required
+fields for each status type are:
+
+| Status-Type | Required attributes |
+|-------------|---------------------|
+| Start | `User-Name`, `NAS-IP-Address`, `Acct-Session-Id` |
+| Stop | `User-Name`, `NAS-IP-Address`, `Acct-Session-Id`, `Acct-Terminate-Cause` |
+| Interim-Update | `User-Name`, `NAS-IP-Address`, `Acct-Session-Id` |
+| Accounting-On / Accounting-Off | (no-op — silently ignored) |
+
+Gigawords wraparound is handled automatically:
+`total_bytes = Acct-Input-Octets + Acct-Input-Gigawords × 4294967296`
+
+### MAC move detection
+
+When a `Start` record arrives for a username that already has an open session on a
+different `Calling-Station-Id` (MAC address) or NAS, FireISP:
+
+1. Synthesizes a `Stop` record for the old session.
+2. Logs the event to the `mac_move_events` table.
+3. Returns HTTP 200 and continues creating the new `Start` record.
+
+View events in the UI under **RADIUS → MAC Move Events** or via `GET /api/v1/radius/mac-move-events`.
+
+### CDR export
+
+Export call-detail records with `GET /api/v1/radius/cdr`:
+
+| Query parameter | Description |
+|-----------------|-------------|
+| `from` | ISO-8601 start datetime (inclusive) |
+| `to` | ISO-8601 end datetime (inclusive) |
+| `username` | Filter to a single subscriber |
+| `format` | `json` (default) or `csv` |
+
+CSV responses are RFC 4180-compliant with a `Content-Disposition: attachment` header.
+
+Retention is controlled by the `RADIUS_ACCOUNTING_RETENTION_MONTHS` env var (default: 12).
+The `purge_radius_accounting` scheduled task runs nightly at 03:00 and deletes records older
+than the retention window in batches of 1 000 rows to avoid long table-lock events.
+
+### Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `RADIUS_ACCOUNTING_SECRET` | _(unset — auth disabled)_ | Shared secret for accounting ingest |
+| `RADIUS_ACCOUNTING_ORG_ID` | `0` | Organization ID to tag ingested records with |
+| `RADIUS_ACCOUNTING_RETENTION_MONTHS` | `12` | Months of accounting data to retain |
+
+---
+
 ## Per-session route injection (Framed-Route)
 
 Add entries in the **RADIUS Account → Routes** editor (requires `radius_account_routes.create`).

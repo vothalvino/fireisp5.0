@@ -17,6 +17,9 @@ const {
 } = require('../services/radiusService');
 const { createRoute, updateWalledGarden } = require('../middleware/schemas/radius');
 const db = require('../config/database');
+const { exportCdr, listMacMoveEvents } = require('../services/radiusAccountingService');
+const { sendRadiusPacket } = require('../services/suspensionService');
+const auditLog = require('../services/auditLog');
 
 const router = Router();
 const ctrl = crudController(Radius);
@@ -176,6 +179,117 @@ router.post('/kick-sessions', requirePermission('radius.kick_sessions'), async (
   try {
     const result = await kickDuplicateSessions(req.orgId);
     res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =============================================================================
+// CDR Export (item 20)
+// =============================================================================
+
+router.get('/cdr', requirePermission('radius.cdr_export'), async (req, res, next) => {
+  try {
+    const { from, to, username, format = 'json' } = req.query;
+
+    if (!from || !to) {
+      return res.status(400).json({ error: 'Query params "from" and "to" are required (ISO date strings)' });
+    }
+
+    const result = await exportCdr({
+      from,
+      to,
+      username: username || null,
+      format,
+      organizationId: req.orgId,
+    });
+
+    await auditLog.log({
+      userId: req.user?.id,
+      organizationId: req.orgId,
+      action: 'export',
+      tableName: 'connection_logs',
+      recordId: 0,
+      newValues: { from, to, username: username || null, format },
+    });
+
+    if (format === 'csv') {
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename=cdr_export.csv');
+      return res.send(result.csv);
+    }
+
+    res.json({ data: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =============================================================================
+// Dynamic CoA (items 24, 25, 26)
+// =============================================================================
+
+router.post('/coa', requirePermission('radius.coa'), async (req, res, next) => {
+  try {
+    const { username, attributes = [] } = req.body;
+
+    if (!username) {
+      return res.status(400).json({ error: '"username" is required' });
+    }
+
+    const [rows] = await db.query(
+      `SELECT r.username, r.nas_id, n.ip_address AS nas_ip, n.coa_port, n.secret, n.secondary_nas_id
+       FROM radius r
+       JOIN nas n ON n.id = r.nas_id
+       WHERE r.username = ? AND r.organization_id = ?
+       LIMIT 1`,
+      [username, req.orgId],
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'RADIUS account not found' });
+    }
+
+    const nas = rows[0];
+
+    if (!nas.secret) {
+      return res.status(422).json({ error: 'NAS RADIUS secret is not configured' });
+    }
+
+    // sendRadiusPacket handles User-Name + encoder + authenticator internally
+    let result = await sendRadiusPacket(nas.nas_ip, nas.coa_port || 3799, nas.secret, 43, nas.username, attributes);
+
+    if (!result.sent && nas.secondary_nas_id) {
+      const [secRows] = await db.query(
+        'SELECT ip_address, coa_port, secret FROM nas WHERE id = ? LIMIT 1',
+        [nas.secondary_nas_id],
+      );
+      if (secRows.length > 0) {
+        const sec = secRows[0];
+        result = await sendRadiusPacket(sec.ip_address, sec.coa_port || 3799, sec.secret, 43, nas.username, attributes);
+      }
+    }
+
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =============================================================================
+// MAC Move Events (item 21)
+// =============================================================================
+
+router.get('/mac-move-events', requirePermission('radius.mac_move_events.view'), async (req, res, next) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
+
+    const result = await listMacMoveEvents(req.orgId, { page, limit });
+    res.json({
+      data: result.rows,
+      meta: { total: result.total, page: result.page, limit: result.limit },
+    });
   } catch (err) {
     next(err);
   }

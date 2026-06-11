@@ -428,6 +428,8 @@ function generateSpec() {
 
       // ---- NAS ----
       ...crudPaths('nas', 'NAS', 'Nas'),
+      '/nas/{id}/health': { get: { tags: ['NAS'], summary: 'Get health status for a NAS device', operationId: 'getNasHealth', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('NAS health status') } },
+      '/nas/{id}/health-check': { post: { tags: ['NAS'], summary: 'Trigger manual health check probe for org NAS devices', operationId: 'triggerNasHealthCheck', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Health check results') } },
 
       // ---- RADIUS ----
       ...crudPaths('radius', 'RADIUS', 'RadiusAccount'),
@@ -447,6 +449,10 @@ function generateSpec() {
         put: { tags: ['RADIUS'], summary: 'Update org walled garden settings', operationId: 'updateWalledGardenSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('radius_updateWalledGarden'), responses: r200('WalledGardenSettings') },
       },
       '/radius/kick-sessions': { post: { tags: ['RADIUS'], summary: 'Trigger manual duplicate-session kick for org', operationId: 'kickDuplicateSessions', security: [{ bearerAuth: [] }], responses: r200('Kick result') } },
+      '/radius/accounting': { post: { tags: ['RADIUS'], summary: 'Ingest FreeRADIUS accounting record (Start/Stop/Interim-Update) — machine-to-machine, secret auth', operationId: 'ingestRadiusAccounting', responses: r200('Ingest result') } },
+      '/radius/cdr': { get: { tags: ['RADIUS'], summary: 'Export CDR session records from connection_logs', operationId: 'exportRadiusCdr', security: [{ bearerAuth: [] }], parameters: [{ name: 'from', in: 'query', required: true, schema: { type: 'string', format: 'date' } }, { name: 'to', in: 'query', required: true, schema: { type: 'string', format: 'date' } }, { name: 'username', in: 'query', schema: { type: 'string' } }, { name: 'format', in: 'query', schema: { type: 'string', enum: ['json', 'csv'] } }], responses: r200('CDR rows or CSV') } },
+      '/radius/coa': { post: { tags: ['RADIUS'], summary: 'Send dynamic CoA-Request to NAS for a subscriber', operationId: 'sendDynamicCoA', security: [{ bearerAuth: [] }], requestBody: jsonBody('Dynamic CoA request'), responses: r200('CoA result') } },
+      '/radius/mac-move-events': { get: { tags: ['RADIUS'], summary: 'List MAC move events detected during accounting ingest', operationId: 'listMacMoveEvents', security: [{ bearerAuth: [] }], responses: r200('MacMoveEvent[]') } },
 
       // ---- Subscriber Certificates ----
       ...crudPaths('subscriber-certificates', 'Subscriber Certificates', 'SubscriberCertificate'),

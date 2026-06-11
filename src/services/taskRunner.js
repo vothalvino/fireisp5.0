@@ -107,6 +107,16 @@ async function runTask(taskName, organizationId = null) {
       return lateFeeService.applyLateFees(organizationId);
     case 'send_payment_reminders':
       return paymentReminderService.sendPaymentReminders(organizationId);
+    case 'purge_radius_accounting': {
+      const radiusAccountingService = require('./radiusAccountingService');
+      return radiusAccountingService.purgeRadiusAccounting();
+    }
+    case 'nas_health_check': {
+      const nasHealthService = require('./nasHealthService');
+      return nasHealthService.runHealthChecks(organizationId);
+    }
+    case 'kick_duplicate_sessions':
+      return radiusService.kickDuplicateSessions(organizationId);
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }

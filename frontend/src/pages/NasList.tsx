@@ -24,6 +24,11 @@ interface Nas {
   ipv6_address: string | null;
   type: string | null;
   ports: number | null;
+  coa_port: number | null;
+  location: string | null;
+  secondary_nas_id: number | null;
+  health_status: string;
+  last_health_check_at: string | null;
   description: string | null;
   status: string;
 }
@@ -40,6 +45,9 @@ interface NasBody {
   secret?: string;
   type?: string;
   ports?: number;
+  coa_port?: number;
+  location?: string;
+  secondary_nas_id?: number;
   description?: string;
   status?: string;
 }
@@ -107,6 +115,34 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Health badge
+// ---------------------------------------------------------------------------
+
+function HealthBadge({ status }: { status: string }) {
+  const map: Record<string, { bg: string; color: string }> = {
+    up: { bg: '#d1fae5', color: '#065f46' },
+    down: { bg: '#fee2e2', color: '#991b1b' },
+    unknown: { bg: '#f3f4f6', color: '#374151' },
+  };
+  const s = map[status] ?? { bg: '#f3f4f6', color: '#374151' };
+  return (
+    <span
+      style={{
+        background: s.bg,
+        color: s.color,
+        padding: '2px 8px',
+        borderRadius: 12,
+        fontSize: '0.72rem',
+        fontWeight: 600,
+        textTransform: 'capitalize',
+      }}
+    >
+      {status}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // NAS form modal (create + edit)
 // ---------------------------------------------------------------------------
 
@@ -125,6 +161,9 @@ function NasModal({ nas, onClose, onSaved }: NasModalProps) {
     secret: '',
     type: nas?.type ?? '',
     ports: nas?.ports != null ? String(nas.ports) : '',
+    coa_port: nas?.coa_port != null ? String(nas.coa_port) : '3799',
+    location: nas?.location ?? '',
+    secondary_nas_id: nas?.secondary_nas_id != null ? String(nas.secondary_nas_id) : '',
     description: nas?.description ?? '',
     status: nas?.status ?? 'active',
   });
@@ -145,6 +184,9 @@ function NasModal({ nas, onClose, onSaved }: NasModalProps) {
       if (form.secret) body.secret = form.secret;
       if (form.type) body.type = form.type.trim();
       if (form.ports) body.ports = Number(form.ports);
+      if (form.coa_port) body.coa_port = Number(form.coa_port);
+      if (form.location) body.location = form.location.trim();
+      if (form.secondary_nas_id) body.secondary_nas_id = Number(form.secondary_nas_id);
       if (form.description) body.description = form.description;
       return isEdit ? updateNas(nas.id, body) : createNas(body);
     },
@@ -179,7 +221,7 @@ function NasModal({ nas, onClose, onSaved }: NasModalProps) {
         aria-label={isEdit ? `Edit NAS ${nas.name}` : 'New NAS'}
       >
         <div style={modalStyles.header}>
-          <h2 style={modalStyles.title}>{isEdit ? `📝 Edit NAS #${nas.id}` : '🖧 New NAS'}</h2>
+          <h2 style={modalStyles.title}>{isEdit ? `Edit NAS #${nas.id}` : 'New NAS'}</h2>
           <button style={modalStyles.closeBtn} onClick={onClose} aria-label="Close">✕</button>
         </div>
 
@@ -257,6 +299,43 @@ function NasModal({ nas, onClose, onSaved }: NasModalProps) {
           </label>
 
           <label style={modalStyles.label}>
+            CoA Port
+            <input
+              style={modalStyles.input}
+              type="number"
+              min={1}
+              max={65535}
+              value={form.coa_port}
+              onChange={e => setField('coa_port', e.target.value)}
+              aria-label="CoA Port"
+            />
+          </label>
+
+          <label style={modalStyles.label}>
+            Location
+            <input
+              style={modalStyles.input}
+              type="text"
+              maxLength={200}
+              value={form.location}
+              onChange={e => setField('location', e.target.value)}
+              aria-label="Location"
+            />
+          </label>
+
+          <label style={modalStyles.label}>
+            Failover NAS ID
+            <input
+              style={modalStyles.input}
+              type="number"
+              min={1}
+              value={form.secondary_nas_id}
+              onChange={e => setField('secondary_nas_id', e.target.value)}
+              aria-label="Failover NAS ID"
+            />
+          </label>
+
+          <label style={modalStyles.label}>
             Description
             <textarea
               style={{ ...modalStyles.input, minHeight: 60, resize: 'vertical' }}
@@ -284,7 +363,7 @@ function NasModal({ nas, onClose, onSaved }: NasModalProps) {
               Cancel
             </button>
             <button type="submit" style={styles.btnPrimary} disabled={mutation.isPending}>
-              {mutation.isPending ? 'Saving…' : isEdit ? 'Save Changes' : 'Create NAS'}
+              {mutation.isPending ? 'Saving...' : isEdit ? 'Save Changes' : 'Create NAS'}
             </button>
           </div>
         </form>
@@ -359,7 +438,7 @@ export function NasList() {
   return (
     <div style={styles.page}>
       <div style={styles.header}>
-        <h1 style={styles.pageTitle}>🖧 NAS Devices</h1>
+        <h1 style={styles.pageTitle}>NAS Devices</h1>
         {meta && <span style={styles.countBadge}>{meta.total} total</span>}
         <button style={{ ...styles.btnPrimary, marginLeft: 'auto' }} onClick={() => setShowNew(true)}>
           + New NAS
@@ -392,7 +471,7 @@ export function NasList() {
 
       <div style={styles.tableCard}>
         {nasQ.isLoading ? (
-          <p style={styles.msg}>Loading…</p>
+          <p style={styles.msg}>Loading...</p>
         ) : nasQ.error ? (
           <p style={styles.msgError}>Failed to load NAS devices.</p>
         ) : devices.length === 0 ? (
@@ -403,7 +482,7 @@ export function NasList() {
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    {['ID', 'Name', 'IP Address', 'Type', 'Ports', 'Status', 'Actions'].map(
+                    {['ID', 'Name', 'IP Address', 'Type', 'Ports', 'CoA Port', 'Health', 'Last Check', 'Status', 'Actions'].map(
                       h => <th key={h} style={styles.th}>{h}</th>,
                     )}
                   </tr>
@@ -416,17 +495,24 @@ export function NasList() {
                       <td style={styles.td}>{n.ip_address}</td>
                       <td style={styles.td}>{n.type ?? '—'}</td>
                       <td style={styles.td}>{n.ports ?? '—'}</td>
+                      <td style={styles.td}>{n.coa_port ?? '—'}</td>
+                      <td style={styles.td}><HealthBadge status={n.health_status} /></td>
+                      <td style={styles.td}>
+                        {n.last_health_check_at
+                          ? new Date(n.last_health_check_at).toLocaleString()
+                          : '—'}
+                      </td>
                       <td style={styles.td}><StatusBadge status={n.status} /></td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
                         <button style={styles.actionBtn} onClick={() => setEditNas(n)} title="Edit this NAS">
-                          ✏️ Edit
+                          Edit
                         </button>
                         <button
                           style={{ ...styles.actionBtn, color: '#991b1b' }}
                           onClick={() => setDeleteId(n.id)}
                           title="Delete this NAS"
                         >
-                          🗑 Delete
+                          Delete
                         </button>
                       </td>
                     </tr>
@@ -438,7 +524,7 @@ export function NasList() {
             {meta && meta.totalPages > 1 && (
               <div style={styles.pagination}>
                 <button style={styles.pageBtn} onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-                  ← Prev
+                  &larr; Prev
                 </button>
                 <span style={styles.pageInfo}>Page {page} of {meta.totalPages}</span>
                 <button
@@ -446,7 +532,7 @@ export function NasList() {
                   onClick={() => setPage(p => Math.min(meta.totalPages, p + 1))}
                   disabled={page === meta.totalPages}
                 >
-                  Next →
+                  Next &rarr;
                 </button>
               </div>
             )}
