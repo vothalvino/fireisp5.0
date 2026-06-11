@@ -238,17 +238,17 @@
 ### 6.1 Device Discovery & Onboarding
 - [x] Auto-discovery via SNMP scan (seed IP + CIDR range)
 - [x] Vendor-agnostic SNMP support (v1, v2c, v3)
-- [ ] SNMPv3 with AES-128/256 encryption and SHA authentication
-- [ ] Bulk device import via CSV
+- [x] SNMPv3 with AES-128/256 encryption and SHA authentication
+- [x] Bulk device import via CSV
 - [x] Device grouping by type, location, region, OLT
 - [x] Custom SNMP OID polling templates
 - [x] SNMP trap receiver with parsing and forwarding
 
 ### 6.2 Network Device Monitoring
 - [x] MikroTik RouterOS: CPU, memory, voltage, temperature, fan speed
-- [ ] Cisco/Juniper BNG: interface stats, sessions, CPU, memory
-- [ ] Huawei/ZTE OLT monitoring (private MIBs where available)
-- [ ] Switch monitoring: port status, errors, utilization, PoE status
+- [x] Cisco/Juniper BNG: interface stats, sessions, CPU, memory
+- [x] Huawei/ZTE OLT monitoring (private MIBs where available)
+- [x] Switch monitoring: port status, errors, utilization, PoE status
 - [x] SFP/QSFP diagnostics: temperature, Tx/Rx power, vendor info, distance
 - [x] UPS / PDU monitoring via SNMP
 - [x] Environmental sensors (temp, humidity, water, door)
@@ -259,7 +259,7 @@
 - [x] Error/discards counter monitoring (CRC, input errors, output drops)
 - [x] Top talkers by interface / by subscriber
 - [ ] Traffic classification (adaptive to NetFlow/sFlow if available)
-- [ ] Graph retention: hourly (7 days), daily (90 days), monthly (3 years)
+- [x] Graph retention: hourly (7 days), daily (90 days), monthly (3 years)
 
 ### 6.4 Polling Engine
 - [x] Configurable polling intervals per device type / per metric
