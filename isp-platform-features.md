@@ -262,29 +262,29 @@
 - [ ] Graph retention: hourly (7 days), daily (90 days), monthly (3 years)
 
 ### 6.4 Polling Engine
-- [ ] Configurable polling intervals per device type / per metric
-- [ ] Distributed polling for large networks (multiple poller nodes)
-- [ ] SNMP bulk-get optimization for devices with many ports
-- [ ] Failover poller with automatic redistribution
-- [ ] Poller performance dashboard (poll time, timeout rate, queue depth)
-- [ ] Adaptive polling: increase frequency during incidents
+- [x] Configurable polling intervals per device type / per metric
+- [x] Distributed polling for large networks (multiple poller nodes)
+- [x] SNMP bulk-get optimization for devices with many ports
+- [x] Failover poller with automatic redistribution
+- [x] Poller performance dashboard (poll time, timeout rate, queue depth)
+- [x] Adaptive polling: increase frequency during incidents
 
 ### 6.5 Alerting & Notification
-- [ ] Threshold-based alerts (static and dynamic/baseline)
-- [ ] Alert correlation: suppress downstream alerts on upstream failure
-- [ ] Multi-channel notification: email, SMS, WhatsApp, Telegram, webhook
-- [ ] Alert escalation: L1 → L2 → L3 with time-based escalation
-- [ ] Maintenance window scheduling (suppress alerts during planned work)
-- [ ] Alert acknowledgment and resolution tracking
-- [ ] Repeat alert suppression (flapping detection)
+- [x] Threshold-based alerts (static and dynamic/baseline)
+- [x] Alert correlation: suppress downstream alerts on upstream failure
+- [x] Multi-channel notification: email, SMS, WhatsApp, Telegram, webhook
+- [x] Alert escalation: L1 → L2 → L3 with time-based escalation
+- [x] Maintenance window scheduling (suppress alerts during planned work)
+- [x] Alert acknowledgment and resolution tracking
+- [x] Repeat alert suppression (flapping detection)
 
 ### 6.6 Device Configuration Management
-- [ ] Configuration backup scheduler (daily/weekly)
-- [ ] Configuration diff comparison (version history)
+- [x] Configuration backup scheduler (daily/weekly)
+- [x] Configuration diff comparison (version history)
 - [ ] Rollback to previous configuration
-- [ ] Template-based config deployment
-- [ ] Scheduled config push (batch/multi-device)
-- [ ] Configuration compliance auditing
+- [x] Template-based config deployment
+- [x] Scheduled config push (batch/multi-device)
+- [x] Configuration compliance auditing
 
 ---
 

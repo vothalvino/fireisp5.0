@@ -3560,6 +3560,7 @@ CREATE TABLE IF NOT EXISTS device_config_backups (
                                      COMMENT 'How the backup was triggered',
     captured_by_user_id BIGINT UNSIGNED NULL  COMMENT 'User who initiated the capture; NULL = system / automated',
     notes           TEXT             NULL     COMMENT 'Free-form operator notes',
+    diff_from_previous LONGTEXT      NULL     COMMENT 'Unified diff vs previous version (migration 262; NULL for first backup)',
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
 
@@ -8553,6 +8554,298 @@ CREATE TABLE IF NOT EXISTS `xlat464_configs` (
   `deleted_at` TIMESTAMP NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   INDEX `idx_xlat464_org` (`organization_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: poller_nodes (migration 258 — §6.4 Distributed Polling Engine)
+-- Purpose: Registry of dedicated SNMP poller nodes; may reference firerelay_nodes.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS poller_nodes (
+  id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  node_identifier       VARCHAR(64)     NOT NULL COMMENT 'Matches firerelay_nodes.id when linked',
+  name                  VARCHAR(255)    NOT NULL,
+  status                ENUM('active','draining','maintenance','offline') NOT NULL DEFAULT 'active',
+  api_url               VARCHAR(512)    NULL,
+  max_concurrent_polls  INT UNSIGNED    NOT NULL DEFAULT 10,
+  current_queue_depth   INT UNSIGNED    NOT NULL DEFAULT 0,
+  total_polls_today     BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  failed_polls_today    BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  avg_poll_duration_ms  INT UNSIGNED    NULL,
+  last_heartbeat_at     DATETIME        NULL,
+  created_at            DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at            DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_poller_nodes_identifier (node_identifier),
+  KEY idx_poller_nodes_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: device_polling_configs (migration 258 — §6.4 Polling Engine)
+-- Purpose: Per-device or per-device-type polling interval and GETBULK overrides.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS device_polling_configs (
+  id                         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id            BIGINT UNSIGNED NULL,
+  device_id                  BIGINT UNSIGNED NULL COMMENT 'NULL = applies to all devices of this type',
+  device_type                VARCHAR(50)     NULL COMMENT 'Match devices.type; only used when device_id IS NULL',
+  poller_node_id             BIGINT UNSIGNED NULL,
+  poll_interval_sec          INT UNSIGNED    NOT NULL DEFAULT 300,
+  bulk_get_enabled           TINYINT(1)      NOT NULL DEFAULT 1,
+  max_repetitions            SMALLINT UNSIGNED NOT NULL DEFAULT 10,
+  timeout_ms                 INT UNSIGNED    NOT NULL DEFAULT 5000,
+  retries                    TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  failover_node_id           BIGINT UNSIGNED NULL,
+  adaptive_polling_enabled   TINYINT(1)      NOT NULL DEFAULT 0,
+  adaptive_min_interval_sec  INT UNSIGNED    NOT NULL DEFAULT 60,
+  is_enabled                 TINYINT(1)      NOT NULL DEFAULT 1,
+  deleted_at                 DATETIME        NULL,
+  created_at                 DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at                 DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_dpc_org (organization_id),
+  KEY idx_dpc_device (device_id),
+  CONSTRAINT fk_dpc_org      FOREIGN KEY (organization_id) REFERENCES organizations(id)   ON DELETE CASCADE,
+  CONSTRAINT fk_dpc_device   FOREIGN KEY (device_id)       REFERENCES devices(id)         ON DELETE CASCADE,
+  CONSTRAINT fk_dpc_node     FOREIGN KEY (poller_node_id)  REFERENCES poller_nodes(id)    ON DELETE SET NULL,
+  CONSTRAINT fk_dpc_failover FOREIGN KEY (failover_node_id) REFERENCES poller_nodes(id)  ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: poller_performance_snapshots (migration 258 — §6.4 Polling Engine)
+-- Purpose: Time-series poller health metrics (poll duration, timeout rate, queue depth).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS poller_performance_snapshots (
+  id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  poller_node_id        BIGINT UNSIGNED NULL,
+  snapshot_at           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  devices_polled        INT UNSIGNED    NOT NULL DEFAULT 0,
+  devices_failed        INT UNSIGNED    NOT NULL DEFAULT 0,
+  avg_poll_duration_ms  INT UNSIGNED    NULL,
+  max_poll_duration_ms  INT UNSIGNED    NULL,
+  queue_depth           INT UNSIGNED    NOT NULL DEFAULT 0,
+  timeout_rate_pct      DECIMAL(5,2)    NULL COMMENT 'Failed / total * 100',
+  PRIMARY KEY (id),
+  KEY idx_pps_node_time (poller_node_id, snapshot_at),
+  CONSTRAINT fk_pps_node FOREIGN KEY (poller_node_id) REFERENCES poller_nodes(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: alert_escalation_chains (migration 260 — §6.5 Alerting)
+-- Purpose: Top-level escalation chain definitions for alert notifications.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS alert_escalation_chains (
+  id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id  BIGINT UNSIGNED NULL,
+  name             VARCHAR(255)    NOT NULL,
+  description      TEXT            NULL,
+  deleted_at       DATETIME        NULL,
+  created_at       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_aec_org (organization_id),
+  CONSTRAINT fk_aec_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: alert_escalation_steps (migration 260 — §6.5 Alerting)
+-- Purpose: Individual steps within an escalation chain (L1 -> L2 -> L3).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS alert_escalation_steps (
+  id                    BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+  chain_id              BIGINT UNSIGNED  NOT NULL,
+  step_number           TINYINT UNSIGNED NOT NULL COMMENT '1=L1, 2=L2, 3=L3',
+  delay_minutes         INT UNSIGNED     NOT NULL DEFAULT 15,
+  notification_channel  ENUM('email','sms','whatsapp','telegram','webhook') NOT NULL DEFAULT 'email',
+  recipient_email       VARCHAR(255)     NULL,
+  recipient_phone       VARCHAR(50)      NULL,
+  webhook_url           VARCHAR(512)     NULL,
+  message_template      TEXT             NULL,
+  created_at            DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_aes_chain_step (chain_id, step_number),
+  KEY idx_aes_chain (chain_id),
+  CONSTRAINT fk_aes_chain FOREIGN KEY (chain_id) REFERENCES alert_escalation_chains(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: maintenance_windows (migration 260 — §6.5 Alerting)
+-- Purpose: Suppress alerts during planned maintenance work.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS maintenance_windows (
+  id                          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id             BIGINT UNSIGNED NULL,
+  name                        VARCHAR(255)    NOT NULL,
+  description                 TEXT            NULL,
+  device_id                   BIGINT UNSIGNED NULL,
+  site_id                     BIGINT UNSIGNED NULL,
+  starts_at                   DATETIME        NOT NULL,
+  ends_at                     DATETIME        NOT NULL,
+  is_recurring                TINYINT(1)      NOT NULL DEFAULT 0,
+  recurrence_cron             VARCHAR(50)     NULL,
+  recurrence_duration_minutes INT UNSIGNED    NULL,
+  status                      ENUM('scheduled','active','completed','cancelled') NOT NULL DEFAULT 'scheduled',
+  created_by                  BIGINT UNSIGNED NULL,
+  deleted_at                  DATETIME        NULL,
+  created_at                  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at                  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_mw_org (organization_id),
+  KEY idx_mw_time (organization_id, starts_at, ends_at),
+  CONSTRAINT fk_mw_org    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_mw_device FOREIGN KEY (device_id)       REFERENCES devices(id)       ON DELETE SET NULL,
+  CONSTRAINT fk_mw_site   FOREIGN KEY (site_id)         REFERENCES sites(id)         ON DELETE SET NULL,
+  CONSTRAINT fk_mw_user   FOREIGN KEY (created_by)      REFERENCES users(id)         ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: alert_notification_channels (migration 260 — §6.5 Alerting)
+-- Purpose: Multi-channel notification routing config; credentials AES-256 encrypted.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS alert_notification_channels (
+  id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id  BIGINT UNSIGNED NULL,
+  name             VARCHAR(255)    NOT NULL,
+  channel_type     ENUM('email','sms','whatsapp','telegram','webhook') NOT NULL,
+  config_encrypted TEXT            NULL COMMENT 'JSON with channel-specific settings, AES-256-GCM encrypted',
+  is_enabled       TINYINT(1)      NOT NULL DEFAULT 1,
+  deleted_at       DATETIME        NULL,
+  created_at       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_anc_org (organization_id),
+  CONSTRAINT fk_anc_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: alert_suppression_rules (migration 260 — §6.5 Alerting)
+-- Purpose: Suppress downstream device alerts when upstream device is down.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS alert_suppression_rules (
+  id                        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id           BIGINT UNSIGNED NULL,
+  name                      VARCHAR(255)    NOT NULL,
+  upstream_device_id        BIGINT UNSIGNED NULL,
+  downstream_device_id      BIGINT UNSIGNED NULL,
+  suppress_duration_minutes INT UNSIGNED    NOT NULL DEFAULT 60,
+  is_enabled                TINYINT(1)      NOT NULL DEFAULT 1,
+  deleted_at                DATETIME        NULL,
+  created_at                DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_asr_org (organization_id),
+  CONSTRAINT fk_asr_org        FOREIGN KEY (organization_id)      REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_asr_upstream   FOREIGN KEY (upstream_device_id)   REFERENCES devices(id)       ON DELETE SET NULL,
+  CONSTRAINT fk_asr_downstream FOREIGN KEY (downstream_device_id) REFERENCES devices(id)       ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: config_templates (migration 262 — §6.6 Config Management)
+-- Purpose: Named configuration templates with {{variable}} placeholders for batch push.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS config_templates (
+  id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id  BIGINT UNSIGNED NULL,
+  name             VARCHAR(255)    NOT NULL,
+  description      TEXT            NULL,
+  device_type      VARCHAR(50)     NULL,
+  manufacturer     VARCHAR(100)    NULL,
+  template_content LONGTEXT        NOT NULL,
+  variables_schema JSON            NULL,
+  status           ENUM('active','inactive','draft') NOT NULL DEFAULT 'active',
+  deleted_at       DATETIME        NULL,
+  created_at       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_ct_org (organization_id),
+  CONSTRAINT fk_ct_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: config_deployment_records (migration 262 — §6.6 Config Management)
+-- Purpose: Tracks config template push operations per device.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS config_deployment_records (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NULL,
+  template_id     BIGINT UNSIGNED NULL,
+  device_id       BIGINT UNSIGNED NOT NULL,
+  deployed_by     BIGINT UNSIGNED NULL,
+  status          ENUM('pending','running','success','failed','rolled_back') NOT NULL DEFAULT 'pending',
+  variables_used  JSON            NULL,
+  result_output   TEXT            NULL,
+  deployed_at     DATETIME        NULL,
+  completed_at    DATETIME        NULL,
+  created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_cdr_org (organization_id),
+  KEY idx_cdr_device (device_id),
+  CONSTRAINT fk_cdr_org      FOREIGN KEY (organization_id) REFERENCES organizations(id)   ON DELETE CASCADE,
+  CONSTRAINT fk_cdr_template FOREIGN KEY (template_id)     REFERENCES config_templates(id) ON DELETE SET NULL,
+  CONSTRAINT fk_cdr_device   FOREIGN KEY (device_id)       REFERENCES devices(id)          ON DELETE CASCADE,
+  CONSTRAINT fk_cdr_user     FOREIGN KEY (deployed_by)     REFERENCES users(id)             ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: config_backup_schedules (migration 262 — §6.6 Config Management)
+-- Purpose: Per-device or per-org config backup schedules (extends global nightly task).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS config_backup_schedules (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NULL,
+  device_id       BIGINT UNSIGNED NULL COMMENT 'NULL = all org devices',
+  schedule_name   VARCHAR(255)    NOT NULL,
+  cron_expression VARCHAR(50)     NOT NULL DEFAULT '0 2 * * *',
+  is_enabled      TINYINT(1)      NOT NULL DEFAULT 1,
+  last_run_at     DATETIME        NULL,
+  last_status     ENUM('success','failed','skipped') NULL,
+  deleted_at      DATETIME        NULL,
+  created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_cbs_org (organization_id),
+  CONSTRAINT fk_cbs_org    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_cbs_device FOREIGN KEY (device_id)       REFERENCES devices(id)       ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: config_compliance_rules (migration 262 — §6.6 Config Management)
+-- Purpose: Rules to check device configs against (keyword/regex matching).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS config_compliance_rules (
+  id                     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id        BIGINT UNSIGNED NULL,
+  name                   VARCHAR(255)    NOT NULL,
+  description            TEXT            NULL,
+  rule_type              ENUM('must_contain','must_not_contain','regex_match','regex_not_match') NOT NULL DEFAULT 'must_contain',
+  pattern                TEXT            NOT NULL,
+  severity               ENUM('info','warning','critical') NOT NULL DEFAULT 'warning',
+  applies_to_device_type VARCHAR(50)     NULL,
+  is_enabled             TINYINT(1)      NOT NULL DEFAULT 1,
+  deleted_at             DATETIME        NULL,
+  created_at             DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at             DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_ccr_org (organization_id),
+  CONSTRAINT fk_ccr_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: config_compliance_results (migration 262 — §6.6 Config Management)
+-- Purpose: Audit results when compliance rules are evaluated against a backup.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS config_compliance_results (
+  id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  rule_id      BIGINT UNSIGNED NOT NULL,
+  backup_id    BIGINT UNSIGNED NOT NULL,
+  device_id    BIGINT UNSIGNED NOT NULL,
+  result       ENUM('pass','fail','error') NOT NULL DEFAULT 'fail',
+  details      TEXT            NULL,
+  evaluated_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_ccres_device_time (device_id, evaluated_at),
+  KEY idx_ccres_rule_result (rule_id, result),
+  CONSTRAINT fk_ccres_rule   FOREIGN KEY (rule_id)   REFERENCES config_compliance_rules(id) ON DELETE CASCADE,
+  CONSTRAINT fk_ccres_backup FOREIGN KEY (backup_id) REFERENCES device_config_backups(id)   ON DELETE CASCADE,
+  CONSTRAINT fk_ccres_device FOREIGN KEY (device_id) REFERENCES devices(id)                 ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
