@@ -561,6 +561,51 @@ function generateSpec() {
       '/alerts/events': { get: { tags: ['Alerts'], summary: 'Alert event history', operationId: 'listAlertEvents', security: [{ bearerAuth: [] }], responses: r200('AlertEvent[]') } },
       '/alerts/events/{id}/acknowledge': { post: { tags: ['Alerts'], summary: 'Acknowledge an alert', operationId: 'acknowledgeAlert', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Status') } },
       '/alerts/evaluate': { post: { tags: ['Alerts'], summary: 'Trigger alert evaluation', operationId: 'evaluateAlerts', security: [{ bearerAuth: [] }], responses: r200('Results') } },
+      '/alerts/escalation-chains': {
+        get:  { tags: ['Alerts'], summary: 'List escalation chains',    operationId: 'listEscalationChains',   security: [{ bearerAuth: [] }], responses: r200('EscalationChain[]') },
+        post: { tags: ['Alerts'], summary: 'Create escalation chain',   operationId: 'createEscalationChain',  security: [{ bearerAuth: [] }], requestBody: jsonBody('alertEscalations_createChain'), responses: r201('EscalationChain') },
+      },
+      '/alerts/escalation-chains/{id}': {
+        put:    { tags: ['Alerts'], summary: 'Update escalation chain',  operationId: 'updateEscalationChain',  security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('alertEscalations_updateChain'), responses: r200('EscalationChain') },
+        delete: { tags: ['Alerts'], summary: 'Delete escalation chain',  operationId: 'deleteEscalationChain',  security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/alerts/escalation-chains/{id}/steps': {
+        get:  { tags: ['Alerts'], summary: 'List escalation steps',     operationId: 'listEscalationSteps',    security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('EscalationStep[]') },
+        post: { tags: ['Alerts'], summary: 'Add escalation step',       operationId: 'createEscalationStep',   security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('alertEscalations_createStep'), responses: r201('EscalationStep') },
+      },
+      '/alerts/escalation-chains/{id}/steps/{stepId}': {
+        delete: { tags: ['Alerts'], summary: 'Delete escalation step',   operationId: 'deleteEscalationStep',   security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'stepId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/alerts/maintenance-windows': {
+        get:  { tags: ['Alerts'], summary: 'List maintenance windows',  operationId: 'listMaintenanceWindows',  security: [{ bearerAuth: [] }], responses: r200('MaintenanceWindow[]') },
+        post: { tags: ['Alerts'], summary: 'Create maintenance window', operationId: 'createMaintenanceWindow', security: [{ bearerAuth: [] }], requestBody: jsonBody('maintenanceWindows_createWindow'), responses: r201('MaintenanceWindow') },
+      },
+      '/alerts/maintenance-windows/active': {
+        get: { tags: ['Alerts'], summary: 'List active maintenance windows', operationId: 'listActiveMaintenanceWindows', security: [{ bearerAuth: [] }], responses: r200('MaintenanceWindow[]') },
+      },
+      '/alerts/maintenance-windows/{id}': {
+        put:    { tags: ['Alerts'], summary: 'Update maintenance window', operationId: 'updateMaintenanceWindow', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('maintenanceWindows_updateWindow'), responses: r200('MaintenanceWindow') },
+        delete: { tags: ['Alerts'], summary: 'Delete maintenance window', operationId: 'deleteMaintenanceWindow', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/alerts/notification-channels': {
+        get:  { tags: ['Alerts'], summary: 'List notification channels',  operationId: 'listAlertNotificationChannels',  security: [{ bearerAuth: [] }], responses: r200('AlertNotificationChannel[]') },
+        post: { tags: ['Alerts'], summary: 'Create notification channel', operationId: 'createAlertNotificationChannel', security: [{ bearerAuth: [] }], requestBody: jsonBody('alertNotificationChannels_createChannel'), responses: r201('AlertNotificationChannel') },
+      },
+      '/alerts/notification-channels/{id}': {
+        put:    { tags: ['Alerts'], summary: 'Update notification channel', operationId: 'updateAlertNotificationChannel', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('alertNotificationChannels_updateChannel'), responses: r200('AlertNotificationChannel') },
+        delete: { tags: ['Alerts'], summary: 'Delete notification channel', operationId: 'deleteAlertNotificationChannel', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/alerts/suppression-rules': {
+        get:  { tags: ['Alerts'], summary: 'List alert suppression rules',  operationId: 'listAlertSuppressionRules',  security: [{ bearerAuth: [] }], responses: r200('AlertSuppressionRule[]') },
+        post: { tags: ['Alerts'], summary: 'Create alert suppression rule', operationId: 'createAlertSuppressionRule', security: [{ bearerAuth: [] }], requestBody: jsonBody('alertSuppressionRules_createRule'), responses: r201('AlertSuppressionRule') },
+      },
+      '/alerts/suppression-rules/{id}': {
+        put:    { tags: ['Alerts'], summary: 'Update alert suppression rule', operationId: 'updateAlertSuppressionRule', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('alertSuppressionRules_updateRule'), responses: r200('AlertSuppressionRule') },
+        delete: { tags: ['Alerts'], summary: 'Delete alert suppression rule', operationId: 'deleteAlertSuppressionRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/alerts/evaluate-v2': {
+        post: { tags: ['Alerts'], summary: 'Trigger enhanced alert evaluation (v2)', operationId: 'evaluateAlertsV2', security: [{ bearerAuth: [] }], responses: r200('Results') },
+      },
 
       // ---- Outages ----
       ...crudPaths('outages', 'Outages', 'Outage'),

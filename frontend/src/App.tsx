@@ -71,6 +71,10 @@ import { TrapForwardingRuleList } from '@/pages/TrapForwardingRuleList';
 import { PollerNodeList } from '@/pages/PollerNodeList';
 import { DevicePollingConfigList } from '@/pages/DevicePollingConfigList';
 import { PollerPerformanceDashboard } from '@/pages/PollerPerformanceDashboard';
+import { AlertEscalationChainList } from '@/pages/AlertEscalationChainList';
+import { MaintenanceWindowList } from '@/pages/MaintenanceWindowList';
+import { AlertChannelList } from '@/pages/AlertChannelList';
+import { AlertSuppressionList } from '@/pages/AlertSuppressionList';
 import { IpPoolList } from '@/pages/IpPoolList';
 import { IpAssignmentList } from '@/pages/IpAssignmentList';
 import { VlanList } from '@/pages/VlanList';
@@ -216,6 +220,10 @@ export function App() {
                 <Route path="poller-nodes" element={<PollerNodeList />} />
                 <Route path="device-polling-configs" element={<DevicePollingConfigList />} />
                 <Route path="poller-performance" element={<PollerPerformanceDashboard />} />
+                <Route path="alert-escalation-chains" element={<AlertEscalationChainList />} />
+                <Route path="maintenance-windows" element={<MaintenanceWindowList />} />
+                <Route path="alert-channels" element={<AlertChannelList />} />
+                <Route path="alert-suppression-rules" element={<AlertSuppressionList />} />
               </Route>
             </Route>
 

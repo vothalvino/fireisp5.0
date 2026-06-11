@@ -13007,6 +13007,707 @@
         }
       }
     },
+    "/alerts/escalation-chains": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "List escalation chains",
+        "operationId": "listEscalationChains",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "EscalationChain[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Create escalation chain",
+        "operationId": "createEscalationChain",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "alertEscalations_createChain",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "EscalationChain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts/escalation-chains/{id}": {
+      "put": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Update escalation chain",
+        "operationId": "updateEscalationChain",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "alertEscalations_updateChain",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "EscalationChain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Delete escalation chain",
+        "operationId": "deleteEscalationChain",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/alerts/escalation-chains/{id}/steps": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "List escalation steps",
+        "operationId": "listEscalationSteps",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "EscalationStep[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Add escalation step",
+        "operationId": "createEscalationStep",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "alertEscalations_createStep",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "EscalationStep",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts/escalation-chains/{id}/steps/{stepId}": {
+      "delete": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Delete escalation step",
+        "operationId": "deleteEscalationStep",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "stepId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/alerts/maintenance-windows": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "List maintenance windows",
+        "operationId": "listMaintenanceWindows",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MaintenanceWindow[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Create maintenance window",
+        "operationId": "createMaintenanceWindow",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "maintenanceWindows_createWindow",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "MaintenanceWindow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts/maintenance-windows/active": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "List active maintenance windows",
+        "operationId": "listActiveMaintenanceWindows",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MaintenanceWindow[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts/maintenance-windows/{id}": {
+      "put": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Update maintenance window",
+        "operationId": "updateMaintenanceWindow",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "maintenanceWindows_updateWindow",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "MaintenanceWindow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Delete maintenance window",
+        "operationId": "deleteMaintenanceWindow",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/alerts/notification-channels": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "List notification channels",
+        "operationId": "listAlertNotificationChannels",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AlertNotificationChannel[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Create notification channel",
+        "operationId": "createAlertNotificationChannel",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "alertNotificationChannels_createChannel",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "AlertNotificationChannel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts/notification-channels/{id}": {
+      "put": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Update notification channel",
+        "operationId": "updateAlertNotificationChannel",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "alertNotificationChannels_updateChannel",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "AlertNotificationChannel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Delete notification channel",
+        "operationId": "deleteAlertNotificationChannel",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/alerts/suppression-rules": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "List alert suppression rules",
+        "operationId": "listAlertSuppressionRules",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AlertSuppressionRule[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Create alert suppression rule",
+        "operationId": "createAlertSuppressionRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "alertSuppressionRules_createRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "AlertSuppressionRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts/suppression-rules/{id}": {
+      "put": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Update alert suppression rule",
+        "operationId": "updateAlertSuppressionRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "alertSuppressionRules_updateRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "AlertSuppressionRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Delete alert suppression rule",
+        "operationId": "deleteAlertSuppressionRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/alerts/evaluate-v2": {
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Trigger enhanced alert evaluation (v2)",
+        "operationId": "evaluateAlertsV2",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/outages": {
       "get": {
         "tags": [
@@ -24068,6 +24769,148 @@
           }
         }
       },
+      "alertEscalations_createChain": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "alertEscalations_updateChain": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "alertEscalations_createStep": {
+        "type": "object",
+        "properties": {
+          "step_number": {
+            "type": "number"
+          },
+          "delay_minutes": {
+            "type": "number"
+          },
+          "notification_channel": {
+            "type": "string"
+          },
+          "recipient_email": {
+            "type": "string"
+          },
+          "recipient_phone": {
+            "type": "string"
+          },
+          "webhook_url": {
+            "type": "string"
+          },
+          "message_template": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "step_number",
+          "notification_channel"
+        ]
+      },
+      "alertNotificationChannels_createChannel": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "channel_type": {
+            "type": "string"
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "channel_type"
+        ]
+      },
+      "alertNotificationChannels_updateChannel": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "channel_type": {
+            "type": "string"
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "alertSuppressionRules_createRule": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "upstream_device_id": {
+            "type": "number"
+          },
+          "downstream_device_id": {
+            "type": "number"
+          },
+          "suppress_duration_minutes": {
+            "type": "number"
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "alertSuppressionRules_updateRule": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "upstream_device_id": {
+            "type": "number"
+          },
+          "downstream_device_id": {
+            "type": "number"
+          },
+          "suppress_duration_minutes": {
+            "type": "number"
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        }
+      },
       "alerts_createRule": {
         "type": "object",
         "properties": {
@@ -29448,6 +30291,82 @@
             "type": "string"
           },
           "5": {
+            "type": "string"
+          }
+        }
+      },
+      "maintenanceWindows_createWindow": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": "number"
+          },
+          "site_id": {
+            "type": "number"
+          },
+          "starts_at": {
+            "type": "string"
+          },
+          "ends_at": {
+            "type": "string"
+          },
+          "is_recurring": {
+            "type": "boolean"
+          },
+          "recurrence_cron": {
+            "type": "string"
+          },
+          "recurrence_duration_minutes": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "starts_at",
+          "ends_at"
+        ]
+      },
+      "maintenanceWindows_updateWindow": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": "number"
+          },
+          "site_id": {
+            "type": "number"
+          },
+          "starts_at": {
+            "type": "string"
+          },
+          "ends_at": {
+            "type": "string"
+          },
+          "is_recurring": {
+            "type": "boolean"
+          },
+          "recurrence_cron": {
+            "type": "string"
+          },
+          "recurrence_duration_minutes": {
+            "type": "number"
+          },
+          "status": {
             "type": "string"
           }
         }
