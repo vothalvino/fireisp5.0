@@ -15,8 +15,8 @@
 --   Environmental Sensors — humidity, ambient temperature
 --
 -- Uses INSERT IGNORE — safe to re-run.
--- profile_id resolved by joining snmp_profiles on name (organization_id IS NULL
--- matches the global/system profiles seeded in migration 252).
+-- profile_id resolved by joining snmp_profiles on name (globally unique key,
+-- matching the system profiles seeded in migration 252).
 --
 -- Requires:
 --   029_create_snmp_profiles_table
@@ -44,8 +44,7 @@ JOIN (
     SELECT '1.3.6.1.4.1.14988.1.1.3.9',          'voltage_mv',                     'Supply Voltage',              'gauge',             FALSE,                   31 UNION ALL
     SELECT '1.3.6.1.4.1.14988.1.1.3.11',          'fan_speed_rpm',                  'Fan 1 Speed',                 'gauge',             FALSE,                   32
 ) o
-WHERE p.name = 'MikroTik RouterOS'
-  AND p.organization_id IS NULL;
+WHERE p.name = 'MikroTik RouterOS';
 
 -- ---------------------------------------------------------------------------
 -- OIDs — SFP Diagnostics
@@ -66,8 +65,7 @@ JOIN (
     SELECT '1.3.6.1.4.1.2636.3.60.1.1.1.1.7',          'sfp_tx_power_dbm',                   'SFP Tx Power',              'gauge',             TRUE,                   11 UNION ALL
     SELECT '1.3.6.1.4.1.2636.3.60.1.1.1.1.6',          'sfp_rx_power_dbm',                   'SFP Rx Power',              'gauge',             TRUE,                   12
 ) o
-WHERE p.name = 'SFP Diagnostics'
-  AND p.organization_id IS NULL;
+WHERE p.name = 'SFP Diagnostics';
 
 -- ---------------------------------------------------------------------------
 -- OIDs — Generic Switch
@@ -88,8 +86,7 @@ JOIN (
     SELECT '1.3.6.1.2.1.2.2.1.19',                   'if_out_discards',                 'Interface Out Discards',  'counter',             TRUE,                   31 UNION ALL
     SELECT '1.3.6.1.4.1.9.9.402.1.2.1.14',            'poe_power_mw',                   'PoE Power Draw',          'gauge',               TRUE,                   32
 ) o
-WHERE p.name = 'Generic Switch'
-  AND p.organization_id IS NULL;
+WHERE p.name = 'Generic Switch';
 
 -- ---------------------------------------------------------------------------
 -- OIDs — Generic UPS
@@ -109,8 +106,7 @@ JOIN (
     SELECT '1.3.6.1.2.1.33.1.2.4.0' AS oid, 'ups_battery_pct'  AS metric_column, 'Battery Charge'      AS label, 'gauge' AS oid_type, FALSE AS is_per_interface, 10 AS sort_order UNION ALL
     SELECT '1.3.6.1.2.1.33.1.2.3.0',          'ups_runtime_min',                  'Estimated Runtime',    'gauge',             FALSE,                   11
 ) o
-WHERE p.name = 'Generic UPS'
-  AND p.organization_id IS NULL;
+WHERE p.name = 'Generic UPS';
 
 -- ---------------------------------------------------------------------------
 -- OIDs — Environmental Sensors
@@ -130,7 +126,6 @@ JOIN (
     SELECT '1.3.6.1.4.1.17095.5.2.0' AS oid, 'humidity_pct'   AS metric_column, 'Relative Humidity'    AS label, 'gauge' AS oid_type, FALSE AS is_per_interface, 20 AS sort_order UNION ALL
     SELECT '1.3.6.1.4.1.17095.5.1.0',          'temperature_c',                  'Ambient Temperature',   'gauge',             FALSE,                   21
 ) o
-WHERE p.name = 'Environmental Sensors'
-  AND p.organization_id IS NULL;
+WHERE p.name = 'Environmental Sensors';
 
 -- END OF MIGRATION 256

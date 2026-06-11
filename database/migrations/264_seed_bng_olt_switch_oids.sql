@@ -14,7 +14,7 @@
 --   4. OID rows for all four new profiles plus extended switch OIDs.
 --
 -- All INSERTs use INSERT IGNORE — idempotent/safe to re-run.
--- Profile resolution: JOIN snmp_profiles on name WHERE organization_id IS NULL.
+-- Profile resolution: JOIN snmp_profiles on name (globally unique key).
 --
 -- Requires:
 --   029_create_snmp_profiles_table
@@ -166,8 +166,7 @@ JOIN (
     -- Active subscriber sessions (CISCO-SUBSCRIBER-SESSION-MIB)
     SELECT '1.3.6.1.4.1.9.9.441.1.2.1.1.3.1',          'signal_strength',             'Cisco: csubJobMatchCurrentlyActiveSessions', 'gauge', FALSE, 100
 ) o
-WHERE p.name = 'Cisco BNG'
-  AND p.organization_id IS NULL;
+WHERE p.name = 'Cisco BNG';
 
 -- ---------------------------------------------------------------------------
 -- Part 4: OIDs — Juniper BNG
@@ -206,8 +205,7 @@ JOIN (
     -- Active subscriber sessions scalar
     SELECT '1.3.6.1.4.1.2636.3.57.2.1.1.1.0',          'signal_strength',             'Juniper: jnxSubscriberActiveCount',              'gauge',   FALSE, 100
 ) o
-WHERE p.name = 'Juniper BNG'
-  AND p.organization_id IS NULL;
+WHERE p.name = 'Juniper BNG';
 
 -- ---------------------------------------------------------------------------
 -- Part 5: OIDs — Huawei OLT
@@ -252,8 +250,7 @@ JOIN (
     -- Active ONU count per PON port
     SELECT '1.3.6.1.4.1.2011.6.128.1.1.1.4.1.23',               'signal_strength',             'Huawei XPON: OLT active ONU count',               'gauge',   TRUE,  100
 ) o
-WHERE p.name = 'Huawei OLT'
-  AND p.organization_id IS NULL;
+WHERE p.name = 'Huawei OLT';
 
 -- ---------------------------------------------------------------------------
 -- Part 6: OIDs — ZTE OLT
@@ -293,8 +290,7 @@ JOIN (
     -- PON Tx power (0.01 dBm units)
     SELECT '1.3.6.1.4.1.3902.1015.3.2.1.1.9',                   'sfp_tx_power_dbm',            'ZTE GPON: PON port Tx power',             'gauge',   TRUE,  90
 ) o
-WHERE p.name = 'ZTE OLT'
-  AND p.organization_id IS NULL;
+WHERE p.name = 'ZTE OLT';
 
 -- ---------------------------------------------------------------------------
 -- Part 7: Extended switch OIDs on the existing Generic Switch profile
@@ -335,5 +331,4 @@ JOIN (
     -- PoE detection status (POWER-ETHERNET-MIB RFC 3621)
     SELECT '1.3.6.1.2.1.105.1.1.1.6',                  'poe_power_mw',                'POWER-ETHERNET-MIB: pethPsePortDetectionStatus', 'gauge', TRUE,  65
 ) o
-WHERE p.name = 'Generic Switch'
-  AND p.organization_id IS NULL;
+WHERE p.name = 'Generic Switch';

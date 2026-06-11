@@ -8,8 +8,7 @@
 DELETE spo
 FROM snmp_profile_oids spo
 JOIN snmp_profiles sp ON sp.id = spo.profile_id
-WHERE sp.name IN ('Cisco BNG', 'Juniper BNG', 'Huawei OLT', 'ZTE OLT')
-  AND sp.organization_id IS NULL;
+WHERE sp.name IN ('Cisco BNG', 'Juniper BNG', 'Huawei OLT', 'ZTE OLT');
 
 -- Remove extended switch OIDs added in this migration (identified by sort_order
 -- values 11, 21, 35, 45, 55, 65 on the Generic Switch profile)
@@ -17,15 +16,13 @@ DELETE spo
 FROM snmp_profile_oids spo
 JOIN snmp_profiles sp ON sp.id = spo.profile_id
 WHERE sp.name = 'Generic Switch'
-  AND sp.organization_id IS NULL
   AND spo.sort_order IN (11, 21, 35, 45, 55, 65);
 
 -- ---------------------------------------------------------------------------
 -- Remove new profiles
 -- ---------------------------------------------------------------------------
 DELETE FROM snmp_profiles
-WHERE name IN ('Cisco BNG', 'Juniper BNG', 'Huawei OLT', 'ZTE OLT')
-  AND organization_id IS NULL;
+WHERE name IN ('Cisco BNG', 'Juniper BNG', 'Huawei OLT', 'ZTE OLT');
 
 -- ---------------------------------------------------------------------------
 -- Drop if_oper_status columns from rollup tables first, then raw table

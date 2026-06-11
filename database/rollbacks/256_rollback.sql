@@ -11,7 +11,6 @@ DELETE spo
 FROM snmp_profile_oids spo
 JOIN snmp_profiles p ON p.id = spo.profile_id
 WHERE p.name = 'MikroTik RouterOS'
-  AND p.organization_id IS NULL
   AND spo.oid IN (
     '1.3.6.1.4.1.14988.1.1.3.5',
     '1.3.6.1.4.1.14988.1.1.3.9',
@@ -23,7 +22,6 @@ DELETE spo
 FROM snmp_profile_oids spo
 JOIN snmp_profiles p ON p.id = spo.profile_id
 WHERE p.name = 'SFP Diagnostics'
-  AND p.organization_id IS NULL
   AND spo.oid IN (
     '1.3.6.1.4.1.2636.3.60.1.1.1.1.34',
     '1.3.6.1.4.1.2636.3.60.1.1.1.1.7',
@@ -35,7 +33,6 @@ DELETE spo
 FROM snmp_profile_oids spo
 JOIN snmp_profiles p ON p.id = spo.profile_id
 WHERE p.name = 'Generic Switch'
-  AND p.organization_id IS NULL
   AND spo.oid IN (
     '1.3.6.1.2.1.2.2.1.13',
     '1.3.6.1.2.1.2.2.1.19',
@@ -47,7 +44,6 @@ DELETE spo
 FROM snmp_profile_oids spo
 JOIN snmp_profiles p ON p.id = spo.profile_id
 WHERE p.name = 'Generic UPS'
-  AND p.organization_id IS NULL
   AND spo.oid IN (
     '1.3.6.1.2.1.33.1.2.4.0',
     '1.3.6.1.2.1.33.1.2.3.0'
@@ -58,7 +54,6 @@ DELETE spo
 FROM snmp_profile_oids spo
 JOIN snmp_profiles p ON p.id = spo.profile_id
 WHERE p.name = 'Environmental Sensors'
-  AND p.organization_id IS NULL
   AND spo.oid IN (
     '1.3.6.1.4.1.17095.5.2.0',
     '1.3.6.1.4.1.17095.5.1.0'
