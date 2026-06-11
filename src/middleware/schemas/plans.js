@@ -15,6 +15,7 @@ const createPlan = {
   burst_upload_mbps: { type: 'number', min: 0 },
   priority: { type: 'number', min: 1, max: 8 },
   status: { type: 'string', enum: ['active', 'inactive', 'archived'] },
+  stack_type: { type: 'string', enum: ['ipv4_only', 'ipv6_only', 'dual_stack'] },
 };
 
 const updatePlan = {
@@ -30,6 +31,7 @@ const updatePlan = {
   burst_upload_mbps: { type: 'number', min: 0 },
   priority: { type: 'number', min: 1, max: 8 },
   status: { type: 'string', enum: ['active', 'inactive', 'archived'] },
+  stack_type: { type: 'string', enum: ['ipv4_only', 'ipv6_only', 'dual_stack'] },
 };
 
 const createPlanAddon = {
