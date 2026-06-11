@@ -119,9 +119,23 @@ CREATE TABLE IF NOT EXISTS plan_throttle_logs (
 
 -- ---------------------------------------------------------------------------
 -- Scheduled tasks
+--
+-- Idempotency note: INSERT ... SELECT ... WHERE NOT EXISTS — the UNIQUE KEY
+-- on (organization_id, task_name) never collides when organization_id is
+-- NULL, so INSERT IGNORE would duplicate rows on re-run.
 -- ---------------------------------------------------------------------------
-INSERT IGNORE INTO scheduled_tasks (organization_id, task_name, description, cron_expression, is_enabled, priority)
-VALUES (NULL, 'check_fup_thresholds', 'Apply FUP throttling to contracts that have exceeded their fair-use policy threshold', '*/15 * * * *', TRUE, 'normal');
+INSERT INTO scheduled_tasks (organization_id, task_name, description, cron_expression, is_enabled, priority)
+SELECT NULL, 'check_fup_thresholds', 'Apply FUP throttling to contracts that have exceeded their fair-use policy threshold', '*/15 * * * *', TRUE, 'normal'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'check_fup_thresholds' AND organization_id IS NULL
+);
 
-INSERT IGNORE INTO scheduled_tasks (organization_id, task_name, description, cron_expression, is_enabled, priority)
-VALUES (NULL, 'convert_expired_trials', 'Convert expired free-trial contracts to paid billing and notify the client', '0 * * * *', TRUE, 'normal');
+INSERT INTO scheduled_tasks (organization_id, task_name, description, cron_expression, is_enabled, priority)
+SELECT NULL, 'convert_expired_trials', 'Convert expired free-trial contracts to paid billing and notify the client', '0 * * * *', TRUE, 'normal'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'convert_expired_trials' AND organization_id IS NULL
+);

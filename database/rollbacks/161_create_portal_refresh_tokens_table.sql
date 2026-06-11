@@ -1,9 +1,7 @@
 -- =============================================================================
--- FireISP 5.0 — Rollback 145: Remove data_retention scheduled task
+-- FireISP 5.0 — Rollback 161: Drop portal_refresh_tokens table
 -- =============================================================================
--- Reverses migration 145.
+-- Reverses migration 161.  No other table references portal_refresh_tokens.
 -- =============================================================================
 
-DELETE FROM scheduled_tasks
-WHERE task_name = 'data_retention'
-  AND organization_id IS NULL;
+DROP TABLE IF EXISTS portal_refresh_tokens;

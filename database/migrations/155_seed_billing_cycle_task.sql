@@ -12,19 +12,26 @@
 --              Scheduled at 02:00 daily — after midnight UTC to ensure all
 --              time-zone billing days are settled, and before business hours.
 --
---              Uses INSERT IGNORE for idempotency — the scheduled_tasks table
---              has a UNIQUE KEY on (organization_id, task_name).
+--              Uses INSERT ... SELECT ... WHERE NOT EXISTS for idempotency.
+--              The UNIQUE KEY on (organization_id, task_name) never collides
+--              when organization_id is NULL (MySQL unique keys treat NULLs as
+--              distinct), so INSERT IGNORE would duplicate the row on re-run.
 
-INSERT IGNORE INTO scheduled_tasks
+INSERT INTO scheduled_tasks
     (organization_id, task_name, task_type, description,
      cron_expression, priority, max_retries, timeout_seconds, is_enabled)
-VALUES
-    (NULL,
-     'billing_cycle',
-     'generate_invoice',
-     'Full automated billing cycle: generate invoices → email clients → send suspension warnings → suspend overdue contracts.',
-     '0 2 * * *',
-     'high',
-     3,
-     600,
-     TRUE);
+SELECT
+    NULL,
+    'billing_cycle',
+    'generate_invoice',
+    'Full automated billing cycle: generate invoices → email clients → send suspension warnings → suspend overdue contracts.',
+    '0 2 * * *',
+    'high',
+    3,
+    600,
+    TRUE
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'billing_cycle' AND organization_id IS NULL
+);

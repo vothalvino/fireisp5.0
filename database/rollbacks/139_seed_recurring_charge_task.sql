@@ -4,4 +4,6 @@
 -- Reverses migration 139.
 -- =============================================================================
 
-DELETE FROM scheduled_tasks WHERE task_name = 'process_recurring_charges';
+DELETE FROM scheduled_tasks
+WHERE task_name = 'process_recurring_charges'
+  AND organization_id IS NULL;

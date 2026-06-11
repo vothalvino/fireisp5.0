@@ -28,6 +28,7 @@ const path = require('path');
 const mysql = require('mysql2/promise');
 const db   = require('../config/database');
 const logger = require('../utils/logger').child({ script: 'rollback' });
+const { splitStatements } = require('./migrate');
 
 const ROLLBACKS_DIR  = path.resolve(__dirname, '../../database/rollbacks');
 
@@ -87,20 +88,37 @@ async function runRollback(args) {
     return;
   }
 
-  // 3. Verify rollback SQL files exist for every target
-  const available = new Set(
-    fs.readdirSync(ROLLBACKS_DIR).filter(f => f.endsWith('.sql')),
-  );
-
-  for (const t of targets) {
-    if (!available.has(t.filename)) {
+  // 3. Verify rollback SQL files exist for every target.
+  // Rollback files are matched by 3-digit numeric prefix so both naming
+  // conventions in database/rollbacks/ work: files named exactly like their
+  // migration (e.g. 130_create_firerelay_nodes_table.sql) and files named
+  // NNN_rollback*.sql (e.g. 244_rollback.sql).
+  const byPrefix = new Map();
+  for (const f of fs.readdirSync(ROLLBACKS_DIR).filter(f => f.endsWith('.sql'))) {
+    const num = migrationNumber(f);
+    if (Number.isNaN(num)) continue;
+    if (byPrefix.has(num)) {
       logger.error(
-        { filename: t.filename },
-        'No rollback file found — aborting. Create database/rollbacks/' +
-          t.filename + ' and retry.',
+        { files: [byPrefix.get(num), f] },
+        'Two rollback files share the same numeric prefix — aborting.',
       );
       process.exit(1);
     }
+    byPrefix.set(num, f);
+  }
+
+  const rollbackFileFor = new Map();
+  for (const t of targets) {
+    const match = byPrefix.get(migrationNumber(t.filename));
+    if (!match) {
+      logger.error(
+        { filename: t.filename },
+        'No rollback file found — aborting. Create a database/rollbacks/ file ' +
+          'with the same numeric prefix as ' + t.filename + ' and retry.',
+      );
+      process.exit(1);
+    }
+    rollbackFileFor.set(t.filename, match);
   }
 
   // 4. Preview (dry-run) or execute
@@ -125,12 +143,16 @@ async function runRollback(args) {
     conn = await rollbackPool.getConnection();
 
     for (const t of targets) {
-      const sqlPath = path.join(ROLLBACKS_DIR, t.filename);
+      const sqlPath = path.join(ROLLBACKS_DIR, rollbackFileFor.get(t.filename));
       const sql = fs.readFileSync(sqlPath, 'utf8');
 
-      logger.info({ filename: t.filename }, 'Rolling back migration');
+      logger.info({ filename: t.filename, rollbackFile: rollbackFileFor.get(t.filename) }, 'Rolling back migration');
       try {
-        await conn.query(sql);
+        // Use the same DELIMITER-aware splitter as migrate.js — rollback files
+        // contain stored-procedure blocks that mysql2 cannot execute verbatim.
+        for (const stmt of splitStatements(sql)) {
+          await conn.query(stmt);
+        }
         await conn.execute(
           'DELETE FROM schema_migrations WHERE filename = ?',
           [t.filename],

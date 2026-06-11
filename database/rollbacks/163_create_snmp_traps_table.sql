@@ -1,9 +1,7 @@
 -- =============================================================================
--- FireISP 5.0 — Rollback 145: Remove data_retention scheduled task
+-- FireISP 5.0 — Rollback 163: Drop snmp_traps table
 -- =============================================================================
--- Reverses migration 145.
+-- Reverses migration 163.  No other table references snmp_traps.
 -- =============================================================================
 
-DELETE FROM scheduled_tasks
-WHERE task_name = 'data_retention'
-  AND organization_id IS NULL;
+DROP TABLE IF EXISTS snmp_traps;

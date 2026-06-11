@@ -3,8 +3,9 @@
 -- =============================================================================
 -- Reverses migration 244. Drop order:
 --   1. Drop pppoe_service_profiles IPv6 columns (reverse order of addition).
---   2. Drop radius IPv6 RADIUS attribute columns (table-existence guarded).
---   3. Drop connection_logs IPv6 session columns (NO FK; partitioned table).
+--   2. Drop connection_logs IPv6 session columns (NO FK; partitioned table).
+--      NOTE: connection_logs.framed_ipv6_prefix is owned by migration 230 and
+--      is deliberately NOT dropped here.
 -- All operations use stored-procedure guards.
 -- =============================================================================
 
@@ -62,44 +63,6 @@ CALL rollback_244_drop_pppoe_profiles_ipv6_cols();
 DROP PROCEDURE IF EXISTS rollback_244_drop_pppoe_profiles_ipv6_cols;
 
 -- ---------------------------------------------------------------------------
--- Drop radius IPv6 RADIUS attribute columns (table-existence guarded)
--- ---------------------------------------------------------------------------
-DROP PROCEDURE IF EXISTS rollback_244_drop_radius_ipv6_cols;
-DELIMITER //
-CREATE PROCEDURE rollback_244_drop_radius_ipv6_cols()
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME   = 'radius'
-  ) THEN
-    IF EXISTS (
-      SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'radius' AND COLUMN_NAME = 'framed_ipv6_pool'
-    ) THEN
-      ALTER TABLE radius DROP COLUMN framed_ipv6_pool;
-    END IF;
-
-    IF EXISTS (
-      SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'radius' AND COLUMN_NAME = 'delegated_ipv6_prefix'
-    ) THEN
-      ALTER TABLE radius DROP COLUMN delegated_ipv6_prefix;
-    END IF;
-
-    IF EXISTS (
-      SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'radius' AND COLUMN_NAME = 'framed_ipv6_address'
-    ) THEN
-      ALTER TABLE radius DROP COLUMN framed_ipv6_address;
-    END IF;
-  END IF;
-END //
-DELIMITER ;
-CALL rollback_244_drop_radius_ipv6_cols();
-DROP PROCEDURE IF EXISTS rollback_244_drop_radius_ipv6_cols;
-
--- ---------------------------------------------------------------------------
 -- Drop connection_logs IPv6 session columns (partitioned table — NO FK)
 -- ---------------------------------------------------------------------------
 DROP PROCEDURE IF EXISTS rollback_244_drop_connection_logs_ipv6_cols;
@@ -125,13 +88,6 @@ BEGIN
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'connection_logs' AND COLUMN_NAME = 'acct_output_octets_v6'
   ) THEN
     ALTER TABLE connection_logs DROP COLUMN acct_output_octets_v6;
-  END IF;
-
-  IF EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'connection_logs' AND COLUMN_NAME = 'framed_ipv6_prefix'
-  ) THEN
-    ALTER TABLE connection_logs DROP COLUMN framed_ipv6_prefix;
   END IF;
 END //
 DELIMITER ;

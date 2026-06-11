@@ -202,6 +202,90 @@ jobs:
           fi
           echo "✓ All FK column types match their referenced PK types"
 
+  migration-runner-tests:
+    # Exercises the real Node migration tooling (migrate.js / rollback.js /
+    # migration-smoke-test.js) rather than the raw mysql CLI path used by
+    # database-tests: double-run idempotency, schema.sql parity, and a full
+    # rollback round-trip across every rollback file >= 130.
+    runs-on: ubuntu-latest
+
+    env:
+      NODE_ENV: test
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: fireisp_test
+      DB_NAME: fireisp_runner_test
+      JWT_SECRET: runner-test-jwt-secret-for-github-actions-only-not-for-production
+      ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY || '0000000000000000000000000000000000000000000000000000000000000000' }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Start MySQL
+        run: |
+          docker run -d --name ci-mysql-runner \
+            -e MYSQL_ROOT_PASSWORD=fireisp_test \
+            -e MYSQL_DATABASE=fireisp_runner_test \
+            -p 3306:3306 \
+            mysql:8.4.9 \
+            mysqld \
+            --character-set-server=utf8mb4 \
+            --collation-server=utf8mb4_unicode_ci \
+            --host-cache-size=0
+
+      - name: Wait for MySQL
+        run: |
+          until mysqladmin ping -h 127.0.0.1 --silent; do
+            sleep 2
+          done
+
+      - name: Apply all migrations via migrate.js
+        run: pnpm run migrate
+
+      - name: Re-run migrate.js and assert it is idempotent
+        run: |
+          BEFORE=$(mysql -h 127.0.0.1 -u root -pfireisp_test -N -e \
+            "SELECT COUNT(*) FROM fireisp_runner_test.schema_migrations;")
+          pnpm run migrate
+          AFTER=$(mysql -h 127.0.0.1 -u root -pfireisp_test -N -e \
+            "SELECT COUNT(*) FROM fireisp_runner_test.schema_migrations;")
+          echo "schema_migrations rows: before=$BEFORE after=$AFTER"
+          if [ "$BEFORE" != "$AFTER" ]; then
+            echo "ERROR: second migrate run changed schema_migrations ($BEFORE -> $AFTER)"
+            exit 1
+          fi
+          echo "✓ Second migrate run applied nothing"
+
+      - name: Migration smoke test (schema.sql parity)
+        run: node src/scripts/migration-smoke-test.js
+
+      - name: Rollback round-trip (all rollbacks >= 130, then re-migrate)
+        run: |
+          node src/scripts/rollback.js --to 129
+          REMAINING=$(mysql -h 127.0.0.1 -u root -pfireisp_test -N -e \
+            "SELECT COUNT(*) FROM fireisp_runner_test.schema_migrations;")
+          echo "Migrations remaining after rollback --to 129: $REMAINING"
+          if [ "$REMAINING" != "129" ]; then
+            echo "ERROR: expected 129 migrations to remain, found $REMAINING"
+            exit 1
+          fi
+          pnpm run migrate
+          node src/scripts/migration-smoke-test.js
+          echo "✓ Rollback round-trip succeeded"
+
   frontend-test:
     runs-on: ubuntu-latest
 

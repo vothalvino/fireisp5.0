@@ -44,6 +44,15 @@ CREATE TABLE IF NOT EXISTS invoice_late_fees (
 
 -- ---------------------------------------------------------------------------
 -- Scheduled task
+--
+-- Idempotency note: INSERT ... SELECT ... WHERE NOT EXISTS — the UNIQUE KEY
+-- on (organization_id, task_name) never collides when organization_id is
+-- NULL, so INSERT IGNORE would duplicate the row on re-run.
 -- ---------------------------------------------------------------------------
-INSERT IGNORE INTO scheduled_tasks (organization_id, task_name, description, cron_expression, is_enabled, priority)
-VALUES (NULL, 'apply_late_fees', 'Apply configured late fees to overdue invoices', '0 2 * * *', TRUE, 'normal');
+INSERT INTO scheduled_tasks (organization_id, task_name, description, cron_expression, is_enabled, priority)
+SELECT NULL, 'apply_late_fees', 'Apply configured late fees to overdue invoices', '0 2 * * *', TRUE, 'normal'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'apply_late_fees' AND organization_id IS NULL
+);

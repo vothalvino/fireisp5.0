@@ -17,32 +17,45 @@
 --   Emits nas.down / nas.up domain events when status changes.
 --   Schedule: every 5 minutes.
 --
--- Both tasks are global (organization_id = NULL) and use INSERT IGNORE so
--- re-running this migration on an already-migrated database is safe.
+-- Both tasks are global (organization_id = NULL) and use one
+-- INSERT ... SELECT ... WHERE NOT EXISTS per task so re-running this
+-- migration on an already-migrated database is safe.  (The UNIQUE KEY on
+-- (organization_id, task_name) never collides when organization_id is NULL,
+-- so INSERT IGNORE would duplicate rows on re-run.)
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
 -- Seed: purge_radius_accounting
 -- ---------------------------------------------------------------------------
-INSERT IGNORE INTO scheduled_tasks
+INSERT INTO scheduled_tasks
     (organization_id, task_name, description, cron_expression, is_enabled, priority)
-VALUES
-    (NULL,
-     'purge_radius_accounting',
-     'Delete connection_logs rows older than RADIUS_ACCOUNTING_RETENTION_MONTHS (default 12) months',
-     '0 3 * * *',
-     TRUE,
-     'low');
+SELECT
+    NULL,
+    'purge_radius_accounting',
+    'Delete connection_logs rows older than RADIUS_ACCOUNTING_RETENTION_MONTHS (default 12) months',
+    '0 3 * * *',
+    TRUE,
+    'low'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'purge_radius_accounting' AND organization_id IS NULL
+);
 
 -- ---------------------------------------------------------------------------
 -- Seed: nas_health_check
 -- ---------------------------------------------------------------------------
-INSERT IGNORE INTO scheduled_tasks
+INSERT INTO scheduled_tasks
     (organization_id, task_name, description, cron_expression, is_enabled, priority)
-VALUES
-    (NULL,
-     'nas_health_check',
-     'Probe each NAS via RADIUS Status-Server (code 12) and update health_status; emit nas.down/nas.up events',
-     '*/5 * * * *',
-     TRUE,
-     'normal');
+SELECT
+    NULL,
+    'nas_health_check',
+    'Probe each NAS via RADIUS Status-Server (code 12) and update health_status; emit nas.down/nas.up events',
+    '*/5 * * * *',
+    TRUE,
+    'normal'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'nas_health_check' AND organization_id IS NULL
+);

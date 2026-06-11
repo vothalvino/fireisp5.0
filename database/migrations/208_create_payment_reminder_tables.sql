@@ -40,6 +40,15 @@ CREATE TABLE IF NOT EXISTS payment_reminder_logs (
 
 -- ---------------------------------------------------------------------------
 -- Scheduled task
+--
+-- Idempotency note: INSERT ... SELECT ... WHERE NOT EXISTS — the UNIQUE KEY
+-- on (organization_id, task_name) never collides when organization_id is
+-- NULL, so INSERT IGNORE would duplicate the row on re-run.
 -- ---------------------------------------------------------------------------
-INSERT IGNORE INTO scheduled_tasks (organization_id, task_name, description, cron_expression, is_enabled, priority)
-VALUES (NULL, 'send_payment_reminders', 'Send payment due and overdue reminder notifications', '0 * * * *', TRUE, 'normal');
+INSERT INTO scheduled_tasks (organization_id, task_name, description, cron_expression, is_enabled, priority)
+SELECT NULL, 'send_payment_reminders', 'Send payment due and overdue reminder notifications', '0 * * * *', TRUE, 'normal'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'send_payment_reminders' AND organization_id IS NULL
+);

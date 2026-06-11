@@ -3,7 +3,7 @@
 --                reminders, satisfaction surveys, ticket escalations)
 -- =============================================================================
 -- Implements isp-platform-features.md §1.3 "Interaction Tracking":
---   • client_interactions   — manual interaction log (calls, visits, chats, …);
+--   • client_interactions   — manual interaction log (calls, visits, chats, …)
 --                              together with tickets, payments, email_logs and
 --                              sms_logs it feeds the per-client activity
 --                              timeline (interactionService.activityTimeline)
@@ -170,25 +170,52 @@ CREATE TABLE IF NOT EXISTS ticket_escalations (
 
 -- ---------------------------------------------------------------------------
 -- Seed: scheduled tasks driving the automated parts of §1.3
+--
+-- Idempotency note: one INSERT ... SELECT ... WHERE NOT EXISTS per task —
+-- the UNIQUE KEY on (organization_id, task_name) never collides when
+-- organization_id is NULL, so INSERT IGNORE would duplicate rows on re-run.
 -- ---------------------------------------------------------------------------
-INSERT IGNORE INTO scheduled_tasks
+INSERT INTO scheduled_tasks
     (organization_id, task_name, description, cron_expression, is_enabled, priority)
-VALUES
-    (NULL,
-     'follow_up_reminders',
-     'Notify assignees about follow-up reminders that have come due',
-     '*/15 * * * *',
-     TRUE,
-     'normal'),
-    (NULL,
-     'dispatch_satisfaction_surveys',
-     'Create and send CSAT surveys for recently resolved tickets',
-     '0 * * * *',
-     TRUE,
-     'normal'),
-    (NULL,
-     'auto_escalate_tickets',
-     'Escalate open tickets with no resolution after 48 hours',
-     '30 * * * *',
-     TRUE,
-     'normal');
+SELECT
+    NULL,
+    'follow_up_reminders',
+    'Notify assignees about follow-up reminders that have come due',
+    '*/15 * * * *',
+    TRUE,
+    'normal'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'follow_up_reminders' AND organization_id IS NULL
+);
+
+INSERT INTO scheduled_tasks
+    (organization_id, task_name, description, cron_expression, is_enabled, priority)
+SELECT
+    NULL,
+    'dispatch_satisfaction_surveys',
+    'Create and send CSAT surveys for recently resolved tickets',
+    '0 * * * *',
+    TRUE,
+    'normal'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'dispatch_satisfaction_surveys' AND organization_id IS NULL
+);
+
+INSERT INTO scheduled_tasks
+    (organization_id, task_name, description, cron_expression, is_enabled, priority)
+SELECT
+    NULL,
+    'auto_escalate_tickets',
+    'Escalate open tickets with no resolution after 48 hours',
+    '30 * * * *',
+    TRUE,
+    'normal'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'auto_escalate_tickets' AND organization_id IS NULL
+);

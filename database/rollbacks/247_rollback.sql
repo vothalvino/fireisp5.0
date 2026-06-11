@@ -1,0 +1,24 @@
+-- =============================================================================
+-- Rollback 247: Repair of scheduled_tasks global seeds — intentional no-op
+-- =============================================================================
+-- Migration 247 performed two kinds of data repair on scheduled_tasks rows
+-- with organization_id IS NULL:
+--
+--   1. Deduplication — duplicate global task rows (created because the
+--      original INSERT IGNORE seeds never collided on the NULL-able
+--      organization_id unique key) were deleted, keeping the lowest id.
+--   2. Value repair — priority/task_type values that INSERT IGNORE had
+--      silently demoted to '' (the ENUM error value), plus the unintended
+--      'critical' priority on process_recurring_charges, were set to their
+--      intended valid ENUM values.
+--
+-- Neither action is reversible:
+--   * The deleted duplicate rows were defects, not data — re-inserting them
+--     would re-introduce duplicate task dispatch.
+--   * Restoring priority/task_type back to '' would re-corrupt the rows —
+--     '' is not a legitimate value of either ENUM.
+--
+-- This rollback is therefore a deliberate no-op. The statement below exists
+-- only so the rollback runner has a valid statement to execute.
+
+SELECT 'Rollback 247 is an intentional no-op: dedup and ENUM value repair are not reversible' AS notice;

@@ -18,16 +18,27 @@ ALTER TABLE devices
 -- source of truth for whether a node is reachable.
 
 -- Part 2 — seed the config_backup_pull scheduled task
-INSERT IGNORE INTO scheduled_tasks
+-- Idempotency note: uses INSERT ... SELECT ... WHERE NOT EXISTS because the
+-- UNIQUE KEY on (organization_id, task_name) never collides when
+-- organization_id is NULL, so INSERT IGNORE would duplicate the row on re-run.
+-- task_type is 'backup' — the previous value 'maintenance' is not part of the
+-- task_type ENUM (see migration 047) and was silently stored as '' by
+-- INSERT IGNORE; 'backup' is the existing ENUM member matching this task.
+INSERT INTO scheduled_tasks
     (organization_id, task_name, task_type, description,
      cron_expression, priority, max_retries, timeout_seconds, is_enabled)
-VALUES
-    (NULL,
-     'config_backup_pull',
-     'maintenance',
-     'Nightly RouterOS config backup pull: for each device with a firerelay_node_id and ip_address, sends a config.backup command via the FireRelay tunnel and stores the result in device_config_backups. Skips unchanged configs (same SHA-256 checksum).',
-     '0 2 * * *',   -- daily at 02:00 UTC
-     'normal',
-     2,
-     3600,
-     TRUE);
+SELECT
+    NULL,
+    'config_backup_pull',
+    'backup',
+    'Nightly RouterOS config backup pull: for each device with a firerelay_node_id and ip_address, sends a config.backup command via the FireRelay tunnel and stores the result in device_config_backups. Skips unchanged configs (same SHA-256 checksum).',
+    '0 2 * * *',   -- daily at 02:00 UTC
+    'normal',
+    2,
+    3600,
+    TRUE
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'config_backup_pull' AND organization_id IS NULL
+);

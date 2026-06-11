@@ -87,13 +87,23 @@ WHERE  r.name = 'readonly';
 -- Scheduled task: scan_auth_failures
 -- Runs every 15 min; classifies recent radpostauth rejections and emits
 -- pppoe.auth_failures events for accounts exceeding the threshold.
--- Uses INSERT IGNORE — idempotent on re-run (UNIQUE KEY on task_name).
+-- Uses INSERT ... SELECT ... WHERE NOT EXISTS for idempotency — the UNIQUE
+-- KEY on (organization_id, task_name) never collides when organization_id is
+-- NULL, so INSERT IGNORE would duplicate the row on re-run.
+-- priority is the ENUM('low','normal','high','critical') — the original
+-- numeric literal 5 was out of range and was silently stored as '' by
+-- INSERT IGNORE; the intended value is 'high'.
 -- ---------------------------------------------------------------------------
-INSERT IGNORE INTO scheduled_tasks (task_name, description, cron_expression, is_enabled, priority)
-VALUES (
+INSERT INTO scheduled_tasks (organization_id, task_name, description, cron_expression, is_enabled, priority)
+SELECT
+  NULL,
   'scan_auth_failures',
   'Classify recent PPPoE auth failures from radpostauth and emit alerts for repeated failures',
   '*/15 * * * *',
   1,
-  5
+  'high'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'scan_auth_failures' AND organization_id IS NULL
 );
