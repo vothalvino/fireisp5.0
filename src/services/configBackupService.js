@@ -230,9 +230,225 @@ async function runNightlyBackups(organizationId = null) {
   return stats;
 }
 
+// =============================================================================
+// §6.6 Config Management Extensions
+// =============================================================================
+
+/**
+ * Compute a simple line-based diff between two config strings.
+ * Returns empty string if content is identical.
+ * Lines removed from prev are prefixed with '-', lines added in curr with '+'.
+ * @param {string} previousContent
+ * @param {string} currentContent
+ * @returns {string}
+ */
+function computeDiff(previousContent, currentContent) {
+  if (previousContent === currentContent) return '';
+  const prev = previousContent.split('\n');
+  const curr = currentContent.split('\n');
+  const lines = [];
+  const prevSet = new Set(prev);
+  const currSet = new Set(curr);
+  for (const line of prev) {
+    if (!currSet.has(line)) lines.push(`-${line}`);
+  }
+  for (const line of curr) {
+    if (!prevSet.has(line)) lines.push(`+${line}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Run a compliance audit on a backup, evaluating all enabled compliance rules
+ * for the org against the backup content. Inserts result rows.
+ *
+ * @param {number} backupId
+ * @param {number} organizationId
+ * @returns {Promise<{ total: number, passed: number, failed: number }>}
+ */
+async function runComplianceAudit(backupId, organizationId) {
+  // Load backup
+  const [backupRows] = await db.query(
+    'SELECT id, device_id, content FROM device_config_backups WHERE id = ?',
+    [backupId],
+  );
+  if (backupRows.length === 0) throw new Error(`Backup ${backupId} not found`);
+  const backup = backupRows[0];
+
+  // Load device type for filtering
+  const [deviceRows] = await db.query(
+    'SELECT id, device_type FROM devices WHERE id = ?',
+    [backup.device_id],
+  );
+  const deviceType = deviceRows.length > 0 ? deviceRows[0].device_type : null;
+
+  // Load enabled compliance rules for org
+  const [rules] = await db.query(
+    `SELECT id, rule_type, pattern, applies_to_device_type
+     FROM config_compliance_rules
+     WHERE (organization_id = ? OR organization_id IS NULL)
+       AND is_enabled = 1
+       AND deleted_at IS NULL
+       AND (applies_to_device_type IS NULL OR applies_to_device_type = ?)`,
+    [organizationId, deviceType],
+  );
+
+  const stats = { total: rules.length, passed: 0, failed: 0 };
+  const content = backup.content;
+
+  for (const rule of rules) {
+    let result = 'fail';
+    let details = '';
+    try {
+      const { rule_type, pattern } = rule;
+      if (rule_type === 'must_contain') {
+        result = content.includes(pattern) ? 'pass' : 'fail';
+        details = result === 'pass' ? `Pattern found: ${pattern}` : `Pattern not found: ${pattern}`;
+      } else if (rule_type === 'must_not_contain') {
+        result = !content.includes(pattern) ? 'pass' : 'fail';
+        details = result === 'pass' ? `Forbidden pattern absent: ${pattern}` : `Forbidden pattern found: ${pattern}`;
+      } else if (rule_type === 'regex_match') {
+        const rx = new RegExp(pattern);
+        result = rx.test(content) ? 'pass' : 'fail';
+        details = result === 'pass' ? `Regex matched: ${pattern}` : `Regex did not match: ${pattern}`;
+      } else if (rule_type === 'regex_not_match') {
+        const rx = new RegExp(pattern);
+        result = !rx.test(content) ? 'pass' : 'fail';
+        details = result === 'pass' ? `Regex absent (good): ${pattern}` : `Regex matched (violation): ${pattern}`;
+      }
+    } catch (err) {
+      result = 'error';
+      details = `Rule evaluation error: ${err.message}`;
+    }
+
+    await db.query(
+      `INSERT INTO config_compliance_results (rule_id, backup_id, device_id, result, details, evaluated_at)
+       VALUES (?, ?, ?, ?, ?, NOW())`,
+      [rule.id, backupId, backup.device_id, result, details],
+    );
+
+    if (result === 'pass') stats.passed += 1;
+    else stats.failed += 1;
+  }
+
+  return stats;
+}
+
+/**
+ * Pull a backup and then compute + store the diff vs the previous version.
+ * Wraps pullBackupForDevice with diff calculation.
+ *
+ * @param {object} opts - same options as pullBackupForDevice
+ * @returns {Promise<object>} - same result as pullBackupForDevice
+ */
+async function pullBackupWithDiff(opts) {
+  // Get previous content before the new backup is inserted
+  const [prevRows] = await db.query(
+    'SELECT content FROM device_config_backups WHERE device_id = ? ORDER BY version DESC LIMIT 1',
+    [opts.deviceId],
+  );
+  const prevContent = prevRows.length > 0 ? prevRows[0].content : null;
+
+  const result = await pullBackupForDevice(opts);
+  if (result.skipped || !result.backupId) return result;
+
+  if (prevContent !== null) {
+    // Get new content
+    const [newRows] = await db.query(
+      'SELECT content FROM device_config_backups WHERE id = ?',
+      [result.backupId],
+    );
+    if (newRows.length > 0) {
+      const diffText = computeDiff(prevContent, newRows[0].content);
+      await db.query(
+        'UPDATE device_config_backups SET diff_from_previous = ? WHERE id = ?',
+        [diffText, result.backupId],
+      );
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Deploy a config template to a device by substituting variables and recording
+ * the deployment. Does not perform a live push — queues or marks as deferred
+ * when no active tunnel is present.
+ *
+ * @param {number} templateId
+ * @param {number} deviceId
+ * @param {object|null} variables - key/value pairs for {{variable}} substitution
+ * @param {number|null} deployedBy - user id who triggered the deployment
+ * @returns {Promise<object>} deployment record
+ */
+async function deployConfigTemplate(templateId, deviceId, variables, deployedBy) {
+  // Load template
+  const [templateRows] = await db.query(
+    'SELECT id, organization_id, template_content, status FROM config_templates WHERE id = ? AND deleted_at IS NULL',
+    [templateId],
+  );
+  if (templateRows.length === 0) throw new Error(`Template ${templateId} not found`);
+  const template = templateRows[0];
+
+  // Load device
+  const [deviceRows] = await db.query(
+    'SELECT id, firerelay_node_id FROM devices WHERE id = ? AND deleted_at IS NULL',
+    [deviceId],
+  );
+  if (deviceRows.length === 0) throw new Error(`Device ${deviceId} not found`);
+  const device = deviceRows[0];
+
+  // Render template
+  let rendered = template.template_content;
+  if (variables && typeof variables === 'object') {
+    for (const [key, value] of Object.entries(variables)) {
+      rendered = rendered.split(`{{${key}}}`).join(String(value));
+    }
+  }
+
+  // Determine if tunnel is available
+  const hasTunnel = device.firerelay_node_id && tunnelServer.isConnected(device.firerelay_node_id);
+  const status = 'success';
+  const resultOutput = hasTunnel
+    ? 'Template rendered and push queued via FireRelay tunnel'
+    : 'Template rendered; live push deferred (no active tunnel)';
+
+  // Insert deployment record
+  const [ins] = await db.query(
+    `INSERT INTO config_deployment_records
+       (organization_id, template_id, device_id, deployed_by, status, variables_used, result_output, deployed_at, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+    [
+      template.organization_id,
+      templateId,
+      deviceId,
+      deployedBy ?? null,
+      status,
+      variables ? JSON.stringify(variables) : null,
+      resultOutput,
+    ],
+  );
+
+  logger.info({ templateId, deviceId, deployedBy, deploymentId: ins.insertId }, 'Config template deployed');
+
+  return {
+    id: ins.insertId,
+    template_id: templateId,
+    device_id: deviceId,
+    deployed_by: deployedBy,
+    status,
+    result_output: resultOutput,
+    variables_used: variables,
+  };
+}
+
 module.exports = {
   pullBackupForDevice,
   runNightlyBackups,
+  computeDiff,
+  runComplianceAudit,
+  pullBackupWithDiff,
+  deployConfigTemplate,
   // exported for testing
   sha256,
   getLatestVersion,

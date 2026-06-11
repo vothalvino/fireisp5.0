@@ -293,6 +293,124 @@ function LineChart({ title, timestamps, series, resolution, height = 160, yUnit 
 }
 
 // ---------------------------------------------------------------------------
+// Switch Port row type (from /snmp-metrics/interfaces/:deviceId)
+// ---------------------------------------------------------------------------
+
+interface InterfaceRow {
+  interface_id: string;
+  if_in_octets_avg: number | null;
+  if_out_octets_avg: number | null;
+  if_in_octets_max: number | null;
+  if_out_octets_max: number | null;
+  if_in_errors_avg: number | null;
+  if_out_errors_avg: number | null;
+  if_in_discards_avg: number | null;
+  if_out_discards_avg: number | null;
+  avg_poe_power_mw: number | null;
+  avg_if_oper_status: number | null;
+  min_if_oper_status: number | null;
+  avg_sfp_rx_power_dbm: number | null;
+  avg_sfp_tx_power_dbm: number | null;
+  period_start: string;
+}
+
+interface InterfacesResponse {
+  data: InterfaceRow[];
+  meta: { device_id: number; device_name: string; ip_address: string };
+}
+
+// ---------------------------------------------------------------------------
+// Switch Ports Panel component
+// ---------------------------------------------------------------------------
+
+function operStatusLabel(status: number | null): string {
+  switch (status) {
+    case 1: return 'Up';
+    case 2: return 'Down';
+    case 3: return 'Testing';
+    case 7: return 'LowerLayerDown';
+    default: return status != null ? String(status) : '—';
+  }
+}
+
+function operStatusColor(status: number | null): string {
+  if (status === 1) return '#166534';   // green
+  if (status === 2 || status === 7) return '#991b1b'; // red
+  if (status === 3) return '#92400e';   // amber
+  return '#6b7280'; // grey
+}
+
+function SwitchPortsPanel({ deviceId }: { deviceId: number }) {
+  const { data, isLoading, error } = useQuery<InterfacesResponse>({
+    queryKey: ['snmp-interfaces', deviceId],
+    queryFn: () => apiFetch(`/snmp-metrics/interfaces/${deviceId}`),
+    staleTime: 60_000,
+    enabled: !!deviceId,
+  });
+
+  if (isLoading) return <div style={{ color: '#6b7280', fontSize: 13, padding: '8px 0' }}>Loading port status…</div>;
+  if (error)     return <div style={{ color: '#dc2626', fontSize: 13, padding: '8px 0' }}>Failed to load port data.</div>;
+
+  const rows = data?.data || [];
+  if (rows.length === 0) return null;
+
+  const tableStyle: CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 13 };
+  const thStyle: CSSProperties = { textAlign: 'left', padding: '6px 10px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontWeight: 600, color: '#374151' };
+  const tdStyle: CSSProperties = { padding: '6px 10px', borderBottom: '1px solid #f3f4f6', color: '#374151' };
+
+  return (
+    <div style={{ ...cs.chartBox, gridColumn: '1 / -1', padding: 16 }}>
+      <div style={{ ...cs.chartTitle, marginBottom: 12 }}>Switch Port Status</div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={tableStyle}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Port</th>
+              <th style={thStyle}>Status</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>In (avg)</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>Out (avg)</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>In Errors</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>Discards</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>PoE / RxPwr</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(row => {
+              const status = row.min_if_oper_status ?? row.avg_if_oper_status;
+              return (
+                <tr key={row.interface_id}>
+                  <td style={tdStyle}>{row.interface_id}</td>
+                  <td style={{ ...tdStyle }}>
+                    <span style={{ color: operStatusColor(status ? Math.round(status) : null), fontWeight: 600 }}>
+                      {operStatusLabel(status ? Math.round(status) : null)}
+                    </span>
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{fmtBytes(row.if_in_octets_avg)}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{fmtBytes(row.if_out_octets_avg)}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                    {row.if_in_errors_avg != null ? Number(row.if_in_errors_avg).toFixed(0) : '—'}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                    {row.if_in_discards_avg != null ? Number(row.if_in_discards_avg).toFixed(0) : '—'}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                    {row.avg_poe_power_mw != null
+                      ? `${Number(row.avg_poe_power_mw).toFixed(0)} mW`
+                      : row.avg_sfp_rx_power_dbm != null
+                        ? `${Number(row.avg_sfp_rx_power_dbm).toFixed(2)} dBm`
+                        : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -558,6 +676,11 @@ export function SnmpMetrics() {
                 { key: 'lat', values: latency, color: '#16a085', label: 'Latency ms' },
               ]}
             />
+          )}
+
+          {/* Switch Ports Panel — shown when device has per-interface data */}
+          {selectedDevice != null && interfaces.length > 0 && (
+            <SwitchPortsPanel deviceId={selectedDevice} />
           )}
         </div>
       )}

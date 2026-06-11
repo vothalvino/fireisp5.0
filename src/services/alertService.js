@@ -20,6 +20,18 @@ const ALLOWED_METRICS = new Set([
   'uptime',
   'if_in_octets',
   'if_out_octets',
+  'voltage_mv',
+  'temperature_c',
+  'fan_speed_rpm',
+  'if_in_discards',
+  'if_out_discards',
+  'sfp_tx_power_dbm',
+  'sfp_rx_power_dbm',
+  'sfp_temperature_c',
+  'ups_battery_pct',
+  'ups_runtime_min',
+  'poe_power_mw',
+  'humidity_pct',
 ]);
 
 // Metrics stored directly in snmp_metrics (used to build safe queries).
@@ -30,6 +42,18 @@ const SNMP_METRICS = new Set([
   'latency_ms',
   'if_in_octets',
   'if_out_octets',
+  'voltage_mv',
+  'temperature_c',
+  'fan_speed_rpm',
+  'if_in_discards',
+  'if_out_discards',
+  'sfp_tx_power_dbm',
+  'sfp_rx_power_dbm',
+  'sfp_temperature_c',
+  'ups_battery_pct',
+  'ups_runtime_min',
+  'poe_power_mw',
+  'humidity_pct',
 ]);
 
 /**
@@ -260,4 +284,152 @@ async function acknowledgeAlert(alertEventId, userId) {
   );
 }
 
-module.exports = { evaluateAlerts, checkRule, getAlertHistory, acknowledgeAlert, autoCreateTicket };
+/**
+ * Check if a device is currently in a maintenance window.
+ */
+async function isInMaintenanceWindow(organizationId, deviceId) {
+  const [rows] = await db.query(
+    `SELECT id FROM maintenance_windows
+     WHERE organization_id = ? AND deleted_at IS NULL
+       AND (device_id = ? OR device_id IS NULL)
+       AND (status = 'active' OR (status = 'scheduled' AND starts_at <= NOW() AND ends_at >= NOW()))
+     LIMIT 1`,
+    [organizationId, deviceId],
+  );
+  return rows.length > 0;
+}
+
+/**
+ * Check if an alert should be suppressed due to an upstream device being in alert.
+ */
+async function isSuppressedByCorrelation(organizationId, deviceId) {
+  const [rows] = await db.query(
+    `SELECT sr.id FROM alert_suppression_rules sr
+     JOIN alert_events ae ON ae.device_id = sr.upstream_device_id
+       AND ae.organization_id = sr.organization_id
+       AND ae.status = 'triggered'
+     WHERE sr.organization_id = ? AND sr.downstream_device_id = ?
+       AND sr.is_enabled = 1 AND sr.deleted_at IS NULL
+     LIMIT 1`,
+    [organizationId, deviceId],
+  );
+  return rows.length > 0;
+}
+
+/**
+ * Check if an alert rule is flapping (toggling rapidly).
+ */
+async function checkFlapping(ruleId) {
+  const [ruleRows] = await db.query(
+    'SELECT flap_detection_enabled, flap_count_threshold, flap_window_minutes FROM alert_rules WHERE id = ?',
+    [ruleId],
+  );
+  if (!ruleRows.length || !ruleRows[0].flap_detection_enabled) return false;
+  const { flap_count_threshold, flap_window_minutes } = ruleRows[0];
+  const [rows] = await db.query(
+    `SELECT COUNT(*) AS cnt FROM alert_events
+     WHERE alert_rule_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
+    [ruleId, flap_window_minutes],
+  );
+  return parseInt(rows[0].cnt, 10) >= (flap_count_threshold || 3);
+}
+
+/**
+ * Trigger an escalation step for an alert event.
+ */
+async function triggerEscalation(alertEventId, escalationChainId, stepNumber) {
+  const [steps] = await db.query(
+    'SELECT * FROM alert_escalation_steps WHERE chain_id = ? AND step_number = ?',
+    [escalationChainId, stepNumber],
+  );
+  if (!steps.length) return;
+  const step = steps[0];
+  logger.info(
+    { alertEventId, escalationChainId, stepNumber, channel: step.notification_channel },
+    'Alert escalation triggered',
+  );
+  await db.query(
+    'UPDATE alert_events SET escalation_step = ?, escalated_at = NOW() WHERE id = ?',
+    [stepNumber, alertEventId],
+  );
+  eventBus.emit('alert.escalated', { alertEventId, escalationChainId, stepNumber, step });
+}
+
+/**
+ * Enhanced alert evaluation (v2) with maintenance windows, suppression, and flap detection.
+ */
+async function evaluateAlertsV2(organizationId) {
+  const [rules] = await db.query(
+    'SELECT * FROM alert_rules WHERE organization_id = ? AND is_enabled = TRUE',
+    [organizationId],
+  );
+
+  const triggered = [];
+  const suppressed = [];
+
+  for (const rule of rules) {
+    try {
+      const breached = await checkRule(rule);
+      if (!breached) continue;
+
+      // Maintenance window check
+      if (breached.device_id) {
+        const inMaintenance = await isInMaintenanceWindow(organizationId, breached.device_id);
+        if (inMaintenance) {
+          suppressed.push({ rule_id: rule.id, reason: 'maintenance_window' });
+          continue;
+        }
+      }
+
+      // Correlation suppression check
+      if (breached.device_id) {
+        const isSuppressed = await isSuppressedByCorrelation(organizationId, breached.device_id);
+        if (isSuppressed) {
+          suppressed.push({ rule_id: rule.id, reason: 'correlation_suppression' });
+          continue;
+        }
+      }
+
+      // Flapping check
+      const isFlapping = await checkFlapping(rule.id);
+
+      // Record the alert event
+      const [result] = await db.query(
+        `INSERT INTO alert_events
+         (alert_rule_id, organization_id, device_id, metric, current_value, threshold_value, status, flapping)
+         VALUES (?, ?, ?, ?, ?, ?, 'triggered', ?)`,
+        [rule.id, organizationId, breached.device_id, breached.metric,
+          breached.current_value, breached.threshold, isFlapping ? 1 : 0],
+      );
+      const eventId = result.insertId;
+
+      triggered.push({ rule_id: rule.id, rule_name: rule.name, metric: rule.metric, flapping: isFlapping, ...breached });
+
+      eventBus.emit('alert.triggered', { organizationId, rule, breach: breached });
+
+      if (rule.auto_create_outage && breached.device_id) {
+        await autoCreateOutage(organizationId, rule, breached);
+      }
+      if (rule.auto_create_ticket && breached.device_id) {
+        await autoCreateTicket(organizationId, rule, breached);
+      }
+
+      // Escalation
+      if (rule.escalation_chain_id) {
+        await triggerEscalation(eventId, rule.escalation_chain_id, 1);
+      }
+    } catch (err) {
+      logger.error({ err, ruleId: rule.id }, 'Alert rule v2 evaluation failed');
+    }
+  }
+
+  return {
+    evaluated: rules.length,
+    triggered: triggered.length,
+    suppressed: suppressed.length,
+    alerts: triggered,
+    suppressed_alerts: suppressed,
+  };
+}
+
+module.exports = { evaluateAlerts, checkRule, getAlertHistory, acknowledgeAlert, autoCreateTicket, isInMaintenanceWindow, isSuppressedByCorrelation, checkFlapping, triggerEscalation, evaluateAlertsV2 };

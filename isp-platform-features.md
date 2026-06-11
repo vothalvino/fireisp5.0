@@ -236,55 +236,55 @@
 ## 6. SNMP & NMS
 
 ### 6.1 Device Discovery & Onboarding
-- [ ] Auto-discovery via SNMP scan (seed IP + CIDR range)
-- [ ] Vendor-agnostic SNMP support (v1, v2c, v3)
-- [ ] SNMPv3 with AES-128/256 encryption and SHA authentication
-- [ ] Bulk device import via CSV
-- [ ] Device grouping by type, location, region, OLT
-- [ ] Custom SNMP OID polling templates
-- [ ] SNMP trap receiver with parsing and forwarding
+- [x] Auto-discovery via SNMP scan (seed IP + CIDR range)
+- [x] Vendor-agnostic SNMP support (v1, v2c, v3)
+- [x] SNMPv3 with AES-128/256 encryption and SHA authentication
+- [x] Bulk device import via CSV
+- [x] Device grouping by type, location, region, OLT
+- [x] Custom SNMP OID polling templates
+- [x] SNMP trap receiver with parsing and forwarding
 
 ### 6.2 Network Device Monitoring
-- [ ] MikroTik RouterOS: CPU, memory, voltage, temperature, fan speed
-- [ ] Cisco/Juniper BNG: interface stats, sessions, CPU, memory
-- [ ] Huawei/ZTE OLT monitoring (private MIBs where available)
-- [ ] Switch monitoring: port status, errors, utilization, PoE status
-- [ ] SFP/QSFP diagnostics: temperature, Tx/Rx power, vendor info, distance
-- [ ] UPS / PDU monitoring via SNMP
-- [ ] Environmental sensors (temp, humidity, water, door)
+- [x] MikroTik RouterOS: CPU, memory, voltage, temperature, fan speed
+- [x] Cisco/Juniper BNG: interface stats, sessions, CPU, memory
+- [x] Huawei/ZTE OLT monitoring (private MIBs where available)
+- [x] Switch monitoring: port status, errors, utilization, PoE status
+- [x] SFP/QSFP diagnostics: temperature, Tx/Rx power, vendor info, distance
+- [x] UPS / PDU monitoring via SNMP
+- [x] Environmental sensors (temp, humidity, water, door)
 
 ### 6.3 Interface & Traffic Monitoring
-- [ ] Real-time bandwidth graphing (SNMP counter polling at 30s/60s/5min intervals)
-- [ ] Per-interface utilization (percentage + absolute values)
-- [ ] Error/discards counter monitoring (CRC, input errors, output drops)
-- [ ] Top talkers by interface / by subscriber
+- [x] Real-time bandwidth graphing (SNMP counter polling at 30s/60s/5min intervals)
+- [x] Per-interface utilization (percentage + absolute values)
+- [x] Error/discards counter monitoring (CRC, input errors, output drops)
+- [x] Top talkers by interface / by subscriber
 - [ ] Traffic classification (adaptive to NetFlow/sFlow if available)
-- [ ] Graph retention: hourly (7 days), daily (90 days), monthly (3 years)
+- [x] Graph retention: hourly (7 days), daily (90 days), monthly (3 years)
 
 ### 6.4 Polling Engine
-- [ ] Configurable polling intervals per device type / per metric
-- [ ] Distributed polling for large networks (multiple poller nodes)
-- [ ] SNMP bulk-get optimization for devices with many ports
-- [ ] Failover poller with automatic redistribution
-- [ ] Poller performance dashboard (poll time, timeout rate, queue depth)
-- [ ] Adaptive polling: increase frequency during incidents
+- [x] Configurable polling intervals per device type / per metric
+- [x] Distributed polling for large networks (multiple poller nodes)
+- [x] SNMP bulk-get optimization for devices with many ports
+- [x] Failover poller with automatic redistribution
+- [x] Poller performance dashboard (poll time, timeout rate, queue depth)
+- [x] Adaptive polling: increase frequency during incidents
 
 ### 6.5 Alerting & Notification
-- [ ] Threshold-based alerts (static and dynamic/baseline)
-- [ ] Alert correlation: suppress downstream alerts on upstream failure
-- [ ] Multi-channel notification: email, SMS, WhatsApp, Telegram, webhook
-- [ ] Alert escalation: L1 → L2 → L3 with time-based escalation
-- [ ] Maintenance window scheduling (suppress alerts during planned work)
-- [ ] Alert acknowledgment and resolution tracking
-- [ ] Repeat alert suppression (flapping detection)
+- [x] Threshold-based alerts (static and dynamic/baseline)
+- [x] Alert correlation: suppress downstream alerts on upstream failure
+- [x] Multi-channel notification: email, SMS, WhatsApp, Telegram, webhook
+- [x] Alert escalation: L1 → L2 → L3 with time-based escalation
+- [x] Maintenance window scheduling (suppress alerts during planned work)
+- [x] Alert acknowledgment and resolution tracking
+- [x] Repeat alert suppression (flapping detection)
 
 ### 6.6 Device Configuration Management
-- [ ] Configuration backup scheduler (daily/weekly)
-- [ ] Configuration diff comparison (version history)
+- [x] Configuration backup scheduler (daily/weekly)
+- [x] Configuration diff comparison (version history)
 - [ ] Rollback to previous configuration
-- [ ] Template-based config deployment
-- [ ] Scheduled config push (batch/multi-device)
-- [ ] Configuration compliance auditing
+- [x] Template-based config deployment
+- [x] Scheduled config push (batch/multi-device)
+- [x] Configuration compliance auditing
 
 ---
 

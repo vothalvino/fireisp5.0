@@ -419,6 +419,34 @@
     {
       "name": "Transition Mechanisms",
       "description": "IPv6 transition mechanisms: 6rd, DS-Lite, MAP-E/MAP-T, 464XLAT — §5.4"
+    },
+    {
+      "name": "Device Groups",
+      "description": "Device group management — logical grouping by type/location/region/OLT — §6.1"
+    },
+    {
+      "name": "Discovery Scans",
+      "description": "Network device discovery via SNMP scan — §6.1"
+    },
+    {
+      "name": "Trap Forwarding Rules",
+      "description": "SNMP trap forwarding rule management — §6.1"
+    },
+    {
+      "name": "SNMP Metrics",
+      "description": "Bandwidth graphs, top talkers, interface utilization, error counters — §6.2/6.3"
+    },
+    {
+      "name": "Config Templates",
+      "description": "Configuration template management — §6.6"
+    },
+    {
+      "name": "Config Backup Schedules",
+      "description": "Per-device/org backup schedule management — §6.6"
+    },
+    {
+      "name": "Config Compliance Rules",
+      "description": "Configuration compliance rules and audit — §6.6"
     }
   ],
   "paths": {
@@ -12991,6 +13019,707 @@
         }
       }
     },
+    "/alerts/escalation-chains": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "List escalation chains",
+        "operationId": "listEscalationChains",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "EscalationChain[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Create escalation chain",
+        "operationId": "createEscalationChain",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "alertEscalations_createChain",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "EscalationChain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts/escalation-chains/{id}": {
+      "put": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Update escalation chain",
+        "operationId": "updateEscalationChain",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "alertEscalations_updateChain",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "EscalationChain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Delete escalation chain",
+        "operationId": "deleteEscalationChain",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/alerts/escalation-chains/{id}/steps": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "List escalation steps",
+        "operationId": "listEscalationSteps",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "EscalationStep[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Add escalation step",
+        "operationId": "createEscalationStep",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "alertEscalations_createStep",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "EscalationStep",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts/escalation-chains/{id}/steps/{stepId}": {
+      "delete": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Delete escalation step",
+        "operationId": "deleteEscalationStep",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "stepId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/alerts/maintenance-windows": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "List maintenance windows",
+        "operationId": "listMaintenanceWindows",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MaintenanceWindow[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Create maintenance window",
+        "operationId": "createMaintenanceWindow",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "maintenanceWindows_createWindow",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "MaintenanceWindow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts/maintenance-windows/active": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "List active maintenance windows",
+        "operationId": "listActiveMaintenanceWindows",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MaintenanceWindow[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts/maintenance-windows/{id}": {
+      "put": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Update maintenance window",
+        "operationId": "updateMaintenanceWindow",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "maintenanceWindows_updateWindow",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "MaintenanceWindow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Delete maintenance window",
+        "operationId": "deleteMaintenanceWindow",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/alerts/notification-channels": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "List notification channels",
+        "operationId": "listAlertNotificationChannels",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AlertNotificationChannel[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Create notification channel",
+        "operationId": "createAlertNotificationChannel",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "alertNotificationChannels_createChannel",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "AlertNotificationChannel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts/notification-channels/{id}": {
+      "put": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Update notification channel",
+        "operationId": "updateAlertNotificationChannel",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "alertNotificationChannels_updateChannel",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "AlertNotificationChannel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Delete notification channel",
+        "operationId": "deleteAlertNotificationChannel",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/alerts/suppression-rules": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "List alert suppression rules",
+        "operationId": "listAlertSuppressionRules",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AlertSuppressionRule[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Create alert suppression rule",
+        "operationId": "createAlertSuppressionRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "alertSuppressionRules_createRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "AlertSuppressionRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts/suppression-rules/{id}": {
+      "put": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Update alert suppression rule",
+        "operationId": "updateAlertSuppressionRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "alertSuppressionRules_updateRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "AlertSuppressionRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Delete alert suppression rule",
+        "operationId": "deleteAlertSuppressionRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/alerts/evaluate-v2": {
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Trigger enhanced alert evaluation (v2)",
+        "operationId": "evaluateAlertsV2",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/outages": {
       "get": {
         "tags": [
@@ -22159,6 +22888,2262 @@
           }
         }
       }
+    },
+    "/device-groups": {
+      "get": {
+        "tags": [
+          "Device Groups"
+        ],
+        "summary": "List device-groups",
+        "operationId": "listDeviceGroups",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DeviceGroup[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Device Groups"
+        ],
+        "summary": "Create a DeviceGroup",
+        "operationId": "createDeviceGroup",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "DeviceGroup",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "DeviceGroup",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-groups/{id}": {
+      "get": {
+        "tags": [
+          "Device Groups"
+        ],
+        "summary": "Get a DeviceGroup",
+        "operationId": "getDeviceGroup",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DeviceGroup",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Device Groups"
+        ],
+        "summary": "Update a DeviceGroup",
+        "operationId": "updateDeviceGroup",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "DeviceGroup",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DeviceGroup",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Device Groups"
+        ],
+        "summary": "Delete a DeviceGroup",
+        "operationId": "deleteDeviceGroup",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/device-groups/{id}/restore": {
+      "post": {
+        "tags": [
+          "Device Groups"
+        ],
+        "summary": "Restore a soft-deleted device group",
+        "operationId": "restoreDeviceGroup",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DeviceGroup",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-groups/{id}/members": {
+      "get": {
+        "tags": [
+          "Device Groups"
+        ],
+        "summary": "List devices in a group",
+        "operationId": "listDeviceGroupMembers",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Device[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Device Groups"
+        ],
+        "summary": "Add devices to a group",
+        "operationId": "addDeviceGroupMembers",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "deviceGroups_addGroupMembers",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Added count",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-groups/{id}/members/{deviceId}": {
+      "delete": {
+        "tags": [
+          "Device Groups"
+        ],
+        "summary": "Remove a device from a group",
+        "operationId": "removeDeviceGroupMember",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/discovery-scans": {
+      "get": {
+        "tags": [
+          "Discovery Scans"
+        ],
+        "summary": "List discovery-scans",
+        "operationId": "listDiscoveryScans",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DiscoveryScan[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Discovery Scans"
+        ],
+        "summary": "Create a DiscoveryScan",
+        "operationId": "createDiscoveryScan",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "DiscoveryScan",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "DiscoveryScan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/discovery-scans/{id}": {
+      "get": {
+        "tags": [
+          "Discovery Scans"
+        ],
+        "summary": "Get a DiscoveryScan",
+        "operationId": "getDiscoveryScan",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DiscoveryScan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Discovery Scans"
+        ],
+        "summary": "Update a DiscoveryScan",
+        "operationId": "updateDiscoveryScan",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "DiscoveryScan",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DiscoveryScan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Discovery Scans"
+        ],
+        "summary": "Delete a DiscoveryScan",
+        "operationId": "deleteDiscoveryScan",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/discovery-scans/{id}/restore": {
+      "post": {
+        "tags": [
+          "Discovery Scans"
+        ],
+        "summary": "Restore a soft-deleted scan",
+        "operationId": "restoreDiscoveryScan",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DiscoveryScan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/discovery-scans/{id}/results": {
+      "get": {
+        "tags": [
+          "Discovery Scans"
+        ],
+        "summary": "List discovery results for a scan",
+        "operationId": "listDiscoveryResults",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DiscoveryResult[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/discovery-scans/{id}/results/{resultId}/onboard": {
+      "post": {
+        "tags": [
+          "Discovery Scans"
+        ],
+        "summary": "Onboard a discovered device",
+        "operationId": "onboardDiscoveryResult",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "resultId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Device override fields",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/discovery-scans/{id}/results/{resultId}/ignore": {
+      "post": {
+        "tags": [
+          "Discovery Scans"
+        ],
+        "summary": "Ignore a discovery result",
+        "operationId": "ignoreDiscoveryResult",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "resultId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/trap-forwarding-rules": {
+      "get": {
+        "tags": [
+          "Trap Forwarding Rules"
+        ],
+        "summary": "List trap-forwarding-rules",
+        "operationId": "listTrapForwardingRules",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TrapForwardingRule[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Trap Forwarding Rules"
+        ],
+        "summary": "Create a TrapForwardingRule",
+        "operationId": "createTrapForwardingRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "TrapForwardingRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "TrapForwardingRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/trap-forwarding-rules/{id}": {
+      "get": {
+        "tags": [
+          "Trap Forwarding Rules"
+        ],
+        "summary": "Get a TrapForwardingRule",
+        "operationId": "getTrapForwardingRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TrapForwardingRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Trap Forwarding Rules"
+        ],
+        "summary": "Update a TrapForwardingRule",
+        "operationId": "updateTrapForwardingRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "TrapForwardingRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "TrapForwardingRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Trap Forwarding Rules"
+        ],
+        "summary": "Delete a TrapForwardingRule",
+        "operationId": "deleteTrapForwardingRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/trap-forwarding-rules/{id}/restore": {
+      "post": {
+        "tags": [
+          "Trap Forwarding Rules"
+        ],
+        "summary": "Restore a soft-deleted trap forwarding rule",
+        "operationId": "restoreTrapForwardingRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TrapForwardingRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snmp-metrics": {
+      "get": {
+        "tags": [
+          "SNMP Metrics"
+        ],
+        "summary": "Time-series metrics for a device",
+        "operationId": "getSnmpMetrics",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "resolution",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "raw",
+                "1hr",
+                "1day"
+              ],
+              "default": "1hr"
+            }
+          },
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8760
+            }
+          },
+          {
+            "name": "interface_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnmpMetricsResponse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snmp-metrics/devices": {
+      "get": {
+        "tags": [
+          "SNMP Metrics"
+        ],
+        "summary": "List SNMP-enabled devices",
+        "operationId": "listSnmpDevices",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Device[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snmp-metrics/top-talkers": {
+      "get": {
+        "tags": [
+          "SNMP Metrics"
+        ],
+        "summary": "Top interfaces by total bytes",
+        "operationId": "getTopTalkers",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 24
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TopTalkersResponse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snmp-metrics/interfaces/{deviceId}": {
+      "get": {
+        "tags": [
+          "SNMP Metrics"
+        ],
+        "summary": "Per-interface utilization stats for a device",
+        "operationId": "getInterfaceStats",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "InterfaceStatsResponse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snmp-metrics/errors": {
+      "get": {
+        "tags": [
+          "SNMP Metrics"
+        ],
+        "summary": "Error and discard counters per interface",
+        "operationId": "getInterfaceErrors",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 24
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "InterfaceErrorsResponse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/poller-nodes": {
+      "get": {
+        "tags": [
+          "Poller Nodes"
+        ],
+        "summary": "List poller-nodes",
+        "operationId": "listPollerNodes",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PollerNode[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Poller Nodes"
+        ],
+        "summary": "Create a PollerNode",
+        "operationId": "createPollerNode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "PollerNode",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "PollerNode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/poller-nodes/{id}": {
+      "get": {
+        "tags": [
+          "Poller Nodes"
+        ],
+        "summary": "Get a PollerNode",
+        "operationId": "getPollerNode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PollerNode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Poller Nodes"
+        ],
+        "summary": "Update a PollerNode",
+        "operationId": "updatePollerNode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "PollerNode",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PollerNode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Poller Nodes"
+        ],
+        "summary": "Delete a PollerNode",
+        "operationId": "deletePollerNode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/poller-nodes/{id}/performance": {
+      "get": {
+        "tags": [
+          "Poller Nodes"
+        ],
+        "summary": "Performance history for a poller node",
+        "operationId": "getPollerNodePerformance",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 24
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PollerPerformanceHistory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-polling-configs": {
+      "get": {
+        "tags": [
+          "Device Polling Configs"
+        ],
+        "summary": "List device-polling-configs",
+        "operationId": "listDevicePollingConfigs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DevicePollingConfig[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Device Polling Configs"
+        ],
+        "summary": "Create a DevicePollingConfig",
+        "operationId": "createDevicePollingConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "DevicePollingConfig",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "DevicePollingConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-polling-configs/{id}": {
+      "get": {
+        "tags": [
+          "Device Polling Configs"
+        ],
+        "summary": "Get a DevicePollingConfig",
+        "operationId": "getDevicePollingConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DevicePollingConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Device Polling Configs"
+        ],
+        "summary": "Update a DevicePollingConfig",
+        "operationId": "updateDevicePollingConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "DevicePollingConfig",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DevicePollingConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Device Polling Configs"
+        ],
+        "summary": "Delete a DevicePollingConfig",
+        "operationId": "deleteDevicePollingConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/poller-performance": {
+      "get": {
+        "tags": [
+          "Poller Performance"
+        ],
+        "summary": "List poller performance snapshots",
+        "operationId": "listPollerPerformanceSnapshots",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 24
+            }
+          },
+          {
+            "name": "node_id",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PollerPerformanceSnapshot[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/poller-performance/dashboard": {
+      "get": {
+        "tags": [
+          "Poller Performance"
+        ],
+        "summary": "Aggregated poller performance dashboard",
+        "operationId": "getPollerPerformanceDashboard",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 24
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PollerPerformanceDashboard",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-config-backups/diff/{id}": {
+      "get": {
+        "tags": [
+          "Device Config Backups"
+        ],
+        "summary": "Get diff from previous version",
+        "operationId": "getConfigBackupDiff",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ConfigDiff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-config-backups/compliance-run": {
+      "post": {
+        "tags": [
+          "Device Config Backups"
+        ],
+        "summary": "Run compliance audit on a backup",
+        "operationId": "runBackupComplianceAudit",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "ComplianceRunRequest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ComplianceRunResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-config-backups/compliance-results": {
+      "get": {
+        "tags": [
+          "Device Config Backups"
+        ],
+        "summary": "List compliance audit results",
+        "operationId": "listBackupComplianceResults",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ComplianceResult[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config-templates": {
+      "get": {
+        "tags": [
+          "Config Templates"
+        ],
+        "summary": "List config-templates",
+        "operationId": "listConfigTemplates",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ConfigTemplate[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Config Templates"
+        ],
+        "summary": "Create a ConfigTemplate",
+        "operationId": "createConfigTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "ConfigTemplate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ConfigTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config-templates/{id}": {
+      "get": {
+        "tags": [
+          "Config Templates"
+        ],
+        "summary": "Get a ConfigTemplate",
+        "operationId": "getConfigTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ConfigTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Config Templates"
+        ],
+        "summary": "Update a ConfigTemplate",
+        "operationId": "updateConfigTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "ConfigTemplate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ConfigTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Config Templates"
+        ],
+        "summary": "Delete a ConfigTemplate",
+        "operationId": "deleteConfigTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/config-templates/{id}/deploy": {
+      "post": {
+        "tags": [
+          "Config Templates"
+        ],
+        "summary": "Deploy config template to a device",
+        "operationId": "deployConfigTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "DeployRequest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ConfigDeploymentRecord",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config-backup-schedules": {
+      "get": {
+        "tags": [
+          "Config Backup Schedules"
+        ],
+        "summary": "List config-backup-schedules",
+        "operationId": "listConfigBackupSchedules",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ConfigBackupSchedule[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Config Backup Schedules"
+        ],
+        "summary": "Create a ConfigBackupSchedule",
+        "operationId": "createConfigBackupSchedule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "ConfigBackupSchedule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ConfigBackupSchedule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config-backup-schedules/{id}": {
+      "get": {
+        "tags": [
+          "Config Backup Schedules"
+        ],
+        "summary": "Get a ConfigBackupSchedule",
+        "operationId": "getConfigBackupSchedule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ConfigBackupSchedule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Config Backup Schedules"
+        ],
+        "summary": "Update a ConfigBackupSchedule",
+        "operationId": "updateConfigBackupSchedule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "ConfigBackupSchedule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ConfigBackupSchedule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Config Backup Schedules"
+        ],
+        "summary": "Delete a ConfigBackupSchedule",
+        "operationId": "deleteConfigBackupSchedule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/config-compliance-rules": {
+      "get": {
+        "tags": [
+          "Config Compliance Rules"
+        ],
+        "summary": "List config-compliance-rules",
+        "operationId": "listConfigComplianceRules",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ConfigComplianceRule[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Config Compliance Rules"
+        ],
+        "summary": "Create a ConfigComplianceRule",
+        "operationId": "createConfigComplianceRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "ConfigComplianceRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ConfigComplianceRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config-compliance-rules/{id}": {
+      "get": {
+        "tags": [
+          "Config Compliance Rules"
+        ],
+        "summary": "Get a ConfigComplianceRule",
+        "operationId": "getConfigComplianceRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ConfigComplianceRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Config Compliance Rules"
+        ],
+        "summary": "Update a ConfigComplianceRule",
+        "operationId": "updateConfigComplianceRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "ConfigComplianceRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ConfigComplianceRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Config Compliance Rules"
+        ],
+        "summary": "Delete a ConfigComplianceRule",
+        "operationId": "deleteConfigComplianceRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/config-compliance-rules/results": {
+      "get": {
+        "tags": [
+          "Config Compliance Rules"
+        ],
+        "summary": "List compliance audit results",
+        "operationId": "listComplianceRulesResults",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ComplianceResult[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config-compliance-rules/run": {
+      "post": {
+        "tags": [
+          "Config Compliance Rules"
+        ],
+        "summary": "Run compliance audit on a backup",
+        "operationId": "runComplianceAudit",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "ComplianceRunRequest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ComplianceRunResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -22500,6 +25485,148 @@
           },
           "3": {
             "type": "string"
+          }
+        }
+      },
+      "alertEscalations_createChain": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "alertEscalations_updateChain": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "alertEscalations_createStep": {
+        "type": "object",
+        "properties": {
+          "step_number": {
+            "type": "number"
+          },
+          "delay_minutes": {
+            "type": "number"
+          },
+          "notification_channel": {
+            "type": "string"
+          },
+          "recipient_email": {
+            "type": "string"
+          },
+          "recipient_phone": {
+            "type": "string"
+          },
+          "webhook_url": {
+            "type": "string"
+          },
+          "message_template": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "step_number",
+          "notification_channel"
+        ]
+      },
+      "alertNotificationChannels_createChannel": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "channel_type": {
+            "type": "string"
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "channel_type"
+        ]
+      },
+      "alertNotificationChannels_updateChannel": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "channel_type": {
+            "type": "string"
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "alertSuppressionRules_createRule": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "upstream_device_id": {
+            "type": "number"
+          },
+          "downstream_device_id": {
+            "type": "number"
+          },
+          "suppress_duration_minutes": {
+            "type": "number"
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "alertSuppressionRules_updateRule": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "upstream_device_id": {
+            "type": "number"
+          },
+          "downstream_device_id": {
+            "type": "number"
+          },
+          "suppress_duration_minutes": {
+            "type": "number"
+          },
+          "is_enabled": {
+            "type": "boolean"
           }
         }
       },
@@ -24118,6 +27245,218 @@
           }
         }
       },
+      "configBackupSchedules_createSchedule": {
+        "type": "object",
+        "properties": {
+          "schedule_name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "cron_expression": {
+            "type": "string",
+            "maximum": 50
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "schedule_name"
+        ]
+      },
+      "configBackupSchedules_updateSchedule": {
+        "type": "object",
+        "properties": {
+          "schedule_name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "cron_expression": {
+            "type": "string",
+            "maximum": 50
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "configComplianceRules_createRule": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "rule_type": {
+            "type": "string",
+            "enum": [
+              "must_contain",
+              "must_not_contain",
+              "regex_match",
+              "regex_not_match"
+            ]
+          },
+          "pattern": {
+            "type": "string",
+            "minimum": 1
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ]
+          },
+          "applies_to_device_type": {
+            "type": "string",
+            "maximum": 50
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "rule_type",
+          "pattern"
+        ]
+      },
+      "configComplianceRules_updateRule": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "rule_type": {
+            "type": "string",
+            "enum": [
+              "must_contain",
+              "must_not_contain",
+              "regex_match",
+              "regex_not_match"
+            ]
+          },
+          "pattern": {
+            "type": "string",
+            "minimum": 1
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ]
+          },
+          "applies_to_device_type": {
+            "type": "string",
+            "maximum": 50
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "configTemplates_createTemplate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "device_type": {
+            "type": "string",
+            "maximum": 50
+          },
+          "manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "template_content": {
+            "type": "string",
+            "minimum": 1
+          },
+          "variables_schema": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "draft"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "template_content"
+        ]
+      },
+      "configTemplates_updateTemplate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "device_type": {
+            "type": "string",
+            "maximum": 50
+          },
+          "manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "template_content": {
+            "type": "string",
+            "minimum": 1
+          },
+          "variables_schema": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "draft"
+            ]
+          }
+        }
+      },
       "connectionLogs_listConnectionLogs": {
         "type": "object",
         "properties": {
@@ -24746,6 +28085,192 @@
           }
         }
       },
+      "deviceGroups_createDeviceGroup": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "group_type": {
+            "type": "string",
+            "enum": [
+              "type",
+              "location",
+              "region",
+              "olt",
+              "custom"
+            ]
+          },
+          "color": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "deviceGroups_updateDeviceGroup": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "group_type": {
+            "type": "string",
+            "enum": [
+              "type",
+              "location",
+              "region",
+              "olt",
+              "custom"
+            ]
+          },
+          "color": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "deviceGroups_addGroupMembers": {
+        "type": "object",
+        "properties": {
+          "device_ids": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_ids"
+        ]
+      },
+      "devicePollingConfigs_createDevicePollingConfig": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "device_type": {
+            "type": "string",
+            "maximum": 50
+          },
+          "poller_node_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "poll_interval_sec": {
+            "type": "number",
+            "minimum": 10,
+            "maximum": 86400
+          },
+          "bulk_get_enabled": {
+            "type": "boolean"
+          },
+          "max_repetitions": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "timeout_ms": {
+            "type": "number",
+            "minimum": 100,
+            "maximum": 60000
+          },
+          "retries": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "failover_node_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "adaptive_polling_enabled": {
+            "type": "boolean"
+          },
+          "adaptive_min_interval_sec": {
+            "type": "number",
+            "minimum": 10,
+            "maximum": 3600
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "devicePollingConfigs_updateDevicePollingConfig": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "device_type": {
+            "type": "string",
+            "maximum": 50
+          },
+          "poller_node_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "poll_interval_sec": {
+            "type": "number",
+            "minimum": 10,
+            "maximum": 86400
+          },
+          "bulk_get_enabled": {
+            "type": "boolean"
+          },
+          "max_repetitions": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "timeout_ms": {
+            "type": "number",
+            "minimum": 100,
+            "maximum": 60000
+          },
+          "retries": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "failover_node_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "adaptive_polling_enabled": {
+            "type": "boolean"
+          },
+          "adaptive_min_interval_sec": {
+            "type": "number",
+            "minimum": 10,
+            "maximum": 3600
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        }
+      },
       "devices_createDevice": {
         "type": "object",
         "properties": {
@@ -25222,6 +28747,131 @@
             "maximum": 5000
           }
         }
+      },
+      "discoveryScans_createDiscoveryScan": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "cidr_ranges": {
+            "type": "string"
+          },
+          "snmp_version": {
+            "type": "string",
+            "enum": [
+              "v1",
+              "v2c",
+              "v3"
+            ]
+          },
+          "snmp_community": {
+            "type": "string"
+          },
+          "snmp_v3_security_name": {
+            "type": "string"
+          },
+          "snmp_v3_auth_protocol": {
+            "type": "string",
+            "enum": [
+              "none",
+              "md5",
+              "sha",
+              "sha256",
+              "sha512"
+            ]
+          },
+          "snmp_v3_auth_key": {
+            "type": "string"
+          },
+          "snmp_v3_priv_protocol": {
+            "type": "string",
+            "enum": [
+              "none",
+              "des",
+              "aes128",
+              "aes256"
+            ]
+          },
+          "snmp_v3_priv_key": {
+            "type": "string"
+          },
+          "snmp_port": {
+            "type": "number"
+          },
+          "timeout_ms": {
+            "type": "number"
+          },
+          "concurrency": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "cidr_ranges"
+        ]
+      },
+      "discoveryScans_updateDiscoveryScan": {
+        "type": "object",
+        "properties": {
+          "cidr_ranges": {
+            "type": "string"
+          },
+          "snmp_version": {
+            "type": "string",
+            "enum": [
+              "v1",
+              "v2c",
+              "v3"
+            ]
+          },
+          "snmp_community": {
+            "type": "string"
+          },
+          "snmp_v3_security_name": {
+            "type": "string"
+          },
+          "snmp_v3_auth_protocol": {
+            "type": "string",
+            "enum": [
+              "none",
+              "md5",
+              "sha",
+              "sha256",
+              "sha512"
+            ]
+          },
+          "snmp_v3_auth_key": {
+            "type": "string"
+          },
+          "snmp_v3_priv_protocol": {
+            "type": "string",
+            "enum": [
+              "none",
+              "des",
+              "aes128",
+              "aes256"
+            ]
+          },
+          "snmp_v3_priv_key": {
+            "type": "string"
+          },
+          "snmp_port": {
+            "type": "number"
+          },
+          "timeout_ms": {
+            "type": "number"
+          },
+          "concurrency": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cidr_ranges"
+        ]
       },
       "events_ticketStream": {
         "type": "object",
@@ -27576,6 +31226,82 @@
           }
         }
       },
+      "maintenanceWindows_createWindow": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": "number"
+          },
+          "site_id": {
+            "type": "number"
+          },
+          "starts_at": {
+            "type": "string"
+          },
+          "ends_at": {
+            "type": "string"
+          },
+          "is_recurring": {
+            "type": "boolean"
+          },
+          "recurrence_cron": {
+            "type": "string"
+          },
+          "recurrence_duration_minutes": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "starts_at",
+          "ends_at"
+        ]
+      },
+      "maintenanceWindows_updateWindow": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": "number"
+          },
+          "site_id": {
+            "type": "number"
+          },
+          "starts_at": {
+            "type": "string"
+          },
+          "ends_at": {
+            "type": "string"
+          },
+          "is_recurring": {
+            "type": "boolean"
+          },
+          "recurrence_cron": {
+            "type": "string"
+          },
+          "recurrence_duration_minutes": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
       "metrics_metricsQuery": {
         "type": "object",
         "properties": {}
@@ -29131,6 +32857,84 @@
           "start_time",
           "end_time"
         ]
+      },
+      "pollerNodes_createPollerNode": {
+        "type": "object",
+        "properties": {
+          "node_identifier": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "draining",
+              "maintenance",
+              "offline"
+            ]
+          },
+          "api_url": {
+            "type": "string",
+            "maximum": 512
+          },
+          "max_concurrent_polls": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "node_identifier",
+          "name"
+        ]
+      },
+      "pollerNodes_updatePollerNode": {
+        "type": "object",
+        "properties": {
+          "node_identifier": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "draining",
+              "maintenance",
+              "offline"
+            ]
+          },
+          "api_url": {
+            "type": "string",
+            "maximum": 512
+          },
+          "max_concurrent_polls": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "current_queue_depth": {
+            "type": "number",
+            "minimum": 0
+          },
+          "avg_poll_duration_ms": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
       },
       "pppoeServiceProfiles_createPppoeServiceProfile": {
         "type": "object",
@@ -32246,6 +36050,73 @@
           "dns64_prefix": {
             "type": "string",
             "maximum": 50
+          }
+        }
+      },
+      "trapForwardingRules_createTrapForwardingRule": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "match_trap_type": {
+            "type": "string"
+          },
+          "match_source_ip": {
+            "type": "string"
+          },
+          "match_oid_prefix": {
+            "type": "string"
+          },
+          "forward_to_url": {
+            "type": "string"
+          },
+          "forward_to_email": {
+            "type": "string"
+          },
+          "forward_to_webhook_id": {
+            "type": "number"
+          },
+          "transform_template": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "trapForwardingRules_updateTrapForwardingRule": {
+        "type": "object",
+        "properties": {
+          "match_trap_type": {
+            "type": "string"
+          },
+          "match_source_ip": {
+            "type": "string"
+          },
+          "match_oid_prefix": {
+            "type": "string"
+          },
+          "forward_to_url": {
+            "type": "string"
+          },
+          "forward_to_email": {
+            "type": "string"
+          },
+          "forward_to_webhook_id": {
+            "type": "number"
+          },
+          "transform_template": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
           }
         }
       },

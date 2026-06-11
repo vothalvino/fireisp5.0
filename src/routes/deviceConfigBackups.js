@@ -29,6 +29,60 @@ router.delete('/:id', requirePermission('device_config_backups.delete'), ctrl.de
 router.post('/:id/restore', requirePermission('device_config_backups.update'), ctrl.restore);
 
 // ---------------------------------------------------------------------------
+// GET /api/device-config-backups/diff/:id — get diff from previous version
+// ---------------------------------------------------------------------------
+router.get('/diff/:id', requirePermission('device_config_backups.view'), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const [rows] = await db.query(
+      'SELECT id, device_id, version, diff_from_previous FROM device_config_backups WHERE id = ?',
+      [id],
+    );
+    if (rows.length === 0) throw new NotFoundError('device_config_backups');
+    res.json({ data: rows[0] });
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/device-config-backups/compliance-run — run compliance audit
+// ---------------------------------------------------------------------------
+router.post('/compliance-run', requirePermission('config_compliance.run'), async (req, res, next) => {
+  try {
+    const { backup_id } = req.body;
+    if (!backup_id) return res.status(400).json({ error: 'backup_id is required' });
+    const orgId = req.organizationId;
+    const stats = await configBackupService.runComplianceAudit(Number(backup_id), orgId);
+    res.json({ data: stats });
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/device-config-backups/compliance-results — list compliance results
+// ---------------------------------------------------------------------------
+router.get('/compliance-results', requirePermission('config_compliance.view'), async (req, res, next) => {
+  try {
+    const orgId = req.organizationId;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 25);
+    const offset = (page - 1) * limit;
+    const conditions = ['ccr.organization_id = ?'];
+    const params = [orgId];
+    if (req.query.device_id) { conditions.push('cr.device_id = ?'); params.push(req.query.device_id); }
+    if (req.query.rule_id) { conditions.push('cr.rule_id = ?'); params.push(req.query.rule_id); }
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM config_compliance_results cr JOIN config_compliance_rules ccr ON ccr.id = cr.rule_id ${where}`,
+      params,
+    );
+    const [rows] = await db.query(
+      `SELECT cr.* FROM config_compliance_results cr JOIN config_compliance_rules ccr ON ccr.id = cr.rule_id ${where} ORDER BY cr.evaluated_at DESC LIMIT ? OFFSET ?`,
+      [...params, limit, offset],
+    );
+    res.json({ data: rows, meta: { total, page, limit } });
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/device-config-backups/pull
 // Trigger an on-demand config backup pull for a specific device via its
 // assigned FireRelay agent.

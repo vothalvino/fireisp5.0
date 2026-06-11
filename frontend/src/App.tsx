@@ -65,6 +65,17 @@ import { NatManagementList } from '@/pages/NatManagementList';
 import { PtrRecordList } from '@/pages/PtrRecordList';
 import { Ipv6ManagementPage } from '@/pages/Ipv6ManagementPage';
 import { TransitionMechanismsPage } from '@/pages/TransitionMechanismsPage';
+import { DeviceGroupList } from '@/pages/DeviceGroupList';
+import { DiscoveryScanList } from '@/pages/DiscoveryScanList';
+import { DeviceImport } from '@/pages/DeviceImport';
+import { TrapForwardingRuleList } from '@/pages/TrapForwardingRuleList';
+import { PollerNodeList } from '@/pages/PollerNodeList';
+import { DevicePollingConfigList } from '@/pages/DevicePollingConfigList';
+import { PollerPerformanceDashboard } from '@/pages/PollerPerformanceDashboard';
+import { AlertEscalationChainList } from '@/pages/AlertEscalationChainList';
+import { MaintenanceWindowList } from '@/pages/MaintenanceWindowList';
+import { AlertChannelList } from '@/pages/AlertChannelList';
+import { AlertSuppressionList } from '@/pages/AlertSuppressionList';
 import { IpPoolList } from '@/pages/IpPoolList';
 import { IpAssignmentList } from '@/pages/IpAssignmentList';
 import { VlanList } from '@/pages/VlanList';
@@ -75,6 +86,9 @@ import { ConnectionLogList } from '@/pages/ConnectionLogList';
 import { NetworkHealthList } from '@/pages/NetworkHealthList';
 import { SnmpProfileList } from '@/pages/SnmpProfileList';
 import { DeviceConfigBackupList } from '@/pages/DeviceConfigBackupList';
+import { ConfigTemplateList } from '@/pages/ConfigTemplateList';
+import { ConfigBackupScheduleList } from '@/pages/ConfigBackupScheduleList';
+import { ConfigComplianceRuleList } from '@/pages/ConfigComplianceRuleList';
 import { SuspensionRuleList } from '@/pages/SuspensionRuleList';
 import { Reports } from '@/pages/Reports';
 import { TaxReports } from '@/pages/TaxReports';
@@ -198,12 +212,26 @@ export function App() {
                 <Route path="network-health" element={<NetworkHealthList />} />
                 <Route path="snmp-profiles" element={<SnmpProfileList />} />
                 <Route path="device-config-backups" element={<DeviceConfigBackupList />} />
+                <Route path="config-templates" element={<ConfigTemplateList />} />
+                <Route path="config-backup-schedules" element={<ConfigBackupScheduleList />} />
+                <Route path="config-compliance-rules" element={<ConfigComplianceRuleList />} />
                 <Route path="suspension-rules" element={<SuspensionRuleList />} />
                 <Route path="dhcp-servers" element={<DhcpServerList />} />
                 <Route path="nat-management" element={<NatManagementList />} />
                 <Route path="ptr-records" element={<PtrRecordList />} />
                 <Route path="ipv6-management" element={<Ipv6ManagementPage />} />
                 <Route path="transition-mechanisms" element={<TransitionMechanismsPage />} />
+                <Route path="device-groups" element={<DeviceGroupList />} />
+                <Route path="discovery-scans" element={<DiscoveryScanList />} />
+                <Route path="device-import" element={<DeviceImport />} />
+                <Route path="trap-forwarding-rules" element={<TrapForwardingRuleList />} />
+                <Route path="poller-nodes" element={<PollerNodeList />} />
+                <Route path="device-polling-configs" element={<DevicePollingConfigList />} />
+                <Route path="poller-performance" element={<PollerPerformanceDashboard />} />
+                <Route path="alert-escalation-chains" element={<AlertEscalationChainList />} />
+                <Route path="maintenance-windows" element={<MaintenanceWindowList />} />
+                <Route path="alert-channels" element={<AlertChannelList />} />
+                <Route path="alert-suppression-rules" element={<AlertSuppressionList />} />
               </Route>
             </Route>
 

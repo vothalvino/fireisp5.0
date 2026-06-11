@@ -598,6 +598,14 @@ CREATE TABLE IF NOT EXISTS devices (
     snmp_port     SMALLINT UNSIGNED NULL DEFAULT 161 COMMENT 'SNMP UDP port',
     snmp_profile_id BIGINT UNSIGNED NULL
                                        COMMENT 'Explicit SNMP profile override; NULL = auto-match by manufacturer/model/type',
+    snmp_v3_security_name VARCHAR(255) NULL COMMENT 'SNMPv3 security name (USM user) — migration 250',
+    snmp_v3_auth_protocol ENUM('none','md5','sha','sha256','sha512') NULL DEFAULT 'sha' COMMENT 'SNMPv3 authentication protocol — migration 250',
+    snmp_v3_auth_key_encrypted VARCHAR(512) NULL COMMENT 'SNMPv3 auth passphrase — encrypted at app layer — migration 250',
+    snmp_v3_priv_protocol ENUM('none','des','aes128','aes256') NULL DEFAULT 'aes128' COMMENT 'SNMPv3 privacy protocol — migration 250',
+    snmp_v3_priv_key_encrypted VARCHAR(512) NULL COMMENT 'SNMPv3 privacy passphrase — encrypted at app layer — migration 250',
+    snmp_v3_context_name VARCHAR(255) NULL COMMENT 'SNMPv3 context name (optional) — migration 250',
+    last_polled_at DATETIME NULL COMMENT 'Timestamp of last successful SNMP poll — migration 250',
+    last_poll_error TEXT NULL COMMENT 'Last SNMP poll error message if any — migration 250',
     status        ENUM('online', 'offline', 'maintenance') NOT NULL DEFAULT 'offline',
     notes         TEXT            NULL,
     firerelay_node_id VARCHAR(64) NULL
@@ -1369,16 +1377,31 @@ CREATE TABLE IF NOT EXISTS snmp_metrics (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     device_id       BIGINT UNSIGNED NOT NULL,
     interface_id    VARCHAR(64)     NULL       COMMENT 'SNMP ifIndex or ifDescr for interface-level metrics',
-    if_in_octets    BIGINT          NULL       COMMENT 'ifInOctets -- bytes received',
-    if_out_octets   BIGINT          NULL       COMMENT 'ifOutOctets -- bytes transmitted',
-    if_in_errors    BIGINT          NULL       COMMENT 'ifInErrors -- inbound errors',
-    if_out_errors   BIGINT          NULL       COMMENT 'ifOutErrors -- outbound errors',
-    cpu_usage       SMALLINT        NULL       COMMENT 'CPU utilization percentage',
-    memory_usage    SMALLINT        NULL       COMMENT 'Memory utilization percentage',
-    signal_strength INTEGER         NULL       COMMENT 'Wireless signal strength in dBm',
-    latency_ms      DECIMAL(10,2)   NULL       COMMENT 'ICMP ping latency in milliseconds',
-    polled_at       TIMESTAMP       NOT NULL   COMMENT 'Timestamp of the SNMP poll',
-    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    if_in_octets       BIGINT          NULL       COMMENT 'ifInOctets -- bytes received',
+    if_out_octets      BIGINT          NULL       COMMENT 'ifOutOctets -- bytes transmitted',
+    if_in_errors       BIGINT          NULL       COMMENT 'ifInErrors -- inbound errors',
+    if_out_errors      BIGINT          NULL       COMMENT 'ifOutErrors -- outbound errors',
+    cpu_usage          SMALLINT        NULL       COMMENT 'CPU utilization percentage',
+    memory_usage       SMALLINT        NULL       COMMENT 'Memory utilization percentage',
+    signal_strength    INTEGER         NULL       COMMENT 'Wireless signal strength in dBm',
+    latency_ms         DECIMAL(10,2)   NULL       COMMENT 'ICMP ping latency in milliseconds',
+    -- §6.2 extended device monitoring metrics (migration 255)
+    voltage_mv         INT             NULL       COMMENT 'Supply voltage in millivolts (e.g. 12000 = 12V)',
+    temperature_c      DECIMAL(6,2)    NULL       COMMENT 'Device/sensor temperature in Celsius',
+    fan_speed_rpm      INT             NULL       COMMENT 'Fan speed in RPM',
+    if_in_discards     BIGINT          NULL       COMMENT 'ifInDiscards — inbound packets discarded',
+    if_out_discards    BIGINT          NULL       COMMENT 'ifOutDiscards — outbound packets discarded',
+    sfp_tx_power_dbm   DECIMAL(8,4)    NULL       COMMENT 'SFP/QSFP Tx optical power in dBm',
+    sfp_rx_power_dbm   DECIMAL(8,4)    NULL       COMMENT 'SFP/QSFP Rx optical power in dBm',
+    sfp_temperature_c  DECIMAL(6,2)    NULL       COMMENT 'SFP/QSFP transceiver temperature in Celsius',
+    ups_battery_pct    SMALLINT        NULL       COMMENT 'UPS battery charge percentage',
+    ups_runtime_min    INT             NULL       COMMENT 'UPS estimated runtime remaining in minutes',
+    poe_power_mw       INT             NULL       COMMENT 'PoE port power draw in milliwatts',
+    humidity_pct       DECIMAL(5,2)    NULL       COMMENT 'Environmental relative humidity percentage',
+    -- §6.2 gap metrics (migration 264)
+    if_oper_status     TINYINT         NULL       COMMENT 'IF-MIB ifOperStatus: 1=up 2=down 3=testing 7=lowerLayerDown',
+    polled_at          TIMESTAMP       NOT NULL   COMMENT 'Timestamp of the SNMP poll',
+    created_at         TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id, polled_at),
     KEY idx_snmp_metrics_device_time (device_id, polled_at),
@@ -1426,11 +1449,52 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1hr (
     avg_signal_strength DECIMAL(7,2)    NULL     COMMENT 'Average signal strength in dBm',
     min_signal_strength INTEGER         NULL     COMMENT 'Minimum signal strength in dBm',
     max_signal_strength INTEGER         NULL     COMMENT 'Maximum signal strength in dBm',
-    avg_latency_ms      DECIMAL(10,2)   NULL     COMMENT 'Average latency in milliseconds',
-    min_latency_ms      DECIMAL(10,2)   NULL     COMMENT 'Minimum latency in milliseconds',
-    max_latency_ms      DECIMAL(10,2)   NULL     COMMENT 'Maximum latency in milliseconds',
-    sample_count        INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Number of raw samples aggregated',
-    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    avg_latency_ms          DECIMAL(10,2)   NULL     COMMENT 'Average latency in milliseconds',
+    min_latency_ms          DECIMAL(10,2)   NULL     COMMENT 'Minimum latency in milliseconds',
+    max_latency_ms          DECIMAL(10,2)   NULL     COMMENT 'Maximum latency in milliseconds',
+    -- §6.2 extended device monitoring metrics (migration 255)
+    avg_voltage_mv          DECIMAL(12,4)   NULL,
+    min_voltage_mv          INT             NULL,
+    max_voltage_mv          INT             NULL,
+    avg_temperature_c       DECIMAL(8,4)    NULL,
+    min_temperature_c       DECIMAL(6,2)    NULL,
+    max_temperature_c       DECIMAL(6,2)    NULL,
+    avg_fan_speed_rpm       DECIMAL(10,2)   NULL,
+    min_fan_speed_rpm       INT             NULL,
+    max_fan_speed_rpm       INT             NULL,
+    avg_if_in_discards      DECIMAL(20,4)   NULL,
+    min_if_in_discards      BIGINT          NULL,
+    max_if_in_discards      BIGINT          NULL,
+    avg_if_out_discards     DECIMAL(20,4)   NULL,
+    min_if_out_discards     BIGINT          NULL,
+    max_if_out_discards     BIGINT          NULL,
+    avg_sfp_tx_power_dbm    DECIMAL(10,4)   NULL,
+    min_sfp_tx_power_dbm    DECIMAL(8,4)    NULL,
+    max_sfp_tx_power_dbm    DECIMAL(8,4)    NULL,
+    avg_sfp_rx_power_dbm    DECIMAL(10,4)   NULL,
+    min_sfp_rx_power_dbm    DECIMAL(8,4)    NULL,
+    max_sfp_rx_power_dbm    DECIMAL(8,4)    NULL,
+    avg_sfp_temperature_c   DECIMAL(8,4)    NULL,
+    min_sfp_temperature_c   DECIMAL(6,2)    NULL,
+    max_sfp_temperature_c   DECIMAL(6,2)    NULL,
+    avg_ups_battery_pct     DECIMAL(5,2)    NULL,
+    min_ups_battery_pct     SMALLINT        NULL,
+    max_ups_battery_pct     SMALLINT        NULL,
+    avg_ups_runtime_min     DECIMAL(10,2)   NULL,
+    min_ups_runtime_min     INT             NULL,
+    max_ups_runtime_min     INT             NULL,
+    avg_poe_power_mw        DECIMAL(12,4)   NULL,
+    min_poe_power_mw        INT             NULL,
+    max_poe_power_mw        INT             NULL,
+    avg_humidity_pct        DECIMAL(7,4)    NULL,
+    min_humidity_pct        DECIMAL(5,2)    NULL,
+    max_humidity_pct        DECIMAL(5,2)    NULL,
+    -- §6.2 gap metrics (migration 264)
+    avg_if_oper_status      DECIMAL(4,2)    NULL     COMMENT 'Average ifOperStatus in the period',
+    min_if_oper_status      TINYINT         NULL     COMMENT 'Min ifOperStatus in the period',
+    max_if_oper_status      TINYINT         NULL     COMMENT 'Max ifOperStatus in the period',
+    sample_count            INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Number of raw samples aggregated',
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_snmp_1hr_device_iface_period (device_id, interface_id, period_start),
@@ -1471,11 +1535,52 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1day (
     avg_signal_strength DECIMAL(7,2)    NULL     COMMENT 'Average signal strength in dBm',
     min_signal_strength INTEGER         NULL     COMMENT 'Minimum signal strength in dBm',
     max_signal_strength INTEGER         NULL     COMMENT 'Maximum signal strength in dBm',
-    avg_latency_ms      DECIMAL(10,2)   NULL     COMMENT 'Average latency in milliseconds',
-    min_latency_ms      DECIMAL(10,2)   NULL     COMMENT 'Minimum latency in milliseconds',
-    max_latency_ms      DECIMAL(10,2)   NULL     COMMENT 'Maximum latency in milliseconds',
-    sample_count        INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Number of hourly samples aggregated',
-    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    avg_latency_ms          DECIMAL(10,2)   NULL     COMMENT 'Average latency in milliseconds',
+    min_latency_ms          DECIMAL(10,2)   NULL     COMMENT 'Minimum latency in milliseconds',
+    max_latency_ms          DECIMAL(10,2)   NULL     COMMENT 'Maximum latency in milliseconds',
+    -- §6.2 extended device monitoring metrics (migration 255)
+    avg_voltage_mv          DECIMAL(12,4)   NULL,
+    min_voltage_mv          INT             NULL,
+    max_voltage_mv          INT             NULL,
+    avg_temperature_c       DECIMAL(8,4)    NULL,
+    min_temperature_c       DECIMAL(6,2)    NULL,
+    max_temperature_c       DECIMAL(6,2)    NULL,
+    avg_fan_speed_rpm       DECIMAL(10,2)   NULL,
+    min_fan_speed_rpm       INT             NULL,
+    max_fan_speed_rpm       INT             NULL,
+    avg_if_in_discards      DECIMAL(20,4)   NULL,
+    min_if_in_discards      BIGINT          NULL,
+    max_if_in_discards      BIGINT          NULL,
+    avg_if_out_discards     DECIMAL(20,4)   NULL,
+    min_if_out_discards     BIGINT          NULL,
+    max_if_out_discards     BIGINT          NULL,
+    avg_sfp_tx_power_dbm    DECIMAL(10,4)   NULL,
+    min_sfp_tx_power_dbm    DECIMAL(8,4)    NULL,
+    max_sfp_tx_power_dbm    DECIMAL(8,4)    NULL,
+    avg_sfp_rx_power_dbm    DECIMAL(10,4)   NULL,
+    min_sfp_rx_power_dbm    DECIMAL(8,4)    NULL,
+    max_sfp_rx_power_dbm    DECIMAL(8,4)    NULL,
+    avg_sfp_temperature_c   DECIMAL(8,4)    NULL,
+    min_sfp_temperature_c   DECIMAL(6,2)    NULL,
+    max_sfp_temperature_c   DECIMAL(6,2)    NULL,
+    avg_ups_battery_pct     DECIMAL(5,2)    NULL,
+    min_ups_battery_pct     SMALLINT        NULL,
+    max_ups_battery_pct     SMALLINT        NULL,
+    avg_ups_runtime_min     DECIMAL(10,2)   NULL,
+    min_ups_runtime_min     INT             NULL,
+    max_ups_runtime_min     INT             NULL,
+    avg_poe_power_mw        DECIMAL(12,4)   NULL,
+    min_poe_power_mw        INT             NULL,
+    max_poe_power_mw        INT             NULL,
+    avg_humidity_pct        DECIMAL(7,4)    NULL,
+    min_humidity_pct        DECIMAL(5,2)    NULL,
+    max_humidity_pct        DECIMAL(5,2)    NULL,
+    -- §6.2 gap metrics (migration 264)
+    avg_if_oper_status      DECIMAL(4,2)    NULL     COMMENT 'Average ifOperStatus in the period',
+    min_if_oper_status      TINYINT         NULL     COMMENT 'Min ifOperStatus in the period',
+    max_if_oper_status      TINYINT         NULL     COMMENT 'Max ifOperStatus in the period',
+    sample_count            INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Number of hourly samples aggregated',
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_snmp_1day_device_iface_period (device_id, interface_id, period_start),
@@ -1485,13 +1590,97 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1day (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
+-- Table: snmp_metrics_1month
+-- Purpose: Monthly aggregates of SNMP metrics.  Wide-table design: one row per
+--          device / interface per month.  Retained 3 years (migration 265).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS snmp_metrics_1month (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    device_id           BIGINT UNSIGNED NOT NULL,
+    interface_id        VARCHAR(64)     NOT NULL DEFAULT '' COMMENT 'SNMP ifIndex or ifDescr; empty string for device-level metrics',
+    period_start        DATE            NOT NULL             COMMENT 'First day of the monthly aggregation window',
+    avg_if_in_octets    DECIMAL(20,4)   NULL,
+    min_if_in_octets    BIGINT          NULL,
+    max_if_in_octets    BIGINT          NULL,
+    avg_if_out_octets   DECIMAL(20,4)   NULL,
+    min_if_out_octets   BIGINT          NULL,
+    max_if_out_octets   BIGINT          NULL,
+    avg_if_in_errors    DECIMAL(20,4)   NULL,
+    min_if_in_errors    BIGINT          NULL,
+    max_if_in_errors    BIGINT          NULL,
+    avg_if_out_errors   DECIMAL(20,4)   NULL,
+    min_if_out_errors   BIGINT          NULL,
+    max_if_out_errors   BIGINT          NULL,
+    avg_cpu_usage       DECIMAL(5,2)    NULL,
+    min_cpu_usage       SMALLINT        NULL,
+    max_cpu_usage       SMALLINT        NULL,
+    avg_memory_usage    DECIMAL(5,2)    NULL,
+    min_memory_usage    SMALLINT        NULL,
+    max_memory_usage    SMALLINT        NULL,
+    avg_signal_strength DECIMAL(7,2)    NULL,
+    min_signal_strength INTEGER         NULL,
+    max_signal_strength INTEGER         NULL,
+    avg_latency_ms      DECIMAL(10,2)   NULL,
+    min_latency_ms      DECIMAL(10,2)   NULL,
+    max_latency_ms      DECIMAL(10,2)   NULL,
+    avg_voltage_mv      DECIMAL(12,4)   NULL,
+    min_voltage_mv      INT             NULL,
+    max_voltage_mv      INT             NULL,
+    avg_temperature_c   DECIMAL(8,4)    NULL,
+    min_temperature_c   DECIMAL(6,2)    NULL,
+    max_temperature_c   DECIMAL(6,2)    NULL,
+    avg_fan_speed_rpm   DECIMAL(10,2)   NULL,
+    min_fan_speed_rpm   INT             NULL,
+    max_fan_speed_rpm   INT             NULL,
+    avg_if_in_discards  DECIMAL(20,4)   NULL,
+    min_if_in_discards  BIGINT          NULL,
+    max_if_in_discards  BIGINT          NULL,
+    avg_if_out_discards DECIMAL(20,4)   NULL,
+    min_if_out_discards BIGINT          NULL,
+    max_if_out_discards BIGINT          NULL,
+    avg_sfp_tx_power_dbm DECIMAL(10,4)  NULL,
+    min_sfp_tx_power_dbm DECIMAL(8,4)   NULL,
+    max_sfp_tx_power_dbm DECIMAL(8,4)   NULL,
+    avg_sfp_rx_power_dbm DECIMAL(10,4)  NULL,
+    min_sfp_rx_power_dbm DECIMAL(8,4)   NULL,
+    max_sfp_rx_power_dbm DECIMAL(8,4)   NULL,
+    avg_sfp_temperature_c DECIMAL(8,4)  NULL,
+    min_sfp_temperature_c DECIMAL(6,2)  NULL,
+    max_sfp_temperature_c DECIMAL(6,2)  NULL,
+    avg_ups_battery_pct DECIMAL(5,2)    NULL,
+    min_ups_battery_pct SMALLINT        NULL,
+    max_ups_battery_pct SMALLINT        NULL,
+    avg_ups_runtime_min DECIMAL(10,2)   NULL,
+    min_ups_runtime_min INT             NULL,
+    max_ups_runtime_min INT             NULL,
+    avg_poe_power_mw    DECIMAL(12,4)   NULL,
+    min_poe_power_mw    INT             NULL,
+    max_poe_power_mw    INT             NULL,
+    avg_humidity_pct    DECIMAL(7,4)    NULL,
+    min_humidity_pct    DECIMAL(5,2)    NULL,
+    max_humidity_pct    DECIMAL(5,2)    NULL,
+    avg_if_oper_status  DECIMAL(4,2)    NULL,
+    min_if_oper_status  TINYINT         NULL,
+    max_if_oper_status  TINYINT         NULL,
+    sample_count        INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Number of daily samples aggregated',
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_snmp_1month_device_iface_period (device_id, interface_id, period_start),
+    KEY idx_snmp_1month_period_start (period_start),
+    CONSTRAINT fk_snmp_1month_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Monthly SNMP metric aggregates — retained 3 years';
+
+-- ---------------------------------------------------------------------------
 -- Table: snmp_rollup_state
 -- Purpose: High-watermark table tracking the last successfully processed
 --          timestamp for each rollup tier.  Enables rollup procedures to
 --          catch up automatically after a missed run or server restart.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS snmp_rollup_state (
-    rollup_name    VARCHAR(32)  NOT NULL COMMENT 'Rollup tier identifier (1hr, 1day)',
+    rollup_name    VARCHAR(32)  NOT NULL COMMENT 'Rollup tier identifier (1hr, 1day, 1month)',
     last_processed TIMESTAMP    NULL     COMMENT 'High-watermark: last successfully processed timestamp',
     updated_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
@@ -1594,6 +1783,149 @@ CREATE TABLE IF NOT EXISTS snmp_traps (
     INDEX idx_snmp_traps_device_received (device_id, received_at),
     INDEX idx_snmp_traps_type            (trap_type),
     INDEX idx_snmp_traps_received        (received_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: device_groups  §6.1 Device Discovery & Onboarding (migration 249)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS device_groups (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization',
+    name            VARCHAR(200)    NOT NULL,
+    description     TEXT            NULL,
+    group_type      ENUM('type','location','region','olt','custom') NOT NULL DEFAULT 'custom'
+                                             COMMENT 'Grouping criterion',
+    color           VARCHAR(7)      NULL     COMMENT 'Hex color for UI display',
+    status          ENUM('active','inactive') NOT NULL DEFAULT 'active',
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        NULL,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_device_groups_org_name (organization_id, name),
+    KEY idx_device_groups_organization_id (organization_id),
+    KEY idx_device_groups_status (status),
+    KEY idx_device_groups_deleted_at (deleted_at),
+    CONSTRAINT fk_device_groups_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: device_group_members  §6.1 (migration 249)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS device_group_members (
+    device_group_id BIGINT UNSIGNED NOT NULL,
+    device_id       BIGINT UNSIGNED NOT NULL,
+    added_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (device_group_id, device_id),
+    KEY idx_dgm_device_id (device_id),
+    CONSTRAINT fk_dgm_group FOREIGN KEY (device_group_id)
+        REFERENCES device_groups (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_dgm_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: discovery_scans  §6.1 (migration 250)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS discovery_scans (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id         BIGINT UNSIGNED NULL,
+    name                    VARCHAR(200)    NOT NULL,
+    cidr_ranges             JSON            NOT NULL COMMENT 'Array of CIDR strings to scan',
+    snmp_version            ENUM('v1','v2c','v3') NOT NULL DEFAULT 'v2c',
+    snmp_community          VARCHAR(255)    NULL     COMMENT 'Community string for v1/v2c scans',
+    snmp_v3_security_name   VARCHAR(255)    NULL,
+    snmp_v3_auth_protocol   ENUM('none','md5','sha','sha256','sha512') NULL DEFAULT 'sha',
+    snmp_v3_auth_key_encrypted VARCHAR(512) NULL     COMMENT 'Encrypted SNMPv3 auth key',
+    snmp_v3_priv_protocol   ENUM('none','des','aes128','aes256') NULL DEFAULT 'aes128',
+    snmp_v3_priv_key_encrypted VARCHAR(512) NULL     COMMENT 'Encrypted SNMPv3 priv key',
+    snmp_port               SMALLINT UNSIGNED NOT NULL DEFAULT 161,
+    timeout_ms              INT UNSIGNED    NOT NULL DEFAULT 3000,
+    concurrency             INT UNSIGNED    NOT NULL DEFAULT 50,
+    status                  ENUM('pending','running','completed','failed','cancelled') NOT NULL DEFAULT 'pending',
+    scan_started_at         DATETIME        NULL,
+    scan_completed_at       DATETIME        NULL,
+    total_hosts             INT UNSIGNED    NULL,
+    scanned_hosts           INT UNSIGNED    NOT NULL DEFAULT 0,
+    discovered_hosts        INT UNSIGNED    NOT NULL DEFAULT 0,
+    error_message           TEXT            NULL,
+    created_by              BIGINT UNSIGNED NULL,
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at              DATETIME        NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_discovery_scans_org (organization_id),
+    KEY idx_discovery_scans_status (status),
+    KEY idx_discovery_scans_deleted_at (deleted_at),
+    CONSTRAINT fk_discovery_scans_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_discovery_scans_created_by FOREIGN KEY (created_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: discovery_results  §6.1 (migration 250)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS discovery_results (
+    id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    scan_id              BIGINT UNSIGNED NOT NULL,
+    organization_id      BIGINT UNSIGNED NULL,
+    ip_address           VARCHAR(45)     NOT NULL,
+    hostname             VARCHAR(255)    NULL,
+    sys_descr            TEXT            NULL,
+    sys_oid              VARCHAR(255)    NULL,
+    snmp_version         TINYINT UNSIGNED NOT NULL DEFAULT 2,
+    manufacturer         VARCHAR(100)    NULL,
+    model                VARCHAR(100)    NULL,
+    device_type          ENUM('outdoor_cpe','indoor_cpe','ptp','ptmp_ap','olt','router','switch','onu','other') NULL,
+    suggested_profile_id BIGINT UNSIGNED NULL,
+    status               ENUM('pending_review','onboarded','ignored') NOT NULL DEFAULT 'pending_review',
+    device_id            BIGINT UNSIGNED NULL,
+    discovered_at        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_discovery_results_scan_id (scan_id),
+    KEY idx_discovery_results_org (organization_id),
+    KEY idx_discovery_results_status (status),
+    KEY idx_discovery_results_ip (ip_address),
+    CONSTRAINT fk_dr_scan FOREIGN KEY (scan_id)
+        REFERENCES discovery_scans (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_dr_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_dr_profile FOREIGN KEY (suggested_profile_id)
+        REFERENCES snmp_profiles (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_dr_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: snmp_trap_forwarding_rules  §6.1 (migration 251)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS snmp_trap_forwarding_rules (
+    id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id      BIGINT UNSIGNED NULL,
+    name                 VARCHAR(200)    NOT NULL,
+    match_trap_type      VARCHAR(64)     NULL,
+    match_source_ip      VARCHAR(45)     NULL,
+    match_oid_prefix     VARCHAR(255)    NULL,
+    forward_to_url       VARCHAR(500)    NULL,
+    forward_to_email     VARCHAR(255)    NULL,
+    forward_to_webhook_id BIGINT UNSIGNED NULL,
+    transform_template   TEXT            NULL,
+    is_active            BOOLEAN         NOT NULL DEFAULT TRUE,
+    created_at           TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at           TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at           DATETIME        NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_stfr_org (organization_id),
+    KEY idx_stfr_active (is_active),
+    KEY idx_stfr_deleted_at (deleted_at),
+    CONSTRAINT fk_stfr_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -1858,27 +2190,51 @@ proc: BEGIN
 
     INSERT INTO snmp_metrics_1hr
         (device_id, interface_id, period_start,
-         avg_if_in_octets,    min_if_in_octets,    max_if_in_octets,
-         avg_if_out_octets,   min_if_out_octets,   max_if_out_octets,
-         avg_if_in_errors,    min_if_in_errors,    max_if_in_errors,
-         avg_if_out_errors,   min_if_out_errors,   max_if_out_errors,
-         avg_cpu_usage,       min_cpu_usage,        max_cpu_usage,
-         avg_memory_usage,    min_memory_usage,     max_memory_usage,
-         avg_signal_strength, min_signal_strength,  max_signal_strength,
-         avg_latency_ms,      min_latency_ms,       max_latency_ms,
+         avg_if_in_octets,       min_if_in_octets,       max_if_in_octets,
+         avg_if_out_octets,      min_if_out_octets,      max_if_out_octets,
+         avg_if_in_errors,       min_if_in_errors,       max_if_in_errors,
+         avg_if_out_errors,      min_if_out_errors,      max_if_out_errors,
+         avg_cpu_usage,          min_cpu_usage,           max_cpu_usage,
+         avg_memory_usage,       min_memory_usage,        max_memory_usage,
+         avg_signal_strength,    min_signal_strength,     max_signal_strength,
+         avg_latency_ms,         min_latency_ms,          max_latency_ms,
+         avg_voltage_mv,         min_voltage_mv,          max_voltage_mv,
+         avg_temperature_c,      min_temperature_c,       max_temperature_c,
+         avg_fan_speed_rpm,      min_fan_speed_rpm,       max_fan_speed_rpm,
+         avg_if_in_discards,     min_if_in_discards,      max_if_in_discards,
+         avg_if_out_discards,    min_if_out_discards,     max_if_out_discards,
+         avg_sfp_tx_power_dbm,   min_sfp_tx_power_dbm,   max_sfp_tx_power_dbm,
+         avg_sfp_rx_power_dbm,   min_sfp_rx_power_dbm,   max_sfp_rx_power_dbm,
+         avg_sfp_temperature_c,  min_sfp_temperature_c,  max_sfp_temperature_c,
+         avg_ups_battery_pct,    min_ups_battery_pct,     max_ups_battery_pct,
+         avg_ups_runtime_min,    min_ups_runtime_min,     max_ups_runtime_min,
+         avg_poe_power_mw,       min_poe_power_mw,        max_poe_power_mw,
+         avg_humidity_pct,       min_humidity_pct,        max_humidity_pct,
          sample_count)
     SELECT
         device_id,
         COALESCE(interface_id, '')                        AS interface_id,
         DATE_FORMAT(polled_at, '%Y-%m-%d %H:00:00')       AS period_start,
-        AVG(if_in_octets),    MIN(if_in_octets),    MAX(if_in_octets),
-        AVG(if_out_octets),   MIN(if_out_octets),   MAX(if_out_octets),
-        AVG(if_in_errors),    MIN(if_in_errors),    MAX(if_in_errors),
-        AVG(if_out_errors),   MIN(if_out_errors),   MAX(if_out_errors),
-        AVG(cpu_usage),       MIN(cpu_usage),        MAX(cpu_usage),
-        AVG(memory_usage),    MIN(memory_usage),     MAX(memory_usage),
-        AVG(signal_strength), MIN(signal_strength),  MAX(signal_strength),
-        AVG(latency_ms),      MIN(latency_ms),       MAX(latency_ms),
+        AVG(if_in_octets),       MIN(if_in_octets),       MAX(if_in_octets),
+        AVG(if_out_octets),      MIN(if_out_octets),      MAX(if_out_octets),
+        AVG(if_in_errors),       MIN(if_in_errors),       MAX(if_in_errors),
+        AVG(if_out_errors),      MIN(if_out_errors),      MAX(if_out_errors),
+        AVG(cpu_usage),          MIN(cpu_usage),           MAX(cpu_usage),
+        AVG(memory_usage),       MIN(memory_usage),        MAX(memory_usage),
+        AVG(signal_strength),    MIN(signal_strength),     MAX(signal_strength),
+        AVG(latency_ms),         MIN(latency_ms),          MAX(latency_ms),
+        AVG(voltage_mv),         MIN(voltage_mv),          MAX(voltage_mv),
+        AVG(temperature_c),      MIN(temperature_c),       MAX(temperature_c),
+        AVG(fan_speed_rpm),      MIN(fan_speed_rpm),       MAX(fan_speed_rpm),
+        AVG(if_in_discards),     MIN(if_in_discards),      MAX(if_in_discards),
+        AVG(if_out_discards),    MIN(if_out_discards),     MAX(if_out_discards),
+        AVG(sfp_tx_power_dbm),   MIN(sfp_tx_power_dbm),   MAX(sfp_tx_power_dbm),
+        AVG(sfp_rx_power_dbm),   MIN(sfp_rx_power_dbm),   MAX(sfp_rx_power_dbm),
+        AVG(sfp_temperature_c),  MIN(sfp_temperature_c),  MAX(sfp_temperature_c),
+        AVG(ups_battery_pct),    MIN(ups_battery_pct),     MAX(ups_battery_pct),
+        AVG(ups_runtime_min),    MIN(ups_runtime_min),     MAX(ups_runtime_min),
+        AVG(poe_power_mw),       MIN(poe_power_mw),        MAX(poe_power_mw),
+        AVG(humidity_pct),       MIN(humidity_pct),        MAX(humidity_pct),
         COUNT(*)
     FROM snmp_metrics
     WHERE polled_at >  v_from_ts
@@ -1888,31 +2244,67 @@ proc: BEGIN
         COALESCE(interface_id, ''),
         DATE_FORMAT(polled_at, '%Y-%m-%d %H:00:00')
     ON DUPLICATE KEY UPDATE
-        avg_if_in_octets    = VALUES(avg_if_in_octets),
-        min_if_in_octets    = VALUES(min_if_in_octets),
-        max_if_in_octets    = VALUES(max_if_in_octets),
-        avg_if_out_octets   = VALUES(avg_if_out_octets),
-        min_if_out_octets   = VALUES(min_if_out_octets),
-        max_if_out_octets   = VALUES(max_if_out_octets),
-        avg_if_in_errors    = VALUES(avg_if_in_errors),
-        min_if_in_errors    = VALUES(min_if_in_errors),
-        max_if_in_errors    = VALUES(max_if_in_errors),
-        avg_if_out_errors   = VALUES(avg_if_out_errors),
-        min_if_out_errors   = VALUES(min_if_out_errors),
-        max_if_out_errors   = VALUES(max_if_out_errors),
-        avg_cpu_usage       = VALUES(avg_cpu_usage),
-        min_cpu_usage       = VALUES(min_cpu_usage),
-        max_cpu_usage       = VALUES(max_cpu_usage),
-        avg_memory_usage    = VALUES(avg_memory_usage),
-        min_memory_usage    = VALUES(min_memory_usage),
-        max_memory_usage    = VALUES(max_memory_usage),
-        avg_signal_strength = VALUES(avg_signal_strength),
-        min_signal_strength = VALUES(min_signal_strength),
-        max_signal_strength = VALUES(max_signal_strength),
-        avg_latency_ms      = VALUES(avg_latency_ms),
-        min_latency_ms      = VALUES(min_latency_ms),
-        max_latency_ms      = VALUES(max_latency_ms),
-        sample_count        = VALUES(sample_count);
+        avg_if_in_octets       = VALUES(avg_if_in_octets),
+        min_if_in_octets       = VALUES(min_if_in_octets),
+        max_if_in_octets       = VALUES(max_if_in_octets),
+        avg_if_out_octets      = VALUES(avg_if_out_octets),
+        min_if_out_octets      = VALUES(min_if_out_octets),
+        max_if_out_octets      = VALUES(max_if_out_octets),
+        avg_if_in_errors       = VALUES(avg_if_in_errors),
+        min_if_in_errors       = VALUES(min_if_in_errors),
+        max_if_in_errors       = VALUES(max_if_in_errors),
+        avg_if_out_errors      = VALUES(avg_if_out_errors),
+        min_if_out_errors      = VALUES(min_if_out_errors),
+        max_if_out_errors      = VALUES(max_if_out_errors),
+        avg_cpu_usage          = VALUES(avg_cpu_usage),
+        min_cpu_usage          = VALUES(min_cpu_usage),
+        max_cpu_usage          = VALUES(max_cpu_usage),
+        avg_memory_usage       = VALUES(avg_memory_usage),
+        min_memory_usage       = VALUES(min_memory_usage),
+        max_memory_usage       = VALUES(max_memory_usage),
+        avg_signal_strength    = VALUES(avg_signal_strength),
+        min_signal_strength    = VALUES(min_signal_strength),
+        max_signal_strength    = VALUES(max_signal_strength),
+        avg_latency_ms         = VALUES(avg_latency_ms),
+        min_latency_ms         = VALUES(min_latency_ms),
+        max_latency_ms         = VALUES(max_latency_ms),
+        avg_voltage_mv         = VALUES(avg_voltage_mv),
+        min_voltage_mv         = VALUES(min_voltage_mv),
+        max_voltage_mv         = VALUES(max_voltage_mv),
+        avg_temperature_c      = VALUES(avg_temperature_c),
+        min_temperature_c      = VALUES(min_temperature_c),
+        max_temperature_c      = VALUES(max_temperature_c),
+        avg_fan_speed_rpm      = VALUES(avg_fan_speed_rpm),
+        min_fan_speed_rpm      = VALUES(min_fan_speed_rpm),
+        max_fan_speed_rpm      = VALUES(max_fan_speed_rpm),
+        avg_if_in_discards     = VALUES(avg_if_in_discards),
+        min_if_in_discards     = VALUES(min_if_in_discards),
+        max_if_in_discards     = VALUES(max_if_in_discards),
+        avg_if_out_discards    = VALUES(avg_if_out_discards),
+        min_if_out_discards    = VALUES(min_if_out_discards),
+        max_if_out_discards    = VALUES(max_if_out_discards),
+        avg_sfp_tx_power_dbm   = VALUES(avg_sfp_tx_power_dbm),
+        min_sfp_tx_power_dbm   = VALUES(min_sfp_tx_power_dbm),
+        max_sfp_tx_power_dbm   = VALUES(max_sfp_tx_power_dbm),
+        avg_sfp_rx_power_dbm   = VALUES(avg_sfp_rx_power_dbm),
+        min_sfp_rx_power_dbm   = VALUES(min_sfp_rx_power_dbm),
+        max_sfp_rx_power_dbm   = VALUES(max_sfp_rx_power_dbm),
+        avg_sfp_temperature_c  = VALUES(avg_sfp_temperature_c),
+        min_sfp_temperature_c  = VALUES(min_sfp_temperature_c),
+        max_sfp_temperature_c  = VALUES(max_sfp_temperature_c),
+        avg_ups_battery_pct    = VALUES(avg_ups_battery_pct),
+        min_ups_battery_pct    = VALUES(min_ups_battery_pct),
+        max_ups_battery_pct    = VALUES(max_ups_battery_pct),
+        avg_ups_runtime_min    = VALUES(avg_ups_runtime_min),
+        min_ups_runtime_min    = VALUES(min_ups_runtime_min),
+        max_ups_runtime_min    = VALUES(max_ups_runtime_min),
+        avg_poe_power_mw       = VALUES(avg_poe_power_mw),
+        min_poe_power_mw       = VALUES(min_poe_power_mw),
+        max_poe_power_mw       = VALUES(max_poe_power_mw),
+        avg_humidity_pct       = VALUES(avg_humidity_pct),
+        min_humidity_pct       = VALUES(min_humidity_pct),
+        max_humidity_pct       = VALUES(max_humidity_pct),
+        sample_count           = VALUES(sample_count);
 
     UPDATE snmp_rollup_state
     SET last_processed = v_to_ts
@@ -1942,58 +2334,118 @@ proc: BEGIN
 
     INSERT INTO snmp_metrics_1day
         (device_id, interface_id, period_start,
-         avg_if_in_octets,    min_if_in_octets,    max_if_in_octets,
-         avg_if_out_octets,   min_if_out_octets,   max_if_out_octets,
-         avg_if_in_errors,    min_if_in_errors,    max_if_in_errors,
-         avg_if_out_errors,   min_if_out_errors,   max_if_out_errors,
-         avg_cpu_usage,       min_cpu_usage,        max_cpu_usage,
-         avg_memory_usage,    min_memory_usage,     max_memory_usage,
-         avg_signal_strength, min_signal_strength,  max_signal_strength,
-         avg_latency_ms,      min_latency_ms,       max_latency_ms,
+         avg_if_in_octets,       min_if_in_octets,       max_if_in_octets,
+         avg_if_out_octets,      min_if_out_octets,      max_if_out_octets,
+         avg_if_in_errors,       min_if_in_errors,       max_if_in_errors,
+         avg_if_out_errors,      min_if_out_errors,      max_if_out_errors,
+         avg_cpu_usage,          min_cpu_usage,           max_cpu_usage,
+         avg_memory_usage,       min_memory_usage,        max_memory_usage,
+         avg_signal_strength,    min_signal_strength,     max_signal_strength,
+         avg_latency_ms,         min_latency_ms,          max_latency_ms,
+         avg_voltage_mv,         min_voltage_mv,          max_voltage_mv,
+         avg_temperature_c,      min_temperature_c,       max_temperature_c,
+         avg_fan_speed_rpm,      min_fan_speed_rpm,       max_fan_speed_rpm,
+         avg_if_in_discards,     min_if_in_discards,      max_if_in_discards,
+         avg_if_out_discards,    min_if_out_discards,     max_if_out_discards,
+         avg_sfp_tx_power_dbm,   min_sfp_tx_power_dbm,   max_sfp_tx_power_dbm,
+         avg_sfp_rx_power_dbm,   min_sfp_rx_power_dbm,   max_sfp_rx_power_dbm,
+         avg_sfp_temperature_c,  min_sfp_temperature_c,  max_sfp_temperature_c,
+         avg_ups_battery_pct,    min_ups_battery_pct,     max_ups_battery_pct,
+         avg_ups_runtime_min,    min_ups_runtime_min,     max_ups_runtime_min,
+         avg_poe_power_mw,       min_poe_power_mw,        max_poe_power_mw,
+         avg_humidity_pct,       min_humidity_pct,        max_humidity_pct,
          sample_count)
     SELECT
         device_id,
         interface_id,
-        DATE(period_start)                                AS period_start,
-        AVG(avg_if_in_octets),    MIN(min_if_in_octets),    MAX(max_if_in_octets),
-        AVG(avg_if_out_octets),   MIN(min_if_out_octets),   MAX(max_if_out_octets),
-        AVG(avg_if_in_errors),    MIN(min_if_in_errors),    MAX(max_if_in_errors),
-        AVG(avg_if_out_errors),   MIN(min_if_out_errors),   MAX(max_if_out_errors),
-        AVG(avg_cpu_usage),       MIN(min_cpu_usage),        MAX(max_cpu_usage),
-        AVG(avg_memory_usage),    MIN(min_memory_usage),     MAX(max_memory_usage),
-        AVG(avg_signal_strength), MIN(min_signal_strength),  MAX(max_signal_strength),
-        AVG(avg_latency_ms),      MIN(min_latency_ms),       MAX(max_latency_ms),
+        DATE(period_start)                                     AS period_start,
+        AVG(avg_if_in_octets),       MIN(min_if_in_octets),       MAX(max_if_in_octets),
+        AVG(avg_if_out_octets),      MIN(min_if_out_octets),      MAX(max_if_out_octets),
+        AVG(avg_if_in_errors),       MIN(min_if_in_errors),       MAX(max_if_in_errors),
+        AVG(avg_if_out_errors),      MIN(min_if_out_errors),      MAX(max_if_out_errors),
+        AVG(avg_cpu_usage),          MIN(min_cpu_usage),           MAX(max_cpu_usage),
+        AVG(avg_memory_usage),       MIN(min_memory_usage),        MAX(max_memory_usage),
+        AVG(avg_signal_strength),    MIN(min_signal_strength),     MAX(max_signal_strength),
+        AVG(avg_latency_ms),         MIN(min_latency_ms),          MAX(max_latency_ms),
+        AVG(avg_voltage_mv),         MIN(min_voltage_mv),          MAX(max_voltage_mv),
+        AVG(avg_temperature_c),      MIN(min_temperature_c),       MAX(max_temperature_c),
+        AVG(avg_fan_speed_rpm),      MIN(min_fan_speed_rpm),       MAX(max_fan_speed_rpm),
+        AVG(avg_if_in_discards),     MIN(min_if_in_discards),      MAX(max_if_in_discards),
+        AVG(avg_if_out_discards),    MIN(min_if_out_discards),     MAX(max_if_out_discards),
+        AVG(avg_sfp_tx_power_dbm),   MIN(min_sfp_tx_power_dbm),   MAX(max_sfp_tx_power_dbm),
+        AVG(avg_sfp_rx_power_dbm),   MIN(min_sfp_rx_power_dbm),   MAX(max_sfp_rx_power_dbm),
+        AVG(avg_sfp_temperature_c),  MIN(min_sfp_temperature_c),  MAX(max_sfp_temperature_c),
+        AVG(avg_ups_battery_pct),    MIN(min_ups_battery_pct),     MAX(max_ups_battery_pct),
+        AVG(avg_ups_runtime_min),    MIN(min_ups_runtime_min),     MAX(max_ups_runtime_min),
+        AVG(avg_poe_power_mw),       MIN(min_poe_power_mw),        MAX(max_poe_power_mw),
+        AVG(avg_humidity_pct),       MIN(min_humidity_pct),        MAX(max_humidity_pct),
         SUM(sample_count)
     FROM snmp_metrics_1hr
     WHERE period_start >= v_from_date
       AND period_start <  v_to_date
     GROUP BY device_id, interface_id, DATE(period_start)
     ON DUPLICATE KEY UPDATE
-        avg_if_in_octets    = VALUES(avg_if_in_octets),
-        min_if_in_octets    = VALUES(min_if_in_octets),
-        max_if_in_octets    = VALUES(max_if_in_octets),
-        avg_if_out_octets   = VALUES(avg_if_out_octets),
-        min_if_out_octets   = VALUES(min_if_out_octets),
-        max_if_out_octets   = VALUES(max_if_out_octets),
-        avg_if_in_errors    = VALUES(avg_if_in_errors),
-        min_if_in_errors    = VALUES(min_if_in_errors),
-        max_if_in_errors    = VALUES(max_if_in_errors),
-        avg_if_out_errors   = VALUES(avg_if_out_errors),
-        min_if_out_errors   = VALUES(min_if_out_errors),
-        max_if_out_errors   = VALUES(max_if_out_errors),
-        avg_cpu_usage       = VALUES(avg_cpu_usage),
-        min_cpu_usage       = VALUES(min_cpu_usage),
-        max_cpu_usage       = VALUES(max_cpu_usage),
-        avg_memory_usage    = VALUES(avg_memory_usage),
-        min_memory_usage    = VALUES(min_memory_usage),
-        max_memory_usage    = VALUES(max_memory_usage),
-        avg_signal_strength = VALUES(avg_signal_strength),
-        min_signal_strength = VALUES(min_signal_strength),
-        max_signal_strength = VALUES(max_signal_strength),
-        avg_latency_ms      = VALUES(avg_latency_ms),
-        min_latency_ms      = VALUES(min_latency_ms),
-        max_latency_ms      = VALUES(max_latency_ms),
-        sample_count        = VALUES(sample_count);
+        avg_if_in_octets       = VALUES(avg_if_in_octets),
+        min_if_in_octets       = VALUES(min_if_in_octets),
+        max_if_in_octets       = VALUES(max_if_in_octets),
+        avg_if_out_octets      = VALUES(avg_if_out_octets),
+        min_if_out_octets      = VALUES(min_if_out_octets),
+        max_if_out_octets      = VALUES(max_if_out_octets),
+        avg_if_in_errors       = VALUES(avg_if_in_errors),
+        min_if_in_errors       = VALUES(min_if_in_errors),
+        max_if_in_errors       = VALUES(max_if_in_errors),
+        avg_if_out_errors      = VALUES(avg_if_out_errors),
+        min_if_out_errors      = VALUES(min_if_out_errors),
+        max_if_out_errors      = VALUES(max_if_out_errors),
+        avg_cpu_usage          = VALUES(avg_cpu_usage),
+        min_cpu_usage          = VALUES(min_cpu_usage),
+        max_cpu_usage          = VALUES(max_cpu_usage),
+        avg_memory_usage       = VALUES(avg_memory_usage),
+        min_memory_usage       = VALUES(min_memory_usage),
+        max_memory_usage       = VALUES(max_memory_usage),
+        avg_signal_strength    = VALUES(avg_signal_strength),
+        min_signal_strength    = VALUES(min_signal_strength),
+        max_signal_strength    = VALUES(max_signal_strength),
+        avg_latency_ms         = VALUES(avg_latency_ms),
+        min_latency_ms         = VALUES(min_latency_ms),
+        max_latency_ms         = VALUES(max_latency_ms),
+        avg_voltage_mv         = VALUES(avg_voltage_mv),
+        min_voltage_mv         = VALUES(min_voltage_mv),
+        max_voltage_mv         = VALUES(max_voltage_mv),
+        avg_temperature_c      = VALUES(avg_temperature_c),
+        min_temperature_c      = VALUES(min_temperature_c),
+        max_temperature_c      = VALUES(max_temperature_c),
+        avg_fan_speed_rpm      = VALUES(avg_fan_speed_rpm),
+        min_fan_speed_rpm      = VALUES(min_fan_speed_rpm),
+        max_fan_speed_rpm      = VALUES(max_fan_speed_rpm),
+        avg_if_in_discards     = VALUES(avg_if_in_discards),
+        min_if_in_discards     = VALUES(min_if_in_discards),
+        max_if_in_discards     = VALUES(max_if_in_discards),
+        avg_if_out_discards    = VALUES(avg_if_out_discards),
+        min_if_out_discards    = VALUES(min_if_out_discards),
+        max_if_out_discards    = VALUES(max_if_out_discards),
+        avg_sfp_tx_power_dbm   = VALUES(avg_sfp_tx_power_dbm),
+        min_sfp_tx_power_dbm   = VALUES(min_sfp_tx_power_dbm),
+        max_sfp_tx_power_dbm   = VALUES(max_sfp_tx_power_dbm),
+        avg_sfp_rx_power_dbm   = VALUES(avg_sfp_rx_power_dbm),
+        min_sfp_rx_power_dbm   = VALUES(min_sfp_rx_power_dbm),
+        max_sfp_rx_power_dbm   = VALUES(max_sfp_rx_power_dbm),
+        avg_sfp_temperature_c  = VALUES(avg_sfp_temperature_c),
+        min_sfp_temperature_c  = VALUES(min_sfp_temperature_c),
+        max_sfp_temperature_c  = VALUES(max_sfp_temperature_c),
+        avg_ups_battery_pct    = VALUES(avg_ups_battery_pct),
+        min_ups_battery_pct    = VALUES(min_ups_battery_pct),
+        max_ups_battery_pct    = VALUES(max_ups_battery_pct),
+        avg_ups_runtime_min    = VALUES(avg_ups_runtime_min),
+        min_ups_runtime_min    = VALUES(min_ups_runtime_min),
+        max_ups_runtime_min    = VALUES(max_ups_runtime_min),
+        avg_poe_power_mw       = VALUES(avg_poe_power_mw),
+        min_poe_power_mw       = VALUES(min_poe_power_mw),
+        max_poe_power_mw       = VALUES(max_poe_power_mw),
+        avg_humidity_pct       = VALUES(avg_humidity_pct),
+        min_humidity_pct       = VALUES(min_humidity_pct),
+        max_humidity_pct       = VALUES(max_humidity_pct),
+        sample_count           = VALUES(sample_count);
 
     UPDATE snmp_rollup_state
     SET last_processed = TIMESTAMP(v_to_date)
@@ -3202,6 +3654,7 @@ CREATE TABLE IF NOT EXISTS device_config_backups (
                                      COMMENT 'How the backup was triggered',
     captured_by_user_id BIGINT UNSIGNED NULL  COMMENT 'User who initiated the capture; NULL = system / automated',
     notes           TEXT             NULL     COMMENT 'Free-form operator notes',
+    diff_from_previous LONGTEXT      NULL     COMMENT 'Unified diff vs previous version (migration 262; NULL for first backup)',
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
 
@@ -5343,6 +5796,13 @@ CREATE TABLE IF NOT EXISTS alert_rules (
     auto_create_ticket BOOLEAN        NOT NULL DEFAULT FALSE
       COMMENT 'When TRUE, automatically open a ticket on threshold breach',
     notification_channels JSON        NULL COMMENT '["email","sms","sse","webhook"]',
+    escalation_chain_id BIGINT UNSIGNED NULL COMMENT 'Escalation chain for this rule (migration 260)',
+    flap_detection_enabled TINYINT(1)   NOT NULL DEFAULT 0 COMMENT 'Enable flapping detection (migration 260)',
+    flap_count_threshold TINYINT UNSIGNED NOT NULL DEFAULT 3 COMMENT 'State changes within window to mark flapping (migration 260)',
+    flap_window_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 15 COMMENT 'Flap detection window in minutes (migration 260)',
+    baseline_enabled  TINYINT(1)        NOT NULL DEFAULT 0 COMMENT 'Enable dynamic/baseline thresholds (migration 260)',
+    baseline_lookback_hours SMALLINT UNSIGNED NOT NULL DEFAULT 24 COMMENT 'Baseline lookback period in hours (migration 260)',
+    baseline_stddev_multiplier DECIMAL(4,2) NOT NULL DEFAULT 2.00 COMMENT 'Stddev multiplier over baseline (migration 260)',
     is_enabled        BOOLEAN         NOT NULL DEFAULT TRUE,
     created_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -5371,6 +5831,11 @@ CREATE TABLE IF NOT EXISTS alert_events (
     acknowledged_by BIGINT UNSIGNED NULL,
     acknowledged_at TIMESTAMP       NULL,
     resolved_at     TIMESTAMP       NULL,
+    escalation_step INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Current escalation level reached (migration 260)',
+    escalated_at    DATETIME        NULL COMMENT 'When the alert last escalated (migration 260)',
+    flapping        TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Alert is currently flap-suppressed (migration 260)',
+    suppressed      TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Suppressed by correlation or maintenance window (migration 260)',
+    maintenance_window_id BIGINT UNSIGNED NULL COMMENT 'Maintenance window that suppressed this alert (migration 260)',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     INDEX idx_alert_events_org (organization_id, created_at),
@@ -8195,6 +8660,298 @@ CREATE TABLE IF NOT EXISTS `xlat464_configs` (
   `deleted_at` TIMESTAMP NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   INDEX `idx_xlat464_org` (`organization_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: poller_nodes (migration 258 — §6.4 Distributed Polling Engine)
+-- Purpose: Registry of dedicated SNMP poller nodes; may reference firerelay_nodes.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS poller_nodes (
+  id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  node_identifier       VARCHAR(64)     NOT NULL COMMENT 'Matches firerelay_nodes.id when linked',
+  name                  VARCHAR(255)    NOT NULL,
+  status                ENUM('active','draining','maintenance','offline') NOT NULL DEFAULT 'active',
+  api_url               VARCHAR(512)    NULL,
+  max_concurrent_polls  INT UNSIGNED    NOT NULL DEFAULT 10,
+  current_queue_depth   INT UNSIGNED    NOT NULL DEFAULT 0,
+  total_polls_today     BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  failed_polls_today    BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  avg_poll_duration_ms  INT UNSIGNED    NULL,
+  last_heartbeat_at     DATETIME        NULL,
+  created_at            DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at            DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_poller_nodes_identifier (node_identifier),
+  KEY idx_poller_nodes_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: device_polling_configs (migration 258 — §6.4 Polling Engine)
+-- Purpose: Per-device or per-device-type polling interval and GETBULK overrides.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS device_polling_configs (
+  id                         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id            BIGINT UNSIGNED NULL,
+  device_id                  BIGINT UNSIGNED NULL COMMENT 'NULL = applies to all devices of this type',
+  device_type                VARCHAR(50)     NULL COMMENT 'Match devices.type; only used when device_id IS NULL',
+  poller_node_id             BIGINT UNSIGNED NULL,
+  poll_interval_sec          INT UNSIGNED    NOT NULL DEFAULT 300,
+  bulk_get_enabled           TINYINT(1)      NOT NULL DEFAULT 1,
+  max_repetitions            SMALLINT UNSIGNED NOT NULL DEFAULT 10,
+  timeout_ms                 INT UNSIGNED    NOT NULL DEFAULT 5000,
+  retries                    TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  failover_node_id           BIGINT UNSIGNED NULL,
+  adaptive_polling_enabled   TINYINT(1)      NOT NULL DEFAULT 0,
+  adaptive_min_interval_sec  INT UNSIGNED    NOT NULL DEFAULT 60,
+  is_enabled                 TINYINT(1)      NOT NULL DEFAULT 1,
+  deleted_at                 DATETIME        NULL,
+  created_at                 DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at                 DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_dpc_org (organization_id),
+  KEY idx_dpc_device (device_id),
+  CONSTRAINT fk_dpc_org      FOREIGN KEY (organization_id) REFERENCES organizations(id)   ON DELETE CASCADE,
+  CONSTRAINT fk_dpc_device   FOREIGN KEY (device_id)       REFERENCES devices(id)         ON DELETE CASCADE,
+  CONSTRAINT fk_dpc_node     FOREIGN KEY (poller_node_id)  REFERENCES poller_nodes(id)    ON DELETE SET NULL,
+  CONSTRAINT fk_dpc_failover FOREIGN KEY (failover_node_id) REFERENCES poller_nodes(id)  ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: poller_performance_snapshots (migration 258 — §6.4 Polling Engine)
+-- Purpose: Time-series poller health metrics (poll duration, timeout rate, queue depth).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS poller_performance_snapshots (
+  id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  poller_node_id        BIGINT UNSIGNED NULL,
+  snapshot_at           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  devices_polled        INT UNSIGNED    NOT NULL DEFAULT 0,
+  devices_failed        INT UNSIGNED    NOT NULL DEFAULT 0,
+  avg_poll_duration_ms  INT UNSIGNED    NULL,
+  max_poll_duration_ms  INT UNSIGNED    NULL,
+  queue_depth           INT UNSIGNED    NOT NULL DEFAULT 0,
+  timeout_rate_pct      DECIMAL(5,2)    NULL COMMENT 'Failed / total * 100',
+  PRIMARY KEY (id),
+  KEY idx_pps_node_time (poller_node_id, snapshot_at),
+  CONSTRAINT fk_pps_node FOREIGN KEY (poller_node_id) REFERENCES poller_nodes(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: alert_escalation_chains (migration 260 — §6.5 Alerting)
+-- Purpose: Top-level escalation chain definitions for alert notifications.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS alert_escalation_chains (
+  id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id  BIGINT UNSIGNED NULL,
+  name             VARCHAR(255)    NOT NULL,
+  description      TEXT            NULL,
+  deleted_at       DATETIME        NULL,
+  created_at       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_aec_org (organization_id),
+  CONSTRAINT fk_aec_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: alert_escalation_steps (migration 260 — §6.5 Alerting)
+-- Purpose: Individual steps within an escalation chain (L1 -> L2 -> L3).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS alert_escalation_steps (
+  id                    BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+  chain_id              BIGINT UNSIGNED  NOT NULL,
+  step_number           TINYINT UNSIGNED NOT NULL COMMENT '1=L1, 2=L2, 3=L3',
+  delay_minutes         INT UNSIGNED     NOT NULL DEFAULT 15,
+  notification_channel  ENUM('email','sms','whatsapp','telegram','webhook') NOT NULL DEFAULT 'email',
+  recipient_email       VARCHAR(255)     NULL,
+  recipient_phone       VARCHAR(50)      NULL,
+  webhook_url           VARCHAR(512)     NULL,
+  message_template      TEXT             NULL,
+  created_at            DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_aes_chain_step (chain_id, step_number),
+  KEY idx_aes_chain (chain_id),
+  CONSTRAINT fk_aes_chain FOREIGN KEY (chain_id) REFERENCES alert_escalation_chains(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: maintenance_windows (migration 260 — §6.5 Alerting)
+-- Purpose: Suppress alerts during planned maintenance work.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS maintenance_windows (
+  id                          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id             BIGINT UNSIGNED NULL,
+  name                        VARCHAR(255)    NOT NULL,
+  description                 TEXT            NULL,
+  device_id                   BIGINT UNSIGNED NULL,
+  site_id                     BIGINT UNSIGNED NULL,
+  starts_at                   DATETIME        NOT NULL,
+  ends_at                     DATETIME        NOT NULL,
+  is_recurring                TINYINT(1)      NOT NULL DEFAULT 0,
+  recurrence_cron             VARCHAR(50)     NULL,
+  recurrence_duration_minutes INT UNSIGNED    NULL,
+  status                      ENUM('scheduled','active','completed','cancelled') NOT NULL DEFAULT 'scheduled',
+  created_by                  BIGINT UNSIGNED NULL,
+  deleted_at                  DATETIME        NULL,
+  created_at                  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at                  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_mw_org (organization_id),
+  KEY idx_mw_time (organization_id, starts_at, ends_at),
+  CONSTRAINT fk_mw_org    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_mw_device FOREIGN KEY (device_id)       REFERENCES devices(id)       ON DELETE SET NULL,
+  CONSTRAINT fk_mw_site   FOREIGN KEY (site_id)         REFERENCES sites(id)         ON DELETE SET NULL,
+  CONSTRAINT fk_mw_user   FOREIGN KEY (created_by)      REFERENCES users(id)         ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: alert_notification_channels (migration 260 — §6.5 Alerting)
+-- Purpose: Multi-channel notification routing config; credentials AES-256 encrypted.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS alert_notification_channels (
+  id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id  BIGINT UNSIGNED NULL,
+  name             VARCHAR(255)    NOT NULL,
+  channel_type     ENUM('email','sms','whatsapp','telegram','webhook') NOT NULL,
+  config_encrypted TEXT            NULL COMMENT 'JSON with channel-specific settings, AES-256-GCM encrypted',
+  is_enabled       TINYINT(1)      NOT NULL DEFAULT 1,
+  deleted_at       DATETIME        NULL,
+  created_at       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_anc_org (organization_id),
+  CONSTRAINT fk_anc_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: alert_suppression_rules (migration 260 — §6.5 Alerting)
+-- Purpose: Suppress downstream device alerts when upstream device is down.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS alert_suppression_rules (
+  id                        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id           BIGINT UNSIGNED NULL,
+  name                      VARCHAR(255)    NOT NULL,
+  upstream_device_id        BIGINT UNSIGNED NULL,
+  downstream_device_id      BIGINT UNSIGNED NULL,
+  suppress_duration_minutes INT UNSIGNED    NOT NULL DEFAULT 60,
+  is_enabled                TINYINT(1)      NOT NULL DEFAULT 1,
+  deleted_at                DATETIME        NULL,
+  created_at                DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_asr_org (organization_id),
+  CONSTRAINT fk_asr_org        FOREIGN KEY (organization_id)      REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_asr_upstream   FOREIGN KEY (upstream_device_id)   REFERENCES devices(id)       ON DELETE SET NULL,
+  CONSTRAINT fk_asr_downstream FOREIGN KEY (downstream_device_id) REFERENCES devices(id)       ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: config_templates (migration 262 — §6.6 Config Management)
+-- Purpose: Named configuration templates with {{variable}} placeholders for batch push.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS config_templates (
+  id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id  BIGINT UNSIGNED NULL,
+  name             VARCHAR(255)    NOT NULL,
+  description      TEXT            NULL,
+  device_type      VARCHAR(50)     NULL,
+  manufacturer     VARCHAR(100)    NULL,
+  template_content LONGTEXT        NOT NULL,
+  variables_schema JSON            NULL,
+  status           ENUM('active','inactive','draft') NOT NULL DEFAULT 'active',
+  deleted_at       DATETIME        NULL,
+  created_at       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_ct_org (organization_id),
+  CONSTRAINT fk_ct_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: config_deployment_records (migration 262 — §6.6 Config Management)
+-- Purpose: Tracks config template push operations per device.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS config_deployment_records (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NULL,
+  template_id     BIGINT UNSIGNED NULL,
+  device_id       BIGINT UNSIGNED NOT NULL,
+  deployed_by     BIGINT UNSIGNED NULL,
+  status          ENUM('pending','running','success','failed','rolled_back') NOT NULL DEFAULT 'pending',
+  variables_used  JSON            NULL,
+  result_output   TEXT            NULL,
+  deployed_at     DATETIME        NULL,
+  completed_at    DATETIME        NULL,
+  created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_cdr_org (organization_id),
+  KEY idx_cdr_device (device_id),
+  CONSTRAINT fk_cdr_org      FOREIGN KEY (organization_id) REFERENCES organizations(id)   ON DELETE CASCADE,
+  CONSTRAINT fk_cdr_template FOREIGN KEY (template_id)     REFERENCES config_templates(id) ON DELETE SET NULL,
+  CONSTRAINT fk_cdr_device   FOREIGN KEY (device_id)       REFERENCES devices(id)          ON DELETE CASCADE,
+  CONSTRAINT fk_cdr_user     FOREIGN KEY (deployed_by)     REFERENCES users(id)             ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: config_backup_schedules (migration 262 — §6.6 Config Management)
+-- Purpose: Per-device or per-org config backup schedules (extends global nightly task).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS config_backup_schedules (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NULL,
+  device_id       BIGINT UNSIGNED NULL COMMENT 'NULL = all org devices',
+  schedule_name   VARCHAR(255)    NOT NULL,
+  cron_expression VARCHAR(50)     NOT NULL DEFAULT '0 2 * * *',
+  is_enabled      TINYINT(1)      NOT NULL DEFAULT 1,
+  last_run_at     DATETIME        NULL,
+  last_status     ENUM('success','failed','skipped') NULL,
+  deleted_at      DATETIME        NULL,
+  created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_cbs_org (organization_id),
+  CONSTRAINT fk_cbs_org    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_cbs_device FOREIGN KEY (device_id)       REFERENCES devices(id)       ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: config_compliance_rules (migration 262 — §6.6 Config Management)
+-- Purpose: Rules to check device configs against (keyword/regex matching).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS config_compliance_rules (
+  id                     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id        BIGINT UNSIGNED NULL,
+  name                   VARCHAR(255)    NOT NULL,
+  description            TEXT            NULL,
+  rule_type              ENUM('must_contain','must_not_contain','regex_match','regex_not_match') NOT NULL DEFAULT 'must_contain',
+  pattern                TEXT            NOT NULL,
+  severity               ENUM('info','warning','critical') NOT NULL DEFAULT 'warning',
+  applies_to_device_type VARCHAR(50)     NULL,
+  is_enabled             TINYINT(1)      NOT NULL DEFAULT 1,
+  deleted_at             DATETIME        NULL,
+  created_at             DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at             DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_ccr_org (organization_id),
+  CONSTRAINT fk_ccr_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: config_compliance_results (migration 262 — §6.6 Config Management)
+-- Purpose: Audit results when compliance rules are evaluated against a backup.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS config_compliance_results (
+  id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  rule_id      BIGINT UNSIGNED NOT NULL,
+  backup_id    BIGINT UNSIGNED NOT NULL,
+  device_id    BIGINT UNSIGNED NOT NULL,
+  result       ENUM('pass','fail','error') NOT NULL DEFAULT 'fail',
+  details      TEXT            NULL,
+  evaluated_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_ccres_device_time (device_id, evaluated_at),
+  KEY idx_ccres_rule_result (rule_id, result),
+  CONSTRAINT fk_ccres_rule   FOREIGN KEY (rule_id)   REFERENCES config_compliance_rules(id) ON DELETE CASCADE,
+  CONSTRAINT fk_ccres_backup FOREIGN KEY (backup_id) REFERENCES device_config_backups(id)   ON DELETE CASCADE,
+  CONSTRAINT fk_ccres_device FOREIGN KEY (device_id) REFERENCES devices(id)                 ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

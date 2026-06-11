@@ -141,6 +141,13 @@ function generateSpec() {
       { name: 'PTR Records', description: 'Reverse DNS PTR record management — §5.1' },
       { name: 'IPv6 Management', description: 'DHCPv6, SLAAC, RA management, RA Guard, subnet visualization — §5.2' },
       { name: 'Transition Mechanisms', description: 'IPv6 transition mechanisms: 6rd, DS-Lite, MAP-E/MAP-T, 464XLAT — §5.4' },
+      { name: 'Device Groups', description: 'Device group management — logical grouping by type/location/region/OLT — §6.1' },
+      { name: 'Discovery Scans', description: 'Network device discovery via SNMP scan — §6.1' },
+      { name: 'Trap Forwarding Rules', description: 'SNMP trap forwarding rule management — §6.1' },
+      { name: 'SNMP Metrics', description: 'Bandwidth graphs, top talkers, interface utilization, error counters — §6.2/6.3' },
+      { name: 'Config Templates', description: 'Configuration template management — §6.6' },
+      { name: 'Config Backup Schedules', description: 'Per-device/org backup schedule management — §6.6' },
+      { name: 'Config Compliance Rules', description: 'Configuration compliance rules and audit — §6.6' },
     ],
     paths: {
       // ---- Auth ----
@@ -557,6 +564,51 @@ function generateSpec() {
       '/alerts/events': { get: { tags: ['Alerts'], summary: 'Alert event history', operationId: 'listAlertEvents', security: [{ bearerAuth: [] }], responses: r200('AlertEvent[]') } },
       '/alerts/events/{id}/acknowledge': { post: { tags: ['Alerts'], summary: 'Acknowledge an alert', operationId: 'acknowledgeAlert', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Status') } },
       '/alerts/evaluate': { post: { tags: ['Alerts'], summary: 'Trigger alert evaluation', operationId: 'evaluateAlerts', security: [{ bearerAuth: [] }], responses: r200('Results') } },
+      '/alerts/escalation-chains': {
+        get:  { tags: ['Alerts'], summary: 'List escalation chains',    operationId: 'listEscalationChains',   security: [{ bearerAuth: [] }], responses: r200('EscalationChain[]') },
+        post: { tags: ['Alerts'], summary: 'Create escalation chain',   operationId: 'createEscalationChain',  security: [{ bearerAuth: [] }], requestBody: jsonBody('alertEscalations_createChain'), responses: r201('EscalationChain') },
+      },
+      '/alerts/escalation-chains/{id}': {
+        put:    { tags: ['Alerts'], summary: 'Update escalation chain',  operationId: 'updateEscalationChain',  security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('alertEscalations_updateChain'), responses: r200('EscalationChain') },
+        delete: { tags: ['Alerts'], summary: 'Delete escalation chain',  operationId: 'deleteEscalationChain',  security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/alerts/escalation-chains/{id}/steps': {
+        get:  { tags: ['Alerts'], summary: 'List escalation steps',     operationId: 'listEscalationSteps',    security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('EscalationStep[]') },
+        post: { tags: ['Alerts'], summary: 'Add escalation step',       operationId: 'createEscalationStep',   security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('alertEscalations_createStep'), responses: r201('EscalationStep') },
+      },
+      '/alerts/escalation-chains/{id}/steps/{stepId}': {
+        delete: { tags: ['Alerts'], summary: 'Delete escalation step',   operationId: 'deleteEscalationStep',   security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'stepId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/alerts/maintenance-windows': {
+        get:  { tags: ['Alerts'], summary: 'List maintenance windows',  operationId: 'listMaintenanceWindows',  security: [{ bearerAuth: [] }], responses: r200('MaintenanceWindow[]') },
+        post: { tags: ['Alerts'], summary: 'Create maintenance window', operationId: 'createMaintenanceWindow', security: [{ bearerAuth: [] }], requestBody: jsonBody('maintenanceWindows_createWindow'), responses: r201('MaintenanceWindow') },
+      },
+      '/alerts/maintenance-windows/active': {
+        get: { tags: ['Alerts'], summary: 'List active maintenance windows', operationId: 'listActiveMaintenanceWindows', security: [{ bearerAuth: [] }], responses: r200('MaintenanceWindow[]') },
+      },
+      '/alerts/maintenance-windows/{id}': {
+        put:    { tags: ['Alerts'], summary: 'Update maintenance window', operationId: 'updateMaintenanceWindow', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('maintenanceWindows_updateWindow'), responses: r200('MaintenanceWindow') },
+        delete: { tags: ['Alerts'], summary: 'Delete maintenance window', operationId: 'deleteMaintenanceWindow', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/alerts/notification-channels': {
+        get:  { tags: ['Alerts'], summary: 'List notification channels',  operationId: 'listAlertNotificationChannels',  security: [{ bearerAuth: [] }], responses: r200('AlertNotificationChannel[]') },
+        post: { tags: ['Alerts'], summary: 'Create notification channel', operationId: 'createAlertNotificationChannel', security: [{ bearerAuth: [] }], requestBody: jsonBody('alertNotificationChannels_createChannel'), responses: r201('AlertNotificationChannel') },
+      },
+      '/alerts/notification-channels/{id}': {
+        put:    { tags: ['Alerts'], summary: 'Update notification channel', operationId: 'updateAlertNotificationChannel', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('alertNotificationChannels_updateChannel'), responses: r200('AlertNotificationChannel') },
+        delete: { tags: ['Alerts'], summary: 'Delete notification channel', operationId: 'deleteAlertNotificationChannel', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/alerts/suppression-rules': {
+        get:  { tags: ['Alerts'], summary: 'List alert suppression rules',  operationId: 'listAlertSuppressionRules',  security: [{ bearerAuth: [] }], responses: r200('AlertSuppressionRule[]') },
+        post: { tags: ['Alerts'], summary: 'Create alert suppression rule', operationId: 'createAlertSuppressionRule', security: [{ bearerAuth: [] }], requestBody: jsonBody('alertSuppressionRules_createRule'), responses: r201('AlertSuppressionRule') },
+      },
+      '/alerts/suppression-rules/{id}': {
+        put:    { tags: ['Alerts'], summary: 'Update alert suppression rule', operationId: 'updateAlertSuppressionRule', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('alertSuppressionRules_updateRule'), responses: r200('AlertSuppressionRule') },
+        delete: { tags: ['Alerts'], summary: 'Delete alert suppression rule', operationId: 'deleteAlertSuppressionRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/alerts/evaluate-v2': {
+        post: { tags: ['Alerts'], summary: 'Trigger enhanced alert evaluation (v2)', operationId: 'evaluateAlertsV2', security: [{ bearerAuth: [] }], responses: r200('Results') },
+      },
 
       // ---- Outages ----
       ...crudPaths('outages', 'Outages', 'Outage'),
@@ -1035,6 +1087,85 @@ function generateSpec() {
         put: { tags: ['Transition Mechanisms'], summary: 'Update a 464XLAT configuration', operationId: 'update464XlatConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('transitionMechanisms_updateTransitionMechanism'), responses: r200('Xlat464Config') },
         delete: { tags: ['Transition Mechanisms'], summary: 'Delete a 464XLAT configuration', operationId: 'delete464XlatConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
       },
+
+      // ---- Device Groups §6.1 ----
+      ...crudPaths('device-groups', 'Device Groups', 'DeviceGroup'),
+      '/device-groups/{id}/restore': { post: { tags: ['Device Groups'], summary: 'Restore a soft-deleted device group', operationId: 'restoreDeviceGroup', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DeviceGroup') } },
+      '/device-groups/{id}/members': {
+        get: { tags: ['Device Groups'], summary: 'List devices in a group', operationId: 'listDeviceGroupMembers', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Device[]') },
+        post: { tags: ['Device Groups'], summary: 'Add devices to a group', operationId: 'addDeviceGroupMembers', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('deviceGroups_addGroupMembers'), responses: r200('Added count') },
+      },
+      '/device-groups/{id}/members/{deviceId}': {
+        delete: { tags: ['Device Groups'], summary: 'Remove a device from a group', operationId: 'removeDeviceGroupMember', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'deviceId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+
+      // ---- Discovery Scans §6.1 ----
+      ...crudPaths('discovery-scans', 'Discovery Scans', 'DiscoveryScan'),
+      '/discovery-scans/{id}/restore': { post: { tags: ['Discovery Scans'], summary: 'Restore a soft-deleted scan', operationId: 'restoreDiscoveryScan', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DiscoveryScan') } },
+      '/discovery-scans/{id}/results': {
+        get: { tags: ['Discovery Scans'], summary: 'List discovery results for a scan', operationId: 'listDiscoveryResults', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DiscoveryResult[]') },
+      },
+      '/discovery-scans/{id}/results/{resultId}/onboard': {
+        post: { tags: ['Discovery Scans'], summary: 'Onboard a discovered device', operationId: 'onboardDiscoveryResult', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'resultId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('Device override fields'), responses: r201('Device') },
+      },
+      '/discovery-scans/{id}/results/{resultId}/ignore': {
+        post: { tags: ['Discovery Scans'], summary: 'Ignore a discovery result', operationId: 'ignoreDiscoveryResult', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'resultId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('Message') },
+      },
+
+      // ---- Trap Forwarding Rules §6.1 ----
+      ...crudPaths('trap-forwarding-rules', 'Trap Forwarding Rules', 'TrapForwardingRule'),
+      '/trap-forwarding-rules/{id}/restore': { post: { tags: ['Trap Forwarding Rules'], summary: 'Restore a soft-deleted trap forwarding rule', operationId: 'restoreTrapForwardingRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('TrapForwardingRule') } },
+
+      // ---- SNMP Metrics §6.2/6.3 ----
+      '/snmp-metrics': {
+        get: { tags: ['SNMP Metrics'], summary: 'Time-series metrics for a device', operationId: 'getSnmpMetrics', security: [{ bearerAuth: [] }], parameters: [{ name: 'device_id', in: 'query', required: true, schema: { type: 'integer' } }, { name: 'resolution', in: 'query', schema: { type: 'string', enum: ['raw', '1hr', '1day'], default: '1hr' } }, { name: 'hours', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 8760 } }, { name: 'interface_id', in: 'query', schema: { type: 'string' } }], responses: r200('SnmpMetricsResponse') },
+      },
+      '/snmp-metrics/devices': {
+        get: { tags: ['SNMP Metrics'], summary: 'List SNMP-enabled devices', operationId: 'listSnmpDevices', security: [{ bearerAuth: [] }], responses: r200('Device[]') },
+      },
+      '/snmp-metrics/top-talkers': {
+        get: { tags: ['SNMP Metrics'], summary: 'Top interfaces by total bytes', operationId: 'getTopTalkers', security: [{ bearerAuth: [] }], parameters: [{ name: 'hours', in: 'query', schema: { type: 'integer', default: 24 } }, { name: 'limit', in: 'query', schema: { type: 'integer', default: 10, maximum: 100 } }], responses: r200('TopTalkersResponse') },
+      },
+      '/snmp-metrics/interfaces/{deviceId}': {
+        get: { tags: ['SNMP Metrics'], summary: 'Per-interface utilization stats for a device', operationId: 'getInterfaceStats', security: [{ bearerAuth: [] }], parameters: [{ name: 'deviceId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('InterfaceStatsResponse') },
+      },
+      '/snmp-metrics/errors': {
+        get: { tags: ['SNMP Metrics'], summary: 'Error and discard counters per interface', operationId: 'getInterfaceErrors', security: [{ bearerAuth: [] }], parameters: [{ name: 'device_id', in: 'query', required: true, schema: { type: 'integer' } }, { name: 'hours', in: 'query', schema: { type: 'integer', default: 24 } }], responses: r200('InterfaceErrorsResponse') },
+      },
+
+      // ---- Poller Nodes §6.4 ----
+      ...crudPaths('poller-nodes', 'Poller Nodes', 'PollerNode'),
+      '/poller-nodes/{id}/performance': {
+        get: { tags: ['Poller Nodes'], summary: 'Performance history for a poller node', operationId: 'getPollerNodePerformance', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'hours', in: 'query', schema: { type: 'integer', default: 24 } }], responses: r200('PollerPerformanceHistory') },
+      },
+
+      // ---- Device Polling Configs §6.4 ----
+      ...crudPaths('device-polling-configs', 'Device Polling Configs', 'DevicePollingConfig'),
+
+      // ---- Poller Performance §6.4 ----
+      '/poller-performance': {
+        get: { tags: ['Poller Performance'], summary: 'List poller performance snapshots', operationId: 'listPollerPerformanceSnapshots', security: [{ bearerAuth: [] }], parameters: [{ name: 'hours', in: 'query', schema: { type: 'integer', default: 24 } }, { name: 'node_id', in: 'query', schema: { type: 'integer' } }, { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } }, { name: 'limit', in: 'query', schema: { type: 'integer', default: 50 } }], responses: r200('PollerPerformanceSnapshot[]') },
+      },
+      '/poller-performance/dashboard': {
+        get: { tags: ['Poller Performance'], summary: 'Aggregated poller performance dashboard', operationId: 'getPollerPerformanceDashboard', security: [{ bearerAuth: [] }], parameters: [{ name: 'hours', in: 'query', schema: { type: 'integer', default: 24 } }], responses: r200('PollerPerformanceDashboard') },
+      },
+
+      // ---- Device Config Backup Extensions §6.6 ----
+      '/device-config-backups/diff/{id}': { get: { tags: ['Device Config Backups'], summary: 'Get diff from previous version', operationId: 'getConfigBackupDiff', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ConfigDiff') } },
+      '/device-config-backups/compliance-run': { post: { tags: ['Device Config Backups'], summary: 'Run compliance audit on a backup', operationId: 'runBackupComplianceAudit', security: [{ bearerAuth: [] }], requestBody: jsonBody('ComplianceRunRequest'), responses: r200('ComplianceRunResult') } },
+      '/device-config-backups/compliance-results': { get: { tags: ['Device Config Backups'], summary: 'List compliance audit results', operationId: 'listBackupComplianceResults', security: [{ bearerAuth: [] }], responses: r200('ComplianceResult[]') } },
+
+      // ---- Config Templates §6.6 ----
+      ...crudPaths('config-templates', 'Config Templates', 'ConfigTemplate'),
+      '/config-templates/{id}/deploy': { post: { tags: ['Config Templates'], summary: 'Deploy config template to a device', operationId: 'deployConfigTemplate', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('DeployRequest'), responses: r201('ConfigDeploymentRecord') } },
+
+      // ---- Config Backup Schedules §6.6 ----
+      ...crudPaths('config-backup-schedules', 'Config Backup Schedules', 'ConfigBackupSchedule'),
+
+      // ---- Config Compliance Rules §6.6 ----
+      ...crudPaths('config-compliance-rules', 'Config Compliance Rules', 'ConfigComplianceRule'),
+      '/config-compliance-rules/results': { get: { tags: ['Config Compliance Rules'], summary: 'List compliance audit results', operationId: 'listComplianceRulesResults', security: [{ bearerAuth: [] }], responses: r200('ComplianceResult[]') } },
+      '/config-compliance-rules/run': { post: { tags: ['Config Compliance Rules'], summary: 'Run compliance audit on a backup', operationId: 'runComplianceAudit', security: [{ bearerAuth: [] }], requestBody: jsonBody('ComplianceRunRequest'), responses: r200('ComplianceRunResult') } },
     },
     components: {
       securitySchemes: {
