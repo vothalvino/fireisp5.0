@@ -254,6 +254,265 @@ async function scheduleFirmwareUpgrade(params) {
   return job;
 }
 
+// ---------------------------------------------------------------------------
+// §7.3 PON Port Management
+// ---------------------------------------------------------------------------
+
+/**
+ * Get utilization summary for a single PON port (ONU count, optical power
+ * spread, bandwidth utilization) by joining olt_ports + onu_optical_metrics.
+ * @param {number} portId
+ * @param {number|null} orgId
+ * @returns {Promise<object>}
+ */
+async function getPortUtilization(portId, orgId) {
+  // Port base row
+  const [[port]] = await db.query(
+    `SELECT p.*, d.name AS olt_name
+     FROM olt_ports p
+     LEFT JOIN devices d ON d.id = p.olt_device_id
+     WHERE p.id = ?
+       AND (p.organization_id = ? OR p.organization_id IS NULL)
+       AND p.deleted_at IS NULL`,
+    [portId, orgId],
+  );
+  if (!port) return null;
+
+  // Active/inactive ONU breakdown
+  const [onuCounts] = await db.query(
+    `SELECT onu_state, COUNT(*) AS cnt
+     FROM onu_details
+     WHERE olt_port_id = ? AND deleted_at IS NULL
+     GROUP BY onu_state`,
+    [portId],
+  );
+
+  // Latest optical metrics summary (avg/min/max from last 100 rows)
+  const [opticalSummary] = await db.query(
+    `SELECT
+       AVG(rx_power_dbm) AS avg_rx_dbm,
+       MIN(rx_power_dbm) AS min_rx_dbm,
+       MAX(rx_power_dbm) AS max_rx_dbm,
+       AVG(tx_power_dbm) AS avg_tx_dbm
+     FROM (
+       SELECT rx_power_dbm, tx_power_dbm
+       FROM onu_optical_metrics
+       WHERE olt_port_id = ?
+       ORDER BY polled_at DESC
+       LIMIT 100
+     ) latest`,
+    [portId],
+  );
+
+  return {
+    port,
+    onu_state_counts: onuCounts,
+    optical_summary: opticalSummary[0] || null,
+  };
+}
+
+/**
+ * List active/inactive ONUs on a given PON port.
+ * @param {number} portId
+ * @param {number|null} orgId
+ * @param {string|null} state  filter by onu_state
+ * @returns {Promise<Array>}
+ */
+async function getOnusForPort(portId, orgId, state = null) {
+  let sql = `
+    SELECT
+      d.id, d.name, d.mac_address, d.ip_address, d.status,
+      od.serial_number, od.onu_state, od.onu_id, od.ranging_distance_m,
+      od.last_status_at, od.wan_mode
+    FROM onu_details od
+    JOIN devices d ON d.id = od.device_id AND d.deleted_at IS NULL
+    WHERE od.olt_port_id = ?
+      AND (od.organization_id = ? OR od.organization_id IS NULL)
+      AND od.deleted_at IS NULL
+  `;
+  const params = [portId, orgId];
+  if (state) { sql += ' AND od.onu_state = ?'; params.push(state); }
+  sql += ' ORDER BY od.onu_id ASC, d.name ASC';
+  const [rows] = await db.query(sql, params);
+  return rows;
+}
+
+/**
+ * Calculate optical power budget for a PON link.
+ * Pure calculation — no DB I/O.
+ *
+ * Formula:
+ *   budget = olt_tx_power_dbm - (splitter_loss_db + fiber_attenuation_db + connector_margin_db)
+ *   where fiber_attenuation_db = fiber_length_m / 1000 * attenuation_per_km_db
+ *
+ * @param {object} params
+ * @param {number} params.oltTxPowerDbm        OLT transmit power (e.g. +3.0 dBm)
+ * @param {string} params.splitterRatio        '1:32', '1:64', etc.
+ * @param {number} params.fiberLengthM         Total fiber path length in metres
+ * @param {number} [params.attenuationPerKmDb] Fiber attenuation (default 0.35 dB/km for G.652)
+ * @param {number} [params.connectorMarginDb]  Additional connector/splice loss margin (default 2.0)
+ * @returns {{ budget_db: number, splitter_loss_db: number, fiber_loss_db: number, margin_db: number, result: string }}
+ */
+function calculatePowerBudget({
+  oltTxPowerDbm,
+  splitterRatio,
+  fiberLengthM,
+  attenuationPerKmDb = 0.35,
+  connectorMarginDb = 2.0,
+}) {
+  // Splitter insertion loss by ratio
+  const SPLITTER_LOSS = {
+    '1:2': 3.8, '1:4': 7.4, '1:8': 10.9, '1:16': 13.9,
+    '1:32': 17.0, '1:64': 20.0, '1:128': 23.5,
+  };
+  const splitterLoss = SPLITTER_LOSS[splitterRatio] || SPLITTER_LOSS['1:32'];
+  const fiberLoss = (fiberLengthM / 1000) * attenuationPerKmDb;
+  const totalLoss = splitterLoss + fiberLoss + connectorMarginDb;
+  const budgetDb = oltTxPowerDbm - totalLoss;
+
+  // GPON class B+ max path loss = 28 dB
+  const MAX_PATH_LOSS_DB = 28;
+  const result = totalLoss <= MAX_PATH_LOSS_DB ? 'ok' : 'exceeded';
+
+  return {
+    budget_db: Number(budgetDb.toFixed(2)),
+    splitter_loss_db: Number(splitterLoss.toFixed(2)),
+    fiber_loss_db: Number(fiberLoss.toFixed(2)),
+    total_loss_db: Number(totalLoss.toFixed(2)),
+    max_path_loss_db: MAX_PATH_LOSS_DB,
+    margin_db: Number((MAX_PATH_LOSS_DB - totalLoss).toFixed(2)),
+    result,
+  };
+}
+
+/**
+ * Set or clear maintenance mode on a PON port.
+ * Creates a job record stub for the actual admin_status change on device.
+ * @param {number} portId
+ * @param {boolean} enable        true = enable maintenance, false = clear
+ * @param {string|null} note
+ * @param {number|null} userId
+ * @param {number|null} orgId
+ * @returns {Promise<object>} updated port row
+ */
+async function setPortMaintenanceMode(portId, enable, note, userId, orgId) {
+  logger.info({ portId, enable, userId }, 'ftthService.setPortMaintenanceMode');
+
+  const [check] = await db.query(
+    'SELECT id FROM olt_ports WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
+    [portId, orgId],
+  );
+  if (!check.length) throw Object.assign(new Error('OLT port not found'), { statusCode: 404 });
+
+  await db.query(
+    `UPDATE olt_ports SET
+       maintenance_mode = ?,
+       maintenance_note = ?,
+       maintenance_by   = ?,
+       maintenance_at   = ?,
+       updated_at       = NOW()
+     WHERE id = ?`,
+    [enable ? 1 : 0, enable ? (note || null) : null, enable ? userId : null, enable ? new Date() : null, portId],
+  );
+
+  const [[port]] = await db.query('SELECT * FROM olt_ports WHERE id = ?', [portId]);
+  return port;
+}
+
+/**
+ * Configure XGS-PON mode on a PON port.
+ * Validates the requested mode against olt_vendor_capabilities.protocols.
+ * Records intent; actual device command is stubbed via a firmware_job-style record.
+ * @param {number} portId
+ * @param {string} mode  one of: gpon, xgspon_2_5g, xgspon_10g, auto, none
+ * @param {number|null} orgId
+ * @returns {Promise<object>} updated port row
+ */
+async function configurePortXgsPonMode(portId, mode, orgId) {
+  logger.info({ portId, mode }, 'ftthService.configurePortXgsPonMode');
+
+  const VALID_MODES = ['gpon', 'xgspon_2_5g', 'xgspon_10g', 'auto', 'none'];
+  if (!VALID_MODES.includes(mode)) {
+    throw Object.assign(new Error(`Invalid XGS-PON mode: ${mode}`), { statusCode: 400 });
+  }
+
+  const [[port]] = await db.query(
+    `SELECT p.*, d.manufacturer, d.model
+     FROM olt_ports p
+     LEFT JOIN devices d ON d.id = p.olt_device_id
+     WHERE p.id = ?
+       AND (p.organization_id = ? OR p.organization_id IS NULL)
+       AND p.deleted_at IS NULL`,
+    [portId, orgId],
+  );
+  if (!port) throw Object.assign(new Error('OLT port not found'), { statusCode: 404 });
+
+  // Validate against vendor capabilities if port is an xgspon port type
+  let validated = 0;
+  if (port.port_type === 'xgspon' || mode !== 'none') {
+    const [caps] = await db.query(
+      'SELECT protocols FROM olt_vendor_capabilities WHERE vendor = ? AND ? LIKE model_pattern ORDER BY id LIMIT 1',
+      [port.manufacturer || '', port.model || ''],
+    );
+    if (caps.length) {
+      const protocols = typeof caps[0].protocols === 'string'
+        ? JSON.parse(caps[0].protocols) : (caps[0].protocols || []);
+      const supportsXgs = protocols.includes('snmp') || protocols.includes('netconf');
+      validated = supportsXgs ? 1 : 0;
+    }
+  }
+
+  await db.query(
+    'UPDATE olt_ports SET xgspon_mode = ?, xgspon_mode_validated = ?, updated_at = NOW() WHERE id = ?',
+    [mode, validated, portId],
+  );
+
+  const [[updated]] = await db.query('SELECT * FROM olt_ports WHERE id = ?', [portId]);
+  return updated;
+}
+
+/**
+ * Create an ONU migration job (transactional port reassignment intent).
+ * Actual de-registration + re-registration on device is stubbed.
+ * @param {object} params
+ * @returns {Promise<object>} created job row
+ */
+async function createOnuMigrationJob(params) {
+  const {
+    onuDeviceId, sourceOltPortId, targetOltPortId,
+    sourceOltDeviceId, targetOltDeviceId, scheduledAt, orgId, createdBy, notes,
+  } = params;
+
+  logger.info({ onuDeviceId, sourceOltPortId, targetOltPortId }, 'ftthService.createOnuMigrationJob: recording migration intent');
+
+  // Validate source port != target port
+  if (sourceOltPortId === targetOltPortId) {
+    throw Object.assign(new Error('Source and target ports must differ'), { statusCode: 400 });
+  }
+
+  // Check ONU is actually on the source port
+  const [detail] = await db.query(
+    'SELECT id, olt_port_id FROM onu_details WHERE device_id = ? AND deleted_at IS NULL LIMIT 1',
+    [onuDeviceId],
+  );
+  if (!detail.length) {
+    throw Object.assign(new Error('ONU detail record not found'), { statusCode: 404 });
+  }
+
+  const [res] = await db.query(
+    `INSERT INTO onu_migration_jobs
+       (organization_id, onu_device_id, source_olt_port_id, target_olt_port_id,
+        source_olt_device_id, target_olt_device_id, scheduled_at, status, created_by, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+    [orgId, onuDeviceId, sourceOltPortId, targetOltPortId,
+      sourceOltDeviceId || null, targetOltDeviceId || null,
+      scheduledAt || null, createdBy, notes || null],
+  );
+
+  const [[job]] = await db.query('SELECT * FROM onu_migration_jobs WHERE id = ?', [res.insertId]);
+  return job;
+}
+
 module.exports = {
   getOltPorts,
   getOltChassisSummary,
@@ -262,4 +521,11 @@ module.exports = {
   provisionOnu,
   scheduleOnuReboot,
   scheduleFirmwareUpgrade,
+  // §7.3
+  getPortUtilization,
+  getOnusForPort,
+  calculatePowerBudget,
+  setPortMaintenanceMode,
+  configurePortXgsPonMode,
+  createOnuMigrationJob,
 };

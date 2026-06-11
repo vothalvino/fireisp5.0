@@ -1,7 +1,7 @@
 'use strict';
 
 // =============================================================================
-// FireISP 5.0 — OLT Management Routes (§7.1)
+// FireISP 5.0 — OLT Management Routes (§7.1 / §7.3)
 // =============================================================================
 // Mounted at /api/olt-management and /api/v1/olt-management.
 //
@@ -13,7 +13,13 @@
 //   /:id/onus          — ONUs visible on this OLT
 //   /:id/vendor-caps   — Vendor capability record for this OLT
 //   /ports             — Global OLT port CRUD (org-scoped)
-//   /splitters         — Splitter inventory CRUD (org-scoped)
+//   /ports/:portId/utilization  — PON port utilization dashboard (§7.3)
+//   /ports/:portId/onus         — ONUs per port with active/inactive filter (§7.3)
+//   /ports/:portId/shutdown     — Set/clear maintenance mode (§7.3)
+//   /ports/:portId/xgspon-mode  — Configure XGS-PON sub-mode (§7.3)
+//   /power-budget               — Optical power budget calculator (§7.3)
+//   /onu-migrations             — ONU port migration jobs CRUD (§7.3)
+//   /splitters                  — Splitter inventory CRUD (org-scoped)
 // =============================================================================
 
 const { Router } = require('express');
@@ -28,6 +34,9 @@ const {
 const {
   createOltSplitter, updateOltSplitter, patchOltSplitter,
 } = require('../middleware/schemas/oltSplitters');
+const {
+  createOnuMigrationJob, patchOnuMigrationJob,
+} = require('../middleware/schemas/onuMigrationJobs');
 const ftthService = require('../services/ftthService');
 
 const router = Router();
@@ -312,6 +321,236 @@ router.delete('/splitters/:splitterId', requirePermission('olt_splitters.delete'
     if (!check.length) return res.status(404).json({ error: 'Not found' });
     await db.query('UPDATE olt_splitters SET deleted_at = NOW() WHERE id = ?', [req.params.splitterId]);
     res.status(204).send();
+  } catch (err) { next(err); }
+});
+
+// ===========================================================================
+// §7.3 PON Port Management — utilization, ONU lists, shutdown, XGS-PON mode
+// ===========================================================================
+
+/**
+ * GET /ports/:portId/utilization — PON port utilization dashboard
+ */
+router.get('/ports/:portId/utilization', requirePermission('olt_ports.utilization'), async (req, res, next) => {
+  try {
+    const data = await ftthService.getPortUtilization(req.params.portId, req.orgId);
+    if (!data) return res.status(404).json({ error: 'OLT port not found' });
+    res.json({ data });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /ports/:portId/onus — active/inactive ONU list per PON port
+ */
+router.get('/ports/:portId/onus', requirePermission('olt_ports.utilization'), async (req, res, next) => {
+  try {
+    const { state } = req.query;
+    const onus = await ftthService.getOnusForPort(req.params.portId, req.orgId, state || null);
+    res.json({ data: onus });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /power-budget — optical power budget calculator (pure calculation)
+ */
+router.post('/power-budget', requirePermission('olt_ports.power_budget'), async (req, res, next) => {
+  try {
+    const {
+      olt_tx_power_dbm: oltTxPowerDbm,
+      splitter_ratio: splitterRatio,
+      fiber_length_m: fiberLengthM,
+      attenuation_per_km_db: attenuationPerKmDb,
+      connector_margin_db: connectorMarginDb,
+    } = req.body;
+
+    if (oltTxPowerDbm === null || oltTxPowerDbm === undefined || !splitterRatio || fiberLengthM === null || fiberLengthM === undefined) {
+      return res.status(400).json({ error: 'olt_tx_power_dbm, splitter_ratio, and fiber_length_m are required' });
+    }
+
+    const result = ftthService.calculatePowerBudget({
+      oltTxPowerDbm: Number(oltTxPowerDbm),
+      splitterRatio,
+      fiberLengthM: Number(fiberLengthM),
+      attenuationPerKmDb: attenuationPerKmDb !== null && attenuationPerKmDb !== undefined ? Number(attenuationPerKmDb) : undefined,
+      connectorMarginDb: connectorMarginDb !== null && connectorMarginDb !== undefined ? Number(connectorMarginDb) : undefined,
+    });
+
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /ports/:portId/shutdown — set or clear maintenance mode on a PON port
+ */
+router.post('/ports/:portId/shutdown', requirePermission('olt_ports.shutdown'), async (req, res, next) => {
+  try {
+    const { enable = true, note } = req.body;
+    const port = await ftthService.setPortMaintenanceMode(
+      req.params.portId,
+      Boolean(enable),
+      note || null,
+      req.user && req.user.id,
+      req.orgId,
+    );
+    res.json({ data: port });
+  } catch (err) {
+    if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * POST /ports/:portId/xgspon-mode — configure XGS-PON sub-mode on a port
+ */
+router.post('/ports/:portId/xgspon-mode', requirePermission('olt_ports.configure_mode'), async (req, res, next) => {
+  try {
+    const { mode } = req.body;
+    if (!mode) return res.status(400).json({ error: 'mode is required' });
+    const port = await ftthService.configurePortXgsPonMode(req.params.portId, mode, req.orgId);
+    res.json({ data: port });
+  } catch (err) {
+    if (err.statusCode === 400) return res.status(400).json({ error: err.message });
+    if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+    next(err);
+  }
+});
+
+// ===========================================================================
+// §7.3 ONU Migration Jobs
+// ===========================================================================
+
+/**
+ * GET /onu-migrations — list ONU migration jobs for org
+ */
+router.get('/onu-migrations', requirePermission('onu_migration_jobs.view'), async (req, res, next) => {
+  try {
+    const { page = 1, limit = 25, status, onu_device_id } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(Math.max(1, parseInt(limit, 10) || 25), 100);
+    const offset = (pageNum - 1) * limitNum;
+
+    let sql = `SELECT j.*,
+        src.port_name AS source_port_name,
+        tgt.port_name AS target_port_name,
+        d.name AS onu_name
+      FROM onu_migration_jobs j
+      LEFT JOIN olt_ports src ON src.id = j.source_olt_port_id
+      LEFT JOIN olt_ports tgt ON tgt.id = j.target_olt_port_id
+      LEFT JOIN devices d ON d.id = j.onu_device_id
+      WHERE (j.organization_id = ? OR j.organization_id IS NULL) AND j.deleted_at IS NULL`;
+    const params = [req.orgId];
+
+    if (status) { sql += ' AND j.status = ?'; params.push(status); }
+    if (onu_device_id) { sql += ' AND j.onu_device_id = ?'; params.push(onu_device_id); }
+
+    const countSql = sql.replace(/SELECT j\.\*[\s\S]*?FROM/, 'SELECT COUNT(*) AS total FROM');
+    const [countRows] = await db.query(countSql, params);
+    const total = countRows[0].total;
+
+    sql += ` ORDER BY j.created_at DESC LIMIT ${limitNum} OFFSET ${offset}`;
+    const [rows] = await db.query(sql, params);
+    res.json({ data: rows, meta: { total, page: pageNum, limit: limitNum } });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /onu-migrations/:jobId — single ONU migration job
+ */
+router.get('/onu-migrations/:jobId', requirePermission('onu_migration_jobs.view'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT j.*, src.port_name AS source_port_name, tgt.port_name AS target_port_name, d.name AS onu_name
+       FROM onu_migration_jobs j
+       LEFT JOIN olt_ports src ON src.id = j.source_olt_port_id
+       LEFT JOIN olt_ports tgt ON tgt.id = j.target_olt_port_id
+       LEFT JOIN devices d ON d.id = j.onu_device_id
+       WHERE j.id = ? AND (j.organization_id = ? OR j.organization_id IS NULL) AND j.deleted_at IS NULL`,
+      [req.params.jobId, req.orgId],
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json({ data: rows[0] });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /onu-migrations — create an ONU port migration job
+ */
+router.post('/onu-migrations', requirePermission('onu_migration_jobs.create'), validate(createOnuMigrationJob), async (req, res, next) => {
+  try {
+    const job = await ftthService.createOnuMigrationJob({
+      onuDeviceId: req.body.onu_device_id,
+      sourceOltPortId: req.body.source_olt_port_id,
+      targetOltPortId: req.body.target_olt_port_id,
+      sourceOltDeviceId: req.body.source_olt_device_id,
+      targetOltDeviceId: req.body.target_olt_device_id,
+      scheduledAt: req.body.scheduled_at,
+      notes: req.body.notes,
+      orgId: req.orgId,
+      createdBy: req.user && req.user.id,
+    });
+    res.status(201).json({ data: job });
+  } catch (err) {
+    if (err.statusCode === 400) return res.status(400).json({ error: err.message });
+    if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * PATCH /onu-migrations/:jobId — cancel or update a migration job
+ */
+router.patch('/onu-migrations/:jobId', requirePermission('onu_migration_jobs.update'), validate(patchOnuMigrationJob), async (req, res, next) => {
+  try {
+    const [check] = await db.query(
+      'SELECT id, status FROM onu_migration_jobs WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
+      [req.params.jobId, req.orgId],
+    );
+    if (!check.length) return res.status(404).json({ error: 'Not found' });
+    if (check[0].status === 'completed') {
+      return res.status(409).json({ error: 'Cannot modify a completed migration job' });
+    }
+    const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...updateData } = req.body;
+    if (!Object.keys(updateData).length) return res.status(400).json({ error: 'No fields to update' });
+    await db.query('UPDATE onu_migration_jobs SET ?, updated_at = NOW() WHERE id = ?', [updateData, req.params.jobId]);
+    const [rows] = await db.query('SELECT * FROM onu_migration_jobs WHERE id = ?', [req.params.jobId]);
+    res.json({ data: rows[0] });
+  } catch (err) { next(err); }
+});
+
+/**
+ * DELETE /onu-migrations/:jobId — soft-delete migration job
+ */
+router.delete('/onu-migrations/:jobId', requirePermission('onu_migration_jobs.delete'), async (req, res, next) => {
+  try {
+    const [check] = await db.query(
+      'SELECT id FROM onu_migration_jobs WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
+      [req.params.jobId, req.orgId],
+    );
+    if (!check.length) return res.status(404).json({ error: 'Not found' });
+    await db.query('UPDATE onu_migration_jobs SET deleted_at = NOW() WHERE id = ?', [req.params.jobId]);
+    res.status(204).send();
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /onu-migrations/:jobId/cancel — cancel a pending migration job
+ */
+router.post('/onu-migrations/:jobId/cancel', requirePermission('onu_migration_jobs.update'), async (req, res, next) => {
+  try {
+    const [check] = await db.query(
+      'SELECT id, status FROM onu_migration_jobs WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
+      [req.params.jobId, req.orgId],
+    );
+    if (!check.length) return res.status(404).json({ error: 'Not found' });
+    if (!['pending', 'queued'].includes(check[0].status)) {
+      return res.status(409).json({ error: 'Only pending or queued jobs can be cancelled' });
+    }
+    await db.query(
+      'UPDATE onu_migration_jobs SET status = \'cancelled\', updated_at = NOW() WHERE id = ?',
+      [req.params.jobId],
+    );
+    const [rows] = await db.query('SELECT * FROM onu_migration_jobs WHERE id = ?', [req.params.jobId]);
+    res.json({ data: rows[0] });
   } catch (err) { next(err); }
 });
 
