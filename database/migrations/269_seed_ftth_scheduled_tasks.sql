@@ -17,7 +17,7 @@
 -- 1. OLT chassis monitoring (CPU / memory / temperature / PSU / fan via SNMP)
 INSERT INTO scheduled_tasks
     (organization_id, task_name, task_type, handler, description,
-     cron_expression, priority, max_retries, timeout_seconds, status)
+     cron_expression, priority, max_retries, timeout_seconds, is_enabled)
 SELECT
     NULL,
     'ftth_olt_chassis_poll',
@@ -28,7 +28,7 @@ SELECT
     'normal',
     3,
     120,
-    'active'
+    TRUE
 WHERE NOT EXISTS (
     SELECT 1 FROM scheduled_tasks
     WHERE task_name = 'ftth_olt_chassis_poll'
@@ -38,7 +38,7 @@ WHERE NOT EXISTS (
 -- 2. OLT PON port metrics (Tx/Rx optical power, ONU count, bandwidth)
 INSERT INTO scheduled_tasks
     (organization_id, task_name, task_type, handler, description,
-     cron_expression, priority, max_retries, timeout_seconds, status)
+     cron_expression, priority, max_retries, timeout_seconds, is_enabled)
 SELECT
     NULL,
     'ftth_olt_port_metrics_poll',
@@ -49,7 +49,7 @@ SELECT
     'normal',
     3,
     180,
-    'active'
+    TRUE
 WHERE NOT EXISTS (
     SELECT 1 FROM scheduled_tasks
     WHERE task_name = 'ftth_olt_port_metrics_poll'
@@ -59,7 +59,7 @@ WHERE NOT EXISTS (
 -- 3. ONU auto-discovery (scan OLT for unconfigured/new ONUs)
 INSERT INTO scheduled_tasks
     (organization_id, task_name, task_type, handler, description,
-     cron_expression, priority, max_retries, timeout_seconds, status)
+     cron_expression, priority, max_retries, timeout_seconds, is_enabled)
 SELECT
     NULL,
     'ftth_onu_discovery',
@@ -70,7 +70,7 @@ SELECT
     'normal',
     2,
     300,
-    'active'
+    TRUE
 WHERE NOT EXISTS (
     SELECT 1 FROM scheduled_tasks
     WHERE task_name = 'ftth_onu_discovery'
@@ -80,7 +80,7 @@ WHERE NOT EXISTS (
 -- 4. ONU optical diagnostics poll (Tx/Rx/temp/voltage/bias current)
 INSERT INTO scheduled_tasks
     (organization_id, task_name, task_type, handler, description,
-     cron_expression, priority, max_retries, timeout_seconds, status)
+     cron_expression, priority, max_retries, timeout_seconds, is_enabled)
 SELECT
     NULL,
     'ftth_onu_optical_poll',
@@ -91,7 +91,7 @@ SELECT
     'normal',
     3,
     240,
-    'active'
+    TRUE
 WHERE NOT EXISTS (
     SELECT 1 FROM scheduled_tasks
     WHERE task_name = 'ftth_onu_optical_poll'
@@ -101,7 +101,7 @@ WHERE NOT EXISTS (
 -- 5. ONU firmware job processor (execute pending firmware/reboot jobs)
 INSERT INTO scheduled_tasks
     (organization_id, task_name, task_type, handler, description,
-     cron_expression, priority, max_retries, timeout_seconds, status)
+     cron_expression, priority, max_retries, timeout_seconds, is_enabled)
 SELECT
     NULL,
     'ftth_onu_firmware_job_processor',
@@ -112,7 +112,7 @@ SELECT
     'high',
     1,
     600,
-    'active'
+    TRUE
 WHERE NOT EXISTS (
     SELECT 1 FROM scheduled_tasks
     WHERE task_name = 'ftth_onu_firmware_job_processor'
@@ -122,7 +122,7 @@ WHERE NOT EXISTS (
 -- 6. ONU optical metrics retention cleanup (keep last 90 days)
 INSERT INTO scheduled_tasks
     (organization_id, task_name, task_type, handler, description,
-     cron_expression, priority, max_retries, timeout_seconds, status)
+     cron_expression, priority, max_retries, timeout_seconds, is_enabled)
 SELECT
     NULL,
     'ftth_onu_optical_metrics_cleanup',
@@ -133,7 +133,7 @@ SELECT
     'low',
     2,
     600,
-    'active'
+    TRUE
 WHERE NOT EXISTS (
     SELECT 1 FROM scheduled_tasks
     WHERE task_name = 'ftth_onu_optical_metrics_cleanup'
