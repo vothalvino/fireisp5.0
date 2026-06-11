@@ -26956,6 +26956,36 @@
               "active",
               "inactive"
             ]
+          },
+          "dhcpv6_mode": {
+            "type": "string",
+            "enum": [
+              "stateful",
+              "stateless",
+              "slaac"
+            ]
+          },
+          "ra_enabled": {
+            "type": "boolean"
+          },
+          "ra_managed_flag": {
+            "type": "boolean"
+          },
+          "ra_other_flag": {
+            "type": "boolean"
+          },
+          "ra_lifetime_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "slaac_prefix": {
+            "type": "string",
+            "maximum": 50
+          },
+          "region_name": {
+            "type": "string",
+            "maximum": 100
           }
         },
         "required": [
@@ -27043,6 +27073,36 @@
               "active",
               "inactive"
             ]
+          },
+          "dhcpv6_mode": {
+            "type": "string",
+            "enum": [
+              "stateful",
+              "stateless",
+              "slaac"
+            ]
+          },
+          "ra_enabled": {
+            "type": "boolean"
+          },
+          "ra_managed_flag": {
+            "type": "boolean"
+          },
+          "ra_other_flag": {
+            "type": "boolean"
+          },
+          "ra_lifetime_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "slaac_prefix": {
+            "type": "string",
+            "maximum": 50
+          },
+          "region_name": {
+            "type": "string",
+            "maximum": 100
           }
         }
       },
@@ -28781,6 +28841,14 @@
               "inactive",
               "archived"
             ]
+          },
+          "stack_type": {
+            "type": "string",
+            "enum": [
+              "ipv4_only",
+              "ipv6_only",
+              "dual_stack"
+            ]
           }
         },
         "required": [
@@ -28851,6 +28919,14 @@
               "inactive",
               "archived"
             ]
+          },
+          "stack_type": {
+            "type": "string",
+            "enum": [
+              "ipv4_only",
+              "ipv6_only",
+              "dual_stack"
+            ]
           }
         }
       },
@@ -28914,6 +28990,14 @@
               "active",
               "inactive",
               "archived"
+            ]
+          },
+          "stack_type": {
+            "type": "string",
+            "enum": [
+              "ipv4_only",
+              "ipv6_only",
+              "dual_stack"
             ]
           }
         }
@@ -29102,6 +29186,29 @@
             "type": "string",
             "maximum": 100
           },
+          "ipv6cp_enabled": {
+            "type": "boolean"
+          },
+          "delegated_prefix_len": {
+            "type": "number",
+            "minimum": 48,
+            "maximum": 128
+          },
+          "dns_primary_v6": {
+            "type": "string",
+            "maximum": 45
+          },
+          "dns_secondary_v6": {
+            "type": "string",
+            "maximum": 45
+          },
+          "nat64_enabled": {
+            "type": "boolean"
+          },
+          "dns64_prefix": {
+            "type": "string",
+            "maximum": 50
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -29171,6 +29278,29 @@
           "filter_id": {
             "type": "string",
             "maximum": 100
+          },
+          "ipv6cp_enabled": {
+            "type": "boolean"
+          },
+          "delegated_prefix_len": {
+            "type": "number",
+            "minimum": 48,
+            "maximum": 128
+          },
+          "dns_primary_v6": {
+            "type": "string",
+            "maximum": 45
+          },
+          "dns_secondary_v6": {
+            "type": "string",
+            "maximum": 45
+          },
+          "nat64_enabled": {
+            "type": "boolean"
+          },
+          "dns64_prefix": {
+            "type": "string",
+            "maximum": 50
           },
           "status": {
             "type": "string",

@@ -12,6 +12,7 @@ const {
   combineOctetsGigawords,
   exportCdr,
   listMacMoveEvents,
+  deriveStackType,
 } = require('../src/services/radiusAccountingService');
 
 describe('radiusAccountingService', () => {
@@ -49,6 +50,27 @@ describe('radiusAccountingService', () => {
 
     test('treats null gigawords as 0', () => {
       expect(combineOctetsGigawords(999, null)).toBe(999);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // deriveStackType
+  // ---------------------------------------------------------------------------
+  describe('deriveStackType()', () => {
+    test('returns dual when both IPv4 and IPv6 addresses present', () => {
+      expect(deriveStackType('10.0.0.1', '2001:db8::/48')).toBe('dual');
+    });
+
+    test('returns ipv4 when only framed IP present', () => {
+      expect(deriveStackType('10.0.0.1', null)).toBe('ipv4');
+    });
+
+    test('returns ipv6 when only framed IPv6 present', () => {
+      expect(deriveStackType(null, '2001:db8::/48')).toBe('ipv6');
+    });
+
+    test('returns null when neither address present', () => {
+      expect(deriveStackType(null, null)).toBe(null);
     });
   });
 
@@ -114,6 +136,39 @@ describe('radiusAccountingService', () => {
       const insertCall = db.query.mock.calls[2];
       expect(insertCall[1][1]).toBe(0);  // contractId at index 1 of params
       expect(insertCall[1][2]).toBe(0);  // clientId at index 2 of params
+    });
+
+    test('includes acctInputOctetsV6, acctOutputOctetsV6, and stack_type=ipv6 in INSERT when IPv6-only', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ radius_id: 1, contract_id: 5, client_id: 3, resolved_nas_id: 2 }]])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([{ insertId: 55 }]);
+
+      await ingestAccounting({
+        acctStatusType: 'Start',
+        userName: 'alice',
+        acctSessionId: 'sess-v6',
+        nasIpAddress: '10.0.0.1',
+        framedIpv6Prefix: '2001:db8::/48',
+        acctInputOctetsV6: 1000,
+        acctOutputOctetsV6: 2000,
+        organizationId: 1,
+      });
+
+      const insertCall = db.query.mock.calls[2];
+      const insertSql = insertCall[0];
+      const insertParams = insertCall[1];
+      expect(insertSql).toMatch(/acct_input_octets_v6/);
+      expect(insertSql).toMatch(/stack_type/);
+      // Find stack_type param — it's after the V6 octet params
+      // The INSERT has columns: username, contractId, clientId, nasId, nasIpAddress,
+      //   acctSessionId, sessionId, nasPortId, calledStationId, callingStationId,
+      //   framedIp, framedIpv6Prefix, (event_type literal), (NOW() literal),
+      //   bytesIn, bytesOut, acctSessionTime, acctTerminateCause,
+      //   acctInputOctetsV6, acctOutputOctetsV6, stackType
+      // So stackType is the last param
+      const stackTypeParam = insertParams[insertParams.length - 1];
+      expect(stackTypeParam).toBe('ipv6');
     });
   });
 
