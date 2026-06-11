@@ -1059,6 +1059,15 @@ CREATE TABLE IF NOT EXISTS ip_pools (
     dns_primary VARCHAR(45)     NULL     COMMENT 'Primary DNS server',
     dns_secondary VARCHAR(45)   NULL     COMMENT 'Secondary DNS server',
     site_id     BIGINT UNSIGNED NULL     COMMENT 'Site / POP the pool is served from',
+    nas_id      BIGINT UNSIGNED NULL     COMMENT 'NAS device serving this pool; NULL = not tied to a specific NAS',
+    service_type ENUM('residential','business','corporate','government','mixed') NULL DEFAULT 'mixed'
+                                         COMMENT 'Subscriber class this pool is intended to serve',
+    default_prefix_len TINYINT UNSIGNED  NULL
+                                         COMMENT 'IPv6 prefix delegation length assigned to subscribers (e.g. 48, 56, 64); NULL for IPv4 pools or when PD is unused',
+    excluded_ranges TEXT                 NULL
+                                         COMMENT 'Comma- or newline-separated IP ranges to skip during dynamic allocation (e.g. management addresses)',
+    last_alerted_threshold TINYINT UNSIGNED NULL
+                                         COMMENT 'Last utilization % threshold that fired an alert (75 or 90); reset to NULL when usage drops below 75%',
     notes       TEXT            NULL,
     status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1070,12 +1079,15 @@ CREATE TABLE IF NOT EXISTS ip_pools (
     KEY idx_ip_pools_organization_id (organization_id),
     KEY idx_ip_pools_ip_version (ip_version),
     KEY idx_ip_pools_site_id (site_id),
+    KEY idx_ip_pools_nas_id (nas_id),
     KEY idx_ip_pools_status (status),
     KEY idx_ip_pools_deleted_at (deleted_at),
     CONSTRAINT fk_ip_pools_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_ip_pools_site FOREIGN KEY (site_id)
-        REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_ip_pools_nas FOREIGN KEY (nas_id)
+        REFERENCES nas (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -7807,5 +7819,95 @@ CREATE TABLE IF NOT EXISTS mac_move_events (
 --   last_health_check_at DATETIME        NULL
 -- Applied via stored-procedure guards. See migration 232.
 -- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Table: pppoe_service_profiles (migration 237 — §4 PPPoE Phase B)
+-- Purpose: PPPoE AC / BNG service profiles — MTU, DNS, auth-method, rate-limit
+--          override, MikroTik address-list/filter-id configuration.
+--          Referenced by ip_pools.service_profile_id and radius.service_profile_id.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pppoe_service_profiles (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NULL,
+  name VARCHAR(100) NOT NULL,
+  service_name VARCHAR(64) NULL COMMENT 'PPPoE AC service name sent in PADO; must match NAS pppoe-service-name',
+  mtu SMALLINT UNSIGNED NOT NULL DEFAULT 1492,
+  mru SMALLINT UNSIGNED NOT NULL DEFAULT 1492,
+  auth_methods VARCHAR(100) NOT NULL DEFAULT 'pap,chap,mschapv2',
+  dns_primary VARCHAR(45) NULL,
+  dns_secondary VARCHAR(45) NULL,
+  session_timeout_seconds INT NULL,
+  idle_timeout_seconds INT NULL,
+  rate_limit_override VARCHAR(100) NULL COMMENT 'Vendor rate string; when set replaces plan speed attribute for this profile subscribers',
+  address_list VARCHAR(100) NULL COMMENT 'MikroTik firewall address-list name',
+  filter_id VARCHAR(100) NULL COMMENT 'RFC 2865 Filter-Id attribute for firewall policy',
+  status ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  notes TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at DATETIME NULL,
+  PRIMARY KEY (id),
+  KEY idx_pppoe_service_profiles_org (organization_id),
+  KEY idx_pppoe_service_profiles_status (status),
+  KEY idx_pppoe_service_profiles_deleted (deleted_at),
+  CONSTRAINT fk_pppoe_service_profiles_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Columns added to ip_pools by migration 237 (§4 PPPoE Phase B):
+--   service_profile_id  BIGINT UNSIGNED NULL (FK → pppoe_service_profiles ON DELETE SET NULL)
+-- Applied via stored-procedure guards. See migration 237.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Columns added to radius by migration 237 (§4 PPPoE Phase B):
+--   service_profile_id  BIGINT UNSIGNED NULL (FK → pppoe_service_profiles ON DELETE SET NULL)
+-- Applied via stored-procedure guards. See migration 237.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Table: radpostauth (migration 238 — §4 PPPoE Phase B)
+-- Purpose: FreeRADIUS post-authentication log. Written directly by FreeRADIUS
+--          via rlm_sql; read by FireISP for auth-failure diagnostics.
+--          NO foreign keys — loose coupling for FreeRADIUS direct write access.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS radpostauth (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  username VARCHAR(64) NOT NULL DEFAULT '',
+  pass VARCHAR(64) NOT NULL DEFAULT '',
+  reply VARCHAR(32) NOT NULL DEFAULT '',
+  authdate DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  nas_ip_address VARCHAR(45) NULL,
+  calling_station_id VARCHAR(100) NULL,
+  PRIMARY KEY (id),
+  KEY idx_radpostauth_username (username),
+  KEY idx_radpostauth_authdate (authdate),
+  KEY idx_radpostauth_reply (reply)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: pppoe_event_logs (migration 239 — §4 PPPoE Phase B)
+-- Purpose: PPPoE stage event log. Written by a syslog shipper; read by
+--          FireISP for MTU diagnostics and LCP failure detection.
+--          NO FK on organization_id or nas_id — loose coupling intentional.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pppoe_event_logs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NULL,
+  nas_id BIGINT UNSIGNED NULL,
+  username VARCHAR(64) NULL,
+  mac VARCHAR(17) NULL,
+  stage ENUM('PADI','PADO','PADR','PADS','PADT','LCP','IPCP','IPV6CP','AUTH','OTHER') NOT NULL DEFAULT 'OTHER',
+  severity ENUM('info','warning','error') NOT NULL DEFAULT 'info',
+  message TEXT NOT NULL,
+  reason_code VARCHAR(50) NULL,
+  logged_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_pppoe_event_logs_org (organization_id),
+  KEY idx_pppoe_event_logs_username (username),
+  KEY idx_pppoe_event_logs_logged_at (logged_at),
+  KEY idx_pppoe_event_logs_severity (severity)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

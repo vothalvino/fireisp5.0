@@ -117,6 +117,14 @@ async function runTask(taskName, organizationId = null) {
     }
     case 'kick_duplicate_sessions':
       return radiusService.kickDuplicateSessions(organizationId);
+    case 'check_pool_utilization': {
+      const poolUtilizationService = require('./poolUtilizationService');
+      return poolUtilizationService.checkAllPoolUtilization();
+    }
+    case 'scan_auth_failures': {
+      const pppoeDiagnosticsService = require('./pppoeDiagnosticsService');
+      return pppoeDiagnosticsService.scanAuthFailures(organizationId);
+    }
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }

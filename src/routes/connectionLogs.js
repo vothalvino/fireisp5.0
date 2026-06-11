@@ -7,16 +7,86 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const db = require('../config/database');
+const auditLog = require('../services/auditLog');
 
 const router = Router();
 
 router.use(authenticate);
 router.use(orgScope);
 
+// GET /active/summary — active session counts grouped by NAS and port
+// MUST be registered before GET /active to ensure correct route matching order
+router.get('/active/summary', requirePermission('connection_logs.summary'), async (req, res, next) => {
+  try {
+    const activeExistsClause = `
+      AND NOT EXISTS (
+        SELECT 1 FROM connection_logs cl2
+        WHERE cl2.session_id = cl.session_id
+          AND cl2.contract_id = cl.contract_id
+          AND cl2.event_type = 'stop'
+      )
+    `;
+
+    const [nasSummary] = await db.query(`
+      SELECT
+        cl.nas_id,
+        n.name AS nas_name,
+        n.ip_address AS nas_ip,
+        COUNT(*) AS session_count
+      FROM connection_logs cl
+      LEFT JOIN nas n ON n.id = cl.nas_id
+      WHERE cl.event_type = 'start'
+        ${activeExistsClause}
+      GROUP BY cl.nas_id, n.name, n.ip_address
+      ORDER BY session_count DESC
+    `);
+
+    // For each NAS, fetch port-level breakdown
+    const data = [];
+    for (const nasRow of nasSummary) {
+      const portParams = [nasRow.nas_id];
+      const [ports] = await db.query(`
+        SELECT cl.nas_port_id, COUNT(*) AS session_count
+        FROM connection_logs cl
+        WHERE cl.event_type = 'start'
+          AND cl.nas_id = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM connection_logs cl2
+            WHERE cl2.session_id = cl.session_id
+              AND cl2.contract_id = cl.contract_id
+              AND cl2.event_type = 'stop'
+          )
+        GROUP BY cl.nas_port_id
+        ORDER BY session_count DESC
+      `, portParams);
+
+      data.push({
+        nas_id: nasRow.nas_id,
+        nas_name: nasRow.nas_name,
+        nas_ip: nasRow.nas_ip,
+        session_count: nasRow.session_count,
+        ports,
+      });
+    }
+
+    const total_sessions = nasSummary.reduce((sum, r) => sum + Number(r.session_count), 0);
+
+    res.json({
+      data,
+      meta: {
+        total_sessions,
+        nas_count: nasSummary.length,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /active — live PPPoE sessions (start events with no corresponding stop)
 router.get('/active', requirePermission('connection_logs.view'), async (req, res, next) => {
   try {
-    const { username, ip_address, nas_ip_address, page = 1, limit = 50 } = req.query;
+    const { username, ip_address, nas_ip_address, mac, nas_port_id, page = 1, limit = 50 } = req.query;
 
     // All user-supplied values go exclusively into parameterized placeholders.
     // The conditions array contains only hardcoded SQL fragments; no user input
@@ -27,6 +97,16 @@ router.get('/active', requirePermission('connection_logs.view'), async (req, res
     if (username) { conditions.push('cl.username LIKE ?'); params.push(`%${username}%`); }
     if (ip_address) { conditions.push('cl.ip_address LIKE ?'); params.push(`%${ip_address}%`); }
     if (nas_ip_address) { conditions.push('cl.nas_ip_address = ?'); params.push(nas_ip_address); }
+    if (nas_port_id) { conditions.push('cl.nas_port_id = ?'); params.push(nas_port_id); }
+
+    // MAC filter: normalize by stripping separators, compare lowercase
+    if (mac) {
+      const normalizedMac = mac.toLowerCase().replace(/[:.\\-]/g, '');
+      conditions.push(
+        "REPLACE(REPLACE(REPLACE(LOWER(cl.calling_station_id), ':', ''), '.', ''), '-', '') LIKE ?",
+      );
+      params.push(`%${normalizedMac}%`);
+    }
 
     // Build the extra filter clause from the hardcoded fragments list.
     const extraConditions = conditions.length
@@ -70,6 +150,111 @@ router.get('/active', requirePermission('connection_logs.view'), async (req, res
     res.json({
       data: rows,
       meta: { total: countResult[0].total, page: Math.max(1, parseInt(page, 10) || 1), limit: safeLimit },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /binding-report — IP binding history export (MUST be before generic GET /)
+router.get('/binding-report', requirePermission('ip_pools.binding_report'), async (req, res, next) => {
+  try {
+    const { from, to, ip, format = 'json' } = req.query;
+
+    if (!from || !to) {
+      return res.status(400).json({ error: 'from and to query parameters are required' });
+    }
+
+    // One row per session: Stop/Interim events update the Start row in place
+    // (see radiusAccountingService), so no event_type filter — event_type
+    // reflects the session's latest known state.
+    const conditions = [
+      'cl.event_at >= ?',
+      'cl.event_at <= ?',
+      // Org scoping: connection_logs has no organization_id — scope through
+      // the linked client, falling back to the NAS for unlinked sessions.
+      `(c.organization_id = ?
+        OR (cl.client_id IS NULL AND EXISTS (
+          SELECT 1 FROM nas n WHERE n.id = cl.nas_id AND n.organization_id = ?
+        )))`,
+    ];
+    const params = [from, to, req.orgId, req.orgId];
+
+    if (ip) {
+      conditions.push('COALESCE(cl.framed_ip, cl.ip_address) = ?');
+      params.push(ip);
+    }
+
+    const where = conditions.join(' AND ');
+
+    const [rows] = await db.query(`
+      SELECT
+        cl.session_id,
+        cl.acct_session_id,
+        COALESCE(cl.framed_ip, cl.ip_address) AS ip_address,
+        cl.framed_ipv6_prefix,
+        cl.username,
+        cl.calling_station_id AS mac_address,
+        cl.nas_ip_address,
+        cl.nas_port_id,
+        cl.event_at AS session_start,
+        CASE WHEN cl.event_type = 'stop'
+             THEN DATE_ADD(cl.event_at, INTERVAL COALESCE(cl.session_duration, 0) SECOND)
+             ELSE NULL END AS session_end,
+        cl.event_type AS session_state,
+        cl.terminate_cause,
+        cl.contract_id,
+        cl.client_id,
+        (SELECT ia.pool_id FROM ip_assignments ia
+          WHERE ia.ip_address = COALESCE(cl.framed_ip, cl.ip_address)
+            AND ia.organization_id = ?
+            AND ia.deleted_at IS NULL
+          ORDER BY ia.assigned_at DESC LIMIT 1) AS pool_id,
+        c.name AS client_name,
+        c.email AS client_email
+      FROM connection_logs cl
+      LEFT JOIN clients c ON c.id = cl.client_id
+      WHERE ${where}
+      ORDER BY cl.event_at DESC
+    `, [req.orgId, ...params]);
+
+    // Audit log every export
+    await auditLog.log({
+      userId: req.user.id,
+      organizationId: req.orgId,
+      action: 'export',
+      tableName: 'connection_logs',
+      recordId: 0,
+      newValues: { from, to, ip: ip || null, format, exported_by: req.user.id },
+    });
+
+    if (format === 'csv') {
+      const headers = [
+        'session_id', 'acct_session_id', 'ip_address', 'framed_ipv6_prefix',
+        'username', 'mac_address', 'nas_ip_address', 'nas_port_id',
+        'session_start', 'session_end', 'session_state', 'terminate_cause',
+        'contract_id', 'client_id', 'pool_id', 'client_name', 'client_email',
+      ];
+      const csvEscape = (val) => {
+        if (val === null || val === undefined) return '';
+        const str = String(val);
+        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      };
+      const csvRows = [
+        headers.join(','),
+        ...rows.map(r => headers.map(h => csvEscape(r[h])).join(',')),
+      ];
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="binding-report-${from}-${to}.csv"`);
+      return res.send(csvRows.join('\n'));
+    }
+
+    return res.json({
+      data: rows,
+      meta: { from, to, total: rows.length },
     });
   } catch (err) {
     next(err);

@@ -162,37 +162,37 @@
 ## 4. PPPoE Management
 
 ### 4.1 Session Control
-- [ ] Active PPPoE session dashboard (all NAS devices)
-- [ ] Per-subscriber session details: username, IP, MAC, NAS, interface, uptime, data used
-- [ ] Active session count per NAS / per OLT / per ONU
-- [ ] Session search by username, IP, MAC address, NAS
-- [ ] Force disconnect (kill session) by admin
-- [ ] Auto-kick duplicate sessions
-- [ ] Session limit enforcement (max concurrent per user)
+- [x] Active PPPoE session dashboard (all NAS devices)
+- [x] Per-subscriber session details: username, IP, MAC, NAS, interface, uptime, data used
+- [x] Active session count per NAS / per OLT / per ONU
+- [x] Session search by username, IP, MAC address, NAS
+- [x] Force disconnect (kill session) by admin
+- [x] Auto-kick duplicate sessions
+- [x] Session limit enforcement (max concurrent per user)
 
 ### 4.2 Address Pool Management
-- [ ] IPv4 address pool creation per NAS / per region per service type
-- [ ] IPv6 prefix delegation pools (/64, /56, /48)
-- [ ] Dynamic IP assignment and static IP reservation
-- [ ] IP-to-customer binding (logging for compliance)
-- [ ] Pool utilization monitoring and alerts at 75%/90%
-- [ ] Excluded IP ranges (gateway, servers, static leases)
-- [ ] Overlapping pool detection
+- [x] IPv4 address pool creation per NAS / per region per service type
+- [x] IPv6 prefix delegation pools (/64, /56, /48)
+- [x] Dynamic IP assignment and static IP reservation
+- [x] IP-to-customer binding (logging for compliance)
+- [x] Pool utilization monitoring and alerts at 75%/90%
+- [x] Excluded IP ranges (gateway, servers, static leases)
+- [x] Overlapping pool detection
 
 ### 4.3 PPPoE Service Profiles
-- [ ] PPPoE service name configuration per pool
-- [ ] MTU/MRU optimization (1492 default, configurable)
-- [ ] Authentication method per profile (PAP/CHAP/MSCHAPv2)
-- [ ] DNS server assignment per profile
-- [ ] Session timeout profiles
-- [ ] Per-profile rate limiting and firewall rules
+- [x] PPPoE service name configuration per pool
+- [x] MTU/MRU optimization (1492 default, configurable)
+- [x] Authentication method per profile (PAP/CHAP/MSCHAPv2)
+- [x] DNS server assignment per profile
+- [x] Session timeout profiles
+- [x] Per-profile rate limiting and firewall rules
 
 ### 4.4 Troubleshooting
-- [ ] PPPoE discovery stage monitoring (PADI/PADO/PADR/PADS)
-- [ ] Session failure logs with reason codes
-- [ ] LCP/NCP negotiation diagnostics
-- [ ] MTU mismatch detection
-- [ ] Authentication failure tracking (bad password, no pool, limit reached)
+- [x] PPPoE discovery stage monitoring (PADI/PADO/PADR/PADS)
+- [x] Session failure logs with reason codes
+- [x] LCP/NCP negotiation diagnostics
+- [x] MTU mismatch detection
+- [x] Authentication failure tracking (bad password, no pool, limit reached)
 
 ---
 

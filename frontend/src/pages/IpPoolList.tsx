@@ -9,6 +9,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
 
@@ -29,6 +30,12 @@ interface IpPool {
   site_id: number | null;
   notes: string | null;
   status: string;
+  nas_id: number | null;
+  service_type: string | null;
+  default_prefix_len: number | null;
+  excluded_ranges: string | null;
+  last_alerted_threshold: number | null;
+  utilization?: { assigned: number; total_usable: number; percent_used: number } | null;
 }
 
 interface IpPoolsResponse {
@@ -39,6 +46,12 @@ interface IpPoolsResponse {
 interface SiteOption {
   id: number;
   name: string;
+}
+
+interface NasOption {
+  id: number;
+  name: string;
+  ip_address: string;
 }
 
 interface IpPoolBody {
@@ -53,6 +66,22 @@ interface IpPoolBody {
   site_id?: number;
   notes?: string;
   status?: string;
+  nas_id?: number;
+  service_type?: string;
+  default_prefix_len?: number;
+  excluded_ranges?: string;
+}
+
+interface PoolUtilizationRow {
+  pool_id: number;
+  pool_name: string;
+  network: string;
+  ip_version: string;
+  total_usable: number;
+  assigned: number;
+  available: number;
+  percent_used: number;
+  by_type: { static: number; dynamic: number; reserved: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +92,8 @@ const DEFAULT_PAGE_SIZE = 25;
 const IP_VERSIONS = ['4', '6'];
 const STATUSES = ['active', 'inactive'];
 const STATUS_FILTER_OPTIONS = ['', ...STATUSES];
+const SERVICE_TYPES = ['residential', 'business', 'corporate', 'government', 'mixed'];
+const PREFIX_LENGTHS = [48, 56, 64];
 
 // ---------------------------------------------------------------------------
 // Fetch / mutate helpers
@@ -82,6 +113,12 @@ async function fetchSiteOptions(): Promise<SiteOption[]> {
   return (res.data as unknown as { data: SiteOption[] }).data;
 }
 
+async function fetchNasOptions(): Promise<NasOption[]> {
+  const res = await api.GET('/nas', { params: { query: { limit: 500 } as never } });
+  if (res.error) throw new Error('Failed to load NAS options');
+  return (res.data as unknown as { data: NasOption[] }).data;
+}
+
 async function createIpPool(body: IpPoolBody): Promise<void> {
   const res = await api.POST('/ip-pools', { body: body as never });
   if (res.error) throw new Error('Failed to create IP pool');
@@ -98,6 +135,25 @@ async function deleteIpPool(id: number): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Utilization bar
+// ---------------------------------------------------------------------------
+
+function UtilizationBar({ percent }: { percent: number | null | undefined }) {
+  if (percent == null) {
+    return <span style={{ color: 'var(--text-faint)', fontSize: '0.75rem' }}>—</span>;
+  }
+  const color = percent >= 90 ? '#dc2626' : percent >= 75 ? '#f59e0b' : '#16a34a';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ width: 80, height: 8, background: '#e5e7eb', borderRadius: 4, overflow: 'hidden' }}>
+        <div style={{ width: `${Math.min(100, percent)}%`, height: '100%', background: color, borderRadius: 4 }} />
+      </div>
+      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{percent}%</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Status badge
 // ---------------------------------------------------------------------------
 
@@ -106,12 +162,12 @@ function StatusBadge({ status }: { status: string }) {
     active: { bg: '#d1fae5', color: '#065f46' },
     inactive: { bg: '#fef3c7', color: '#92400e' },
   };
-  const s = map[status] ?? { bg: '#f3f4f6', color: '#374151' };
+  const badge = map[status] ?? { bg: '#f3f4f6', color: '#374151' };
   return (
     <span
       style={{
-        background: s.bg,
-        color: s.color,
+        background: badge.bg,
+        color: badge.color,
         padding: '2px 8px',
         borderRadius: 12,
         fontSize: '0.72rem',
@@ -131,11 +187,13 @@ function StatusBadge({ status }: { status: string }) {
 interface IpPoolModalProps {
   pool: IpPool | null;
   sites: SiteOption[];
+  nas: NasOption[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-function IpPoolModal({ pool, sites, onClose, onSaved }: IpPoolModalProps) {
+function IpPoolModal({ pool, sites, nas, onClose, onSaved }: IpPoolModalProps) {
+  const { t } = useTranslation();
   const isEdit = pool !== null;
   const [form, setForm] = useState({
     name: pool?.name ?? '',
@@ -149,6 +207,10 @@ function IpPoolModal({ pool, sites, onClose, onSaved }: IpPoolModalProps) {
     site_id: pool?.site_id != null ? String(pool.site_id) : '',
     notes: pool?.notes ?? '',
     status: pool?.status ?? 'active',
+    nas_id: pool?.nas_id != null ? String(pool.nas_id) : '',
+    service_type: pool?.service_type ?? '',
+    default_prefix_len: pool?.default_prefix_len != null ? String(pool.default_prefix_len) : '',
+    excluded_ranges: pool?.excluded_ranges ?? '',
   });
   const [error, setError] = useState('');
 
@@ -171,6 +233,12 @@ function IpPoolModal({ pool, sites, onClose, onSaved }: IpPoolModalProps) {
       if (form.pool_type) body.pool_type = form.pool_type.trim();
       if (form.site_id) body.site_id = Number(form.site_id);
       if (form.notes) body.notes = form.notes;
+      if (form.nas_id) body.nas_id = Number(form.nas_id);
+      if (form.service_type) body.service_type = form.service_type;
+      if (form.default_prefix_len && form.ip_version === '6') {
+        body.default_prefix_len = Number(form.default_prefix_len);
+      }
+      if (form.excluded_ranges.trim()) body.excluded_ranges = form.excluded_ranges.trim();
       return isEdit ? updateIpPool(pool.id, body) : createIpPool(body);
     },
     onSuccess: () => {
@@ -306,8 +374,62 @@ function IpPoolModal({ pool, sites, onClose, onSaved }: IpPoolModalProps) {
               onChange={e => setField('site_id', e.target.value)}
             >
               <option value="">— None —</option>
-              {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {sites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}
             </select>
+          </label>
+
+          <label style={modalStyles.label}>
+            {t('ip_pools.nas_label')}
+            <select
+              style={modalStyles.select}
+              value={form.nas_id}
+              onChange={e => setField('nas_id', e.target.value)}
+            >
+              <option value="">— None —</option>
+              {nas.map(n => <option key={n.id} value={n.id}>{n.name} ({n.ip_address})</option>)}
+            </select>
+          </label>
+
+          <label style={modalStyles.label}>
+            {t('ip_pools.service_type_label')}
+            <select
+              style={modalStyles.select}
+              value={form.service_type}
+              onChange={e => setField('service_type', e.target.value)}
+            >
+              <option value="">— None —</option>
+              {SERVICE_TYPES.map(st => (
+                <option key={st} value={st}>
+                  {t(`ip_pools.service_types.${st}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {form.ip_version === '6' && (
+            <label style={modalStyles.label}>
+              {t('ip_pools.default_prefix_len_label')}
+              <select
+                style={modalStyles.select}
+                value={form.default_prefix_len}
+                onChange={e => setField('default_prefix_len', e.target.value)}
+              >
+                <option value="">— None —</option>
+                {PREFIX_LENGTHS.map(pl => (
+                  <option key={pl} value={pl}>/{pl}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <label style={modalStyles.label}>
+            {t('ip_pools.excluded_ranges_label')}
+            <textarea
+              style={{ ...modalStyles.input, minHeight: 60, resize: 'vertical' }}
+              value={form.excluded_ranges}
+              onChange={e => setField('excluded_ranges', e.target.value)}
+              placeholder="e.g. 10.0.0.1-10.0.0.10"
+            />
           </label>
 
           <label style={modalStyles.label}>
@@ -317,7 +439,7 @@ function IpPoolModal({ pool, sites, onClose, onSaved }: IpPoolModalProps) {
               value={form.status}
               onChange={e => setField('status', e.target.value)}
             >
-              {STATUSES.map(s => <option key={s} value={s}>{capitalize(s)}</option>)}
+              {STATUSES.map(st => <option key={st} value={st}>{capitalize(st)}</option>)}
             </select>
           </label>
 
@@ -381,6 +503,7 @@ function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
 // ---------------------------------------------------------------------------
 
 export function IpPoolList() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
@@ -397,6 +520,23 @@ export function IpPoolList() {
     queryKey: ['sites', 'options'],
     queryFn: fetchSiteOptions,
   });
+
+  const nasQ = useQuery({
+    queryKey: ['nas', 'options'],
+    queryFn: fetchNasOptions,
+  });
+
+  const utilQ = useQuery({
+    queryKey: ['ip-pools-utilization'],
+    queryFn: async () => {
+      const res = await api.GET('/ip-pools/utilization' as never, {} as never);
+      if (res.error) return [];
+      return (res.data as unknown as { data: PoolUtilizationRow[] }).data;
+    },
+    staleTime: 60_000,
+  });
+
+  const utilMap = new Map((utilQ.data ?? []).map(u => [u.pool_id, u]));
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteIpPool(id),
@@ -415,8 +555,9 @@ export function IpPoolList() {
   const pools = poolsQ.data?.data ?? [];
   const meta = poolsQ.data?.meta;
   const sites = sitesQ.data ?? [];
+  const nasOptions = nasQ.data ?? [];
   const siteName = (id: number | null) =>
-    id == null ? '—' : sites.find(s => s.id === id)?.name ?? `#${id}`;
+    id == null ? '—' : sites.find(site => site.id === id)?.name ?? `#${id}`;
 
   return (
     <div style={styles.page}>
@@ -435,8 +576,8 @@ export function IpPoolList() {
           value={statusFilter}
           onChange={e => handleFilterChange(e.target.value)}
         >
-          {STATUS_FILTER_OPTIONS.map(s => (
-            <option key={s} value={s}>{s ? capitalize(s) : 'All'}</option>
+          {STATUS_FILTER_OPTIONS.map(st => (
+            <option key={st} value={st}>{st ? capitalize(st) : 'All'}</option>
           ))}
         </select>
         {statusFilter && (
@@ -465,35 +606,41 @@ export function IpPoolList() {
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    {['ID', 'Name', 'Network', 'Version', 'Gateway', 'Site', 'Status', 'Actions'].map(
+                    {['ID', 'Name', 'Network', 'Version', 'Gateway', 'Site', 'Status', t('ip_pools.utilization_column'), 'Actions'].map(
                       h => <th key={h} style={styles.th}>{h}</th>,
                     )}
                   </tr>
                 </thead>
                 <tbody>
-                  {pools.map(p => (
-                    <tr key={p.id} style={styles.tr}>
-                      <td style={styles.td}>#{p.id}</td>
-                      <td style={{ ...styles.td, fontWeight: 500 }}>{p.name}</td>
-                      <td style={styles.td}>{p.network}</td>
-                      <td style={styles.td}>{p.ip_version ? `IPv${p.ip_version}` : '—'}</td>
-                      <td style={styles.td}>{p.gateway ?? '—'}</td>
-                      <td style={styles.td}>{siteName(p.site_id)}</td>
-                      <td style={styles.td}><StatusBadge status={p.status} /></td>
-                      <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
-                        <button style={styles.actionBtn} onClick={() => setEditPool(p)} title="Edit this pool">
-                          ✏️ Edit
-                        </button>
-                        <button
-                          style={{ ...styles.actionBtn, color: '#991b1b' }}
-                          onClick={() => setDeleteId(p.id)}
-                          title="Delete this pool"
-                        >
-                          🗑 Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {pools.map(p => {
+                    const util = utilMap.get(p.id);
+                    return (
+                      <tr key={p.id} style={styles.tr}>
+                        <td style={styles.td}>#{p.id}</td>
+                        <td style={{ ...styles.td, fontWeight: 500 }}>{p.name}</td>
+                        <td style={styles.td}>{p.network}</td>
+                        <td style={styles.td}>{p.ip_version ? `IPv${p.ip_version}` : '—'}</td>
+                        <td style={styles.td}>{p.gateway ?? '—'}</td>
+                        <td style={styles.td}>{siteName(p.site_id)}</td>
+                        <td style={styles.td}><StatusBadge status={p.status} /></td>
+                        <td style={styles.td}>
+                          <UtilizationBar percent={util?.percent_used ?? null} />
+                        </td>
+                        <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
+                          <button style={styles.actionBtn} onClick={() => setEditPool(p)} title="Edit this pool">
+                            ✏️ Edit
+                          </button>
+                          <button
+                            style={{ ...styles.actionBtn, color: '#991b1b' }}
+                            onClick={() => setDeleteId(p.id)}
+                            title="Delete this pool"
+                          >
+                            🗑 Delete
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -518,10 +665,10 @@ export function IpPoolList() {
       </div>
 
       {showNew && (
-        <IpPoolModal pool={null} sites={sites} onClose={() => setShowNew(false)} onSaved={invalidate} />
+        <IpPoolModal pool={null} sites={sites} nas={nasOptions} onClose={() => setShowNew(false)} onSaved={invalidate} />
       )}
       {editPool && (
-        <IpPoolModal pool={editPool} sites={sites} onClose={() => setEditPool(null)} onSaved={invalidate} />
+        <IpPoolModal pool={editPool} sites={sites} nas={nasOptions} onClose={() => setEditPool(null)} onSaved={invalidate} />
       )}
 
       {deleteId !== null && (

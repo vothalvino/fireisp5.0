@@ -274,7 +274,8 @@ async function syncFreeradiusTables(organizationId) {
     if (settingRows.length > 0) mabPasswordMode = settingRows[0].value;
   }
 
-  // 2. Load active subscribers (with cleartext password, auth_method, mac, plan, org)
+  // 2. Load active subscribers (with cleartext password, auth_method, mac, plan, org,
+  //    and service profile IDs for PPPoE Phase B attribute injection)
   const orgFilter = organizationId ? 'AND r.organization_id = ?' : '';
   const orgParams = organizationId ? [organizationId] : [];
 
@@ -284,6 +285,9 @@ async function syncFreeradiusTables(organizationId) {
             r.mac_address, r.auth_method, r.organization_id,
             r.simultaneous_use AS account_sim_use,
             r.vlan_id, r.inner_vlan_id,
+            r.service_profile_id AS account_profile_id,
+            r.ipv4_pool_id,
+            ip.service_profile_id AS pool_profile_id,
             c.plan_id,
             p.download_speed_mbps, p.upload_speed_mbps,
             p.burst_download_mbps, p.burst_upload_mbps,
@@ -293,6 +297,7 @@ async function syncFreeradiusTables(organizationId) {
      FROM radius r
      LEFT JOIN contracts c ON c.id = r.contract_id
      LEFT JOIN plans p ON p.id = c.plan_id
+     LEFT JOIN ip_pools ip ON ip.id = r.ipv4_pool_id
      WHERE r.status = 'active'
        AND r.deleted_at IS NULL
        ${orgFilter}`,
@@ -405,6 +410,22 @@ async function syncFreeradiusTables(organizationId) {
     for (const row of walledRows) walledUsernames.add(row.username);
   }
 
+  // 4f. Load active PPPoE service profiles for this org (Phase B)
+  // profileMap: profileId → profile row
+  const profileMap = new Map();
+  {
+    let profileSql = 'SELECT * FROM pppoe_service_profiles WHERE deleted_at IS NULL AND status = \'active\'';
+    const profileParams = [];
+    if (organizationId) {
+      profileSql += ' AND (organization_id = ? OR organization_id IS NULL)';
+      profileParams.push(organizationId);
+    }
+    const [profileRows] = await db.query(profileSql, profileParams);
+    for (const profile of profileRows) {
+      profileMap.set(profile.id, profile);
+    }
+  }
+
   let synced = 0;
   let errors = 0;
 
@@ -478,7 +499,8 @@ async function syncFreeradiusTables(organizationId) {
       }
 
       // Item 14: Walled garden — emit Mikrotik-Address-List if subscriber is walled
-      if (walledUsernames.has(username)) {
+      const isWalled = walledUsernames.has(username);
+      if (isWalled) {
         await db.query(
           'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
           [username, 'Mikrotik-Address-List', ':=', walledGardenAddressListName],
@@ -496,6 +518,78 @@ async function syncFreeradiusTables(organizationId) {
           'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
           [username, 'Framed-Route', '+=', routeValue],
         );
+      }
+
+      // Phase B: PPPoE service profile attribute injection
+      // Account-level service_profile_id takes precedence over pool-level.
+      const effectiveProfileId = sub.account_profile_id || sub.pool_profile_id || null;
+      const profile = effectiveProfileId ? profileMap.get(effectiveProfileId) : null;
+
+      if (profile) {
+        // Framed-MTU
+        if (profile.mtu !== null && profile.mtu !== undefined) {
+          await db.query(
+            'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+            [username, 'Framed-MTU', ':=', String(profile.mtu)],
+          );
+        }
+
+        // DNS servers (standard MS attributes; compatible with Windows + MikroTik PPPoE clients)
+        if (profile.dns_primary) {
+          await db.query(
+            'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+            [username, 'MS-Primary-DNS-Server', ':=', profile.dns_primary],
+          );
+        }
+        if (profile.dns_secondary) {
+          await db.query(
+            'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+            [username, 'MS-Secondary-DNS-Server', ':=', profile.dns_secondary],
+          );
+        }
+
+        // Session-Timeout (per-user overrides plan group value in FreeRADIUS precedence)
+        if (profile.session_timeout_seconds !== null && profile.session_timeout_seconds !== undefined) {
+          await db.query(
+            'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+            [username, 'Session-Timeout', ':=', String(profile.session_timeout_seconds)],
+          );
+        }
+
+        // Idle-Timeout (per-user override)
+        if (profile.idle_timeout_seconds !== null && profile.idle_timeout_seconds !== undefined) {
+          await db.query(
+            'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+            [username, 'Idle-Timeout', ':=', String(profile.idle_timeout_seconds)],
+          );
+        }
+
+        // Filter-Id (RFC 2865 firewall policy)
+        if (profile.filter_id) {
+          await db.query(
+            'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+            [username, 'Filter-Id', ':=', profile.filter_id],
+          );
+        }
+
+        // Mikrotik-Address-List — only if subscriber is NOT already walled
+        // (walled garden address-list must not be overwritten by profile address-list)
+        if (profile.address_list && !isWalled) {
+          await db.query(
+            'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+            [username, 'Mikrotik-Address-List', ':=', profile.address_list],
+          );
+        }
+
+        // Rate-limit override — per-user Mikrotik-Rate-Limit wins over plan group.
+        // NOTE: MikroTik-specific; for other vendors, custom radreply rows must be
+        //       configured manually. Cisco sub-QoS policy mapping is not supported here.
+        if (profile.rate_limit_override) {
+          await db.query(
+            'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+            [username, 'Mikrotik-Rate-Limit', ':=', profile.rate_limit_override],
+          );
+        }
       }
 
       // Map user to plan group (if plan is known)
