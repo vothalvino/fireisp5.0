@@ -136,6 +136,11 @@ function generateSpec() {
       { name: 'Subscriber Certificates', description: 'EAP-TLS subscriber certificate metadata registry — §3.1' },
       { name: 'PPPoE Service Profiles', description: 'PPPoE service profile management — MTU, DNS, rate-limit, address-list — §4B' },
       { name: 'PPPoE', description: 'PPPoE diagnostics (auth failures, MTU issues) and M2M event log ingest — §4B' },
+      { name: 'DHCP Servers', description: 'DHCP server integrations (ISC Kea, MikroTik) and static reservations — §5.1' },
+      { name: 'NAT Management', description: 'CGNAT/NAT pool management — §5.1' },
+      { name: 'PTR Records', description: 'Reverse DNS PTR record management — §5.1' },
+      { name: 'IPv6 Management', description: 'DHCPv6, SLAAC, RA management, RA Guard, subnet visualization — §5.2' },
+      { name: 'Transition Mechanisms', description: 'IPv6 transition mechanisms: 6rd, DS-Lite, MAP-E/MAP-T, 464XLAT — §5.4' },
     ],
     paths: {
       // ---- Auth ----
@@ -957,6 +962,78 @@ function generateSpec() {
           requestBody: jsonBody('PPPoE event payload'),
           responses: { 201: { description: 'Accepted', content: { 'application/json': { schema: { type: 'object' } } } }, 401: { description: 'Invalid or missing X-Pppoe-Secret' } },
         },
+      },
+
+      // ---- DHCP Servers — §5.1 ----
+      ...crudPaths('dhcp-servers', 'DHCP Servers', 'DhcpServer'),
+      '/dhcp-servers/{id}/reservations': {
+        get: { tags: ['DHCP Servers'], summary: 'List static reservations for a DHCP server', operationId: 'listDhcpReservations', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DhcpReservation[]') },
+        post: { tags: ['DHCP Servers'], summary: 'Create a static DHCP reservation', operationId: 'createDhcpReservation', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('dhcpServers_createDhcpReservation'), responses: r201('DhcpReservation') },
+      },
+      '/dhcp-servers/reservations/{rid}': {
+        put: { tags: ['DHCP Servers'], summary: 'Update a static DHCP reservation', operationId: 'updateDhcpReservation', security: [{ bearerAuth: [] }], parameters: [{ name: 'rid', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('dhcpServers_updateDhcpReservation'), responses: r200('DhcpReservation') },
+        delete: { tags: ['DHCP Servers'], summary: 'Delete a static DHCP reservation', operationId: 'deleteDhcpReservation', security: [{ bearerAuth: [] }], parameters: [{ name: 'rid', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+
+      // ---- NAT Management — §5.1 ----
+      ...crudPaths('nat-pools', 'NAT Management', 'NatPool'),
+
+      // ---- PTR Records — §5.1 ----
+      ...crudPaths('ptr-records', 'PTR Records', 'PtrRecord'),
+
+      // ---- IPv6 Management — §5.2 ----
+      '/ipv6/ra-guard': {
+        get: { tags: ['IPv6 Management'], summary: 'List RA Guard policies', operationId: 'listRaGuardPolicies', security: [{ bearerAuth: [] }], parameters: [{ name: 'status', in: 'query', schema: { type: 'string', enum: ['active', 'inactive'] } }, { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } }, { name: 'limit', in: 'query', schema: { type: 'integer', default: 25 } }], responses: r200('RaGuardPolicy[]') },
+        post: { tags: ['IPv6 Management'], summary: 'Create an RA Guard policy', operationId: 'createRaGuardPolicy', security: [{ bearerAuth: [] }], requestBody: jsonBody('raGuardPolicies_createRaGuardPolicy'), responses: r201('RaGuardPolicy') },
+      },
+      '/ipv6/ra-guard/{id}': {
+        get: { tags: ['IPv6 Management'], summary: 'Get an RA Guard policy', operationId: 'getRaGuardPolicy', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('RaGuardPolicy') },
+        put: { tags: ['IPv6 Management'], summary: 'Update an RA Guard policy', operationId: 'updateRaGuardPolicy', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('raGuardPolicies_updateRaGuardPolicy'), responses: r200('RaGuardPolicy') },
+        delete: { tags: ['IPv6 Management'], summary: 'Delete an RA Guard policy', operationId: 'deleteRaGuardPolicy', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/ipv6/subnet-plan': {
+        get: { tags: ['IPv6 Management'], summary: 'Plan subnets from a network CIDR', operationId: 'planSubnets', security: [{ bearerAuth: [] }], parameters: [{ name: 'network', in: 'query', required: true, schema: { type: 'string' }, description: 'Network CIDR e.g. 2001:db8::/32' }, { name: 'prefix_len', in: 'query', required: true, schema: { type: 'integer' }, description: 'Parent prefix length' }, { name: 'sub_prefix_len', in: 'query', required: true, schema: { type: 'integer' }, description: 'Subnet prefix length' }], responses: r200('string[]') },
+      },
+      '/ipv6/pool-conflicts': {
+        get: { tags: ['IPv6 Management'], summary: 'Detect overlapping IP pools', operationId: 'detectPoolConflicts', security: [{ bearerAuth: [] }], responses: r200('PoolConflict[]') },
+      },
+
+      // ---- Transition Mechanisms — §5.4 ----
+      '/transition-mechanisms/6rd': {
+        get: { tags: ['Transition Mechanisms'], summary: 'List 6rd configurations', operationId: 'list6rdConfigs', security: [{ bearerAuth: [] }], responses: r200('Tunnel6rdConfig[]') },
+        post: { tags: ['Transition Mechanisms'], summary: 'Create a 6rd configuration', operationId: 'create6rdConfig', security: [{ bearerAuth: [] }], requestBody: jsonBody('transitionMechanisms_createTransitionMechanism'), responses: r201('Tunnel6rdConfig') },
+      },
+      '/transition-mechanisms/6rd/{id}': {
+        get: { tags: ['Transition Mechanisms'], summary: 'Get a 6rd configuration', operationId: 'get6rdConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Tunnel6rdConfig') },
+        put: { tags: ['Transition Mechanisms'], summary: 'Update a 6rd configuration', operationId: 'update6rdConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('transitionMechanisms_updateTransitionMechanism'), responses: r200('Tunnel6rdConfig') },
+        delete: { tags: ['Transition Mechanisms'], summary: 'Delete a 6rd configuration', operationId: 'delete6rdConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/transition-mechanisms/ds-lite': {
+        get: { tags: ['Transition Mechanisms'], summary: 'List DS-Lite configurations', operationId: 'listDsLiteConfigs', security: [{ bearerAuth: [] }], responses: r200('DsLiteConfig[]') },
+        post: { tags: ['Transition Mechanisms'], summary: 'Create a DS-Lite configuration', operationId: 'createDsLiteConfig', security: [{ bearerAuth: [] }], requestBody: jsonBody('transitionMechanisms_createTransitionMechanism'), responses: r201('DsLiteConfig') },
+      },
+      '/transition-mechanisms/ds-lite/{id}': {
+        get: { tags: ['Transition Mechanisms'], summary: 'Get a DS-Lite configuration', operationId: 'getDsLiteConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DsLiteConfig') },
+        put: { tags: ['Transition Mechanisms'], summary: 'Update a DS-Lite configuration', operationId: 'updateDsLiteConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('transitionMechanisms_updateTransitionMechanism'), responses: r200('DsLiteConfig') },
+        delete: { tags: ['Transition Mechanisms'], summary: 'Delete a DS-Lite configuration', operationId: 'deleteDsLiteConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/transition-mechanisms/map-rules': {
+        get: { tags: ['Transition Mechanisms'], summary: 'List MAP rules', operationId: 'listMapRules', security: [{ bearerAuth: [] }], responses: r200('MapRule[]') },
+        post: { tags: ['Transition Mechanisms'], summary: 'Create a MAP rule', operationId: 'createMapRule', security: [{ bearerAuth: [] }], requestBody: jsonBody('transitionMechanisms_createTransitionMechanism'), responses: r201('MapRule') },
+      },
+      '/transition-mechanisms/map-rules/{id}': {
+        get: { tags: ['Transition Mechanisms'], summary: 'Get a MAP rule', operationId: 'getMapRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('MapRule') },
+        put: { tags: ['Transition Mechanisms'], summary: 'Update a MAP rule', operationId: 'updateMapRule', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('transitionMechanisms_updateTransitionMechanism'), responses: r200('MapRule') },
+        delete: { tags: ['Transition Mechanisms'], summary: 'Delete a MAP rule', operationId: 'deleteMapRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/transition-mechanisms/464xlat': {
+        get: { tags: ['Transition Mechanisms'], summary: 'List 464XLAT configurations', operationId: 'list464XlatConfigs', security: [{ bearerAuth: [] }], responses: r200('Xlat464Config[]') },
+        post: { tags: ['Transition Mechanisms'], summary: 'Create a 464XLAT configuration', operationId: 'create464XlatConfig', security: [{ bearerAuth: [] }], requestBody: jsonBody('transitionMechanisms_createTransitionMechanism'), responses: r201('Xlat464Config') },
+      },
+      '/transition-mechanisms/464xlat/{id}': {
+        get: { tags: ['Transition Mechanisms'], summary: 'Get a 464XLAT configuration', operationId: 'get464XlatConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Xlat464Config') },
+        put: { tags: ['Transition Mechanisms'], summary: 'Update a 464XLAT configuration', operationId: 'update464XlatConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('transitionMechanisms_updateTransitionMechanism'), responses: r200('Xlat464Config') },
+        delete: { tags: ['Transition Mechanisms'], summary: 'Delete a 464XLAT configuration', operationId: 'delete464XlatConfig', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
       },
     },
     components: {

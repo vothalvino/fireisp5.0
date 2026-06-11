@@ -132,6 +132,11 @@ const queueStatsRoutes = require('./routes/queueStats');
 const changelogRoutes = require('./routes/changelog');
 const pppoeServiceProfileRoutes = require('./routes/pppoeServiceProfiles');
 const pppoeRoutes = require('./routes/pppoe');
+const dhcpServerRoutes = require('./routes/dhcpServers');
+const natManagementRoutes = require('./routes/natManagement');
+const ptrRecordRoutes = require('./routes/ptrRecords');
+const ipv6ManagementRoutes = require('./routes/ipv6Management');
+const transitionMechanismRoutes = require('./routes/transitionMechanisms');
 const graphqlMiddleware = require('./graphql');
 
 const crypto = require('crypto');
@@ -482,6 +487,11 @@ v1.use('/queue-stats', adminIpAllowlist, queueStatsRoutes);
 v1.use('/changelog', changelogRoutes);
 v1.use('/pppoe-service-profiles', pppoeServiceProfileRoutes);
 v1.use('/pppoe', pppoeRoutes);
+v1.use('/dhcp-servers', dhcpServerRoutes);
+v1.use('/nat-pools', natManagementRoutes);
+v1.use('/ptr-records', ptrRecordRoutes);
+v1.use('/ipv6', ipv6ManagementRoutes);
+v1.use('/transition-mechanisms', transitionMechanismRoutes);
 v1.use('/graphql', authenticate, orgScope, graphqlMiddleware);
 
 // Mount v1 at both /api (backward compat) and /api/v1 (versioned)

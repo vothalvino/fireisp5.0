@@ -399,6 +399,26 @@
     {
       "name": "PPPoE",
       "description": "PPPoE diagnostics (auth failures, MTU issues) and M2M event log ingest — §4B"
+    },
+    {
+      "name": "DHCP Servers",
+      "description": "DHCP server integrations (ISC Kea, MikroTik) and static reservations — §5.1"
+    },
+    {
+      "name": "NAT Management",
+      "description": "CGNAT/NAT pool management — §5.1"
+    },
+    {
+      "name": "PTR Records",
+      "description": "Reverse DNS PTR record management — §5.1"
+    },
+    {
+      "name": "IPv6 Management",
+      "description": "DHCPv6, SLAAC, RA management, RA Guard, subnet visualization — §5.2"
+    },
+    {
+      "name": "Transition Mechanisms",
+      "description": "IPv6 transition mechanisms: 6rd, DS-Lite, MAP-E/MAP-T, 464XLAT — §5.4"
     }
   ],
   "paths": {
@@ -20540,6 +20560,1605 @@
           }
         }
       }
+    },
+    "/dhcp-servers": {
+      "get": {
+        "tags": [
+          "DHCP Servers"
+        ],
+        "summary": "List dhcp-servers",
+        "operationId": "listDhcpServers",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DhcpServer[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "DHCP Servers"
+        ],
+        "summary": "Create a DhcpServer",
+        "operationId": "createDhcpServer",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "DhcpServer",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "DhcpServer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dhcp-servers/{id}": {
+      "get": {
+        "tags": [
+          "DHCP Servers"
+        ],
+        "summary": "Get a DhcpServer",
+        "operationId": "getDhcpServer",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DhcpServer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "DHCP Servers"
+        ],
+        "summary": "Update a DhcpServer",
+        "operationId": "updateDhcpServer",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "DhcpServer",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DhcpServer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "DHCP Servers"
+        ],
+        "summary": "Delete a DhcpServer",
+        "operationId": "deleteDhcpServer",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/dhcp-servers/{id}/reservations": {
+      "get": {
+        "tags": [
+          "DHCP Servers"
+        ],
+        "summary": "List static reservations for a DHCP server",
+        "operationId": "listDhcpReservations",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DhcpReservation[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "DHCP Servers"
+        ],
+        "summary": "Create a static DHCP reservation",
+        "operationId": "createDhcpReservation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "dhcpServers_createDhcpReservation",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "DhcpReservation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dhcp-servers/reservations/{rid}": {
+      "put": {
+        "tags": [
+          "DHCP Servers"
+        ],
+        "summary": "Update a static DHCP reservation",
+        "operationId": "updateDhcpReservation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "dhcpServers_updateDhcpReservation",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DhcpReservation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "DHCP Servers"
+        ],
+        "summary": "Delete a static DHCP reservation",
+        "operationId": "deleteDhcpReservation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/nat-pools": {
+      "get": {
+        "tags": [
+          "NAT Management"
+        ],
+        "summary": "List nat-pools",
+        "operationId": "listNatPools",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "NatPool[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "NAT Management"
+        ],
+        "summary": "Create a NatPool",
+        "operationId": "createNatPool",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "NatPool",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "NatPool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/nat-pools/{id}": {
+      "get": {
+        "tags": [
+          "NAT Management"
+        ],
+        "summary": "Get a NatPool",
+        "operationId": "getNatPool",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "NatPool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "NAT Management"
+        ],
+        "summary": "Update a NatPool",
+        "operationId": "updateNatPool",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "NatPool",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "NatPool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "NAT Management"
+        ],
+        "summary": "Delete a NatPool",
+        "operationId": "deleteNatPool",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/ptr-records": {
+      "get": {
+        "tags": [
+          "PTR Records"
+        ],
+        "summary": "List ptr-records",
+        "operationId": "listPtrRecords",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PtrRecord[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "PTR Records"
+        ],
+        "summary": "Create a PtrRecord",
+        "operationId": "createPtrRecord",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "PtrRecord",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "PtrRecord",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ptr-records/{id}": {
+      "get": {
+        "tags": [
+          "PTR Records"
+        ],
+        "summary": "Get a PtrRecord",
+        "operationId": "getPtrRecord",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PtrRecord",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "PTR Records"
+        ],
+        "summary": "Update a PtrRecord",
+        "operationId": "updatePtrRecord",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "PtrRecord",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PtrRecord",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "PTR Records"
+        ],
+        "summary": "Delete a PtrRecord",
+        "operationId": "deletePtrRecord",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/ipv6/ra-guard": {
+      "get": {
+        "tags": [
+          "IPv6 Management"
+        ],
+        "summary": "List RA Guard policies",
+        "operationId": "listRaGuardPolicies",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "inactive"
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RaGuardPolicy[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "IPv6 Management"
+        ],
+        "summary": "Create an RA Guard policy",
+        "operationId": "createRaGuardPolicy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "raGuardPolicies_createRaGuardPolicy",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "RaGuardPolicy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ipv6/ra-guard/{id}": {
+      "get": {
+        "tags": [
+          "IPv6 Management"
+        ],
+        "summary": "Get an RA Guard policy",
+        "operationId": "getRaGuardPolicy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RaGuardPolicy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "IPv6 Management"
+        ],
+        "summary": "Update an RA Guard policy",
+        "operationId": "updateRaGuardPolicy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "raGuardPolicies_updateRaGuardPolicy",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "RaGuardPolicy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "IPv6 Management"
+        ],
+        "summary": "Delete an RA Guard policy",
+        "operationId": "deleteRaGuardPolicy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/ipv6/subnet-plan": {
+      "get": {
+        "tags": [
+          "IPv6 Management"
+        ],
+        "summary": "Plan subnets from a network CIDR",
+        "operationId": "planSubnets",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Network CIDR e.g. 2001:db8::/32"
+          },
+          {
+            "name": "prefix_len",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Parent prefix length"
+          },
+          {
+            "name": "sub_prefix_len",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Subnet prefix length"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "string[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ipv6/pool-conflicts": {
+      "get": {
+        "tags": [
+          "IPv6 Management"
+        ],
+        "summary": "Detect overlapping IP pools",
+        "operationId": "detectPoolConflicts",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PoolConflict[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transition-mechanisms/6rd": {
+      "get": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "List 6rd configurations",
+        "operationId": "list6rdConfigs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tunnel6rdConfig[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "Create a 6rd configuration",
+        "operationId": "create6rdConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "transitionMechanisms_createTransitionMechanism",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Tunnel6rdConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transition-mechanisms/6rd/{id}": {
+      "get": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "Get a 6rd configuration",
+        "operationId": "get6rdConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tunnel6rdConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "Update a 6rd configuration",
+        "operationId": "update6rdConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "transitionMechanisms_updateTransitionMechanism",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tunnel6rdConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "Delete a 6rd configuration",
+        "operationId": "delete6rdConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/transition-mechanisms/ds-lite": {
+      "get": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "List DS-Lite configurations",
+        "operationId": "listDsLiteConfigs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DsLiteConfig[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "Create a DS-Lite configuration",
+        "operationId": "createDsLiteConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "transitionMechanisms_createTransitionMechanism",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "DsLiteConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transition-mechanisms/ds-lite/{id}": {
+      "get": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "Get a DS-Lite configuration",
+        "operationId": "getDsLiteConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DsLiteConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "Update a DS-Lite configuration",
+        "operationId": "updateDsLiteConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "transitionMechanisms_updateTransitionMechanism",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DsLiteConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "Delete a DS-Lite configuration",
+        "operationId": "deleteDsLiteConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/transition-mechanisms/map-rules": {
+      "get": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "List MAP rules",
+        "operationId": "listMapRules",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MapRule[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "Create a MAP rule",
+        "operationId": "createMapRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "transitionMechanisms_createTransitionMechanism",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "MapRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transition-mechanisms/map-rules/{id}": {
+      "get": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "Get a MAP rule",
+        "operationId": "getMapRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MapRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "Update a MAP rule",
+        "operationId": "updateMapRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "transitionMechanisms_updateTransitionMechanism",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "MapRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "Delete a MAP rule",
+        "operationId": "deleteMapRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/transition-mechanisms/464xlat": {
+      "get": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "List 464XLAT configurations",
+        "operationId": "list464XlatConfigs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Xlat464Config[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "Create a 464XLAT configuration",
+        "operationId": "create464XlatConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "transitionMechanisms_createTransitionMechanism",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Xlat464Config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transition-mechanisms/464xlat/{id}": {
+      "get": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "Get a 464XLAT configuration",
+        "operationId": "get464XlatConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Xlat464Config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "Update a 464XLAT configuration",
+        "operationId": "update464XlatConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "transitionMechanisms_updateTransitionMechanism",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Xlat464Config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Transition Mechanisms"
+        ],
+        "summary": "Delete a 464XLAT configuration",
+        "operationId": "delete464XlatConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -23410,6 +25029,200 @@
           }
         }
       },
+      "dhcpServers_createDhcpServer": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "server_type": {
+            "type": "string",
+            "enum": [
+              "kea",
+              "mikrotik"
+            ]
+          },
+          "host": {
+            "type": "string",
+            "maximum": 255
+          },
+          "port": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "api_url": {
+            "type": "string",
+            "maximum": 500
+          },
+          "api_token": {
+            "type": "string",
+            "maximum": 1000
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        },
+        "required": [
+          "name",
+          "host"
+        ]
+      },
+      "dhcpServers_updateDhcpServer": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "server_type": {
+            "type": "string",
+            "enum": [
+              "kea",
+              "mikrotik"
+            ]
+          },
+          "host": {
+            "type": "string",
+            "maximum": 255
+          },
+          "port": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "api_url": {
+            "type": "string",
+            "maximum": 500
+          },
+          "api_token": {
+            "type": "string",
+            "maximum": 1000
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        }
+      },
+      "dhcpServers_createDhcpReservation": {
+        "type": "object",
+        "properties": {
+          "ip_address": {
+            "type": "string",
+            "maximum": 45
+          },
+          "mac_address": {
+            "type": "string",
+            "maximum": 17
+          },
+          "hostname": {
+            "type": "string",
+            "maximum": 255
+          },
+          "dhcp_server_id": {
+            "type": "number"
+          },
+          "pool_id": {
+            "type": "number"
+          },
+          "client_id": {
+            "type": "number"
+          },
+          "contract_id": {
+            "type": "number"
+          },
+          "option82_circuit_id": {
+            "type": "string",
+            "maximum": 255
+          },
+          "option82_remote_id": {
+            "type": "string",
+            "maximum": 255
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        },
+        "required": [
+          "ip_address",
+          "mac_address"
+        ]
+      },
+      "dhcpServers_updateDhcpReservation": {
+        "type": "object",
+        "properties": {
+          "ip_address": {
+            "type": "string",
+            "maximum": 45
+          },
+          "mac_address": {
+            "type": "string",
+            "maximum": 17
+          },
+          "hostname": {
+            "type": "string",
+            "maximum": 255
+          },
+          "dhcp_server_id": {
+            "type": "number"
+          },
+          "pool_id": {
+            "type": "number"
+          },
+          "client_id": {
+            "type": "number"
+          },
+          "contract_id": {
+            "type": "number"
+          },
+          "option82_circuit_id": {
+            "type": "string",
+            "maximum": 255
+          },
+          "option82_remote_id": {
+            "type": "string",
+            "maximum": 255
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        }
+      },
       "events_ticketStream": {
         "type": "object",
         "properties": {
@@ -25846,6 +27659,123 @@
           }
         }
       },
+      "natPools_createNatPool": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "nat_type": {
+            "type": "string",
+            "enum": [
+              "cgnat",
+              "1to1",
+              "pat"
+            ]
+          },
+          "external_ip_start": {
+            "type": "string",
+            "maximum": 45
+          },
+          "external_ip_end": {
+            "type": "string",
+            "maximum": 45
+          },
+          "internal_subnet": {
+            "type": "string",
+            "maximum": 50
+          },
+          "port_range_start": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "port_range_end": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "max_ports_per_subscriber": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65536
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        },
+        "required": [
+          "name",
+          "external_ip_start",
+          "external_ip_end"
+        ]
+      },
+      "natPools_updateNatPool": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "nat_type": {
+            "type": "string",
+            "enum": [
+              "cgnat",
+              "1to1",
+              "pat"
+            ]
+          },
+          "external_ip_start": {
+            "type": "string",
+            "maximum": 45
+          },
+          "external_ip_end": {
+            "type": "string",
+            "maximum": 45
+          },
+          "internal_subnet": {
+            "type": "string",
+            "maximum": 50
+          },
+          "port_range_start": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "port_range_end": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "max_ports_per_subscriber": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65536
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        }
+      },
       "networkHealth_listNetworkHealth": {
         "type": "object",
         "properties": {
@@ -27641,6 +29571,90 @@
           }
         }
       },
+      "ptrRecords_createPtrRecord": {
+        "type": "object",
+        "properties": {
+          "ip_address": {
+            "type": "string",
+            "maximum": 45
+          },
+          "ip_version": {
+            "type": "string",
+            "enum": [
+              "ipv4",
+              "ipv6"
+            ]
+          },
+          "hostname": {
+            "type": "string",
+            "maximum": 255
+          },
+          "ttl": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 86400
+          },
+          "zone": {
+            "type": "string",
+            "maximum": 255
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        },
+        "required": [
+          "ip_address",
+          "hostname"
+        ]
+      },
+      "ptrRecords_updatePtrRecord": {
+        "type": "object",
+        "properties": {
+          "ip_address": {
+            "type": "string",
+            "maximum": 45
+          },
+          "ip_version": {
+            "type": "string",
+            "enum": [
+              "ipv4",
+              "ipv6"
+            ]
+          },
+          "hostname": {
+            "type": "string",
+            "maximum": 255
+          },
+          "ttl": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 86400
+          },
+          "zone": {
+            "type": "string",
+            "maximum": 255
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        }
+      },
       "quotes_createQuote": {
         "type": "object",
         "properties": {
@@ -27765,6 +29779,79 @@
           "unit_price",
           "amount"
         ]
+      },
+      "raGuardPolicies_createRaGuardPolicy": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "switch_id": {
+            "type": "number"
+          },
+          "port_pattern": {
+            "type": "string",
+            "maximum": 100
+          },
+          "policy_type": {
+            "type": "string",
+            "enum": [
+              "strict",
+              "loose"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "raGuardPolicies_updateRaGuardPolicy": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "switch_id": {
+            "type": "number"
+          },
+          "port_pattern": {
+            "type": "string",
+            "maximum": 100
+          },
+          "policy_type": {
+            "type": "string",
+            "enum": [
+              "strict",
+              "loose"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        }
       },
       "radius_createRadius": {
         "type": "object",
@@ -29870,6 +31957,167 @@
         "required": [
           "body"
         ]
+      },
+      "transitionMechanisms_createTransitionMechanism": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "border_relay_ip": {
+            "type": "string",
+            "maximum": 45
+          },
+          "ipv6_prefix": {
+            "type": "string",
+            "maximum": 50
+          },
+          "ipv4_mask_len": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 32
+          },
+          "mtu": {
+            "type": "number",
+            "minimum": 576,
+            "maximum": 9000
+          },
+          "aftr_address": {
+            "type": "string",
+            "maximum": 45
+          },
+          "b4_address_range": {
+            "type": "string",
+            "maximum": 50
+          },
+          "rule_type": {
+            "type": "string",
+            "enum": [
+              "map-e",
+              "map-t"
+            ]
+          },
+          "ipv4_prefix": {
+            "type": "string",
+            "maximum": 50
+          },
+          "ea_bits_len": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 48
+          },
+          "br_address": {
+            "type": "string",
+            "maximum": 45
+          },
+          "plat_prefix": {
+            "type": "string",
+            "maximum": 50
+          },
+          "clat_prefix": {
+            "type": "string",
+            "maximum": 50
+          },
+          "dns64_prefix": {
+            "type": "string",
+            "maximum": 50
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "transitionMechanisms_updateTransitionMechanism": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "border_relay_ip": {
+            "type": "string",
+            "maximum": 45
+          },
+          "ipv6_prefix": {
+            "type": "string",
+            "maximum": 50
+          },
+          "ipv4_mask_len": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 32
+          },
+          "mtu": {
+            "type": "number",
+            "minimum": 576,
+            "maximum": 9000
+          },
+          "aftr_address": {
+            "type": "string",
+            "maximum": 45
+          },
+          "b4_address_range": {
+            "type": "string",
+            "maximum": 50
+          },
+          "rule_type": {
+            "type": "string",
+            "enum": [
+              "map-e",
+              "map-t"
+            ]
+          },
+          "ipv4_prefix": {
+            "type": "string",
+            "maximum": 50
+          },
+          "ea_bits_len": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 48
+          },
+          "br_address": {
+            "type": "string",
+            "maximum": 45
+          },
+          "plat_prefix": {
+            "type": "string",
+            "maximum": 50
+          },
+          "clat_prefix": {
+            "type": "string",
+            "maximum": 50
+          },
+          "dns64_prefix": {
+            "type": "string",
+            "maximum": 50
+          }
+        }
       },
       "twoFactor_verifyCode": {
         "type": "object",
