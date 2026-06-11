@@ -236,28 +236,28 @@
 ## 6. SNMP & NMS
 
 ### 6.1 Device Discovery & Onboarding
-- [ ] Auto-discovery via SNMP scan (seed IP + CIDR range)
-- [ ] Vendor-agnostic SNMP support (v1, v2c, v3)
+- [x] Auto-discovery via SNMP scan (seed IP + CIDR range)
+- [x] Vendor-agnostic SNMP support (v1, v2c, v3)
 - [ ] SNMPv3 with AES-128/256 encryption and SHA authentication
 - [ ] Bulk device import via CSV
-- [ ] Device grouping by type, location, region, OLT
-- [ ] Custom SNMP OID polling templates
-- [ ] SNMP trap receiver with parsing and forwarding
+- [x] Device grouping by type, location, region, OLT
+- [x] Custom SNMP OID polling templates
+- [x] SNMP trap receiver with parsing and forwarding
 
 ### 6.2 Network Device Monitoring
-- [ ] MikroTik RouterOS: CPU, memory, voltage, temperature, fan speed
+- [x] MikroTik RouterOS: CPU, memory, voltage, temperature, fan speed
 - [ ] Cisco/Juniper BNG: interface stats, sessions, CPU, memory
 - [ ] Huawei/ZTE OLT monitoring (private MIBs where available)
 - [ ] Switch monitoring: port status, errors, utilization, PoE status
-- [ ] SFP/QSFP diagnostics: temperature, Tx/Rx power, vendor info, distance
-- [ ] UPS / PDU monitoring via SNMP
-- [ ] Environmental sensors (temp, humidity, water, door)
+- [x] SFP/QSFP diagnostics: temperature, Tx/Rx power, vendor info, distance
+- [x] UPS / PDU monitoring via SNMP
+- [x] Environmental sensors (temp, humidity, water, door)
 
 ### 6.3 Interface & Traffic Monitoring
-- [ ] Real-time bandwidth graphing (SNMP counter polling at 30s/60s/5min intervals)
-- [ ] Per-interface utilization (percentage + absolute values)
-- [ ] Error/discards counter monitoring (CRC, input errors, output drops)
-- [ ] Top talkers by interface / by subscriber
+- [x] Real-time bandwidth graphing (SNMP counter polling at 30s/60s/5min intervals)
+- [x] Per-interface utilization (percentage + absolute values)
+- [x] Error/discards counter monitoring (CRC, input errors, output drops)
+- [x] Top talkers by interface / by subscriber
 - [ ] Traffic classification (adaptive to NetFlow/sFlow if available)
 - [ ] Graph retention: hourly (7 days), daily (90 days), monthly (3 years)
 
