@@ -393,6 +393,10 @@ CREATE TABLE IF NOT EXISTS plans (
     trial_price         DECIMAL(10,2) NOT NULL DEFAULT 0.00,
     priority        TINYINT UNSIGNED NULL COMMENT 'Plan priority 1-8 (1 = highest)',
     status          ENUM('active', 'inactive', 'archived') NOT NULL DEFAULT 'active',
+    stack_type      ENUM('ipv4_only','ipv6_only','dual_stack') NOT NULL DEFAULT 'dual_stack' COMMENT 'IP stack type: IPv4-only, IPv6-only, or dual-stack (migration 243)',
+    session_timeout_seconds INT UNSIGNED NULL COMMENT 'RADIUS Session-Timeout for subscribers on this plan (migration 225)',
+    idle_timeout_seconds    INT UNSIGNED NULL COMMENT 'RADIUS Idle-Timeout for subscribers on this plan (migration 225)',
+    simultaneous_use        INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Max concurrent sessions per subscriber on this plan (migration 225)',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
@@ -477,6 +481,12 @@ CREATE TABLE IF NOT EXISTS nas (
     ports       INT UNSIGNED    NULL,
     description TEXT            NULL,
     status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    coa_port    SMALLINT UNSIGNED NULL DEFAULT 3799 COMMENT 'UDP port for RADIUS CoA/Disconnect messages (migration 232)',
+    location    VARCHAR(200)    NULL COMMENT 'Free-form physical location description (migration 232)',
+    site_id     BIGINT UNSIGNED NULL COMMENT 'Physical site where this NAS is installed (FK -> sites.id; SET NULL on site deletion) (migration 232)',
+    secondary_nas_id BIGINT UNSIGNED NULL COMMENT 'Standby / secondary NAS for active-standby redundancy (self-ref FK -> nas.id) (migration 232)',
+    health_status ENUM('unknown','up','down') NOT NULL DEFAULT 'unknown' COMMENT 'Last known health state (migration 232)',
+    last_health_check_at DATETIME NULL COMMENT 'When health_status was last refreshed (migration 232)',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
@@ -486,8 +496,14 @@ CREATE TABLE IF NOT EXISTS nas (
     KEY idx_nas_organization_id (organization_id),
     KEY idx_nas_status (status),
     KEY idx_nas_deleted_at (deleted_at),
+    KEY idx_nas_site_id (site_id),
+    KEY idx_nas_secondary_nas_id (secondary_nas_id),
     CONSTRAINT fk_nas_organization FOREIGN KEY (organization_id)
-        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_nas_site FOREIGN KEY (site_id)
+        REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_nas_secondary FOREIGN KEY (secondary_nas_id)
+        REFERENCES nas (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -512,6 +528,10 @@ CREATE TABLE IF NOT EXISTS radius (
     auth_method   ENUM('pppoe','mac','dot1x','eap_tls') NOT NULL DEFAULT 'pppoe'
                       COMMENT 'Authentication method used by this subscriber account',
     status        ENUM('active', 'inactive', 'suspended') NOT NULL DEFAULT 'active',
+    simultaneous_use INT UNSIGNED NULL COMMENT 'Per-account override of plan simultaneous_use; NULL = inherit from plan (migration 225)',
+    vlan_id       SMALLINT UNSIGNED NULL COMMENT 'Outer VLAN (S-VLAN) for this subscriber (migration 225)',
+    inner_vlan_id SMALLINT UNSIGNED NULL COMMENT 'Inner VLAN (C-VLAN) for QinQ deployments (migration 225)',
+    service_profile_id BIGINT UNSIGNED NULL COMMENT 'Per-account PPPoE service profile override; takes precedence over pool-level profile (migration 237)',
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
@@ -534,7 +554,9 @@ CREATE TABLE IF NOT EXISTS radius (
     CONSTRAINT fk_radius_ipv4_pool FOREIGN KEY (ipv4_pool_id)
         REFERENCES ip_pools (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_radius_ipv6_pool FOREIGN KEY (ipv6_pool_id)
-        REFERENCES ip_pools (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES ip_pools (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_radius_service_profile FOREIGN KEY (service_profile_id)
+        REFERENCES pppoe_service_profiles (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -1068,6 +1090,14 @@ CREATE TABLE IF NOT EXISTS ip_pools (
                                          COMMENT 'Comma- or newline-separated IP ranges to skip during dynamic allocation (e.g. management addresses)',
     last_alerted_threshold TINYINT UNSIGNED NULL
                                          COMMENT 'Last utilization % threshold that fired an alert (75 or 90); reset to NULL when usage drops below 75%',
+    dhcpv6_mode ENUM('stateful','stateless','slaac') NULL COMMENT 'DHCPv6 mode for IPv6 pools (migration 243)',
+    ra_enabled  TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Enable Router Advertisements for this pool (migration 243)',
+    ra_managed_flag TINYINT(1)  NOT NULL DEFAULT 0 COMMENT 'Set M flag in RA (managed address config) (migration 243)',
+    ra_other_flag TINYINT(1)    NOT NULL DEFAULT 0 COMMENT 'Set O flag in RA (other config) (migration 243)',
+    ra_lifetime_seconds INT UNSIGNED NOT NULL DEFAULT 1800 COMMENT 'RA router lifetime in seconds (migration 243)',
+    slaac_prefix VARCHAR(50)    NULL COMMENT 'IPv6 prefix for SLAAC advertisement (migration 243)',
+    region_name VARCHAR(100)    NULL COMMENT 'Geographic region name for this pool (migration 243)',
+    service_profile_id BIGINT UNSIGNED NULL COMMENT 'PPPoE service profile applied to subscribers using this pool (migration 237)',
     notes       TEXT            NULL,
     status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1087,7 +1117,9 @@ CREATE TABLE IF NOT EXISTS ip_pools (
     CONSTRAINT fk_ip_pools_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_ip_pools_nas FOREIGN KEY (nas_id)
-        REFERENCES nas (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES nas (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_ip_pools_service_profile FOREIGN KEY (service_profile_id)
+        REFERENCES pppoe_service_profiles (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -1760,6 +1792,15 @@ CREATE TABLE IF NOT EXISTS connection_logs (
     terminate_cause       VARCHAR(64)     NULL              COMMENT 'RADIUS Acct-Terminate-Cause',
     event_at              TIMESTAMP       NOT NULL          COMMENT 'When the accounting event occurred',
     created_at            TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    acct_session_id       VARCHAR(64)     NULL              COMMENT 'FreeRADIUS Acct-Session-Id attribute (migration 230)',
+    nas_port_id           VARCHAR(100)    NULL              COMMENT 'NAS-Port-Id string e.g. eth0/0/0.1 (migration 230)',
+    called_station_id     VARCHAR(100)    NULL              COMMENT 'Called-Station-Id - MAC or circuit-ID (migration 230)',
+    calling_station_id    VARCHAR(100)    NULL              COMMENT 'Calling-Station-Id - subscriber MAC (migration 230)',
+    framed_ip             VARCHAR(45)     NULL              COMMENT 'Framed-IP-Address (migration 230)',
+    framed_ipv6_prefix    VARCHAR(64)     NULL              COMMENT 'Framed-IPv6-Prefix delegated to the subscriber (migration 230)',
+    acct_output_octets_v6 BIGINT UNSIGNED NULL              COMMENT 'IPv6 output (egress) octets for this session (migration 244)',
+    acct_input_octets_v6  BIGINT UNSIGNED NULL              COMMENT 'IPv6 input (ingress) octets for this session (migration 244)',
+    stack_type            ENUM('ipv4','ipv6','dual') NULL  COMMENT 'IP stack type for this session (migration 244)',
 
     PRIMARY KEY (id, event_at),
     KEY idx_conn_logs_contract_time (contract_id, event_at),
@@ -1767,7 +1808,8 @@ CREATE TABLE IF NOT EXISTS connection_logs (
     KEY idx_conn_logs_username (username, event_at),
     KEY idx_conn_logs_ip_address (ip_address, event_at),
     KEY idx_connection_logs_ipv6_address (ipv6_address),
-    KEY idx_conn_logs_session_id (session_id)
+    KEY idx_conn_logs_session_id (session_id),
+    KEY idx_conn_logs_acct_session_id (acct_session_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 PARTITION BY RANGE (UNIX_TIMESTAMP(event_at)) (
     PARTITION p2026_01 VALUES LESS THAN (UNIX_TIMESTAMP('2026-02-01')),
@@ -7841,6 +7883,12 @@ CREATE TABLE IF NOT EXISTS pppoe_service_profiles (
   rate_limit_override VARCHAR(100) NULL COMMENT 'Vendor rate string; when set replaces plan speed attribute for this profile subscribers',
   address_list VARCHAR(100) NULL COMMENT 'MikroTik firewall address-list name',
   filter_id VARCHAR(100) NULL COMMENT 'RFC 2865 Filter-Id attribute for firewall policy',
+  ipv6cp_enabled TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Enable IPv6CP negotiation (migration 244)',
+  delegated_prefix_len TINYINT UNSIGNED NULL COMMENT 'DHCPv6-PD prefix length to delegate e.g. 56, 60, 64 (migration 244)',
+  dns_primary_v6 VARCHAR(45) NULL COMMENT 'Primary IPv6 DNS server (migration 244)',
+  dns_secondary_v6 VARCHAR(45) NULL COMMENT 'Secondary IPv6 DNS server (migration 244)',
+  nat64_enabled TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Enable NAT64 for this profile (migration 244)',
+  dns64_prefix VARCHAR(50) NULL COMMENT 'DNS64 synthesis prefix e.g. 64:ff9b::/96 (migration 244)',
   status ENUM('active','inactive') NOT NULL DEFAULT 'active',
   notes TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -8059,14 +8107,10 @@ CREATE TABLE IF NOT EXISTS `ra_guard_policies` (
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
--- Columns added to radius by migration 244 (§5 Dual-Stack Sessions):
---   framed_ipv6_address, delegated_ipv6_prefix, framed_ipv6_pool
--- Applied via stored-procedure guards. See migration 244.
--- ---------------------------------------------------------------------------
-
--- ---------------------------------------------------------------------------
 -- Columns added to connection_logs by migration 244 (§5 Dual-Stack Sessions):
---   framed_ipv6_prefix, acct_output_octets_v6, acct_input_octets_v6, stack_type
+--   acct_output_octets_v6, acct_input_octets_v6, stack_type
+-- (framed_ipv6_prefix already added by migration 230; radius IPv6 statics live
+--  in the original 008 columns ipv6_address / ipv6_delegated_prefix.)
 -- Applied via stored-procedure guards. NO FK — partitioned table. See migration 244.
 -- ---------------------------------------------------------------------------
 
