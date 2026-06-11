@@ -65,6 +65,9 @@ import { NatManagementList } from '@/pages/NatManagementList';
 import { PtrRecordList } from '@/pages/PtrRecordList';
 import { Ipv6ManagementPage } from '@/pages/Ipv6ManagementPage';
 import { TransitionMechanismsPage } from '@/pages/TransitionMechanismsPage';
+import { DeviceGroupList } from '@/pages/DeviceGroupList';
+import { DiscoveryScanList } from '@/pages/DiscoveryScanList';
+import { TrapForwardingRuleList } from '@/pages/TrapForwardingRuleList';
 import { IpPoolList } from '@/pages/IpPoolList';
 import { IpAssignmentList } from '@/pages/IpAssignmentList';
 import { VlanList } from '@/pages/VlanList';
@@ -204,6 +207,9 @@ export function App() {
                 <Route path="ptr-records" element={<PtrRecordList />} />
                 <Route path="ipv6-management" element={<Ipv6ManagementPage />} />
                 <Route path="transition-mechanisms" element={<TransitionMechanismsPage />} />
+                <Route path="device-groups" element={<DeviceGroupList />} />
+                <Route path="discovery-scans" element={<DiscoveryScanList />} />
+                <Route path="trap-forwarding-rules" element={<TrapForwardingRuleList />} />
               </Route>
             </Route>
 
