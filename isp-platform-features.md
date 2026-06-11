@@ -332,19 +332,19 @@
 ## 8. TR-069 Auto Configuration Server (ACS)
 
 ### 8.1 CPE Management
-- [ ] Auto-provisioning of CPE on first boot (zero-touch)
-- [ ] Supported devices: TP-Link, ZTE, Huawei, Fiberhome, VSOL, D-Link, Netis, Tenda, and CWMP/TR-069 compliant devices
-- [ ] Parameter tree browsing per CPE
-- [ ] Read/write parameters: Wi-Fi SSID, password, channel, WAN config, firmware URL
-- [ ] Batch parameter push (multi-CPE)
-- [ ] Scheduled firmware upgrade campaigns
-- [ ] Firmware version inventory per model
+- [x] Auto-provisioning of CPE on first boot (zero-touch)
+- [x] Supported devices: TP-Link, ZTE, Huawei, Fiberhome, VSOL, D-Link, Netis, Tenda, and CWMP/TR-069 compliant devices
+- [x] Parameter tree browsing per CPE
+- [x] Read/write parameters: Wi-Fi SSID, password, channel, WAN config, firmware URL
+- [x] Batch parameter push (multi-CPE)
+- [x] Scheduled firmware upgrade campaigns
+- [x] Firmware version inventory per model
 
 ### 8.2 Profiles & Templates
-- [ ] CPE profile templates per service plan
-- [ ] Configuration template inheritance and overrides
-- [ ] Automatic parameter mapping (e.g., internet VLAN → WAN config)
-- [ ] Pre-configured templates per vendor/model
+- [x] CPE profile templates per service plan
+- [x] Configuration template inheritance and overrides
+- [x] Automatic parameter mapping (e.g., internet VLAN → WAN config)
+- [x] Pre-configured templates per vendor/model
 
 ### 8.3 Diagnostics
 - [ ] Ping / traceroute from ACS to CPE
