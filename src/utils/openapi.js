@@ -145,6 +145,9 @@ function generateSpec() {
       { name: 'Discovery Scans', description: 'Network device discovery via SNMP scan — §6.1' },
       { name: 'Trap Forwarding Rules', description: 'SNMP trap forwarding rule management — §6.1' },
       { name: 'SNMP Metrics', description: 'Bandwidth graphs, top talkers, interface utilization, error counters — §6.2/6.3' },
+      { name: 'Config Templates', description: 'Configuration template management — §6.6' },
+      { name: 'Config Backup Schedules', description: 'Per-device/org backup schedule management — §6.6' },
+      { name: 'Config Compliance Rules', description: 'Configuration compliance rules and audit — §6.6' },
     ],
     paths: {
       // ---- Auth ----
@@ -1146,6 +1149,23 @@ function generateSpec() {
       '/poller-performance/dashboard': {
         get: { tags: ['Poller Performance'], summary: 'Aggregated poller performance dashboard', operationId: 'getPollerPerformanceDashboard', security: [{ bearerAuth: [] }], parameters: [{ name: 'hours', in: 'query', schema: { type: 'integer', default: 24 } }], responses: r200('PollerPerformanceDashboard') },
       },
+
+      // ---- Device Config Backup Extensions §6.6 ----
+      '/device-config-backups/diff/{id}': { get: { tags: ['Device Config Backups'], summary: 'Get diff from previous version', operationId: 'getConfigBackupDiff', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ConfigDiff') } },
+      '/device-config-backups/compliance-run': { post: { tags: ['Device Config Backups'], summary: 'Run compliance audit on a backup', operationId: 'runBackupComplianceAudit', security: [{ bearerAuth: [] }], requestBody: jsonBody('ComplianceRunRequest'), responses: r200('ComplianceRunResult') } },
+      '/device-config-backups/compliance-results': { get: { tags: ['Device Config Backups'], summary: 'List compliance audit results', operationId: 'listBackupComplianceResults', security: [{ bearerAuth: [] }], responses: r200('ComplianceResult[]') } },
+
+      // ---- Config Templates §6.6 ----
+      ...crudPaths('config-templates', 'Config Templates', 'ConfigTemplate'),
+      '/config-templates/{id}/deploy': { post: { tags: ['Config Templates'], summary: 'Deploy config template to a device', operationId: 'deployConfigTemplate', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('DeployRequest'), responses: r201('ConfigDeploymentRecord') } },
+
+      // ---- Config Backup Schedules §6.6 ----
+      ...crudPaths('config-backup-schedules', 'Config Backup Schedules', 'ConfigBackupSchedule'),
+
+      // ---- Config Compliance Rules §6.6 ----
+      ...crudPaths('config-compliance-rules', 'Config Compliance Rules', 'ConfigComplianceRule'),
+      '/config-compliance-rules/results': { get: { tags: ['Config Compliance Rules'], summary: 'List compliance audit results', operationId: 'listComplianceRulesResults', security: [{ bearerAuth: [] }], responses: r200('ComplianceResult[]') } },
+      '/config-compliance-rules/run': { post: { tags: ['Config Compliance Rules'], summary: 'Run compliance audit on a backup', operationId: 'runComplianceAudit', security: [{ bearerAuth: [] }], requestBody: jsonBody('ComplianceRunRequest'), responses: r200('ComplianceRunResult') } },
     },
     components: {
       securitySchemes: {

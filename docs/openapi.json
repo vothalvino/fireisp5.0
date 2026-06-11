@@ -435,6 +435,18 @@
     {
       "name": "SNMP Metrics",
       "description": "Bandwidth graphs, top talkers, interface utilization, error counters — §6.2/6.3"
+    },
+    {
+      "name": "Config Templates",
+      "description": "Configuration template management — §6.6"
+    },
+    {
+      "name": "Config Backup Schedules",
+      "description": "Per-device/org backup schedule management — §6.6"
+    },
+    {
+      "name": "Config Compliance Rules",
+      "description": "Configuration compliance rules and audit — §6.6"
     }
   ],
   "paths": {
@@ -24425,6 +24437,713 @@
           }
         }
       }
+    },
+    "/device-config-backups/diff/{id}": {
+      "get": {
+        "tags": [
+          "Device Config Backups"
+        ],
+        "summary": "Get diff from previous version",
+        "operationId": "getConfigBackupDiff",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ConfigDiff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-config-backups/compliance-run": {
+      "post": {
+        "tags": [
+          "Device Config Backups"
+        ],
+        "summary": "Run compliance audit on a backup",
+        "operationId": "runBackupComplianceAudit",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "ComplianceRunRequest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ComplianceRunResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/device-config-backups/compliance-results": {
+      "get": {
+        "tags": [
+          "Device Config Backups"
+        ],
+        "summary": "List compliance audit results",
+        "operationId": "listBackupComplianceResults",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ComplianceResult[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config-templates": {
+      "get": {
+        "tags": [
+          "Config Templates"
+        ],
+        "summary": "List config-templates",
+        "operationId": "listConfigTemplates",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ConfigTemplate[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Config Templates"
+        ],
+        "summary": "Create a ConfigTemplate",
+        "operationId": "createConfigTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "ConfigTemplate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ConfigTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config-templates/{id}": {
+      "get": {
+        "tags": [
+          "Config Templates"
+        ],
+        "summary": "Get a ConfigTemplate",
+        "operationId": "getConfigTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ConfigTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Config Templates"
+        ],
+        "summary": "Update a ConfigTemplate",
+        "operationId": "updateConfigTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "ConfigTemplate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ConfigTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Config Templates"
+        ],
+        "summary": "Delete a ConfigTemplate",
+        "operationId": "deleteConfigTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/config-templates/{id}/deploy": {
+      "post": {
+        "tags": [
+          "Config Templates"
+        ],
+        "summary": "Deploy config template to a device",
+        "operationId": "deployConfigTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "DeployRequest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ConfigDeploymentRecord",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config-backup-schedules": {
+      "get": {
+        "tags": [
+          "Config Backup Schedules"
+        ],
+        "summary": "List config-backup-schedules",
+        "operationId": "listConfigBackupSchedules",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ConfigBackupSchedule[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Config Backup Schedules"
+        ],
+        "summary": "Create a ConfigBackupSchedule",
+        "operationId": "createConfigBackupSchedule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "ConfigBackupSchedule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ConfigBackupSchedule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config-backup-schedules/{id}": {
+      "get": {
+        "tags": [
+          "Config Backup Schedules"
+        ],
+        "summary": "Get a ConfigBackupSchedule",
+        "operationId": "getConfigBackupSchedule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ConfigBackupSchedule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Config Backup Schedules"
+        ],
+        "summary": "Update a ConfigBackupSchedule",
+        "operationId": "updateConfigBackupSchedule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "ConfigBackupSchedule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ConfigBackupSchedule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Config Backup Schedules"
+        ],
+        "summary": "Delete a ConfigBackupSchedule",
+        "operationId": "deleteConfigBackupSchedule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/config-compliance-rules": {
+      "get": {
+        "tags": [
+          "Config Compliance Rules"
+        ],
+        "summary": "List config-compliance-rules",
+        "operationId": "listConfigComplianceRules",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ConfigComplianceRule[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Config Compliance Rules"
+        ],
+        "summary": "Create a ConfigComplianceRule",
+        "operationId": "createConfigComplianceRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "ConfigComplianceRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ConfigComplianceRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config-compliance-rules/{id}": {
+      "get": {
+        "tags": [
+          "Config Compliance Rules"
+        ],
+        "summary": "Get a ConfigComplianceRule",
+        "operationId": "getConfigComplianceRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ConfigComplianceRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Config Compliance Rules"
+        ],
+        "summary": "Update a ConfigComplianceRule",
+        "operationId": "updateConfigComplianceRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "ConfigComplianceRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ConfigComplianceRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Config Compliance Rules"
+        ],
+        "summary": "Delete a ConfigComplianceRule",
+        "operationId": "deleteConfigComplianceRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/config-compliance-rules/results": {
+      "get": {
+        "tags": [
+          "Config Compliance Rules"
+        ],
+        "summary": "List compliance audit results",
+        "operationId": "listComplianceRulesResults",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ComplianceResult[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config-compliance-rules/run": {
+      "post": {
+        "tags": [
+          "Config Compliance Rules"
+        ],
+        "summary": "Run compliance audit on a backup",
+        "operationId": "runComplianceAudit",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "ComplianceRunRequest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ComplianceRunResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -26522,6 +27241,218 @@
               "expired",
               "revoked",
               "pending_renewal"
+            ]
+          }
+        }
+      },
+      "configBackupSchedules_createSchedule": {
+        "type": "object",
+        "properties": {
+          "schedule_name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "cron_expression": {
+            "type": "string",
+            "maximum": 50
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "schedule_name"
+        ]
+      },
+      "configBackupSchedules_updateSchedule": {
+        "type": "object",
+        "properties": {
+          "schedule_name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "cron_expression": {
+            "type": "string",
+            "maximum": 50
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "configComplianceRules_createRule": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "rule_type": {
+            "type": "string",
+            "enum": [
+              "must_contain",
+              "must_not_contain",
+              "regex_match",
+              "regex_not_match"
+            ]
+          },
+          "pattern": {
+            "type": "string",
+            "minimum": 1
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ]
+          },
+          "applies_to_device_type": {
+            "type": "string",
+            "maximum": 50
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "rule_type",
+          "pattern"
+        ]
+      },
+      "configComplianceRules_updateRule": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "rule_type": {
+            "type": "string",
+            "enum": [
+              "must_contain",
+              "must_not_contain",
+              "regex_match",
+              "regex_not_match"
+            ]
+          },
+          "pattern": {
+            "type": "string",
+            "minimum": 1
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ]
+          },
+          "applies_to_device_type": {
+            "type": "string",
+            "maximum": 50
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "configTemplates_createTemplate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "device_type": {
+            "type": "string",
+            "maximum": 50
+          },
+          "manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "template_content": {
+            "type": "string",
+            "minimum": 1
+          },
+          "variables_schema": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "draft"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "template_content"
+        ]
+      },
+      "configTemplates_updateTemplate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "device_type": {
+            "type": "string",
+            "maximum": 50
+          },
+          "manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "template_content": {
+            "type": "string",
+            "minimum": 1
+          },
+          "variables_schema": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "draft"
             ]
           }
         }

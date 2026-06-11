@@ -85,6 +85,9 @@ import { ConnectionLogList } from '@/pages/ConnectionLogList';
 import { NetworkHealthList } from '@/pages/NetworkHealthList';
 import { SnmpProfileList } from '@/pages/SnmpProfileList';
 import { DeviceConfigBackupList } from '@/pages/DeviceConfigBackupList';
+import { ConfigTemplateList } from '@/pages/ConfigTemplateList';
+import { ConfigBackupScheduleList } from '@/pages/ConfigBackupScheduleList';
+import { ConfigComplianceRuleList } from '@/pages/ConfigComplianceRuleList';
 import { SuspensionRuleList } from '@/pages/SuspensionRuleList';
 import { Reports } from '@/pages/Reports';
 import { TaxReports } from '@/pages/TaxReports';
@@ -208,6 +211,9 @@ export function App() {
                 <Route path="network-health" element={<NetworkHealthList />} />
                 <Route path="snmp-profiles" element={<SnmpProfileList />} />
                 <Route path="device-config-backups" element={<DeviceConfigBackupList />} />
+                <Route path="config-templates" element={<ConfigTemplateList />} />
+                <Route path="config-backup-schedules" element={<ConfigBackupScheduleList />} />
+                <Route path="config-compliance-rules" element={<ConfigComplianceRuleList />} />
                 <Route path="suspension-rules" element={<SuspensionRuleList />} />
                 <Route path="dhcp-servers" element={<DhcpServerList />} />
                 <Route path="nat-management" element={<NatManagementList />} />
