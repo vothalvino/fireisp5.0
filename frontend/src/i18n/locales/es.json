@@ -66,6 +66,12 @@
     "snmpProfiles": "📶 Perfiles SNMP",
     "deviceConfigBackups": "💾 Respaldos de Config.",
     "suspensionRules": "⛔ Reglas de Suspensión",
+    "paymentPlans": "💳 Planes de Pago",
+    "cashReconciliation": "💰 Conciliación de Efectivo",
+    "refundRequests": "↩ Solicitudes de Reembolso",
+    "billingDisputes": "⚖️ Disputas de Facturación",
+    "chargebacks": "🔄 Contracargos",
+    "billingAdjustments": "🧮 Ajustes de Facturación",
     "cfdi": "🏛️ CFDI",
     "plans": "📶 Planes",
     "quotes": "🧮 Cotizaciones",
@@ -88,6 +94,10 @@
     "auditLogs": "📜 Registros de Auditoría",
     "scheduledTasks": "⏰ Tareas Programadas",
     "reports": "📈 Reportes",
+    "taxReports": "🧾 Reportes Fiscales",
+    "invoiceSettings": "🖨️ Personalización de Facturas",
+    "lateFeeRules": "⚠️ Reglas de Recargo",
+    "paymentReminderSettings": "🔔 Recordatorios de Pago",
     "settings": "⚙️ Configuración",
     "profecoComplaints": "🏛️ PROFECO",
     "aiAssistant": "🤖 Asistente IA",
@@ -623,6 +633,335 @@
     "errors": {
       "loadFailed": "No se pudieron cargar las preferencias de comunicación.",
       "saveFailed": "No se pudo guardar la preferencia."
+    }
+  },
+  "plans": {
+    "radiusSection": "Configuración RADIUS",
+    "radiusVendor": "Proveedor RADIUS",
+    "radiusVendorGeneric": "Genérico (WISPr)",
+    "radiusRateLimitTemplate": "Plantilla de límite de velocidad",
+    "fupSection": "Política de Uso Justo (FUP)",
+    "fupThresholdGb": "Umbral FUP (GB)",
+    "fupThresholdPercent": "Umbral FUP (%)",
+    "fupDownloadSpeed": "Velocidad de descarga FUP (Mbps)",
+    "fupUploadSpeed": "Velocidad de carga FUP (Mbps)",
+    "overageSection": "Facturación por exceso",
+    "overageMode": "Modo de exceso",
+    "overageModeNone": "Ninguno",
+    "overageModePerGb": "Por GB",
+    "overageModeUpgradePrompt": "Solicitar mejora",
+    "overagePricePerGb": "Precio por GB de exceso",
+    "trialSection": "Prueba gratuita",
+    "trialDays": "Días de prueba",
+    "trialPrice": "Precio de prueba",
+    "speedWindowsSection": "Ventanas de velocidad por horario",
+    "speedWindowLabel": "Etiqueta",
+    "speedWindowDayMask": "Días (máscara de bits)",
+    "speedWindowStartTime": "Hora de inicio",
+    "speedWindowEndTime": "Hora de fin",
+    "speedWindowDownload": "Descarga (Mbps)",
+    "speedWindowUpload": "Carga (Mbps)",
+    "speedWindowPriority": "Prioridad",
+    "speedWindowStatus": "Estado"
+  },
+  "invoiceSettings": {
+    "title": "Configuración de Factura",
+    "logoUrl": "URL del Logo",
+    "logoUrlPlaceholder": "https://ejemplo.com/logo.png",
+    "headerColor": "Color del Encabezado",
+    "footerLegal": "Texto Legal del Pie de Página",
+    "footerLegalPlaceholder": "Ingrese el descargo legal o datos de registro de la empresa…",
+    "paymentInstructions": "Instrucciones de Pago",
+    "paymentInstructionsPlaceholder": "Ingrese datos de transferencia bancaria, métodos de pago aceptados, etc.",
+    "saved": "Configuración guardada.",
+    "saveError": "Error al guardar la configuración."
+  },
+  "lateFeeRules": {
+    "title": "Reglas de Cargo por Mora",
+    "newRule": "Nueva Regla",
+    "name": "Nombre de la Regla",
+    "feeType": "Tipo de Cargo",
+    "feeTypeFlat": "Monto Fijo",
+    "feeTypePercent": "Porcentaje de la Factura",
+    "feeAmount": "Monto del Cargo",
+    "gracePeriodDays": "Días de Gracia",
+    "maxApplications": "Aplicaciones Máximas",
+    "maxApplicationsUnlimited": "Ilimitado",
+    "isActive": "Activo",
+    "deleteConfirm": "¿Eliminar esta regla de cargo por mora?",
+    "noRules": "No hay reglas de cargo por mora configuradas."
+  },
+  "paymentReminders": {
+    "title": "Configuración de Recordatorios de Pago",
+    "enabled": "Recordatorios Habilitados",
+    "daysBefore": "Días Antes del Vencimiento (ej. 7,3,1)",
+    "sendOnDue": "Enviar en Fecha de Vencimiento",
+    "daysAfter": "Días Después del Vencimiento (ej. 1,3,7,14)",
+    "saved": "Configuración guardada.",
+    "saveError": "Error al guardar la configuración."
+  },
+  "thermalReceipt": {
+    "title": "Recibo Térmico",
+    "invoiceTitle": "Recibo de Factura",
+    "paymentTitle": "Recibo de Pago",
+    "print": "Imprimir",
+    "close": "Cerrar",
+    "width": "Ancho",
+    "width80": "80mm",
+    "width58": "58mm"
+  },
+  "taxReports": {
+    "title": "Exportación de Reporte Fiscal",
+    "description": "Exporte registros de facturación para un rango de fechas en CSV o JSON.",
+    "from": "Desde",
+    "to": "Hasta",
+    "type": "Tipo de Documento",
+    "typeInvoices": "Facturas",
+    "typePayments": "Pagos",
+    "typeCreditNotes": "Notas de Crédito",
+    "format": "Formato",
+    "formatJson": "JSON",
+    "formatCsv": "CSV",
+    "export": "Exportar",
+    "exportError": "Error al exportar. Inténtelo de nuevo.",
+    "noData": "No se encontraron registros para el período seleccionado."
+  },
+  "paymentPlans": {
+    "title": "Planes de Pago",
+    "newPlan": "Nuevo Plan",
+    "columns": {
+      "id": "ID",
+      "client": "Cliente",
+      "total": "Total",
+      "installments": "Cuotas",
+      "frequency": "Frecuencia",
+      "status": "Estado",
+      "createdAt": "Creado"
+    },
+    "status": {
+      "active": "Activo",
+      "completed": "Completado",
+      "defaulted": "Incumplido",
+      "cancelled": "Cancelado"
+    },
+    "installmentStatus": {
+      "pending": "Pendiente",
+      "paid": "Pagado",
+      "overdue": "Vencido"
+    },
+    "form": {
+      "clientId": "ID de Cliente",
+      "invoiceId": "ID de Factura (opcional)",
+      "totalAmount": "Monto Total",
+      "installmentCount": "Número de Cuotas",
+      "frequency": "Frecuencia",
+      "notes": "Notas",
+      "paymentId": "ID de Pago"
+    },
+    "pay": "Pagar Cuota",
+    "schedule": "Calendario de Pagos"
+  },
+  "cashReconciliation": {
+    "title": "Conciliación de Efectivo",
+    "openSession": "Abrir Sesión",
+    "columns": {
+      "id": "ID",
+      "agent": "Agente",
+      "status": "Estado",
+      "openedAt": "Abierto",
+      "closedAt": "Cerrado",
+      "expected": "Esperado",
+      "counted": "Contado",
+      "variance": "Diferencia"
+    },
+    "status": {
+      "open": "Abierto",
+      "closed": "Cerrado",
+      "approved": "Aprobado",
+      "disputed": "Disputado"
+    },
+    "close": "Cerrar Sesión",
+    "approve": "Aprobar",
+    "countedTotal": "Total Contado",
+    "notes": "Notas",
+    "cashPayments": "Pagos en Efectivo de la Sesión"
+  },
+  "suspensionRulesPage": {
+    "softSuspend": {
+      "downloadKbps": "Velocidad de descarga limitada (kbps)",
+      "uploadKbps": "Velocidad de subida limitada (kbps)"
+    }
+  },
+  "refundRequests": {
+    "title": "Solicitudes de Reembolso",
+    "newRequest": "Nueva Solicitud de Reembolso",
+    "columns": {
+      "id": "ID",
+      "clientId": "ID de Cliente",
+      "amount": "Monto",
+      "reason": "Motivo",
+      "status": "Estado",
+      "requestedBy": "Solicitado Por",
+      "createdAt": "Creado"
+    },
+    "status": {
+      "requested": "Solicitado",
+      "under_review": "En Revisión",
+      "approved": "Aprobado",
+      "rejected": "Rechazado",
+      "processed": "Procesado"
+    },
+    "reason": {
+      "overcharge": "Cobro Excesivo",
+      "duplicate": "Pago Duplicado",
+      "cancellation": "Cancelación",
+      "service_issue": "Problema de Servicio",
+      "other": "Otro"
+    },
+    "review": "Revisar",
+    "process": "Procesar",
+    "form": {
+      "clientId": "ID de Cliente",
+      "amount": "Monto",
+      "reason": "Motivo",
+      "paymentId": "ID de Pago (opcional)",
+      "invoiceId": "ID de Factura (opcional)"
+    },
+    "reviewModal": {
+      "title": "Revisar Solicitud",
+      "status": "Decisión",
+      "notes": "Notas de Revisión"
+    },
+    "processModal": {
+      "title": "Procesar Reembolso",
+      "method": "Método de Reembolso",
+      "gatewayRef": "Referencia de Pasarela (opcional)",
+      "methods": {
+        "original_method": "Método de Pago Original",
+        "credit_balance": "Saldo de Crédito",
+        "manual": "Manual"
+      }
+    }
+  },
+  "billingDisputes": {
+    "title": "Disputas de Facturación",
+    "newDispute": "Nueva Disputa",
+    "columns": {
+      "id": "ID",
+      "clientId": "ID de Cliente",
+      "type": "Tipo",
+      "status": "Estado",
+      "description": "Descripción",
+      "openedBy": "Abierto Por",
+      "createdAt": "Creado"
+    },
+    "status": {
+      "open": "Abierto",
+      "investigating": "Investigando",
+      "resolved_favor_client": "Resuelto (Cliente)",
+      "resolved_favor_company": "Resuelto (Empresa)",
+      "escalated": "Escalado"
+    },
+    "type": {
+      "billing_error": "Error de Facturación",
+      "service_quality": "Calidad del Servicio",
+      "unauthorized_charge": "Cargo No Autorizado",
+      "other": "Otro"
+    },
+    "transition": "Cambiar Estado",
+    "evidence": "Evidencia",
+    "form": {
+      "clientId": "ID de Cliente",
+      "type": "Tipo",
+      "description": "Descripción",
+      "invoiceId": "ID de Factura (opcional)",
+      "paymentId": "ID de Pago (opcional)"
+    },
+    "transitionModal": {
+      "title": "Cambiar Estado",
+      "status": "Nuevo Estado",
+      "notes": "Notas de Resolución (opcional)"
+    },
+    "evidencePanel": {
+      "title": "Archivos de Evidencia",
+      "upload": "Subir Evidencia",
+      "note": "Nota (opcional)",
+      "chooseFile": "Elegir archivo",
+      "download": "Descargar",
+      "noFiles": "No hay archivos de evidencia aún."
+    }
+  },
+  "chargebacks": {
+    "title": "Contracargos",
+    "newChargeback": "Contracargo Manual",
+    "columns": {
+      "id": "ID",
+      "paymentId": "ID de Pago",
+      "gateway": "Pasarela",
+      "gatewayDisputeId": "ID de Disputa",
+      "amount": "Monto",
+      "currency": "Moneda",
+      "status": "Estado",
+      "dueBy": "Fecha Límite",
+      "createdAt": "Creado"
+    },
+    "status": {
+      "received": "Recibido",
+      "evidence_submitted": "Evidencia Enviada",
+      "won": "Ganado",
+      "lost": "Perdido",
+      "accepted": "Aceptado"
+    },
+    "update": "Actualizar",
+    "form": {
+      "paymentId": "ID de Pago (opcional)",
+      "gateway": "Pasarela (opcional)",
+      "gatewayDisputeId": "ID de Disputa de Pasarela (opcional)",
+      "amount": "Monto",
+      "currency": "Moneda",
+      "reasonCode": "Código de Motivo (opcional)"
+    },
+    "updateModal": {
+      "title": "Actualizar Contracargo",
+      "status": "Estado",
+      "outcomeNotes": "Notas de Resultado",
+      "dueBy": "Fecha Límite"
+    }
+  },
+  "billingAdjustments": {
+    "title": "Ajustes de Facturación",
+    "newAdjustment": "Ajuste Manual",
+    "columns": {
+      "id": "ID",
+      "clientId": "ID de Cliente",
+      "entityType": "Tipo de Entidad",
+      "entityId": "ID de Entidad",
+      "adjustmentType": "Tipo de Ajuste",
+      "amountDelta": "Delta de Monto",
+      "reason": "Motivo",
+      "approvedBy": "Aprobado Por",
+      "createdAt": "Creado"
+    },
+    "entityType": {
+      "invoice": "Factura",
+      "payment": "Pago",
+      "credit_note": "Nota de Crédito",
+      "balance": "Saldo"
+    },
+    "adjustmentType": {
+      "late_fee_waiver": "Exención de Cargo por Mora",
+      "discount": "Descuento",
+      "correction": "Corrección",
+      "write_off": "Cancelación de Deuda",
+      "other": "Otro"
+    },
+    "form": {
+      "clientId": "ID de Cliente",
+      "entityType": "Tipo de Entidad",
+      "entityId": "ID de Entidad",
+      "adjustmentType": "Tipo de Ajuste",
+      "amountDelta": "Delta de Monto",
+      "reason": "Motivo"
     }
   }
 }

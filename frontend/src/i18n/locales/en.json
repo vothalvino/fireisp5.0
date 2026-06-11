@@ -66,6 +66,12 @@
     "snmpProfiles": "📶 SNMP Profiles",
     "deviceConfigBackups": "💾 Config Backups",
     "suspensionRules": "⛔ Suspension Rules",
+    "paymentPlans": "💳 Payment Plans",
+    "cashReconciliation": "💰 Cash Reconciliation",
+    "refundRequests": "↩ Refund Requests",
+    "billingDisputes": "⚖️ Billing Disputes",
+    "chargebacks": "🔄 Chargebacks",
+    "billingAdjustments": "🧮 Billing Adjustments",
     "cfdi": "🏛️ CFDI",
     "plans": "📶 Plans",
     "quotes": "🧮 Quotes",
@@ -88,6 +94,10 @@
     "auditLogs": "📜 Audit Logs",
     "scheduledTasks": "⏰ Scheduled Tasks",
     "reports": "📈 Reports",
+    "taxReports": "🧾 Tax Reports",
+    "invoiceSettings": "🖨️ Invoice Branding",
+    "lateFeeRules": "⚠️ Late Fee Rules",
+    "paymentReminderSettings": "🔔 Payment Reminders",
     "settings": "⚙️ Settings",
     "profecoComplaints": "🏛️ PROFECO",
     "aiAssistant": "🤖 AI Assistant",
@@ -623,6 +633,335 @@
     "errors": {
       "loadFailed": "Failed to load communication preferences.",
       "saveFailed": "Failed to save preference."
+    }
+  },
+  "plans": {
+    "radiusSection": "RADIUS Configuration",
+    "radiusVendor": "RADIUS Vendor",
+    "radiusVendorGeneric": "Generic (WISPr)",
+    "radiusRateLimitTemplate": "Rate-Limit Template",
+    "fupSection": "Fair Use Policy (FUP)",
+    "fupThresholdGb": "FUP Threshold (GB)",
+    "fupThresholdPercent": "FUP Threshold (%)",
+    "fupDownloadSpeed": "FUP Download Speed (Mbps)",
+    "fupUploadSpeed": "FUP Upload Speed (Mbps)",
+    "overageSection": "Overage Billing",
+    "overageMode": "Overage Mode",
+    "overageModeNone": "None",
+    "overageModePerGb": "Per GB",
+    "overageModeUpgradePrompt": "Upgrade Prompt",
+    "overagePricePerGb": "Overage Price per GB",
+    "trialSection": "Free Trial",
+    "trialDays": "Trial Days",
+    "trialPrice": "Trial Price",
+    "speedWindowsSection": "Time-Based Speed Windows",
+    "speedWindowLabel": "Label",
+    "speedWindowDayMask": "Days (bitmask)",
+    "speedWindowStartTime": "Start Time",
+    "speedWindowEndTime": "End Time",
+    "speedWindowDownload": "Download (Mbps)",
+    "speedWindowUpload": "Upload (Mbps)",
+    "speedWindowPriority": "Priority",
+    "speedWindowStatus": "Status"
+  },
+  "invoiceSettings": {
+    "title": "Invoice Branding Settings",
+    "logoUrl": "Logo URL",
+    "logoUrlPlaceholder": "https://example.com/logo.png",
+    "headerColor": "Header Color",
+    "footerLegal": "Footer Legal Text",
+    "footerLegalPlaceholder": "Enter legal disclaimer or company registration details…",
+    "paymentInstructions": "Payment Instructions",
+    "paymentInstructionsPlaceholder": "Enter bank transfer details, payment methods accepted, etc.",
+    "saved": "Settings saved.",
+    "saveError": "Failed to save settings."
+  },
+  "lateFeeRules": {
+    "title": "Late Fee Rules",
+    "newRule": "New Rule",
+    "name": "Rule Name",
+    "feeType": "Fee Type",
+    "feeTypeFlat": "Flat Amount",
+    "feeTypePercent": "Percent of Invoice",
+    "feeAmount": "Fee Amount",
+    "gracePeriodDays": "Grace Period (days)",
+    "maxApplications": "Max Applications",
+    "maxApplicationsUnlimited": "Unlimited",
+    "isActive": "Active",
+    "deleteConfirm": "Delete this late fee rule?",
+    "noRules": "No late fee rules configured."
+  },
+  "paymentReminders": {
+    "title": "Payment Reminder Settings",
+    "enabled": "Reminders Enabled",
+    "daysBefore": "Days Before Due (e.g. 7,3,1)",
+    "sendOnDue": "Send On Due Date",
+    "daysAfter": "Days After Due (e.g. 1,3,7,14)",
+    "saved": "Settings saved.",
+    "saveError": "Failed to save settings."
+  },
+  "thermalReceipt": {
+    "title": "Thermal Receipt",
+    "invoiceTitle": "Invoice Receipt",
+    "paymentTitle": "Payment Receipt",
+    "print": "Print",
+    "close": "Close",
+    "width": "Width",
+    "width80": "80mm",
+    "width58": "58mm"
+  },
+  "taxReports": {
+    "title": "Tax Report Export",
+    "description": "Export billing records for a date range as CSV or JSON for accounting and tax filing.",
+    "from": "From",
+    "to": "To",
+    "type": "Document Type",
+    "typeInvoices": "Invoices",
+    "typePayments": "Payments",
+    "typeCreditNotes": "Credit Notes",
+    "format": "Format",
+    "formatJson": "JSON",
+    "formatCsv": "CSV",
+    "export": "Export",
+    "exportError": "Export failed. Please try again.",
+    "noData": "No records found for the selected period."
+  },
+  "paymentPlans": {
+    "title": "Payment Plans",
+    "newPlan": "New Plan",
+    "columns": {
+      "id": "ID",
+      "client": "Client",
+      "total": "Total",
+      "installments": "Installments",
+      "frequency": "Frequency",
+      "status": "Status",
+      "createdAt": "Created"
+    },
+    "status": {
+      "active": "Active",
+      "completed": "Completed",
+      "defaulted": "Defaulted",
+      "cancelled": "Cancelled"
+    },
+    "installmentStatus": {
+      "pending": "Pending",
+      "paid": "Paid",
+      "overdue": "Overdue"
+    },
+    "form": {
+      "clientId": "Client ID",
+      "invoiceId": "Invoice ID (optional)",
+      "totalAmount": "Total Amount",
+      "installmentCount": "Number of Installments",
+      "frequency": "Frequency",
+      "notes": "Notes",
+      "paymentId": "Payment ID"
+    },
+    "pay": "Pay Installment",
+    "schedule": "Installment Schedule"
+  },
+  "cashReconciliation": {
+    "title": "Cash Reconciliation",
+    "openSession": "Open Session",
+    "columns": {
+      "id": "ID",
+      "agent": "Agent",
+      "status": "Status",
+      "openedAt": "Opened At",
+      "closedAt": "Closed At",
+      "expected": "Expected",
+      "counted": "Counted",
+      "variance": "Variance"
+    },
+    "status": {
+      "open": "Open",
+      "closed": "Closed",
+      "approved": "Approved",
+      "disputed": "Disputed"
+    },
+    "close": "Close Session",
+    "approve": "Approve",
+    "countedTotal": "Counted Total",
+    "notes": "Notes",
+    "cashPayments": "Cash Payments in Session"
+  },
+  "suspensionRulesPage": {
+    "softSuspend": {
+      "downloadKbps": "Throttled download speed (kbps)",
+      "uploadKbps": "Throttled upload speed (kbps)"
+    }
+  },
+  "refundRequests": {
+    "title": "Refund Requests",
+    "newRequest": "New Refund Request",
+    "columns": {
+      "id": "ID",
+      "clientId": "Client ID",
+      "amount": "Amount",
+      "reason": "Reason",
+      "status": "Status",
+      "requestedBy": "Requested By",
+      "createdAt": "Created At"
+    },
+    "status": {
+      "requested": "Requested",
+      "under_review": "Under Review",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "processed": "Processed"
+    },
+    "reason": {
+      "overcharge": "Overcharge",
+      "duplicate": "Duplicate Payment",
+      "cancellation": "Cancellation",
+      "service_issue": "Service Issue",
+      "other": "Other"
+    },
+    "review": "Review",
+    "process": "Process",
+    "form": {
+      "clientId": "Client ID",
+      "amount": "Amount",
+      "reason": "Reason",
+      "paymentId": "Payment ID (optional)",
+      "invoiceId": "Invoice ID (optional)"
+    },
+    "reviewModal": {
+      "title": "Review Request",
+      "status": "Decision",
+      "notes": "Review Notes"
+    },
+    "processModal": {
+      "title": "Process Refund",
+      "method": "Refund Method",
+      "gatewayRef": "Gateway Reference (optional)",
+      "methods": {
+        "original_method": "Original Payment Method",
+        "credit_balance": "Credit Balance",
+        "manual": "Manual"
+      }
+    }
+  },
+  "billingDisputes": {
+    "title": "Billing Disputes",
+    "newDispute": "New Dispute",
+    "columns": {
+      "id": "ID",
+      "clientId": "Client ID",
+      "type": "Type",
+      "status": "Status",
+      "description": "Description",
+      "openedBy": "Opened By",
+      "createdAt": "Created At"
+    },
+    "status": {
+      "open": "Open",
+      "investigating": "Investigating",
+      "resolved_favor_client": "Resolved (Client)",
+      "resolved_favor_company": "Resolved (Company)",
+      "escalated": "Escalated"
+    },
+    "type": {
+      "billing_error": "Billing Error",
+      "service_quality": "Service Quality",
+      "unauthorized_charge": "Unauthorized Charge",
+      "other": "Other"
+    },
+    "transition": "Transition",
+    "evidence": "Evidence",
+    "form": {
+      "clientId": "Client ID",
+      "type": "Type",
+      "description": "Description",
+      "invoiceId": "Invoice ID (optional)",
+      "paymentId": "Payment ID (optional)"
+    },
+    "transitionModal": {
+      "title": "Transition Status",
+      "status": "New Status",
+      "notes": "Resolution Notes (optional)"
+    },
+    "evidencePanel": {
+      "title": "Evidence Files",
+      "upload": "Upload Evidence",
+      "note": "Note (optional)",
+      "chooseFile": "Choose file",
+      "download": "Download",
+      "noFiles": "No evidence files yet."
+    }
+  },
+  "chargebacks": {
+    "title": "Chargebacks",
+    "newChargeback": "Manual Chargeback",
+    "columns": {
+      "id": "ID",
+      "paymentId": "Payment ID",
+      "gateway": "Gateway",
+      "gatewayDisputeId": "Dispute ID",
+      "amount": "Amount",
+      "currency": "Currency",
+      "status": "Status",
+      "dueBy": "Due By",
+      "createdAt": "Created At"
+    },
+    "status": {
+      "received": "Received",
+      "evidence_submitted": "Evidence Submitted",
+      "won": "Won",
+      "lost": "Lost",
+      "accepted": "Accepted"
+    },
+    "update": "Update",
+    "form": {
+      "paymentId": "Payment ID (optional)",
+      "gateway": "Gateway (optional)",
+      "gatewayDisputeId": "Gateway Dispute ID (optional)",
+      "amount": "Amount",
+      "currency": "Currency",
+      "reasonCode": "Reason Code (optional)"
+    },
+    "updateModal": {
+      "title": "Update Chargeback",
+      "status": "Status",
+      "outcomeNotes": "Outcome Notes",
+      "dueBy": "Due By Date"
+    }
+  },
+  "billingAdjustments": {
+    "title": "Billing Adjustments",
+    "newAdjustment": "Manual Adjustment",
+    "columns": {
+      "id": "ID",
+      "clientId": "Client ID",
+      "entityType": "Entity Type",
+      "entityId": "Entity ID",
+      "adjustmentType": "Adjustment Type",
+      "amountDelta": "Amount Delta",
+      "reason": "Reason",
+      "approvedBy": "Approved By",
+      "createdAt": "Created At"
+    },
+    "entityType": {
+      "invoice": "Invoice",
+      "payment": "Payment",
+      "credit_note": "Credit Note",
+      "balance": "Balance"
+    },
+    "adjustmentType": {
+      "late_fee_waiver": "Late Fee Waiver",
+      "discount": "Discount",
+      "correction": "Correction",
+      "write_off": "Write-Off",
+      "other": "Other"
+    },
+    "form": {
+      "clientId": "Client ID",
+      "entityType": "Entity Type",
+      "entityId": "Entity ID",
+      "adjustmentType": "Adjustment Type",
+      "amountDelta": "Amount Delta",
+      "reason": "Reason"
     }
   }
 }

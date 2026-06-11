@@ -69,6 +69,10 @@ import { SnmpProfileList } from '@/pages/SnmpProfileList';
 import { DeviceConfigBackupList } from '@/pages/DeviceConfigBackupList';
 import { SuspensionRuleList } from '@/pages/SuspensionRuleList';
 import { Reports } from '@/pages/Reports';
+import { TaxReports } from '@/pages/TaxReports';
+import { InvoiceSettings } from '@/pages/InvoiceSettings';
+import { LateFeeRuleList } from '@/pages/LateFeeRuleList';
+import { PaymentReminderSettings } from '@/pages/PaymentReminderSettings';
 import { Settings } from '@/pages/Settings';
 import { ProfecoComplaints } from '@/pages/ProfecoComplaints';
 import { SlaDefinitionList } from '@/pages/SlaDefinitionList';
@@ -96,6 +100,12 @@ import { TaxRateList } from '@/pages/TaxRateList';
 import { PaymentGatewayList } from '@/pages/PaymentGatewayList';
 import { PaymentTransactionList } from '@/pages/PaymentTransactionList';
 import { RecurringPaymentProfileList } from '@/pages/RecurringPaymentProfileList';
+import { PaymentPlanList } from '@/pages/PaymentPlanList';
+import { CashReconciliationList } from '@/pages/CashReconciliationList';
+import { RefundRequestList } from '@/pages/RefundRequestList';
+import { BillingDisputeList } from '@/pages/BillingDisputeList';
+import { ChargebackList } from '@/pages/ChargebackList';
+import { BillingAdjustmentList } from '@/pages/BillingAdjustmentList';
 import { AIAssistantSettings } from '@/pages/AIAssistantSettings';
 import { NotFound } from '@/pages/NotFound';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
@@ -195,6 +205,12 @@ export function App() {
                 <Route path="payment-gateways" element={<PaymentGatewayList />} />
                 <Route path="payment-transactions" element={<PaymentTransactionList />} />
                 <Route path="recurring-payment-profiles" element={<RecurringPaymentProfileList />} />
+                <Route path="payment-plans" element={<PaymentPlanList />} />
+                <Route path="cash-reconciliation" element={<CashReconciliationList />} />
+                <Route path="refund-requests" element={<RefundRequestList />} />
+                <Route path="billing-disputes" element={<BillingDisputeList />} />
+                <Route path="chargebacks" element={<ChargebackList />} />
+                <Route path="billing-adjustments" element={<BillingAdjustmentList />} />
                 <Route path="winback-campaigns" element={<WinbackCampaignList />} />
                 <Route path="churn-analytics" element={<ChurnAnalytics />} />
                 <Route path="csd-certificates" element={<CsdCertificateList />} />
@@ -205,6 +221,10 @@ export function App() {
                 <Route path="ift-statistical-reports" element={<IftStatisticalReportList />} />
                 <Route path="facturas-publicas" element={<FacturaPublicaList />} />
                 <Route path="reports" element={<Reports />} />
+                <Route path="tax-reports" element={<TaxReports />} />
+                <Route path="invoice-settings" element={<InvoiceSettings />} />
+                <Route path="late-fee-rules" element={<LateFeeRuleList />} />
+                <Route path="payment-reminder-settings" element={<PaymentReminderSettings />} />
                 <Route path="profeco-complaints" element={<ProfecoComplaints />} />
               </Route>
             </Route>

@@ -22,6 +22,8 @@ const configBackupService = require('./configBackupService');
 const drDrillService = require('./drDrillService');
 const interactionService = require('./interactionService');
 const campaignService = require('./campaignService');
+const lateFeeService = require('./lateFeeService');
+const paymentReminderService = require('./paymentReminderService');
 const emailTemplates = require('../views/emailTemplates');
 const { backup: runBackup } = require('../scripts/backup');
 
@@ -96,6 +98,10 @@ async function runTask(taskName, organizationId = null) {
       return interactionService.autoEscalateTickets(organizationId);
     case 'campaign_send':
       return campaignService.processQueue();
+    case 'apply_late_fees':
+      return lateFeeService.applyLateFees(organizationId);
+    case 'send_payment_reminders':
+      return paymentReminderService.sendPaymentReminders(organizationId);
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }

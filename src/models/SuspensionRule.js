@@ -11,6 +11,7 @@ class SuspensionRule extends BaseModel {
     return [
       'organization_id', 'days_past_due', 'grace_period_days', 'action',
       'notify_days_before', 'plan_ids', 'is_enabled',
+      'soft_suspend_download_kbps', 'soft_suspend_upload_kbps',
     ];
   }
 

@@ -124,6 +124,15 @@ function generateSpec() {
       { name: 'AI Assistant', description: 'AI reply assistant — policy, providers, phrase library, reply generation, audit logs' },
       { name: 'DSAR', description: 'Data subject access requests (LFPDPPP / GDPR)' },
       { name: 'DR Drill', description: 'Disaster-recovery drill status' },
+      { name: 'Invoice Settings', description: 'Per-org invoice branding — logo, color, footer legal text, payment instructions — §2.2B' },
+      { name: 'Late Fee Rules', description: 'Configurable late fee rules applied to overdue invoices — §2.2B' },
+      { name: 'Payment Reminders', description: 'Automated payment reminder schedule settings — §2.2B' },
+      { name: 'Payment Plans', description: 'Payment plan / installment management for overdue invoices — §2.3' },
+      { name: 'Cash Reconciliation', description: 'Field agent cash collection reconciliation sessions — §2.3' },
+      { name: 'Refund Requests', description: 'Refund request workflow — create, review, and process refunds — §2.5.1' },
+      { name: 'Billing Disputes', description: 'Dispute tracking with evidence attachment — §2.5.2' },
+      { name: 'Chargebacks', description: 'Chargeback management with gateway webhook integration — §2.5.3' },
+      { name: 'Billing Adjustments', description: 'Billing adjustment log with audit trail — §2.5.4' },
     ],
     paths: {
       // ---- Auth ----
@@ -260,6 +269,15 @@ function generateSpec() {
 
       // ---- Plans ----
       ...crudPaths('plans', 'Plans', 'Plan'),
+      '/plans/{id}/radius-attributes': { get: { tags: ['Plans'], summary: 'Preview RADIUS attributes for a plan', operationId: 'getPlanRadiusAttributes', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('RadiusAttributes') } },
+      '/plans/{id}/speed-windows': {
+        get:  { tags: ['Plans'], summary: 'List time-based speed windows for a plan', operationId: 'listPlanSpeedWindows', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SpeedWindow[]') },
+        post: { tags: ['Plans'], summary: 'Create a speed window for a plan', operationId: 'createPlanSpeedWindow', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('plans_createSpeedWindow'), responses: r201('SpeedWindow') },
+      },
+      '/plans/{id}/speed-windows/{windowId}': {
+        put:    { tags: ['Plans'], summary: 'Update a speed window', operationId: 'updatePlanSpeedWindow', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'windowId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('plans_createSpeedWindow'), responses: r200('SpeedWindow') },
+        delete: { tags: ['Plans'], summary: 'Soft-delete a speed window', operationId: 'deletePlanSpeedWindow', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'windowId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
 
       // ---- Contracts ----
       ...crudPaths('contracts', 'Contracts', 'Contract'),
@@ -276,11 +294,37 @@ function generateSpec() {
       },
       '/invoices/generate': { post: { tags: ['Invoices'], summary: 'Generate invoice from contract', operationId: 'generateContractInvoice', security: [{ bearerAuth: [] }], requestBody: jsonBody('contract_id'), responses: r201('Invoice') } },
       '/invoices/{id}/payments': { get: { tags: ['Invoices'], summary: 'List invoice payments', operationId: 'listInvoicePayments', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('PaymentAllocation[]') } },
+      '/invoices/{id}/receipt': {
+        get: {
+          tags: ['Invoices'],
+          summary: 'Get thermal receipt for an invoice (plain text, 58mm or 80mm)',
+          operationId: 'getInvoiceThermalReceipt',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            idParam(),
+            { name: 'width', in: 'query', schema: { type: 'string', enum: ['58', '80'] }, description: 'Printer width in mm (default: 80)' },
+          ],
+          responses: { 200: { description: 'Plain-text thermal receipt', content: { 'text/plain': { schema: { type: 'string' } } } } },
+        },
+      },
 
       // ---- Payments ----
       ...crudPaths('payments', 'Payments', 'Payment'),
       '/payments/{id}/allocate': { post: { tags: ['Payments'], summary: 'Allocate payment to invoice', operationId: 'allocatePaymentToInvoice', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('payments_allocatePayment'), responses: r201('Allocation') } },
       '/payments/{id}/allocations': { get: { tags: ['Payments'], summary: 'List payment allocations', operationId: 'listPaymentAllocations', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Allocation[]') } },
+      '/payments/{id}/receipt': {
+        get: {
+          tags: ['Payments'],
+          summary: 'Get thermal receipt for a payment (plain text, 58mm or 80mm)',
+          operationId: 'getPaymentThermalReceipt',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            idParam(),
+            { name: 'width', in: 'query', schema: { type: 'string', enum: ['58', '80'] }, description: 'Printer width in mm (default: 80)' },
+          ],
+          responses: { 200: { description: 'Plain-text thermal receipt', content: { 'text/plain': { schema: { type: 'string' } } } } },
+        },
+      },
 
       // ---- Credit Notes ----
       ...crudPaths('credit-notes', 'Credit Notes', 'CreditNote'),
@@ -298,6 +342,29 @@ function generateSpec() {
       '/billing/generate-invoice': { post: { tags: ['Billing'], summary: 'Generate invoice for a contract', operationId: 'generateInvoice', security: [{ bearerAuth: [] }], requestBody: jsonBody('contract_id'), responses: r201('Invoice') } },
       '/billing/allocate-payment': { post: { tags: ['Billing'], summary: 'Allocate payment to invoices', operationId: 'allocatePayment', security: [{ bearerAuth: [] }], requestBody: jsonBody('payment_id + allocations'), responses: r201('Allocations') } },
       '/billing/bulk-generate': { post: { tags: ['Billing'], summary: 'Bulk generate invoices for all active contracts', operationId: 'bulkGenerate', security: [{ bearerAuth: [] }], responses: r200('Results') } },
+      '/billing/tax-reports': {
+        get: {
+          tags: ['Billing'],
+          summary: 'Export tax report (invoices, payments, or credit notes)',
+          operationId: 'exportTaxReports',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'from',   in: 'query', schema: { type: 'string', format: 'date' }, description: 'Start date (inclusive)' },
+            { name: 'to',     in: 'query', schema: { type: 'string', format: 'date' }, description: 'End date (inclusive)' },
+            { name: 'type',   in: 'query', schema: { type: 'string', enum: ['invoices', 'payments', 'credit_notes'] }, description: 'Document type (default: invoices)' },
+            { name: 'format', in: 'query', schema: { type: 'string', enum: ['json', 'csv'] }, description: 'Output format (default: json)' },
+          ],
+          responses: {
+            200: {
+              description: 'Tax report data',
+              content: {
+                'application/json': { schema: { type: 'object' } },
+                'text/csv': { schema: { type: 'string' } },
+              },
+            },
+          },
+        },
+      },
 
       // ---- Bulk Operations ----
       '/bulk/invoices/generate': { post: { tags: ['Bulk'], summary: 'Mass-generate invoices', operationId: 'bulkGenerateInvoices', security: [{ bearerAuth: [] }], requestBody: jsonBody('contract_ids'), responses: r200('Results') } },
@@ -662,6 +729,36 @@ function generateSpec() {
           responses: r200('AiReplyLog[]'),
         },
       },
+      // ---- Invoice Settings — §2.2B ----
+      '/invoice-settings': {
+        get: { tags: ['Invoice Settings'], summary: 'Get invoice branding settings for current org', operationId: 'getInvoiceSettings', security: [{ bearerAuth: [] }], responses: r200('InvoiceSettings') },
+        put: { tags: ['Invoice Settings'], summary: 'Upsert invoice branding settings', operationId: 'updateInvoiceSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('InvoiceSettings'), responses: r200('InvoiceSettings') },
+      },
+
+      // ---- Late Fee Rules — §2.2B ----
+      ...crudPaths('late-fee-rules', 'Late Fee Rules', 'LateFeeRule'),
+
+      // ---- Payment Reminders — §2.2B ----
+      '/payment-reminder-settings': {
+        get: { tags: ['Payment Reminders'], summary: 'Get payment reminder schedule settings', operationId: 'getPaymentReminderSettings', security: [{ bearerAuth: [] }], responses: r200('PaymentReminderSettings') },
+        put: { tags: ['Payment Reminders'], summary: 'Upsert payment reminder schedule settings', operationId: 'updatePaymentReminderSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('PaymentReminderSettings'), responses: r200('PaymentReminderSettings') },
+      },
+
+      // ---- Payment Plans — §2.3 ----
+      ...crudPaths('payment-plans', 'Payment Plans', 'PaymentPlan'),
+      '/payment-plans/{id}/installments/{seq}/pay': { post: { tags: ['Payment Plans'], summary: 'Record payment for a specific installment', operationId: 'payPlanInstallment', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'seq', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('paymentPlans_payInstallmentSchema'), responses: r200('Installment') } },
+
+      // ---- Cash Reconciliation — §2.3 ----
+      '/cash-reconciliation/sessions': {
+        get: { tags: ['Cash Reconciliation'], summary: 'List cash reconciliation sessions', operationId: 'listCashReconciliationSessions', security: [{ bearerAuth: [] }], responses: r200('CashReconciliationSession[]') },
+        post: { tags: ['Cash Reconciliation'], summary: 'Open a new cash reconciliation session', operationId: 'openCashReconciliationSession', security: [{ bearerAuth: [] }], requestBody: jsonBody('cashReconciliation_openSessionSchema'), responses: r201('CashReconciliationSession') },
+      },
+      '/cash-reconciliation/sessions/{id}': {
+        get: { tags: ['Cash Reconciliation'], summary: 'Get session detail with included cash payments', operationId: 'getCashReconciliationSession', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('CashReconciliationSession') },
+      },
+      '/cash-reconciliation/sessions/{id}/close': { post: { tags: ['Cash Reconciliation'], summary: 'Close a session with counted total', operationId: 'closeCashReconciliationSession', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('cashReconciliation_closeSessionSchema'), responses: r200('CashReconciliationSession') } },
+      '/cash-reconciliation/sessions/{id}/approve': { post: { tags: ['Cash Reconciliation'], summary: 'Approve a closed reconciliation session', operationId: 'approveCashReconciliationSession', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('CashReconciliationSession') } },
+
       // ---- Communication — §1.4 ----
       ...crudPaths('communication-campaigns', 'Communication', 'CommunicationCampaign'),
       '/communication-campaigns/{id}/restore': { post: { tags: ['Communication'], summary: 'Restore a soft-deleted campaign', operationId: 'restoreCommunicationCampaign', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('CommunicationCampaign') } },
@@ -722,6 +819,31 @@ function generateSpec() {
           requestBody: jsonBody('DeliveryStatus'),
           responses: r200('updated or skipped'),
         },
+      },
+
+      // ---- Refund Requests — §2.5.1 ----
+      ...crudPaths('refund-requests', 'Refund Requests', 'RefundRequest'),
+      '/refund-requests/{id}/review': { post: { tags: ['Refund Requests'], summary: 'Approve or reject a refund request', operationId: 'reviewRefundRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('refundRequests_reviewRefundRequestSchema'), responses: r200('RefundRequest') } },
+      '/refund-requests/{id}/process': { post: { tags: ['Refund Requests'], summary: 'Process an approved refund request (issue credit, credit_note, or mark gateway refund)', operationId: 'processRefundRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('refundRequests_processRefundRequestSchema'), responses: r200('RefundRequest') } },
+
+      // ---- Billing Disputes — §2.5.2 ----
+      ...crudPaths('billing-disputes', 'Billing Disputes', 'BillingDispute'),
+      '/billing-disputes/{id}/transition': { post: { tags: ['Billing Disputes'], summary: 'Transition dispute status (open → investigating → resolved)', operationId: 'transitionBillingDispute', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('billingDisputes_transitionBillingDisputeSchema'), responses: r200('BillingDispute') } },
+      '/billing-disputes/{id}/evidence': {
+        get: { tags: ['Billing Disputes'], summary: 'List evidence files for a dispute', operationId: 'listDisputeEvidence', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DisputeEvidence[]') },
+        post: { tags: ['Billing Disputes'], summary: 'Upload evidence file (multipart/form-data)', operationId: 'uploadDisputeEvidence', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: { content: { 'multipart/form-data': { schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' }, note: { type: 'string' } } } } } }, responses: r201('DisputeEvidence') } },
+      '/billing-disputes/{id}/evidence/{evidenceId}/download': { get: { tags: ['Billing Disputes'], summary: 'Download evidence file', operationId: 'downloadDisputeEvidence', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'evidenceId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200File('application/octet-stream') } },
+
+      // ---- Chargebacks — §2.5.3 ----
+      ...crudPaths('chargebacks', 'Chargebacks', 'Chargeback'),
+
+      // ---- Billing Adjustments — §2.5.4 ----
+      '/billing-adjustments': {
+        get: { tags: ['Billing Adjustments'], summary: 'List billing adjustments with filters', operationId: 'listBillingAdjustments', security: [{ bearerAuth: [] }], parameters: [{ name: 'client_id', in: 'query', schema: { type: 'integer' } }, { name: 'entity_type', in: 'query', schema: { type: 'string', enum: ['invoice', 'payment', 'credit_note', 'balance'] } }, { name: 'date_from', in: 'query', schema: { type: 'string', format: 'date' } }, { name: 'date_to', in: 'query', schema: { type: 'string', format: 'date' } }], responses: r200('BillingAdjustment[]') },
+        post: { tags: ['Billing Adjustments'], summary: 'Record a billing adjustment (also mirrors to audit_logs)', operationId: 'createBillingAdjustment', security: [{ bearerAuth: [] }], requestBody: jsonBody('billingAdjustments_createBillingAdjustmentSchema'), responses: r201('BillingAdjustment') },
+      },
+      '/billing-adjustments/{id}': {
+        get: { tags: ['Billing Adjustments'], summary: 'Get a billing adjustment', operationId: 'getBillingAdjustment', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('BillingAdjustment') },
       },
 
       '/ai/metrics': {

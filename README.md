@@ -107,8 +107,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 136 tables)
-│   └── migrations/          # Individual numbered migration files (001–199)
+│   ├── schema.sql           # Combined schema (all 151 tables)
+│   └── migrations/          # Individual numbered migration files (001–222)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -296,6 +296,31 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 134 | `communication_campaigns` | Bulk campaign sends (email/SMS/WhatsApp) — `channel`, `status` (`draft`→`scheduled`→`sending`→`sent`/`cancelled`/`failed`), optional template and recipient filters (by client status, plan, or tag), aggregate counters (recipient, sent, delivered, opened, bounced, failed), scheduling timestamps, and `deleted_at` soft-delete |
 | 135 | `campaign_messages` | Per-recipient record for every campaign dispatch — `campaign_id`, optional `client_id`, `recipient` (email or phone), `channel`, `status` (`queued`→`sent`→`delivered`→`opened`/`bounced`/`failed`), `provider_message_id` for webhook correlation, and individual timestamp fields (queued, sent, delivered, opened, bounced) |
 | 136 | `client_dnd_preferences` | Per-customer per-channel Do Not Disturb preferences — `channel` (`email`/`sms`/`whatsapp`/`all`), `opt_out` flag for marketing/bulk sends, optional quiet-hours window (`quiet_hours_start`/`quiet_hours_end`), and free-form `reason`; unique on `(client_id, channel)` |
+| 137 | `plan_throttle_logs` | Audit log for FUP throttle and restore actions per contract — records throttle/restore events, RADIUS CoA sent/response, and reason (fup/overage/manual) |
+| 138 | `plan_speed_windows` | Time-based speed windows for plans — bitmask day-of-week scheduling, start/end time, per-window download/upload speeds, and priority ordering for overlap resolution |
+| 139 | `organization_invoice_settings` | Per-org invoice branding — logo URL, header color, footer legal text, and payment instructions used by the PDF invoice generator |
+| 140 | `late_fee_rules` | Configurable late fee policies per organization — flat or percent fee, grace period, maximum applications, and active flag |
+| 141 | `invoice_late_fees` | Audit trail of late fee applications to overdue invoices — links to the rule, the created line item, and the performer (NULL = system) |
+| 142 | `payment_reminder_settings` | Per-org payment reminder schedule — days before/after due date and on-due-date send flags, with enabled toggle |
+| 143 | `payment_reminder_logs` | Idempotency log for sent payment reminders — unique on `(invoice_id, stage, channel)` to prevent duplicate sends |
+| 144 | `payment_plans` | Payment plan for splitting invoices into installments |
+| 145 | `payment_plan_installments` | Individual installment records for a payment plan |
+| 146 | `cash_reconciliation_sessions` | Field agent cash collection reconciliation sessions |
+| 147 | `refund_requests` | Refund request workflow — create, review (approve/reject), process (credit balance, credit note, or gateway refund) |
+| 148 | `billing_disputes` | Billing dispute tracking with status lifecycle (open → investigating → resolved) |
+| 149 | `dispute_evidence` | File attachments for billing disputes (reuses multer upload infrastructure) |
+| 150 | `chargebacks` | Chargeback management; auto-created from gateway webhook dispute events |
+| 151 | `billing_adjustments` | Immutable billing adjustment log — written by refund processing, chargeback resolution, and manual admin actions; mirrors to audit_logs |
+
+> **Migrations 217–222 — §2.5 (Refund Requests, Disputes, Chargebacks, Billing Adjustments):**
+> Adds `refund_requests` table (217) with status lifecycle `requested → under_review → approved/rejected → processed`; RBAC seeds (218); `billing_disputes` + `dispute_evidence` tables (219) with multipart evidence upload reusing the existing upload middleware; dispute RBAC seeds (220); `chargebacks` + `billing_adjustments` tables (221); chargeback/adjustment RBAC seeds (222). `paymentGatewayService.handleWebhookEvent` now auto-creates a chargeback row when a dispute webhook is received. `billingAdjustmentService.record()` is called from refund processing and mirrors each adjustment into `audit_logs`. New events: `refund.requested` (webhook dispatch to billing staff), `refund.processed` (email to client + webhook).
+
+> **Migrations 211–216 — §2.3+§2.4 (Payment Plans, Cash Reconciliation, Soft Suspension, Suspension Exempt):**
+> Adds payment plan / installment management (211–212), cash reconciliation sessions (213–214), soft-suspend ENUM + speed columns on suspension_rules (215), and suspension_exempt columns on clients (216).
+
+> **Migrations 204–210 — Billing & Subscription Management Phase B (§2.2B):** `204_create_organization_invoice_settings.sql` adds the `organization_invoice_settings` table for per-org invoice branding (logo URL, header color, footer legal text, payment instructions); `pdfService.generateInvoicePdf` now reads these settings. `205_seed_invoice_settings_permissions.sql` seeds `invoice_settings.view` and `invoice_settings.update`. `206_create_late_fee_tables.sql` adds `late_fee_rules` and `invoice_late_fees` tables and seeds the `apply_late_fees` scheduled task (daily 02:00). `207_seed_late_fee_permissions.sql` seeds `late_fees.view` and `late_fees.manage`. `208_create_payment_reminder_tables.sql` adds `payment_reminder_settings` and `payment_reminder_logs` tables and seeds the `send_payment_reminders` scheduled task (hourly). `209_seed_payment_reminder_permissions.sql` seeds `payment_reminders.view` and `payment_reminders.manage`. `210_seed_tax_report_permissions.sql` seeds `billing.tax_reports`. New endpoints: `GET/PUT /invoice-settings`, `GET/POST/PUT/DELETE /late-fee-rules`, `GET/PUT /payment-reminder-settings`, `GET /billing/tax-reports`, `GET /invoices/:id/receipt`, `GET /payments/:id/receipt`.
+
+> **Migrations 200–203 — Plan billing features (§2.1):** `200_plan_billing_features.sql` adds ten columns to `plans` (`radius_vendor`, `radius_rate_limit_template`, `fup_threshold_gb`, `fup_threshold_percent`, `fup_download_speed_mbps`, `fup_upload_speed_mbps`, `overage_mode`, `overage_price_per_gb`, `trial_days`, `trial_price`) and creates `plan_throttle_logs` for FUP throttle audit; seeds `check_fup_thresholds` (every 15 min) and `convert_expired_trials` (hourly) scheduled tasks. `201_create_plan_speed_windows.sql` adds the `plan_speed_windows` table for time-based speed scheduling and seeds the `apply_speed_windows` task (every 5 min). `202_extend_plan_addons_enum.sql` extends `plan_addons.addon_type` with `voip` and `iptv` values. `203_seed_plan_feature_permissions.sql` seeds `plans.radius_attributes`, `plans.speed_windows`, and `plans.fup_throttle` RBAC permissions with role assignments.
 
 > **Migrations 198–199 — Communication campaigns and DND (§1.4):** `198_create_communication_tables.sql` adds the `communication_campaigns`, `campaign_messages`, and `client_dnd_preferences` tables; adds `campaign_message_id` and `opened_at` columns to `email_logs`; adds `campaign_message_id` to `sms_logs`; and seeds the `campaign_send` scheduled task (`*/5 * * * *`) that processes queued campaign messages. `199_seed_communication_permissions.sql` seeds the `communication` RBAC module permissions (`campaigns.*`, `dnd.view`, `dnd.update`) and assigns them to the default roles.
 

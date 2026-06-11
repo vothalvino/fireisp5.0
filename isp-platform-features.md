@@ -71,52 +71,52 @@
 ## 2. Billing & Subscription Management
 
 ### 2.1 Plan & Package Management
-- [ ] Service plan creation: name, speed tier (download/upload), data cap, validity period
-- [ ] Speed profiles mapped to RADIUS attributes (MikroTik / Cisco / Juniper format)
-- [ ] FUP (Fair Usage Policy): throttling after data threshold
-- [ ] Overage billing: per-GB or plan upgrade trigger
-- [ ] Time-based plans: nightly unlimited, weekend boost
-- [ ] Bundled services: internet + VoIP + IPTV + static IP
-- [ ] Promotional/discount plans with auto-expiration
-- [ ] Tax configuration: IVA (Mexico 16%), configurable per region
-- [ ] Currency support with multi-currency display
-- [ ] Free trial plans with auto-conversion to paid
+- [x] Service plan creation: name, speed tier (download/upload), data cap, validity period
+- [x] Speed profiles mapped to RADIUS attributes (MikroTik / Cisco / Juniper format)
+- [x] FUP (Fair Usage Policy): throttling after data threshold
+- [x] Overage billing: per-GB or plan upgrade trigger
+- [x] Time-based plans: nightly unlimited, weekend boost
+- [x] Bundled services: internet + VoIP + IPTV + static IP
+- [x] Promotional/discount plans with auto-expiration
+- [x] Tax configuration: IVA (Mexico 16%), configurable per region
+- [x] Currency support with multi-currency display
+- [x] Free trial plans with auto-conversion to paid
 
 ### 2.2 Invoicing
-- [ ] Recurring auto-generation (monthly, quarterly, annual)
-- [ ] Prorated billing for mid-cycle signups/cancellations
-- [ ] Invoice templates (branding, logo, legal text)
-- [ ] Invoice delivery: email, portal, printed (thermal receipt format)
-- [ ] Late fee automation with configurable grace periods
-- [ ] Credit notes and refunds
-- [ ] Payment reminders (pre-due, due date, overdue)
-- [ ] CFDI 4.0 digital tax receipts (Mexican SAT requirement)
-- [ ] Retention and report generation for tax authorities
+- [x] Recurring auto-generation (monthly, quarterly, annual)
+- [x] Prorated billing for mid-cycle signups/cancellations
+- [x] Invoice templates (branding, logo, legal text)
+- [x] Invoice delivery: email, portal, printed (thermal receipt format)
+- [x] Late fee automation with configurable grace periods
+- [x] Credit notes and refunds
+- [x] Payment reminders (pre-due, due date, overdue)
+- [x] CFDI 4.0 digital tax receipts (Mexican SAT requirement)
+- [x] Retention and report generation for tax authorities
 
 ### 2.3 Payment Processing
-- [ ] Multiple payment methods: cash, card (Stripe/PayPal/OXXO/SPEI/bank transfer)
-- [ ] Auto-debit / recurring card charging
-- [ ] Payment gateway integration
-- [ ] Partial payments and payment plans
-- [ ] Balance carry-forward and credit management
-- [ ] Cash reconciliation for field agents
-- [ ] Multi-currency support
-- [ ] Receipt generation (thermal printer format for convenience stores)
+- [x] Multiple payment methods: cash, card (Stripe/PayPal/OXXO/SPEI/bank transfer)
+- [x] Auto-debit / recurring card charging
+- [x] Payment gateway integration
+- [x] Partial payments and payment plans
+- [x] Balance carry-forward and credit management
+- [x] Cash reconciliation for field agents
+- [x] Multi-currency support
+- [x] Receipt generation (thermal printer format for convenience stores)
 
 ### 2.4 Suspension & Reactivation
-- [ ] Auto-suspend on X days past due
-- [ ] Soft suspension: slow speed (128kbps) instead of full block
-- [ ] Hard suspension: full disconnect
-- [ ] Auto-reactivation upon payment receipt
-- [ ] Manual override for VIP customers
-- [ ] Batch operations for mass suspend/reactivate
-- [ ] Suspension history log
+- [x] Auto-suspend on X days past due
+- [x] Soft suspension: slow speed (128kbps) instead of full block
+- [x] Hard suspension: full disconnect
+- [x] Auto-reactivation upon payment receipt
+- [x] Manual override for VIP customers
+- [x] Batch operations for mass suspend/reactivate
+- [x] Suspension history log
 
 ### 2.5 Refunds & Disputes
-- [ ] Refund request workflow
-- [ ] Dispute tracking with evidence attachment
-- [ ] Chargeback management
-- [ ] Billing adjustment log with audit trail
+- [x] Refund request workflow
+- [x] Dispute tracking with evidence attachment
+- [x] Chargeback management
+- [x] Billing adjustment log with audit trail
 
 ---
 

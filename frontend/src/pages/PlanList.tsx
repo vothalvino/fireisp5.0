@@ -35,6 +35,16 @@ interface Plan {
   billing_cycle: string | null;
   data_cap_gb: string | number | null;
   status: string;
+  radius_vendor?: string | null;
+  radius_rate_limit_template?: string | null;
+  fup_threshold_gb?: string | number | null;
+  fup_threshold_percent?: number | null;
+  fup_download_speed_mbps?: number | null;
+  fup_upload_speed_mbps?: number | null;
+  overage_mode?: string | null;
+  overage_price_per_gb?: string | number | null;
+  trial_days?: number | null;
+  trial_price?: string | number | null;
 }
 
 interface PlansResponse {
@@ -52,6 +62,16 @@ interface PlanBody {
   billing_cycle?: string;
   data_cap_gb?: number;
   status?: string;
+  radius_vendor?: string;
+  radius_rate_limit_template?: string;
+  fup_threshold_gb?: number;
+  fup_threshold_percent?: number;
+  fup_download_speed_mbps?: number;
+  fup_upload_speed_mbps?: number;
+  overage_mode?: string;
+  overage_price_per_gb?: number;
+  trial_days?: number;
+  trial_price?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -62,6 +82,8 @@ const DEFAULT_PAGE_SIZE = 25;
 const BILLING_CYCLES = ['monthly', 'quarterly', 'semi_annual', 'annual'];
 const STATUSES = ['active', 'inactive', 'archived'];
 const STATUS_FILTER_OPTIONS = ['', ...STATUSES];
+const RADIUS_VENDORS = ['', 'mikrotik', 'cisco', 'juniper'];
+const OVERAGE_MODES = ['none', 'per_gb', 'upgrade_prompt'];
 
 // ---------------------------------------------------------------------------
 // Fetch / mutate helpers
@@ -143,6 +165,16 @@ function PlanModal({ plan, onClose, onSaved }: PlanModalProps) {
     billing_cycle: plan?.billing_cycle ?? 'monthly',
     data_cap_gb: plan?.data_cap_gb != null ? String(plan.data_cap_gb) : '',
     status: plan?.status ?? 'active',
+    radius_vendor: plan?.radius_vendor ?? '',
+    radius_rate_limit_template: plan?.radius_rate_limit_template ?? '',
+    fup_threshold_gb: plan?.fup_threshold_gb != null ? String(plan.fup_threshold_gb) : '',
+    fup_threshold_percent: plan?.fup_threshold_percent != null ? String(plan.fup_threshold_percent) : '',
+    fup_download_speed_mbps: plan?.fup_download_speed_mbps != null ? String(plan.fup_download_speed_mbps) : '',
+    fup_upload_speed_mbps: plan?.fup_upload_speed_mbps != null ? String(plan.fup_upload_speed_mbps) : '',
+    overage_mode: plan?.overage_mode ?? 'none',
+    overage_price_per_gb: plan?.overage_price_per_gb != null ? String(plan.overage_price_per_gb) : '',
+    trial_days: plan?.trial_days != null ? String(plan.trial_days) : '',
+    trial_price: plan?.trial_price != null ? String(plan.trial_price) : '',
   });
   const [error, setError] = useState('');
 
@@ -160,9 +192,19 @@ function PlanModal({ plan, onClose, onSaved }: PlanModalProps) {
         currency: form.currency || undefined,
         billing_cycle: form.billing_cycle,
         status: form.status,
+        overage_mode: form.overage_mode || 'none',
       };
       if (form.description) body.description = form.description;
       if (form.data_cap_gb) body.data_cap_gb = Number(form.data_cap_gb);
+      if (form.radius_vendor) body.radius_vendor = form.radius_vendor;
+      if (form.radius_rate_limit_template) body.radius_rate_limit_template = form.radius_rate_limit_template;
+      if (form.fup_threshold_gb) body.fup_threshold_gb = Number(form.fup_threshold_gb);
+      if (form.fup_threshold_percent) body.fup_threshold_percent = Number(form.fup_threshold_percent);
+      if (form.fup_download_speed_mbps) body.fup_download_speed_mbps = Number(form.fup_download_speed_mbps);
+      if (form.fup_upload_speed_mbps) body.fup_upload_speed_mbps = Number(form.fup_upload_speed_mbps);
+      if (form.overage_price_per_gb) body.overage_price_per_gb = Number(form.overage_price_per_gb);
+      if (form.trial_days) body.trial_days = Number(form.trial_days);
+      if (form.trial_price) body.trial_price = Number(form.trial_price);
       return isEdit ? updatePlan(plan.id, body) : createPlan(body);
     },
     onSuccess: () => {
@@ -303,6 +345,134 @@ function PlanModal({ plan, onClose, onSaved }: PlanModalProps) {
             >
               {STATUSES.map(s => <option key={s} value={s}>{capitalize(s)}</option>)}
             </select>
+          </label>
+
+          <label style={modalStyles.label}>
+            RADIUS Vendor
+            <select
+              style={modalStyles.select}
+              value={form.radius_vendor}
+              onChange={e => setField('radius_vendor', e.target.value)}
+              aria-label="RADIUS vendor"
+            >
+              {RADIUS_VENDORS.map(v => (
+                <option key={v} value={v}>{v ? capitalize(v) : 'Generic (WISPr)'}</option>
+              ))}
+            </select>
+          </label>
+
+          <label style={modalStyles.label}>
+            RADIUS Rate-Limit Template
+            <input
+              style={modalStyles.input}
+              type="text"
+              maxLength={200}
+              value={form.radius_rate_limit_template}
+              onChange={e => setField('radius_rate_limit_template', e.target.value)}
+              placeholder="e.g. 10M/2M"
+            />
+          </label>
+
+          <label style={modalStyles.label}>
+            FUP Threshold (GB)
+            <input
+              style={modalStyles.input}
+              type="number"
+              min={0}
+              step="0.01"
+              value={form.fup_threshold_gb}
+              onChange={e => setField('fup_threshold_gb', e.target.value)}
+              aria-label="FUP threshold in GB"
+            />
+          </label>
+
+          <label style={modalStyles.label}>
+            FUP Threshold (%)
+            <input
+              style={modalStyles.input}
+              type="number"
+              min={0}
+              max={100}
+              value={form.fup_threshold_percent}
+              onChange={e => setField('fup_threshold_percent', e.target.value)}
+              aria-label="FUP threshold percent"
+            />
+          </label>
+
+          <label style={modalStyles.label}>
+            FUP Download Speed (Mbps)
+            <input
+              style={modalStyles.input}
+              type="number"
+              min={0}
+              value={form.fup_download_speed_mbps}
+              onChange={e => setField('fup_download_speed_mbps', e.target.value)}
+              aria-label="FUP throttle download speed"
+            />
+          </label>
+
+          <label style={modalStyles.label}>
+            FUP Upload Speed (Mbps)
+            <input
+              style={modalStyles.input}
+              type="number"
+              min={0}
+              value={form.fup_upload_speed_mbps}
+              onChange={e => setField('fup_upload_speed_mbps', e.target.value)}
+              aria-label="FUP throttle upload speed"
+            />
+          </label>
+
+          <label style={modalStyles.label}>
+            Overage Mode
+            <select
+              style={modalStyles.select}
+              value={form.overage_mode}
+              onChange={e => setField('overage_mode', e.target.value)}
+              aria-label="Overage mode"
+            >
+              {OVERAGE_MODES.map(m => (
+                <option key={m} value={m}>{capitalize(m.replace('_', ' '))}</option>
+              ))}
+            </select>
+          </label>
+
+          <label style={modalStyles.label}>
+            Overage Price per GB
+            <input
+              style={modalStyles.input}
+              type="number"
+              min={0}
+              step="0.0001"
+              value={form.overage_price_per_gb}
+              onChange={e => setField('overage_price_per_gb', e.target.value)}
+              aria-label="Overage price per GB"
+            />
+          </label>
+
+          <label style={modalStyles.label}>
+            Trial Days
+            <input
+              style={modalStyles.input}
+              type="number"
+              min={0}
+              value={form.trial_days}
+              onChange={e => setField('trial_days', e.target.value)}
+              aria-label="Free trial days"
+            />
+          </label>
+
+          <label style={modalStyles.label}>
+            Trial Price
+            <input
+              style={modalStyles.input}
+              type="number"
+              min={0}
+              step="0.01"
+              value={form.trial_price}
+              onChange={e => setField('trial_price', e.target.value)}
+              aria-label="Trial period price"
+            />
           </label>
 
           {error && <p style={modalStyles.error}>{error}</p>}

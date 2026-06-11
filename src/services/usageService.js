@@ -152,4 +152,66 @@ async function checkDataCaps(organizationId) {
   }));
 }
 
-module.exports = { getClientUsage, getDailyUsage, getTopUsers, checkDataCaps };
+/**
+ * Check FUP (Fair Use Policy) threshold usage for contracts.
+ * Returns contracts where usage has exceeded their plan's FUP threshold
+ * but NOT the hard data cap (those are handled by checkDataCaps).
+ */
+async function checkFupThresholds(organizationId) {
+  const now = new Date();
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+
+  const [rows] = await db.query(`
+    SELECT
+      c.id AS contract_id,
+      c.client_id,
+      p.data_cap_gb,
+      p.fup_threshold_gb,
+      p.fup_threshold_percent,
+      p.fup_download_speed_mbps,
+      p.fup_upload_speed_mbps,
+      COALESCE(SUM(cl.bytes_in + cl.bytes_out), 0) AS bytes_used
+    FROM contracts c
+    JOIN plans p ON p.id = c.plan_id
+    LEFT JOIN connection_logs cl ON cl.contract_id = c.id
+      AND cl.event_type IN ('stop', 'interim-update')
+      AND cl.event_at >= ?
+    WHERE c.organization_id = ?
+      AND c.status = 'active'
+      AND (p.fup_threshold_gb IS NOT NULL OR p.fup_threshold_percent IS NOT NULL)
+      AND (p.fup_download_speed_mbps IS NOT NULL OR p.fup_upload_speed_mbps IS NOT NULL)
+    GROUP BY c.id, c.client_id, p.data_cap_gb, p.fup_threshold_gb, p.fup_threshold_percent,
+             p.fup_download_speed_mbps, p.fup_upload_speed_mbps
+  `, [firstOfMonth, organizationId]);
+
+  const BYTES_PER_GB = 1073741824;
+
+  return rows
+    .filter(r => {
+      const usedGb = r.bytes_used / BYTES_PER_GB;
+      // Calculate threshold in GB
+      let thresholdGb = r.fup_threshold_gb;
+      if (thresholdGb === null && r.fup_threshold_percent !== null && r.data_cap_gb !== null) {
+        thresholdGb = r.data_cap_gb * (r.fup_threshold_percent / 100);
+      }
+      if (thresholdGb === null) return false;
+
+      const overThreshold = usedGb > thresholdGb;
+      // Not over the hard cap (or no hard cap)
+      const notOverCap = r.data_cap_gb === null || usedGb <= r.data_cap_gb;
+      return overThreshold && notOverCap;
+    })
+    .map(r => ({
+      contract_id: r.contract_id,
+      client_id: r.client_id,
+      threshold_gb: r.fup_threshold_gb ||
+        (r.fup_threshold_percent !== null && r.data_cap_gb !== null
+          ? r.data_cap_gb * (r.fup_threshold_percent / 100)
+          : null),
+      used_gb: parseFloat((r.bytes_used / BYTES_PER_GB).toFixed(3)),
+      fup_download_speed_mbps: r.fup_download_speed_mbps,
+      fup_upload_speed_mbps: r.fup_upload_speed_mbps,
+    }));
+}
+
+module.exports = { getClientUsage, getDailyUsage, getTopUsers, checkDataCaps, checkFupThresholds };

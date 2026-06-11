@@ -12,6 +12,7 @@
 import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, tokenStore } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 import { extractApiError, errorBox, inputStyle, labelStyle, submitBtn, cancelBtn, dangerBtn } from '@/components/ClientFormModal';
 
 // ---------------------------------------------------------------------------
@@ -26,7 +27,7 @@ const smallBtn: React.CSSProperties = { ...cancelBtn, padding: '4px 10px' };
 interface TabProps { clientId: number; canEdit: boolean; }
 
 // ---------------------------------------------------------------------------
-// Profile extras — credit score, risk, GPS, geocode, group
+// Profile extras — credit score, risk, GPS, geocode, group, suspension exempt
 // ---------------------------------------------------------------------------
 interface ClientRaw {
   id: number;
@@ -35,10 +36,14 @@ interface ClientRaw {
   latitude: number | string | null;
   longitude: number | string | null;
   client_group_id: number | null;
+  suspension_exempt: boolean | number | null;
+  suspension_exempt_reason: string | null;
 }
 interface GroupRow { id: number; name: string; }
 
 export function ProfileExtrasTab({ clientId, canEdit }: TabProps) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const qc = useQueryClient();
   const [error, setError] = useState('');
 
@@ -86,8 +91,25 @@ export function ProfileExtrasTab({ clientId, canEdit }: TabProps) {
     onError: (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to update group'),
   });
 
+  const updateExemption = useMutation({
+    mutationFn: async (body: { suspension_exempt: boolean; suspension_exempt_reason?: string }) => {
+      const { error: e } = await api.PUT('/clients/{id}', {
+        params: { path: { id: clientId } },
+        body: body as never,
+      });
+      if (e) throw new Error(extractApiError(e, 'Failed to update suspension exemption'));
+    },
+    onSuccess: () => { setError(''); refresh(); },
+    onError: (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to update suspension exemption'),
+  });
+
+  const [exemptReason, setExemptReason] = useState<string | null>(null);
+
   if (isLoading) return <p style={msg}>Loading…</p>;
   if (!client) return <p style={msg}>No profile data.</p>;
+
+  // Initialise exemptReason from client data on first render
+  const currentExemptReason = exemptReason ?? (client.suspension_exempt_reason || '');
 
   const lat = client.latitude != null ? Number(client.latitude) : null;
   const lng = client.longitude != null ? Number(client.longitude) : null;
@@ -146,6 +168,70 @@ export function ProfileExtrasTab({ clientId, canEdit }: TabProps) {
               )}
             </td>
           </tr>
+
+          {isAdmin && canEdit && (
+            <>
+              <tr>
+                <td style={{ ...cell, color: 'var(--text-secondary)' }}>Exempt from automatic suspension (VIP)</td>
+                <td style={cell}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(client.suspension_exempt)}
+                      disabled={updateExemption.isPending}
+                      onChange={e => updateExemption.mutate({
+                        suspension_exempt: e.target.checked,
+                        suspension_exempt_reason: currentExemptReason || undefined,
+                      })}
+                    />
+                    {Boolean(client.suspension_exempt) ? 'Exempt' : 'Not exempt'}
+                  </label>
+                </td>
+              </tr>
+              <tr>
+                <td style={{ ...cell, color: 'var(--text-secondary)' }}>Exemption reason</td>
+                <td style={cell}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      style={{ ...inputStyle, maxWidth: 320 }}
+                      type="text"
+                      value={currentExemptReason}
+                      placeholder="Reason for VIP exemption"
+                      onChange={e => setExemptReason(e.target.value)}
+                      disabled={updateExemption.isPending}
+                    />
+                    <button
+                      type="button"
+                      style={submitBtn}
+                      disabled={updateExemption.isPending}
+                      onClick={() => updateExemption.mutate({
+                        suspension_exempt: Boolean(client.suspension_exempt),
+                        suspension_exempt_reason: currentExemptReason || undefined,
+                      })}
+                    >
+                      {updateExemption.isPending ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </>
+          )}
+
+          {isAdmin && !canEdit && Boolean(client.suspension_exempt) && (
+            <tr>
+              <td style={{ ...cell, color: 'var(--text-secondary)' }}>Suspension exemption</td>
+              <td style={cell}>
+                <span style={{ background: '#d1fae5', color: '#065f46', padding: '2px 8px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 600 }}>
+                  Exempt (VIP)
+                </span>
+                {client.suspension_exempt_reason && (
+                  <span style={{ marginLeft: 8, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                    {client.suspension_exempt_reason}
+                  </span>
+                )}
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
