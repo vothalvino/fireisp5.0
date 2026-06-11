@@ -123,39 +123,39 @@
 ## 3. RADIUS / AAA
 
 ### 3.1 Authentication
-- [ ] FreeRADIUS or equivalent RADIUS server integration
-- [ ] PPPoE authentication (PAP/CHAP/EAP)
-- [ ] 802.1X port-based authentication for enterprise clients
-- [ ] MAC-based authentication (MAB) for CPE auto-auth
-- [ ] Login/Password authentication for portals
-- [ ] Certificate-based authentication (EAP-TLS)
-- [ ] Multi-factor authentication for admin accounts
+- [x] FreeRADIUS or equivalent RADIUS server integration
+- [x] PPPoE authentication (PAP/CHAP/EAP)
+- [x] 802.1X port-based authentication for enterprise clients
+- [x] MAC-based authentication (MAB) for CPE auto-auth
+- [x] Login/Password authentication for portals
+- [x] Certificate-based authentication (EAP-TLS)
+- [x] Multi-factor authentication for admin accounts
 
 ### 3.2 Authorization
-- [ ] Speed profile assignment via RADIUS (MikroTik rate-limit, Cisco AV-pair, Juniper filter)
-- [ ] IP address pool assignment (IPv4 / IPv6 / dual-stack)
-- [ ] Session timeout and idle timeout enforcement
-- [ ] Simultaneous session limits per user
-- [ ] Time-based access restriction
-- [ ] VLAN assignment via RADIUS (QinQ, C-VLAN)
-- [ ] Proxy-redirect / walled-garden for unpaid users
-- [ ] Route injection per session
+- [x] Speed profile assignment via RADIUS (MikroTik rate-limit, Cisco AV-pair, Juniper filter)
+- [x] IP address pool assignment (IPv4 / IPv6 / dual-stack)
+- [x] Session timeout and idle timeout enforcement
+- [x] Simultaneous session limits per user
+- [x] Time-based access restriction
+- [x] VLAN assignment via RADIUS (QinQ, C-VLAN)
+- [x] Proxy-redirect / walled-garden for unpaid users
+- [x] Route injection per session
 
 ### 3.3 Accounting
-- [ ] Real-time accounting: session start/stop/interim-update
-- [ ] Data usage tracking (input/output octets in RADIUS accounting)
-- [ ] Session duration tracking
-- [ ] NAS port identification (OLT PON port, switch port)
-- [ ] Per-session billing detail records (CDR)
-- [ ] Accounting stop/start on re-auth (MAC move detection)
-- [ ] Historical accounting data retention (configurable months)
+- [x] Real-time accounting: session start/stop/interim-update
+- [x] Data usage tracking (input/output octets in RADIUS accounting)
+- [x] Session duration tracking
+- [x] NAS port identification (OLT PON port, switch port)
+- [x] Per-session billing detail records (CDR)
+- [x] Accounting stop/start on re-auth (MAC move detection)
+- [x] Historical accounting data retention (configurable months)
 
 ### 3.4 NAS Management
-- [ ] NAS device registry (IP, secret, type, location)
-- [ ] MikroTik RouterOS via RADIUS CoA (Change of Authorization)
-- [ ] Cisco ASR / Juniper MX BNG support
-- [ ] PacketFence / CoA for dynamic policy changes
-- [ ] NAS failover and fallback configuration
+- [x] NAS device registry (IP, secret, type, location)
+- [x] MikroTik RouterOS via RADIUS CoA (Change of Authorization)
+- [x] Cisco ASR / Juniper MX BNG support
+- [x] PacketFence / CoA for dynamic policy changes
+- [x] NAS failover and fallback configuration
 
 ---
 

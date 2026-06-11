@@ -135,6 +135,8 @@ describe('suspensionService', () => {
       mockConnection.execute.mockResolvedValue([{ affectedRows: 1 }]);
       // RADIUS lookup returns empty (no RADIUS account)
       db.query.mockResolvedValueOnce([[]]);
+      // Open walled-garden suspension_logs lookup: none
+      db.query.mockResolvedValueOnce([[]]);
 
       await suspensionService.reconnectContract(10, 5, 50);
 
@@ -149,6 +151,24 @@ describe('suspensionService', () => {
 
       expect(mockConnection.commit).toHaveBeenCalled();
       expect(mockConnection.release).toHaveBeenCalled();
+    });
+
+    test('lifts walled garden when an open walled_garden log exists', async () => {
+      const radiusService = require('../src/services/radiusService');
+      const wgSpy = jest
+        .spyOn(radiusService, 'walledGardenReconnect')
+        .mockResolvedValueOnce(undefined);
+
+      mockConnection.execute.mockResolvedValue([{ affectedRows: 1 }]);
+      // RADIUS lookup returns empty (no RADIUS account)
+      db.query.mockResolvedValueOnce([[]]);
+      // Open walled-garden suspension_logs lookup: one open entry
+      db.query.mockResolvedValueOnce([[{ id: 77 }]]);
+
+      await suspensionService.reconnectContract(10, 5, 50);
+
+      expect(wgSpy).toHaveBeenCalledWith(10, 5);
+      wgSpy.mockRestore();
     });
 
     test('rolls back on error', async () => {

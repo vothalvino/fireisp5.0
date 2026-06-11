@@ -24,6 +24,8 @@ jest.mock('../src/services/suspensionService', () => ({
 
 jest.mock('../src/services/radiusService', () => ({
   syncAllAccounts: jest.fn().mockResolvedValue({ synced: 0, total: 0 }),
+  syncFreeradiusTables: jest.fn().mockResolvedValue({ synced: 0, errors: 0, plans_synced: 0 }),
+  checkCertificateExpiry: jest.fn().mockResolvedValue({ expiring_soon: 0, certificates: [] }),
 }));
 
 jest.mock('../src/services/snmpPoller', () => ({

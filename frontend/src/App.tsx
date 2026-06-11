@@ -57,6 +57,7 @@ import { SnmpMetrics } from '@/pages/SnmpMetrics';
 import { SnmpTraps } from '@/pages/SnmpTraps';
 import { SiteList } from '@/pages/SiteList';
 import { NasList } from '@/pages/NasList';
+import { MacMoveEvents } from '@/pages/MacMoveEvents';
 import { IpPoolList } from '@/pages/IpPoolList';
 import { IpAssignmentList } from '@/pages/IpAssignmentList';
 import { VlanList } from '@/pages/VlanList';
@@ -177,6 +178,7 @@ export function App() {
                 <Route path="coverage-zones" element={<CoverageZoneMap />} />
                 <Route path="sites" element={<SiteList />} />
                 <Route path="nas" element={<NasList />} />
+                <Route path="mac-move-events" element={<MacMoveEvents />} />
                 <Route path="ip-pools" element={<IpPoolList />} />
                 <Route path="ip-assignments" element={<IpAssignmentList />} />
                 <Route path="vlans" element={<VlanList />} />

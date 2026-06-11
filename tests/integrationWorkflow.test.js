@@ -152,6 +152,7 @@ describe('Integration Workflow: Billing → CFDI → Suspension', () => {
       db.getConnection.mockResolvedValue(mockConnection);
       mockConnection.execute.mockResolvedValue([{ affectedRows: 1 }]);
       db.query.mockResolvedValueOnce([[]]);  // RADIUS lookup (none)
+      db.query.mockResolvedValueOnce([[]]);  // walled-garden check — no open restriction
 
       await suspensionService.reconnectContract(10, 5, 50);
 

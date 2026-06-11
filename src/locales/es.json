@@ -59,5 +59,18 @@
     "deleted": "Eliminado exitosamente",
     "exported": "Exportación completada",
     "imported": "Importación completada"
+  },
+  "radius": {
+    "sync_complete": "Sincronización RADIUS completada: {{synced}} cuentas, {{errors}} errores",
+    "freeradius_sync_complete": "Sincronización de tablas FreeRADIUS completada: {{synced}} usuarios, {{plans}} planes",
+    "certificate_expiry_warning": "{{count}} certificado(s) de suscriptor vence(n) en los próximos 30 días",
+    "certificate_revoked": "Certificado revocado exitosamente",
+    "certificate_already_revoked": "El certificado ya fue revocado",
+    "mac_move_detected": "Movimiento de MAC detectado para el usuario {{username}}",
+    "coa_sent": "Paquete CoA enviado al NAS",
+    "accounting_ingested": "Registro de contabilidad ingestado",
+    "cdr_export_complete": "Exportación de CDR completada",
+    "nas_health_up": "El NAS {{name}} está activo",
+    "nas_health_down": "El NAS {{name}} está inactivo"
   }
 }

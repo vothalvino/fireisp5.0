@@ -9,7 +9,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createPlan, updatePlan, patchPlan, createPlanAddon, createSpeedWindow } = require('../middleware/schemas/plans');
+const { createPlan, updatePlan, patchPlan, createPlanAddon, createSpeedWindow, createAccessWindow } = require('../middleware/schemas/plans');
 const { httpCache } = require('../middleware/httpCache');
 const db = require('../config/database');
 
@@ -115,6 +115,66 @@ router.delete('/:id/speed-windows/:windowId', requirePermission('plans.update'),
   try {
     await db.query(
       'UPDATE plan_speed_windows SET deleted_at = NOW() WHERE id = ? AND plan_id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [req.params.windowId, req.params.id, req.orgId],
+    );
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =============================================================================
+// Access Windows CRUD (item 12 — time-based access restriction)
+// =============================================================================
+
+router.get('/:id/access-windows', requirePermission('plan_access_windows.view'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT * FROM plan_access_windows WHERE plan_id = ? AND organization_id = ? AND deleted_at IS NULL ORDER BY id ASC',
+      [req.params.id, req.orgId],
+    );
+    res.json({ data: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:id/access-windows', requirePermission('plan_access_windows.create'), validate(createAccessWindow), async (req, res, next) => {
+  try {
+    const { label, day_mask, start_time, end_time, status } = req.body;
+    const [result] = await db.query(
+      `INSERT INTO plan_access_windows (plan_id, organization_id, label, day_mask, start_time, end_time, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [req.params.id, req.orgId, label, day_mask ?? 127, start_time, end_time, status ?? 'active'],
+    );
+    const [rows] = await db.query('SELECT * FROM plan_access_windows WHERE id = ?', [result.insertId]);
+    res.status(201).json({ data: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/:id/access-windows/:windowId', requirePermission('plan_access_windows.update'), validate(createAccessWindow), async (req, res, next) => {
+  try {
+    const { label, day_mask, start_time, end_time, status } = req.body;
+    await db.query(
+      `UPDATE plan_access_windows SET label=?, day_mask=?, start_time=?, end_time=?, status=?
+       WHERE id = ? AND plan_id = ? AND organization_id = ? AND deleted_at IS NULL`,
+      [label, day_mask ?? 127, start_time, end_time, status ?? 'active',
+        req.params.windowId, req.params.id, req.orgId],
+    );
+    const [rows] = await db.query('SELECT * FROM plan_access_windows WHERE id = ?', [req.params.windowId]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Access window not found' });
+    res.json({ data: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/:id/access-windows/:windowId', requirePermission('plan_access_windows.delete'), async (req, res, next) => {
+  try {
+    await db.query(
+      'UPDATE plan_access_windows SET deleted_at = NOW() WHERE id = ? AND plan_id = ? AND organization_id = ? AND deleted_at IS NULL',
       [req.params.windowId, req.params.id, req.orgId],
     );
     res.status(204).end();

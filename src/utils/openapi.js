@@ -133,6 +133,7 @@ function generateSpec() {
       { name: 'Billing Disputes', description: 'Dispute tracking with evidence attachment — §2.5.2' },
       { name: 'Chargebacks', description: 'Chargeback management with gateway webhook integration — §2.5.3' },
       { name: 'Billing Adjustments', description: 'Billing adjustment log with audit trail — §2.5.4' },
+      { name: 'Subscriber Certificates', description: 'EAP-TLS subscriber certificate metadata registry — §3.1' },
     ],
     paths: {
       // ---- Auth ----
@@ -278,6 +279,14 @@ function generateSpec() {
         put:    { tags: ['Plans'], summary: 'Update a speed window', operationId: 'updatePlanSpeedWindow', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'windowId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('plans_createSpeedWindow'), responses: r200('SpeedWindow') },
         delete: { tags: ['Plans'], summary: 'Soft-delete a speed window', operationId: 'deletePlanSpeedWindow', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'windowId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
       },
+      '/plans/{id}/access-windows': {
+        get:  { tags: ['Plans'], summary: 'List time-based access restriction windows for a plan', operationId: 'listPlanAccessWindows', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('AccessWindow[]') },
+        post: { tags: ['Plans'], summary: 'Create an access window for a plan', operationId: 'createPlanAccessWindow', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('plans_createAccessWindow'), responses: r201('AccessWindow') },
+      },
+      '/plans/{id}/access-windows/{windowId}': {
+        put:    { tags: ['Plans'], summary: 'Update an access window', operationId: 'updatePlanAccessWindow', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'windowId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('plans_createAccessWindow'), responses: r200('AccessWindow') },
+        delete: { tags: ['Plans'], summary: 'Soft-delete an access window', operationId: 'deletePlanAccessWindow', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'windowId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
 
       // ---- Contracts ----
       ...crudPaths('contracts', 'Contracts', 'Contract'),
@@ -419,10 +428,37 @@ function generateSpec() {
 
       // ---- NAS ----
       ...crudPaths('nas', 'NAS', 'Nas'),
+      '/nas/{id}/health': { get: { tags: ['NAS'], summary: 'Get health status for a NAS device', operationId: 'getNasHealth', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('NAS health status') } },
+      '/nas/{id}/health-check': { post: { tags: ['NAS'], summary: 'Trigger manual health check probe for org NAS devices', operationId: 'triggerNasHealthCheck', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Health check results') } },
 
       // ---- RADIUS ----
       ...crudPaths('radius', 'RADIUS', 'RadiusAccount'),
       '/radius/{id}/disconnect': { post: { tags: ['RADIUS'], summary: 'Disconnect active PPPoE session for a RADIUS account', operationId: 'disconnectRadiusSession', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Disconnect result') } },
+      '/radius/contract/{contractId}': { get: { tags: ['RADIUS'], summary: 'List RADIUS accounts for a contract', operationId: 'listRadiusByContract', security: [{ bearerAuth: [] }], parameters: [{ name: 'contractId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('RadiusAccount[]') } },
+      '/radius/sync-freeradius': { post: { tags: ['RADIUS'], summary: 'Trigger FreeRADIUS SQL table sync (radcheck, radreply, radusergroup, radgroupcheck, radgroupreply)', operationId: 'syncFreeradiusTables', security: [{ bearerAuth: [] }], responses: r200('Sync result') } },
+      '/radius/{id}/routes': {
+        get:  { tags: ['RADIUS'], summary: 'List per-account injected routes (Framed-Route)', operationId: 'listRadiusAccountRoutes', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('RadiusAccountRoute[]') },
+        post: { tags: ['RADIUS'], summary: 'Add a per-account injected route', operationId: 'createRadiusAccountRoute', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('radius_createRoute'), responses: r201('RadiusAccountRoute') },
+      },
+      '/radius/{id}/routes/{routeId}': {
+        put:    { tags: ['RADIUS'], summary: 'Update a per-account injected route', operationId: 'updateRadiusAccountRoute', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'routeId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('radius_updateRoute'), responses: r200('RadiusAccountRoute') },
+        delete: { tags: ['RADIUS'], summary: 'Delete a per-account injected route', operationId: 'deleteRadiusAccountRoute', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'routeId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/radius/walled-garden': {
+        get: { tags: ['RADIUS'], summary: 'Get org walled garden settings', operationId: 'getWalledGardenSettings', security: [{ bearerAuth: [] }], responses: r200('WalledGardenSettings') },
+        put: { tags: ['RADIUS'], summary: 'Update org walled garden settings', operationId: 'updateWalledGardenSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('radius_updateWalledGarden'), responses: r200('WalledGardenSettings') },
+      },
+      '/radius/kick-sessions': { post: { tags: ['RADIUS'], summary: 'Trigger manual duplicate-session kick for org', operationId: 'kickDuplicateSessions', security: [{ bearerAuth: [] }], responses: r200('Kick result') } },
+      '/radius/accounting': { post: { tags: ['RADIUS'], summary: 'Ingest FreeRADIUS accounting record (Start/Stop/Interim-Update) — machine-to-machine, secret auth', operationId: 'ingestRadiusAccounting', responses: r200('Ingest result') } },
+      '/radius/cdr': { get: { tags: ['RADIUS'], summary: 'Export CDR session records from connection_logs', operationId: 'exportRadiusCdr', security: [{ bearerAuth: [] }], parameters: [{ name: 'from', in: 'query', required: true, schema: { type: 'string', format: 'date' } }, { name: 'to', in: 'query', required: true, schema: { type: 'string', format: 'date' } }, { name: 'username', in: 'query', schema: { type: 'string' } }, { name: 'format', in: 'query', schema: { type: 'string', enum: ['json', 'csv'] } }], responses: r200('CDR rows or CSV') } },
+      '/radius/coa': { post: { tags: ['RADIUS'], summary: 'Send dynamic CoA-Request to NAS for a subscriber', operationId: 'sendDynamicCoA', security: [{ bearerAuth: [] }], requestBody: jsonBody('Dynamic CoA request'), responses: r200('CoA result') } },
+      '/radius/mac-move-events': { get: { tags: ['RADIUS'], summary: 'List MAC move events detected during accounting ingest', operationId: 'listMacMoveEvents', security: [{ bearerAuth: [] }], responses: r200('MacMoveEvent[]') } },
+
+      // ---- Subscriber Certificates ----
+      ...crudPaths('subscriber-certificates', 'Subscriber Certificates', 'SubscriberCertificate'),
+      '/subscriber-certificates/radius-account/{radiusAccountId}': { get: { tags: ['Subscriber Certificates'], summary: 'List certificates for a RADIUS account', operationId: 'listCertsByRadiusAccount', security: [{ bearerAuth: [] }], parameters: [{ name: 'radiusAccountId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('SubscriberCertificate[]') } },
+      '/subscriber-certificates/client/{clientId}': { get: { tags: ['Subscriber Certificates'], summary: 'List certificates for a client', operationId: 'listCertsByClient', security: [{ bearerAuth: [] }], parameters: [{ name: 'clientId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('SubscriberCertificate[]') } },
+      '/subscriber-certificates/{id}/revoke': { post: { tags: ['Subscriber Certificates'], summary: 'Revoke a subscriber certificate', operationId: 'revokeSubscriberCertificate', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('subscriberCertificates_revokeSubscriberCertificate'), responses: r200('SubscriberCertificate') } },
 
       // ---- SNMP Profiles ----
       ...crudPaths('snmp-profiles', 'SNMP Profiles', 'SnmpProfile'),

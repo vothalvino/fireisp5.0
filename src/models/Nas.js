@@ -10,7 +10,9 @@ class Nas extends BaseModel {
   static get fillable() {
     return [
       'organization_id', 'name', 'ip_address', 'ipv6_address',
-      'secret', 'type', 'description', 'status',
+      'secret', 'type', 'ports', 'coa_port', 'location', 'site_id',
+      'secondary_nas_id', 'health_status', 'last_health_check_at',
+      'description', 'status',
     ];
   }
 

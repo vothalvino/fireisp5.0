@@ -6,6 +6,7 @@
 
 const db = require('../config/database');
 const suspensionService = require('../services/suspensionService');
+const radiusService = require('../services/radiusService');
 
 /**
  * POST /api/suspension/evaluate
@@ -117,6 +118,11 @@ async function runAuto(req, res, next) {
           contract.id, rule.id, req.user.id, contract.invoice_id,
           rule.soft_suspend_download_kbps || 128,
           rule.soft_suspend_upload_kbps || 128,
+        );
+        if (!outcome?.skipped) suspended++;
+      } else if (rule.action === 'walled_garden') {
+        const outcome = await radiusService.walledGardenSuspendContract(
+          contract.id, rule.id, req.user.id, contract.invoice_id,
         );
         if (!outcome?.skipped) suspended++;
       }

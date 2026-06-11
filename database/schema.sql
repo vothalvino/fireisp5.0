@@ -509,6 +509,8 @@ CREATE TABLE IF NOT EXISTS radius (
     ipv6_pool_id  BIGINT UNSIGNED NULL     COMMENT 'IPv6 pool for dynamic prefix delegation (PPPoE dual-stack)',
     mac_address   VARCHAR(17)     NULL COMMENT 'MAC address in XX:XX:XX:XX:XX:XX format',
     profile       VARCHAR(100)    NULL COMMENT 'RADIUS profile / bandwidth profile name',
+    auth_method   ENUM('pppoe','mac','dot1x','eap_tls') NOT NULL DEFAULT 'pppoe'
+                      COMMENT 'Authentication method used by this subscriber account',
     status        ENUM('active', 'inactive', 'suspended') NOT NULL DEFAULT 'active',
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -7569,3 +7571,241 @@ CREATE TABLE IF NOT EXISTS billing_adjustments (
     CONSTRAINT fk_billing_adjustments_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: radcheck
+-- Purpose: Standard FreeRADIUS per-user check attributes (Cleartext-Password,
+--          Auth-Type, TLS-Cert-Serial) — populated by radius_sync task (§3.1)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS radcheck (
+    id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    username  VARCHAR(64)     NOT NULL DEFAULT '',
+    attribute VARCHAR(64)     NOT NULL DEFAULT '',
+    op        CHAR(2)         NOT NULL DEFAULT '==',
+    value     VARCHAR(253)    NOT NULL DEFAULT '',
+
+    PRIMARY KEY (id),
+    KEY idx_radcheck_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: radreply
+-- Purpose: Standard FreeRADIUS per-user reply attributes — populated by radius_sync task
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS radreply (
+    id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    username  VARCHAR(64)     NOT NULL DEFAULT '',
+    attribute VARCHAR(64)     NOT NULL DEFAULT '',
+    op        CHAR(2)         NOT NULL DEFAULT '=',
+    value     VARCHAR(253)    NOT NULL DEFAULT '',
+
+    PRIMARY KEY (id),
+    KEY idx_radreply_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: radusergroup
+-- Purpose: Standard FreeRADIUS user → group membership
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS radusergroup (
+    id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    username  VARCHAR(64)     NOT NULL DEFAULT '',
+    groupname VARCHAR(64)     NOT NULL DEFAULT '',
+    priority  INT             NOT NULL DEFAULT 1,
+
+    PRIMARY KEY (id),
+    KEY idx_radusergroup_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: radgroupcheck
+-- Purpose: Standard FreeRADIUS per-group check attributes
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS radgroupcheck (
+    id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    groupname VARCHAR(64)     NOT NULL DEFAULT '',
+    attribute VARCHAR(64)     NOT NULL DEFAULT '',
+    op        CHAR(2)         NOT NULL DEFAULT '==',
+    value     VARCHAR(253)    NOT NULL DEFAULT '',
+
+    PRIMARY KEY (id),
+    KEY idx_radgroupcheck_groupname (groupname)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: radgroupreply
+-- Purpose: Standard FreeRADIUS per-group reply attributes (vendor speed attrs)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS radgroupreply (
+    id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    groupname VARCHAR(64)     NOT NULL DEFAULT '',
+    attribute VARCHAR(64)     NOT NULL DEFAULT '',
+    op        CHAR(2)         NOT NULL DEFAULT '=',
+    value     VARCHAR(253)    NOT NULL DEFAULT '',
+
+    PRIMARY KEY (id),
+    KEY idx_radgroupreply_groupname (groupname)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: subscriber_certificates
+-- Purpose: EAP-TLS subscriber certificate metadata registry (§3.1)
+-- NOTE: FireISP is a metadata registry only — it does NOT generate or sign
+--       certificates. Use an external CA (easy-rsa, step-ca, Vault PKI, etc.)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS subscriber_certificates (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL
+                            COMMENT 'Tenant organization; NULL = single-tenant deployment',
+    radius_account_id   BIGINT UNSIGNED NULL
+                            COMMENT 'Linked RADIUS account (radius.id)',
+    client_id           BIGINT UNSIGNED NULL
+                            COMMENT 'Linked subscriber (clients.id)',
+    common_name         VARCHAR(255)    NOT NULL
+                            COMMENT 'Certificate CN, typically the RADIUS username',
+    serial_number       VARCHAR(100)    NOT NULL
+                            COMMENT 'Certificate serial number (hex string)',
+    fingerprint_sha256  VARCHAR(64)     NOT NULL
+                            COMMENT 'SHA-256 fingerprint of the certificate (hex, no colons)',
+    valid_from          DATETIME        NOT NULL,
+    valid_until         DATETIME        NOT NULL,
+    status              ENUM('active','revoked','expired')
+                            NOT NULL DEFAULT 'active',
+    revoked_at          DATETIME        NULL,
+    revocation_reason   VARCHAR(255)    NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_subscriber_certificates_org_id (organization_id),
+    KEY idx_subscriber_certificates_radius_account_id (radius_account_id),
+    KEY idx_subscriber_certificates_client_id (client_id),
+    KEY idx_subscriber_certificates_status (status),
+    KEY idx_subscriber_certificates_valid_until (valid_until),
+    CONSTRAINT fk_subscriber_certificates_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_subscriber_certificates_radius_account FOREIGN KEY (radius_account_id)
+        REFERENCES radius (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_subscriber_certificates_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: plan_access_windows (migration 226 — §3.2 item 12)
+-- Purpose: Per-plan time-based access restriction windows.
+--          Converted to FreeRADIUS Login-Time radcheck attribute by syncFreeradiusTables().
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS plan_access_windows (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    plan_id         BIGINT UNSIGNED NOT NULL,
+    organization_id BIGINT UNSIGNED NULL,
+    label           VARCHAR(100)    NOT NULL
+                        COMMENT 'Human-readable label e.g. "Business hours"',
+    day_mask        TINYINT UNSIGNED NOT NULL DEFAULT 127
+                        COMMENT 'Bitmask: bit0=Sun, bit1=Mon, ..., bit6=Sat; 127=all days',
+    start_time      TIME            NOT NULL,
+    end_time        TIME            NOT NULL,
+    status          ENUM('active','inactive') NOT NULL DEFAULT 'active',
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at      DATETIME        DEFAULT NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_plan_access_windows_plan_id (plan_id),
+    KEY idx_plan_access_windows_organization_id (organization_id),
+    KEY idx_plan_access_windows_status (status),
+    CONSTRAINT fk_plan_access_windows_plan FOREIGN KEY (plan_id)
+        REFERENCES plans (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: organization_walled_garden_settings (migration 227 — §3.2 item 14)
+-- Purpose: Per-org walled garden configuration for captive portal / unpaid subscriber handling.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS organization_walled_garden_settings (
+    id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id       BIGINT UNSIGNED NOT NULL,
+    enabled               TINYINT(1)      NOT NULL DEFAULT 0,
+    redirect_url          VARCHAR(500)    NULL,
+    address_list_name     VARCHAR(100)    NOT NULL DEFAULT 'walled_garden',
+    allowed_destinations  TEXT            NULL,
+    created_at            TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at            TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_walled_garden_org (organization_id),
+    CONSTRAINT fk_walled_garden_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: radius_account_routes (migration 228 — §3.2 item 15)
+-- Purpose: Per-account static route injection; each row → one Framed-Route radreply attribute.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS radius_account_routes (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    radius_account_id   BIGINT UNSIGNED NOT NULL,
+    organization_id     BIGINT UNSIGNED NULL,
+    destination         VARCHAR(50)     NOT NULL
+                            COMMENT 'Destination CIDR (e.g. 192.168.10.0/24)',
+    gateway             VARCHAR(45)     NULL,
+    metric              TINYINT UNSIGNED NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        DEFAULT NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_radius_account_routes_account_id (radius_account_id),
+    KEY idx_radius_account_routes_org_id (organization_id),
+    KEY idx_radius_account_routes_deleted_at (deleted_at),
+    CONSTRAINT fk_radius_account_routes_account FOREIGN KEY (radius_account_id)
+        REFERENCES radius (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: mac_move_events (migration 231 — §3.3 Phase C)
+-- Purpose: Records MAC-address move events detected during RADIUS accounting
+--          ingest (same username, different Calling-Station-Id or NAS).
+--          No FK constraints — loose references for compliance resilience.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS mac_move_events (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL
+                        COMMENT 'Tenant organization; NULL = single-tenant (no FK)',
+    username        VARCHAR(64)     NOT NULL  COMMENT 'RADIUS username',
+    old_mac         VARCHAR(17)     NULL      COMMENT 'Previous Calling-Station-Id (raw)',
+    new_mac         VARCHAR(17)     NULL      COMMENT 'New Calling-Station-Id detected',
+    old_nas_id      BIGINT UNSIGNED NULL      COMMENT 'Previous NAS (loose ref to nas.id)',
+    new_nas_id      BIGINT UNSIGNED NULL      COMMENT 'New NAS (loose ref to nas.id)',
+    detected_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_mac_move_org         (organization_id),
+    KEY idx_mac_move_username    (username),
+    KEY idx_mac_move_detected_at (detected_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Columns added to connection_logs by migration 230 (§3.3 Phase C):
+--   acct_session_id     VARCHAR(64)  NULL
+--   nas_port_id         VARCHAR(100) NULL
+--   called_station_id   VARCHAR(100) NULL
+--   calling_station_id  VARCHAR(100) NULL
+--   framed_ip           VARCHAR(45)  NULL
+--   framed_ipv6_prefix  VARCHAR(64)  NULL
+-- Applied via stored-procedure guards (ALTER TABLE IF NOT EXISTS equivalent).
+-- See migration 230 for the exact DDL.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Columns added to nas by migration 232 (§3.4 Phase C):
+--   coa_port           SMALLINT UNSIGNED NULL DEFAULT 3799
+--   location           VARCHAR(200)      NULL
+--   site_id            BIGINT UNSIGNED   NULL  (FK → sites ON DELETE SET NULL)
+--   secondary_nas_id   BIGINT UNSIGNED   NULL  (self-ref FK ON DELETE SET NULL)
+--   health_status      ENUM('unknown','up','down') NOT NULL DEFAULT 'unknown'
+--   last_health_check_at DATETIME        NULL
+-- Applied via stored-procedure guards. See migration 232.
+-- ---------------------------------------------------------------------------
+
+SET FOREIGN_KEY_CHECKS = 1;

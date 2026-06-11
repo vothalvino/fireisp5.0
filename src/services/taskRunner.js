@@ -69,7 +69,12 @@ async function runTask(taskName, organizationId = null) {
     case 'webhook_retry':
       return webhookService.processRetries();
     case 'radius_sync':
-      return radiusService.syncAllAccounts(organizationId);
+      return Promise.all([
+        radiusService.syncAllAccounts(organizationId),
+        radiusService.syncFreeradiusTables(organizationId),
+      ]).then(([accounts, tables]) => ({ ...accounts, freeradius: tables }));
+    case 'check_certificate_expiry':
+      return radiusService.checkCertificateExpiry(organizationId);
     case 'populate_revenue_summary':
       return { message: 'Revenue summary is populated by MySQL scheduled event' };
     case 'populate_network_health_snapshots':
@@ -102,6 +107,16 @@ async function runTask(taskName, organizationId = null) {
       return lateFeeService.applyLateFees(organizationId);
     case 'send_payment_reminders':
       return paymentReminderService.sendPaymentReminders(organizationId);
+    case 'purge_radius_accounting': {
+      const radiusAccountingService = require('./radiusAccountingService');
+      return radiusAccountingService.purgeRadiusAccounting();
+    }
+    case 'nas_health_check': {
+      const nasHealthService = require('./nasHealthService');
+      return nasHealthService.runHealthChecks(organizationId);
+    }
+    case 'kick_duplicate_sessions':
+      return radiusService.kickDuplicateSessions(organizationId);
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }
@@ -276,6 +291,22 @@ async function runAutoSuspend(organizationId) {
   for (const org of orgs) {
     const results = await suspensionService.evaluateRules(org.id);
     for (const { rule, contract } of results) {
+      if (rule.action === 'soft_suspend') {
+        const outcome = await suspensionService.softSuspendContract(
+          contract.id, rule.id, null, contract.invoice_id,
+          rule.soft_suspend_download_kbps || 128,
+          rule.soft_suspend_upload_kbps || 128,
+        );
+        if (!outcome?.skipped) suspended++;
+        continue;
+      }
+      if (rule.action === 'walled_garden') {
+        const outcome = await radiusService.walledGardenSuspendContract(
+          contract.id, rule.id, null, contract.invoice_id,
+        );
+        if (!outcome?.skipped) suspended++;
+        continue;
+      }
       if (rule.action === 'auto_suspend') {
         await suspensionService.suspendContract(
           contract.id, rule.id, null, contract.invoice_id,

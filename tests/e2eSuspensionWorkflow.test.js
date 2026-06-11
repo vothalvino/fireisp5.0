@@ -95,6 +95,9 @@ describe('E2E Workflow: Suspension Lifecycle', () => {
       .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE contracts → active
       .mockResolvedValueOnce([{ insertId: 2 }]);      // INSERT suspension_log (unsuspend)
 
+    // Walled-garden check after transaction (no open walled garden)
+    db.query.mockResolvedValueOnce([[]]);
+
     await suspensionService.reconnectContract(100, 999, 500);
 
     expect(mockConnection.beginTransaction).toHaveBeenCalled();
@@ -154,6 +157,7 @@ describe('E2E Workflow: Full Suspension → Reconnect cycle', () => {
     mockConnection.execute
       .mockResolvedValueOnce([{ affectedRows: 1 }])   // UPDATE contracts → active
       .mockResolvedValueOnce([{ insertId: 2 }]);       // INSERT suspension_log
+    db.query.mockResolvedValueOnce([[]]);              // walled-garden check — no open restriction
 
     await suspensionService.reconnectContract(100, 999, 500);
     expect(mockConnection.commit).toHaveBeenCalledTimes(2);
