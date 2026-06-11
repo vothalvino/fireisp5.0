@@ -125,7 +125,7 @@ DROP PROCEDURE IF EXISTS _mig277_extend_task_type_enum;
 -- Seed permissions for §8.3
 -- ---------------------------------------------------------------------------
 
-INSERT IGNORE INTO permissions (name, display_name, module) VALUES
+INSERT IGNORE INTO permissions (name, description, module) VALUES
     ('cpe_diagnostics.view',   'View CPE Diagnostics',    'network'),
     ('cpe_diagnostics.create', 'Run CPE Diagnostics',     'network'),
     ('cpe_diagnostics.delete', 'Delete CPE Diagnostics',  'network'),

@@ -30,7 +30,7 @@ DROP PROCEDURE IF EXISTS _mig276_add_cpe_profile_fk;
 
 -- 2. Seed permissions
 
-INSERT IGNORE INTO permissions (name, display_name, module) VALUES
+INSERT IGNORE INTO permissions (name, description, module) VALUES
     ('cpe_devices.view',                    'View CPE Devices',                 'network'),
     ('cpe_devices.create',                  'Create CPE Devices',               'network'),
     ('cpe_devices.update',                  'Update CPE Devices',               'network'),

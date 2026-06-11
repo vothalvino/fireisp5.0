@@ -144,7 +144,7 @@ CREATE TABLE IF NOT EXISTS cpe_lifecycle_history (
 -- 5. Seed permissions for §8.4
 -- ---------------------------------------------------------------------------
 
-INSERT IGNORE INTO permissions (name, display_name, module) VALUES
+INSERT IGNORE INTO permissions (name, description, module) VALUES
     ('cpe_inventory.view',          'View CPE Inventory',               'network'),
     ('cpe_inventory.manage',        'Manage CPE Inventory Lifecycle',   'network'),
     ('cpe_inventory.swap',          'Execute CPE Swap Workflow',        'network'),
