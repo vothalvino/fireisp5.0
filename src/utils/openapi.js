@@ -134,6 +134,8 @@ function generateSpec() {
       { name: 'Chargebacks', description: 'Chargeback management with gateway webhook integration — §2.5.3' },
       { name: 'Billing Adjustments', description: 'Billing adjustment log with audit trail — §2.5.4' },
       { name: 'Subscriber Certificates', description: 'EAP-TLS subscriber certificate metadata registry — §3.1' },
+      { name: 'PPPoE Service Profiles', description: 'PPPoE service profile management — MTU, DNS, rate-limit, address-list — §4B' },
+      { name: 'PPPoE', description: 'PPPoE diagnostics (auth failures, MTU issues) and M2M event log ingest — §4B' },
     ],
     paths: {
       // ---- Auth ----
@@ -898,6 +900,62 @@ function generateSpec() {
             { name: 'month', in: 'query', schema: { type: 'string', pattern: '^\\d{4}-\\d{2}$' }, description: 'YYYY-MM (defaults to current UTC month)' },
           ],
           responses: r200('AiMetrics'),
+        },
+      },
+
+      // ---- PPPoE Service Profiles — §4B ----
+      ...crudPaths('pppoe-service-profiles', 'PPPoE Service Profiles', 'PppoeServiceProfile'),
+      '/pppoe-service-profiles/{id}/restore': { post: { tags: ['PPPoE Service Profiles'], summary: 'Restore a soft-deleted PPPoE service profile', operationId: 'restorePppoeServiceProfile', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('PppoeServiceProfile') } },
+
+      // ---- PPPoE Diagnostics + Event Ingest — §4B ----
+      '/pppoe/diagnostics/auth-failures': {
+        get: {
+          tags: ['PPPoE'],
+          summary: 'Classify auth failures from radpostauth',
+          operationId: 'getPppoeAuthFailures',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'from', in: 'query', schema: { type: 'string', format: 'date-time' }, description: 'Start datetime filter' },
+            { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' }, description: 'End datetime filter' },
+            { name: 'username', in: 'query', schema: { type: 'string' }, description: 'Filter by username' },
+          ],
+          responses: r200('PppoeAuthFailures'),
+        },
+      },
+      '/pppoe/diagnostics/mtu-issues': {
+        get: {
+          tags: ['PPPoE'],
+          summary: 'Detect MTU misconfiguration advisories',
+          operationId: 'getPppoeMtuIssues',
+          security: [{ bearerAuth: [] }],
+          responses: r200('PppoeMtuAdvisories'),
+        },
+      },
+      '/pppoe/events': {
+        get: {
+          tags: ['PPPoE'],
+          summary: 'List PPPoE event log entries',
+          operationId: 'listPppoeEvents',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'from', in: 'query', schema: { type: 'string', format: 'date-time' } },
+            { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
+            { name: 'username', in: 'query', schema: { type: 'string' } },
+            { name: 'mac', in: 'query', schema: { type: 'string' } },
+            { name: 'stage', in: 'query', schema: { type: 'string', enum: ['PADI','PADO','PADR','PADS','PADT','LCP','IPCP','IPV6CP','AUTH','OTHER'] } },
+            { name: 'severity', in: 'query', schema: { type: 'string', enum: ['info','warning','error'] } },
+            { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
+            { name: 'limit', in: 'query', schema: { type: 'integer', default: 50 } },
+          ],
+          responses: r200('PppoeEventLog[]'),
+        },
+        post: {
+          tags: ['PPPoE'],
+          summary: 'Ingest PPPoE event log entry (machine-to-machine, no JWT)',
+          operationId: 'ingestPppoeEvent',
+          security: [],
+          requestBody: jsonBody('PPPoE event payload'),
+          responses: { 201: { description: 'Accepted', content: { 'application/json': { schema: { type: 'object' } } } }, 401: { description: 'Invalid or missing X-Pppoe-Secret' } },
         },
       },
     },

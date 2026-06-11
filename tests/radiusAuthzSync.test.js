@@ -80,6 +80,9 @@ function setupMockDb({
     if (sql.includes('suspension_logs') && sql.includes('walled_garden')) {
       return Promise.resolve([walledUsernames.map(u => ({ username: u }))]);
     }
+    if (sql.includes('FROM pppoe_service_profiles')) {
+      return Promise.resolve([[]]);
+    }
     // DELETE / INSERT — return success
     return Promise.resolve([{ affectedRows: 1 }]);
   });

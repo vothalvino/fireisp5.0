@@ -662,6 +662,24 @@ function registerHooks() {
     }
   });
 
+  // --- PPPoE Auth Failures (Phase B §4) ---
+  eventBus.on('pppoe.auth_failures', async ({ organizationId, username, failureCount, window_minutes, reasons }) => {
+    try {
+      getBroadcast()(`org:${organizationId}:notifications`, 'pppoe.auth_failures', {
+        username,
+        failureCount,
+      });
+      await webhookService.dispatch(organizationId, 'pppoe.auth_failures', {
+        username,
+        failureCount,
+        window_minutes,
+        reasons,
+      });
+    } catch (err) {
+      logger.error({ err, event: 'pppoe.auth_failures' }, 'Notification hook error');
+    }
+  });
+
   // --- IP Pool Utilization Threshold ---
   eventBus.on('ip_pool.threshold', async ({ organizationId, pool, percent, threshold, assigned, usable }) => {
     try {

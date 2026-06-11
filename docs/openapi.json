@@ -391,6 +391,14 @@
     {
       "name": "Subscriber Certificates",
       "description": "EAP-TLS subscriber certificate metadata registry — §3.1"
+    },
+    {
+      "name": "PPPoE Service Profiles",
+      "description": "PPPoE service profile management — MTU, DNS, rate-limit, address-list — §4B"
+    },
+    {
+      "name": "PPPoE",
+      "description": "PPPoE diagnostics (auth failures, MTU issues) and M2M event log ingest — §4B"
     }
   ],
   "paths": {
@@ -20111,6 +20119,427 @@
           }
         }
       }
+    },
+    "/pppoe-service-profiles": {
+      "get": {
+        "tags": [
+          "PPPoE Service Profiles"
+        ],
+        "summary": "List pppoe-service-profiles",
+        "operationId": "listPppoeServiceProfiles",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PppoeServiceProfile[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "PPPoE Service Profiles"
+        ],
+        "summary": "Create a PppoeServiceProfile",
+        "operationId": "createPppoeServiceProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "PppoeServiceProfile",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "PppoeServiceProfile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pppoe-service-profiles/{id}": {
+      "get": {
+        "tags": [
+          "PPPoE Service Profiles"
+        ],
+        "summary": "Get a PppoeServiceProfile",
+        "operationId": "getPppoeServiceProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PppoeServiceProfile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "PPPoE Service Profiles"
+        ],
+        "summary": "Update a PppoeServiceProfile",
+        "operationId": "updatePppoeServiceProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "PppoeServiceProfile",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PppoeServiceProfile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "PPPoE Service Profiles"
+        ],
+        "summary": "Delete a PppoeServiceProfile",
+        "operationId": "deletePppoeServiceProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/pppoe-service-profiles/{id}/restore": {
+      "post": {
+        "tags": [
+          "PPPoE Service Profiles"
+        ],
+        "summary": "Restore a soft-deleted PPPoE service profile",
+        "operationId": "restorePppoeServiceProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PppoeServiceProfile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pppoe/diagnostics/auth-failures": {
+      "get": {
+        "tags": [
+          "PPPoE"
+        ],
+        "summary": "Classify auth failures from radpostauth",
+        "operationId": "getPppoeAuthFailures",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Start datetime filter"
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "End datetime filter"
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by username"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PppoeAuthFailures",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pppoe/diagnostics/mtu-issues": {
+      "get": {
+        "tags": [
+          "PPPoE"
+        ],
+        "summary": "Detect MTU misconfiguration advisories",
+        "operationId": "getPppoeMtuIssues",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PppoeMtuAdvisories",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pppoe/events": {
+      "get": {
+        "tags": [
+          "PPPoE"
+        ],
+        "summary": "List PPPoE event log entries",
+        "operationId": "listPppoeEvents",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mac",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "stage",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PADI",
+                "PADO",
+                "PADR",
+                "PADS",
+                "PADT",
+                "LCP",
+                "IPCP",
+                "IPV6CP",
+                "AUTH",
+                "OTHER"
+              ]
+            }
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "info",
+                "warning",
+                "error"
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PppoeEventLog[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "PPPoE"
+        ],
+        "summary": "Ingest PPPoE event log entry (machine-to-machine, no JWT)",
+        "operationId": "ingestPppoeEvent",
+        "security": [],
+        "requestBody": {
+          "description": "PPPoE event payload",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or missing X-Pppoe-Secret"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -24681,6 +25110,10 @@
             "type": "number",
             "minimum": 1
           },
+          "service_profile_id": {
+            "type": "number",
+            "minimum": 1
+          },
           "service_type": {
             "type": "string",
             "enum": [
@@ -24761,6 +25194,10 @@
             "minimum": 1
           },
           "nas_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "service_profile_id": {
             "type": "number",
             "minimum": 1
           },
@@ -26680,6 +27117,143 @@
           "start_time",
           "end_time"
         ]
+      },
+      "pppoeServiceProfiles_createPppoeServiceProfile": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "service_name": {
+            "type": "string",
+            "maximum": 64
+          },
+          "mtu": {
+            "type": "number",
+            "minimum": 576,
+            "maximum": 9000
+          },
+          "mru": {
+            "type": "number",
+            "minimum": 576,
+            "maximum": 9000
+          },
+          "auth_methods": {
+            "type": "string",
+            "maximum": 100
+          },
+          "dns_primary": {
+            "type": "string",
+            "maximum": 45
+          },
+          "dns_secondary": {
+            "type": "string",
+            "maximum": 45
+          },
+          "session_timeout_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "idle_timeout_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "rate_limit_override": {
+            "type": "string",
+            "maximum": 100
+          },
+          "address_list": {
+            "type": "string",
+            "maximum": 100
+          },
+          "filter_id": {
+            "type": "string",
+            "maximum": 100
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "pppoeServiceProfiles_updatePppoeServiceProfile": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "service_name": {
+            "type": "string",
+            "maximum": 64
+          },
+          "mtu": {
+            "type": "number",
+            "minimum": 576,
+            "maximum": 9000
+          },
+          "mru": {
+            "type": "number",
+            "minimum": 576,
+            "maximum": 9000
+          },
+          "auth_methods": {
+            "type": "string",
+            "maximum": 100
+          },
+          "dns_primary": {
+            "type": "string",
+            "maximum": 45
+          },
+          "dns_secondary": {
+            "type": "string",
+            "maximum": 45
+          },
+          "session_timeout_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "idle_timeout_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "rate_limit_override": {
+            "type": "string",
+            "maximum": 100
+          },
+          "address_list": {
+            "type": "string",
+            "maximum": 100
+          },
+          "filter_id": {
+            "type": "string",
+            "maximum": 100
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        }
       },
       "profeco_createProfecoComplaint": {
         "type": "object",

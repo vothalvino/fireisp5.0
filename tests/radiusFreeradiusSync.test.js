@@ -80,6 +80,10 @@ function setupMockDb({ mabMode, subscribers, certs, planId, planVendor }) {
     if (sql.includes('suspension_logs') && sql.includes('walled_garden')) {
       return Promise.resolve([[]]);
     }
+    // 8. Phase B: pppoe_service_profiles
+    if (sql.includes('FROM pppoe_service_profiles')) {
+      return Promise.resolve([[]]);
+    }
     // DELETE / INSERT — return success
     return Promise.resolve([{ affectedRows: 1 }]);
   });

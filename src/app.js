@@ -130,6 +130,8 @@ const ssoRoutes = require('./routes/sso');
 const aiRoutes = require('./routes/ai');
 const queueStatsRoutes = require('./routes/queueStats');
 const changelogRoutes = require('./routes/changelog');
+const pppoeServiceProfileRoutes = require('./routes/pppoeServiceProfiles');
+const pppoeRoutes = require('./routes/pppoe');
 const graphqlMiddleware = require('./graphql');
 
 const crypto = require('crypto');
@@ -478,6 +480,8 @@ v1.use('/sso', ssoRoutes);
 v1.use('/ai', aiRoutes);
 v1.use('/queue-stats', adminIpAllowlist, queueStatsRoutes);
 v1.use('/changelog', changelogRoutes);
+v1.use('/pppoe-service-profiles', pppoeServiceProfileRoutes);
+v1.use('/pppoe', pppoeRoutes);
 v1.use('/graphql', authenticate, orgScope, graphqlMiddleware);
 
 // Mount v1 at both /api (backward compat) and /api/v1 (versioned)

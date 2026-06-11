@@ -58,6 +58,8 @@ import { SnmpTraps } from '@/pages/SnmpTraps';
 import { SiteList } from '@/pages/SiteList';
 import { NasList } from '@/pages/NasList';
 import { MacMoveEvents } from '@/pages/MacMoveEvents';
+import { PppoeServiceProfileList } from '@/pages/PppoeServiceProfileList';
+import { PppoeDiagnostics } from '@/pages/PppoeDiagnostics';
 import { IpPoolList } from '@/pages/IpPoolList';
 import { IpAssignmentList } from '@/pages/IpAssignmentList';
 import { VlanList } from '@/pages/VlanList';
@@ -179,6 +181,8 @@ export function App() {
                 <Route path="sites" element={<SiteList />} />
                 <Route path="nas" element={<NasList />} />
                 <Route path="mac-move-events" element={<MacMoveEvents />} />
+                <Route path="pppoe-service-profiles" element={<PppoeServiceProfileList />} />
+                <Route path="pppoe-diagnostics" element={<PppoeDiagnostics />} />
                 <Route path="ip-pools" element={<IpPoolList />} />
                 <Route path="ip-assignments" element={<IpAssignmentList />} />
                 <Route path="vlans" element={<VlanList />} />
