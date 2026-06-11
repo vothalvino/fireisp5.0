@@ -293,11 +293,13 @@ async function syncFreeradiusTables(organizationId) {
             p.burst_download_mbps, p.burst_upload_mbps,
             p.radius_vendor, p.name AS plan_name,
             p.session_timeout_seconds, p.idle_timeout_seconds,
-            p.simultaneous_use AS plan_sim_use
+            p.simultaneous_use AS plan_sim_use,
+            ipv6_pool.name AS ipv6_pool_name
      FROM radius r
      LEFT JOIN contracts c ON c.id = r.contract_id
      LEFT JOIN plans p ON p.id = c.plan_id
      LEFT JOIN ip_pools ip ON ip.id = r.ipv4_pool_id
+     LEFT JOIN ip_pools ipv6_pool ON ipv6_pool.id = r.ipv6_pool_id
      WHERE r.status = 'active'
        AND r.deleted_at IS NULL
        ${orgFilter}`,
@@ -590,6 +592,30 @@ async function syncFreeradiusTables(organizationId) {
             [username, 'Mikrotik-Rate-Limit', ':=', profile.rate_limit_override],
           );
         }
+
+        // IPv6CP / DHCPv6-PD: emit Delegated-IPv6-Prefix-Pool when the profile enables
+        // IPv6CP and an IPv6 pool is configured on the account.
+        if (profile.ipv6cp_enabled && sub.ipv6_pool_name) {
+          await db.query(
+            'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+            [username, 'Delegated-IPv6-Prefix-Pool', ':=', sub.ipv6_pool_name],
+          );
+        }
+
+        // IPv6 DNS via RFC 6911 attribute
+        if (profile.dns_primary_v6) {
+          await db.query(
+            'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+            [username, 'DNS-Server-IPv6-Address', ':=', profile.dns_primary_v6],
+          );
+        }
+        if (profile.dns_secondary_v6) {
+          await db.query(
+            'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+            [username, 'DNS-Server-IPv6-Address', '+=', profile.dns_secondary_v6],
+          );
+        }
+        // NAT64/DNS64: dns64_prefix is configured on the DNS64 resolver, not sent via RADIUS
       }
 
       // Map user to plan group (if plan is known)

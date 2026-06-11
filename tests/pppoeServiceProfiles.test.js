@@ -51,6 +51,12 @@ const profile = {
   rate_limit_override: null,
   address_list: null,
   filter_id: null,
+  ipv6cp_enabled: 0,
+  delegated_prefix_len: null,
+  dns_primary_v6: null,
+  dns_secondary_v6: null,
+  nat64_enabled: 0,
+  dns64_prefix: null,
   status: 'active',
   notes: null,
   deleted_at: null,
@@ -168,5 +174,38 @@ describe('PPPoE Service Profile routes', () => {
       .get('/api/v1/pppoe-service-profiles');
 
     expect(res.status).toBe(401);
+  });
+});
+
+describe('PPPoE Service Profile — IPv6 fields', () => {
+  const token = adminToken();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockDbDefault();
+  });
+
+  test('POST with IPv6 fields returns 201', async () => {
+    const res = await request(app)
+      .post('/api/v1/pppoe-service-profiles')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Org-Id', '10')
+      .send({
+        name: 'IPv6 Profile',
+        ipv6cp_enabled: true,
+        dns_primary_v6: '2001:4860:4860::8888',
+      });
+
+    expect(res.status).toBe(201);
+  });
+
+  test('PUT with delegated_prefix_len and nat64_enabled returns 200', async () => {
+    const res = await request(app)
+      .put('/api/v1/pppoe-service-profiles/1')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Org-Id', '10')
+      .send({ delegated_prefix_len: 56, nat64_enabled: true });
+
+    expect(res.status).toBe(200);
   });
 });
