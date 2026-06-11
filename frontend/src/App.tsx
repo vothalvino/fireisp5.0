@@ -67,6 +67,7 @@ import { Ipv6ManagementPage } from '@/pages/Ipv6ManagementPage';
 import { TransitionMechanismsPage } from '@/pages/TransitionMechanismsPage';
 import { DeviceGroupList } from '@/pages/DeviceGroupList';
 import { DiscoveryScanList } from '@/pages/DiscoveryScanList';
+import { DeviceImport } from '@/pages/DeviceImport';
 import { TrapForwardingRuleList } from '@/pages/TrapForwardingRuleList';
 import { PollerNodeList } from '@/pages/PollerNodeList';
 import { DevicePollingConfigList } from '@/pages/DevicePollingConfigList';
@@ -222,6 +223,7 @@ export function App() {
                 <Route path="transition-mechanisms" element={<TransitionMechanismsPage />} />
                 <Route path="device-groups" element={<DeviceGroupList />} />
                 <Route path="discovery-scans" element={<DiscoveryScanList />} />
+                <Route path="device-import" element={<DeviceImport />} />
                 <Route path="trap-forwarding-rules" element={<TrapForwardingRuleList />} />
                 <Route path="poller-nodes" element={<PollerNodeList />} />
                 <Route path="device-polling-configs" element={<DevicePollingConfigList />} />

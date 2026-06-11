@@ -1312,6 +1312,27 @@
     "error": "Falha ao carregar as varreduras de descoberta.",
     "empty": "Nenhuma varredura de descoberta encontrada."
   },
+  "device_import": {
+    "title": "Importacao em Massa de Dispositivos",
+    "nav": "Importar Dispositivos",
+    "description": "Envie um arquivo CSV para importar varios dispositivos de rede de uma vez. Colunas obrigatorias: name, ip_address. Opcionais: type, mac_address, snmp_community, snmp_version, snmp_port, site_id.",
+    "upload_label": "Arquivo CSV",
+    "upload_hint": "Max 10 MB. Cabecalhos obrigatorios: name, ip_address",
+    "import_btn": "Importar",
+    "importing": "Importando...",
+    "download_template": "Baixar Modelo",
+    "result_title": "Resultados da Importacao",
+    "imported": "Importados",
+    "total": "Total",
+    "errors": "Erros",
+    "row": "Linha",
+    "error_col": "Erro",
+    "no_errors": "Todas as linhas importadas com sucesso.",
+    "success": "{{imported}} de {{total}} dispositivos importados.",
+    "upload_error": "Falha ao enviar o arquivo.",
+    "no_file": "Selecione um arquivo CSV.",
+    "columns_hint": "Obrigatorios: name, ip_address | Opcionais: type, mac_address, snmp_community, snmp_version, snmp_port, site_id"
+  },
   "trap_forwarding_rules": {
     "title": "Regras de Encaminhamento de Traps",
     "new": "Nova Regra de Encaminhamento de Trap",

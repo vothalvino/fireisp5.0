@@ -1312,6 +1312,27 @@
     "error": "Error al cargar los escaneos de descubrimiento.",
     "empty": "No se encontraron escaneos de descubrimiento."
   },
+  "device_import": {
+    "title": "Importacion Masiva de Dispositivos",
+    "nav": "Importar Dispositivos",
+    "description": "Suba un archivo CSV para importar varios dispositivos de red a la vez. Columnas requeridas: name, ip_address. Opcionales: type, mac_address, snmp_community, snmp_version, snmp_port, site_id.",
+    "upload_label": "Archivo CSV",
+    "upload_hint": "Max 10 MB. Cabeceras requeridas: name, ip_address",
+    "import_btn": "Importar",
+    "importing": "Importando...",
+    "download_template": "Descargar Plantilla",
+    "result_title": "Resultados de Importacion",
+    "imported": "Importados",
+    "total": "Total",
+    "errors": "Errores",
+    "row": "Fila",
+    "error_col": "Error",
+    "no_errors": "Todas las filas importadas correctamente.",
+    "success": "{{imported}} de {{total}} dispositivos importados.",
+    "upload_error": "Error al subir el archivo.",
+    "no_file": "Seleccione un archivo CSV.",
+    "columns_hint": "Requeridos: name, ip_address | Opcionales: type, mac_address, snmp_community, snmp_version, snmp_port, site_id"
+  },
   "trap_forwarding_rules": {
     "title": "Reglas de Reenvio de Traps",
     "new": "Nueva Regla de Reenvio de Trap",
