@@ -93,6 +93,8 @@ router.post('/accounting', async (req, res, next) => {
     const callingStationId = pick(body, 'Calling-Station-Id', 'callingStationId') || null;
     const framedIpAddress  = pick(body, 'Framed-IP-Address', 'framedIpAddress') || null;
     const framedIpv6Prefix = pick(body, 'Framed-IPv6-Prefix', 'framedIpv6Prefix') || null;
+    const acctInputOctetsV6   = pickInt(body, 'Acct-Input-Octets-IPv6', 'acctInputOctetsV6');
+    const acctOutputOctetsV6  = pickInt(body, 'Acct-Output-Octets-IPv6', 'acctOutputOctetsV6');
     const acctInputOctets   = pickInt(body, 'Acct-Input-Octets', 'acctInputOctets');
     const acctOutputOctets  = pickInt(body, 'Acct-Output-Octets', 'acctOutputOctets');
     const acctInputGigawords  = pickInt(body, 'Acct-Input-Gigawords', 'acctInputGigawords', 0);
@@ -149,6 +151,8 @@ router.post('/accounting', async (req, res, next) => {
       acctOutputGigawords,
       acctSessionTime,
       acctTerminateCause,
+      acctInputOctetsV6,
+      acctOutputOctetsV6,
       organizationId,
     });
 

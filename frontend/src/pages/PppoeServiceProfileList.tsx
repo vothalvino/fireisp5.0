@@ -30,6 +30,12 @@ interface PppoeServiceProfile {
   rate_limit_override: string | null;
   address_list: string | null;
   filter_id: string | null;
+  ipv6cp_enabled: boolean;
+  delegated_prefix_len: number | null;
+  dns_primary_v6: string | null;
+  dns_secondary_v6: string | null;
+  nat64_enabled: boolean;
+  dns64_prefix: string | null;
   status: string;
   notes: string | null;
 }
@@ -52,6 +58,12 @@ interface ProfileBody {
   rate_limit_override?: string;
   address_list?: string;
   filter_id?: string;
+  ipv6cp_enabled?: boolean;
+  delegated_prefix_len?: number;
+  dns_primary_v6?: string;
+  dns_secondary_v6?: string;
+  nat64_enabled?: boolean;
+  dns64_prefix?: string;
   status?: string;
   notes?: string;
 }
@@ -143,6 +155,14 @@ function ProfileForm({ initial, onSave, onClose, saving, editMode }: ProfileForm
   const [filterId, setFilterId] = useState(initial.filter_id ?? '');
   const [status, setStatus] = useState(initial.status ?? 'active');
   const [notes, setNotes] = useState(initial.notes ?? '');
+  const [ipv6cpEnabled, setIpv6cpEnabled] = useState(initial.ipv6cp_enabled ?? false);
+  const [delegatedPrefixLen, setDelegatedPrefixLen] = useState<string>(
+    initial.delegated_prefix_len != null ? String(initial.delegated_prefix_len) : '',
+  );
+  const [dnsPrimaryV6, setDnsPrimaryV6] = useState(initial.dns_primary_v6 ?? '');
+  const [dnsSecondaryV6, setDnsSecondaryV6] = useState(initial.dns_secondary_v6 ?? '');
+  const [nat64Enabled, setNat64Enabled] = useState(initial.nat64_enabled ?? false);
+  const [dns64Prefix, setDns64Prefix] = useState(initial.dns64_prefix ?? '');
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -159,6 +179,12 @@ function ProfileForm({ initial, onSave, onClose, saving, editMode }: ProfileForm
     if (addressList) body.address_list = addressList;
     if (filterId) body.filter_id = filterId;
     if (notes) body.notes = notes;
+    body.ipv6cp_enabled = ipv6cpEnabled;
+    if (delegatedPrefixLen) body.delegated_prefix_len = Number(delegatedPrefixLen);
+    if (dnsPrimaryV6) body.dns_primary_v6 = dnsPrimaryV6;
+    if (dnsSecondaryV6) body.dns_secondary_v6 = dnsSecondaryV6;
+    body.nat64_enabled = nat64Enabled;
+    if (dns64Prefix) body.dns64_prefix = dns64Prefix;
     onSave(body);
   }
 
@@ -264,6 +290,63 @@ function ProfileForm({ initial, onSave, onClose, saving, editMode }: ProfileForm
           <div style={{ marginBottom: '1rem' }}>
             <label style={modalStyles.label}>{t('pppoe_service_profiles.notes', 'Notes')}</label>
             <textarea style={{ ...inp, minHeight: 64, resize: 'vertical' as const }} value={notes} onChange={e => setNotes(e.target.value)} />
+          </div>
+
+          <div style={{ marginBottom: '0.75rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+            <div style={{ fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.85rem' }}>
+              {t('pppoe_service_profiles.ipv6_section', 'IPv6 / Dual Stack')}
+            </div>
+
+            <label style={{ ...modalStyles.label, display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.5rem' }}>
+              <input
+                type="checkbox"
+                checked={ipv6cpEnabled}
+                onChange={e => setIpv6cpEnabled(e.target.checked)}
+              />
+              {t('pppoe_service_profiles.ipv6cp_enabled', 'Enable IPv6CP')}
+            </label>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+              {t('pppoe_service_profiles.ipv6cp_enabled_hint', 'Negotiate IPv6 Control Protocol during PPPoE session establishment.')}
+            </div>
+
+            <div style={{ marginBottom: '0.75rem' }}>
+              <label style={modalStyles.label}>{t('pppoe_service_profiles.delegated_prefix_len', 'Delegated Prefix Length')}</label>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
+                {t('pppoe_service_profiles.delegated_prefix_len_hint', 'DHCPv6-PD prefix length to delegate (e.g. 56, 60, 64). Requires IPv6CP enabled.')}
+              </div>
+              <input style={inp} type="number" min={48} max={128} value={delegatedPrefixLen} onChange={e => setDelegatedPrefixLen(e.target.value)} placeholder="e.g. 56" />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+              <div>
+                <label style={modalStyles.label}>{t('pppoe_service_profiles.dns_primary_v6', 'Primary IPv6 DNS')}</label>
+                <input style={inp} value={dnsPrimaryV6} onChange={e => setDnsPrimaryV6(e.target.value)} placeholder="2001:4860:4860::8888" />
+              </div>
+              <div>
+                <label style={modalStyles.label}>{t('pppoe_service_profiles.dns_secondary_v6', 'Secondary IPv6 DNS')}</label>
+                <input style={inp} value={dnsSecondaryV6} onChange={e => setDnsSecondaryV6(e.target.value)} placeholder="2001:4860:4860::8844" />
+              </div>
+            </div>
+
+            <label style={{ ...modalStyles.label, display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.5rem' }}>
+              <input
+                type="checkbox"
+                checked={nat64Enabled}
+                onChange={e => setNat64Enabled(e.target.checked)}
+              />
+              {t('pppoe_service_profiles.nat64_enabled', 'Enable NAT64')}
+            </label>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+              {t('pppoe_service_profiles.nat64_enabled_hint', 'Apply NAT64 translation for IPv6-only subscribers accessing IPv4 resources.')}
+            </div>
+
+            <div style={{ marginBottom: '0.75rem' }}>
+              <label style={modalStyles.label}>{t('pppoe_service_profiles.dns64_prefix', 'DNS64 Prefix')}</label>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
+                {t('pppoe_service_profiles.dns64_prefix_hint', 'DNS64 synthesis prefix (e.g. 64:ff9b::/96). Configured on the DNS64 resolver, not sent via RADIUS.')}
+              </div>
+              <input style={inp} value={dns64Prefix} onChange={e => setDns64Prefix(e.target.value)} placeholder="64:ff9b::/96" />
+            </div>
           </div>
 
           <div style={modalStyles.actions}>

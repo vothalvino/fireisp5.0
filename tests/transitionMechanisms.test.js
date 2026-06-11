@@ -1,5 +1,5 @@
 // =============================================================================
-// FireISP 5.0 — PPPoE Service Profile Route Tests (§4B)
+// FireISP 5.0 — IPv6 Transition Mechanism Route Tests (§5 Dual Stack)
 // =============================================================================
 
 jest.mock('../src/config/database', () => ({
@@ -36,27 +36,14 @@ function adminToken() {
   );
 }
 
-const profile = {
+const sample6rd = {
   id: 1,
   organization_id: 10,
-  name: 'Standard PPPoE',
-  service_name: 'isp-service',
-  mtu: 1492,
-  mru: 1492,
-  auth_methods: 'pap,chap,mschapv2',
-  dns_primary: '8.8.8.8',
-  dns_secondary: '8.8.4.4',
-  session_timeout_seconds: null,
-  idle_timeout_seconds: null,
-  rate_limit_override: null,
-  address_list: null,
-  filter_id: null,
-  ipv6cp_enabled: 0,
-  delegated_prefix_len: null,
-  dns_primary_v6: null,
-  dns_secondary_v6: null,
-  nat64_enabled: 0,
-  dns64_prefix: null,
+  name: '6rd Config 1',
+  border_relay_ip: '203.0.113.1',
+  ipv6_prefix: '2001:db8::/32',
+  ipv4_mask_len: 0,
+  mtu: 1480,
   status: 'active',
   notes: null,
   deleted_at: null,
@@ -67,12 +54,12 @@ const profile = {
 function mockDbDefault() {
   db.query.mockImplementation((sql) => {
     // Auth: user lookup
-    if (typeof sql === 'string' && sql.includes('WHERE id = ?')) {
+    if (typeof sql === 'string' && sql.includes('WHERE id = ?') && !sql.includes('tunnel_6rd') && !sql.includes('ds_lite') && !sql.includes('map_rules') && !sql.includes('xlat464')) {
       return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 10 }]]);
     }
-    // RBAC: permissions check
+    // RBAC permissions check
     if (typeof sql === 'string' && (sql.includes('permissions') || sql.includes('role_permissions'))) {
-      return Promise.resolve([[{ id: 1, name: 'pppoe_service_profiles.view' }]]);
+      return Promise.resolve([[{ id: 1, name: 'transition_mechanisms.view' }]]);
     }
     // Count query
     if (typeof sql === 'string' && sql.includes('COUNT(*)')) {
@@ -82,24 +69,38 @@ function mockDbDefault() {
     if (typeof sql === 'string' && sql.includes('INSERT INTO audit_logs')) {
       return Promise.resolve([{ insertId: 99 }]);
     }
-    // Model INSERT
-    if (typeof sql === 'string' && sql.includes('INSERT INTO `pppoe_service_profiles`')) {
+    // INSERT for transition mechanism tables
+    if (typeof sql === 'string' && (
+      sql.includes('INSERT INTO tunnel_6rd_configs') ||
+      sql.includes('INSERT INTO ds_lite_configs') ||
+      sql.includes('INSERT INTO map_rules') ||
+      sql.includes('INSERT INTO xlat464_configs')
+    )) {
       return Promise.resolve([{ insertId: 1 }]);
     }
-    // Model UPDATE
-    if (typeof sql === 'string' && sql.includes('UPDATE `pppoe_service_profiles`')) {
+    // UPDATE for transition mechanism tables
+    if (typeof sql === 'string' && (
+      sql.includes('UPDATE tunnel_6rd_configs') ||
+      sql.includes('UPDATE ds_lite_configs') ||
+      sql.includes('UPDATE map_rules') ||
+      sql.includes('UPDATE xlat464_configs')
+    )) {
       return Promise.resolve([{ affectedRows: 1 }]);
     }
     // Soft delete
     if (typeof sql === 'string' && sql.includes('SET deleted_at')) {
       return Promise.resolve([{ affectedRows: 1 }]);
     }
-    // Default list / get / restore
-    return Promise.resolve([[profile]]);
+    // Default: return sample row
+    return Promise.resolve([[sample6rd]]);
   });
 }
 
-describe('PPPoE Service Profile routes', () => {
+// ---------------------------------------------------------------------------
+// Tests — 6rd
+// ---------------------------------------------------------------------------
+
+describe('Transition Mechanism routes — 6rd', () => {
   const token = adminToken();
 
   beforeEach(() => {
@@ -107,9 +108,9 @@ describe('PPPoE Service Profile routes', () => {
     mockDbDefault();
   });
 
-  test('GET /api/v1/pppoe-service-profiles returns list', async () => {
+  test('GET /api/v1/transition-mechanisms/6rd returns list', async () => {
     const res = await request(app)
-      .get('/api/v1/pppoe-service-profiles')
+      .get('/api/v1/transition-mechanisms/6rd')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Org-Id', '10');
 
@@ -118,9 +119,9 @@ describe('PPPoE Service Profile routes', () => {
     expect(Array.isArray(res.body.data)).toBe(true);
   });
 
-  test('GET /api/v1/pppoe-service-profiles/:id returns single profile', async () => {
+  test('GET /api/v1/transition-mechanisms/6rd/:id returns single config', async () => {
     const res = await request(app)
-      .get('/api/v1/pppoe-service-profiles/1')
+      .get('/api/v1/transition-mechanisms/6rd/1')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Org-Id', '10');
 
@@ -128,31 +129,31 @@ describe('PPPoE Service Profile routes', () => {
     expect(res.body.data).toHaveProperty('id', 1);
   });
 
-  test('POST /api/v1/pppoe-service-profiles creates profile', async () => {
+  test('POST /api/v1/transition-mechanisms/6rd creates config', async () => {
     const res = await request(app)
-      .post('/api/v1/pppoe-service-profiles')
+      .post('/api/v1/transition-mechanisms/6rd')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Org-Id', '10')
-      .send({ name: 'Standard PPPoE', mtu: 1492 });
+      .send({ name: '6rd Config 1', border_relay_ip: '203.0.113.1', ipv6_prefix: '2001:db8::/32' });
 
     expect(res.status).toBe(201);
     expect(res.body).toHaveProperty('data');
   });
 
-  test('PUT /api/v1/pppoe-service-profiles/:id updates profile', async () => {
+  test('PUT /api/v1/transition-mechanisms/6rd/:id updates config', async () => {
     const res = await request(app)
-      .put('/api/v1/pppoe-service-profiles/1')
+      .put('/api/v1/transition-mechanisms/6rd/1')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Org-Id', '10')
-      .send({ mtu: 1480, dns_primary: '1.1.1.1' });
+      .send({ mtu: 1460 });
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('data');
   });
 
-  test('DELETE /api/v1/pppoe-service-profiles/:id soft deletes profile', async () => {
+  test('DELETE /api/v1/transition-mechanisms/6rd/:id soft deletes config', async () => {
     const res = await request(app)
-      .delete('/api/v1/pppoe-service-profiles/1')
+      .delete('/api/v1/transition-mechanisms/6rd/1')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Org-Id', '10');
 
@@ -161,51 +162,18 @@ describe('PPPoE Service Profile routes', () => {
 
   test('POST without name returns 422', async () => {
     const res = await request(app)
-      .post('/api/v1/pppoe-service-profiles')
+      .post('/api/v1/transition-mechanisms/6rd')
       .set('Authorization', `Bearer ${token}`)
       .set('X-Org-Id', '10')
-      .send({ mtu: 1492 });
+      .send({ border_relay_ip: '203.0.113.1', ipv6_prefix: '2001:db8::/32' });
 
     expect(res.status).toBe(422);
   });
 
   test('GET without auth returns 401', async () => {
     const res = await request(app)
-      .get('/api/v1/pppoe-service-profiles');
+      .get('/api/v1/transition-mechanisms/6rd');
 
     expect(res.status).toBe(401);
-  });
-});
-
-describe('PPPoE Service Profile — IPv6 fields', () => {
-  const token = adminToken();
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockDbDefault();
-  });
-
-  test('POST with IPv6 fields returns 201', async () => {
-    const res = await request(app)
-      .post('/api/v1/pppoe-service-profiles')
-      .set('Authorization', `Bearer ${token}`)
-      .set('X-Org-Id', '10')
-      .send({
-        name: 'IPv6 Profile',
-        ipv6cp_enabled: true,
-        dns_primary_v6: '2001:4860:4860::8888',
-      });
-
-    expect(res.status).toBe(201);
-  });
-
-  test('PUT with delegated_prefix_len and nat64_enabled returns 200', async () => {
-    const res = await request(app)
-      .put('/api/v1/pppoe-service-profiles/1')
-      .set('Authorization', `Bearer ${token}`)
-      .set('X-Org-Id', '10')
-      .send({ delegated_prefix_len: 56, nat64_enabled: true });
-
-    expect(res.status).toBe(200);
   });
 });

@@ -97,6 +97,11 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/snmp-profiles', labelKey: 'nav.snmpProfiles', requiredRole: 'technician' },
       { to: '/device-config-backups', labelKey: 'nav.deviceConfigBackups', requiredRole: 'technician' },
       { to: '/suspension-rules', labelKey: 'nav.suspensionRules', requiredRole: 'technician' },
+      { to: '/dhcp-servers', labelKey: 'nav.dhcpServers', requiredRole: 'technician' },
+      { to: '/nat-management', labelKey: 'nav.natManagement', requiredRole: 'technician' },
+      { to: '/ptr-records', labelKey: 'nav.ptrRecords', requiredRole: 'technician' },
+      { to: '/ipv6-management', labelKey: 'nav.ipv6Management', requiredRole: 'technician' },
+      { to: '/transition-mechanisms', labelKey: 'nav.transitionMechanisms', requiredRole: 'technician' },
     ],
   },
   {

@@ -108,8 +108,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 164 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–240)
+│   ├── schema.sql           # Combined schema (all 173 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–246)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -325,6 +325,29 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 162 | `pppoe_service_profiles` | PPPoE AC / BNG service profiles — MTU, MRU, auth-methods, DNS, session/idle timeouts, rate-limit override (MikroTik), address-list, Filter-Id; referenced by `ip_pools.service_profile_id` and `radius.service_profile_id` |
 | 163 | `radpostauth` | FreeRADIUS post-authentication log — written directly by FreeRADIUS via `rlm_sql`; read by FireISP for auth-failure diagnostics (no foreign keys) |
 | 164 | `pppoe_event_logs` | PPPoE stage event log (PADI/PADS/LCP/IPCP/AUTH/PADT); written by a syslog shipper via `POST /pppoe/events`; read for MTU diagnostics and LCP failure detection (no FKs on org/NAS — loose coupling) |
+| 165 | `dhcp_servers` | DHCP server connection registry (ISC Kea, MikroTik); stores host, port, API URL, and encrypted API token for each DHCP server managed by FireISP |
+| 166 | `dhcp_static_reservations` | Static DHCP reservations binding MAC addresses to IP addresses; supports DHCP Option 82 circuit/remote-id binding for subscriber identification |
+| 167 | `nat_pools` | CGNAT, 1:1 NAT, and PAT pool definitions; tracks external IP ranges, port allocation ranges, and max ports per subscriber |
+| 168 | `ptr_records` | Reverse DNS PTR record management; supports both IPv4 and IPv6 PTR records with configurable TTL and DNS zone |
+| 169 | `ra_guard_policies` | RA Guard policy assignments to switch ports; prevents rogue Router Advertisement attacks by restricting RA forwarding to authorized ports |
+| 170 | `tunnel_6rd_configs` | 6rd (IPv6 Rapid Deployment) tunnel configuration; maps IPv4 prefixes to IPv6 prefixes for rapid IPv6 rollout over IPv4 infrastructure |
+| 171 | `ds_lite_configs` | DS-Lite AFTR (Address Family Transition Router) configuration; enables IPv4 connectivity for subscribers on IPv6-only access networks |
+| 172 | `map_rules` | MAP-E and MAP-T rule definitions; provides stateless IPv4/IPv6 address mapping for scalable IPv4 address sharing |
+| 173 | `xlat464_configs` | 464XLAT PLAT/CLAT configuration; enables IPv4 application connectivity in IPv6-only subscriber networks via stateful NAT64 |
+
+> **Migration 165–173 table count note:** See migrations 241–246 below for the §5 Dual Stack tables.
+
+> **Migration 241 — DHCP Server Integration (§5.1):** `241_create_dhcp_integration.sql` creates `dhcp_servers` (DHCP server registry supporting ISC Kea and MikroTik) and `dhcp_static_reservations` (MAC-to-IP bindings with DHCP Option 82 circuit/remote-id for subscriber identification). Foreign keys to `ip_pools`, `clients`, and `contracts` allow reservations to be linked to ISP provisioning data.
+
+> **Migration 242 — NAT/CGNAT and PTR Records (§5.1):** `242_create_nat_ptr_management.sql` creates `nat_pools` (CGNAT/1:1 NAT/PAT pool definitions with external IP ranges and per-subscriber port limits) and `ptr_records` (reverse DNS PTR record management for both IPv4 and IPv6 with configurable TTL and zone).
+
+> **Migration 243 — IPv6 Management Enhancements (§5.2):** `243_ipv6_management_enhancements.sql` adds 7 columns to `ip_pools` (DHCPv6 mode, Router Advertisement flags and lifetime, SLAAC prefix, region name) and `stack_type` to `plans` via stored-procedure guards. Creates `ra_guard_policies` table for per-port RA Guard policy management linked to devices.
+
+> **Migration 244 — Dual-Stack Session Management (§5.3):** `244_dual_stack_session_management.sql` adds IPv6CP/DHCPv6-PD fields to `pppoe_service_profiles` (ipv6cp_enabled, delegated_prefix_len, DNS64), IPv6 RADIUS attributes to `radius` (Framed-IPv6-Address, Delegated-IPv6-Prefix, Framed-IPv6-Pool), and per-session IPv6 accounting fields to `connection_logs` (framed_ipv6_prefix, IPv6 octet counters, stack_type). All via stored-procedure guards; `connection_logs` uses no FK (partitioned table).
+
+> **Migration 245 — IPv6 Transition Mechanisms (§5.4):** `245_create_transition_mechanisms.sql` creates four tables: `tunnel_6rd_configs` (6rd Border Relay + IPv6 prefix), `ds_lite_configs` (DS-Lite AFTR address), `map_rules` (MAP-E/MAP-T rule definitions with EA-bits), and `xlat464_configs` (464XLAT PLAT/CLAT/DNS64 prefixes). Together these support the four major IPv4-to-IPv6 transition mechanisms.
+
+> **Migration 246 — Dual-Stack Permissions Seed (§5):** `246_seed_dual_stack_permissions.sql` seeds 25 permissions (`dhcp_servers.*`, `dhcp_reservations.*`, `nat_pools.*`, `ptr_records.*`, `ra_guard.*`, `transition_mechanisms.*`, `ipv6.management`) and assigns them to roles: admin (all 25), technician (all view permissions + ipv6.management), readonly (view permissions only).
 
 > **Migrations 237–240 — §4 PPPoE Management Phase B (Service Profiles, Diagnostics, Permissions):**
 > `237_create_pppoe_service_profiles.sql` creates `pppoe_service_profiles` table and adds guarded `service_profile_id` columns to `ip_pools` and `radius` (both FK→pppoe_service_profiles ON DELETE SET NULL). `238_create_radpostauth.sql` adds `radpostauth` table (no FKs — FreeRADIUS writes directly). `239_create_pppoe_event_logs.sql` adds `pppoe_event_logs` table (no FKs on organization_id/nas_id for loose-coupling syslog ingest). `240_seed_pppoe_phase_b_permissions.sql` seeds 6 RBAC permissions (`pppoe_service_profiles.view/create/update/delete`, `pppoe.diagnostics`, `pppoe.events_ingest`) and registers the `scan_auth_failures` scheduled task (every 15 min). New services: `pppoeDiagnosticsService` with `classifyAuthFailures()` (org-scoped radpostauth query, reason classification: bad_password/unknown_user/session_limit/no_pool/other), `detectMtuIssues()` (profile MTU > 1492 advisory + heuristic LCP-failure/MTU-mismatch advisory), `scanAuthFailures()` (scheduler handler, emits `pppoe.auth_failures` events). `syncFreeradiusTables()` extended: loads active service profiles per org, determines effective profile per subscriber (account-level `service_profile_id` overrides pool-level), emits `Framed-MTU`, `MS-Primary-DNS-Server`, `MS-Secondary-DNS-Server`, `Session-Timeout`, `Idle-Timeout`, `Filter-Id`, `Mikrotik-Address-List`, and `Mikrotik-Rate-Limit` radreply rows. RouterOS log line parser `parseRouterOsLogLine()` handles PADI/PADS/LCP/IPCP/AUTH/PADT patterns. New API endpoints: full CRUD under `/pppoe-service-profiles` + restore; `GET /pppoe/diagnostics/auth-failures`, `GET /pppoe/diagnostics/mtu-issues`, `GET /pppoe/events` (JWT auth); `POST /pppoe/events` (M2M secret auth via `X-Pppoe-Secret` header or `Authorization: Bearer`). Env vars: `PPPOE_EVENTS_SECRET` (M2M secret, falls back to `RADIUS_ACCOUNTING_SECRET`).

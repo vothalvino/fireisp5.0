@@ -28,6 +28,19 @@ function combineOctetsGigawords(octets, gigawords) {
   return o + g * 4294967296;
 }
 
+/**
+ * Derive the IP stack type from which addresses are present in the accounting record.
+ * @param {string|null} framedIp
+ * @param {string|null} framedIpv6
+ * @returns {'ipv4'|'ipv6'|'dual'|null}
+ */
+function deriveStackType(framedIp, framedIpv6) {
+  if (framedIp && framedIpv6) return 'dual';
+  if (framedIpv6) return 'ipv6';
+  if (framedIp) return 'ipv4';
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Ingest
 // ---------------------------------------------------------------------------
@@ -56,6 +69,8 @@ function combineOctetsGigawords(octets, gigawords) {
  * @param {number|null} attrs.acctOutputGigawords
  * @param {number|null} attrs.acctSessionTime       - seconds
  * @param {string|null} attrs.acctTerminateCause
+ * @param {number|null} attrs.acctInputOctetsV6
+ * @param {number|null} attrs.acctOutputOctetsV6
  * @param {number}      attrs.organizationId        - from the ingest caller
  * @returns {Promise<{action: 'insert'|'update'|'noop', id: number|null, macMove: boolean}>}
  */
@@ -76,6 +91,8 @@ async function ingestAccounting(attrs) {
     acctOutputGigawords = null,
     acctSessionTime = null,
     acctTerminateCause = null,
+    acctInputOctetsV6 = null,
+    acctOutputOctetsV6 = null,
     organizationId,
   } = attrs;
 
@@ -110,6 +127,7 @@ async function ingestAccounting(attrs) {
   // ------------------------------------------------------------------
   const bytesIn = combineOctetsGigawords(acctInputOctets, acctInputGigawords);
   const bytesOut = combineOctetsGigawords(acctOutputOctets, acctOutputGigawords);
+  const stackType = deriveStackType(framedIpAddress, framedIpv6Prefix);
 
   // ------------------------------------------------------------------
   // 3. Determine event_type
@@ -208,8 +226,9 @@ async function ingestAccounting(attrs) {
           nas_port_id, called_station_id, calling_station_id,
           framed_ip, framed_ipv6_prefix,
           event_type, event_at,
-          bytes_in, bytes_out, session_duration, terminate_cause)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'start', NOW(), ?, ?, ?, ?)`,
+          bytes_in, bytes_out, session_duration, terminate_cause,
+          acct_input_octets_v6, acct_output_octets_v6, stack_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'start', NOW(), ?, ?, ?, ?, ?, ?, ?)`,
       [
         userName,
         contractId,
@@ -227,6 +246,9 @@ async function ingestAccounting(attrs) {
         bytesOut,
         acctSessionTime,
         acctTerminateCause,
+        acctInputOctetsV6,
+        acctOutputOctetsV6,
+        stackType,
       ],
     );
 
@@ -242,13 +264,16 @@ async function ingestAccounting(attrs) {
   // deployments can add an application-level session cache if needed.
   const [updateResult] = await db.query(
     `UPDATE connection_logs
-     SET event_type         = ?,
-         bytes_in           = ?,
-         bytes_out          = ?,
-         session_duration   = ?,
-         terminate_cause    = ?,
-         framed_ip          = COALESCE(?, framed_ip),
-         framed_ipv6_prefix = COALESCE(?, framed_ipv6_prefix)
+     SET event_type            = ?,
+         bytes_in              = ?,
+         bytes_out             = ?,
+         session_duration      = ?,
+         terminate_cause       = ?,
+         framed_ip             = COALESCE(?, framed_ip),
+         framed_ipv6_prefix    = COALESCE(?, framed_ipv6_prefix),
+         acct_input_octets_v6  = COALESCE(?, acct_input_octets_v6),
+         acct_output_octets_v6 = COALESCE(?, acct_output_octets_v6),
+         stack_type            = COALESCE(?, stack_type)
      WHERE username = ?
        AND acct_session_id = ?
        AND event_type != 'stop'
@@ -262,6 +287,9 @@ async function ingestAccounting(attrs) {
       acctTerminateCause,
       framedIpAddress,
       framedIpv6Prefix,
+      acctInputOctetsV6,
+      acctOutputOctetsV6,
+      stackType,
       userName,
       acctSessionId,
     ],
@@ -281,8 +309,9 @@ async function ingestAccounting(attrs) {
         nas_port_id, called_station_id, calling_station_id,
         framed_ip, framed_ipv6_prefix,
         event_type, event_at,
-        bytes_in, bytes_out, session_duration, terminate_cause)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?)`,
+        bytes_in, bytes_out, session_duration, terminate_cause,
+        acct_input_octets_v6, acct_output_octets_v6, stack_type)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?)`,
     [
       userName,
       contractId,
@@ -301,6 +330,9 @@ async function ingestAccounting(attrs) {
       bytesOut,
       acctSessionTime,
       acctTerminateCause,
+      acctInputOctetsV6,
+      acctOutputOctetsV6,
+      stackType,
     ],
   );
 
@@ -351,7 +383,8 @@ async function exportCdr(opts) {
     `SELECT cl.session_id, cl.acct_session_id, cl.username, cl.event_type, cl.event_at,
             cl.session_duration, cl.bytes_in, cl.bytes_out,
             cl.nas_ip_address, cl.nas_port_id, cl.called_station_id, cl.calling_station_id,
-            cl.framed_ip, cl.framed_ipv6_prefix, cl.terminate_cause
+            cl.framed_ip, cl.framed_ipv6_prefix, cl.terminate_cause,
+            cl.acct_input_octets_v6, cl.acct_output_octets_v6, cl.stack_type
      FROM connection_logs cl
      LEFT JOIN radius r ON r.username = cl.username
      LEFT JOIN nas n ON n.ip_address = cl.nas_ip_address
@@ -367,6 +400,7 @@ async function exportCdr(opts) {
       'session_duration', 'bytes_in', 'bytes_out',
       'nas_ip_address', 'nas_port_id', 'called_station_id', 'calling_station_id',
       'framed_ip', 'framed_ipv6_prefix', 'terminate_cause',
+      'acct_input_octets_v6', 'acct_output_octets_v6', 'stack_type',
     ];
     const header = COLUMNS.join(',');
     const lines = rows.map((row) =>
@@ -481,4 +515,5 @@ module.exports = {
   purgeRadiusAccounting,
   listMacMoveEvents,
   combineOctetsGigawords,
+  deriveStackType,
 };

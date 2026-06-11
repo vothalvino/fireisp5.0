@@ -60,6 +60,11 @@ import { NasList } from '@/pages/NasList';
 import { MacMoveEvents } from '@/pages/MacMoveEvents';
 import { PppoeServiceProfileList } from '@/pages/PppoeServiceProfileList';
 import { PppoeDiagnostics } from '@/pages/PppoeDiagnostics';
+import { DhcpServerList } from '@/pages/DhcpServerList';
+import { NatManagementList } from '@/pages/NatManagementList';
+import { PtrRecordList } from '@/pages/PtrRecordList';
+import { Ipv6ManagementPage } from '@/pages/Ipv6ManagementPage';
+import { TransitionMechanismsPage } from '@/pages/TransitionMechanismsPage';
 import { IpPoolList } from '@/pages/IpPoolList';
 import { IpAssignmentList } from '@/pages/IpAssignmentList';
 import { VlanList } from '@/pages/VlanList';
@@ -194,6 +199,11 @@ export function App() {
                 <Route path="snmp-profiles" element={<SnmpProfileList />} />
                 <Route path="device-config-backups" element={<DeviceConfigBackupList />} />
                 <Route path="suspension-rules" element={<SuspensionRuleList />} />
+                <Route path="dhcp-servers" element={<DhcpServerList />} />
+                <Route path="nat-management" element={<NatManagementList />} />
+                <Route path="ptr-records" element={<PtrRecordList />} />
+                <Route path="ipv6-management" element={<Ipv6ManagementPage />} />
+                <Route path="transition-mechanisms" element={<TransitionMechanismsPage />} />
               </Route>
             </Route>
 

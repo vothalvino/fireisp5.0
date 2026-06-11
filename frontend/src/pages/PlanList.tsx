@@ -45,6 +45,7 @@ interface Plan {
   overage_price_per_gb?: string | number | null;
   trial_days?: number | null;
   trial_price?: string | number | null;
+  stack_type?: string | null;
 }
 
 interface PlansResponse {
@@ -72,6 +73,7 @@ interface PlanBody {
   overage_price_per_gb?: number;
   trial_days?: number;
   trial_price?: number;
+  stack_type?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +86,7 @@ const STATUSES = ['active', 'inactive', 'archived'];
 const STATUS_FILTER_OPTIONS = ['', ...STATUSES];
 const RADIUS_VENDORS = ['', 'mikrotik', 'cisco', 'juniper'];
 const OVERAGE_MODES = ['none', 'per_gb', 'upgrade_prompt'];
+const STACK_TYPES = ['ipv4_only', 'ipv6_only', 'dual_stack'];
 
 // ---------------------------------------------------------------------------
 // Fetch / mutate helpers
@@ -175,6 +178,7 @@ function PlanModal({ plan, onClose, onSaved }: PlanModalProps) {
     overage_price_per_gb: plan?.overage_price_per_gb != null ? String(plan.overage_price_per_gb) : '',
     trial_days: plan?.trial_days != null ? String(plan.trial_days) : '',
     trial_price: plan?.trial_price != null ? String(plan.trial_price) : '',
+    stack_type: plan?.stack_type ?? 'dual_stack',
   });
   const [error, setError] = useState('');
 
@@ -193,6 +197,7 @@ function PlanModal({ plan, onClose, onSaved }: PlanModalProps) {
         billing_cycle: form.billing_cycle,
         status: form.status,
         overage_mode: form.overage_mode || 'none',
+        stack_type: form.stack_type || 'dual_stack',
       };
       if (form.description) body.description = form.description;
       if (form.data_cap_gb) body.data_cap_gb = Number(form.data_cap_gb);
@@ -344,6 +349,20 @@ function PlanModal({ plan, onClose, onSaved }: PlanModalProps) {
               onChange={e => setField('status', e.target.value)}
             >
               {STATUSES.map(s => <option key={s} value={s}>{capitalize(s)}</option>)}
+            </select>
+          </label>
+
+          <label style={modalStyles.label}>
+            IP Stack Type
+            <select
+              style={modalStyles.select}
+              value={form.stack_type}
+              onChange={e => setField('stack_type', e.target.value)}
+              aria-label="IP stack type"
+            >
+              {STACK_TYPES.map(st => (
+                <option key={st} value={st}>{st.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
+              ))}
             </select>
           </label>
 

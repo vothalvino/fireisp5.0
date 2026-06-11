@@ -7910,4 +7910,247 @@ CREATE TABLE IF NOT EXISTS pppoe_event_logs (
   KEY idx_pppoe_event_logs_severity (severity)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ---------------------------------------------------------------------------
+-- Table: dhcp_servers (migration 241 — §5.1 DHCP Integration)
+-- Purpose: DHCP server connection registry (ISC Kea, MikroTik).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `dhcp_servers` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `organization_id` BIGINT UNSIGNED NOT NULL,
+  `name` VARCHAR(100) NOT NULL,
+  `server_type` ENUM('kea','mikrotik') NOT NULL DEFAULT 'kea',
+  `host` VARCHAR(255) NOT NULL,
+  `port` INT UNSIGNED NOT NULL DEFAULT 8000,
+  `api_url` VARCHAR(500) NULL,
+  `api_token` TEXT NULL COMMENT 'Encrypted API token',
+  `status` ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  `notes` TEXT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` TIMESTAMP NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `idx_dhcp_servers_org` (`organization_id`),
+  INDEX `idx_dhcp_servers_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: dhcp_static_reservations (migration 241 — §5.1 DHCP Integration)
+-- Purpose: Static DHCP reservations binding MAC addresses to IP addresses.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `dhcp_static_reservations` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `organization_id` BIGINT UNSIGNED NOT NULL,
+  `dhcp_server_id` BIGINT UNSIGNED NULL,
+  `pool_id` BIGINT UNSIGNED NULL,
+  `ip_address` VARCHAR(45) NOT NULL,
+  `mac_address` VARCHAR(17) NOT NULL,
+  `hostname` VARCHAR(255) NULL,
+  `client_id` BIGINT UNSIGNED NULL,
+  `contract_id` BIGINT UNSIGNED NULL,
+  `option82_circuit_id` VARCHAR(255) NULL COMMENT 'DHCP Option 82 circuit ID for subscriber binding',
+  `option82_remote_id` VARCHAR(255) NULL COMMENT 'DHCP Option 82 remote ID for subscriber binding',
+  `status` ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  `notes` TEXT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` TIMESTAMP NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `idx_dhcp_reservations_org` (`organization_id`),
+  INDEX `idx_dhcp_reservations_mac` (`mac_address`),
+  INDEX `idx_dhcp_reservations_ip` (`ip_address`),
+  CONSTRAINT `fk_dhcp_reservations_server`
+    FOREIGN KEY (`dhcp_server_id`) REFERENCES `dhcp_servers` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_dhcp_reservations_pool`
+    FOREIGN KEY (`pool_id`) REFERENCES `ip_pools` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_dhcp_reservations_client`
+    FOREIGN KEY (`client_id`) REFERENCES `clients` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_dhcp_reservations_contract`
+    FOREIGN KEY (`contract_id`) REFERENCES `contracts` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: nat_pools (migration 242 — §5.1 NAT/CGNAT Management)
+-- Purpose: CGNAT, 1:1 NAT, and PAT pool definitions.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `nat_pools` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `organization_id` BIGINT UNSIGNED NOT NULL,
+  `name` VARCHAR(100) NOT NULL,
+  `nat_type` ENUM('cgnat','1to1','pat') NOT NULL DEFAULT 'cgnat',
+  `external_ip_start` VARCHAR(45) NOT NULL,
+  `external_ip_end` VARCHAR(45) NOT NULL,
+  `internal_subnet` VARCHAR(50) NULL,
+  `port_range_start` INT UNSIGNED NULL,
+  `port_range_end` INT UNSIGNED NULL,
+  `max_ports_per_subscriber` INT UNSIGNED NOT NULL DEFAULT 4096,
+  `status` ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  `notes` TEXT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` TIMESTAMP NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `idx_nat_pools_org` (`organization_id`),
+  INDEX `idx_nat_pools_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: ptr_records (migration 242 — §5.1 PTR / Reverse DNS)
+-- Purpose: Reverse DNS PTR record management.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `ptr_records` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `organization_id` BIGINT UNSIGNED NOT NULL,
+  `ip_address` VARCHAR(45) NOT NULL,
+  `ip_version` ENUM('ipv4','ipv6') NOT NULL DEFAULT 'ipv4',
+  `hostname` VARCHAR(255) NOT NULL,
+  `ttl` INT UNSIGNED NOT NULL DEFAULT 3600,
+  `zone` VARCHAR(255) NULL,
+  `status` ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  `notes` TEXT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` TIMESTAMP NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `idx_ptr_records_org` (`organization_id`),
+  INDEX `idx_ptr_records_ip` (`ip_address`),
+  INDEX `idx_ptr_records_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: ra_guard_policies (migration 243 — §5.2 IPv6 Management)
+-- Purpose: RA Guard policy assignments to switch ports.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `ra_guard_policies` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `organization_id` BIGINT UNSIGNED NOT NULL,
+  `name` VARCHAR(100) NOT NULL,
+  `switch_id` BIGINT UNSIGNED NULL,
+  `port_pattern` VARCHAR(100) NULL COMMENT 'Port pattern e.g. ge-0/0/*',
+  `policy_type` ENUM('strict','loose') NOT NULL DEFAULT 'strict',
+  `status` ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  `notes` TEXT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` TIMESTAMP NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `idx_ra_guard_org` (`organization_id`),
+  CONSTRAINT `fk_ra_guard_switch`
+    FOREIGN KEY (`switch_id`) REFERENCES `devices` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Columns added to ip_pools by migration 243 (§5 IPv6):
+--   dhcpv6_mode, ra_enabled, ra_managed_flag, ra_other_flag,
+--   ra_lifetime_seconds, slaac_prefix, region_name
+-- Applied via stored-procedure guards. See migration 243.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Column added to plans by migration 243 (§5 IPv6):
+--   stack_type ENUM('ipv4_only','ipv6_only','dual_stack') NOT NULL DEFAULT 'dual_stack'
+-- Applied via stored-procedure guard. See migration 243.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Columns added to pppoe_service_profiles by migration 244 (§5 Dual-Stack Sessions):
+--   ipv6cp_enabled, delegated_prefix_len, dns_primary_v6, dns_secondary_v6,
+--   nat64_enabled, dns64_prefix
+-- Applied via stored-procedure guards. See migration 244.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Columns added to radius by migration 244 (§5 Dual-Stack Sessions):
+--   framed_ipv6_address, delegated_ipv6_prefix, framed_ipv6_pool
+-- Applied via stored-procedure guards. See migration 244.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Columns added to connection_logs by migration 244 (§5 Dual-Stack Sessions):
+--   framed_ipv6_prefix, acct_output_octets_v6, acct_input_octets_v6, stack_type
+-- Applied via stored-procedure guards. NO FK — partitioned table. See migration 244.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Table: tunnel_6rd_configs (migration 245 — §5.4 IPv6 Transition Mechanisms)
+-- Purpose: 6rd tunnel configuration for IPv6-over-IPv4 transition.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `tunnel_6rd_configs` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `organization_id` BIGINT UNSIGNED NOT NULL,
+  `name` VARCHAR(100) NOT NULL,
+  `border_relay_ip` VARCHAR(45) NOT NULL COMMENT 'IPv4 address of the 6rd Border Relay',
+  `ipv6_prefix` VARCHAR(50) NOT NULL COMMENT 'Delegated 6rd IPv6 prefix',
+  `ipv4_mask_len` TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Number of IPv4 prefix bits shared by all CEs',
+  `mtu` INT UNSIGNED NOT NULL DEFAULT 1480,
+  `status` ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  `notes` TEXT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` TIMESTAMP NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `idx_6rd_org` (`organization_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: ds_lite_configs (migration 245 — §5.4 IPv6 Transition Mechanisms)
+-- Purpose: DS-Lite AFTR configuration for IPv4-over-IPv6 tunneling.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `ds_lite_configs` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `organization_id` BIGINT UNSIGNED NOT NULL,
+  `name` VARCHAR(100) NOT NULL,
+  `aftr_address` VARCHAR(45) NOT NULL COMMENT 'IPv6 address of the AFTR (Address Family Transition Router)',
+  `b4_address_range` VARCHAR(50) NULL COMMENT 'B4 element IPv6 address range',
+  `mtu` INT UNSIGNED NOT NULL DEFAULT 1452,
+  `status` ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  `notes` TEXT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` TIMESTAMP NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `idx_dslite_org` (`organization_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: map_rules (migration 245 — §5.4 IPv6 Transition Mechanisms)
+-- Purpose: MAP-E and MAP-T rule definitions for address mapping.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `map_rules` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `organization_id` BIGINT UNSIGNED NOT NULL,
+  `name` VARCHAR(100) NOT NULL,
+  `rule_type` ENUM('map-e','map-t') NOT NULL DEFAULT 'map-e',
+  `ipv6_prefix` VARCHAR(50) NOT NULL COMMENT 'MAP IPv6 rule prefix',
+  `ipv4_prefix` VARCHAR(50) NOT NULL COMMENT 'MAP IPv4 rule prefix',
+  `ea_bits_len` TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'EA-bits length',
+  `br_address` VARCHAR(45) NOT NULL COMMENT 'Border Relay IPv6 address',
+  `status` ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  `notes` TEXT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` TIMESTAMP NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `idx_map_rules_org` (`organization_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: xlat464_configs (migration 245 — §5.4 IPv6 Transition Mechanisms)
+-- Purpose: 464XLAT PLAT/CLAT configuration for IPv4-in-IPv6-only networks.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `xlat464_configs` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `organization_id` BIGINT UNSIGNED NOT NULL,
+  `name` VARCHAR(100) NOT NULL,
+  `plat_prefix` VARCHAR(50) NOT NULL COMMENT 'PLAT (Provider-side translator) prefix',
+  `clat_prefix` VARCHAR(50) NULL COMMENT 'CLAT (Customer-side translator) prefix',
+  `dns64_prefix` VARCHAR(50) NULL COMMENT 'DNS64 synthesis prefix',
+  `status` ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  `notes` TEXT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` TIMESTAMP NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `idx_xlat464_org` (`organization_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

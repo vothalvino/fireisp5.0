@@ -19,6 +19,13 @@ const createIpPool = {
   excluded_ranges: { type: 'string', max: 10000 },
   notes: { type: 'string', max: 5000 },
   status: { type: 'string', enum: ['active', 'inactive'] },
+  dhcpv6_mode: { type: 'string', enum: ['stateful', 'stateless', 'slaac'] },
+  ra_enabled: { type: 'boolean' },
+  ra_managed_flag: { type: 'boolean' },
+  ra_other_flag: { type: 'boolean' },
+  ra_lifetime_seconds: { type: 'number', min: 0, max: 65535 },
+  slaac_prefix: { type: 'string', max: 50 },
+  region_name: { type: 'string', max: 100 },
 };
 
 const updateIpPool = {
@@ -38,6 +45,13 @@ const updateIpPool = {
   excluded_ranges: { type: 'string', max: 10000 },
   notes: { type: 'string', max: 5000 },
   status: { type: 'string', enum: ['active', 'inactive'] },
+  dhcpv6_mode: { type: 'string', enum: ['stateful', 'stateless', 'slaac'] },
+  ra_enabled: { type: 'boolean' },
+  ra_managed_flag: { type: 'boolean' },
+  ra_other_flag: { type: 'boolean' },
+  ra_lifetime_seconds: { type: 'number', min: 0, max: 65535 },
+  slaac_prefix: { type: 'string', max: 50 },
+  region_name: { type: 'string', max: 100 },
 };
 
 module.exports = { createIpPool, updateIpPool };

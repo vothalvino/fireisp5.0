@@ -12,6 +12,7 @@ class IpPool extends BaseModel {
       'organization_id', 'site_id', 'nas_id', 'service_profile_id', 'name', 'network', 'subnet_mask',
       'gateway', 'ip_version', 'dns_primary', 'dns_secondary', 'service_type',
       'default_prefix_len', 'excluded_ranges', 'pool_type', 'status', 'notes',
+      'dhcpv6_mode', 'ra_enabled', 'ra_managed_flag', 'ra_other_flag', 'ra_lifetime_seconds', 'slaac_prefix', 'region_name',
     ];
   }
 
