@@ -34,6 +34,13 @@ interface IpPool {
   service_type: string | null;
   default_prefix_len: number | null;
   excluded_ranges: string | null;
+  dhcpv6_mode: string | null;
+  ra_enabled: boolean | null;
+  ra_managed_flag: boolean | null;
+  ra_other_flag: boolean | null;
+  ra_lifetime_seconds: number | null;
+  slaac_prefix: string | null;
+  region_name: string | null;
   last_alerted_threshold: number | null;
   utilization?: { assigned: number; total_usable: number; percent_used: number } | null;
 }
@@ -70,6 +77,13 @@ interface IpPoolBody {
   service_type?: string;
   default_prefix_len?: number;
   excluded_ranges?: string;
+  dhcpv6_mode?: string;
+  ra_enabled?: boolean;
+  ra_managed_flag?: boolean;
+  ra_other_flag?: boolean;
+  ra_lifetime_seconds?: number;
+  slaac_prefix?: string;
+  region_name?: string;
 }
 
 interface PoolUtilizationRow {
@@ -94,6 +108,7 @@ const STATUSES = ['active', 'inactive'];
 const STATUS_FILTER_OPTIONS = ['', ...STATUSES];
 const SERVICE_TYPES = ['residential', 'business', 'corporate', 'government', 'mixed'];
 const PREFIX_LENGTHS = [48, 56, 64];
+const DHCPV6_MODES = ['stateful', 'stateless', 'slaac'];
 
 // ---------------------------------------------------------------------------
 // Fetch / mutate helpers
@@ -211,6 +226,13 @@ function IpPoolModal({ pool, sites, nas, onClose, onSaved }: IpPoolModalProps) {
     service_type: pool?.service_type ?? '',
     default_prefix_len: pool?.default_prefix_len != null ? String(pool.default_prefix_len) : '',
     excluded_ranges: pool?.excluded_ranges ?? '',
+    dhcpv6_mode: pool?.dhcpv6_mode ?? '',
+    ra_enabled: pool?.ra_enabled ?? false,
+    ra_managed_flag: pool?.ra_managed_flag ?? false,
+    ra_other_flag: pool?.ra_other_flag ?? false,
+    ra_lifetime_seconds: pool?.ra_lifetime_seconds != null ? String(pool.ra_lifetime_seconds) : '1800',
+    slaac_prefix: pool?.slaac_prefix ?? '',
+    region_name: pool?.region_name ?? '',
   });
   const [error, setError] = useState('');
 
@@ -239,6 +261,15 @@ function IpPoolModal({ pool, sites, nas, onClose, onSaved }: IpPoolModalProps) {
         body.default_prefix_len = Number(form.default_prefix_len);
       }
       if (form.excluded_ranges.trim()) body.excluded_ranges = form.excluded_ranges.trim();
+      if (form.ip_version === '6') {
+        if (form.dhcpv6_mode) body.dhcpv6_mode = form.dhcpv6_mode;
+        body.ra_enabled = form.ra_enabled;
+        body.ra_managed_flag = form.ra_managed_flag;
+        body.ra_other_flag = form.ra_other_flag;
+        if (form.ra_lifetime_seconds) body.ra_lifetime_seconds = Number(form.ra_lifetime_seconds);
+        if (form.slaac_prefix.trim()) body.slaac_prefix = form.slaac_prefix.trim();
+      }
+      if (form.region_name.trim()) body.region_name = form.region_name.trim();
       return isEdit ? updateIpPool(pool.id, body) : createIpPool(body);
     },
     onSuccess: () => {
@@ -407,20 +438,93 @@ function IpPoolModal({ pool, sites, nas, onClose, onSaved }: IpPoolModalProps) {
           </label>
 
           {form.ip_version === '6' && (
-            <label style={modalStyles.label}>
-              {t('ip_pools.default_prefix_len_label')}
-              <select
-                style={modalStyles.select}
-                value={form.default_prefix_len}
-                onChange={e => setField('default_prefix_len', e.target.value)}
-              >
-                <option value="">— None —</option>
-                {PREFIX_LENGTHS.map(pl => (
-                  <option key={pl} value={pl}>/{pl}</option>
-                ))}
-              </select>
-            </label>
+            <>
+              <label style={modalStyles.label}>
+                {t('ip_pools.default_prefix_len_label')}
+                <select
+                  style={modalStyles.select}
+                  value={form.default_prefix_len}
+                  onChange={e => setField('default_prefix_len', e.target.value)}
+                >
+                  <option value="">— None —</option>
+                  {PREFIX_LENGTHS.map(pl => (
+                    <option key={pl} value={pl}>/{pl}</option>
+                  ))}
+                </select>
+              </label>
+              <label style={modalStyles.label}>
+                {t('ip_pools.dhcpv6_mode_label')}
+                <select
+                  style={modalStyles.select}
+                  value={form.dhcpv6_mode}
+                  onChange={e => setField('dhcpv6_mode', e.target.value)}
+                >
+                  <option value="">— None —</option>
+                  {DHCPV6_MODES.map(m => (
+                    <option key={m} value={m}>{t(`ip_pools.dhcpv6_modes.${m}`)}</option>
+                  ))}
+                </select>
+              </label>
+              <label style={modalStyles.label}>
+                {t('ip_pools.slaac_prefix_label')}
+                <input
+                  style={modalStyles.input}
+                  type="text"
+                  maxLength={50}
+                  value={form.slaac_prefix}
+                  onChange={e => setField('slaac_prefix', e.target.value)}
+                  placeholder="e.g. 2001:db8::/32"
+                />
+              </label>
+              <label style={modalStyles.label}>
+                RA Lifetime (s)
+                <input
+                  style={modalStyles.input}
+                  type="number"
+                  min={0}
+                  max={65535}
+                  value={form.ra_lifetime_seconds}
+                  onChange={e => setField('ra_lifetime_seconds', e.target.value)}
+                />
+              </label>
+              <label style={{ ...modalStyles.label, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.ra_enabled)}
+                  onChange={e => setField('ra_enabled', e.target.checked)}
+                />
+                {t('ip_pools.ra_enabled_label')}
+              </label>
+              <label style={{ ...modalStyles.label, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.ra_managed_flag)}
+                  onChange={e => setField('ra_managed_flag', e.target.checked)}
+                />
+                {t('ip_pools.ra_managed_flag_label')}
+              </label>
+              <label style={{ ...modalStyles.label, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.ra_other_flag)}
+                  onChange={e => setField('ra_other_flag', e.target.checked)}
+                />
+                {t('ip_pools.ra_other_flag_label')}
+              </label>
+            </>
           )}
+
+          <label style={modalStyles.label}>
+            {t('ip_pools.region_name_label')}
+            <input
+              style={modalStyles.input}
+              type="text"
+              maxLength={100}
+              value={form.region_name}
+              onChange={e => setField('region_name', e.target.value)}
+              placeholder="e.g. North"
+            />
+          </label>
 
           <label style={modalStyles.label}>
             {t('ip_pools.excluded_ranges_label')}

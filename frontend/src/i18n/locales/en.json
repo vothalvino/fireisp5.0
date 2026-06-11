@@ -1009,6 +1009,17 @@
       "corporate": "Corporate",
       "government": "Government",
       "mixed": "Mixed"
+    },
+    "dhcpv6_mode_label": "DHCPv6 Mode",
+    "slaac_prefix_label": "SLAAC Prefix",
+    "ra_enabled_label": "Enable Router Advertisements",
+    "ra_managed_flag_label": "RA Managed Flag (M)",
+    "ra_other_flag_label": "RA Other Flag (O)",
+    "region_name_label": "Region",
+    "dhcpv6_modes": {
+      "stateful": "Stateful (DHCPv6)",
+      "stateless": "Stateless (SLAAC + DHCPv6 options)",
+      "slaac": "SLAAC only"
     }
   },
   "radius": {
@@ -1076,7 +1087,18 @@
     "delete_success": "Profile deleted.",
     "create_error": "Failed to create profile.",
     "update_error": "Failed to update profile.",
-    "delete_error": "Failed to delete profile."
+    "delete_error": "Failed to delete profile.",
+    "ipv6_section": "IPv6 / Dual Stack",
+    "ipv6cp_enabled": "Enable IPv6CP",
+    "ipv6cp_enabled_hint": "Negotiate IPv6 Control Protocol during PPPoE session establishment.",
+    "delegated_prefix_len": "Delegated Prefix Length",
+    "delegated_prefix_len_hint": "DHCPv6-PD prefix length to delegate (e.g. 56, 60, 64). Requires IPv6CP enabled.",
+    "dns_primary_v6": "Primary IPv6 DNS",
+    "dns_secondary_v6": "Secondary IPv6 DNS",
+    "nat64_enabled": "Enable NAT64",
+    "nat64_enabled_hint": "Apply NAT64 translation for IPv6-only subscribers accessing IPv4 resources.",
+    "dns64_prefix": "DNS64 Prefix",
+    "dns64_prefix_hint": "DNS64 synthesis prefix (e.g. 64:ff9b::/96). Configured on the DNS64 resolver, not sent via RADIUS."
   },
   "pppoe_diagnostics": {
     "title": "PPPoE Diagnostics",

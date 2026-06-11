@@ -1009,6 +1009,17 @@
       "corporate": "Corporativo",
       "government": "Governo",
       "mixed": "Misto"
+    },
+    "dhcpv6_mode_label": "Modo DHCPv6",
+    "slaac_prefix_label": "Prefixo SLAAC",
+    "ra_enabled_label": "Habilitar Anúncios de Roteador",
+    "ra_managed_flag_label": "Sinalizador Gerenciado de RA (M)",
+    "ra_other_flag_label": "Outro Sinalizador de RA (O)",
+    "region_name_label": "Região",
+    "dhcpv6_modes": {
+      "stateful": "Com estado (DHCPv6)",
+      "stateless": "Sem estado (SLAAC + opções DHCPv6)",
+      "slaac": "Apenas SLAAC"
     }
   },
   "radius": {
@@ -1076,7 +1087,18 @@
     "delete_success": "Perfil excluído.",
     "create_error": "Falha ao criar perfil.",
     "update_error": "Falha ao atualizar perfil.",
-    "delete_error": "Falha ao excluir perfil."
+    "delete_error": "Falha ao excluir perfil.",
+    "ipv6_section": "IPv6 / Dual Stack",
+    "ipv6cp_enabled": "Habilitar IPv6CP",
+    "ipv6cp_enabled_hint": "Negociar o Protocolo de Controle IPv6 durante o estabelecimento da sessão PPPoE.",
+    "delegated_prefix_len": "Tamanho do Prefixo Delegado",
+    "delegated_prefix_len_hint": "Tamanho do prefixo DHCPv6-PD a delegar (ex. 56, 60, 64). Requer IPv6CP habilitado.",
+    "dns_primary_v6": "DNS IPv6 Primário",
+    "dns_secondary_v6": "DNS IPv6 Secundário",
+    "nat64_enabled": "Habilitar NAT64",
+    "nat64_enabled_hint": "Aplicar tradução NAT64 para assinantes apenas IPv6 que acessam recursos IPv4.",
+    "dns64_prefix": "Prefixo DNS64",
+    "dns64_prefix_hint": "Prefixo de síntese DNS64 (ex. 64:ff9b::/96). Configurado no resolver DNS64, não enviado via RADIUS."
   },
   "pppoe_diagnostics": {
     "title": "Diagnósticos PPPoE",

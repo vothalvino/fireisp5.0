@@ -220,3 +220,86 @@ describe('IPv6 Management routes — Subnet Planner', () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe('IP Pool — IPv6 columns (§5 dual stack)', () => {
+  const token = adminToken();
+
+  function mockDbIpPool() {
+    db.query.mockImplementation((sql) => {
+      // Auth: user lookup
+      if (typeof sql === 'string' && sql.includes('WHERE id = ?') && !sql.includes('ip_pools')) {
+        return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 10 }]]);
+      }
+      // RBAC
+      if (typeof sql === 'string' && (sql.includes('permissions') || sql.includes('role_permissions'))) {
+        return Promise.resolve([[{ id: 1, name: 'ip_pools.create' }]]);
+      }
+      if (typeof sql === 'string' && sql.includes('COUNT(*)')) {
+        return Promise.resolve([[{ total: 1 }]]);
+      }
+      if (typeof sql === 'string' && sql.includes('INSERT INTO audit_logs')) {
+        return Promise.resolve([{ insertId: 99 }]);
+      }
+      if (typeof sql === 'string' && sql.includes('INSERT INTO `ip_pools`')) {
+        return Promise.resolve([{ insertId: 1 }]);
+      }
+      if (typeof sql === 'string' && sql.includes('UPDATE `ip_pools`')) {
+        return Promise.resolve([{ affectedRows: 1 }]);
+      }
+      // Overlap detection query: SELECT * FROM ip_pools WHERE deleted_at IS NULL ...
+      // Return empty array so assertNoOverlap finds no conflict
+      if (typeof sql === 'string' && sql.includes('FROM ip_pools') && sql.includes('deleted_at IS NULL') && !sql.includes('WHERE id')) {
+        return Promise.resolve([[]]);
+      }
+      // Single pool fetch (findByIdOrFail for PUT)
+      if (typeof sql === 'string' && sql.includes('FROM `ip_pools`')) {
+        return Promise.resolve([[{
+          id: 1, organization_id: 10, name: 'IPv6 Pool', network: '2001:db8::/32',
+          ip_version: '6', status: 'active', dhcpv6_mode: 'stateful',
+          ra_enabled: 1, slaac_prefix: '2001:db8::/32',
+          ra_lifetime_seconds: 3600, region_name: 'North',
+          deleted_at: null,
+        }]]);
+      }
+      return Promise.resolve([[{
+        id: 1, organization_id: 10, name: 'IPv6 Pool', network: '2001:db8::/32',
+        ip_version: '6', status: 'active', dhcpv6_mode: 'stateful',
+        ra_enabled: 1, slaac_prefix: '2001:db8::/32',
+        ra_lifetime_seconds: 3600, region_name: 'North',
+        deleted_at: null,
+      }]]);
+    });
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockDbIpPool();
+  });
+
+  test('POST /api/v1/ip-pools with DHCPv6 columns returns 201', async () => {
+    const res = await request(app)
+      .post('/api/v1/ip-pools')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Org-Id', '10')
+      .send({
+        name: 'IPv6 Pool',
+        network: '2001:db8::/32',
+        ip_version: '6',
+        dhcpv6_mode: 'stateful',
+        ra_enabled: true,
+        slaac_prefix: '2001:db8::/32',
+      });
+
+    expect(res.status).toBe(201);
+  });
+
+  test('PUT /api/v1/ip-pools/1 with ra_lifetime_seconds and region_name returns 200', async () => {
+    const res = await request(app)
+      .put('/api/v1/ip-pools/1')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Org-Id', '10')
+      .send({ ra_lifetime_seconds: 3600, region_name: 'North' });
+
+    expect(res.status).toBe(200);
+  });
+});
