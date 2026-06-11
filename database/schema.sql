@@ -8961,33 +8961,51 @@ CREATE TABLE IF NOT EXISTS config_compliance_results (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS olt_ports (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    organization_id     BIGINT UNSIGNED NULL,
-    olt_device_id       BIGINT UNSIGNED NOT NULL,
-    port_index          INT UNSIGNED    NOT NULL,
-    port_name           VARCHAR(50)     NOT NULL,
-    port_type           ENUM('gpon','epon','xgspon','uplink','cascade','other') NOT NULL DEFAULT 'gpon',
-    slot_no             TINYINT UNSIGNED NULL,
-    port_no             TINYINT UNSIGNED NULL,
-    admin_status        ENUM('up','down') NOT NULL DEFAULT 'up',
-    oper_status         ENUM('up','down','testing','unknown','notPresent','lowerLayerDown') NOT NULL DEFAULT 'unknown',
-    onu_count           SMALLINT UNSIGNED NULL DEFAULT 0,
-    max_onus            SMALLINT UNSIGNED NULL DEFAULT 128,
-    tx_power_dbm        DECIMAL(6,2)    NULL,
-    rx_power_dbm        DECIMAL(6,2)    NULL,
-    bandwidth_up_bps    BIGINT UNSIGNED NULL,
-    bandwidth_down_bps  BIGINT UNSIGNED NULL,
-    last_polled_at      DATETIME        NULL,
+    organization_id     BIGINT UNSIGNED NULL
+                            COMMENT 'Tenant scoping — NULL = single-tenant deployment',
+    olt_device_id       BIGINT UNSIGNED NOT NULL
+                            COMMENT 'FK to devices (type=''olt'')',
+    port_index          INT UNSIGNED    NOT NULL
+                            COMMENT 'IF-MIB ifIndex or vendor PON slot/port index',
+    port_name           VARCHAR(50)     NOT NULL
+                            COMMENT 'Human-readable name, e.g. GPON 0/1/3',
+    port_type           ENUM('gpon','epon','xgspon','uplink','cascade','other')
+                            NOT NULL DEFAULT 'gpon',
+    slot_no             TINYINT UNSIGNED NULL
+                            COMMENT 'Board/slot number on the OLT chassis',
+    port_no             TINYINT UNSIGNED NULL
+                            COMMENT 'Port number within the slot',
+    admin_status        ENUM('up','down') NOT NULL DEFAULT 'up'
+                            COMMENT 'Administratively configured state',
+    oper_status         ENUM('up','down','testing','unknown','notPresent','lowerLayerDown')
+                            NOT NULL DEFAULT 'unknown'
+                            COMMENT 'Current operational state from SNMP ifOperStatus',
+    onu_count           SMALLINT UNSIGNED NULL DEFAULT 0
+                            COMMENT 'Active ONUs registered on this PON port (polled)',
+    max_onus            SMALLINT UNSIGNED NULL DEFAULT 128
+                            COMMENT 'Maximum ONUs supported (1:128 splitter)',
+    tx_power_dbm        DECIMAL(6,2)    NULL
+                            COMMENT 'PON port Tx optical power in dBm (polled)',
+    rx_power_dbm        DECIMAL(6,2)    NULL
+                            COMMENT 'PON port Rx optical power in dBm (polled)',
+    bandwidth_up_bps    BIGINT UNSIGNED NULL
+                            COMMENT 'Uplink bandwidth utilization in bps (polled)',
+    bandwidth_down_bps  BIGINT UNSIGNED NULL
+                            COMMENT 'Downlink bandwidth utilization in bps (polled)',
+    last_polled_at      DATETIME        NULL
+                            COMMENT 'Last time port metrics were polled from device',
     notes               TEXT            NULL,
-    -- §7.3 PON Port Management columns (migration 270)
-    maintenance_mode      TINYINT(1)    NOT NULL DEFAULT 0,
-    maintenance_note      VARCHAR(255)  NULL,
-    maintenance_by        BIGINT UNSIGNED NULL,
-    maintenance_at        DATETIME      NULL,
-    xgspon_mode           ENUM('gpon','xgspon_2_5g','xgspon_10g','auto','none') NOT NULL DEFAULT 'none',
-    xgspon_mode_validated TINYINT(1)    NOT NULL DEFAULT 0,
+    maintenance_mode    TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Port shut down for maintenance (migration 270)',
+    maintenance_note    VARCHAR(255)    NULL COMMENT 'Reason for maintenance shutdown (migration 270)',
+    maintenance_by      BIGINT UNSIGNED NULL COMMENT 'User who set maintenance mode (migration 270)',
+    maintenance_at      DATETIME        NULL COMMENT 'When maintenance mode was set (migration 270)',
+    xgspon_mode         ENUM('gpon','xgspon_2_5g','xgspon_10g','auto','none') NOT NULL DEFAULT 'none' COMMENT 'XGS-PON sub-mode for dual-mode GPON/XGS-PON ports (migration 270)',
+    xgspon_mode_validated TINYINT(1)    NOT NULL DEFAULT 0 COMMENT 'Mode validated against olt_vendor_capabilities (migration 270)',
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+
     PRIMARY KEY (id),
     UNIQUE KEY uq_olt_ports_device_port (olt_device_id, port_index),
     KEY idx_olt_ports_organization_id (organization_id),
@@ -8995,8 +9013,10 @@ CREATE TABLE IF NOT EXISTS olt_ports (
     KEY idx_olt_ports_port_type (port_type),
     KEY idx_olt_ports_oper_status (oper_status),
     KEY idx_olt_ports_deleted_at (deleted_at),
-    CONSTRAINT fk_olt_ports_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_olt_ports_olt_device FOREIGN KEY (olt_device_id) REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
+    CONSTRAINT fk_olt_ports_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_olt_ports_olt_device FOREIGN KEY (olt_device_id)
+        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='PON and uplink port inventory per OLT (§7.1/§7.3)';
 
@@ -9009,28 +9029,46 @@ CREATE TABLE IF NOT EXISTS onu_profiles (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
     name                VARCHAR(100)    NOT NULL,
-    technology          ENUM('gpon','epon','xgspon','other') NOT NULL DEFAULT 'gpon',
-    tcont_id            TINYINT UNSIGNED NULL,
-    dba_profile_name    VARCHAR(100)    NULL,
-    assured_bw_kbps     INT UNSIGNED    NULL,
-    max_bw_kbps         INT UNSIGNED    NULL,
-    gem_port_id         SMALLINT UNSIGNED NULL,
-    service_vlan        SMALLINT UNSIGNED NULL,
-    client_vlan         SMALLINT UNSIGNED NULL,
-    vlan_mode           ENUM('transparent','tag','translate','double_tag','untagged') NOT NULL DEFAULT 'tag',
-    plan_id             BIGINT UNSIGNED NULL,
+    technology          ENUM('gpon','epon','xgspon','other')
+                            NOT NULL DEFAULT 'gpon',
+    -- T-CONT / DBA
+    tcont_id            TINYINT UNSIGNED NULL
+                            COMMENT 'T-CONT index (GPON/XGSPON)',
+    dba_profile_name    VARCHAR(100)    NULL
+                            COMMENT 'Bandwidth assurance profile name on OLT',
+    assured_bw_kbps     INT UNSIGNED    NULL
+                            COMMENT 'Assured bandwidth in kbps (DBA type 3/4)',
+    max_bw_kbps         INT UNSIGNED    NULL
+                            COMMENT 'Maximum/peak bandwidth in kbps',
+    -- GEM port
+    gem_port_id         SMALLINT UNSIGNED NULL
+                            COMMENT 'GEM port ID for service traffic (0-4095)',
+    -- VLAN mapping
+    service_vlan        SMALLINT UNSIGNED NULL
+                            COMMENT 'S-VLAN (outer tag) for this service profile',
+    client_vlan         SMALLINT UNSIGNED NULL
+                            COMMENT 'C-VLAN (inner tag) for this service profile',
+    vlan_mode           ENUM('transparent','tag','translate','double_tag','untagged')
+                            NOT NULL DEFAULT 'tag',
+    -- Service plan linkage
+    plan_id             BIGINT UNSIGNED NULL
+                            COMMENT 'Service plan associated with this PON profile',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+
     PRIMARY KEY (id),
     UNIQUE KEY uq_onu_profiles_org_name (organization_id, name),
     KEY idx_onu_profiles_organization_id (organization_id),
     KEY idx_onu_profiles_technology (technology),
     KEY idx_onu_profiles_plan_id (plan_id),
     KEY idx_onu_profiles_deleted_at (deleted_at),
-    CONSTRAINT fk_onu_profiles_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_onu_profiles_plan FOREIGN KEY (plan_id) REFERENCES plans (id) ON DELETE SET NULL ON UPDATE CASCADE
+    CONSTRAINT fk_onu_profiles_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_profiles_plan FOREIGN KEY (plan_id)
+        REFERENCES plans (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='PON service profile templates (T-CONT/GEM/DBA/VLAN) (§7.2)';
 
@@ -9040,27 +9078,52 @@ CREATE TABLE IF NOT EXISTS onu_profiles (
 -- Migration: 266
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS onu_details (
-    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    organization_id         BIGINT UNSIGNED NULL,
-    device_id               BIGINT UNSIGNED NOT NULL,
-    olt_device_id           BIGINT UNSIGNED NULL,
-    olt_port_id             BIGINT UNSIGNED NULL,
-    onu_profile_id          BIGINT UNSIGNED NULL,
-    serial_number           VARCHAR(20)     NULL,
-    loid                    VARCHAR(64)     NULL,
-    loid_password_encrypted VARCHAR(255)    NULL,
-    onu_state               ENUM('online','offline','los','dying_gasp','power_off','loc','unconfigured','unknown') NOT NULL DEFAULT 'unknown',
-    last_status_at          DATETIME        NULL,
-    onu_id                  SMALLINT UNSIGNED NULL,
-    ranging_distance_m      INT UNSIGNED    NULL,
-    line_profile_name       VARCHAR(100)    NULL,
-    service_profile_name    VARCHAR(100)    NULL,
-    wan_mode                ENUM('bridge','router','mixed') NOT NULL DEFAULT 'bridge',
-    last_provision_job_id   BIGINT UNSIGNED NULL,
-    notes                   TEXT            NULL,
-    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted_at              DATETIME        NULL,
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    device_id           BIGINT UNSIGNED NOT NULL
+                            COMMENT 'FK to devices (type=''onu'') — the ONU device',
+    olt_device_id       BIGINT UNSIGNED NULL
+                            COMMENT 'FK to devices (type=''olt'') — the parent OLT',
+    olt_port_id         BIGINT UNSIGNED NULL
+                            COMMENT 'FK to olt_ports — the PON port this ONU is on',
+    onu_profile_id      BIGINT UNSIGNED NULL
+                            COMMENT 'FK to onu_profiles — active service profile',
+    -- Registration identity
+    serial_number       VARCHAR(20)     NULL
+                            COMMENT 'ONU serial number in PLOAM/OMCI format (e.g. HWTC1A2B3C4D)',
+    loid                VARCHAR(64)     NULL
+                            COMMENT 'Logical ONU ID used for LOID authentication',
+    loid_password_encrypted VARCHAR(255) NULL
+                            COMMENT 'LOID password — AES-256 encrypted at app layer',
+    -- ONU status (polled or pushed via trap)
+    onu_state           ENUM('online','offline','los','dying_gasp','power_off','loc','unconfigured','unknown')
+                            NOT NULL DEFAULT 'unknown'
+                            COMMENT 'Current PON layer operational state of the ONU',
+    last_status_at      DATETIME        NULL
+                            COMMENT 'Timestamp of last status update',
+    -- OLT-assigned addressing
+    onu_id              SMALLINT UNSIGNED NULL
+                            COMMENT 'OLT-assigned ONU identifier (0-127 on GPON)',
+    ranging_distance_m  INT UNSIGNED    NULL
+                            COMMENT 'ONU distance measured by OLT ranging in metres',
+    -- Vendor profile references (CLI/NETCONF template names stored on the OLT)
+    line_profile_name   VARCHAR(100)    NULL
+                            COMMENT 'OLT line-profile name assigned to this ONU',
+    service_profile_name VARCHAR(100)   NULL
+                            COMMENT 'OLT service-profile name assigned to this ONU',
+    -- Bridge/Router mode
+    wan_mode            ENUM('bridge','router','mixed')
+                            NOT NULL DEFAULT 'bridge'
+                            COMMENT 'ONU WAN forwarding mode',
+    -- Pending provision job reference
+    last_provision_job_id BIGINT UNSIGNED NULL
+                            COMMENT 'FK to onu_firmware_jobs — last provision/config job',
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+
     PRIMARY KEY (id),
     UNIQUE KEY uq_onu_details_device_id (device_id),
     KEY idx_onu_details_organization_id (organization_id),
@@ -9070,11 +9133,16 @@ CREATE TABLE IF NOT EXISTS onu_details (
     KEY idx_onu_details_onu_state (onu_state),
     KEY idx_onu_details_serial_number (serial_number),
     KEY idx_onu_details_deleted_at (deleted_at),
-    CONSTRAINT fk_onu_details_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_onu_details_device FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT fk_onu_details_olt_device FOREIGN KEY (olt_device_id) REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_onu_details_olt_port FOREIGN KEY (olt_port_id) REFERENCES olt_ports (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_onu_details_onu_profile FOREIGN KEY (onu_profile_id) REFERENCES onu_profiles (id) ON DELETE SET NULL ON UPDATE CASCADE
+    CONSTRAINT fk_onu_details_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_details_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_details_olt_device FOREIGN KEY (olt_device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_details_olt_port FOREIGN KEY (olt_port_id)
+        REFERENCES olt_ports (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_details_onu_profile FOREIGN KEY (onu_profile_id)
+        REFERENCES onu_profiles (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='GPON/EPON ONU detail extension to devices (§7.2)';
 
@@ -9086,22 +9154,32 @@ CREATE TABLE IF NOT EXISTS onu_details (
 CREATE TABLE IF NOT EXISTS onu_optical_metrics (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
-    device_id           BIGINT UNSIGNED NOT NULL,
-    olt_device_id       BIGINT UNSIGNED NULL,
-    olt_port_id         BIGINT UNSIGNED NULL,
-    polled_at           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    tx_power_dbm        DECIMAL(6,2)    NULL,
-    rx_power_dbm        DECIMAL(6,2)    NULL,
-    temperature_c       DECIMAL(6,2)    NULL,
-    voltage_v           DECIMAL(6,3)    NULL,
-    bias_current_ma     DECIMAL(8,3)    NULL,
-    olt_rx_power_dbm    DECIMAL(6,2)    NULL,
+    device_id           BIGINT UNSIGNED NOT NULL
+                            COMMENT 'FK to devices (type=''onu'')',
+    olt_device_id       BIGINT UNSIGNED NULL
+                            COMMENT 'FK to devices (type=''olt'')',
+    olt_port_id         BIGINT UNSIGNED NULL
+                            COMMENT 'FK to olt_ports',
+    polled_at           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            COMMENT 'Timestamp of the measurement',
+    -- Optical power (0.01 dBm resolution)
+    tx_power_dbm        DECIMAL(6,2)    NULL COMMENT 'ONU Tx optical power (dBm)',
+    rx_power_dbm        DECIMAL(6,2)    NULL COMMENT 'ONU Rx optical power at OLT (dBm)',
+    -- Laser diagnostics (SFP DDM / OMCI)
+    temperature_c       DECIMAL(6,2)    NULL COMMENT 'Laser temperature in °C',
+    voltage_v           DECIMAL(6,3)    NULL COMMENT 'Laser supply voltage in V',
+    bias_current_ma     DECIMAL(8,3)    NULL COMMENT 'Laser bias current in mA',
+    -- OLT-side Rx power for this ONU (from HUAWEI-XPON-MIB or ZTE MIB)
+    olt_rx_power_dbm    DECIMAL(6,2)    NULL COMMENT 'OLT-side Rx optical power (dBm)',
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
     PRIMARY KEY (id),
     KEY idx_onu_optical_device_polled (device_id, polled_at DESC),
     KEY idx_onu_optical_organization (organization_id),
     KEY idx_onu_optical_olt_port (olt_port_id),
     KEY idx_onu_optical_polled_at (polled_at)
+    -- No FKs: high-write metrics table (same pattern as snmp_metrics).
+    -- Org-id stored for filtering; olt_port_id stored for queries.
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Per-ONU optical diagnostic time-series (§7.2)';
 
@@ -9113,15 +9191,20 @@ CREATE TABLE IF NOT EXISTS onu_optical_metrics (
 CREATE TABLE IF NOT EXISTS onu_whitelist (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
-    olt_device_id       BIGINT UNSIGNED NOT NULL,
+    olt_device_id       BIGINT UNSIGNED NOT NULL
+                            COMMENT 'FK to devices (type=''olt'') owning this list',
     entry_type          ENUM('mac','serial_number') NOT NULL DEFAULT 'serial_number',
-    entry_value         VARCHAR(64)     NOT NULL,
+    entry_value         VARCHAR(64)     NOT NULL
+                            COMMENT 'MAC address (XX:XX:XX:XX:XX:XX) or SN string',
     list_type           ENUM('allow','block') NOT NULL DEFAULT 'allow',
-    device_id           BIGINT UNSIGNED NULL,
+    device_id           BIGINT UNSIGNED NULL
+                            COMMENT 'FK to devices (type=''onu'') if already provisioned',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+
     PRIMARY KEY (id),
     UNIQUE KEY uq_onu_whitelist_olt_entry (olt_device_id, entry_type, entry_value),
     KEY idx_onu_whitelist_organization_id (organization_id),
@@ -9129,9 +9212,12 @@ CREATE TABLE IF NOT EXISTS onu_whitelist (
     KEY idx_onu_whitelist_list_type (list_type),
     KEY idx_onu_whitelist_device_id (device_id),
     KEY idx_onu_whitelist_deleted_at (deleted_at),
-    CONSTRAINT fk_onu_whitelist_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_onu_whitelist_olt_device FOREIGN KEY (olt_device_id) REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT fk_onu_whitelist_device FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE
+    CONSTRAINT fk_onu_whitelist_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_whitelist_olt_device FOREIGN KEY (olt_device_id)
+        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_whitelist_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='ONU MAC/SN allow-block list per OLT (§7.2)';
 
@@ -9141,37 +9227,52 @@ CREATE TABLE IF NOT EXISTS onu_whitelist (
 -- Migration: 266
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS onu_omci_configs (
-    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    organization_id         BIGINT UNSIGNED NULL,
-    device_id               BIGINT UNSIGNED NOT NULL,
-    config_type             ENUM('wifi','wan','lan','voip','omci_raw','tr069','other') NOT NULL DEFAULT 'wifi',
-    wifi_ssid               VARCHAR(64)     NULL,
-    wifi_password_encrypted VARCHAR(512)    NULL,
-    wifi_band               ENUM('2.4ghz','5ghz','both') NULL DEFAULT 'both',
-    wifi_channel            TINYINT UNSIGNED NULL,
-    wifi_security           ENUM('open','wep','wpa2','wpa3') NULL DEFAULT 'wpa2',
-    wan_mode                ENUM('bridge','router','mixed') NULL,
-    wan_ip_mode             ENUM('dhcp','static','pppoe') NULL,
-    wan_ip_address          VARCHAR(45)     NULL,
-    wan_netmask             VARCHAR(45)     NULL,
-    wan_gateway             VARCHAR(45)     NULL,
-    delivery_method         ENUM('omci','tr069','ssh_cli','manual','pending') NOT NULL DEFAULT 'pending',
-    applied_at              DATETIME        NULL,
-    apply_status            ENUM('pending','in_progress','applied','failed','superseded') NOT NULL DEFAULT 'pending',
-    apply_error             TEXT            NULL,
-    raw_config              JSON            NULL,
-    notes                   TEXT            NULL,
-    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted_at              DATETIME        NULL,
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    device_id           BIGINT UNSIGNED NOT NULL
+                            COMMENT 'FK to devices (type=''onu'')',
+    -- Config classification
+    config_type         ENUM('wifi','wan','lan','voip','omci_raw','tr069','other')
+                            NOT NULL DEFAULT 'wifi',
+    -- Wi-Fi
+    wifi_ssid           VARCHAR(64)     NULL,
+    wifi_password_encrypted VARCHAR(512) NULL
+                            COMMENT 'Wi-Fi PSK — AES-256 encrypted at app layer',
+    wifi_band           ENUM('2.4ghz','5ghz','both') NULL DEFAULT 'both',
+    wifi_channel        TINYINT UNSIGNED NULL,
+    wifi_security       ENUM('open','wep','wpa2','wpa3') NULL DEFAULT 'wpa2',
+    -- WAN mode
+    wan_mode            ENUM('bridge','router','mixed') NULL,
+    wan_ip_mode         ENUM('dhcp','static','pppoe') NULL,
+    wan_ip_address      VARCHAR(45)     NULL,
+    wan_netmask         VARCHAR(45)     NULL,
+    wan_gateway         VARCHAR(45)     NULL,
+    -- Delivery
+    delivery_method     ENUM('omci','tr069','ssh_cli','manual','pending')
+                            NOT NULL DEFAULT 'pending',
+    applied_at          DATETIME        NULL
+                            COMMENT 'Timestamp when this config was successfully pushed',
+    apply_status        ENUM('pending','in_progress','applied','failed','superseded')
+                            NOT NULL DEFAULT 'pending',
+    apply_error         TEXT            NULL,
+    -- Raw config blob for custom OMCI ME sequences or TR-069 parameter sets
+    raw_config          JSON            NULL,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+
     PRIMARY KEY (id),
     KEY idx_onu_omci_configs_organization_id (organization_id),
     KEY idx_onu_omci_configs_device_id (device_id),
     KEY idx_onu_omci_configs_config_type (config_type),
     KEY idx_onu_omci_configs_apply_status (apply_status),
     KEY idx_onu_omci_configs_deleted_at (deleted_at),
-    CONSTRAINT fk_onu_omci_configs_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_onu_omci_configs_device FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
+    CONSTRAINT fk_onu_omci_configs_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_omci_configs_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='OMCI / TR-069 Wi-Fi and WAN config records per ONU (§7.2)';
 
@@ -9183,27 +9284,45 @@ CREATE TABLE IF NOT EXISTS onu_omci_configs (
 CREATE TABLE IF NOT EXISTS onu_firmware_jobs (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
-    job_type            ENUM('firmware_upgrade','reboot','provision','factory_reset','other') NOT NULL DEFAULT 'firmware_upgrade',
-    scope               ENUM('single_onu','olt_port','olt_device','region','all') NOT NULL DEFAULT 'single_onu',
-    onu_device_id       BIGINT UNSIGNED NULL,
-    olt_device_id       BIGINT UNSIGNED NULL,
-    olt_port_id         BIGINT UNSIGNED NULL,
-    firmware_version    VARCHAR(100)    NULL,
-    firmware_url        VARCHAR(1024)   NULL,
-    scheduled_at        DATETIME        NULL,
+    job_type            ENUM('firmware_upgrade','reboot','provision','factory_reset','other')
+                            NOT NULL DEFAULT 'firmware_upgrade',
+    -- Scope: either a single ONU, or all ONUs on a PON port, or all under an OLT
+    scope               ENUM('single_onu','olt_port','olt_device','region','all')
+                            NOT NULL DEFAULT 'single_onu',
+    onu_device_id       BIGINT UNSIGNED NULL
+                            COMMENT 'FK to devices (type=''onu'') for single-ONU scope',
+    olt_device_id       BIGINT UNSIGNED NULL
+                            COMMENT 'FK to devices (type=''olt'') for OLT-level scope',
+    olt_port_id         BIGINT UNSIGNED NULL
+                            COMMENT 'FK to olt_ports for PON-port-level scope',
+    -- Firmware details (firmware_upgrade jobs)
+    firmware_version    VARCHAR(100)    NULL
+                            COMMENT 'Target firmware version string',
+    firmware_url        VARCHAR(1024)   NULL
+                            COMMENT 'HTTP/TFTP URL to firmware image',
+    -- Scheduling
+    scheduled_at        DATETIME        NULL
+                            COMMENT 'Scheduled start time; NULL = execute immediately',
     started_at          DATETIME        NULL,
     completed_at        DATETIME        NULL,
-    status              ENUM('pending','queued','in_progress','completed','failed','cancelled','partial') NOT NULL DEFAULT 'pending',
+    -- Status tracking
+    status              ENUM('pending','queued','in_progress','completed','failed','cancelled','partial')
+                            NOT NULL DEFAULT 'pending',
     total_devices       INT UNSIGNED    NULL DEFAULT 0,
     completed_devices   INT UNSIGNED    NULL DEFAULT 0,
     failed_devices      INT UNSIGNED    NULL DEFAULT 0,
-    result_summary      JSON            NULL,
+    result_summary      JSON            NULL
+                            COMMENT 'Per-ONU result map { "device_id": "status" }',
     error_message       TEXT            NULL,
-    created_by          BIGINT UNSIGNED NULL,
+    -- Created by
+    created_by          BIGINT UNSIGNED NULL
+                            COMMENT 'FK to users — operator who created this job',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+
     PRIMARY KEY (id),
     KEY idx_onu_firmware_jobs_organization_id (organization_id),
     KEY idx_onu_firmware_jobs_onu_device_id (onu_device_id),
@@ -9212,11 +9331,16 @@ CREATE TABLE IF NOT EXISTS onu_firmware_jobs (
     KEY idx_onu_firmware_jobs_status (status),
     KEY idx_onu_firmware_jobs_scheduled_at (scheduled_at),
     KEY idx_onu_firmware_jobs_deleted_at (deleted_at),
-    CONSTRAINT fk_onu_firmware_jobs_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_onu_firmware_jobs_onu_device FOREIGN KEY (onu_device_id) REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_onu_firmware_jobs_olt_device FOREIGN KEY (olt_device_id) REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_onu_firmware_jobs_olt_port FOREIGN KEY (olt_port_id) REFERENCES olt_ports (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_onu_firmware_jobs_created_by FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+    CONSTRAINT fk_onu_firmware_jobs_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_firmware_jobs_onu_device FOREIGN KEY (onu_device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_firmware_jobs_olt_device FOREIGN KEY (olt_device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_firmware_jobs_olt_port FOREIGN KEY (olt_port_id)
+        REFERENCES olt_ports (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_firmware_jobs_created_by FOREIGN KEY (created_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='ONU firmware upgrade and reboot job scheduler (§7.2)';
 
@@ -9227,20 +9351,37 @@ CREATE TABLE IF NOT EXISTS onu_firmware_jobs (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS olt_vendor_capabilities (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    vendor              VARCHAR(50)     NOT NULL,
-    model_pattern       VARCHAR(100)    NOT NULL,
-    protocols           JSON            NOT NULL,
-    snmp_profile_name   VARCHAR(100)    NULL,
-    provision_template  VARCHAR(100)    NULL,
-    firmware_template   VARCHAR(100)    NULL,
-    reboot_template     VARCHAR(100)    NULL,
-    netconf_schema      VARCHAR(255)    NULL,
-    tl1_command_set     VARCHAR(50)     NULL,
+    vendor              VARCHAR(50)     NOT NULL
+                            COMMENT 'e.g. Huawei, ZTE, VSOL, C-Data, WOLCK, Calix',
+    model_pattern       VARCHAR(100)    NOT NULL
+                            COMMENT 'SQL LIKE pattern matching device.model, e.g. MA5800%',
+    -- Supported management protocols (bitmask stored as JSON array)
+    protocols           JSON            NOT NULL
+                            COMMENT 'Array of protocols: ["snmp","tl1","netconf","ssh_cli"]',
+    snmp_profile_name   VARCHAR(100)    NULL
+                            COMMENT 'Matches snmp_profiles.name for this vendor',
+    -- CLI template references (config_templates.name)
+    provision_template  VARCHAR(100)    NULL
+                            COMMENT 'config_templates.name for ONU provisioning CLI',
+    firmware_template   VARCHAR(100)    NULL
+                            COMMENT 'config_templates.name for firmware upgrade CLI',
+    reboot_template     VARCHAR(100)    NULL
+                            COMMENT 'config_templates.name for ONU reboot CLI',
+    -- NETCONF / TL1 stubs
+    netconf_schema      VARCHAR(255)    NULL
+                            COMMENT 'Path/URI to YANG schema for this vendor',
+    tl1_command_set     VARCHAR(50)     NULL
+                            COMMENT 'TL1 dialect variant identifier',
+    -- OMCI support
     omci_supported      TINYINT(1)      NOT NULL DEFAULT 0,
-    enterprise_oid      VARCHAR(100)    NULL,
+    -- Private MIB root OID
+    enterprise_oid      VARCHAR(100)    NULL
+                            COMMENT 'Root enterprise OID, e.g. 1.3.6.1.4.1.2011 (Huawei)',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
+
     PRIMARY KEY (id),
     UNIQUE KEY uq_olt_vendor_model (vendor, model_pattern),
     KEY idx_olt_vendor_capabilities_vendor (vendor)
@@ -9256,17 +9397,23 @@ CREATE TABLE IF NOT EXISTS olt_splitters (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
     name                VARCHAR(100)    NOT NULL,
-    site_id             BIGINT UNSIGNED NULL,
-    olt_port_id         BIGINT UNSIGNED NULL,
-    ratio               ENUM('1:2','1:4','1:8','1:16','1:32','1:64','1:128') NOT NULL DEFAULT '1:32',
+    site_id             BIGINT UNSIGNED NULL
+                            COMMENT 'Physical site where this splitter is installed',
+    olt_port_id         BIGINT UNSIGNED NULL
+                            COMMENT 'Upstream PON port this splitter is connected to',
+    ratio               ENUM('1:2','1:4','1:8','1:16','1:32','1:64','1:128')
+                            NOT NULL DEFAULT '1:32',
     splitter_type       ENUM('optical','wdm','other') NOT NULL DEFAULT 'optical',
-    location_detail     VARCHAR(255)    NULL,
+    location_detail     VARCHAR(255)    NULL
+                            COMMENT 'Specific location: pole, cabinet, ODF row/column',
     installed_at        DATE            NULL,
     status              ENUM('active','inactive','damaged','removed') NOT NULL DEFAULT 'active',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+
     PRIMARY KEY (id),
     KEY idx_olt_splitters_organization_id (organization_id),
     KEY idx_olt_splitters_site_id (site_id),
@@ -9274,9 +9421,12 @@ CREATE TABLE IF NOT EXISTS olt_splitters (
     KEY idx_olt_splitters_ratio (ratio),
     KEY idx_olt_splitters_status (status),
     KEY idx_olt_splitters_deleted_at (deleted_at),
-    CONSTRAINT fk_olt_splitters_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_olt_splitters_site FOREIGN KEY (site_id) REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_olt_splitters_olt_port FOREIGN KEY (olt_port_id) REFERENCES olt_ports (id) ON DELETE SET NULL ON UPDATE CASCADE
+    CONSTRAINT fk_olt_splitters_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_olt_splitters_site FOREIGN KEY (site_id)
+        REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_olt_splitters_olt_port FOREIGN KEY (olt_port_id)
+        REFERENCES olt_ports (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='PON splitter inventory (§7.1 splitter management)';
 
@@ -9288,26 +9438,58 @@ CREATE TABLE IF NOT EXISTS olt_splitters (
 CREATE TABLE IF NOT EXISTS onu_migration_jobs (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
-    onu_device_id       BIGINT UNSIGNED NOT NULL,
-    source_olt_port_id  BIGINT UNSIGNED NOT NULL,
-    target_olt_port_id  BIGINT UNSIGNED NOT NULL,
-    status              ENUM('pending','queued','in_progress','completed','failed','cancelled') NOT NULL DEFAULT 'pending',
-    scheduled_at        DATETIME        NULL,
+    onu_device_id       BIGINT UNSIGNED NOT NULL
+                            COMMENT 'FK to devices (type=''onu'') being migrated',
+    source_olt_port_id  BIGINT UNSIGNED NOT NULL
+                            COMMENT 'FK to olt_ports — current OLT port of the ONU',
+    target_olt_port_id  BIGINT UNSIGNED NOT NULL
+                            COMMENT 'FK to olt_ports — destination OLT port',
+    source_olt_device_id BIGINT UNSIGNED NULL
+                            COMMENT 'FK to devices (type=''olt'') — source OLT',
+    target_olt_device_id BIGINT UNSIGNED NULL
+                            COMMENT 'FK to devices (type=''olt'') — destination OLT',
+    -- Job lifecycle
+    status              ENUM('pending','in_progress','completed','failed','cancelled')
+                            NOT NULL DEFAULT 'pending',
+    scheduled_at        DATETIME        NULL
+                            COMMENT 'Planned migration time; NULL = immediate',
     started_at          DATETIME        NULL,
     completed_at        DATETIME        NULL,
-    result_detail       JSON            NULL,
-    created_by          BIGINT UNSIGNED NULL,
+    -- Result detail
+    error_message       TEXT            NULL,
+    result_detail       JSON            NULL
+                            COMMENT 'Per-step results from the driver',
+    -- Audit
+    created_by          BIGINT UNSIGNED NULL
+                            COMMENT 'FK to users — operator who requested migration',
+    notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+
     PRIMARY KEY (id),
-    KEY idx_onu_migration_jobs_org (organization_id),
-    KEY idx_onu_migration_jobs_onu (onu_device_id),
+    KEY idx_onu_migration_jobs_organization_id (organization_id),
+    KEY idx_onu_migration_jobs_onu_device_id (onu_device_id),
+    KEY idx_onu_migration_jobs_source_port (source_olt_port_id),
+    KEY idx_onu_migration_jobs_target_port (target_olt_port_id),
     KEY idx_onu_migration_jobs_status (status),
+    KEY idx_onu_migration_jobs_scheduled_at (scheduled_at),
     KEY idx_onu_migration_jobs_deleted_at (deleted_at),
-    CONSTRAINT fk_onu_mig_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_onu_mig_source_port FOREIGN KEY (source_olt_port_id) REFERENCES olt_ports (id) ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT fk_onu_mig_target_port FOREIGN KEY (target_olt_port_id) REFERENCES olt_ports (id) ON DELETE RESTRICT ON UPDATE CASCADE
+    CONSTRAINT fk_onu_migration_jobs_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_migration_jobs_onu_device FOREIGN KEY (onu_device_id)
+        REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_migration_jobs_source_port FOREIGN KEY (source_olt_port_id)
+        REFERENCES olt_ports (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_migration_jobs_target_port FOREIGN KEY (target_olt_port_id)
+        REFERENCES olt_ports (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_migration_jobs_source_olt FOREIGN KEY (source_olt_device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_migration_jobs_target_olt FOREIGN KEY (target_olt_device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_onu_migration_jobs_created_by FOREIGN KEY (created_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='ONU migration job records (§7.3)';
 
@@ -9319,31 +9501,71 @@ CREATE TABLE IF NOT EXISTS onu_migration_jobs (
 CREATE TABLE IF NOT EXISTS fiber_routes (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
-    name                VARCHAR(120)    NOT NULL,
-    route_type          ENUM('trunk','distribution','drop','feeder','other') NOT NULL DEFAULT 'drop',
-    status              ENUM('active','inactive','planned','decommissioned') NOT NULL DEFAULT 'active',
-    parent_route_id     BIGINT UNSIGNED NULL,
-    from_device_id      BIGINT UNSIGNED NULL,
-    from_olt_port_id    BIGINT UNSIGNED NULL,
-    to_device_id        BIGINT UNSIGNED NULL,
-    to_olt_port_id      BIGINT UNSIGNED NULL,
-    to_onu_detail_id    BIGINT UNSIGNED NULL,
-    to_splitter_id      BIGINT UNSIGNED NULL,
-    total_length_m      INT UNSIGNED    NULL,
-    fiber_count         SMALLINT UNSIGNED NULL,
-    cable_type          VARCHAR(50)     NULL,
-    installation_date   DATE            NULL,
-    gis_path            JSON            NULL,
+    name                VARCHAR(100)    NOT NULL
+                            COMMENT 'Human-readable segment name, e.g. "CO-1 → SPL-034"',
+    route_type          ENUM('trunk','distribution','drop','feeder','other')
+                            NOT NULL DEFAULT 'drop'
+                            COMMENT 'Segment class in the PON fiber hierarchy',
+    parent_route_id     BIGINT UNSIGNED NULL
+                            COMMENT 'FK to fiber_routes — parent trunk segment (nullable)',
+    -- Endpoints
+    from_device_id      BIGINT UNSIGNED NULL
+                            COMMENT 'FK to devices — upstream device (OLT or intermediate)',
+    from_olt_port_id    BIGINT UNSIGNED NULL
+                            COMMENT 'FK to olt_ports — upstream PON port (for trunk routes)',
+    from_splitter_id    BIGINT UNSIGNED NULL
+                            COMMENT 'FK to olt_splitters — upstream splitter (for distribution routes)',
+    to_device_id        BIGINT UNSIGNED NULL
+                            COMMENT 'FK to devices — downstream device (splitter premise or ONU)',
+    to_splitter_id      BIGINT UNSIGNED NULL
+                            COMMENT 'FK to olt_splitters — downstream splitter',
+    to_onu_detail_id    BIGINT UNSIGNED NULL
+                            COMMENT 'FK to onu_details — terminal ONU on this drop',
+    -- Physical attributes
+    cable_length_m      INT UNSIGNED    NULL
+                            COMMENT 'Fiber cable length in metres (measured or estimated)',
+    cable_type          VARCHAR(50)     NULL
+                            COMMENT 'Fiber cable spec, e.g. G.652D, G.657A2',
+    attenuation_db      DECIMAL(6,3)    NULL
+                            COMMENT 'Measured or calculated span attenuation in dB',
+    -- Installation
+    installed_at        DATE            NULL,
+    status              ENUM('active','inactive','damaged','removed') NOT NULL DEFAULT 'active',
+    gis_path            JSON            NULL
+                            COMMENT 'GeoJSON LineString of the cable route (for map display)',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+
     PRIMARY KEY (id),
-    KEY idx_fiber_routes_org (organization_id),
+    KEY idx_fiber_routes_organization_id (organization_id),
+    KEY idx_fiber_routes_parent_route_id (parent_route_id),
+    KEY idx_fiber_routes_from_device_id (from_device_id),
+    KEY idx_fiber_routes_from_olt_port_id (from_olt_port_id),
+    KEY idx_fiber_routes_from_splitter_id (from_splitter_id),
+    KEY idx_fiber_routes_to_device_id (to_device_id),
+    KEY idx_fiber_routes_to_splitter_id (to_splitter_id),
+    KEY idx_fiber_routes_to_onu_detail_id (to_onu_detail_id),
     KEY idx_fiber_routes_status (status),
     KEY idx_fiber_routes_deleted_at (deleted_at),
-    CONSTRAINT fk_fiber_route_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_fiber_route_parent FOREIGN KEY (parent_route_id) REFERENCES fiber_routes (id) ON DELETE SET NULL ON UPDATE CASCADE
+    CONSTRAINT fk_fiber_routes_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_fiber_routes_parent FOREIGN KEY (parent_route_id)
+        REFERENCES fiber_routes (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_fiber_routes_from_device FOREIGN KEY (from_device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_fiber_routes_from_olt_port FOREIGN KEY (from_olt_port_id)
+        REFERENCES olt_ports (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_fiber_routes_from_splitter FOREIGN KEY (from_splitter_id)
+        REFERENCES olt_splitters (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_fiber_routes_to_device FOREIGN KEY (to_device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_fiber_routes_to_splitter FOREIGN KEY (to_splitter_id)
+        REFERENCES olt_splitters (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_fiber_routes_to_onu FOREIGN KEY (to_onu_detail_id)
+        REFERENCES onu_details (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Fiber plant route records (§7.4)';
 
@@ -9355,25 +9577,36 @@ CREATE TABLE IF NOT EXISTS fiber_routes (
 CREATE TABLE IF NOT EXISTS odf_frames (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
-    site_id             BIGINT UNSIGNED NULL,
-    name                VARCHAR(100)    NOT NULL,
-    location_detail     VARCHAR(255)    NULL,
-    total_ports         SMALLINT UNSIGNED NOT NULL DEFAULT 24,
-    frame_type          VARCHAR(50)     NULL,
-    manufacturer        VARCHAR(100)    NULL,
-    model               VARCHAR(100)    NULL,
-    status              ENUM('active','inactive','damaged','removed') NOT NULL DEFAULT 'active',
+    name                VARCHAR(100)    NOT NULL
+                            COMMENT 'ODF frame identifier, e.g. "ODF-CO1-R01"',
+    site_id             BIGINT UNSIGNED NULL
+                            COMMENT 'FK to sites — physical location of this ODF frame',
+    frame_type          ENUM('rack','wall_mount','splice_closure','patch_panel','other')
+                            NOT NULL DEFAULT 'rack',
+    port_count          SMALLINT UNSIGNED NOT NULL DEFAULT 12
+                            COMMENT 'Total port capacity of this frame',
+    fiber_type          ENUM('sm','mm','om3','om4','other') NOT NULL DEFAULT 'sm'
+                            COMMENT 'Fiber type: SM = single-mode, MM = multi-mode',
+    connector_type      ENUM('sc','lc','fc','st','mtp','other') NOT NULL DEFAULT 'sc',
     installed_at        DATE            NULL,
+    status              ENUM('active','inactive','decommissioned') NOT NULL DEFAULT 'active',
+    location_detail     VARCHAR(255)    NULL
+                            COMMENT 'Rack row/column or cabinet position',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+
     PRIMARY KEY (id),
-    KEY idx_odf_frames_org (organization_id),
-    KEY idx_odf_frames_site (site_id),
+    KEY idx_odf_frames_organization_id (organization_id),
+    KEY idx_odf_frames_site_id (site_id),
+    KEY idx_odf_frames_status (status),
     KEY idx_odf_frames_deleted_at (deleted_at),
-    CONSTRAINT fk_odf_frame_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_odf_frame_site FOREIGN KEY (site_id) REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE
+    CONSTRAINT fk_odf_frames_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_odf_frames_site FOREIGN KEY (site_id)
+        REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='ODF frame inventory (§7.4)';
 
@@ -9384,19 +9617,44 @@ CREATE TABLE IF NOT EXISTS odf_frames (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS odf_ports (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    odf_frame_id        BIGINT UNSIGNED NOT NULL,
-    port_number         SMALLINT UNSIGNED NOT NULL,
-    connector_type      ENUM('sc','lc','fc','st','mpo','other') NOT NULL DEFAULT 'sc',
-    fiber_route_id      BIGINT UNSIGNED NULL,
-    status              ENUM('active','inactive','damaged') NOT NULL DEFAULT 'active',
+    organization_id     BIGINT UNSIGNED NULL,
+    odf_frame_id        BIGINT UNSIGNED NOT NULL
+                            COMMENT 'FK to odf_frames — parent frame',
+    port_number         SMALLINT UNSIGNED NOT NULL
+                            COMMENT 'Port position in the frame (1-based)',
+    port_label          VARCHAR(50)     NULL
+                            COMMENT 'Physical label on the port, e.g. "P-01-A"',
+    port_status         ENUM('empty','connected','dirty','damaged','reserved')
+                            NOT NULL DEFAULT 'empty',
+    -- What is connected to this port
+    connected_device_id BIGINT UNSIGNED NULL
+                            COMMENT 'FK to devices — device whose fiber terminates here',
+    cable_label         VARCHAR(100)    NULL
+                            COMMENT 'Cable/tube label for tracing',
+    splitter_id         BIGINT UNSIGNED NULL
+                            COMMENT 'FK to olt_splitters — if this port feeds a splitter',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+
     PRIMARY KEY (id),
-    UNIQUE KEY uq_odf_port (odf_frame_id, port_number),
-    KEY idx_odf_ports_fiber_route (fiber_route_id),
-    CONSTRAINT fk_odf_port_frame FOREIGN KEY (odf_frame_id) REFERENCES odf_frames (id) ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT fk_odf_port_fiber_route FOREIGN KEY (fiber_route_id) REFERENCES fiber_routes (id) ON DELETE SET NULL ON UPDATE CASCADE
+    UNIQUE KEY uq_odf_ports_frame_port (odf_frame_id, port_number),
+    KEY idx_odf_ports_organization_id (organization_id),
+    KEY idx_odf_ports_odf_frame_id (odf_frame_id),
+    KEY idx_odf_ports_port_status (port_status),
+    KEY idx_odf_ports_connected_device_id (connected_device_id),
+    KEY idx_odf_ports_splitter_id (splitter_id),
+    KEY idx_odf_ports_deleted_at (deleted_at),
+    CONSTRAINT fk_odf_ports_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_odf_ports_frame FOREIGN KEY (odf_frame_id)
+        REFERENCES odf_frames (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_odf_ports_device FOREIGN KEY (connected_device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_odf_ports_splitter FOREIGN KEY (splitter_id)
+        REFERENCES olt_splitters (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='ODF port records within an ODF frame (§7.4)';
 
@@ -9408,24 +9666,34 @@ CREATE TABLE IF NOT EXISTS odf_ports (
 CREATE TABLE IF NOT EXISTS odf_cross_connects (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
-    port_a_id           BIGINT UNSIGNED NOT NULL,
-    port_b_id           BIGINT UNSIGNED NOT NULL,
-    patch_cord_type     VARCHAR(50)     NULL,
-    patch_cord_length_m DECIMAL(6,2)    NULL,
-    status              ENUM('active','inactive','removed') NOT NULL DEFAULT 'active',
+    port_a_id           BIGINT UNSIGNED NOT NULL
+                            COMMENT 'FK to odf_ports — first end of the cross-connect',
+    port_b_id           BIGINT UNSIGNED NOT NULL
+                            COMMENT 'FK to odf_ports — second end of the cross-connect',
+    patch_cord_label    VARCHAR(100)    NULL
+                            COMMENT 'Color or label of the patch cord',
+    patch_cord_length_m DECIMAL(6,1)   NULL
+                            COMMENT 'Physical patch cord length in metres',
     installed_at        DATE            NULL,
+    status              ENUM('active','inactive','removed') NOT NULL DEFAULT 'active',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+
     PRIMARY KEY (id),
-    KEY idx_odf_cc_org (organization_id),
-    KEY idx_odf_cc_port_a (port_a_id),
-    KEY idx_odf_cc_port_b (port_b_id),
-    KEY idx_odf_cc_deleted_at (deleted_at),
-    CONSTRAINT fk_odf_cc_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_odf_cc_port_a FOREIGN KEY (port_a_id) REFERENCES odf_ports (id) ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT fk_odf_cc_port_b FOREIGN KEY (port_b_id) REFERENCES odf_ports (id) ON DELETE RESTRICT ON UPDATE CASCADE
+    KEY idx_odf_cross_connects_organization_id (organization_id),
+    KEY idx_odf_cross_connects_port_a_id (port_a_id),
+    KEY idx_odf_cross_connects_port_b_id (port_b_id),
+    KEY idx_odf_cross_connects_status (status),
+    KEY idx_odf_cross_connects_deleted_at (deleted_at),
+    CONSTRAINT fk_odf_cross_connects_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_odf_cross_connects_port_a FOREIGN KEY (port_a_id)
+        REFERENCES odf_ports (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_odf_cross_connects_port_b FOREIGN KEY (port_b_id)
+        REFERENCES odf_ports (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='ODF cross-connect patch records (§7.4)';
 
@@ -9437,34 +9705,71 @@ CREATE TABLE IF NOT EXISTS odf_cross_connects (
 CREATE TABLE IF NOT EXISTS otdr_test_results (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
-    device_id           BIGINT UNSIGNED NULL,
-    olt_port_id         BIGINT UNSIGNED NULL,
-    fiber_route_id      BIGINT UNSIGNED NULL,
-    test_date           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    wavelength_nm       SMALLINT UNSIGNED NULL,
-    fiber_length_m      INT UNSIGNED    NULL,
+    -- What was tested
+    fiber_route_id      BIGINT UNSIGNED NULL
+                            COMMENT 'FK to fiber_routes — route under test',
+    olt_port_id         BIGINT UNSIGNED NULL
+                            COMMENT 'FK to olt_ports — PON port under test (alternate)',
+    olt_device_id       BIGINT UNSIGNED NULL
+                            COMMENT 'FK to devices (type=''olt'')',
+    -- Test context
+    test_type           ENUM('manual','scheduled','fault_locate','baseline','acceptance')
+                            NOT NULL DEFAULT 'manual',
+    -- Test parameters
+    wavelength_nm       SMALLINT UNSIGNED NULL
+                            COMMENT 'Test wavelength in nm, e.g. 1310, 1490, 1550, 1625',
+    pulse_width_ns      INT UNSIGNED    NULL
+                            COMMENT 'Pulse width in nanoseconds',
+    range_m             INT UNSIGNED    NULL
+                            COMMENT 'Test range in metres',
+    -- Results
+    total_loss_db       DECIMAL(6,3)    NULL
+                            COMMENT 'Total fiber span loss in dB',
+    total_length_m      INT UNSIGNED    NULL
+                            COMMENT 'Measured fiber length in metres (OFS distance)',
+    -- Fault location (if test_type=fault_locate)
     fault_detected      TINYINT(1)      NOT NULL DEFAULT 0,
-    fault_distance_m    INT UNSIGNED    NULL,
-    fault_type          ENUM('fiber_break','splice_loss','connector_loss','bend_loss','reflection','other') NULL,
-    insertion_loss_db   DECIMAL(6,2)    NULL,
-    return_loss_db      DECIMAL(6,2)    NULL,
-    events              JSON            NULL,
-    sor_file_path       VARCHAR(500)    NULL,
-    job_status          ENUM('pending','running','completed','failed') NOT NULL DEFAULT 'pending',
-    test_type           VARCHAR(50)     NULL,
+    fault_distance_m    INT UNSIGNED    NULL
+                            COMMENT 'Fault location in metres from launch point',
+    fault_type          ENUM('reflection','break','high_splice','end_of_fiber','unknown') NULL,
+    -- Full event table (splices, connectors, reflections)
+    events              JSON            NULL
+                            COMMENT 'Array of OTDR event objects: [{distance_m, loss_db, type}]',
+    -- SOR file reference (uploaded binary, stored as file path or object-store key)
+    sor_file_path       VARCHAR(512)    NULL
+                            COMMENT 'Path/key to the .SOR trace file',
+    -- Scheduling (for job-dispatched tests — live OTDR I/O is stubbed)
+    job_status          ENUM('pending','in_progress','completed','failed','imported')
+                            NOT NULL DEFAULT 'imported'
+                            COMMENT 'Status of the test acquisition job',
+    tested_at           DATETIME        NULL
+                            COMMENT 'When the test was actually performed',
+    tested_by           BIGINT UNSIGNED NULL
+                            COMMENT 'FK to users — technician who ran the test',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+
     PRIMARY KEY (id),
-    KEY idx_otdr_org (organization_id),
-    KEY idx_otdr_device (device_id),
-    KEY idx_otdr_olt_port (olt_port_id),
-    KEY idx_otdr_fault_detected (fault_detected),
-    KEY idx_otdr_deleted_at (deleted_at),
-    CONSTRAINT fk_otdr_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_otdr_device FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_otdr_olt_port FOREIGN KEY (olt_port_id) REFERENCES olt_ports (id) ON DELETE SET NULL ON UPDATE CASCADE
+    KEY idx_otdr_test_results_organization_id (organization_id),
+    KEY idx_otdr_test_results_fiber_route_id (fiber_route_id),
+    KEY idx_otdr_test_results_olt_port_id (olt_port_id),
+    KEY idx_otdr_test_results_olt_device_id (olt_device_id),
+    KEY idx_otdr_test_results_fault_detected (fault_detected),
+    KEY idx_otdr_test_results_tested_at (tested_at),
+    KEY idx_otdr_test_results_deleted_at (deleted_at),
+    CONSTRAINT fk_otdr_test_results_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_otdr_test_results_fiber_route FOREIGN KEY (fiber_route_id)
+        REFERENCES fiber_routes (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_otdr_test_results_olt_port FOREIGN KEY (olt_port_id)
+        REFERENCES olt_ports (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_otdr_test_results_olt_device FOREIGN KEY (olt_device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_otdr_test_results_tested_by FOREIGN KEY (tested_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='OTDR test results and fault location records (§7.4)';
 
@@ -9476,30 +9781,54 @@ CREATE TABLE IF NOT EXISTS otdr_test_results (
 CREATE TABLE IF NOT EXISTS sfp_inventory (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
-    device_id           BIGINT UNSIGNED NULL,
-    inventory_item_id   BIGINT UNSIGNED NULL,
-    sfp_port_name       VARCHAR(50)     NULL,
-    form_factor         ENUM('sfp','sfp_plus','sfp28','qsfp','qsfp_plus','xfp','gbic','other') NOT NULL DEFAULT 'sfp_plus',
-    vendor_name         VARCHAR(100)    NULL,
-    part_number         VARCHAR(100)    NULL,
-    serial_number       VARCHAR(100)    NULL,
-    wavelength_nm       SMALLINT UNSIGNED NULL,
-    max_distance_km     DECIMAL(8,2)    NULL,
-    connector_type      VARCHAR(20)     NULL,
-    lifecycle_status    ENUM('installed','spare','faulty','retired') NOT NULL DEFAULT 'spare',
-    installed_at        DATETIME        NULL,
-    retired_at          DATETIME        NULL,
+    -- Identification
+    serial_number       VARCHAR(64)     NULL
+                            COMMENT 'SFP/SFP+ module serial number',
+    vendor_name         VARCHAR(64)     NULL
+                            COMMENT 'Transceiver vendor (from SFP EEPROM)',
+    part_number         VARCHAR(64)     NULL
+                            COMMENT 'Vendor part number',
+    form_factor         ENUM('sfp','sfp_plus','sfp28','qsfp','qsfp_plus','xfp','gbic','other')
+                            NOT NULL DEFAULT 'sfp',
+    fiber_type          ENUM('sm','mm','copper') NOT NULL DEFAULT 'sm',
+    wavelength_nm       SMALLINT UNSIGNED NULL
+                            COMMENT 'Nominal wavelength in nm (e.g. 1310, 1490, 1550)',
+    max_distance_m      INT UNSIGNED    NULL
+                            COMMENT 'Rated maximum distance in metres',
+    speed_gbps          DECIMAL(6,1)    NULL
+                            COMMENT 'Rated speed in Gbps (e.g. 1.0, 10.0, 25.0)',
+    -- Lifecycle
+    lifecycle_status    ENUM('in_stock','installed','removed','failed','retired')
+                            NOT NULL DEFAULT 'in_stock',
+    installed_device_id BIGINT UNSIGNED NULL
+                            COMMENT 'FK to devices — device this SFP is currently in',
+    port_name           VARCHAR(50)     NULL
+                            COMMENT 'Port/interface name on the device, e.g. "0/0/1"',
+    installed_at        DATE            NULL,
+    removed_at          DATE            NULL,
+    failure_reason      TEXT            NULL,
+    -- Catalog linkage (optional)
+    inventory_item_id   BIGINT UNSIGNED NULL
+                            COMMENT 'FK to inventory_items — catalog entry for cost tracking',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+
     PRIMARY KEY (id),
-    KEY idx_sfp_inventory_org (organization_id),
-    KEY idx_sfp_inventory_device (device_id),
-    KEY idx_sfp_inventory_lifecycle (lifecycle_status),
+    KEY idx_sfp_inventory_organization_id (organization_id),
+    KEY idx_sfp_inventory_serial_number (serial_number),
+    KEY idx_sfp_inventory_lifecycle_status (lifecycle_status),
+    KEY idx_sfp_inventory_installed_device_id (installed_device_id),
+    KEY idx_sfp_inventory_inventory_item_id (inventory_item_id),
     KEY idx_sfp_inventory_deleted_at (deleted_at),
-    CONSTRAINT fk_sfp_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_sfp_device FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE
+    CONSTRAINT fk_sfp_inventory_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_sfp_inventory_device FOREIGN KEY (installed_device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_sfp_inventory_item FOREIGN KEY (inventory_item_id)
+        REFERENCES inventory_items (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='SFP transceiver lifecycle and DDM diagnostics (§7.4)';
 
