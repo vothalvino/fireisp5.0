@@ -873,7 +873,7 @@ CREATE TABLE IF NOT EXISTS cash_reconciliation_sessions (
     CONSTRAINT fk_cash_recon_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cash_recon_agent FOREIGN KEY (agent_user_id)
-        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+        REFERENCES users (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_cash_recon_approved_by FOREIGN KEY (approved_by)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
