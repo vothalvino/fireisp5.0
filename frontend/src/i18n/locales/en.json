@@ -14,7 +14,13 @@
     "errorDash": "—",
     "na": "N/A",
     "saving": "Saving…",
-    "deleting": "Deleting…"
+    "deleting": "Deleting…",
+    "noResults": "No results found.",
+    "loadError": "Failed to load data.",
+    "prev": "Prev",
+    "next": "Next",
+    "none": "(none)",
+    "id": "ID"
   },
   "login": {
     "title": "🔥 FireISP 5.0",
@@ -1560,5 +1566,147 @@
     "delete_error": "Failed to delete compliance rule.",
     "error": "Failed to load compliance rules.",
     "empty": "No compliance rules found."
+  },
+  "oltManagement": {
+    "title": "OLT Management",
+    "subtitle": "Manage OLT PON ports and passive optical splitter inventory. OLT devices are registered on the Devices page.",
+    "prev": "Prev",
+    "next": "Next",
+    "tabs": {
+      "ports": "OLT Ports",
+      "splitters": "Splitters"
+    },
+    "ports": {
+      "newPort": "New Port",
+      "createTitle": "Add OLT Port",
+      "editTitle": "Edit OLT Port",
+      "olt": "OLT",
+      "port": "Port",
+      "type": "Type",
+      "operStatus": "Status",
+      "onus": "ONUs",
+      "txPower": "Tx Power",
+      "rxPower": "Rx Power",
+      "allTypes": "All types",
+      "allStatuses": "All statuses",
+      "oltDeviceId": "OLT Device ID",
+      "oltDeviceIdPlaceholder": "Device ID from Devices page",
+      "portIndex": "Port Index",
+      "portName": "Port Name",
+      "portType": "Port Type",
+      "adminStatus": "Admin Status",
+      "maxOnus": "Max ONUs",
+      "up": "Up",
+      "down": "Down",
+      "nameRequired": "Port name is required.",
+      "fieldsRequired": "OLT Device ID and Port Index are required.",
+      "confirmDelete": "Delete this OLT port?"
+    },
+    "splitters": {
+      "newSplitter": "New Splitter",
+      "createTitle": "Add Splitter",
+      "editTitle": "Edit Splitter",
+      "name": "Name",
+      "ratio": "Ratio",
+      "type": "Type",
+      "status": "Status",
+      "location": "Location",
+      "locationPlaceholder": "Cabinet A, Row 3",
+      "allStatuses": "All statuses",
+      "nameRequired": "Splitter name is required.",
+      "confirmDelete": "Delete this splitter?"
+    }
+  },
+  "onuManagement": {
+    "title": "ONU Management",
+    "subtitle": "Provision and monitor ONUs: state, optical diagnostics, OMCI configuration, and firmware upgrades.",
+    "tabs": {
+      "details": "ONUs",
+      "profiles": "Profiles",
+      "whitelist": "Whitelist",
+      "omci": "OMCI Configs",
+      "firmware": "Firmware Jobs"
+    },
+    "details": {
+      "allStates": "All states",
+      "device": "Device",
+      "serial": "Serial",
+      "state": "State",
+      "olt": "OLT",
+      "port": "PON Port",
+      "profile": "Profile",
+      "onuId": "ONU ID",
+      "showOptical": "Optical",
+      "hideOptical": "Hide",
+      "reboot": "Reboot",
+      "confirmReboot": "Schedule a reboot for this ONU?",
+      "opticalHistory": "Optical Diagnostic History"
+    },
+    "optical": {
+      "polledAt": "Polled At",
+      "txPower": "Tx Power",
+      "rxPower": "Rx Power",
+      "oltRxPower": "OLT Rx Power",
+      "temp": "Temp",
+      "voltage": "Voltage",
+      "biasCurrent": "Bias Current"
+    },
+    "profiles": {
+      "newProfile": "New Profile",
+      "createTitle": "Create ONU Profile",
+      "editTitle": "Edit ONU Profile",
+      "name": "Profile Name",
+      "technology": "Technology",
+      "tcontId": "T-CONT ID",
+      "gemPortId": "GEM Port ID",
+      "serviceVlan": "Service VLAN",
+      "vlanMode": "VLAN Mode",
+      "nameRequired": "Profile name is required.",
+      "confirmDelete": "Delete this ONU profile?"
+    },
+    "whitelist": {
+      "newEntry": "New Whitelist Entry",
+      "createTitle": "Add Whitelist Entry",
+      "olt": "OLT",
+      "type": "Type",
+      "value": "Value",
+      "status": "Status",
+      "description": "Description",
+      "oltDeviceId": "OLT Device ID",
+      "typeSerial": "Serial",
+      "typeLoid": "LOID",
+      "typeMac": "MAC",
+      "fieldsRequired": "OLT Device ID and entry value are required.",
+      "confirmDelete": "Remove this whitelist entry?"
+    },
+    "omci": {
+      "newConfig": "New OMCI Config",
+      "createTitle": "Create OMCI Config",
+      "device": "Device",
+      "deviceId": "ONU Device ID",
+      "deviceRequired": "ONU Device ID is required.",
+      "wifiSsid": "Wi-Fi SSID",
+      "wifiBand": "Wi-Fi Band",
+      "wanMode": "WAN Mode",
+      "deliveryMethod": "Delivery Method",
+      "applyStatus": "Apply Status",
+      "confirmDelete": "Delete this OMCI config?"
+    },
+    "firmware": {
+      "newJob": "New Firmware Job",
+      "createTitle": "Create Firmware Job",
+      "allStatuses": "All statuses",
+      "type": "Job Type",
+      "scope": "Scope",
+      "status": "Status",
+      "version": "Firmware Version",
+      "progress": "Progress",
+      "created": "Created",
+      "oltDeviceId": "OLT Device ID",
+      "firmwareUrl": "Firmware URL",
+      "cancel": "Cancel",
+      "confirmCancel": "Cancel this firmware job?",
+      "fieldsRequired": "Job type and scope are required."
+    }
   }
 }

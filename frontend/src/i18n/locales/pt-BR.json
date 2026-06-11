@@ -14,7 +14,13 @@
     "errorDash": "—",
     "na": "N/D",
     "saving": "Salvando…",
-    "deleting": "Excluindo…"
+    "deleting": "Excluindo…",
+    "noResults": "Nenhum resultado encontrado.",
+    "loadError": "Falha ao carregar dados.",
+    "prev": "Ant.",
+    "next": "Próx.",
+    "none": "(nenhum)",
+    "id": "ID"
   },
   "login": {
     "title": "🔥 FireISP 5.0",
@@ -1560,5 +1566,147 @@
     "delete_error": "Falha ao excluir regra.",
     "error": "Falha ao carregar regras.",
     "empty": "Nenhuma regra encontrada."
+  },
+  "oltManagement": {
+    "title": "Gerenciamento de OLT",
+    "subtitle": "Gerencie portas PON de OLT e inventário de divisores ópticos passivos. Os dispositivos OLT são registrados na página de Dispositivos.",
+    "prev": "Ant.",
+    "next": "Próx.",
+    "tabs": {
+      "ports": "Portas OLT",
+      "splitters": "Divisores"
+    },
+    "ports": {
+      "newPort": "Nova Porta",
+      "createTitle": "Adicionar Porta OLT",
+      "editTitle": "Editar Porta OLT",
+      "olt": "OLT",
+      "port": "Porta",
+      "type": "Tipo",
+      "operStatus": "Estado",
+      "onus": "ONUs",
+      "txPower": "Tx Power",
+      "rxPower": "Rx Power",
+      "allTypes": "Todos os tipos",
+      "allStatuses": "Todos os estados",
+      "oltDeviceId": "ID do dispositivo OLT",
+      "oltDeviceIdPlaceholder": "ID do dispositivo",
+      "portIndex": "Índice da Porta",
+      "portName": "Nome da Porta",
+      "portType": "Tipo de Porta",
+      "adminStatus": "Status Admin",
+      "maxOnus": "Máx. ONUs",
+      "up": "Ativo",
+      "down": "Inativo",
+      "nameRequired": "O nome da porta é obrigatório.",
+      "fieldsRequired": "ID do OLT e índice da porta são obrigatórios.",
+      "confirmDelete": "Excluir esta porta OLT?"
+    },
+    "splitters": {
+      "newSplitter": "Novo Divisor",
+      "createTitle": "Adicionar Divisor",
+      "editTitle": "Editar Divisor",
+      "name": "Nome",
+      "ratio": "Relação",
+      "type": "Tipo",
+      "status": "Status",
+      "location": "Localização",
+      "locationPlaceholder": "Gabinete A, Fileira 3",
+      "allStatuses": "Todos os estados",
+      "nameRequired": "O nome do divisor é obrigatório.",
+      "confirmDelete": "Excluir este divisor?"
+    }
+  },
+  "onuManagement": {
+    "title": "Gerenciamento de ONU",
+    "subtitle": "Provisione e monitore ONUs: estado, diagnóstico óptico, configuração OMCI e atualizações de firmware.",
+    "tabs": {
+      "details": "ONUs",
+      "profiles": "Perfis",
+      "whitelist": "Lista Branca",
+      "omci": "Configs OMCI",
+      "firmware": "Jobs de Firmware"
+    },
+    "details": {
+      "allStates": "Todos os estados",
+      "device": "Dispositivo",
+      "serial": "Número de Série",
+      "state": "Estado",
+      "olt": "OLT",
+      "port": "Porta PON",
+      "profile": "Perfil",
+      "onuId": "ID ONU",
+      "showOptical": "Óptico",
+      "hideOptical": "Ocultar",
+      "reboot": "Reiniciar",
+      "confirmReboot": "Agendar reinicialização para esta ONU?",
+      "opticalHistory": "Histórico de Diagnóstico Óptico"
+    },
+    "optical": {
+      "polledAt": "Consultado em",
+      "txPower": "Tx Power",
+      "rxPower": "Rx Power",
+      "oltRxPower": "Rx Power OLT",
+      "temp": "Temp.",
+      "voltage": "Voltagem",
+      "biasCurrent": "Corrente de Polarização"
+    },
+    "profiles": {
+      "newProfile": "Novo Perfil",
+      "createTitle": "Criar Perfil ONU",
+      "editTitle": "Editar Perfil ONU",
+      "name": "Nome do Perfil",
+      "technology": "Tecnologia",
+      "tcontId": "ID T-CONT",
+      "gemPortId": "ID Porta GEM",
+      "serviceVlan": "VLAN de Serviço",
+      "vlanMode": "Modo VLAN",
+      "nameRequired": "O nome do perfil é obrigatório.",
+      "confirmDelete": "Excluir este perfil ONU?"
+    },
+    "whitelist": {
+      "newEntry": "Nova Entrada",
+      "createTitle": "Adicionar Entrada à Lista Branca",
+      "olt": "OLT",
+      "type": "Tipo",
+      "value": "Valor",
+      "status": "Status",
+      "description": "Descrição",
+      "oltDeviceId": "ID do dispositivo OLT",
+      "typeSerial": "Número de Série",
+      "typeLoid": "LOID",
+      "typeMac": "MAC",
+      "fieldsRequired": "ID do OLT e valor são obrigatórios.",
+      "confirmDelete": "Remover esta entrada da lista branca?"
+    },
+    "omci": {
+      "newConfig": "Nova Config OMCI",
+      "createTitle": "Criar Configuração OMCI",
+      "device": "Dispositivo",
+      "deviceId": "ID do dispositivo ONU",
+      "deviceRequired": "O ID do dispositivo ONU é obrigatório.",
+      "wifiSsid": "SSID Wi-Fi",
+      "wifiBand": "Banda Wi-Fi",
+      "wanMode": "Modo WAN",
+      "deliveryMethod": "Método de Entrega",
+      "applyStatus": "Status de Aplicação",
+      "confirmDelete": "Excluir esta configuração OMCI?"
+    },
+    "firmware": {
+      "newJob": "Novo Job de Firmware",
+      "createTitle": "Criar Job de Firmware",
+      "allStatuses": "Todos os estados",
+      "type": "Tipo de Job",
+      "scope": "Escopo",
+      "status": "Status",
+      "version": "Versão de Firmware",
+      "progress": "Progresso",
+      "created": "Criado em",
+      "oltDeviceId": "ID do dispositivo OLT",
+      "firmwareUrl": "URL do Firmware",
+      "cancel": "Cancelar",
+      "confirmCancel": "Cancelar este job de firmware?",
+      "fieldsRequired": "Tipo de job e escopo são obrigatórios."
+    }
   }
 }
