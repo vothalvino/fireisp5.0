@@ -116,6 +116,9 @@ const pushSubscribeSchema = {
   endpoint: { type: 'string', required: true, min: 10, max: 2048 },
   p256dh: { type: 'string', required: true },
   auth: { type: 'string', required: true },
+  notify_outage: { type: 'boolean' },
+  notify_billing: { type: 'boolean' },
+  notify_ticket: { type: 'boolean' },
 };
 
 const kbRateSchema = {
@@ -1078,7 +1081,7 @@ router.post('/callback-request', apiLimiter, async (req, res, next) => {
 // POST /portal/push/subscribe — register / update Web Push subscription
 router.post('/push/subscribe', validate(pushSubscribeSchema), async (req, res, next) => {
   try {
-    const { endpoint, p256dh, auth } = req.body;
+    const { endpoint, p256dh, auth, notify_outage, notify_billing, notify_ticket } = req.body;
     const result = await portalServiceRequestService.upsertPushSubscription({
       clientId: req.client.id,
       organizationId: req.client.organizationId,
@@ -1086,6 +1089,9 @@ router.post('/push/subscribe', validate(pushSubscribeSchema), async (req, res, n
       p256dh,
       auth,
       userAgent: req.headers['user-agent'] || null,
+      notifyOutage: notify_outage !== undefined ? notify_outage : null,
+      notifyBilling: notify_billing !== undefined ? notify_billing : null,
+      notifyTicket: notify_ticket !== undefined ? notify_ticket : null,
     });
     res.status(result.updated ? 200 : 201).json({ data: result });
   } catch (err) {

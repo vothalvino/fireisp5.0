@@ -213,10 +213,225 @@ async function applyPppoePasswordChange(requestId) {
 }
 
 // ---------------------------------------------------------------------------
+// Admin: list requests across all clients (with filters)
+// ---------------------------------------------------------------------------
+
+/**
+ * @param {number} organizationId
+ * @param {{ page?, limit?, status?, requestType?, clientId? }} opts
+ */
+async function adminListRequests(organizationId, { page = 1, limit = 25, status, requestType, clientId } = {}) {
+  const offset = (page - 1) * limit;
+  let where = 'WHERE psr.organization_id = ? AND psr.deleted_at IS NULL';
+  const params = [organizationId];
+
+  if (status) {
+    where += ' AND psr.status = ?';
+    params.push(status);
+  }
+  if (requestType) {
+    where += ' AND psr.request_type = ?';
+    params.push(requestType);
+  }
+  if (clientId) {
+    where += ' AND psr.client_id = ?';
+    params.push(clientId);
+  }
+
+  const [rows] = await db.query(
+    `SELECT psr.id, psr.client_id, psr.contract_id, psr.request_type, psr.status,
+            psr.payload, psr.notes, psr.approved_by, psr.approved_at,
+            psr.completed_at, psr.cancelled_at,
+            psr.proration_credit, psr.proration_charge, psr.proration_net,
+            psr.created_at, psr.updated_at,
+            CONCAT(cl.first_name, ' ', cl.last_name) AS client_name,
+            cl.email AS client_email
+     FROM portal_service_requests psr
+     LEFT JOIN clients cl ON cl.id = psr.client_id
+     ${where}
+     ORDER BY psr.created_at DESC
+     LIMIT ? OFFSET ?`,
+    [...params, limit, offset],
+  );
+  const [[{ total }]] = await db.query(
+    `SELECT COUNT(*) AS total FROM portal_service_requests psr ${where}`,
+    params,
+  );
+  return { rows, total };
+}
+
+/**
+ * Admin: get a single request by id with org scoping.
+ */
+async function adminGetRequest(requestId, organizationId) {
+  const [rows] = await db.query(
+    `SELECT psr.*, CONCAT(cl.first_name, ' ', cl.last_name) AS client_name, cl.email AS client_email
+     FROM portal_service_requests psr
+     LEFT JOIN clients cl ON cl.id = psr.client_id
+     WHERE psr.id = ? AND psr.organization_id = ? AND psr.deleted_at IS NULL`,
+    [requestId, organizationId],
+  );
+  if (!rows[0]) throw new NotFoundError('Service request');
+  return rows[0];
+}
+
+/**
+ * Admin: approve a request and execute the corresponding action.
+ * @param {number} requestId
+ * @param {number} organizationId
+ * @param {number} approvedByUserId
+ * @param {string} [notes]
+ */
+async function approveRequest(requestId, organizationId, approvedByUserId, notes) {
+  const [rows] = await db.query(
+    'SELECT * FROM portal_service_requests WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+    [requestId, organizationId],
+  );
+  const req = rows[0];
+  if (!req) throw new NotFoundError('Service request');
+  if (req.status !== 'pending') {
+    throw new ValidationError(`Request is already ${req.status}`);
+  }
+
+  // Set approved_by + approved_at immediately
+  await db.query(
+    `UPDATE portal_service_requests
+     SET status = 'approved', approved_by = ?, approved_at = NOW(),
+         notes = COALESCE(?, notes), updated_at = NOW()
+     WHERE id = ?`,
+    [approvedByUserId, notes || null, requestId],
+  );
+
+  const payload = typeof req.payload === 'string' ? JSON.parse(req.payload) : (req.payload || {});
+
+  // Execute type-specific action
+  if (req.request_type === 'pppoe_password_change') {
+    // Apply RADIUS password change and mark completed
+    await applyPppoePasswordChange(requestId);
+  } else if (req.request_type === 'plan_upgrade') {
+    // Update contract plan_id and mark completed
+    if (req.contract_id && payload.new_plan_id) {
+      await db.query(
+        'UPDATE contracts SET plan_id = ?, updated_at = NOW() WHERE id = ?',
+        [payload.new_plan_id, req.contract_id],
+      );
+    }
+    await db.query(
+      `UPDATE portal_service_requests
+       SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+       WHERE id = ?`,
+      [requestId],
+    );
+    logger.info({ requestId, contractId: req.contract_id, newPlanId: payload.new_plan_id }, 'Plan upgrade applied via portal request');
+  } else if (req.request_type === 'wifi_password_change') {
+    // Queue a CPE set-parameter task for Wi-Fi password if we can resolve the device.
+    // If no CPE device is found, leave as approved for manual fulfillment.
+    if (req.contract_id) {
+      const [cpeRows] = await db.query(
+        'SELECT id, organization_id FROM cpe_devices WHERE contract_id = ? AND deleted_at IS NULL LIMIT 1',
+        [req.contract_id],
+      );
+      if (cpeRows[0]) {
+        const CpeTask = require('../models/CpeTask');
+        const wifiPassword = payload.new_password || null;
+        if (wifiPassword) {
+          await CpeTask.create({
+            organization_id: cpeRows[0].organization_id,
+            cpe_device_id: cpeRows[0].id,
+            task_type: 'set_parameter_values',
+            parameters: JSON.stringify({
+              parameters: [
+                {
+                  name: 'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.PreSharedKey',
+                  value: wifiPassword,
+                  type: 'xsd:string',
+                },
+              ],
+            }),
+            priority: 3,
+            status: 'queued',
+            created_by: approvedByUserId,
+          });
+          await db.query(
+            `UPDATE portal_service_requests
+             SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+             WHERE id = ?`,
+            [requestId],
+          );
+          logger.info({ requestId, cpeDeviceId: cpeRows[0].id }, 'Wi-Fi password change queued via CPE task');
+        }
+      }
+      // If no CPE device found, leave as 'approved' for manual fulfillment
+    }
+  } else {
+    // static_ip_request, cancellation, visit_schedule — approved, manual fulfillment
+    // Status stays 'approved'; admin calls POST /:id/complete when done
+  }
+
+  const [updated] = await db.query(
+    'SELECT * FROM portal_service_requests WHERE id = ?',
+    [requestId],
+  );
+  return updated[0];
+}
+
+/**
+ * Admin: mark an approved request as completed (manual fulfillment).
+ */
+async function completeRequest(requestId, organizationId) {
+  const [rows] = await db.query(
+    'SELECT id, status FROM portal_service_requests WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+    [requestId, organizationId],
+  );
+  if (!rows[0]) throw new NotFoundError('Service request');
+  if (rows[0].status !== 'approved') {
+    throw new ValidationError('Only approved requests can be marked completed');
+  }
+  await db.query(
+    `UPDATE portal_service_requests
+     SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+     WHERE id = ?`,
+    [requestId],
+  );
+  return { id: requestId, status: 'completed' };
+}
+
+/**
+ * Admin: reject a pending request with notes.
+ */
+async function rejectRequest(requestId, organizationId, notes) {
+  const [rows] = await db.query(
+    'SELECT id, status FROM portal_service_requests WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+    [requestId, organizationId],
+  );
+  if (!rows[0]) throw new NotFoundError('Service request');
+  if (rows[0].status !== 'pending') {
+    throw new ValidationError(`Request is already ${rows[0].status}`);
+  }
+  await db.query(
+    `UPDATE portal_service_requests
+     SET status = 'rejected', notes = ?, updated_at = NOW()
+     WHERE id = ?`,
+    [notes || null, requestId],
+  );
+  return { id: requestId, status: 'rejected' };
+}
+
+// ---------------------------------------------------------------------------
 // Create a push subscription (Web Push)
 // ---------------------------------------------------------------------------
 
-async function upsertPushSubscription({ clientId, organizationId, endpoint, p256dh, auth, userAgent }) {
+async function upsertPushSubscription({
+  clientId,
+  organizationId,
+  endpoint,
+  p256dh,
+  auth,
+  userAgent,
+  notifyOutage,
+  notifyBilling,
+  notifyTicket,
+}) {
   // Check if this endpoint already exists for this client
   const [existing] = await db.query(
     'SELECT id FROM portal_push_subscriptions WHERE client_id = ? AND endpoint = ? AND deleted_at IS NULL',
@@ -224,20 +439,49 @@ async function upsertPushSubscription({ clientId, organizationId, endpoint, p256
   );
 
   if (existing[0]) {
+    // Build dynamic SET clause — only update notify_* when explicitly provided
+    const setClauses = ['p256dh = ?', 'auth = ?', 'user_agent = ?'];
+    const params = [p256dh, auth, userAgent || null];
+
+    if (notifyOutage !== undefined && notifyOutage !== null) {
+      setClauses.push('notify_outage = ?');
+      params.push(notifyOutage ? 1 : 0);
+    }
+    if (notifyBilling !== undefined && notifyBilling !== null) {
+      setClauses.push('notify_billing = ?');
+      params.push(notifyBilling ? 1 : 0);
+    }
+    if (notifyTicket !== undefined && notifyTicket !== null) {
+      setClauses.push('notify_ticket = ?');
+      params.push(notifyTicket ? 1 : 0);
+    }
+
+    setClauses.push('updated_at = NOW()');
+    params.push(existing[0].id);
+
     await db.query(
-      `UPDATE portal_push_subscriptions
-       SET p256dh = ?, auth = ?, user_agent = ?, updated_at = NOW()
-       WHERE id = ?`,
-      [p256dh, auth, userAgent || null, existing[0].id],
+      `UPDATE portal_push_subscriptions SET ${setClauses.join(', ')} WHERE id = ?`,
+      params,
     );
     return { id: existing[0].id, updated: true };
   }
 
   const [result] = await db.query(
     `INSERT INTO portal_push_subscriptions
-       (organization_id, client_id, endpoint, p256dh, auth, user_agent)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [organizationId, clientId, endpoint, p256dh, auth, userAgent || null],
+       (organization_id, client_id, endpoint, p256dh, auth, user_agent,
+        notify_outage, notify_billing, notify_ticket)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      organizationId,
+      clientId,
+      endpoint,
+      p256dh,
+      auth,
+      userAgent || null,
+      notifyOutage !== undefined && notifyOutage !== null ? (notifyOutage ? 1 : 0) : 1,
+      notifyBilling !== undefined && notifyBilling !== null ? (notifyBilling ? 1 : 0) : 1,
+      notifyTicket !== undefined && notifyTicket !== null ? (notifyTicket ? 1 : 0) : 1,
+    ],
   );
   return { id: result.insertId, updated: false };
 }
@@ -332,6 +576,11 @@ module.exports = {
   listRequests,
   cancelRequest,
   applyPppoePasswordChange,
+  adminListRequests,
+  adminGetRequest,
+  approveRequest,
+  rejectRequest,
+  completeRequest,
   upsertPushSubscription,
   deletePushSubscription,
   generateChatToken,

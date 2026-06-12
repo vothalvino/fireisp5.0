@@ -4,11 +4,13 @@
 -- Permissions seeded (module='portal'):
 --   portal_kb.view / create / update / delete             (4)
 --   portal_service_requests.view / update                 (2)
---   portal_push.view / manage                             (2)
--- Total: 8 permissions
+--   portal_push.view                                      (1)
+--     (portal_push.manage removed — outage/billing push dispatch is automated
+--      via event bus hooks, not triggered by admin HTTP calls)
+-- Total: 7 permissions
 --
 -- Role matrix:
---   admin      → all 8
+--   admin      → all 7
 --   technician → portal_kb.view/create/update, portal_service_requests.view/update,
 --                portal_push.view
 --   readonly   → portal_kb.view, portal_service_requests.view, portal_push.view
@@ -39,21 +41,17 @@ SELECT 'portal_service_requests.update', 'Approve or reject portal service reque
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE name = 'portal_service_requests.update');
 
 INSERT INTO permissions (name, description, module)
-SELECT 'portal_push.view',   'View portal push notification subscriptions', 'portal'
+SELECT 'portal_push.view', 'View portal push notification subscriptions', 'portal'
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE name = 'portal_push.view');
 
-INSERT INTO permissions (name, description, module)
-SELECT 'portal_push.manage', 'Dispatch portal push notifications',          'portal'
-FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE name = 'portal_push.manage');
-
--- admin: all 8
+-- admin: all 7
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id
 FROM roles r
 JOIN permissions p ON p.name IN (
   'portal_kb.view','portal_kb.create','portal_kb.update','portal_kb.delete',
   'portal_service_requests.view','portal_service_requests.update',
-  'portal_push.view','portal_push.manage'
+  'portal_push.view'
 )
 WHERE r.name = 'admin'
   AND NOT EXISTS (
