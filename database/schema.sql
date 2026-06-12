@@ -1,4 +1,4 @@
-﻿-- =============================================================================
+-- =============================================================================
 -- FireISP 5.0 - Combined Database Schema
 -- =============================================================================
 -- Description : Full schema for FireISP 5.0 ISP management software.
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS clients (
     locale          ENUM('global', 'MX') NOT NULL DEFAULT 'global'
                         COMMENT 'Regional compliance switch: global = no country-specific requirements; MX = SAT CFDI 4.0 + IFT/CRT compliance required',
     tax_id          VARCHAR(50)     NULL,
-    curp            VARCHAR(18)     NULL COMMENT 'Mexican personal ID (CURP) Ã¢â‚¬â€ personal clients only',
+    curp            VARCHAR(18)     NULL COMMENT 'Mexican personal ID (CURP) â€” personal clients only',
     address         VARCHAR(255)    NULL,
     city            VARCHAR(100)    NULL,
     state           VARCHAR(100)    NULL,
@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS client_custom_fields (
 
 -- ---------------------------------------------------------------------------
 -- Table: leads
--- Purpose: Lead capture and prospect pipeline (Ã‚Â§1.2 Customer Lifecycle).
+-- Purpose: Lead capture and prospect pipeline (Â§1.2 Customer Lifecycle).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS leads (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -195,8 +195,8 @@ CREATE TABLE IF NOT EXISTS leads (
 
 -- ---------------------------------------------------------------------------
 -- Table: service_orders
--- Purpose: Service order workflow Ã¢â‚¬â€ requested Ã¢â€ â€™ approved Ã¢â€ â€™ provisioning Ã¢â€ â€™
---          activated (Ã‚Â§1.2 Customer Lifecycle).
+-- Purpose: Service order workflow â€” requested â†’ approved â†’ provisioning â†’
+--          activated (Â§1.2 Customer Lifecycle).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS service_orders (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -248,7 +248,7 @@ CREATE TABLE IF NOT EXISTS service_orders (
 
 -- ---------------------------------------------------------------------------
 -- Table: service_order_tasks
--- Purpose: Customer onboarding checklist items per service order (Ã‚Â§1.2).
+-- Purpose: Customer onboarding checklist items per service order (Â§1.2).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS service_order_tasks (
     id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -275,7 +275,7 @@ CREATE TABLE IF NOT EXISTS service_order_tasks (
 
 -- ---------------------------------------------------------------------------
 -- Table: winback_campaigns
--- Purpose: Win-back campaigns for cancelled customers (Ã‚Â§1.2).
+-- Purpose: Win-back campaigns for cancelled customers (Â§1.2).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS winback_campaigns (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -424,7 +424,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     site_id        BIGINT UNSIGNED NULL,
     start_date     DATE            NOT NULL,
     end_date       DATE            NULL,
-    billing_day    TINYINT UNSIGNED NULL     COMMENT 'Day of month (1Ã¢â‚¬â€œ28) on which invoices are generated; NULL = inherit from plan'
+    billing_day    TINYINT UNSIGNED NULL     COMMENT 'Day of month (1â€“28) on which invoices are generated; NULL = inherit from plan'
                        CHECK (billing_day BETWEEN 1 AND 28),
     ip_address     VARCHAR(45)     NULL      COMMENT 'Static IPv4/IPv6 address assigned to this service; NULL = dynamic',
     billing_cycle  ENUM('monthly', 'quarterly', 'semi_annual', 'annual') NULL COMMENT 'Override cycle; NULL means use the plan billing cycle',
@@ -433,9 +433,9 @@ CREATE TABLE IF NOT EXISTS contracts (
     connection_type ENUM('pppoe', 'pppoe_dual', 'static', 'dual') NOT NULL DEFAULT 'pppoe'
                        COMMENT 'pppoe = PPPoE IPv4-only (requires RADIUS); pppoe_dual = PPPoE dual-stack IPv4+IPv6 (requires RADIUS); static = static IPv4 (no RADIUS); dual = dual-stack static IPv4+IPv6 (no RADIUS)',
     contract_template_mx_id BIGINT UNSIGNED NULL
-                       COMMENT 'IFT/CRT-registered Carta de AdhesiÃƒÂ³n template used for this contract; NULL for non-MX clients',
+                       COMMENT 'IFT/CRT-registered Carta de AdhesiÃ³n template used for this contract; NULL for non-MX clients',
     facturar       BOOLEAN         NOT NULL DEFAULT FALSE
-                       COMMENT 'MX only: TRUE = generate individual CFDI for this contract invoices; FALSE = invoices go to factura pÃƒÂºblica (venta al pÃƒÂºblico en general). When TRUE the client must have a client_mx_profiles row with valid SAT data. Ignored when client locale is not MX',
+                       COMMENT 'MX only: TRUE = generate individual CFDI for this contract invoices; FALSE = invoices go to factura pÃºblica (venta al pÃºblico en general). When TRUE the client must have a client_mx_profiles row with valid SAT data. Ignored when client locale is not MX',
     status         ENUM('pending','active','suspended','expired','cancelled','terminated') NOT NULL DEFAULT 'pending',
     version        INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
     created_by     BIGINT UNSIGNED NULL,
@@ -587,7 +587,7 @@ CREATE TABLE IF NOT EXISTS devices (
                       'onu',
                       'other'
                   ) NOT NULL DEFAULT 'other'
-                      COMMENT 'Device type Ã¢â‚¬â€ client: outdoor_cpe, indoor_cpe; pop: ptp, ptmp_ap, olt, router, switch, onu',
+                      COMMENT 'Device type â€” client: outdoor_cpe, indoor_cpe; pop: ptp, ptmp_ap, olt, router, switch, onu',
     manufacturer  VARCHAR(100)    NULL,
     model         VARCHAR(100)    NULL,
     serial_number VARCHAR(100)    NULL,
@@ -596,19 +596,19 @@ CREATE TABLE IF NOT EXISTS devices (
     ipv6_address  VARCHAR(45)     NULL COMMENT 'Management IPv6 address (dual-stack)',
     firmware      VARCHAR(100)    NULL,
     snmp_enabled  BOOLEAN         NOT NULL DEFAULT FALSE COMMENT 'Enable SNMP polling for this device',
-    snmp_community VARCHAR(255)   NULL COMMENT 'SNMP community string (v1/v2c) Ã¢â‚¬â€ store encrypted; decrypt at application layer',
+    snmp_community VARCHAR(255)   NULL COMMENT 'SNMP community string (v1/v2c) â€” store encrypted; decrypt at application layer',
     snmp_version  ENUM('v1','v2c','v3') NULL DEFAULT 'v2c' COMMENT 'SNMP protocol version',
     snmp_port     SMALLINT UNSIGNED NULL DEFAULT 161 COMMENT 'SNMP UDP port',
     snmp_profile_id BIGINT UNSIGNED NULL
                                        COMMENT 'Explicit SNMP profile override; NULL = auto-match by manufacturer/model/type',
-    snmp_v3_security_name VARCHAR(255) NULL COMMENT 'SNMPv3 security name (USM user) â€” migration 250',
-    snmp_v3_auth_protocol ENUM('none','md5','sha','sha256','sha512') NULL DEFAULT 'sha' COMMENT 'SNMPv3 authentication protocol â€” migration 250',
-    snmp_v3_auth_key_encrypted VARCHAR(512) NULL COMMENT 'SNMPv3 auth passphrase â€” encrypted at app layer â€” migration 250',
-    snmp_v3_priv_protocol ENUM('none','des','aes128','aes256') NULL DEFAULT 'aes128' COMMENT 'SNMPv3 privacy protocol â€” migration 250',
-    snmp_v3_priv_key_encrypted VARCHAR(512) NULL COMMENT 'SNMPv3 privacy passphrase â€” encrypted at app layer â€” migration 250',
-    snmp_v3_context_name VARCHAR(255) NULL COMMENT 'SNMPv3 context name (optional) â€” migration 250',
-    last_polled_at DATETIME NULL COMMENT 'Timestamp of last successful SNMP poll â€” migration 250',
-    last_poll_error TEXT NULL COMMENT 'Last SNMP poll error message if any â€” migration 250',
+    snmp_v3_security_name VARCHAR(255) NULL COMMENT 'SNMPv3 security name (USM user) — migration 250',
+    snmp_v3_auth_protocol ENUM('none','md5','sha','sha256','sha512') NULL DEFAULT 'sha' COMMENT 'SNMPv3 authentication protocol — migration 250',
+    snmp_v3_auth_key_encrypted VARCHAR(512) NULL COMMENT 'SNMPv3 auth passphrase — encrypted at app layer — migration 250',
+    snmp_v3_priv_protocol ENUM('none','des','aes128','aes256') NULL DEFAULT 'aes128' COMMENT 'SNMPv3 privacy protocol — migration 250',
+    snmp_v3_priv_key_encrypted VARCHAR(512) NULL COMMENT 'SNMPv3 privacy passphrase — encrypted at app layer — migration 250',
+    snmp_v3_context_name VARCHAR(255) NULL COMMENT 'SNMPv3 context name (optional) — migration 250',
+    last_polled_at DATETIME NULL COMMENT 'Timestamp of last successful SNMP poll — migration 250',
+    last_poll_error TEXT NULL COMMENT 'Last SNMP poll error message if any — migration 250',
     status        ENUM('online', 'offline', 'maintenance') NOT NULL DEFAULT 'offline',
     notes         TEXT            NULL,
     firerelay_node_id VARCHAR(64) NULL
@@ -761,7 +761,7 @@ CREATE TABLE IF NOT EXISTS payments (
                                      COMMENT 'Payment instrument; simplified: cash/check/card/transfer/online/other; MX methods: oxxo_pay, spei, codi, convenience_store, digital_wallet',
     sat_forma_pago   VARCHAR(2)      NULL COMMENT 'SAT c_FormaPago code used to stamp on CFDI pago complement (e.g. 01=cash, 03=SPEI, 06=CoDi)',
     reference_number VARCHAR(100)    NULL COMMENT 'Check number, transaction ID, etc.',
-    clabe            VARCHAR(18)     NULL COMMENT '18-digit CLABE interbank key Ã¢â‚¬â€ required for SPEI and CoDi transactions',
+    clabe            VARCHAR(18)     NULL COMMENT '18-digit CLABE interbank key â€” required for SPEI and CoDi transactions',
     bank_name        VARCHAR(100)    NULL COMMENT 'Bank name for SPEI / CoDi transactions',
     notes            TEXT            NULL,
     status           ENUM('pending', 'completed', 'failed', 'refunded', 'cancelled')
@@ -793,7 +793,7 @@ CREATE TABLE IF NOT EXISTS payments (
 
 -- ---------------------------------------------------------------------------
 -- Table: payment_allocations
--- Purpose: Junction table for split payments Ã¢â‚¬â€ records what portion of a payment
+-- Purpose: Junction table for split payments â€” records what portion of a payment
 --          was applied to each invoice.  Supports one-payment-many-invoices flows
 --          (e.g. client pays a lump sum covering several outstanding invoices).
 --          The payments.invoice_id column is kept for simple single-invoice cases.
@@ -1155,7 +1155,7 @@ CREATE TABLE IF NOT EXISTS ip_assignments (
     type        ENUM('static', 'dynamic', 'reserved') NOT NULL DEFAULT 'dynamic',
     notes       TEXT            NULL,
     status      ENUM('active', 'available', 'expired') NOT NULL DEFAULT 'available'
-                    COMMENT 'Lifecycle state Ã¢â‚¬â€ reservation intent is captured by the type field',
+                    COMMENT 'Lifecycle state â€” reservation intent is captured by the type field',
     assigned_at TIMESTAMP       NULL,
     expires_at  TIMESTAMP       NULL,
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1248,7 +1248,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     description VARCHAR(255)    NOT NULL COMMENT 'Line-item description e.g. plan name, one-time fee',
     quantity    DECIMAL(10, 2)  NOT NULL DEFAULT 1.00,
     unit_price  DECIMAL(10, 2)  NOT NULL,
-    amount      DECIMAL(10, 2)  NOT NULL DEFAULT 0.00 COMMENT 'Line-item total amount (quantity Ãƒâ€” unit_price); populated on INSERT by billingService and Invoice.addItem',
+    amount      DECIMAL(10, 2)  NOT NULL DEFAULT 0.00 COMMENT 'Line-item total amount (quantity Ã— unit_price); populated on INSERT by billingService and Invoice.addItem',
     tax_rate_id BIGINT UNSIGNED NULL COMMENT 'Per-line-item tax rate override; NULL = inherit from parent invoice',
     total       DECIMAL(10, 2)  GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT 'quantity * unit_price',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1393,12 +1393,12 @@ CREATE TABLE IF NOT EXISTS snmp_metrics (
     memory_usage       SMALLINT        NULL       COMMENT 'Memory utilization percentage',
     signal_strength    INTEGER         NULL       COMMENT 'Wireless signal strength in dBm',
     latency_ms         DECIMAL(10,2)   NULL       COMMENT 'ICMP ping latency in milliseconds',
-    -- Â§6.2 extended device monitoring metrics (migration 255)
+    -- §6.2 extended device monitoring metrics (migration 255)
     voltage_mv         INT             NULL       COMMENT 'Supply voltage in millivolts (e.g. 12000 = 12V)',
     temperature_c      DECIMAL(6,2)    NULL       COMMENT 'Device/sensor temperature in Celsius',
     fan_speed_rpm      INT             NULL       COMMENT 'Fan speed in RPM',
-    if_in_discards     BIGINT          NULL       COMMENT 'ifInDiscards â€” inbound packets discarded',
-    if_out_discards    BIGINT          NULL       COMMENT 'ifOutDiscards â€” outbound packets discarded',
+    if_in_discards     BIGINT          NULL       COMMENT 'ifInDiscards — inbound packets discarded',
+    if_out_discards    BIGINT          NULL       COMMENT 'ifOutDiscards — outbound packets discarded',
     sfp_tx_power_dbm   DECIMAL(8,4)    NULL       COMMENT 'SFP/QSFP Tx optical power in dBm',
     sfp_rx_power_dbm   DECIMAL(8,4)    NULL       COMMENT 'SFP/QSFP Rx optical power in dBm',
     sfp_temperature_c  DECIMAL(6,2)    NULL       COMMENT 'SFP/QSFP transceiver temperature in Celsius',
@@ -1406,16 +1406,16 @@ CREATE TABLE IF NOT EXISTS snmp_metrics (
     ups_runtime_min    INT             NULL       COMMENT 'UPS estimated runtime remaining in minutes',
     poe_power_mw       INT             NULL       COMMENT 'PoE port power draw in milliwatts',
     humidity_pct       DECIMAL(5,2)    NULL       COMMENT 'Environmental relative humidity percentage',
-    -- Â§6.2 gap metrics (migration 264)
+    -- §6.2 gap metrics (migration 264)
     if_oper_status     TINYINT         NULL       COMMENT 'IF-MIB ifOperStatus: 1=up 2=down 3=testing 7=lowerLayerDown',
-    -- Â§9.1 wireless/RF metrics (migration 279)
-    noise_floor_dbm    SMALLINT        NULL       COMMENT 'Â§9.1 RF noise floor in dBm',
-    air_util_pct       TINYINT         NULL       COMMENT 'Â§9.1 Airtime utilization percentage (0â€“100)',
-    gps_sync_status    TINYINT         NULL       COMMENT 'Â§9.1 GPS sync status: 1=synced 0=not-synced',
-    snr_db             SMALLINT        NULL       COMMENT 'Â§9.1 Signal-to-noise ratio in dB',
-    ccq_pct            SMALLINT        NULL       COMMENT 'Â§9.1 Client Connection Quality percentage (0â€“100)',
-    tx_rate_mbps       DECIMAL(8,2)    NULL       COMMENT 'Â§9.1 Wireless transmit modulation rate in Mbps',
-    rx_rate_mbps       DECIMAL(8,2)    NULL       COMMENT 'Â§9.1 Wireless receive modulation rate in Mbps',
+    -- §9.1 wireless/RF metrics (migration 279)
+    noise_floor_dbm    SMALLINT        NULL       COMMENT '§9.1 RF noise floor in dBm',
+    air_util_pct       TINYINT         NULL       COMMENT '§9.1 Airtime utilization percentage (0–100)',
+    gps_sync_status    TINYINT         NULL       COMMENT '§9.1 GPS sync status: 1=synced 0=not-synced',
+    snr_db             SMALLINT        NULL       COMMENT '§9.1 Signal-to-noise ratio in dB',
+    ccq_pct            SMALLINT        NULL       COMMENT '§9.1 Client Connection Quality percentage (0–100)',
+    tx_rate_mbps       DECIMAL(8,2)    NULL       COMMENT '§9.1 Wireless transmit modulation rate in Mbps',
+    rx_rate_mbps       DECIMAL(8,2)    NULL       COMMENT '§9.1 Wireless receive modulation rate in Mbps',
     polled_at          TIMESTAMP       NOT NULL   COMMENT 'Timestamp of the SNMP poll',
     created_at         TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -1468,7 +1468,7 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1hr (
     avg_latency_ms          DECIMAL(10,2)   NULL     COMMENT 'Average latency in milliseconds',
     min_latency_ms          DECIMAL(10,2)   NULL     COMMENT 'Minimum latency in milliseconds',
     max_latency_ms          DECIMAL(10,2)   NULL     COMMENT 'Maximum latency in milliseconds',
-    -- Â§6.2 extended device monitoring metrics (migration 255)
+    -- §6.2 extended device monitoring metrics (migration 255)
     avg_voltage_mv          DECIMAL(12,4)   NULL,
     min_voltage_mv          INT             NULL,
     max_voltage_mv          INT             NULL,
@@ -1505,11 +1505,11 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1hr (
     avg_humidity_pct        DECIMAL(7,4)    NULL,
     min_humidity_pct        DECIMAL(5,2)    NULL,
     max_humidity_pct        DECIMAL(5,2)    NULL,
-    -- Â§6.2 gap metrics (migration 264)
+    -- §6.2 gap metrics (migration 264)
     avg_if_oper_status      DECIMAL(4,2)    NULL     COMMENT 'Average ifOperStatus in the period',
     min_if_oper_status      TINYINT         NULL     COMMENT 'Min ifOperStatus in the period',
     max_if_oper_status      TINYINT         NULL     COMMENT 'Max ifOperStatus in the period',
-    -- Â§9.1 wireless/RF metrics (migration 279)
+    -- §9.1 wireless/RF metrics (migration 279)
     avg_noise_floor_dbm     DECIMAL(7,2)    NULL     COMMENT 'Average noise floor dBm',
     min_noise_floor_dbm     SMALLINT        NULL     COMMENT 'Min noise floor dBm',
     max_noise_floor_dbm     SMALLINT        NULL     COMMENT 'Max noise floor dBm',
@@ -1576,7 +1576,7 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1day (
     avg_latency_ms          DECIMAL(10,2)   NULL     COMMENT 'Average latency in milliseconds',
     min_latency_ms          DECIMAL(10,2)   NULL     COMMENT 'Minimum latency in milliseconds',
     max_latency_ms          DECIMAL(10,2)   NULL     COMMENT 'Maximum latency in milliseconds',
-    -- Â§6.2 extended device monitoring metrics (migration 255)
+    -- §6.2 extended device monitoring metrics (migration 255)
     avg_voltage_mv          DECIMAL(12,4)   NULL,
     min_voltage_mv          INT             NULL,
     max_voltage_mv          INT             NULL,
@@ -1613,11 +1613,11 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1day (
     avg_humidity_pct        DECIMAL(7,4)    NULL,
     min_humidity_pct        DECIMAL(5,2)    NULL,
     max_humidity_pct        DECIMAL(5,2)    NULL,
-    -- Â§6.2 gap metrics (migration 264)
+    -- §6.2 gap metrics (migration 264)
     avg_if_oper_status      DECIMAL(4,2)    NULL     COMMENT 'Average ifOperStatus in the period',
     min_if_oper_status      TINYINT         NULL     COMMENT 'Min ifOperStatus in the period',
     max_if_oper_status      TINYINT         NULL     COMMENT 'Max ifOperStatus in the period',
-    -- Â§9.1 wireless/RF metrics (migration 279)
+    -- §9.1 wireless/RF metrics (migration 279)
     avg_noise_floor_dbm     DECIMAL(7,2)    NULL     COMMENT 'Average noise floor dBm',
     min_noise_floor_dbm     SMALLINT        NULL     COMMENT 'Min noise floor dBm',
     max_noise_floor_dbm     SMALLINT        NULL     COMMENT 'Max noise floor dBm',
@@ -1722,7 +1722,7 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1month (
     avg_if_oper_status  DECIMAL(4,2)    NULL,
     min_if_oper_status  TINYINT         NULL,
     max_if_oper_status  TINYINT         NULL,
-    -- Â§9.1 wireless/RF metrics (migration 279)
+    -- §9.1 wireless/RF metrics (migration 279)
     avg_noise_floor_dbm DECIMAL(7,2)    NULL,
     min_noise_floor_dbm SMALLINT        NULL,
     max_noise_floor_dbm SMALLINT        NULL,
@@ -1753,7 +1753,7 @@ CREATE TABLE IF NOT EXISTS snmp_metrics_1month (
     CONSTRAINT fk_snmp_1month_device FOREIGN KEY (device_id)
         REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Monthly SNMP metric aggregates â€” retained 3 years';
+  COMMENT='Monthly SNMP metric aggregates — retained 3 years';
 
 -- ---------------------------------------------------------------------------
 -- Table: snmp_rollup_state
@@ -1868,7 +1868,7 @@ CREATE TABLE IF NOT EXISTS snmp_traps (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: device_groups  Â§6.1 Device Discovery & Onboarding (migration 249)
+-- Table: device_groups  §6.1 Device Discovery & Onboarding (migration 249)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS device_groups (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1893,7 +1893,7 @@ CREATE TABLE IF NOT EXISTS device_groups (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: device_group_members  Â§6.1 (migration 249)
+-- Table: device_group_members  §6.1 (migration 249)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS device_group_members (
     device_group_id BIGINT UNSIGNED NOT NULL,
@@ -1909,7 +1909,7 @@ CREATE TABLE IF NOT EXISTS device_group_members (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: discovery_scans  Â§6.1 (migration 250)
+-- Table: discovery_scans  §6.1 (migration 250)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS discovery_scans (
     id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1949,7 +1949,7 @@ CREATE TABLE IF NOT EXISTS discovery_scans (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: discovery_results  Â§6.1 (migration 250)
+-- Table: discovery_results  §6.1 (migration 250)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS discovery_results (
     id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1984,7 +1984,7 @@ CREATE TABLE IF NOT EXISTS discovery_results (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: snmp_trap_forwarding_rules  Â§6.1 (migration 251)
+-- Table: snmp_trap_forwarding_rules  §6.1 (migration 251)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS snmp_trap_forwarding_rules (
     id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -2014,8 +2014,8 @@ CREATE TABLE IF NOT EXISTS snmp_trap_forwarding_rules (
 -- Table: dr_drill_logs
 -- Purpose: Audit log for automated quarterly DR-drill runs.
 --          Each row records the outcome of one non-destructive drill:
---            Phase 1 Ã¢â‚¬â€ backup taken + size verified
---            Phase 4 Ã¢â‚¬â€ referential-integrity and financial-consistency checks
+--            Phase 1 â€” backup taken + size verified
+--            Phase 4 â€” referential-integrity and financial-consistency checks
 --          Phases 2 (drop) and 3 (restore) are intentionally manual.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dr_drill_logs (
@@ -2041,7 +2041,7 @@ CREATE TABLE IF NOT EXISTS dr_drill_logs (
   COMMENT='Audit log for automated quarterly DR-drill runs.';
 
 -- ---------------------------------------------------------------------------
--- Seed: snmp_profiles Ã¢â‚¬â€ pre-built profiles for common ISP device vendors
+-- Seed: snmp_profiles â€” pre-built profiles for common ISP device vendors
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO snmp_profiles
     (name, manufacturer, model_pattern, device_type, snmp_version, poll_interval_sec, is_default, description)
@@ -2072,7 +2072,7 @@ VALUES
     );
 
 -- ---------------------------------------------------------------------------
--- Seed: snmp_profile_oids Ã¢â‚¬â€ OID mappings per vendor profile
+-- Seed: snmp_profile_oids â€” OID mappings per vendor profile
 -- ---------------------------------------------------------------------------
 
 -- Generic IF-MIB OIDs
@@ -2170,7 +2170,7 @@ JOIN (
 WHERE p.name = 'Cambium Networks';
 
 -- ---------------------------------------------------------------------------
--- Seed: Â§9.1 new vendor snmp_profiles â€” Mimosa, Tarana, Radwin, Siklu
+-- Seed: §9.1 new vendor snmp_profiles — Mimosa, Tarana, Radwin, Siklu
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO snmp_profiles
     (name, manufacturer, model_pattern, device_type, snmp_version, poll_interval_sec, is_default, description)
@@ -2280,9 +2280,9 @@ JOIN (
 WHERE p.name = 'Siklu';
 
 -- ---------------------------------------------------------------------------
--- Â§9.3 GPS sync OID seeds (migration 284)
+-- §9.3 GPS sync OID seeds (migration 284)
 -- ---------------------------------------------------------------------------
--- Ubiquiti airOS â€” ubntAirIfGpsSync (airMAX TDMA MIB)
+-- Ubiquiti airOS — ubntAirIfGpsSync (airMAX TDMA MIB)
 INSERT IGNORE INTO snmp_profile_oids
     (profile_id, oid, metric_column, label, oid_type, is_per_interface, transform, sort_order)
 SELECT
@@ -2297,7 +2297,7 @@ SELECT
 FROM snmp_profiles p
 WHERE p.name = 'Ubiquiti airOS';
 
--- Mimosa Networks â€” mimosaGpsSync
+-- Mimosa Networks — mimosaGpsSync
 INSERT IGNORE INTO snmp_profile_oids
     (profile_id, oid, metric_column, label, oid_type, is_per_interface, transform, sort_order)
 SELECT
@@ -2317,7 +2317,7 @@ WHERE p.name = 'Mimosa Networks';
 -- =============================================================================
 -- Connection logs record every subscriber session event for regulatory compliance.
 -- Session traffic counters (bytes_in/out, packets_in/out) on stop/interim events
--- also serve as the source of truth for per-contract data usage Ã¢â‚¬â€ no separate
+-- also serve as the source of truth for per-contract data usage â€” no separate
 -- NetFlow usage tables are needed.
 -- =============================================================================
 
@@ -2331,8 +2331,8 @@ WHERE p.name = 'Mimosa Networks';
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS connection_logs (
     id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    contract_id           BIGINT UNSIGNED NOT NULL          COMMENT 'Contract at time of session (no FK Ã¢â‚¬â€ compliance)',
-    client_id             BIGINT UNSIGNED NOT NULL          COMMENT 'Client at time of session (no FK Ã¢â‚¬â€ compliance)',
+    contract_id           BIGINT UNSIGNED NOT NULL          COMMENT 'Contract at time of session (no FK â€” compliance)',
+    client_id             BIGINT UNSIGNED NOT NULL          COMMENT 'Client at time of session (no FK â€” compliance)',
     nas_id                BIGINT UNSIGNED NULL              COMMENT 'NAS that authenticated the session',
     username              VARCHAR(64)     NOT NULL          COMMENT 'RADIUS username at time of session',
     session_id            VARCHAR(64)     NULL              COMMENT 'RADIUS Acct-Session-Id',
@@ -2809,7 +2809,7 @@ CREATE EVENT IF NOT EXISTS evt_snmp_partition_maintenance
 -- =============================================================================
 -- Connection Logs Partition Maintenance
 -- =============================================================================
--- Retention: connection_logs kept 2 years (DROP PARTITION Ã¢â‚¬â€ compliance)
+-- Retention: connection_logs kept 2 years (DROP PARTITION â€” compliance)
 -- =============================================================================
 
 DELIMITER $$
@@ -2940,7 +2940,7 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this inventory item belongs to; NULL = single-tenant deployment',
     sku             VARCHAR(100)    NULL COMMENT 'Stock-keeping unit / internal part number',
-    name            VARCHAR(255)    NOT NULL COMMENT 'Item name (e.g. MikroTik hAP acÃ‚Â³)',
+    name            VARCHAR(255)    NOT NULL COMMENT 'Item name (e.g. MikroTik hAP acÂ³)',
     category        ENUM(
                         'antenna',
                         'cable',
@@ -3011,7 +3011,7 @@ CREATE TABLE IF NOT EXISTS inventory_stock (
 
 -- ---------------------------------------------------------------------------
 -- Table: inventory_transactions
--- Purpose: Immutable log of every stock movement Ã¢â‚¬â€ receiving, job assignments,
+-- Purpose: Immutable log of every stock movement â€” receiving, job assignments,
 --          client sales, warehouse transfers, returns, and adjustments.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS inventory_transactions (
@@ -3066,7 +3066,7 @@ CREATE TABLE IF NOT EXISTS inventory_transactions (
 
 -- ---------------------------------------------------------------------------
 -- Table: credit_notes
--- Purpose: Credits issued to clients Ã¢â‚¬â€ for returns, courtesy adjustments,
+-- Purpose: Credits issued to clients â€” for returns, courtesy adjustments,
 --          service outages, billing errors, duplicate payments, downgrades,
 --          cancellations, or other reasons. Optionally linked to the original
 --          invoice being credited.
@@ -3161,7 +3161,7 @@ CREATE TABLE IF NOT EXISTS credit_note_items (
 
 -- ---------------------------------------------------------------------------
 -- Table: billing_periods
--- Purpose: Tracks each contract's billing windows Ã¢â‚¬â€ which periods have been
+-- Purpose: Tracks each contract's billing windows â€” which periods have been
 --          invoiced, which are upcoming, and when the next invoice should be
 --          auto-generated.
 -- ---------------------------------------------------------------------------
@@ -3197,7 +3197,7 @@ CREATE TABLE IF NOT EXISTS billing_periods (
 
 -- ---------------------------------------------------------------------------
 -- Table: network_links
--- Purpose: Device-to-device connections Ã¢â‚¬â€ fiber, wireless, copper, or virtual
+-- Purpose: Device-to-device connections â€” fiber, wireless, copper, or virtual
 --          links between two devices, with optional capacity and interface info.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS network_links (
@@ -3209,14 +3209,14 @@ CREATE TABLE IF NOT EXISTS network_links (
                         NOT NULL DEFAULT 'fiber'
                         COMMENT 'Physical or logical medium connecting the two devices',
     capacity_mbps   INT UNSIGNED    NULL      COMMENT 'Link capacity in Mbps (e.g. 1000 = 1 Gbps)',
-    -- Â§9.2 PTP/wireless monitoring columns (migration 282)
+    -- §9.2 PTP/wireless monitoring columns (migration 282)
     tx_signal_dbm   DECIMAL(7,2)    NULL      COMMENT 'Tx signal strength in dBm (PTP/wireless links)',
     rx_signal_dbm   DECIMAL(7,2)    NULL      COMMENT 'Rx signal strength in dBm (PTP/wireless links)',
     modulation      VARCHAR(50)     NULL      COMMENT 'Modulation mode e.g. QPSK, 16QAM, 64QAM, 256QAM, 1024QAM',
     tx_throughput_mbps DECIMAL(10,3) NULL     COMMENT 'Current Tx throughput in Mbps',
     rx_throughput_mbps DECIMAL(10,3) NULL     COMMENT 'Current Rx throughput in Mbps',
     link_budget_db  DECIMAL(7,2)    NULL      COMMENT 'Calculated link budget in dB (FSPL - losses + Tx power + gain)',
-    failover_link_id BIGINT UNSIGNED NULL     COMMENT 'FK to network_links â€” backup link for failover (no FK constraint)',
+    failover_link_id BIGINT UNSIGNED NULL     COMMENT 'FK to network_links — backup link for failover (no FK constraint)',
     is_primary      TINYINT(1)      NOT NULL DEFAULT 1 COMMENT '1=primary link, 0=backup/failover link',
     failover_state  ENUM('normal','failed_over','recovering') NOT NULL DEFAULT 'normal',
     medium          ENUM('fiber','wireless','copper') NULL
@@ -3250,7 +3250,7 @@ CREATE TABLE IF NOT EXISTS network_links (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ap_channel_plans (Â§9.1)
+-- Table: ap_channel_plans (§9.1)
 -- Purpose: Channel assignment registry per site for AP frequency planning.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ap_channel_plans (
@@ -3279,14 +3279,14 @@ CREATE TABLE IF NOT EXISTS ap_channel_plans (
   COMMENT='Channel assignment registry per site for AP frequency planning';
 
 -- ---------------------------------------------------------------------------
--- Table: ap_sector_configs (Â§9.1)
+-- Table: ap_sector_configs (§9.1)
 -- Purpose: AP-specific wireless RF configuration per sector device.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ap_sector_configs (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL     COMMENT 'Tenant organization; NULL = single-tenant deployment',
     device_id           BIGINT UNSIGNED NOT NULL COMMENT 'AP/PTP device (type=ptmp_ap or ptp)',
-    sector_azimuth_deg  SMALLINT        NULL     COMMENT 'Sector azimuth bearing in degrees (0â€“359)',
+    sector_azimuth_deg  SMALLINT        NULL     COMMENT 'Sector azimuth bearing in degrees (0–359)',
     sector_width_deg    SMALLINT        NULL     COMMENT 'Sector beam width in degrees',
     frequency_mhz       INT             NULL     COMMENT 'Operating frequency in MHz',
     channel_width_mhz   SMALLINT        NULL     COMMENT 'Channel width in MHz',
@@ -3319,7 +3319,7 @@ CREATE TABLE IF NOT EXISTS ap_sector_configs (
   COMMENT='AP/PTP wireless RF configuration per sector device';
 
 -- ---------------------------------------------------------------------------
--- Table: wireless_client_sessions (Â§9.1)
+-- Table: wireless_client_sessions (§9.1)
 -- Purpose: Append-only CPE client state snapshots per AP poll.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS wireless_client_sessions (
@@ -3332,7 +3332,7 @@ CREATE TABLE IF NOT EXISTS wireless_client_sessions (
     signal_dbm          SMALLINT        NULL     COMMENT 'Received signal level in dBm',
     noise_floor_dbm     SMALLINT        NULL     COMMENT 'Noise floor at AP in dBm',
     snr_db              SMALLINT        NULL     COMMENT 'Signal-to-noise ratio in dB',
-    ccq_pct             SMALLINT        NULL     COMMENT 'Client Connection Quality percentage (0â€“100)',
+    ccq_pct             SMALLINT        NULL     COMMENT 'Client Connection Quality percentage (0–100)',
     tx_rate_mbps        DECIMAL(8,2)    NULL     COMMENT 'Transmit rate in Mbps',
     rx_rate_mbps        DECIMAL(8,2)    NULL     COMMENT 'Receive rate in Mbps',
     distance_m          INT             NULL     COMMENT 'Distance from AP in metres',
@@ -3356,7 +3356,7 @@ CREATE TABLE IF NOT EXISTS wireless_client_sessions (
   COMMENT='Append-only CPE client state snapshots per AP poll';
 
 -- ---------------------------------------------------------------------------
--- Table: ap_command_jobs (Â§9.1)
+-- Table: ap_command_jobs (§9.1)
 -- Purpose: Remote AP command jobs for power/frequency/reboot adjustments.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ap_command_jobs (
@@ -3374,7 +3374,7 @@ CREATE TABLE IF NOT EXISTS ap_command_jobs (
     completed_at    DATETIME        NULL     COMMENT 'When execution completed or failed',
     result_output   TEXT            NULL     COMMENT 'Device response / stdout',
     error_message   TEXT            NULL     COMMENT 'Error detail on failure',
-    created_by      BIGINT UNSIGNED NULL     COMMENT 'User who created this job (no FK â€” soft ref)',
+    created_by      BIGINT UNSIGNED NULL     COMMENT 'User who created this job (no FK — soft ref)',
     notes           TEXT            NULL,
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -3394,7 +3394,7 @@ CREATE TABLE IF NOT EXISTS ap_command_jobs (
   COMMENT='Remote AP command jobs for power/frequency/reboot adjustments';
 
 -- ---------------------------------------------------------------------------
--- Table: wireless_channel_interference (Â§9.1)
+-- Table: wireless_channel_interference (§9.1)
 -- Purpose: Detected RF channel interference records per sector/site.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS wireless_channel_interference (
@@ -3429,8 +3429,8 @@ CREATE TABLE IF NOT EXISTS wireless_channel_interference (
   COMMENT='Detected RF channel interference records per sector/site';
 
 -- ---------------------------------------------------------------------------
--- Table: link_planning_calcs (Â§9.2)
--- Purpose: Saved link budget calculator runs â€” stores inputs and computed
+-- Table: link_planning_calcs (§9.2)
+-- Purpose: Saved link budget calculator runs — stores inputs and computed
 --          FSPL, Fresnel zone radius, clearance, and link budget.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS link_planning_calcs (
@@ -3467,11 +3467,11 @@ CREATE TABLE IF NOT EXISTS link_planning_calcs (
     CONSTRAINT fk_lpc_site_b FOREIGN KEY (site_b_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Saved link budget calculator runs with computed FSPL, Fresnel zone, and link budget (Â§9.2)';
+  COMMENT='Saved link budget calculator runs with computed FSPL, Fresnel zone, and link budget (§9.2)';
 
 -- ---------------------------------------------------------------------------
--- Table: spectrum_scan_results (Â§9.3)
--- Purpose: AP spectrum scan results â€” raw scan_data JSON, peak interference,
+-- Table: spectrum_scan_results (§9.3)
+-- Purpose: AP spectrum scan results — raw scan_data JSON, peak interference,
 --          and channel recommendation from wireless spectrum analysis.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS spectrum_scan_results (
@@ -3503,7 +3503,7 @@ CREATE TABLE IF NOT EXISTS spectrum_scan_results (
     CONSTRAINT fk_spectrum_scans_device FOREIGN KEY (device_id)
         REFERENCES devices (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='AP spectrum scan results â€” raw scan_data JSON + recommendation (Â§9.3)';
+  COMMENT='AP spectrum scan results — raw scan_data JSON + recommendation (§9.3)';
 
 -- ---------------------------------------------------------------------------
 -- Table: settings
@@ -3733,7 +3733,7 @@ CREATE TABLE IF NOT EXISTS portal_refresh_tokens (
 
 -- ---------------------------------------------------------------------------
 -- Tables: roles, permissions, role_permissions
--- Purpose: RBAC roles and permissions Ã¢â‚¬â€ flexible custom roles replacing the
+-- Purpose: RBAC roles and permissions â€” flexible custom roles replacing the
 --          rigid role ENUM on the users table.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS roles (
@@ -3779,7 +3779,7 @@ CREATE TABLE IF NOT EXISTS role_permissions (
 -- ---------------------------------------------------------------------------
 -- Table: outages
 -- Purpose: Planned and unplanned outage log. Tracks network-wide events
---          affecting many clients at once Ã¢â‚¬â€ per site and/or device with
+--          affecting many clients at once â€” per site and/or device with
 --          start/end times, affected client count, root cause, and resolution
 --          status. Feeds into SLA reporting.
 -- ---------------------------------------------------------------------------
@@ -3888,7 +3888,7 @@ CREATE TABLE IF NOT EXISTS message_templates (
     name            VARCHAR(100)     NOT NULL COMMENT 'Unique machine-readable name, e.g. invoice_reminder',
     channel         ENUM('email', 'sms', 'whatsapp', 'other') NOT NULL DEFAULT 'email',
     subject         VARCHAR(255)     NULL     COMMENT 'Email subject template (NULL for SMS/WhatsApp)',
-    body            TEXT             NOT NULL COMMENT 'Template body Ã¢â‚¬â€ supports placeholder variables e.g. {{client_name}}',
+    body            TEXT             NOT NULL COMMENT 'Template body â€” supports placeholder variables e.g. {{client_name}}',
     description     VARCHAR(255)     NULL     COMMENT 'Human-readable purpose of this template',
     variables       JSON             NULL     COMMENT 'List of available placeholder names, e.g. ["client_name","invoice_number"]',
     is_active       TINYINT(1)       NOT NULL DEFAULT 1,
@@ -3964,7 +3964,7 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 CREATE TABLE IF NOT EXISTS promotions (
     id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     organization_id BIGINT UNSIGNED  NULL     COMMENT 'Owning tenant; NULL = single-tenant deployment',
-    name            VARCHAR(150)     NOT NULL COMMENT 'Internal label, e.g. "Summer 2026 Ã¢â‚¬â€œ 20% off"',
+    name            VARCHAR(150)     NOT NULL COMMENT 'Internal label, e.g. "Summer 2026 â€“ 20% off"',
     code            VARCHAR(50)      NULL     COMMENT 'Coupon code entered by client or staff; NULL = auto-applied / no code',
     description     TEXT             NULL     COMMENT 'Public-facing description shown on invoices or sign-up pages',
     discount_type   ENUM('percentage', 'fixed_amount')
@@ -4044,7 +4044,7 @@ CREATE TABLE IF NOT EXISTS service_areas (
 
 -- ---------------------------------------------------------------------------
 -- Table: coverage_zones
--- Purpose: Coverage zones within a service area Ã¢â‚¬â€ finer-grained polygons
+-- Purpose: Coverage zones within a service area â€” finer-grained polygons
 --          that describe the actual network reach, technology type, and
 --          maximum available speed.  Used on public coverage-check pages
 --          and for internal capacity planning.
@@ -4081,7 +4081,7 @@ CREATE TABLE IF NOT EXISTS coverage_zones (
 
 -- ---------------------------------------------------------------------------
 -- Table: sla_definitions
--- Purpose: SLA (Service Level Agreement) terms per plan Ã¢â‚¬â€ uptime guarantees,
+-- Purpose: SLA (Service Level Agreement) terms per plan â€” uptime guarantees,
 --          response / resolution time commitments, compensation rules, and
 --          maintenance-window exclusions.
 -- ---------------------------------------------------------------------------
@@ -4100,7 +4100,7 @@ CREATE TABLE IF NOT EXISTS sla_definitions (
     compensation_type       ENUM('none', 'credit_percentage', 'credit_fixed', 'service_extension')
                                              NOT NULL DEFAULT 'none'
                                              COMMENT 'Type of compensation when SLA is breached',
-    compensation_value      DECIMAL(10, 2)   NULL     COMMENT 'Compensation amount Ã¢â‚¬â€ percentage of monthly fee or fixed currency amount, depending on compensation_type',
+    compensation_value      DECIMAL(10, 2)   NULL     COMMENT 'Compensation amount â€” percentage of monthly fee or fixed currency amount, depending on compensation_type',
     exclude_maintenance     TINYINT(1)       NOT NULL DEFAULT 1
                                              COMMENT '1 = planned maintenance windows are excluded from uptime calculation',
     priority                ENUM('low', 'medium', 'high', 'critical')
@@ -4122,7 +4122,7 @@ CREATE TABLE IF NOT EXISTS sla_definitions (
 
 -- ---------------------------------------------------------------------------
 -- Table: device_config_backups
--- Purpose: Versioned configuration snapshots per device Ã¢â‚¬â€ MikroTik exports,
+-- Purpose: Versioned configuration snapshots per device â€” MikroTik exports,
 --          RouterOS backups, Cisco running-config, and similar captures with
 --          SHA-256 checksums for change detection and deduplication.
 -- ---------------------------------------------------------------------------
@@ -4172,30 +4172,30 @@ CREATE TABLE IF NOT EXISTS device_config_backups (
 --          and codigo_postal_fiscal must match the SAT taxpayer registry exactly.
 --          The facturar flag lives on contracts (per-contract), so the same
 --          client can have some contracts generating individual CFDIs and others
---          going to the factura pÃƒÂºblica aggregate (venta al pÃƒÂºblico en general).
+--          going to the factura pÃºblica aggregate (venta al pÃºblico en general).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS client_mx_profiles (
     id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     client_id               BIGINT UNSIGNED NOT NULL
-                                COMMENT 'References clients(id) Ã¢â‚¬â€ one profile per client',
+                                COMMENT 'References clients(id) â€” one profile per client',
     rfc                     VARCHAR(13)     NOT NULL
-                                COMMENT 'Registro Federal de Contribuyentes Ã¢â‚¬â€ 12 chars for companies, 13 for individuals; XAXX010101000 for pÃƒÂºblico en general',
+                                COMMENT 'Registro Federal de Contribuyentes â€” 12 chars for companies, 13 for individuals; XAXX010101000 for pÃºblico en general',
     rfc_unique_check        VARCHAR(13)     AS (CASE WHEN rfc = 'XAXX010101000' THEN NULL ELSE rfc END) STORED
-                                COMMENT 'Generated column for conditional uniqueness Ã¢â‚¬â€ NULL for pÃƒÂºblico en general (allows duplicates), non-NULL for real RFCs (enforces uniqueness)',
+                                COMMENT 'Generated column for conditional uniqueness â€” NULL for pÃºblico en general (allows duplicates), non-NULL for real RFCs (enforces uniqueness)',
     curp                    VARCHAR(18)     NULL
-                                COMMENT 'Clave ÃƒÅ¡nica de Registro de PoblaciÃƒÂ³n Ã¢â‚¬â€ personal clients only',
+                                COMMENT 'Clave Ãšnica de Registro de PoblaciÃ³n â€” personal clients only',
     razon_social            VARCHAR(300)    NOT NULL
-                                COMMENT 'Legal name exactly as registered with SAT Ã¢â‚¬â€ must match for CFDI validation',
+                                COMMENT 'Legal name exactly as registered with SAT â€” must match for CFDI validation',
     regimen_fiscal          VARCHAR(3)      NOT NULL
                                 COMMENT 'SAT fiscal regime code from c_RegimenFiscal (e.g. 601, 612, 626)',
     codigo_postal_fiscal    VARCHAR(5)      NOT NULL
-                                COMMENT 'Fiscal ZIP code as registered with SAT Ã¢â‚¬â€ required on CFDI 4.0 receptor node',
+                                COMMENT 'Fiscal ZIP code as registered with SAT â€” required on CFDI 4.0 receptor node',
     uso_cfdi_default        VARCHAR(4)      NULL
-                                COMMENT 'Default CFDI use code from c_UsoCFDI (e.g. G03, S01) Ã¢â‚¬â€ pre-filled on new invoices',
+                                COMMENT 'Default CFDI use code from c_UsoCFDI (e.g. G03, S01) â€” pre-filled on new invoices',
     colonia                 VARCHAR(150)    NULL
-                                COMMENT 'Neighborhood Ã¢â‚¬â€ required for Mexican addresses on CFDI',
+                                COMMENT 'Neighborhood â€” required for Mexican addresses on CFDI',
     municipio               VARCHAR(150)    NULL
-                                COMMENT 'Municipality Ã¢â‚¬â€ required for Mexican addresses on CFDI',
+                                COMMENT 'Municipality â€” required for Mexican addresses on CFDI',
     exterior_number         VARCHAR(20)     NULL
                                 COMMENT 'Street exterior number',
     interior_number         VARCHAR(20)     NULL
@@ -4224,7 +4224,7 @@ CREATE TABLE IF NOT EXISTS client_mx_profiles (
 CREATE TABLE IF NOT EXISTS organization_mx_profiles (
     id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id         BIGINT UNSIGNED NOT NULL
-                                COMMENT 'References organizations(id) Ã¢â‚¬â€ one profile per organization',
+                                COMMENT 'References organizations(id) â€” one profile per organization',
 
     -- SAT taxpayer identity
     rfc                     VARCHAR(13)     NOT NULL
@@ -4242,19 +4242,19 @@ CREATE TABLE IF NOT EXISTS organization_mx_profiles (
     csd_certificate_pem     TEXT            NULL
                                 COMMENT 'CSD public certificate in PEM format (.cer)',
     csd_private_key_enc     TEXT            NULL
-                                COMMENT 'CSD private key encrypted at rest (.key) Ã¢â‚¬â€ app handles encryption',
+                                COMMENT 'CSD private key encrypted at rest (.key) â€” app handles encryption',
     csd_valid_from          DATE            NULL
                                 COMMENT 'CSD certificate validity start date',
     csd_valid_to            DATE            NULL
-                                COMMENT 'CSD certificate expiry date Ã¢â‚¬â€ alerts should fire before this date',
+                                COMMENT 'CSD certificate expiry date â€” alerts should fire before this date',
 
-    -- PAC (Proveedor Autorizado de CertificaciÃƒÂ³n) integration
+    -- PAC (Proveedor Autorizado de CertificaciÃ³n) integration
     pac_provider            VARCHAR(50)     NULL
                                 COMMENT 'PAC provider name (e.g. Finkok, TimbraSoft, SW Sapien)',
     pac_username            VARCHAR(255)    NULL
                                 COMMENT 'PAC API username',
     pac_password_enc        VARCHAR(500)    NULL
-                                COMMENT 'PAC API password encrypted at rest Ã¢â‚¬â€ app handles encryption',
+                                COMMENT 'PAC API password encrypted at rest â€” app handles encryption',
     pac_environment         ENUM('sandbox', 'production') NOT NULL DEFAULT 'sandbox'
                                 COMMENT 'sandbox = PAC test environment; production = live stamping',
 
@@ -4266,7 +4266,7 @@ CREATE TABLE IF NOT EXISTS organization_mx_profiles (
     cfdi_serie_pago         VARCHAR(10)     NOT NULL DEFAULT 'P'
                                 COMMENT 'Series prefix for CFDI tipo P (pago / payment complement)',
     cfdi_folio_next         BIGINT UNSIGNED NOT NULL DEFAULT 1
-                                COMMENT 'Next available folio number Ã¢â‚¬â€ incremented atomically by the app on each issue',
+                                COMMENT 'Next available folio number â€” incremented atomically by the app on each issue',
 
     -- Mexican fiscal address
     colonia                 VARCHAR(150)    NULL
@@ -4293,7 +4293,7 @@ CREATE TABLE IF NOT EXISTS organization_mx_profiles (
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_regimen_fiscal
--- Purpose: SAT catalog c_RegimenFiscal Ã¢â‚¬â€ fiscal regime codes used on CFDI 4.0
+-- Purpose: SAT catalog c_RegimenFiscal â€” fiscal regime codes used on CFDI 4.0
 --          issuer and receptor nodes.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sat_regimen_fiscal (
@@ -4309,11 +4309,11 @@ CREATE TABLE IF NOT EXISTS sat_regimen_fiscal (
     KEY idx_sat_regimen_fiscal_applies_to (applies_to),
     KEY idx_sat_regimen_fiscal_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SAT catalog: c_RegimenFiscal Ã¢â‚¬â€ fiscal regime codes for CFDI 4.0';
+  COMMENT='SAT catalog: c_RegimenFiscal â€” fiscal regime codes for CFDI 4.0';
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_uso_cfdi
--- Purpose: SAT catalog c_UsoCFDI Ã¢â‚¬â€ permitted use codes for the CFDI receptor.
+-- Purpose: SAT catalog c_UsoCFDI â€” permitted use codes for the CFDI receptor.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sat_uso_cfdi (
     code        VARCHAR(4)      NOT NULL
@@ -4328,11 +4328,11 @@ CREATE TABLE IF NOT EXISTS sat_uso_cfdi (
     KEY idx_sat_uso_cfdi_applies_to (applies_to),
     KEY idx_sat_uso_cfdi_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SAT catalog: c_UsoCFDI Ã¢â‚¬â€ permitted use codes for CFDI 4.0 receptor';
+  COMMENT='SAT catalog: c_UsoCFDI â€” permitted use codes for CFDI 4.0 receptor';
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_forma_pago
--- Purpose: SAT catalog c_FormaPago Ã¢â‚¬â€ how a payment was or will be made.
+-- Purpose: SAT catalog c_FormaPago â€” how a payment was or will be made.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sat_forma_pago (
     code        VARCHAR(2)      NOT NULL
@@ -4344,15 +4344,15 @@ CREATE TABLE IF NOT EXISTS sat_forma_pago (
     PRIMARY KEY (code),
     KEY idx_sat_forma_pago_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SAT catalog: c_FormaPago Ã¢â‚¬â€ how a payment was or will be made';
+  COMMENT='SAT catalog: c_FormaPago â€” how a payment was or will be made';
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_metodo_pago
--- Purpose: SAT catalog c_MetodoPago Ã¢â‚¬â€ PUE or PPD payment timing.
+-- Purpose: SAT catalog c_MetodoPago â€” PUE or PPD payment timing.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sat_metodo_pago (
     code        VARCHAR(3)      NOT NULL
-                    COMMENT 'SAT c_MetodoPago code: PUE (pago en una sola exhibiciÃƒÂ³n) or PPD (pago en parcialidades o diferido)',
+                    COMMENT 'SAT c_MetodoPago code: PUE (pago en una sola exhibiciÃ³n) or PPD (pago en parcialidades o diferido)',
     description VARCHAR(200)    NOT NULL
                     COMMENT 'Official SAT description in Spanish',
     status      ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
@@ -4360,11 +4360,11 @@ CREATE TABLE IF NOT EXISTS sat_metodo_pago (
     PRIMARY KEY (code),
     KEY idx_sat_metodo_pago_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SAT catalog: c_MetodoPago Ã¢â‚¬â€ PUE or PPD payment timing';
+  COMMENT='SAT catalog: c_MetodoPago â€” PUE or PPD payment timing';
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_tipo_comprobante
--- Purpose: SAT catalog c_TipoDeComprobante Ã¢â‚¬â€ CFDI document type.
+-- Purpose: SAT catalog c_TipoDeComprobante â€” CFDI document type.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sat_tipo_comprobante (
     code        VARCHAR(1)      NOT NULL
@@ -4376,11 +4376,11 @@ CREATE TABLE IF NOT EXISTS sat_tipo_comprobante (
     PRIMARY KEY (code),
     KEY idx_sat_tipo_comprobante_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SAT catalog: c_TipoDeComprobante Ã¢â‚¬â€ CFDI document type';
+  COMMENT='SAT catalog: c_TipoDeComprobante â€” CFDI document type';
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_moneda
--- Purpose: SAT catalog c_Moneda (subset) Ã¢â‚¬â€ currencies accepted in CFDI 4.0.
+-- Purpose: SAT catalog c_Moneda (subset) â€” currencies accepted in CFDI 4.0.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sat_moneda (
     code        VARCHAR(3)      NOT NULL
@@ -4394,7 +4394,7 @@ CREATE TABLE IF NOT EXISTS sat_moneda (
     PRIMARY KEY (code),
     KEY idx_sat_moneda_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SAT catalog: c_Moneda Ã¢â‚¬â€ currencies accepted in CFDI 4.0';
+  COMMENT='SAT catalog: c_Moneda â€” currencies accepted in CFDI 4.0';
 
 -- ---------------------------------------------------------------------------
 -- Seed data: SAT CFDI 4.0 catalog tables (migration 069)
@@ -4405,26 +4405,26 @@ INSERT IGNORE INTO sat_regimen_fiscal (code, description, applies_to, status) VA
 ('603', 'Personas Morales con Fines no Lucrativos',                                 'company',  'active'),
 ('605', 'Sueldos y Salarios e Ingresos Asimilados a Salarios',                      'personal', 'active'),
 ('606', 'Arrendamiento',                                                             'personal', 'active'),
-('608', 'DemÃƒÂ¡s ingresos',                                                            'personal', 'active'),
-('610', 'Residentes en el Extranjero sin Establecimiento Permanente en MÃƒÂ©xico',      'both',     'active'),
-('612', 'Personas FÃƒÂ­sicas con Actividades Empresariales y Profesionales',            'personal', 'active'),
+('608', 'DemÃ¡s ingresos',                                                            'personal', 'active'),
+('610', 'Residentes en el Extranjero sin Establecimiento Permanente en MÃ©xico',      'both',     'active'),
+('612', 'Personas FÃ­sicas con Actividades Empresariales y Profesionales',            'personal', 'active'),
 ('614', 'Ingresos por intereses',                                                    'personal', 'active'),
 ('616', 'Sin obligaciones fiscales',                                                 'personal', 'active'),
-('620', 'Sociedades Cooperativas de ProducciÃƒÂ³n que optan por diferir sus ingresos',  'company',  'active'),
-('621', 'IncorporaciÃƒÂ³n Fiscal',                                                      'personal', 'active'),
-('622', 'Actividades AgrÃƒÂ­colas, Ganaderas, SilvÃƒÂ­colas y Pesqueras',                 'company',  'active'),
+('620', 'Sociedades Cooperativas de ProducciÃ³n que optan por diferir sus ingresos',  'company',  'active'),
+('621', 'IncorporaciÃ³n Fiscal',                                                      'personal', 'active'),
+('622', 'Actividades AgrÃ­colas, Ganaderas, SilvÃ­colas y Pesqueras',                 'company',  'active'),
 ('623', 'Opcional para Grupos de Sociedades',                                        'company',  'active'),
 ('624', 'Coordinados',                                                               'company',  'active'),
-('625', 'RÃƒÂ©gimen de las Actividades Empresariales con ingresos a travÃƒÂ©s de Plataformas TecnolÃƒÂ³gicas', 'personal', 'active'),
-('626', 'RÃƒÂ©gimen Simplificado de Confianza',                                         'both',     'active'),
+('625', 'RÃ©gimen de las Actividades Empresariales con ingresos a travÃ©s de Plataformas TecnolÃ³gicas', 'personal', 'active'),
+('626', 'RÃ©gimen Simplificado de Confianza',                                         'both',     'active'),
 -- Additional regimes (migration 096)
-('607', 'RÃƒÂ©gimen de EnajenaciÃƒÂ³n o AdquisiciÃƒÂ³n de Bienes',                          'personal', 'active'),
-('609', 'ConsolidaciÃƒÂ³n',                                                             'company',  'active'),
+('607', 'RÃ©gimen de EnajenaciÃ³n o AdquisiciÃ³n de Bienes',                          'personal', 'active'),
+('609', 'ConsolidaciÃ³n',                                                             'company',  'active'),
 ('611', 'Ingresos por Dividendos (y en general por las Sociedades y Asociaciones Civiles)', 'personal', 'active'),
-('615', 'RÃƒÂ©gimen de los ingresos por obtenciÃƒÂ³n de premios',                         'personal', 'active');
+('615', 'RÃ©gimen de los ingresos por obtenciÃ³n de premios',                         'personal', 'active');
 
 INSERT IGNORE INTO sat_uso_cfdi (code, description, applies_to, status) VALUES
-('G01', 'AdquisiciÃƒÂ³n de mercancias',                                        'both',     'active'),
+('G01', 'AdquisiciÃ³n de mercancias',                                        'both',     'active'),
 ('G02', 'Devoluciones, descuentos o bonificaciones',                        'both',     'active'),
 ('G03', 'Gastos en general',                                                'both',     'active'),
 ('I01', 'Construcciones',                                                   'both',     'active'),
@@ -4432,47 +4432,47 @@ INSERT IGNORE INTO sat_uso_cfdi (code, description, applies_to, status) VALUES
 ('I03', 'Equipo de transporte',                                             'both',     'active'),
 ('I04', 'Equipo de computo y accesorios',                                   'both',     'active'),
 ('I08', 'Otra maquinaria y equipo',                                         'both',     'active'),
-('D01', 'Honorarios mÃƒÂ©dicos, dentales y gastos hospitalarios',              'personal', 'active'),
-('D02', 'Gastos mÃƒÂ©dicos por incapacidad o discapacidad',                    'personal', 'active'),
+('D01', 'Honorarios mÃ©dicos, dentales y gastos hospitalarios',              'personal', 'active'),
+('D02', 'Gastos mÃ©dicos por incapacidad o discapacidad',                    'personal', 'active'),
 ('D03', 'Gastos funerales',                                                 'personal', 'active'),
 ('D04', 'Donativos',                                                        'personal', 'active'),
 ('P01', 'Por definir',                                                      'both',     'active'),
 ('S01', 'Sin efectos fiscales',                                             'both',     'active'),
 ('CP01', 'Pagos',                                                           'both',     'active'),
 -- Additional uso CFDI codes (migration 096)
-('D05', 'Primas por seguros de gastos mÃƒÂ©dicos',                                                             'personal', 'active'),
-('D06', 'Gastos de transportaciÃƒÂ³n escolar obligatoria',                                                     'personal', 'active'),
-('D07', 'DepÃƒÂ³sitos en cuentas para el ahorro, primas que tengan como base planes de pensiones',             'personal', 'active'),
+('D05', 'Primas por seguros de gastos mÃ©dicos',                                                             'personal', 'active'),
+('D06', 'Gastos de transportaciÃ³n escolar obligatoria',                                                     'personal', 'active'),
+('D07', 'DepÃ³sitos en cuentas para el ahorro, primas que tengan como base planes de pensiones',             'personal', 'active'),
 ('D08', 'Pagos por servicios educativos (colegiaturas)',                                                    'personal', 'active'),
 ('D09', 'Aportaciones voluntarias al SAR',                                                                  'personal', 'active'),
-('D10', 'Primas por seguros de gastos mÃƒÂ©dicos mayores',                                                     'personal', 'active');
+('D10', 'Primas por seguros de gastos mÃ©dicos mayores',                                                     'personal', 'active');
 
 INSERT IGNORE INTO sat_forma_pago (code, description, status) VALUES
 ('01', 'Efectivo',                                                          'active'),
 ('02', 'Cheque nominativo',                                                 'active'),
-('03', 'Transferencia electrÃƒÂ³nica de fondos',                               'active'),
-('04', 'Tarjeta de crÃƒÂ©dito',                                                'active'),
-('05', 'Monedero electrÃƒÂ³nico',                                              'active'),
-('06', 'Dinero electrÃƒÂ³nico',                                                'active'),
+('03', 'Transferencia electrÃ³nica de fondos',                               'active'),
+('04', 'Tarjeta de crÃ©dito',                                                'active'),
+('05', 'Monedero electrÃ³nico',                                              'active'),
+('06', 'Dinero electrÃ³nico',                                                'active'),
 ('08', 'Vales de despensa',                                                 'active'),
-('12', 'DaciÃƒÂ³n en pago',                                                    'active'),
-('13', 'Pago por subrogaciÃƒÂ³n',                                              'active'),
-('14', 'Pago por consignaciÃƒÂ³n',                                             'active'),
-('15', 'CondonaciÃƒÂ³n',                                                       'active'),
-('17', 'CompensaciÃƒÂ³n',                                                      'active'),
-('23', 'NovaciÃƒÂ³n',                                                          'active'),
-('24', 'ConfusiÃƒÂ³n',                                                         'active'),
-('25', 'RemisiÃƒÂ³n de deuda',                                                 'active'),
-('26', 'PrescripciÃƒÂ³n o caducidad',                                          'active'),
-('27', 'A satisfacciÃƒÂ³n del acreedor',                                       'active'),
-('28', 'Tarjeta de dÃƒÂ©bito',                                                 'active'),
+('12', 'DaciÃ³n en pago',                                                    'active'),
+('13', 'Pago por subrogaciÃ³n',                                              'active'),
+('14', 'Pago por consignaciÃ³n',                                             'active'),
+('15', 'CondonaciÃ³n',                                                       'active'),
+('17', 'CompensaciÃ³n',                                                      'active'),
+('23', 'NovaciÃ³n',                                                          'active'),
+('24', 'ConfusiÃ³n',                                                         'active'),
+('25', 'RemisiÃ³n de deuda',                                                 'active'),
+('26', 'PrescripciÃ³n o caducidad',                                          'active'),
+('27', 'A satisfacciÃ³n del acreedor',                                       'active'),
+('28', 'Tarjeta de dÃ©bito',                                                 'active'),
 ('29', 'Tarjeta de servicios',                                              'active'),
-('30', 'AplicaciÃƒÂ³n de anticipos',                                           'active'),
+('30', 'AplicaciÃ³n de anticipos',                                           'active'),
 ('31', 'Intermediario pagos',                                               'active'),
 ('99', 'Por definir',                                                       'active');
 
 INSERT IGNORE INTO sat_metodo_pago (code, description, status) VALUES
-('PUE', 'Pago en una sola exhibiciÃƒÂ³n',              'active'),
+('PUE', 'Pago en una sola exhibiciÃ³n',              'active'),
 ('PPD', 'Pago en parcialidades o diferido',         'active');
 
 INSERT IGNORE INTO sat_tipo_comprobante (code, description, status) VALUES
@@ -4480,17 +4480,17 @@ INSERT IGNORE INTO sat_tipo_comprobante (code, description, status) VALUES
 ('E', 'Egreso',     'active'),
 ('P', 'Pago',       'active'),
 ('T', 'Traslado',   'active'),
-('N', 'NÃƒÂ³mina',     'active');
+('N', 'NÃ³mina',     'active');
 
 INSERT IGNORE INTO sat_moneda (code, description, decimals, status) VALUES
 ('MXN', 'Peso Mexicano',                    2, 'active'),
-('USD', 'DÃƒÂ³lar americano',                  2, 'active'),
+('USD', 'DÃ³lar americano',                  2, 'active'),
 ('EUR', 'Euro',                             2, 'active'),
-('XXX', 'Los cÃƒÂ³digos asignados para las transacciones en que no intervenga ninguna moneda',      2, 'active');
+('XXX', 'Los cÃ³digos asignados para las transacciones en que no intervenga ninguna moneda',      2, 'active');
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_clave_prod_serv
--- Purpose: SAT catalog c_ClaveProdServ Ã¢â‚¬â€ product and service classification
+-- Purpose: SAT catalog c_ClaveProdServ â€” product and service classification
 --          codes required on every concept (line item) in a CFDI 4.0 document.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sat_clave_prod_serv (
@@ -4504,11 +4504,11 @@ CREATE TABLE IF NOT EXISTS sat_clave_prod_serv (
     PRIMARY KEY (code),
     KEY idx_sat_clave_prod_serv_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SAT catalog: c_ClaveProdServ Ã¢â‚¬â€ product and service classification codes for CFDI 4.0 concepts';
+  COMMENT='SAT catalog: c_ClaveProdServ â€” product and service classification codes for CFDI 4.0 concepts';
 
 -- ---------------------------------------------------------------------------
 -- Table: sat_clave_unidad
--- Purpose: SAT catalog c_ClaveUnidad Ã¢â‚¬â€ unit-of-measure codes required on
+-- Purpose: SAT catalog c_ClaveUnidad â€” unit-of-measure codes required on
 --          every concept (line item) in a CFDI 4.0 document.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sat_clave_unidad (
@@ -4522,7 +4522,7 @@ CREATE TABLE IF NOT EXISTS sat_clave_unidad (
     PRIMARY KEY (code),
     KEY idx_sat_clave_unidad_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SAT catalog: c_ClaveUnidad Ã¢â‚¬â€ unit-of-measure codes for CFDI 4.0 concepts';
+  COMMENT='SAT catalog: c_ClaveUnidad â€” unit-of-measure codes for CFDI 4.0 concepts';
 
 -- ---------------------------------------------------------------------------
 -- Seed data: SAT c_ClaveProdServ and c_ClaveUnidad (migration 082)
@@ -4530,9 +4530,9 @@ CREATE TABLE IF NOT EXISTS sat_clave_unidad (
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO sat_clave_prod_serv (code, description, status) VALUES
 ('81161700', 'Servicios de acceso a Internet',                   'active'),
-('81161500', 'Servicios de telefonÃƒÂ­a y voz sobre IP (VoIP)',     'active'),
-('81112200', 'Soporte tÃƒÂ©cnico',                                  'active'),
-('81112100', 'Mantenimiento y actualizaciÃƒÂ³n de software',        'active'),
+('81161500', 'Servicios de telefonÃ­a y voz sobre IP (VoIP)',     'active'),
+('81112200', 'Soporte tÃ©cnico',                                  'active'),
+('81112100', 'Mantenimiento y actualizaciÃ³n de software',        'active'),
 ('43231500', 'Equipo de redes y telecomunicaciones',             'active'),
 ('43222600', 'Enrutadores y conmutadores de red (routers/switches)', 'active'),
 ('01010101', 'No aplica',                                        'active');
@@ -4575,7 +4575,7 @@ CREATE TABLE IF NOT EXISTS cfdi_documents (
     tipo_comprobante        VARCHAR(1)      NOT NULL
                                 COMMENT 'SAT c_TipoDeComprobante: I=ingreso, E=egreso, P=pago, T=traslado, N=nomina',
     uso_cfdi                VARCHAR(4)      NOT NULL
-                                COMMENT 'SAT c_UsoCFDI Ã¢â‚¬â€ receptor intended use (e.g. G03, S01)',
+                                COMMENT 'SAT c_UsoCFDI â€” receptor intended use (e.g. G03, S01)',
     metodo_pago             VARCHAR(3)      NULL
                                 COMMENT 'SAT c_MetodoPago: PUE or PPD',
     forma_pago              VARCHAR(2)      NULL
@@ -4589,9 +4589,9 @@ CREATE TABLE IF NOT EXISTS cfdi_documents (
 
     -- Export classification (mandatory in CFDI 4.0 even for domestic transactions)
     exportacion             ENUM('01','02','03') NOT NULL DEFAULT '01'
-                                COMMENT 'SAT Exportacion: 01=No exporta, 02=ExportaciÃƒÂ³n definitiva, 03=ExportaciÃƒÂ³n temporal',
+                                COMMENT 'SAT Exportacion: 01=No exporta, 02=ExportaciÃ³n definitiva, 03=ExportaciÃ³n temporal',
 
-    -- Receiver snapshot (denormalized at stamp time Ã¢â‚¬â€ must match SAT records)
+    -- Receiver snapshot (denormalized at stamp time â€” must match SAT records)
     receptor_rfc            VARCHAR(13)     NULL
                                 COMMENT 'Receiver RFC captured at stamp time',
     receptor_nombre         VARCHAR(300)    NULL
@@ -4646,7 +4646,7 @@ CREATE TABLE IF NOT EXISTS cfdi_documents (
     cancelled_at            DATETIME        NULL
                                 COMMENT 'Timestamp when SAT confirmed cancellation',
 
-    -- Source document linkage (polymorphic Ã¢â‚¬â€ at most one may be non-NULL)
+    -- Source document linkage (polymorphic â€” at most one may be non-NULL)
     invoice_id              BIGINT UNSIGNED NULL
                                 COMMENT 'Invoice this CFDI type-I belongs to; NULL for other types or drafts',
     credit_note_id          BIGINT UNSIGNED NULL
@@ -4707,7 +4707,7 @@ CREATE TABLE IF NOT EXISTS cfdi_documents (
 
 -- ---------------------------------------------------------------------------
 -- Table: cfdi_related_documents
--- Purpose: CfdiRelacionados (CFDI 4.0) Ã¢â‚¬â€ tracks relationships between CFDIs,
+-- Purpose: CfdiRelacionados (CFDI 4.0) â€” tracks relationships between CFDIs,
 --          e.g. credit note referencing original invoice, or substitution of
 --          a cancelled document.
 -- ---------------------------------------------------------------------------
@@ -4718,7 +4718,7 @@ CREATE TABLE IF NOT EXISTS cfdi_related_documents (
     related_uuid        CHAR(36)        NOT NULL
                             COMMENT 'UUID (folio fiscal) of the related CFDI',
     relationship_type   VARCHAR(2)      NOT NULL
-                            COMMENT 'SAT c_TipoRelacion code (e.g. 01=nota de crÃƒÂ©dito, 04=sustituciÃƒÂ³n)',
+                            COMMENT 'SAT c_TipoRelacion code (e.g. 01=nota de crÃ©dito, 04=sustituciÃ³n)',
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
@@ -4731,7 +4731,7 @@ CREATE TABLE IF NOT EXISTS cfdi_related_documents (
 
 -- ---------------------------------------------------------------------------
 -- Table: cfdi_payment_complements
--- Purpose: Complemento de Pago 2.0 (Recibo ElectrÃƒÂ³nico de Pago) headers.
+-- Purpose: Complemento de Pago 2.0 (Recibo ElectrÃ³nico de Pago) headers.
 --          One row per payment event that settles one or more PPD invoices.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS cfdi_payment_complements (
@@ -4743,9 +4743,9 @@ CREATE TABLE IF NOT EXISTS cfdi_payment_complements (
     payment_date        DATE            NOT NULL
                             COMMENT 'Date the payment was received (FechaPago)',
     forma_pago          VARCHAR(2)      NOT NULL
-                            COMMENT 'SAT c_FormaPago Ã¢â‚¬â€ how the payment was made (e.g. 03=transfer, 28=debit card)',
+                            COMMENT 'SAT c_FormaPago â€” how the payment was made (e.g. 03=transfer, 28=debit card)',
     moneda              VARCHAR(3)      NOT NULL DEFAULT 'MXN'
-                            COMMENT 'SAT c_Moneda Ã¢â‚¬â€ currency the payment was received in',
+                            COMMENT 'SAT c_Moneda â€” currency the payment was received in',
     tipo_cambio         DECIMAL(10, 4)  NULL
                             COMMENT 'Exchange rate to MXN when moneda != MXN',
     amount              DECIMAL(12, 2)  NOT NULL
@@ -4799,7 +4799,7 @@ CREATE TABLE IF NOT EXISTS cfdi_payment_complement_items (
 
     -- Currency of the related document
     moneda_dr           VARCHAR(3)      NOT NULL DEFAULT 'MXN'
-                            COMMENT 'SAT c_Moneda Ã¢â‚¬â€ currency of the document being paid (MonedaDR)',
+                            COMMENT 'SAT c_Moneda â€” currency of the document being paid (MonedaDR)',
     equivalencia_dr     DECIMAL(10, 4)  NOT NULL DEFAULT 1.0000
                             COMMENT 'Exchange rate between moneda_dr and the complement payment currency',
 
@@ -4817,7 +4817,7 @@ CREATE TABLE IF NOT EXISTS cfdi_payment_complement_items (
 
     -- Tax object indicator for this related document (Complemento de Pago 2.0)
     objeto_imp_dr       ENUM('01','02','03') NOT NULL DEFAULT '02'
-                            COMMENT 'SAT ObjetoImpDR on DoctoRelacionado: 01=No objeto, 02=SÃƒÂ­ objeto, 03=SÃƒÂ­ objeto y no obligado al desglose',
+                            COMMENT 'SAT ObjetoImpDR on DoctoRelacionado: 01=No objeto, 02=SÃ­ objeto, 03=SÃ­ objeto y no obligado al desglose',
 
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -4865,7 +4865,7 @@ CREATE TABLE IF NOT EXISTS cfdi_payment_complement_item_taxes (
 
 -- ---------------------------------------------------------------------------
 -- Table: cfdi_conceptos
--- Purpose: CFDI 4.0 concept (line item) rows Ã¢â‚¬â€ one per <Concepto> node inside
+-- Purpose: CFDI 4.0 concept (line item) rows â€” one per <Concepto> node inside
 --          a cfdi_document. Captures SAT-required fields: product/service key,
 --          unit key, quantity, description, unit price, line total, optional
 --          discount, and the SAT ObjetoImp indicator.
@@ -4895,13 +4895,13 @@ CREATE TABLE IF NOT EXISTS cfdi_conceptos (
     valor_unitario      DECIMAL(14, 4)      NOT NULL
                             COMMENT 'Unit price before taxes',
     importe             DECIMAL(14, 4)      NOT NULL
-                            COMMENT 'Line total: cantidad Ãƒâ€” valor_unitario (before discount)',
+                            COMMENT 'Line total: cantidad Ã— valor_unitario (before discount)',
     descuento           DECIMAL(14, 4)      NULL
                             COMMENT 'Discount amount applied to this line; NULL when no discount',
 
     -- SAT tax object indicator (ObjetoImp)
     objeto_imp          ENUM('01', '02', '03') NOT NULL DEFAULT '02'
-                            COMMENT 'SAT ObjetoImp: 01=No objeto de impuesto, 02=SÃƒÂ­ objeto de impuesto, 03=SÃƒÂ­ objeto del impuesto y no obligado al desglose',
+                            COMMENT 'SAT ObjetoImp: 01=No objeto de impuesto, 02=SÃ­ objeto de impuesto, 03=SÃ­ objeto del impuesto y no obligado al desglose',
 
     created_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -4916,7 +4916,7 @@ CREATE TABLE IF NOT EXISTS cfdi_conceptos (
     CONSTRAINT fk_cfdi_conceptos_clave_unidad FOREIGN KEY (clave_unidad)
         REFERENCES sat_clave_unidad (code) ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='CFDI 4.0 concept (line item) rows Ã¢â‚¬â€ one row per <Concepto> node inside a cfdi_document';
+  COMMENT='CFDI 4.0 concept (line item) rows â€” one row per <Concepto> node inside a cfdi_document';
 
 -- ---------------------------------------------------------------------------
 -- Table: cfdi_concepto_impuestos
@@ -4946,7 +4946,7 @@ CREATE TABLE IF NOT EXISTS cfdi_concepto_impuestos (
     base                DECIMAL(14, 4)      NOT NULL
                             COMMENT 'Taxable base amount for this line (importe - descuento of the parent concept)',
     importe             DECIMAL(14, 4)      NULL
-                            COMMENT 'Calculated tax amount: base Ãƒâ€” tasa_o_cuota; NULL when tipo_factor = Exento',
+                            COMMENT 'Calculated tax amount: base Ã— tasa_o_cuota; NULL when tipo_factor = Exento',
 
     created_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -4958,7 +4958,7 @@ CREATE TABLE IF NOT EXISTS cfdi_concepto_impuestos (
     CONSTRAINT fk_cfdi_ci_cfdi_concepto FOREIGN KEY (cfdi_concepto_id)
         REFERENCES cfdi_conceptos (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Per-line tax breakdown for CFDI 4.0 Ã¢â‚¬â€ one row per <Traslado> or <Retencion> inside a <Concepto>';
+  COMMENT='Per-line tax breakdown for CFDI 4.0 â€” one row per <Traslado> or <Retencion> inside a <Concepto>';
 
 -- ---------------------------------------------------------------------------
 -- Table: concession_titles
@@ -4988,7 +4988,7 @@ CREATE TABLE IF NOT EXISTS concession_titles (
     renewal_filed_at    DATE            NULL
                             COMMENT 'Date the renewal application was submitted to IFT/CRT',
     regulatory_body     ENUM('IFT', 'CRT') NOT NULL DEFAULT 'CRT'
-                            COMMENT 'IFT = Instituto Federal de Telecomunicaciones (pre-2025); CRT = ComisiÃƒÂ³n de RegulaciÃƒÂ³n de Telecomunicaciones (from 2025)',
+                            COMMENT 'IFT = Instituto Federal de Telecomunicaciones (pre-2025); CRT = ComisiÃ³n de RegulaciÃ³n de Telecomunicaciones (from 2025)',
     document_file_id    BIGINT UNSIGNED NULL
                             COMMENT 'Reference to the official title document in the files table',
     status              ENUM('active', 'expired', 'revoked', 'pending_renewal')
@@ -5014,7 +5014,7 @@ CREATE TABLE IF NOT EXISTS concession_titles (
 
 -- ---------------------------------------------------------------------------
 -- Table: contract_templates_mx
--- Purpose: IFT/CRT-registered Carta de AdhesiÃƒÂ³n templates. Mexican ISPs must
+-- Purpose: IFT/CRT-registered Carta de AdhesiÃ³n templates. Mexican ISPs must
 --          register their standard contract model with IFT/CRT. Contracts
 --          reference the specific registered template via FK.
 -- ---------------------------------------------------------------------------
@@ -5160,7 +5160,7 @@ CREATE TABLE IF NOT EXISTS ift_statistical_reports (
     coverage_municipalities     INT UNSIGNED    NULL
                                     COMMENT 'Number of municipalities with at least one active subscriber',
 
-    -- Revenue (optional Ã¢â‚¬â€ may be omitted if reported separately)
+    -- Revenue (optional â€” may be omitted if reported separately)
     revenue_total               DECIMAL(14, 2)  NULL
                                     COMMENT 'Total gross revenue for the period in local currency; NULL if not included in this report',
 
@@ -5209,7 +5209,7 @@ CREATE TABLE IF NOT EXISTS ift_statistical_reports (
 DELIMITER $$
 
 -- ---------------------------------------------------------------------------
--- 1. client_mx_profiles Ã¢â‚¬â€ require clients.locale = 'MX'
+-- 1. client_mx_profiles â€” require clients.locale = 'MX'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_client_mx_profiles_bi
 BEFORE INSERT ON client_mx_profiles
@@ -5238,7 +5238,7 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- 2. organization_mx_profiles Ã¢â‚¬â€ require organizations.locale = 'MX'
+-- 2. organization_mx_profiles â€” require organizations.locale = 'MX'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_organization_mx_profiles_bi
 BEFORE INSERT ON organization_mx_profiles
@@ -5267,7 +5267,7 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- 3. cfdi_documents Ã¢â‚¬â€ require clients.locale = 'MX'
+-- 3. cfdi_documents â€” require clients.locale = 'MX'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_cfdi_documents_bi
 BEFORE INSERT ON cfdi_documents
@@ -5296,7 +5296,7 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- 4. concession_titles Ã¢â‚¬â€ require organizations.locale = 'MX'
+-- 4. concession_titles â€” require organizations.locale = 'MX'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_concession_titles_bi
 BEFORE INSERT ON concession_titles
@@ -5325,7 +5325,7 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- 5. contract_templates_mx Ã¢â‚¬â€ require organizations.locale = 'MX'
+-- 5. contract_templates_mx â€” require organizations.locale = 'MX'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_contract_templates_mx_bi
 BEFORE INSERT ON contract_templates_mx
@@ -5354,7 +5354,7 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- 6. regulatory_filings Ã¢â‚¬â€ require organizations.locale = 'MX'
+-- 6. regulatory_filings â€” require organizations.locale = 'MX'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_regulatory_filings_bi
 BEFORE INSERT ON regulatory_filings
@@ -5383,7 +5383,7 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- 7. ift_statistical_reports Ã¢â‚¬â€ require organizations.locale = 'MX'
+-- 7. ift_statistical_reports â€” require organizations.locale = 'MX'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_ift_statistical_reports_bi
 BEFORE INSERT ON ift_statistical_reports
@@ -5412,7 +5412,7 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- 8. contracts Ã¢â‚¬â€ require clients.locale = 'MX' when
+-- 8. contracts â€” require clients.locale = 'MX' when
 --               contract_template_mx_id IS NOT NULL
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_contracts_mx_template_bi
@@ -5452,7 +5452,7 @@ END$$
 --          established by the enforcement triggers above.
 
 -- ---------------------------------------------------------------------------
--- clients Ã¢â‚¬â€ prevent locale downgrade from 'MX' to 'global'
+-- clients â€” prevent locale downgrade from 'MX' to 'global'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_clients_locale_downgrade_bu
 BEFORE UPDATE ON clients
@@ -5481,7 +5481,7 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- organizations Ã¢â‚¬â€ prevent locale downgrade from 'MX' to 'global'
+-- organizations â€” prevent locale downgrade from 'MX' to 'global'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_organizations_locale_downgrade_bu
 BEFORE UPDATE ON organizations
@@ -5541,10 +5541,10 @@ DELIMITER ;
 
 -- ---------------------------------------------------------------------------
 -- Table: factura_publica_invoices
--- Purpose: Factura pÃƒÂºblica (venta al pÃƒÂºblico en general) periodic aggregation
+-- Purpose: Factura pÃºblica (venta al pÃºblico en general) periodic aggregation
 --          documents.  When MX-locale contracts have facturar = FALSE, their
---          invoices are aggregated into a periodic factura pÃƒÂºblica per the SAT
---          InformacionGlobal node fields (Periodicidad, Meses, AÃƒÂ±o).  One row
+--          invoices are aggregated into a periodic factura pÃºblica per the SAT
+--          InformacionGlobal node fields (Periodicidad, Meses, AÃ±o).  One row
 --          per organization per period.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS factura_publica_invoices (
@@ -5552,11 +5552,11 @@ CREATE TABLE IF NOT EXISTS factura_publica_invoices (
 
     -- Issuer
     organization_id         BIGINT UNSIGNED  NOT NULL
-                                COMMENT 'Organization (ISP) issuing this factura pÃƒÂºblica',
+                                COMMENT 'Organization (ISP) issuing this factura pÃºblica',
 
     -- Link to the stamped CFDI record (NULL while accumulating / draft)
     cfdi_document_id        BIGINT UNSIGNED  NULL
-                                COMMENT 'Stamped CFDI document record; NULL while the factura pÃƒÂºblica is still in draft',
+                                COMMENT 'Stamped CFDI document record; NULL while the factura pÃºblica is still in draft',
 
     -- SAT InformacionGlobal node fields
     periodicidad            ENUM('01', '02', '03', '04', '05') NOT NULL
@@ -5568,7 +5568,7 @@ CREATE TABLE IF NOT EXISTS factura_publica_invoices (
 
     -- Aggregated totals (denormalized for quick reads)
     subtotal                DECIMAL(14, 2)   NOT NULL DEFAULT 0.00
-                                COMMENT 'Sum of all pÃƒÂºblico en general invoice subtotals in this period',
+                                COMMENT 'Sum of all pÃºblico en general invoice subtotals in this period',
     total_impuestos         DECIMAL(14, 2)   NOT NULL DEFAULT 0.00
                                 COMMENT 'Total transferred taxes for the period',
     total                   DECIMAL(14, 2)   NOT NULL DEFAULT 0.00
@@ -5576,7 +5576,7 @@ CREATE TABLE IF NOT EXISTS factura_publica_invoices (
 
     -- Lifecycle
     status                  ENUM('draft', 'stamped', 'cancelled') NOT NULL DEFAULT 'draft'
-                                COMMENT 'draft=accumulating invoices; stamped=factura pÃƒÂºblica issued via PAC; cancelled=voided',
+                                COMMENT 'draft=accumulating invoices; stamped=factura pÃºblica issued via PAC; cancelled=voided',
 
     created_at              TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -5598,19 +5598,19 @@ CREATE TABLE IF NOT EXISTS factura_publica_invoices (
                   '13','14','15','16','17','18')
     )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Factura pÃƒÂºblica (venta al pÃƒÂºblico en general) Ã¢â‚¬â€ periodic aggregation of non-facturar sales per SAT CFDI 4.0 InformacionGlobal';
+  COMMENT='Factura pÃºblica (venta al pÃºblico en general) â€” periodic aggregation of non-facturar sales per SAT CFDI 4.0 InformacionGlobal';
 
 -- ---------------------------------------------------------------------------
 -- Table: factura_publica_invoice_items
 -- Purpose: Junction table linking individual invoices from contracts with
---          facturar = FALSE to their parent factura pÃƒÂºblica.  Each invoice
---          may belong to at most one factura pÃƒÂºblica document.
+--          facturar = FALSE to their parent factura pÃºblica.  Each invoice
+--          may belong to at most one factura pÃºblica document.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS factura_publica_invoice_items (
     id                              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 
     factura_publica_invoice_id      BIGINT UNSIGNED NOT NULL
-                                        COMMENT 'Parent factura pÃƒÂºblica document this invoice is aggregated into',
+                                        COMMENT 'Parent factura pÃºblica document this invoice is aggregated into',
     invoice_id                      BIGINT UNSIGNED NOT NULL
                                         COMMENT 'Individual invoice from a contract with facturar = FALSE',
 
@@ -5625,7 +5625,7 @@ CREATE TABLE IF NOT EXISTS factura_publica_invoice_items (
     CONSTRAINT fk_factura_publica_invoice_items_invoice FOREIGN KEY (invoice_id)
         REFERENCES invoices (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Links individual invoices to their parent factura pÃƒÂºblica Ã¢â‚¬â€ each invoice belongs to at most one factura pÃƒÂºblica';
+  COMMENT='Links individual invoices to their parent factura pÃºblica â€” each invoice belongs to at most one factura pÃºblica';
 
 SET FOREIGN_KEY_CHECKS = 1;
 
@@ -5633,7 +5633,7 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- Function: fn_predominant_forma_pago
 -- Migration: 091_add_factura_publica_stamping_safeguards
 -- Purpose: Returns the SAT FormaPago code (VARCHAR 2) that accounts for the
---          largest share of payments linked to the given factura pÃƒÂºblica.
+--          largest share of payments linked to the given factura pÃºblica.
 --          Defaults to '99' (Por definir) when no payments exist or when two
 --          or more codes tie for the highest total.
 --          Call at stamp time to populate cfdi_documents.forma_pago.
@@ -5719,7 +5719,7 @@ BEGIN
 
         IF v_unpaid_count > 0 THEN
             SIGNAL SQLSTATE '45000'
-                SET MESSAGE_TEXT = 'Cannot stamp factura pÃƒÂºblica: all linked invoices must have status = ''paid''. Remove or pay unpaid invoices before stamping.';
+                SET MESSAGE_TEXT = 'Cannot stamp factura pÃºblica: all linked invoices must have status = ''paid''. Remove or pay unpaid invoices before stamping.';
         END IF;
     END IF;
 END$$
@@ -5743,7 +5743,7 @@ BEGIN
 
     IF v_invoice_status IS NULL OR v_invoice_status != 'paid' THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Cannot add invoice to factura pÃƒÂºblica: invoice must have status = ''paid''.';
+            SET MESSAGE_TEXT = 'Cannot add invoice to factura pÃºblica: invoice must have status = ''paid''.';
     END IF;
 END$$
 
@@ -5817,7 +5817,7 @@ DELIMITER ;
 CREATE TABLE IF NOT EXISTS payment_gateways (
     id                       BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     organization_id          BIGINT UNSIGNED  NOT NULL                    COMMENT 'Tenant organization that owns this gateway config',
-    name                     VARCHAR(100)     NOT NULL                    COMMENT 'Friendly label, e.g. "Conekta ProducciÃƒÂ³n"',
+    name                     VARCHAR(100)     NOT NULL                    COMMENT 'Friendly label, e.g. "Conekta ProducciÃ³n"',
     provider                 ENUM('stripe','conekta','openpay','mercadopago','paypal','manual','other')
                                               NOT NULL                    COMMENT 'Payment provider identifier',
     environment              ENUM('sandbox','production')
@@ -5889,7 +5889,7 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
 -- ---------------------------------------------------------------------------
 -- Table: payment_retries
 -- Purpose: Tracks failed payment charges and schedules automatic retry
---          attempts with exponential backoff (4h Ã¢â€ â€™ 24h Ã¢â€ â€™ 72h, max 3).
+--          attempts with exponential backoff (4h â†’ 24h â†’ 72h, max 3).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS payment_retries (
     id                    BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -5939,7 +5939,7 @@ CREATE TABLE IF NOT EXISTS recurring_payment_profiles (
     token_reference     VARCHAR(500)        NOT NULL                   COMMENT 'Gateway customer ID or card token',
     card_brand          VARCHAR(20)         NULL                       COMMENT 'Card network: visa, mastercard, amex, etc.',
     card_last_four      CHAR(4)             NULL                       COMMENT 'Last four digits of the card number',
-    card_exp_month      TINYINT UNSIGNED    NULL                       COMMENT 'Card expiry month (1Ã¢â‚¬â€œ12)',
+    card_exp_month      TINYINT UNSIGNED    NULL                       COMMENT 'Card expiry month (1â€“12)',
     card_exp_year       SMALLINT UNSIGNED   NULL                       COMMENT 'Card expiry year (4-digit)',
     is_default          TINYINT(1)          NOT NULL DEFAULT 0         COMMENT 'TRUE = preferred profile for autopay',
     status              ENUM('active','expired','revoked')
@@ -5965,13 +5965,13 @@ ALTER TABLE payment_retries
 
 -- ---------------------------------------------------------------------------
 -- Table: suspension_rules
--- Purpose: Configurable suspension rules per organization Ã¢â‚¬â€ defines when and
+-- Purpose: Configurable suspension rules per organization â€” defines when and
 --          how overdue clients should be notified, suspended, or disconnected.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS suspension_rules (
     id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED  NOT NULL                         COMMENT 'Tenant organization that owns this rule',
-    name                VARCHAR(150)     NOT NULL                         COMMENT 'Descriptive rule name, e.g. "SuspensiÃƒÂ³n 30 dÃƒÂ­as"',
+    name                VARCHAR(150)     NOT NULL                         COMMENT 'Descriptive rule name, e.g. "SuspensiÃ³n 30 dÃ­as"',
     days_past_due       INT UNSIGNED     NOT NULL                         COMMENT 'Number of days overdue before this rule triggers',
     grace_period_days   INT UNSIGNED     NOT NULL DEFAULT 0               COMMENT 'Additional grace days after trigger before action is executed',
     action              ENUM('auto_suspend','notify_only','auto_disconnect','soft_suspend')
@@ -6050,7 +6050,7 @@ CREATE TABLE IF NOT EXISTS csd_certificates (
     issuer_name           VARCHAR(300)     NULL                       COMMENT 'Certificate issuer DN as stored in the .cer',
     serial_number         VARCHAR(100)     NULL                       COMMENT 'X.509 serial number in hex',
     valid_from            DATETIME         NOT NULL                   COMMENT 'Certificate notBefore date/time',
-    valid_to              DATETIME         NOT NULL                   COMMENT 'Certificate notAfter date/time Ã¢â‚¬â€ used for expiry monitoring',
+    valid_to              DATETIME         NOT NULL                   COMMENT 'Certificate notAfter date/time â€” used for expiry monitoring',
     cer_pem               TEXT             NOT NULL                   COMMENT 'PEM-encoded public certificate (.cer converted to PEM)',
     key_pem_encrypted     TEXT             NOT NULL                   COMMENT 'Application-encrypted PEM-encoded private key (.key)',
     passphrase_encrypted  TEXT             NULL                       COMMENT 'Application-encrypted passphrase for the private key, if applicable',
@@ -6074,7 +6074,7 @@ CREATE TABLE IF NOT EXISTS csd_certificates (
 
 -- ---------------------------------------------------------------------------
 -- Table: pac_providers
--- Purpose: PAC (Proveedor Autorizado de CertificaciÃƒÂ³n) provider credentials and
+-- Purpose: PAC (Proveedor Autorizado de CertificaciÃ³n) provider credentials and
 --          endpoint configuration per organization. Supports multiple PAC vendors
 --          with sandbox/production environments.
 -- ---------------------------------------------------------------------------
@@ -6083,7 +6083,7 @@ CREATE TABLE IF NOT EXISTS pac_providers (
     organization_id       BIGINT UNSIGNED  NOT NULL                     COMMENT 'Tenant organization that owns this PAC config',
     provider_name         ENUM('finkok','sw_sapien','digicel','comercio_digital','facturapi','other')
                                            NOT NULL                     COMMENT 'PAC vendor identifier',
-    label                 VARCHAR(100)     NOT NULL                     COMMENT 'Friendly name, e.g. "Finkok ProducciÃƒÂ³n"',
+    label                 VARCHAR(100)     NOT NULL                     COMMENT 'Friendly name, e.g. "Finkok ProducciÃ³n"',
     environment           ENUM('sandbox','production')
                                            NOT NULL DEFAULT 'sandbox'   COMMENT 'PAC environment',
     api_url               VARCHAR(500)     NOT NULL                     COMMENT 'Base URL for the PAC API endpoint',
@@ -6374,7 +6374,7 @@ CREATE TABLE IF NOT EXISTS organization_users (
 CREATE TABLE IF NOT EXISTS plan_addons (
     id               BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     organization_id  BIGINT UNSIGNED  NOT NULL                     COMMENT 'Tenant organization that offers this add-on',
-    name             VARCHAR(150)     NOT NULL                     COMMENT 'Display name, e.g. "IP EstÃƒÂ¡tica", "Renta de Router"',
+    name             VARCHAR(150)     NOT NULL                     COMMENT 'Display name, e.g. "IP EstÃ¡tica", "Renta de Router"',
     description      TEXT             NULL                         COMMENT 'Detailed description shown to billing agents or on the client portal',
     addon_type       ENUM('static_ip','extra_ip_block','extra_bandwidth','equipment_rental','voip','iptv','other')
                                       NOT NULL                     COMMENT 'Category of add-on for reporting and processing logic',
@@ -6497,7 +6497,7 @@ CREATE TABLE IF NOT EXISTS speed_tests (
     upload_mbps      DECIMAL(10, 3)     NOT NULL                  COMMENT 'Measured upload speed in Mbps',
     latency_ms       DECIMAL(8, 2)      NULL                      COMMENT 'Round-trip latency in milliseconds',
     jitter_ms        DECIMAL(8, 2)      NULL                      COMMENT 'Latency jitter in milliseconds',
-    packet_loss_pct  DECIMAL(5, 2)      NULL                      COMMENT 'Packet loss percentage (0.00Ã¢â‚¬â€œ100.00)',
+    packet_loss_pct  DECIMAL(5, 2)      NULL                      COMMENT 'Packet loss percentage (0.00â€“100.00)',
     ip_address       VARCHAR(45)        NULL                      COMMENT 'Public IP address observed during the test (IPv4 or IPv6)',
     notes            TEXT               NULL                      COMMENT 'Free-text observations or technician comments',
     tested_at        TIMESTAMP          NOT NULL                  COMMENT 'When the test measurement was taken',
@@ -6634,14 +6634,14 @@ CREATE TABLE IF NOT EXISTS network_health_snapshots (
     device_id                 BIGINT UNSIGNED   NULL                    COMMENT 'Device this snapshot is for; NULL if link-only snapshot',
     network_link_id           BIGINT UNSIGNED   NULL                    COMMENT 'Network link this snapshot is for; NULL if device-only snapshot',
     snapshot_date             DATE              NOT NULL                COMMENT 'Calendar date this snapshot covers (one row per day)',
-    uptime_pct                DECIMAL(5, 2)     NULL                    COMMENT 'Device/link uptime percentage for the day (0.00Ã¢â‚¬â€œ100.00)',
+    uptime_pct                DECIMAL(5, 2)     NULL                    COMMENT 'Device/link uptime percentage for the day (0.00â€“100.00)',
     avg_latency_ms            DECIMAL(8, 2)     NULL                    COMMENT 'Average round-trip latency in milliseconds over the day',
     max_latency_ms            DECIMAL(8, 2)     NULL                    COMMENT 'Peak round-trip latency in milliseconds over the day',
     avg_throughput_in_mbps    DECIMAL(10, 3)    NULL                    COMMENT 'Average inbound throughput in Mbps over the day',
     avg_throughput_out_mbps   DECIMAL(10, 3)    NULL                    COMMENT 'Average outbound throughput in Mbps over the day',
     peak_throughput_in_mbps   DECIMAL(10, 3)    NULL                    COMMENT 'Peak inbound throughput in Mbps observed during the day',
     peak_throughput_out_mbps  DECIMAL(10, 3)    NULL                    COMMENT 'Peak outbound throughput in Mbps observed during the day',
-    packet_loss_pct           DECIMAL(5, 2)     NULL                    COMMENT 'Average packet loss percentage for the day (0.00Ã¢â‚¬â€œ100.00)',
+    packet_loss_pct           DECIMAL(5, 2)     NULL                    COMMENT 'Average packet loss percentage for the day (0.00â€“100.00)',
     total_downtime_minutes    INT UNSIGNED      NOT NULL DEFAULT 0      COMMENT 'Total minutes of detected downtime during the day',
     created_at                TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -6669,13 +6669,13 @@ CREATE TABLE IF NOT EXISTS cfdi_cancellations (
     organization_id       BIGINT UNSIGNED  NOT NULL                    COMMENT 'Tenant organization that issued the CFDI',
     uuid                  CHAR(36)         NOT NULL                    COMMENT 'UUID (folio fiscal) of the CFDI being cancelled',
     motivo                ENUM('01','02','03','04')
-                                           NOT NULL                    COMMENT 'SAT cancellation reason: 01=CFDI con errores con relaciÃƒÂ³n, 02=CFDI con errores sin relaciÃƒÂ³n, 03=No se llevÃƒÂ³ a cabo la operaciÃƒÂ³n, 04=OperaciÃƒÂ³n nominativa relacionada en CFDI global',
+                                           NOT NULL                    COMMENT 'SAT cancellation reason: 01=CFDI con errores con relaciÃ³n, 02=CFDI con errores sin relaciÃ³n, 03=No se llevÃ³ a cabo la operaciÃ³n, 04=OperaciÃ³n nominativa relacionada en CFDI global',
     folio_sustitucion     CHAR(36)         NULL                        COMMENT 'UUID of the replacement CFDI; required when motivo=''01''',
     cancellation_status   ENUM('pending','accepted','rejected','cancelled_by_timeout')
                                            NOT NULL DEFAULT 'pending'  COMMENT 'SAT/PAC cancellation processing status',
     requested_at          TIMESTAMP        NOT NULL                    COMMENT 'Timestamp when the cancellation was submitted to the PAC/SAT',
     responded_at          TIMESTAMP        NULL                        COMMENT 'Timestamp when the SAT/PAC returned a final status',
-    acuse_xml             LONGTEXT         NULL                        COMMENT 'Raw acuse (acknowledgement) XML returned by the SAT Ã¢â‚¬â€ required for fiscal records',
+    acuse_xml             LONGTEXT         NULL                        COMMENT 'Raw acuse (acknowledgement) XML returned by the SAT â€” required for fiscal records',
     acuse_fecha           DATETIME         NULL                        COMMENT 'FechaCancelacion from the SAT acuse XML',
     pac_provider_id       BIGINT UNSIGNED  NULL                        COMMENT 'PAC provider used to submit the cancellation; NULL if submitted directly',
     error_message         TEXT             NULL                        COMMENT 'Error description if the cancellation was rejected or failed',
@@ -6704,14 +6704,14 @@ CREATE TABLE IF NOT EXISTS cfdi_cancellations (
 --          technician, readonly) and all granular permission slugs required
 --          for a functioning RBAC installation.  role_permissions rows map
 --          each role to the permissions appropriate for its scope.
---          Uses INSERT IGNORE Ã¢â‚¬â€ safe to re-run.
+--          Uses INSERT IGNORE â€” safe to re-run.
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO roles (name, description, is_system) VALUES
-    ('admin',      'Full system access Ã¢â‚¬â€ can manage all resources and settings', TRUE),
-    ('billing',    'Billing module access Ã¢â‚¬â€ invoices, payments, plans, and subscriptions', TRUE),
-    ('support',    'Support access Ã¢â‚¬â€ clients, tickets, and related communications', TRUE),
-    ('technician', 'Field / NOC technician Ã¢â‚¬â€ devices, jobs, network, and inventory', TRUE),
-    ('readonly',   'Read-only observer Ã¢â‚¬â€ can view all resources but cannot modify anything', TRUE);
+    ('admin',      'Full system access â€” can manage all resources and settings', TRUE),
+    ('billing',    'Billing module access â€” invoices, payments, plans, and subscriptions', TRUE),
+    ('support',    'Support access â€” clients, tickets, and related communications', TRUE),
+    ('technician', 'Field / NOC technician â€” devices, jobs, network, and inventory', TRUE),
+    ('readonly',   'Read-only observer â€” can view all resources but cannot modify anything', TRUE);
 
 INSERT IGNORE INTO permissions (name, description, module) VALUES
     ('clients.view',         'View client list and profiles',          'clients'),
@@ -6817,7 +6817,7 @@ WHERE r.name = 'readonly';
 -- ---------------------------------------------------------------------------
 -- Seed: default application settings (migration 120)
 -- Purpose: Populates the settings key-value store with sensible defaults for
---          a new installation.  Uses INSERT IGNORE Ã¢â‚¬â€ safe to re-run; existing
+--          a new installation.  Uses INSERT IGNORE â€” safe to re-run; existing
 --          administrator-configured values are never overwritten.
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO settings (setting_key, setting_value, description) VALUES
@@ -6852,11 +6852,11 @@ INSERT IGNORE INTO settings (setting_key, setting_value, description) VALUES
 -- Purpose: Inserts globally applicable default rates (organization_id = NULL)
 --          covering the most common tax scenarios for a multi-country ISP.
 --          Uses WHERE NOT EXISTS because tax_rates has no UNIQUE constraint
---          on name Ã¢â‚¬â€ fully idempotent on re-runs.
+--          on name â€” fully idempotent on re-runs.
 -- ---------------------------------------------------------------------------
 INSERT INTO tax_rates (organization_id, name, rate, description, is_default, status)
 SELECT NULL, 'Tax Exempt', 0.0000,
-       'Zero-rate Ã¢â‚¬â€ applies to tax-exempt services or clients', FALSE, 'active'
+       'Zero-rate â€” applies to tax-exempt services or clients', FALSE, 'active'
 WHERE NOT EXISTS (SELECT 1 FROM tax_rates WHERE name = 'Tax Exempt' AND organization_id IS NULL);
 
 INSERT INTO tax_rates (organization_id, name, rate, description, is_default, status)
@@ -6866,7 +6866,7 @@ WHERE NOT EXISTS (SELECT 1 FROM tax_rates WHERE name = 'Standard Tax 8%' AND org
 
 INSERT INTO tax_rates (organization_id, name, rate, description, is_default, status)
 SELECT NULL, 'IVA 16% (Mexico)', 0.1600,
-       'Mexican IVA (Impuesto al Valor Agregado) 16% Ã¢â‚¬â€ standard rate for most ISP services in Mexico', FALSE, 'active'
+       'Mexican IVA (Impuesto al Valor Agregado) 16% â€” standard rate for most ISP services in Mexico', FALSE, 'active'
 WHERE NOT EXISTS (SELECT 1 FROM tax_rates WHERE name = 'IVA 16% (Mexico)' AND organization_id IS NULL);
 
 INSERT INTO tax_rates (organization_id, name, rate, description, is_default, status)
@@ -6895,7 +6895,7 @@ WHERE EXISTS (SELECT 1 FROM organizations WHERE id = 1)
 -- ---------------------------------------------------------------------------
 -- Seed: core automation scheduled tasks (migration 123)
 -- Purpose: Inserts the five system-level automation jobs.  Uses INSERT IGNORE
---          Ã¢â‚¬â€ safe to re-run via the UNIQUE KEY on (organization_id, task_name).
+--          â€” safe to re-run via the UNIQUE KEY on (organization_id, task_name).
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO scheduled_tasks
     (organization_id, task_name, task_type, handler, description,
@@ -6987,7 +6987,7 @@ VALUES
     (NULL,
      'billing_cycle',
      'generate_invoice',
-     'Full automated billing cycle: generate invoices Ã¢â€ â€™ email clients Ã¢â€ â€™ send suspension warnings Ã¢â€ â€™ suspend overdue contracts.',
+     'Full automated billing cycle: generate invoices â†’ email clients â†’ send suspension warnings â†’ suspend overdue contracts.',
      '0 2 * * *',
      'high',
      3,
@@ -7004,7 +7004,7 @@ VALUES
     (NULL,
      'database_backup',
      'maintenance',
-     'Daily database backup: mysqldump Ã¢â€ â€™ gzip Ã¢â€ â€™ local storage/backups/ + upload to S3/B2 cloud storage. Retains last 7 local copies.',
+     'Daily database backup: mysqldump â†’ gzip â†’ local storage/backups/ + upload to S3/B2 cloud storage. Retains last 7 local copies.',
      '0 3 * * *',
      'normal',
      2,
@@ -7055,7 +7055,7 @@ VALUES
     (NULL,
      'webhook_retry',
      'webhook_retry',
-     'Process due webhook retry deliveries Ã¢â‚¬â€ picks up retrying rows whose next_retry_at <= NOW(), makes one HTTP attempt per row, reschedules or dead-letters based on attempt count.',
+     'Process due webhook retry deliveries â€” picks up retrying rows whose next_retry_at <= NOW(), makes one HTTP attempt per row, reschedules or dead-letters based on attempt count.',
      '*/5 * * * *',
      'normal',
      1,
@@ -7081,7 +7081,7 @@ VALUES
 
 -- ---------------------------------------------------------------------------
 -- ALTER: add currency to expenses (migration 124)
--- Purpose: Idempotent guard Ã¢â‚¬â€ adds expenses.currency only if migration 051
+-- Purpose: Idempotent guard â€” adds expenses.currency only if migration 051
 --          has not already applied it.
 -- ---------------------------------------------------------------------------
 DROP PROCEDURE IF EXISTS _schema_add_expenses_currency;
@@ -7404,9 +7404,9 @@ DELIMITER ;
 -- ---------------------------------------------------------------------------
 -- Triggers: contract status FSM (migration 149)
 -- Purpose: Enforces valid contract status transitions.
---          pending Ã¢â€ â€™ active | cancelled
---          active  Ã¢â€ â€™ expired | cancelled
---          expired, cancelled Ã¢â€ â€™ (terminal)
+--          pending â†’ active | cancelled
+--          active  â†’ expired | cancelled
+--          expired, cancelled â†’ (terminal)
 -- ---------------------------------------------------------------------------
 
 DELIMITER $$
@@ -7519,7 +7519,7 @@ DROP PROCEDURE IF EXISTS _schema_add_composite_indexes;
 
 -- ---------------------------------------------------------------------------
 -- Tables: organization_sso_configs, organization_sso_group_mappings,
---         sso_auth_states  (migration 165 Ã¢â‚¬â€ P2.1 SSO)
+--         sso_auth_states  (migration 165 â€” P2.1 SSO)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS organization_sso_configs (
     id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -7577,7 +7577,7 @@ CREATE TABLE IF NOT EXISTS sso_auth_states (
 
 
 -- ---------------------------------------------------------------------------
--- Per-tenant resource quotas  (migration 166 Ã¢â‚¬â€ P2.4)
+-- Per-tenant resource quotas  (migration 166 â€” P2.4)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS organization_quotas (
     id                    BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -7588,7 +7588,7 @@ CREATE TABLE IF NOT EXISTS organization_quotas (
     max_scheduled_tasks   INT UNSIGNED     NULL     COMMENT 'Max org-scoped scheduled tasks; NULL = unlimited',
     max_ai_tokens_month   INT UNSIGNED     NULL     COMMENT 'Max AI tokens consumed per calendar month; NULL = unlimited',
     ai_cost_month_usd     DECIMAL(12,6)    NULL     DEFAULT NULL
-                                                    COMMENT 'Running monthly AI cost total (USD) Ã¢â‚¬â€ updated daily by aiCostRollupWorker',
+                                                    COMMENT 'Running monthly AI cost total (USD) â€” updated daily by aiCostRollupWorker',
     ai_cost_rollup_month  CHAR(7)          NULL     DEFAULT NULL
                                                     COMMENT 'YYYY-MM of the last rollup (used to detect month boundary)',
     created_at            TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -7602,7 +7602,7 @@ CREATE TABLE IF NOT EXISTS organization_quotas (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Per-tenant database isolation configuration  (migration 167 Ã¢â‚¬â€ P2.6)
+-- Per-tenant database isolation configuration  (migration 167 â€” P2.6)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS organization_database_configs (
     id                    BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -7687,7 +7687,7 @@ CREATE TABLE IF NOT EXISTS profeco_complaints (
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
--- Table: ai_providers Ã¢â‚¬â€ LLM provider registry (migration 169)
+-- Table: ai_providers â€” LLM provider registry (migration 169)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ai_providers (
     id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -7721,7 +7721,7 @@ CREATE TABLE IF NOT EXISTS ai_providers (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ai_policies Ã¢â‚¬â€ per-org on/off switch + mode configuration (migration 169)
+-- Table: ai_policies â€” per-org on/off switch + mode configuration (migration 169)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ai_policies (
     id                      BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -7734,7 +7734,7 @@ CREATE TABLE IF NOT EXISTS ai_policies (
     mode                    ENUM('draft_only','suggest','auto_send')
                                              NOT NULL DEFAULT 'draft_only',
     auto_send_confidence    DECIMAL(3,2)     NOT NULL DEFAULT 0.85
-                                              COMMENT '0.00Ã¢â‚¬â€œ1.00 confidence threshold for auto_send mode',
+                                              COMMENT '0.00â€“1.00 confidence threshold for auto_send mode',
     default_locale          VARCHAR(10)      NOT NULL DEFAULT 'es-MX',
     tone                    ENUM('formal','neutral','friendly')
                                              NOT NULL DEFAULT 'formal',
@@ -7758,7 +7758,7 @@ CREATE TABLE IF NOT EXISTS ai_policies (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ai_phrase_library Ã¢â‚¬â€ curated on-brand reply phrases (migration 169)
+-- Table: ai_phrase_library â€” curated on-brand reply phrases (migration 169)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ai_phrase_library (
     id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -7785,7 +7785,7 @@ CREATE TABLE IF NOT EXISTS ai_phrase_library (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ai_forbidden_terms Ã¢â‚¬â€ output-level content guardrails (migration 169)
+-- Table: ai_forbidden_terms â€” output-level content guardrails (migration 169)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ai_forbidden_terms (
     id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -7808,7 +7808,7 @@ CREATE TABLE IF NOT EXISTS ai_forbidden_terms (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ai_reply_logs Ã¢â‚¬â€ immutable audit trail for every AI action (migration 169)
+-- Table: ai_reply_logs â€” immutable audit trail for every AI action (migration 169)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ai_reply_logs (
     id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -7816,7 +7816,7 @@ CREATE TABLE IF NOT EXISTS ai_reply_logs (
     ticket_id           BIGINT UNSIGNED  NOT NULL,
     provider_id         BIGINT UNSIGNED  NULL     COMMENT 'ai_providers.id that produced this draft',
     classification      VARCHAR(50)      NULL     COMMENT 'Category assigned by classify step',
-    confidence          DECIMAL(5,4)     NULL     COMMENT '0.0000Ã¢â‚¬â€œ1.0000 LLM-reported confidence score',
+    confidence          DECIMAL(5,4)     NULL     COMMENT '0.0000â€“1.0000 LLM-reported confidence score',
     context_snapshot    JSON             NULL     COMMENT 'topology + health snapshot sent to LLM (no PII after redact)',
     prompt_hash         VARCHAR(64)      NULL     COMMENT 'SHA-256 of the rendered system prompt (for dedup / audit)',
     draft_text          TEXT             NULL     COMMENT 'Raw draft returned by LLM',
@@ -7854,13 +7854,13 @@ CREATE TABLE IF NOT EXISTS ai_reply_logs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: contract_topology_paths Ã¢â‚¬â€ topology path cache CPE Ã¢â€ â€™ edge (migration 169)
+-- Table: contract_topology_paths â€” topology path cache CPE â†’ edge (migration 169)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS contract_topology_paths (
     id          BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     contract_id BIGINT UNSIGNED  NOT NULL,
     path        JSON             NOT NULL
-                                  COMMENT 'Ordered [{device_id,role,link_id,medium}] CPEÃ¢â€ â€™edge',
+                                  COMMENT 'Ordered [{device_id,role,link_id,medium}] CPEâ†’edge',
     computed_at DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP
                                   COMMENT 'Timestamp of last computation; used for cache invalidation',
 
@@ -7893,29 +7893,29 @@ JOIN   permissions p ON p.name LIKE 'ai.%'
 WHERE  r.name = 'admin';
 
 -- =============================================================================
--- Interaction Tracking Ã¢â‚¬â€ isp-platform-features.md Ã‚Â§1.3 (migrations 196-197)
+-- Interaction Tracking â€” isp-platform-features.md Â§1.3 (migrations 196-197)
 -- =============================================================================
 -- =============================================================================
 -- Migration 196: Interaction Tracking tables (client interactions, follow-up
 --                reminders, satisfaction surveys, ticket escalations)
 -- =============================================================================
--- Implements isp-platform-features.md Ã‚Â§1.3 "Interaction Tracking":
---   Ã¢â‚¬Â¢ client_interactions   Ã¢â‚¬â€ manual interaction log (calls, visits, chats, Ã¢â‚¬Â¦);
+-- Implements isp-platform-features.md Â§1.3 "Interaction Tracking":
+--   â€¢ client_interactions   â€” manual interaction log (calls, visits, chats, â€¦);
 --                              together with tickets, payments, email_logs and
 --                              sms_logs it feeds the per-client activity
 --                              timeline (interactionService.activityTimeline)
---   Ã¢â‚¬Â¢ follow_up_reminders    Ã¢â‚¬â€ scheduled follow-ups with automated due
+--   â€¢ follow_up_reminders    â€” scheduled follow-ups with automated due
 --                              notifications (taskRunner: follow_up_reminders)
---   Ã¢â‚¬Â¢ satisfaction_surveys   Ã¢â‚¬â€ NPS / CSAT surveys, auto-dispatched when a
+--   â€¢ satisfaction_surveys   â€” NPS / CSAT surveys, auto-dispatched when a
 --                              ticket is resolved (taskRunner:
 --                              dispatch_satisfaction_surveys)
---   Ã¢â‚¬Â¢ ticket_escalations     Ã¢â‚¬â€ escalation management for unresolved tickets,
+--   â€¢ ticket_escalations     â€” escalation management for unresolved tickets,
 --                              with hourly auto-escalation of stale tickets
 --                              (taskRunner: auto_escalate_tickets)
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
--- Table: client_interactions Ã¢â‚¬â€ manual interaction log
+-- Table: client_interactions â€” manual interaction log
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS client_interactions (
     id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -7950,7 +7950,7 @@ CREATE TABLE IF NOT EXISTS client_interactions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: follow_up_reminders Ã¢â‚¬â€ scheduled follow-ups per client
+-- Table: follow_up_reminders â€” scheduled follow-ups per client
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS follow_up_reminders (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -7993,7 +7993,7 @@ CREATE TABLE IF NOT EXISTS follow_up_reminders (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: satisfaction_surveys Ã¢â‚¬â€ NPS / CSAT responses
+-- Table: satisfaction_surveys â€” NPS / CSAT responses
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS satisfaction_surveys (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -8032,7 +8032,7 @@ CREATE TABLE IF NOT EXISTS satisfaction_surveys (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ticket_escalations Ã¢â‚¬â€ escalation chain for unresolved tickets
+-- Table: ticket_escalations â€” escalation chain for unresolved tickets
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ticket_escalations (
     id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -8066,7 +8066,7 @@ CREATE TABLE IF NOT EXISTS ticket_escalations (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Seed: scheduled tasks driving the automated parts of Ã‚Â§1.3
+-- Seed: scheduled tasks driving the automated parts of Â§1.3
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO scheduled_tasks
     (organization_id, task_name, description, cron_expression, is_enabled, priority)
@@ -8092,7 +8092,7 @@ VALUES
 
 -- Migration: 197_seed_interaction_permissions
 -- Description: Seeds the RBAC permissions for the Interaction Tracking module
---              (isp-platform-features.md Ã‚Â§1.3) and assigns them to the default
+--              (isp-platform-features.md Â§1.3) and assigns them to the default
 --              system roles.
 --
 --              Permission slugs (module = 'interactions'):
@@ -8179,7 +8179,7 @@ WHERE  r.name = 'readonly';
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
--- Table: communication_campaigns Ã¢â‚¬â€ bulk campaign definition and aggregate stats
+-- Table: communication_campaigns â€” bulk campaign definition and aggregate stats
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS communication_campaigns (
     id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -8230,7 +8230,7 @@ CREATE TABLE IF NOT EXISTS communication_campaigns (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: campaign_messages Ã¢â‚¬â€ per-recipient message records for a campaign
+-- Table: campaign_messages â€” per-recipient message records for a campaign
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS campaign_messages (
     id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -8270,7 +8270,7 @@ CREATE TABLE IF NOT EXISTS campaign_messages (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: client_dnd_preferences Ã¢â‚¬â€ per-customer per-channel Do Not Disturb
+-- Table: client_dnd_preferences â€” per-customer per-channel Do Not Disturb
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS client_dnd_preferences (
     id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -8361,7 +8361,7 @@ WHERE  r.name = 'readonly';
 
 
 -- =============================================================================
--- Migration 204: organization_invoice_settings Ã¢â‚¬â€ per-org invoice branding (Ã‚Â§2.2B)
+-- Migration 204: organization_invoice_settings â€” per-org invoice branding (Â§2.2B)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS organization_invoice_settings (
     id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -8379,7 +8379,7 @@ CREATE TABLE IF NOT EXISTS organization_invoice_settings (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- Migration 206: late_fee_rules and invoice_late_fees tables (Ã‚Â§2.2B)
+-- Migration 206: late_fee_rules and invoice_late_fees tables (Â§2.2B)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS late_fee_rules (
     id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -8418,7 +8418,7 @@ CREATE TABLE IF NOT EXISTS invoice_late_fees (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- Migration 208: payment_reminder_settings and payment_reminder_logs (Ã‚Â§2.2B)
+-- Migration 208: payment_reminder_settings and payment_reminder_logs (Â§2.2B)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS payment_reminder_settings (
     id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -8451,7 +8451,7 @@ CREATE TABLE IF NOT EXISTS payment_reminder_logs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- Migration 217: refund_requests Ã¢â‚¬â€ refund request workflow (Ã‚Â§2.5.1)
+-- Migration 217: refund_requests â€” refund request workflow (Â§2.5.1)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS refund_requests (
     id                          BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -8484,7 +8484,7 @@ CREATE TABLE IF NOT EXISTS refund_requests (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- Migration 219: billing_disputes and dispute_evidence tables (Ã‚Â§2.5.2)
+-- Migration 219: billing_disputes and dispute_evidence tables (Â§2.5.2)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS billing_disputes (
     id               BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -8533,7 +8533,7 @@ CREATE TABLE IF NOT EXISTS dispute_evidence (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- Migration 221: chargebacks and billing_adjustments tables (Ã‚Â§2.5.3 / Ã‚Â§2.5.4)
+-- Migration 221: chargebacks and billing_adjustments tables (Â§2.5.3 / Â§2.5.4)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS chargebacks (
     id                        BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -8585,7 +8585,7 @@ CREATE TABLE IF NOT EXISTS billing_adjustments (
 -- ---------------------------------------------------------------------------
 -- Table: radcheck
 -- Purpose: Standard FreeRADIUS per-user check attributes (Cleartext-Password,
---          Auth-Type, TLS-Cert-Serial) â€” populated by radius_sync task (Â§3.1)
+--          Auth-Type, TLS-Cert-Serial) — populated by radius_sync task (§3.1)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS radcheck (
     id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -8600,7 +8600,7 @@ CREATE TABLE IF NOT EXISTS radcheck (
 
 -- ---------------------------------------------------------------------------
 -- Table: radreply
--- Purpose: Standard FreeRADIUS per-user reply attributes â€” populated by radius_sync task
+-- Purpose: Standard FreeRADIUS per-user reply attributes — populated by radius_sync task
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS radreply (
     id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -8615,7 +8615,7 @@ CREATE TABLE IF NOT EXISTS radreply (
 
 -- ---------------------------------------------------------------------------
 -- Table: radusergroup
--- Purpose: Standard FreeRADIUS user â†’ group membership
+-- Purpose: Standard FreeRADIUS user → group membership
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS radusergroup (
     id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -8659,8 +8659,8 @@ CREATE TABLE IF NOT EXISTS radgroupreply (
 
 -- ---------------------------------------------------------------------------
 -- Table: subscriber_certificates
--- Purpose: EAP-TLS subscriber certificate metadata registry (Â§3.1)
--- NOTE: FireISP is a metadata registry only â€” it does NOT generate or sign
+-- Purpose: EAP-TLS subscriber certificate metadata registry (§3.1)
+-- NOTE: FireISP is a metadata registry only — it does NOT generate or sign
 --       certificates. Use an external CA (easy-rsa, step-ca, Vault PKI, etc.)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS subscriber_certificates (
@@ -8701,7 +8701,7 @@ CREATE TABLE IF NOT EXISTS subscriber_certificates (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: plan_access_windows (migration 226 â€” Â§3.2 item 12)
+-- Table: plan_access_windows (migration 226 — §3.2 item 12)
 -- Purpose: Per-plan time-based access restriction windows.
 --          Converted to FreeRADIUS Login-Time radcheck attribute by syncFreeradiusTables().
 -- ---------------------------------------------------------------------------
@@ -8729,7 +8729,7 @@ CREATE TABLE IF NOT EXISTS plan_access_windows (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: organization_walled_garden_settings (migration 227 â€” Â§3.2 item 14)
+-- Table: organization_walled_garden_settings (migration 227 — §3.2 item 14)
 -- Purpose: Per-org walled garden configuration for captive portal / unpaid subscriber handling.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS organization_walled_garden_settings (
@@ -8749,8 +8749,8 @@ CREATE TABLE IF NOT EXISTS organization_walled_garden_settings (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: radius_account_routes (migration 228 â€” Â§3.2 item 15)
--- Purpose: Per-account static route injection; each row â†’ one Framed-Route radreply attribute.
+-- Table: radius_account_routes (migration 228 — §3.2 item 15)
+-- Purpose: Per-account static route injection; each row → one Framed-Route radreply attribute.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS radius_account_routes (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -8773,10 +8773,10 @@ CREATE TABLE IF NOT EXISTS radius_account_routes (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: mac_move_events (migration 231 â€” Â§3.3 Phase C)
+-- Table: mac_move_events (migration 231 — §3.3 Phase C)
 -- Purpose: Records MAC-address move events detected during RADIUS accounting
 --          ingest (same username, different Calling-Station-Id or NAS).
---          No FK constraints â€” loose references for compliance resilience.
+--          No FK constraints — loose references for compliance resilience.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS mac_move_events (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -8796,7 +8796,7 @@ CREATE TABLE IF NOT EXISTS mac_move_events (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Columns added to connection_logs by migration 230 (Â§3.3 Phase C):
+-- Columns added to connection_logs by migration 230 (§3.3 Phase C):
 --   acct_session_id     VARCHAR(64)  NULL
 --   nas_port_id         VARCHAR(100) NULL
 --   called_station_id   VARCHAR(100) NULL
@@ -8808,10 +8808,10 @@ CREATE TABLE IF NOT EXISTS mac_move_events (
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
--- Columns added to nas by migration 232 (Â§3.4 Phase C):
+-- Columns added to nas by migration 232 (§3.4 Phase C):
 --   coa_port           SMALLINT UNSIGNED NULL DEFAULT 3799
 --   location           VARCHAR(200)      NULL
---   site_id            BIGINT UNSIGNED   NULL  (FK â†’ sites ON DELETE SET NULL)
+--   site_id            BIGINT UNSIGNED   NULL  (FK → sites ON DELETE SET NULL)
 --   secondary_nas_id   BIGINT UNSIGNED   NULL  (self-ref FK ON DELETE SET NULL)
 --   health_status      ENUM('unknown','up','down') NOT NULL DEFAULT 'unknown'
 --   last_health_check_at DATETIME        NULL
@@ -8819,8 +8819,8 @@ CREATE TABLE IF NOT EXISTS mac_move_events (
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
--- Table: pppoe_service_profiles (migration 237 â€” Â§4 PPPoE Phase B)
--- Purpose: PPPoE AC / BNG service profiles â€” MTU, DNS, auth-method, rate-limit
+-- Table: pppoe_service_profiles (migration 237 — §4 PPPoE Phase B)
+-- Purpose: PPPoE AC / BNG service profiles — MTU, DNS, auth-method, rate-limit
 --          override, MikroTik address-list/filter-id configuration.
 --          Referenced by ip_pools.service_profile_id and radius.service_profile_id.
 -- ---------------------------------------------------------------------------
@@ -8859,22 +8859,22 @@ CREATE TABLE IF NOT EXISTS pppoe_service_profiles (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Columns added to ip_pools by migration 237 (Â§4 PPPoE Phase B):
---   service_profile_id  BIGINT UNSIGNED NULL (FK â†’ pppoe_service_profiles ON DELETE SET NULL)
+-- Columns added to ip_pools by migration 237 (§4 PPPoE Phase B):
+--   service_profile_id  BIGINT UNSIGNED NULL (FK → pppoe_service_profiles ON DELETE SET NULL)
 -- Applied via stored-procedure guards. See migration 237.
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
--- Columns added to radius by migration 237 (Â§4 PPPoE Phase B):
---   service_profile_id  BIGINT UNSIGNED NULL (FK â†’ pppoe_service_profiles ON DELETE SET NULL)
+-- Columns added to radius by migration 237 (§4 PPPoE Phase B):
+--   service_profile_id  BIGINT UNSIGNED NULL (FK → pppoe_service_profiles ON DELETE SET NULL)
 -- Applied via stored-procedure guards. See migration 237.
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
--- Table: radpostauth (migration 238 â€” Â§4 PPPoE Phase B)
+-- Table: radpostauth (migration 238 — §4 PPPoE Phase B)
 -- Purpose: FreeRADIUS post-authentication log. Written directly by FreeRADIUS
 --          via rlm_sql; read by FireISP for auth-failure diagnostics.
---          NO foreign keys â€” loose coupling for FreeRADIUS direct write access.
+--          NO foreign keys — loose coupling for FreeRADIUS direct write access.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS radpostauth (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -8891,10 +8891,10 @@ CREATE TABLE IF NOT EXISTS radpostauth (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: pppoe_event_logs (migration 239 â€” Â§4 PPPoE Phase B)
+-- Table: pppoe_event_logs (migration 239 — §4 PPPoE Phase B)
 -- Purpose: PPPoE stage event log. Written by a syslog shipper; read by
 --          FireISP for MTU diagnostics and LCP failure detection.
---          NO FK on organization_id or nas_id â€” loose coupling intentional.
+--          NO FK on organization_id or nas_id — loose coupling intentional.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS pppoe_event_logs (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -8915,7 +8915,7 @@ CREATE TABLE IF NOT EXISTS pppoe_event_logs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: dhcp_servers (migration 241 â€” Â§5.1 DHCP Integration)
+-- Table: dhcp_servers (migration 241 — §5.1 DHCP Integration)
 -- Purpose: DHCP server connection registry (ISC Kea, MikroTik).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `dhcp_servers` (
@@ -8938,7 +8938,7 @@ CREATE TABLE IF NOT EXISTS `dhcp_servers` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: dhcp_static_reservations (migration 241 â€” Â§5.1 DHCP Integration)
+-- Table: dhcp_static_reservations (migration 241 — §5.1 DHCP Integration)
 -- Purpose: Static DHCP reservations binding MAC addresses to IP addresses.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `dhcp_static_reservations` (
@@ -8973,7 +8973,7 @@ CREATE TABLE IF NOT EXISTS `dhcp_static_reservations` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: nat_pools (migration 242 â€” Â§5.1 NAT/CGNAT Management)
+-- Table: nat_pools (migration 242 — §5.1 NAT/CGNAT Management)
 -- Purpose: CGNAT, 1:1 NAT, and PAT pool definitions.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `nat_pools` (
@@ -8998,7 +8998,7 @@ CREATE TABLE IF NOT EXISTS `nat_pools` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ptr_records (migration 242 â€” Â§5.1 PTR / Reverse DNS)
+-- Table: ptr_records (migration 242 — §5.1 PTR / Reverse DNS)
 -- Purpose: Reverse DNS PTR record management.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `ptr_records` (
@@ -9021,7 +9021,7 @@ CREATE TABLE IF NOT EXISTS `ptr_records` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ra_guard_policies (migration 243 â€” Â§5.2 IPv6 Management)
+-- Table: ra_guard_policies (migration 243 — §5.2 IPv6 Management)
 -- Purpose: RA Guard policy assignments to switch ports.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `ra_guard_policies` (
@@ -9043,35 +9043,35 @@ CREATE TABLE IF NOT EXISTS `ra_guard_policies` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Columns added to ip_pools by migration 243 (Â§5 IPv6):
+-- Columns added to ip_pools by migration 243 (§5 IPv6):
 --   dhcpv6_mode, ra_enabled, ra_managed_flag, ra_other_flag,
 --   ra_lifetime_seconds, slaac_prefix, region_name
 -- Applied via stored-procedure guards. See migration 243.
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
--- Column added to plans by migration 243 (Â§5 IPv6):
+-- Column added to plans by migration 243 (§5 IPv6):
 --   stack_type ENUM('ipv4_only','ipv6_only','dual_stack') NOT NULL DEFAULT 'dual_stack'
 -- Applied via stored-procedure guard. See migration 243.
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
--- Columns added to pppoe_service_profiles by migration 244 (Â§5 Dual-Stack Sessions):
+-- Columns added to pppoe_service_profiles by migration 244 (§5 Dual-Stack Sessions):
 --   ipv6cp_enabled, delegated_prefix_len, dns_primary_v6, dns_secondary_v6,
 --   nat64_enabled, dns64_prefix
 -- Applied via stored-procedure guards. See migration 244.
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
--- Columns added to connection_logs by migration 244 (Â§5 Dual-Stack Sessions):
+-- Columns added to connection_logs by migration 244 (§5 Dual-Stack Sessions):
 --   acct_output_octets_v6, acct_input_octets_v6, stack_type
 -- (framed_ipv6_prefix already added by migration 230; radius IPv6 statics live
 --  in the original 008 columns ipv6_address / ipv6_delegated_prefix.)
--- Applied via stored-procedure guards. NO FK â€” partitioned table. See migration 244.
+-- Applied via stored-procedure guards. NO FK — partitioned table. See migration 244.
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
--- Table: tunnel_6rd_configs (migration 245 â€” Â§5.4 IPv6 Transition Mechanisms)
+-- Table: tunnel_6rd_configs (migration 245 — §5.4 IPv6 Transition Mechanisms)
 -- Purpose: 6rd tunnel configuration for IPv6-over-IPv4 transition.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `tunnel_6rd_configs` (
@@ -9092,7 +9092,7 @@ CREATE TABLE IF NOT EXISTS `tunnel_6rd_configs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ds_lite_configs (migration 245 â€” Â§5.4 IPv6 Transition Mechanisms)
+-- Table: ds_lite_configs (migration 245 — §5.4 IPv6 Transition Mechanisms)
 -- Purpose: DS-Lite AFTR configuration for IPv4-over-IPv6 tunneling.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `ds_lite_configs` (
@@ -9112,7 +9112,7 @@ CREATE TABLE IF NOT EXISTS `ds_lite_configs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: map_rules (migration 245 â€” Â§5.4 IPv6 Transition Mechanisms)
+-- Table: map_rules (migration 245 — §5.4 IPv6 Transition Mechanisms)
 -- Purpose: MAP-E and MAP-T rule definitions for address mapping.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `map_rules` (
@@ -9134,7 +9134,7 @@ CREATE TABLE IF NOT EXISTS `map_rules` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: xlat464_configs (migration 245 â€” Â§5.4 IPv6 Transition Mechanisms)
+-- Table: xlat464_configs (migration 245 — §5.4 IPv6 Transition Mechanisms)
 -- Purpose: 464XLAT PLAT/CLAT configuration for IPv4-in-IPv6-only networks.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `xlat464_configs` (
@@ -9154,7 +9154,7 @@ CREATE TABLE IF NOT EXISTS `xlat464_configs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: poller_nodes (migration 258 â€” Â§6.4 Distributed Polling Engine)
+-- Table: poller_nodes (migration 258 — §6.4 Distributed Polling Engine)
 -- Purpose: Registry of dedicated SNMP poller nodes; may reference firerelay_nodes.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS poller_nodes (
@@ -9177,7 +9177,7 @@ CREATE TABLE IF NOT EXISTS poller_nodes (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: device_polling_configs (migration 258 â€” Â§6.4 Polling Engine)
+-- Table: device_polling_configs (migration 258 — §6.4 Polling Engine)
 -- Purpose: Per-device or per-device-type polling interval and GETBULK overrides.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS device_polling_configs (
@@ -9208,7 +9208,7 @@ CREATE TABLE IF NOT EXISTS device_polling_configs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: poller_performance_snapshots (migration 258 â€” Â§6.4 Polling Engine)
+-- Table: poller_performance_snapshots (migration 258 — §6.4 Polling Engine)
 -- Purpose: Time-series poller health metrics (poll duration, timeout rate, queue depth).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS poller_performance_snapshots (
@@ -9227,7 +9227,7 @@ CREATE TABLE IF NOT EXISTS poller_performance_snapshots (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: alert_escalation_chains (migration 260 â€” Â§6.5 Alerting)
+-- Table: alert_escalation_chains (migration 260 — §6.5 Alerting)
 -- Purpose: Top-level escalation chain definitions for alert notifications.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS alert_escalation_chains (
@@ -9244,7 +9244,7 @@ CREATE TABLE IF NOT EXISTS alert_escalation_chains (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: alert_escalation_steps (migration 260 â€” Â§6.5 Alerting)
+-- Table: alert_escalation_steps (migration 260 — §6.5 Alerting)
 -- Purpose: Individual steps within an escalation chain (L1 -> L2 -> L3).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS alert_escalation_steps (
@@ -9265,7 +9265,7 @@ CREATE TABLE IF NOT EXISTS alert_escalation_steps (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: maintenance_windows (migration 260 â€” Â§6.5 Alerting)
+-- Table: maintenance_windows (migration 260 — §6.5 Alerting)
 -- Purpose: Suppress alerts during planned maintenance work.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS maintenance_windows (
@@ -9295,7 +9295,7 @@ CREATE TABLE IF NOT EXISTS maintenance_windows (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: alert_notification_channels (migration 260 â€” Â§6.5 Alerting)
+-- Table: alert_notification_channels (migration 260 — §6.5 Alerting)
 -- Purpose: Multi-channel notification routing config; credentials AES-256 encrypted.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS alert_notification_channels (
@@ -9314,7 +9314,7 @@ CREATE TABLE IF NOT EXISTS alert_notification_channels (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: alert_suppression_rules (migration 260 â€” Â§6.5 Alerting)
+-- Table: alert_suppression_rules (migration 260 — §6.5 Alerting)
 -- Purpose: Suppress downstream device alerts when upstream device is down.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS alert_suppression_rules (
@@ -9335,7 +9335,7 @@ CREATE TABLE IF NOT EXISTS alert_suppression_rules (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: config_templates (migration 262 â€” Â§6.6 Config Management)
+-- Table: config_templates (migration 262 — §6.6 Config Management)
 -- Purpose: Named configuration templates with {{variable}} placeholders for batch push.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS config_templates (
@@ -9357,7 +9357,7 @@ CREATE TABLE IF NOT EXISTS config_templates (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: config_deployment_records (migration 262 â€” Â§6.6 Config Management)
+-- Table: config_deployment_records (migration 262 — §6.6 Config Management)
 -- Purpose: Tracks config template push operations per device.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS config_deployment_records (
@@ -9382,7 +9382,7 @@ CREATE TABLE IF NOT EXISTS config_deployment_records (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: config_backup_schedules (migration 262 â€” Â§6.6 Config Management)
+-- Table: config_backup_schedules (migration 262 — §6.6 Config Management)
 -- Purpose: Per-device or per-org config backup schedules (extends global nightly task).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS config_backup_schedules (
@@ -9404,7 +9404,7 @@ CREATE TABLE IF NOT EXISTS config_backup_schedules (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: config_compliance_rules (migration 262 â€” Â§6.6 Config Management)
+-- Table: config_compliance_rules (migration 262 — §6.6 Config Management)
 -- Purpose: Rules to check device configs against (keyword/regex matching).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS config_compliance_rules (
@@ -9426,7 +9426,7 @@ CREATE TABLE IF NOT EXISTS config_compliance_rules (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: config_compliance_results (migration 262 â€” Â§6.6 Config Management)
+-- Table: config_compliance_results (migration 262 — §6.6 Config Management)
 -- Purpose: Audit results when compliance rules are evaluated against a backup.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS config_compliance_results (
@@ -9447,13 +9447,13 @@ CREATE TABLE IF NOT EXISTS config_compliance_results (
 
 -- ---------------------------------------------------------------------------
 -- Table: olt_ports
--- Purpose: Physical PON and uplink port inventory per OLT device (Â§7.1)
+-- Purpose: Physical PON and uplink port inventory per OLT device (§7.1)
 -- Migration: 266
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS olt_ports (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL
-                            COMMENT 'Tenant scoping â€” NULL = single-tenant deployment',
+                            COMMENT 'Tenant scoping — NULL = single-tenant deployment',
     olt_device_id       BIGINT UNSIGNED NOT NULL
                             COMMENT 'FK to devices (type=''olt'')',
     port_index          INT UNSIGNED    NOT NULL
@@ -9509,11 +9509,11 @@ CREATE TABLE IF NOT EXISTS olt_ports (
     CONSTRAINT fk_olt_ports_olt_device FOREIGN KEY (olt_device_id)
         REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='PON and uplink port inventory per OLT (Â§7.1/Â§7.3)';
+  COMMENT='PON and uplink port inventory per OLT (§7.1/§7.3)';
 
 -- ---------------------------------------------------------------------------
 -- Table: onu_profiles
--- Purpose: PON service profile templates (T-CONT/GEM/DBA/VLAN) (Â§7.2)
+-- Purpose: PON service profile templates (T-CONT/GEM/DBA/VLAN) (§7.2)
 -- Migration: 266
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS onu_profiles (
@@ -9561,31 +9561,31 @@ CREATE TABLE IF NOT EXISTS onu_profiles (
     CONSTRAINT fk_onu_profiles_plan FOREIGN KEY (plan_id)
         REFERENCES plans (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='PON service profile templates (T-CONT/GEM/DBA/VLAN) (Â§7.2)';
+  COMMENT='PON service profile templates (T-CONT/GEM/DBA/VLAN) (§7.2)';
 
 -- ---------------------------------------------------------------------------
 -- Table: onu_details
--- Purpose: GPON/EPON ONU detail extension to devices (Â§7.2)
+-- Purpose: GPON/EPON ONU detail extension to devices (§7.2)
 -- Migration: 266
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS onu_details (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
     device_id           BIGINT UNSIGNED NOT NULL
-                            COMMENT 'FK to devices (type=''onu'') â€” the ONU device',
+                            COMMENT 'FK to devices (type=''onu'') — the ONU device',
     olt_device_id       BIGINT UNSIGNED NULL
-                            COMMENT 'FK to devices (type=''olt'') â€” the parent OLT',
+                            COMMENT 'FK to devices (type=''olt'') — the parent OLT',
     olt_port_id         BIGINT UNSIGNED NULL
-                            COMMENT 'FK to olt_ports â€” the PON port this ONU is on',
+                            COMMENT 'FK to olt_ports — the PON port this ONU is on',
     onu_profile_id      BIGINT UNSIGNED NULL
-                            COMMENT 'FK to onu_profiles â€” active service profile',
+                            COMMENT 'FK to onu_profiles — active service profile',
     -- Registration identity
     serial_number       VARCHAR(20)     NULL
                             COMMENT 'ONU serial number in PLOAM/OMCI format (e.g. HWTC1A2B3C4D)',
     loid                VARCHAR(64)     NULL
                             COMMENT 'Logical ONU ID used for LOID authentication',
     loid_password_encrypted VARCHAR(255) NULL
-                            COMMENT 'LOID password â€” AES-256 encrypted at app layer',
+                            COMMENT 'LOID password — AES-256 encrypted at app layer',
     -- ONU status (polled or pushed via trap)
     onu_state           ENUM('online','offline','los','dying_gasp','power_off','loc','unconfigured','unknown')
                             NOT NULL DEFAULT 'unknown'
@@ -9608,7 +9608,7 @@ CREATE TABLE IF NOT EXISTS onu_details (
                             COMMENT 'ONU WAN forwarding mode',
     -- Pending provision job reference
     last_provision_job_id BIGINT UNSIGNED NULL
-                            COMMENT 'FK to onu_firmware_jobs â€” last provision/config job',
+                            COMMENT 'FK to onu_firmware_jobs — last provision/config job',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -9635,11 +9635,11 @@ CREATE TABLE IF NOT EXISTS onu_details (
     CONSTRAINT fk_onu_details_onu_profile FOREIGN KEY (onu_profile_id)
         REFERENCES onu_profiles (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='GPON/EPON ONU detail extension to devices (Â§7.2)';
+  COMMENT='GPON/EPON ONU detail extension to devices (§7.2)';
 
 -- ---------------------------------------------------------------------------
 -- Table: onu_optical_metrics
--- Purpose: Per-ONU optical diagnostic time-series (Â§7.2)
+-- Purpose: Per-ONU optical diagnostic time-series (§7.2)
 -- Migration: 266
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS onu_optical_metrics (
@@ -9657,7 +9657,7 @@ CREATE TABLE IF NOT EXISTS onu_optical_metrics (
     tx_power_dbm        DECIMAL(6,2)    NULL COMMENT 'ONU Tx optical power (dBm)',
     rx_power_dbm        DECIMAL(6,2)    NULL COMMENT 'ONU Rx optical power at OLT (dBm)',
     -- Laser diagnostics (SFP DDM / OMCI)
-    temperature_c       DECIMAL(6,2)    NULL COMMENT 'Laser temperature in Â°C',
+    temperature_c       DECIMAL(6,2)    NULL COMMENT 'Laser temperature in °C',
     voltage_v           DECIMAL(6,3)    NULL COMMENT 'Laser supply voltage in V',
     bias_current_ma     DECIMAL(8,3)    NULL COMMENT 'Laser bias current in mA',
     -- OLT-side Rx power for this ONU (from HUAWEI-XPON-MIB or ZTE MIB)
@@ -9672,11 +9672,11 @@ CREATE TABLE IF NOT EXISTS onu_optical_metrics (
     -- No FKs: high-write metrics table (same pattern as snmp_metrics).
     -- Org-id stored for filtering; olt_port_id stored for queries.
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Per-ONU optical diagnostic time-series (Â§7.2)';
+  COMMENT='Per-ONU optical diagnostic time-series (§7.2)';
 
 -- ---------------------------------------------------------------------------
 -- Table: onu_whitelist
--- Purpose: ONU MAC/SN allow-block list per OLT (Â§7.2)
+-- Purpose: ONU MAC/SN allow-block list per OLT (§7.2)
 -- Migration: 266
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS onu_whitelist (
@@ -9710,11 +9710,11 @@ CREATE TABLE IF NOT EXISTS onu_whitelist (
     CONSTRAINT fk_onu_whitelist_device FOREIGN KEY (device_id)
         REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='ONU MAC/SN allow-block list per OLT (Â§7.2)';
+  COMMENT='ONU MAC/SN allow-block list per OLT (§7.2)';
 
 -- ---------------------------------------------------------------------------
 -- Table: onu_omci_configs
--- Purpose: OMCI/TR-069 Wi-Fi and WAN config records per ONU (Â§7.2)
+-- Purpose: OMCI/TR-069 Wi-Fi and WAN config records per ONU (§7.2)
 -- Migration: 266
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS onu_omci_configs (
@@ -9728,7 +9728,7 @@ CREATE TABLE IF NOT EXISTS onu_omci_configs (
     -- Wi-Fi
     wifi_ssid           VARCHAR(64)     NULL,
     wifi_password_encrypted VARCHAR(512) NULL
-                            COMMENT 'Wi-Fi PSK â€” AES-256 encrypted at app layer',
+                            COMMENT 'Wi-Fi PSK — AES-256 encrypted at app layer',
     wifi_band           ENUM('2.4ghz','5ghz','both') NULL DEFAULT 'both',
     wifi_channel        TINYINT UNSIGNED NULL,
     wifi_security       ENUM('open','wep','wpa2','wpa3') NULL DEFAULT 'wpa2',
@@ -9765,11 +9765,11 @@ CREATE TABLE IF NOT EXISTS onu_omci_configs (
     CONSTRAINT fk_onu_omci_configs_device FOREIGN KEY (device_id)
         REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='OMCI / TR-069 Wi-Fi and WAN config records per ONU (Â§7.2)';
+  COMMENT='OMCI / TR-069 Wi-Fi and WAN config records per ONU (§7.2)';
 
 -- ---------------------------------------------------------------------------
 -- Table: onu_firmware_jobs
--- Purpose: ONU firmware upgrade and reboot job scheduler (Â§7.2)
+-- Purpose: ONU firmware upgrade and reboot job scheduler (§7.2)
 -- Migration: 266
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS onu_firmware_jobs (
@@ -9807,7 +9807,7 @@ CREATE TABLE IF NOT EXISTS onu_firmware_jobs (
     error_message       TEXT            NULL,
     -- Created by
     created_by          BIGINT UNSIGNED NULL
-                            COMMENT 'FK to users â€” operator who created this job',
+                            COMMENT 'FK to users — operator who created this job',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -9833,11 +9833,11 @@ CREATE TABLE IF NOT EXISTS onu_firmware_jobs (
     CONSTRAINT fk_onu_firmware_jobs_created_by FOREIGN KEY (created_by)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='ONU firmware upgrade and reboot job scheduler (Â§7.2)';
+  COMMENT='ONU firmware upgrade and reboot job scheduler (§7.2)';
 
 -- ---------------------------------------------------------------------------
 -- Table: olt_vendor_capabilities
--- Purpose: Per-vendor OLT management capability matrix (Â§7.1)
+-- Purpose: Per-vendor OLT management capability matrix (§7.1)
 -- Migration: 267
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS olt_vendor_capabilities (
@@ -9877,11 +9877,11 @@ CREATE TABLE IF NOT EXISTS olt_vendor_capabilities (
     UNIQUE KEY uq_olt_vendor_model (vendor, model_pattern),
     KEY idx_olt_vendor_capabilities_vendor (vendor)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Per-vendor OLT management capability matrix (Â§7.1)';
+  COMMENT='Per-vendor OLT management capability matrix (§7.1)';
 
 -- ---------------------------------------------------------------------------
 -- Table: olt_splitters
--- Purpose: PON splitter inventory (Â§7.1 splitter management)
+-- Purpose: PON splitter inventory (§7.1 splitter management)
 -- Migration: 267
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS olt_splitters (
@@ -9919,11 +9919,11 @@ CREATE TABLE IF NOT EXISTS olt_splitters (
     CONSTRAINT fk_olt_splitters_olt_port FOREIGN KEY (olt_port_id)
         REFERENCES olt_ports (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='PON splitter inventory (Â§7.1 splitter management)';
+  COMMENT='PON splitter inventory (§7.1 splitter management)';
 
 -- ---------------------------------------------------------------------------
 -- Table: onu_migration_jobs
--- Purpose: ONU port migration job records â€” transactional port reassignment (Â§7.3)
+-- Purpose: ONU port migration job records — transactional port reassignment (§7.3)
 -- Migration: 270
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS onu_migration_jobs (
@@ -9932,13 +9932,13 @@ CREATE TABLE IF NOT EXISTS onu_migration_jobs (
     onu_device_id       BIGINT UNSIGNED NOT NULL
                             COMMENT 'FK to devices (type=''onu'') being migrated',
     source_olt_port_id  BIGINT UNSIGNED NOT NULL
-                            COMMENT 'FK to olt_ports â€” current OLT port of the ONU',
+                            COMMENT 'FK to olt_ports — current OLT port of the ONU',
     target_olt_port_id  BIGINT UNSIGNED NOT NULL
-                            COMMENT 'FK to olt_ports â€” destination OLT port',
+                            COMMENT 'FK to olt_ports — destination OLT port',
     source_olt_device_id BIGINT UNSIGNED NULL
-                            COMMENT 'FK to devices (type=''olt'') â€” source OLT',
+                            COMMENT 'FK to devices (type=''olt'') — source OLT',
     target_olt_device_id BIGINT UNSIGNED NULL
-                            COMMENT 'FK to devices (type=''olt'') â€” destination OLT',
+                            COMMENT 'FK to devices (type=''olt'') — destination OLT',
     -- Job lifecycle
     status              ENUM('pending','in_progress','completed','failed','cancelled')
                             NOT NULL DEFAULT 'pending',
@@ -9952,7 +9952,7 @@ CREATE TABLE IF NOT EXISTS onu_migration_jobs (
                             COMMENT 'Per-step results from the driver',
     -- Audit
     created_by          BIGINT UNSIGNED NULL
-                            COMMENT 'FK to users â€” operator who requested migration',
+                            COMMENT 'FK to users — operator who requested migration',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -9982,36 +9982,36 @@ CREATE TABLE IF NOT EXISTS onu_migration_jobs (
     CONSTRAINT fk_onu_migration_jobs_created_by FOREIGN KEY (created_by)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='ONU migration job records (Â§7.3)';
+  COMMENT='ONU migration job records (§7.3)';
 
 -- ---------------------------------------------------------------------------
 -- Table: fiber_routes
--- Purpose: Fiber route path records from CO to splitter to ONU (Â§7.4)
+-- Purpose: Fiber route path records from CO to splitter to ONU (§7.4)
 -- Migration: 272
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS fiber_routes (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
     name                VARCHAR(100)    NOT NULL
-                            COMMENT 'Human-readable segment name, e.g. "CO-1 â†’ SPL-034"',
+                            COMMENT 'Human-readable segment name, e.g. "CO-1 → SPL-034"',
     route_type          ENUM('trunk','distribution','drop','feeder','other')
                             NOT NULL DEFAULT 'drop'
                             COMMENT 'Segment class in the PON fiber hierarchy',
     parent_route_id     BIGINT UNSIGNED NULL
-                            COMMENT 'FK to fiber_routes â€” parent trunk segment (nullable)',
+                            COMMENT 'FK to fiber_routes — parent trunk segment (nullable)',
     -- Endpoints
     from_device_id      BIGINT UNSIGNED NULL
-                            COMMENT 'FK to devices â€” upstream device (OLT or intermediate)',
+                            COMMENT 'FK to devices — upstream device (OLT or intermediate)',
     from_olt_port_id    BIGINT UNSIGNED NULL
-                            COMMENT 'FK to olt_ports â€” upstream PON port (for trunk routes)',
+                            COMMENT 'FK to olt_ports — upstream PON port (for trunk routes)',
     from_splitter_id    BIGINT UNSIGNED NULL
-                            COMMENT 'FK to olt_splitters â€” upstream splitter (for distribution routes)',
+                            COMMENT 'FK to olt_splitters — upstream splitter (for distribution routes)',
     to_device_id        BIGINT UNSIGNED NULL
-                            COMMENT 'FK to devices â€” downstream device (splitter premise or ONU)',
+                            COMMENT 'FK to devices — downstream device (splitter premise or ONU)',
     to_splitter_id      BIGINT UNSIGNED NULL
-                            COMMENT 'FK to olt_splitters â€” downstream splitter',
+                            COMMENT 'FK to olt_splitters — downstream splitter',
     to_onu_detail_id    BIGINT UNSIGNED NULL
-                            COMMENT 'FK to onu_details â€” terminal ONU on this drop',
+                            COMMENT 'FK to onu_details — terminal ONU on this drop',
     -- Physical attributes
     cable_length_m      INT UNSIGNED    NULL
                             COMMENT 'Fiber cable length in metres (measured or estimated)',
@@ -10058,11 +10058,11 @@ CREATE TABLE IF NOT EXISTS fiber_routes (
     CONSTRAINT fk_fiber_routes_to_onu FOREIGN KEY (to_onu_detail_id)
         REFERENCES onu_details (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Fiber plant route records (Â§7.4)';
+  COMMENT='Fiber plant route records (§7.4)';
 
 -- ---------------------------------------------------------------------------
 -- Table: odf_frames
--- Purpose: Optical Distribution Frame physical inventory (Â§7.4)
+-- Purpose: Optical Distribution Frame physical inventory (§7.4)
 -- Migration: 272
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS odf_frames (
@@ -10071,7 +10071,7 @@ CREATE TABLE IF NOT EXISTS odf_frames (
     name                VARCHAR(100)    NOT NULL
                             COMMENT 'ODF frame identifier, e.g. "ODF-CO1-R01"',
     site_id             BIGINT UNSIGNED NULL
-                            COMMENT 'FK to sites â€” physical location of this ODF frame',
+                            COMMENT 'FK to sites — physical location of this ODF frame',
     frame_type          ENUM('rack','wall_mount','splice_closure','patch_panel','other')
                             NOT NULL DEFAULT 'rack',
     port_count          SMALLINT UNSIGNED NOT NULL DEFAULT 12
@@ -10099,18 +10099,18 @@ CREATE TABLE IF NOT EXISTS odf_frames (
     CONSTRAINT fk_odf_frames_site FOREIGN KEY (site_id)
         REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='ODF frame inventory (Â§7.4)';
+  COMMENT='ODF frame inventory (§7.4)';
 
 -- ---------------------------------------------------------------------------
 -- Table: odf_ports
--- Purpose: Individual ODF port records within an ODF frame (Â§7.4)
+-- Purpose: Individual ODF port records within an ODF frame (§7.4)
 -- Migration: 272
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS odf_ports (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
     odf_frame_id        BIGINT UNSIGNED NOT NULL
-                            COMMENT 'FK to odf_frames â€” parent frame',
+                            COMMENT 'FK to odf_frames — parent frame',
     port_number         SMALLINT UNSIGNED NOT NULL
                             COMMENT 'Port position in the frame (1-based)',
     port_label          VARCHAR(50)     NULL
@@ -10119,11 +10119,11 @@ CREATE TABLE IF NOT EXISTS odf_ports (
                             NOT NULL DEFAULT 'empty',
     -- What is connected to this port
     connected_device_id BIGINT UNSIGNED NULL
-                            COMMENT 'FK to devices â€” device whose fiber terminates here',
+                            COMMENT 'FK to devices — device whose fiber terminates here',
     cable_label         VARCHAR(100)    NULL
                             COMMENT 'Cable/tube label for tracing',
     splitter_id         BIGINT UNSIGNED NULL
-                            COMMENT 'FK to olt_splitters â€” if this port feeds a splitter',
+                            COMMENT 'FK to olt_splitters — if this port feeds a splitter',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -10147,20 +10147,20 @@ CREATE TABLE IF NOT EXISTS odf_ports (
     CONSTRAINT fk_odf_ports_splitter FOREIGN KEY (splitter_id)
         REFERENCES olt_splitters (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='ODF port records within an ODF frame (Â§7.4)';
+  COMMENT='ODF port records within an ODF frame (§7.4)';
 
 -- ---------------------------------------------------------------------------
 -- Table: odf_cross_connects
--- Purpose: Cross-connect patch records between two ODF ports (Â§7.4)
+-- Purpose: Cross-connect patch records between two ODF ports (§7.4)
 -- Migration: 272
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS odf_cross_connects (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
     port_a_id           BIGINT UNSIGNED NOT NULL
-                            COMMENT 'FK to odf_ports â€” first end of the cross-connect',
+                            COMMENT 'FK to odf_ports — first end of the cross-connect',
     port_b_id           BIGINT UNSIGNED NOT NULL
-                            COMMENT 'FK to odf_ports â€” second end of the cross-connect',
+                            COMMENT 'FK to odf_ports — second end of the cross-connect',
     patch_cord_label    VARCHAR(100)    NULL
                             COMMENT 'Color or label of the patch cord',
     patch_cord_length_m DECIMAL(6,1)   NULL
@@ -10186,11 +10186,11 @@ CREATE TABLE IF NOT EXISTS odf_cross_connects (
     CONSTRAINT fk_odf_cross_connects_port_b FOREIGN KEY (port_b_id)
         REFERENCES odf_ports (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='ODF cross-connect patch records (Â§7.4)';
+  COMMENT='ODF cross-connect patch records (§7.4)';
 
 -- ---------------------------------------------------------------------------
 -- Table: otdr_test_results
--- Purpose: OTDR test result records and fault location storage (Â§7.4)
+-- Purpose: OTDR test result records and fault location storage (§7.4)
 -- Migration: 272
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS otdr_test_results (
@@ -10198,9 +10198,9 @@ CREATE TABLE IF NOT EXISTS otdr_test_results (
     organization_id     BIGINT UNSIGNED NULL,
     -- What was tested
     fiber_route_id      BIGINT UNSIGNED NULL
-                            COMMENT 'FK to fiber_routes â€” route under test',
+                            COMMENT 'FK to fiber_routes — route under test',
     olt_port_id         BIGINT UNSIGNED NULL
-                            COMMENT 'FK to olt_ports â€” PON port under test (alternate)',
+                            COMMENT 'FK to olt_ports — PON port under test (alternate)',
     olt_device_id       BIGINT UNSIGNED NULL
                             COMMENT 'FK to devices (type=''olt'')',
     -- Test context
@@ -10229,14 +10229,14 @@ CREATE TABLE IF NOT EXISTS otdr_test_results (
     -- SOR file reference (uploaded binary, stored as file path or object-store key)
     sor_file_path       VARCHAR(512)    NULL
                             COMMENT 'Path/key to the .SOR trace file',
-    -- Scheduling (for job-dispatched tests â€” live OTDR I/O is stubbed)
+    -- Scheduling (for job-dispatched tests — live OTDR I/O is stubbed)
     job_status          ENUM('pending','in_progress','completed','failed','imported')
                             NOT NULL DEFAULT 'imported'
                             COMMENT 'Status of the test acquisition job',
     tested_at           DATETIME        NULL
                             COMMENT 'When the test was actually performed',
     tested_by           BIGINT UNSIGNED NULL
-                            COMMENT 'FK to users â€” technician who ran the test',
+                            COMMENT 'FK to users — technician who ran the test',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -10262,11 +10262,11 @@ CREATE TABLE IF NOT EXISTS otdr_test_results (
     CONSTRAINT fk_otdr_test_results_tested_by FOREIGN KEY (tested_by)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='OTDR test results and fault location records (Â§7.4)';
+  COMMENT='OTDR test results and fault location records (§7.4)';
 
 -- ---------------------------------------------------------------------------
 -- Table: sfp_inventory
--- Purpose: SFP transceiver lifecycle tracking and DDM diagnostics (Â§7.4)
+-- Purpose: SFP transceiver lifecycle tracking and DDM diagnostics (§7.4)
 -- Migration: 272
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sfp_inventory (
@@ -10292,7 +10292,7 @@ CREATE TABLE IF NOT EXISTS sfp_inventory (
     lifecycle_status    ENUM('in_stock','installed','removed','failed','retired')
                             NOT NULL DEFAULT 'in_stock',
     installed_device_id BIGINT UNSIGNED NULL
-                            COMMENT 'FK to devices â€” device this SFP is currently in',
+                            COMMENT 'FK to devices — device this SFP is currently in',
     port_name           VARCHAR(50)     NULL
                             COMMENT 'Port/interface name on the device, e.g. "0/0/1"',
     installed_at        DATE            NULL,
@@ -10300,7 +10300,7 @@ CREATE TABLE IF NOT EXISTS sfp_inventory (
     failure_reason      TEXT            NULL,
     -- Catalog linkage (optional)
     inventory_item_id   BIGINT UNSIGNED NULL
-                            COMMENT 'FK to inventory_items â€” catalog entry for cost tracking',
+                            COMMENT 'FK to inventory_items — catalog entry for cost tracking',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -10321,10 +10321,10 @@ CREATE TABLE IF NOT EXISTS sfp_inventory (
     CONSTRAINT fk_sfp_inventory_item FOREIGN KEY (inventory_item_id)
         REFERENCES inventory_items (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='SFP transceiver lifecycle and DDM diagnostics (Â§7.4)';
+  COMMENT='SFP transceiver lifecycle and DDM diagnostics (§7.4)';
 
 -- ---------------------------------------------------------------------------
--- Â§8.1 CPE Device Registry (migration 274)
+-- §8.1 CPE Device Registry (migration 274)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS cpe_devices (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -10350,11 +10350,11 @@ CREATE TABLE IF NOT EXISTS cpe_devices (
     wifi_ssid           VARCHAR(64)     NULL,
     notes               TEXT            NULL,
     lifecycle_state     ENUM('in_stock','assigned','active','returned','rma') NOT NULL DEFAULT 'in_stock'
-                            COMMENT 'CPE lifecycle: in_stockâ†’assignedâ†’activeâ†’returned|rma',
-    subscriber_id       BIGINT UNSIGNED NULL COMMENT 'FK to clients â€” subscriber this CPE is assigned to',
+                            COMMENT 'CPE lifecycle: in_stock→assigned→active→returned|rma',
+    subscriber_id       BIGINT UNSIGNED NULL COMMENT 'FK to clients — subscriber this CPE is assigned to',
     subscriber_linked_at DATETIME       NULL COMMENT 'When subscriber_id was last set (auto-link or manual)',
     purchase_cost       DECIMAL(12,2)   NULL COMMENT 'Original purchase cost for depreciation calculation',
-    purchase_date       DATE            NULL COMMENT 'Purchase date â€” depreciation start',
+    purchase_date       DATE            NULL COMMENT 'Purchase date — depreciation start',
     depreciation_method ENUM('straight_line','declining_balance','none') NOT NULL DEFAULT 'none'
                             COMMENT 'Depreciation method applied to this device',
     useful_life_months  SMALLINT UNSIGNED NULL DEFAULT 60 COMMENT 'Expected useful life in months',
@@ -10375,7 +10375,7 @@ CREATE TABLE IF NOT EXISTS cpe_devices (
     CONSTRAINT fk_cpe_devices_device FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_devices_contract FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_devices_subscriber FOREIGN KEY (subscriber_id) REFERENCES clients(id) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='TR-069/CWMP CPE device registry (Â§8.1)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='TR-069/CWMP CPE device registry (§8.1)';
 
 CREATE TABLE IF NOT EXISTS cpe_parameters (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -10393,7 +10393,7 @@ CREATE TABLE IF NOT EXISTS cpe_parameters (
     KEY idx_cpe_parameters_cpe (cpe_device_id),
     CONSTRAINT fk_cpe_parameters_device FOREIGN KEY (cpe_device_id) REFERENCES cpe_devices(id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_parameters_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='TR-069 parameter tree per CPE (Â§8.1)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='TR-069 parameter tree per CPE (§8.1)';
 
 CREATE TABLE IF NOT EXISTS cpe_tasks (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -10418,10 +10418,10 @@ CREATE TABLE IF NOT EXISTS cpe_tasks (
     CONSTRAINT fk_cpe_tasks_device FOREIGN KEY (cpe_device_id) REFERENCES cpe_devices(id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_tasks_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_tasks_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Queued CWMP tasks per CPE device (Â§8.1)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Queued CWMP tasks per CPE device (§8.1)';
 
 -- ---------------------------------------------------------------------------
--- Â§8.2 CPE Profiles, Mappings, Firmware (migration 275)
+-- §8.2 CPE Profiles, Mappings, Firmware (migration 275)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS cpe_profiles (
     id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -10451,7 +10451,7 @@ CREATE TABLE IF NOT EXISTS cpe_profiles (
     CONSTRAINT fk_cpe_profiles_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_profiles_plan FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_profiles_parent FOREIGN KEY (parent_profile_id) REFERENCES cpe_profiles(id) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='CPE provisioning profiles per service plan (Â§8.2)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='CPE provisioning profiles per service plan (§8.2)';
 
 CREATE TABLE IF NOT EXISTS cpe_parameter_mappings (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -10468,7 +10468,7 @@ CREATE TABLE IF NOT EXISTS cpe_parameter_mappings (
     KEY idx_cpe_param_mappings_profile (cpe_profile_id),
     CONSTRAINT fk_cpe_param_mappings_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_param_mappings_profile FOREIGN KEY (cpe_profile_id) REFERENCES cpe_profiles(id) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Automatic parameter mapping rules for CPE profiles (Â§8.2)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Automatic parameter mapping rules for CPE profiles (§8.2)';
 
 CREATE TABLE IF NOT EXISTS cpe_firmware_versions (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -10490,7 +10490,7 @@ CREATE TABLE IF NOT EXISTS cpe_firmware_versions (
     KEY idx_cpe_fw_org (organization_id),
     KEY idx_cpe_fw_deleted_at (deleted_at),
     CONSTRAINT fk_cpe_fw_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Firmware version inventory per CPE model (Â§8.1)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Firmware version inventory per CPE model (§8.1)';
 
 CREATE TABLE IF NOT EXISTS cpe_firmware_campaigns (
     id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -10523,10 +10523,10 @@ CREATE TABLE IF NOT EXISTS cpe_firmware_campaigns (
     CONSTRAINT fk_cpe_fw_camp_fw FOREIGN KEY (firmware_version_id) REFERENCES cpe_firmware_versions(id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_fw_camp_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_fw_camp_profile FOREIGN KEY (target_profile_id) REFERENCES cpe_profiles(id) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Batch firmware upgrade campaigns (Â§8.1)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Batch firmware upgrade campaigns (§8.1)';
 
 -- ---------------------------------------------------------------------------
--- Â§8.3 Diagnostics (migration 277)
+-- §8.3 Diagnostics (migration 277)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS cpe_diagnostics (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -10551,7 +10551,7 @@ CREATE TABLE IF NOT EXISTS cpe_diagnostics (
     KEY idx_cpe_diag_deleted_at (deleted_at),
     CONSTRAINT fk_cpe_diag_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_diag_device FOREIGN KEY (cpe_device_id) REFERENCES cpe_devices(id) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='TR-069 diagnostic run results per CPE device (Â§8.3)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='TR-069 diagnostic run results per CPE device (§8.3)';
 
 CREATE TABLE IF NOT EXISTS cpe_session_logs (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -10572,10 +10572,10 @@ CREATE TABLE IF NOT EXISTS cpe_session_logs (
     KEY idx_cpe_sl_event (event_type),
     KEY idx_cpe_sl_created_at (created_at),
     CONSTRAINT fk_cpe_sl_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='CWMP session event and error log per CPE device (Â§8.3)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='CWMP session event and error log per CPE device (§8.3)';
 
 -- ---------------------------------------------------------------------------
--- Â§8.4 Inventory (migration 278)
+-- §8.4 Inventory (migration 278)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS cpe_lifecycle_history (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -10587,7 +10587,7 @@ CREATE TABLE IF NOT EXISTS cpe_lifecycle_history (
     reason              VARCHAR(255)    NULL COMMENT 'Human-readable reason: swap, decommission, return, etc.',
     swap_in_device_id   BIGINT UNSIGNED NULL COMMENT 'For swap events: the device being swapped IN (new)',
     swap_out_device_id  BIGINT UNSIGNED NULL COMMENT 'For swap events: the device being swapped OUT (old)',
-    performed_by        BIGINT UNSIGNED NULL COMMENT 'FK to users â€” who performed the transition',
+    performed_by        BIGINT UNSIGNED NULL COMMENT 'FK to users — who performed the transition',
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY idx_cpe_lh_org (organization_id),
@@ -10595,11 +10595,11 @@ CREATE TABLE IF NOT EXISTS cpe_lifecycle_history (
     KEY idx_cpe_lh_created_at (created_at),
     CONSTRAINT fk_cpe_lh_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_lh_device FOREIGN KEY (cpe_device_id) REFERENCES cpe_devices(id) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Immutable lifecycle state transition audit trail per CPE device (Â§8.4)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Immutable lifecycle state transition audit trail per CPE device (§8.4)';
 
 -- ---------------------------------------------------------------------------
--- Â§9.3 Scheduled task: wireless AP sector poll (migration 284)
--- Placed after all table definitions â€” scheduled_tasks must exist before this
+-- §9.3 Scheduled task: wireless AP sector poll (migration 284)
+-- Placed after all table definitions — scheduled_tasks must exist before this
 -- seed runs when schema.sql is applied standalone.
 -- ---------------------------------------------------------------------------
 INSERT INTO scheduled_tasks
@@ -10616,7 +10616,7 @@ WHERE NOT EXISTS (
 );
 
 -- ---------------------------------------------------------------------------
--- Â§10.1 QoS Speed Profiles: quality_classes, queue_tree_nodes (migration 286)
+-- §10.1 QoS Speed Profiles: quality_classes, queue_tree_nodes (migration 286)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS quality_classes (
   id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -10679,7 +10679,7 @@ CREATE TABLE IF NOT EXISTS queue_tree_nodes (
     REFERENCES queue_tree_nodes (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- FK: plans.priority_class_id â†’ quality_classes (added after quality_classes is created)
+-- FK: plans.priority_class_id → quality_classes (added after quality_classes is created)
 -- (column already in plans body above; FK added here after quality_classes exists)
 ALTER TABLE plans
   ADD CONSTRAINT fk_plans_priority_class
@@ -10687,7 +10687,7 @@ ALTER TABLE plans
     ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- ---------------------------------------------------------------------------
--- Â§10.2 Rate Limiting: rate_limit_templates, protocol_shaping_rules (migration 288)
+-- §10.2 Rate Limiting: rate_limit_templates, protocol_shaping_rules (migration 288)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS rate_limit_templates (
   id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -10754,7 +10754,7 @@ CREATE TABLE IF NOT EXISTS protocol_shaping_rules (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Â§10.3 FUP/Data Caps: rollover, data packs, purchases, notifications (mig 290)
+-- §10.3 FUP/Data Caps: rollover, data packs, purchases, notifications (mig 290)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS data_rollover_balances (
   id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -10846,7 +10846,7 @@ CREATE TABLE IF NOT EXISTS fup_usage_notifications (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Â§10.4 Traffic Engineering: interface QoS, MPLS/VLAN, DSCP, bandwidth tests
+-- §10.4 Traffic Engineering: interface QoS, MPLS/VLAN, DSCP, bandwidth tests
 -- (migrations 292-293)
 -- ---------------------------------------------------------------------------
 
@@ -11004,7 +11004,7 @@ CREATE TABLE IF NOT EXISTS subscriber_speed_test_jobs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Â§11 Customer Self-Service Portal â€” migrations 295-296
+-- §11 Customer Self-Service Portal — migrations 295-296
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS portal_service_requests (
@@ -11121,7 +11121,7 @@ CREATE TABLE IF NOT EXISTS portal_push_subscriptions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ticket_time_logs (migration 297 â€” Â§12)
+-- Table: ticket_time_logs (migration 297 — §12)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ticket_time_logs (
   id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -11143,7 +11143,7 @@ CREATE TABLE IF NOT EXISTS ticket_time_logs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ticket_relations (migration 297 â€” Â§12)
+-- Table: ticket_relations (migration 297 — §12)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ticket_relations (
   id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -11163,7 +11163,7 @@ CREATE TABLE IF NOT EXISTS ticket_relations (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ticket_ai_triage (migration 297 â€” Â§12)
+-- Table: ticket_ai_triage (migration 297 — §12)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ticket_ai_triage (
   id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -11182,7 +11182,7 @@ CREATE TABLE IF NOT EXISTS ticket_ai_triage (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: work_orders (migration 297 â€” Â§12)
+-- Table: work_orders (migration 297 — §12)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS work_orders (
   id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -11222,7 +11222,7 @@ CREATE TABLE IF NOT EXISTS work_orders (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: work_order_materials (migration 297 â€” Â§12)
+-- Table: work_order_materials (migration 297 — §12)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS work_order_materials (
   id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -11240,11 +11240,11 @@ CREATE TABLE IF NOT EXISTS work_order_materials (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: technician_gps_breadcrumbs (migration 297 â€” Â§12, no FKs â€” append-only write-hot)
+-- Table: technician_gps_breadcrumbs (migration 297 — §12, no FKs — append-only write-hot)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS technician_gps_breadcrumbs (
   id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  user_id     BIGINT UNSIGNED NOT NULL COMMENT 'Technician user ID (no FK â€” append-only)',
+  user_id     BIGINT UNSIGNED NOT NULL COMMENT 'Technician user ID (no FK — append-only)',
   latitude    DECIMAL(10,7)   NOT NULL,
   longitude   DECIMAL(10,7)   NOT NULL,
   accuracy_m  FLOAT           NULL     COMMENT 'GPS horizontal accuracy in metres',
@@ -11256,7 +11256,7 @@ CREATE TABLE IF NOT EXISTS technician_gps_breadcrumbs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: ticket_attachments (migration 300 â€” Â§12)
+-- Table: ticket_attachments (migration 300 — §12)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ticket_attachments (
   id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -11278,7 +11278,7 @@ CREATE TABLE IF NOT EXISTS ticket_attachments (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------------------------------------------------------------------------
--- Table: work_order_attachments (migration 301 â€” Â§12)
+-- Table: work_order_attachments (migration 301 — §12)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS work_order_attachments (
   id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
