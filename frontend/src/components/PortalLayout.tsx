@@ -44,6 +44,18 @@ export function PortalLayout() {
           >
             {t('portalLayout.navSupport')}
           </NavLink>
+          <NavLink
+            to="/portal/kb"
+            style={({ isActive }) => ({ ...styles.navLink, ...(isActive ? styles.navLinkActive : {}) })}
+          >
+            {t('portalLayout.navKb', 'Help')}
+          </NavLink>
+          <NavLink
+            to="/portal/account"
+            style={({ isActive }) => ({ ...styles.navLink, ...(isActive ? styles.navLinkActive : {}) })}
+          >
+            {t('portalLayout.navAccount', 'Account')}
+          </NavLink>
         </nav>
         <div className="portal-user-area">
           {client && <span style={styles.userName}>{client.name}</span>}
