@@ -18,22 +18,41 @@ CREATE TABLE IF NOT EXISTS ticket_attachments (
   CONSTRAINT fk_ticket_attachments_org     FOREIGN KEY (organization_id)  REFERENCES organizations(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-INSERT IGNORE INTO permissions (name, module, action, description) VALUES
-  ('ticket_attachments.view',   'tickets', 'view',   'View ticket attachments'),
-  ('ticket_attachments.create', 'tickets', 'create', 'Upload ticket attachments'),
-  ('ticket_attachments.delete', 'tickets', 'delete', 'Delete ticket attachments');
+INSERT INTO permissions (name, description, module)
+SELECT 'ticket_attachments.view', 'View ticket attachments', 'tickets'
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE name = 'ticket_attachments.view');
 
-INSERT IGNORE INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM roles r, permissions p
+INSERT INTO permissions (name, description, module)
+SELECT 'ticket_attachments.create', 'Upload ticket attachments', 'tickets'
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE name = 'ticket_attachments.create');
+
+INSERT INTO permissions (name, description, module)
+SELECT 'ticket_attachments.delete', 'Delete ticket attachments', 'tickets'
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE name = 'ticket_attachments.delete');
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p ON p.name IN ('ticket_attachments.view','ticket_attachments.create','ticket_attachments.delete')
 WHERE r.name = 'admin'
-  AND p.name IN ('ticket_attachments.view','ticket_attachments.create','ticket_attachments.delete');
+  AND NOT EXISTS (
+    SELECT 1 FROM role_permissions rp2 WHERE rp2.role_id = r.id AND rp2.permission_id = p.id
+  );
 
-INSERT IGNORE INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM roles r, permissions p
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p ON p.name IN ('ticket_attachments.view','ticket_attachments.create')
 WHERE r.name IN ('support','technician')
-  AND p.name IN ('ticket_attachments.view','ticket_attachments.create');
+  AND NOT EXISTS (
+    SELECT 1 FROM role_permissions rp2 WHERE rp2.role_id = r.id AND rp2.permission_id = p.id
+  );
 
-INSERT IGNORE INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM roles r, permissions p
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p ON p.name = 'ticket_attachments.view'
 WHERE r.name = 'readonly'
-  AND p.name = 'ticket_attachments.view';
+  AND NOT EXISTS (
+    SELECT 1 FROM role_permissions rp2 WHERE rp2.role_id = r.id AND rp2.permission_id = p.id
+  );
