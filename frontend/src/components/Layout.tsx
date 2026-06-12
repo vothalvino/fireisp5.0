@@ -81,6 +81,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/devices', labelKey: 'nav.devices' },
       { to: '/inventory', labelKey: 'nav.inventory', requiredRole: 'technician' },
       { to: '/warehouses', labelKey: 'nav.warehouses', requiredRole: 'technician' },
+      { to: '/inventory-management', labelKey: 'nav.inventoryManagement', requiredRole: 'technician' },
       { to: '/radius-sessions', labelKey: 'nav.radiusSessions', requiredRole: 'technician' },
       { to: '/session-accounting', labelKey: 'nav.sessionAccounting', requiredRole: 'technician' },
       { to: '/snmp-metrics', labelKey: 'nav.snmpMetrics', requiredRole: 'technician' },

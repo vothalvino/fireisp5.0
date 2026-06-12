@@ -56,6 +56,7 @@
                 "devices":  "🖧 Dispositivos",
                 "inventory":  "📦 Inventário",
                 "warehouses":  "🏭 Armazéns",
+                "inventoryManagement":  "📋 Gerenciamento de Inventário",
                 "radiusSessions":  "📡 Sessões RADIUS",
                 "sessionAccounting":  "📈 Contabilidade de sessões",
                 "snmpMetrics":  "📶 Métricas SNMP",
@@ -2517,5 +2518,55 @@
         "dualHomed": "Dispositivos Dual-Homed",
         "noDualHomed": "Nenhum dispositivo dual-homed encontrado",
         "uplinks": "Uplinks"
+    },
+    "inventoryManagement": {
+        "title": "Gerenciamento de Inventário e Ativos",
+        "loading": "Carregando...",
+        "loadError": "Falha ao carregar dados",
+        "noItems": "Nenhum item encontrado",
+        "prev": "Anterior",
+        "next": "Próximo",
+        "name": "Nome",
+        "category": "Categoria",
+        "status": "Status",
+        "email": "E-mail",
+        "createdAt": "Criado em",
+        "tabs": {
+            "stock": "Estoque",
+            "assets": "Ativos",
+            "vendors": "Fornecedores",
+            "purchaseOrders": "Ordens de Compra",
+            "rma": "RMA"
+        },
+        "stock": {
+            "lowStock": "Alertas de Estoque Baixo",
+            "itemName": "Item",
+            "sku": "SKU",
+            "reorderLevel": "Nível de Reposição",
+            "currentStock": "Estoque Atual"
+        },
+        "assets": {
+            "assetTag": "Etiqueta do Ativo",
+            "serialNumber": "Número de Série",
+            "category": "Categoria",
+            "lifecycleStatus": "Status",
+            "warrantyExpires": "Garantia Expira"
+        },
+        "vendors": {
+            "contactName": "Nome do Contato",
+            "paymentTerms": "Condições de Pagamento",
+            "currency": "Moeda"
+        },
+        "purchaseOrders": {
+            "poNumber": "Número do Pedido",
+            "orderDate": "Data do Pedido",
+            "expectedDate": "Data Prevista",
+            "total": "Total"
+        },
+        "rma": {
+            "rmaNumber": "Número RMA",
+            "reason": "Motivo",
+            "status": "Status"
+        }
     }
 }

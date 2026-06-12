@@ -147,6 +147,7 @@ import { QosBandwidthPage } from '@/pages/QosBandwidthPage';
 import { NocDashboard } from '@/pages/NocDashboard';
 import { WorkOrders } from '@/pages/WorkOrders';
 import { TopologyMapPage } from '@/pages/TopologyMapPage';
+import { InventoryManagement } from '@/pages/InventoryManagement';
 import { NotFound } from '@/pages/NotFound';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
 
@@ -268,6 +269,7 @@ export function App() {
                 <Route path="noc-dashboard" element={<NocDashboard />} />
                 <Route path="work-orders" element={<WorkOrders />} />
                 <Route path="topology-map" element={<TopologyMapPage />} />
+                <Route path="inventory-management" element={<InventoryManagement />} />
               </Route>
             </Route>
 
