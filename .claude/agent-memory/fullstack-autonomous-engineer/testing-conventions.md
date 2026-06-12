@@ -5,6 +5,25 @@ metadata:
   type: feedback
 ---
 
+## Integration tests that require app.js — must mock BOTH requirePermission AND requireRole
+
+`firerelay.js` calls `requireRole('admin', 'owner')` at route-registration time (not request time). If your test mocks `rbac` to only export `requirePermission`, the app.js load will throw `TypeError: requireRole is not a function`. Always include both in the mock:
+
+```javascript
+jest.mock('../src/middleware/rbac', () => ({
+  requirePermission: () => (_req, _res, next) => next(),
+  requireRole: () => (_req, _res, next) => next(),
+}));
+```
+
+## Validation schemas use plain objects, not Joi
+
+The `validate()` middleware uses `{ fieldName: { type, required, min, max, enum } }` objects. Joi is NOT installed. Never write `require('joi')` in schema files.
+
+## ValidationError returns 422, not 400
+
+`new ValidationError(...)` in `src/utils/errors.js` uses status 422. Validation failure integration tests must `expect(res.status).toBe(422)`.
+
 ## Test mock pattern (follow notificationHooks.test.js)
 
 - Mock `../src/config/database` as `{ query: jest.fn() }` at top
