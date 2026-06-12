@@ -1,6 +1,6 @@
 ---
 name: section15-reporting-analytics
-description: §15 Reporting & Analytics — migrations 308-312 complete; 5 tables, 11 perms, 48 new endpoints, 3 route files, 2 frontend pages; next migration: 313
+description: §15 Reporting & Analytics — migrations 308-313 complete; 5 tables, 11 perms, 712 total endpoints, 5 route files, 2 frontend pages; next migration: 314
 metadata:
   type: project
 ---
@@ -9,7 +9,15 @@ metadata:
 
 **Why:** Implements all 30 §15 checkboxes (financial, operational, network, compliance, report engine).
 
-**How to apply:** Next section starts at migration 313. Table count is 265.
+**How to apply:** Next section starts at migration 314. Table count is 265, 712 endpoints, migrations 001-313.
+
+## Post-run fix (orchestrator sweep — half-workflow, 5th occurrence)
+
+The first run seeded 11 permissions but `reports.generate` and `reports.manage_definitions` were consumed by NO route, and `report_definitions` (created in 308, FK'd by scheduled_reports/generated_reports) was never read or written — dead schema, because scheduled reports dispatch by the `report_def_name` STRING and ignore `report_def_id`. Fixed in commit af2bad7:
+- `POST /reports/generate` + `POST /scheduled-reports/:id/run` (both `reports.generate`) — on-demand generation via a shared `scheduledReportService.runOnDemand()` helper.
+- `src/routes/reportDefinitions.js` — CRUD; list/get use `reports.view`, create/update/delete use `reports.manage_definitions`.
+- Migration 313 seeds 34 built-in report_definitions rows (one per slug `generateReportData()` dispatches on), org NULL / is_system=1, idempotent WHERE-NOT-EXISTS.
+RULE (reinforced): every seeded permission must be consumed by a route AND every created table must be read/written by code — sweep BOTH before declaring a section done.
 
 ## Database
 
@@ -17,7 +25,8 @@ metadata:
 - Migration 309: `dashboard_widgets` (widget_type ENUM 8 values, per-user grid)
 - Migration 310: `custom_reports` (query_type sql/visual, SELECT-only enforcement)
 - Migration 311: 11 permissions seeded (reports.view/generate/schedule/export/manage_definitions, dashboard_widgets.view/manage, custom_reports.view/create/execute/manage)
-- Migration 312: `generate_scheduled_reports` task (task_type=other, cron hourly)
+- Migration 312: `generate_scheduled_reports` task (task_type=other, cron hourly) — taskRunner case + dispatch test added same commit
+- Migration 313: seeds 34 built-in `report_definitions` rows (orchestrator fix — see above)
 - Rollbacks in database/rollbacks/; schema.sql = 265 tables total
 
 ## Backend
@@ -27,7 +36,8 @@ metadata:
   - `capacityForecast()`: linear regression implemented in JS (no external lib)
   - `snmpPollSuccess()`: joins through devices table since snmp_metrics has no org_id FK
 - `src/services/scheduledReportService.js`: CSV/XLSX (exceljs)/PDF (pdfkit) formatting + email delivery
-- `src/routes/reports.js`: 30 new endpoints + generic `/:report/export` (placed LAST to avoid shadowing named routes)
+- `src/routes/reports.js`: 30 report endpoints + generic `/:report/export` (placed LAST to avoid shadowing named routes) + `POST /reports/generate` (orchestrator fix)
+- `src/routes/reportDefinitions.js`: report_definitions registry CRUD (orchestrator fix)
 - `src/routes/scheduledReports.js`: CRUD with soft-delete
 - `src/routes/dashboardWidgets.js`: CRUD + PUT /batch — IMPORTANT: /batch route must come BEFORE /:id (express router order)
 - `src/routes/customReports.js`: CRUD + POST /:id/execute with SELECT validation, LIMIT 1000 enforcement, 30s timeout

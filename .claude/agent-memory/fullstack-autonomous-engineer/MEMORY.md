@@ -12,4 +12,4 @@
 - [Section 12 Ticketing & NOC](section12-ticketing-noc.md) — migrations 297-301 complete; 8 tables, 20 perms, 3 new route files + tickets.js extensions + NOC/work-order frontend; next migration: 302
 - [Section 13 Topology & Mapping](section13-topology-mapping.md) — migrations 302-304 complete; 4 new tables, 12 perms, 19 endpoints, react-leaflet frontend; next migration: 305
 - [Section 14 Inventory & Asset Management](section14-inventory-asset.md) — migrations 305-307 complete; 6 tables, 20 perms, 4 route files + 5-tab frontend page; next migration: 308
-- [Section 15 Reporting & Analytics](section15-reporting-analytics.md) — migrations 308-312 complete; 5 tables, 11 perms, 48 new endpoints, 3 route files + 2 frontend pages; next migration: 313
+- [Section 15 Reporting & Analytics](section15-reporting-analytics.md) — migrations 308-313 complete; 5 tables, 11 perms, 712 total endpoints, 5 route files + 2 frontend pages; next migration: 314
