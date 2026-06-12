@@ -56,6 +56,7 @@
                 "devices":  "🖧 Dispositivos",
                 "inventory":  "📦 Inventario",
                 "warehouses":  "🏭 Almacenes",
+                "inventoryManagement":  "📋 Gestión de Inventario",
                 "radiusSessions":  "📡 Sesiones RADIUS",
                 "sessionAccounting":  "📈 Contabilidad de sesiones",
                 "snmpMetrics":  "📶 Métricas SNMP",
@@ -2517,5 +2518,55 @@
         "dualHomed": "Dispositivos Dual-Homed",
         "noDualHomed": "No se encontraron dispositivos dual-homed",
         "uplinks": "Uplinks"
+    },
+    "inventoryManagement": {
+        "title": "Inventario y Gestión de Activos",
+        "loading": "Cargando...",
+        "loadError": "Error al cargar datos",
+        "noItems": "No se encontraron elementos",
+        "prev": "Anterior",
+        "next": "Siguiente",
+        "name": "Nombre",
+        "category": "Categoría",
+        "status": "Estado",
+        "email": "Correo",
+        "createdAt": "Creado",
+        "tabs": {
+            "stock": "Stock",
+            "assets": "Activos",
+            "vendors": "Proveedores",
+            "purchaseOrders": "Órdenes de Compra",
+            "rma": "RMA"
+        },
+        "stock": {
+            "lowStock": "Alertas de Stock Bajo",
+            "itemName": "Artículo",
+            "sku": "SKU",
+            "reorderLevel": "Nivel de Reorden",
+            "currentStock": "Stock Actual"
+        },
+        "assets": {
+            "assetTag": "Etiqueta de Activo",
+            "serialNumber": "Número de Serie",
+            "category": "Categoría",
+            "lifecycleStatus": "Estado",
+            "warrantyExpires": "Garantía Expira"
+        },
+        "vendors": {
+            "contactName": "Nombre de Contacto",
+            "paymentTerms": "Condiciones de Pago",
+            "currency": "Moneda"
+        },
+        "purchaseOrders": {
+            "poNumber": "Número de OC",
+            "orderDate": "Fecha de Orden",
+            "expectedDate": "Fecha Esperada",
+            "total": "Total"
+        },
+        "rma": {
+            "rmaNumber": "Número RMA",
+            "reason": "Razón",
+            "status": "Estado"
+        }
     }
 }

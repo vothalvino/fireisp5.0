@@ -56,6 +56,7 @@
     "devices": "🖧 Devices",
     "inventory": "📦 Inventory",
     "warehouses": "🏭 Warehouses",
+    "inventoryManagement": "📋 Inventory Management",
     "radiusSessions": "📡 RADIUS Sessions",
     "sessionAccounting": "📈 Session Accounting",
     "snmpMetrics": "📶 SNMP Metrics",
@@ -2517,5 +2518,55 @@
     "dualHomed": "Dual-Homed Devices",
     "noDualHomed": "No dual-homed devices found",
     "uplinks": "Uplinks"
+  },
+  "inventoryManagement": {
+    "title": "Inventory & Asset Management",
+    "loading": "Loading...",
+    "loadError": "Failed to load data",
+    "noItems": "No items found",
+    "prev": "Prev",
+    "next": "Next",
+    "name": "Name",
+    "category": "Category",
+    "status": "Status",
+    "email": "Email",
+    "createdAt": "Created",
+    "tabs": {
+      "stock": "Stock",
+      "assets": "Assets",
+      "vendors": "Vendors",
+      "purchaseOrders": "Purchase Orders",
+      "rma": "RMA"
+    },
+    "stock": {
+      "lowStock": "Low Stock Alerts",
+      "itemName": "Item Name",
+      "sku": "SKU",
+      "reorderLevel": "Reorder Level",
+      "currentStock": "Current Stock"
+    },
+    "assets": {
+      "assetTag": "Asset Tag",
+      "serialNumber": "Serial Number",
+      "category": "Category",
+      "lifecycleStatus": "Status",
+      "warrantyExpires": "Warranty Expires"
+    },
+    "vendors": {
+      "contactName": "Contact Name",
+      "paymentTerms": "Payment Terms",
+      "currency": "Currency"
+    },
+    "purchaseOrders": {
+      "poNumber": "PO Number",
+      "orderDate": "Order Date",
+      "expectedDate": "Expected Date",
+      "total": "Total"
+    },
+    "rma": {
+      "rmaNumber": "RMA Number",
+      "reason": "Reason",
+      "status": "Status"
+    }
   }
 }

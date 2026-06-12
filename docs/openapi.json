@@ -583,6 +583,10 @@
     {
       "name": "Topology Map",
       "description": "Network topology map — device graph, link utilization, geographic layers, geofences, dependency analysis — §13"
+    },
+    {
+      "name": "Inventory & Asset Management",
+      "description": "Vendor management, purchase orders, asset tracking, assignments, and RMA workflow"
     }
   ],
   "paths": {
@@ -37589,6 +37593,1387 @@
         }
       }
     },
+    "/vendors": {
+      "get": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "List vendors",
+        "operationId": "listVendors",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vendor[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Create a Vendor",
+        "operationId": "createVendor",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Vendor",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Vendor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/vendors/{id}": {
+      "get": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Get a Vendor",
+        "operationId": "getVendor",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vendor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Update a Vendor",
+        "operationId": "updateVendor",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Vendor",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Vendor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Delete a Vendor",
+        "operationId": "deleteVendor",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/vendors/{id}/restore": {
+      "post": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Restore a soft-deleted vendor",
+        "operationId": "restoreVendor",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vendor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/purchase-orders": {
+      "get": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "List purchase-orders",
+        "operationId": "listPurchaseOrders",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PurchaseOrder[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Create a PurchaseOrder",
+        "operationId": "createPurchaseOrder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "PurchaseOrder",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "PurchaseOrder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/purchase-orders/{id}": {
+      "get": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Get a PurchaseOrder",
+        "operationId": "getPurchaseOrder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PurchaseOrder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Update a PurchaseOrder",
+        "operationId": "updatePurchaseOrder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "PurchaseOrder",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PurchaseOrder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Delete a PurchaseOrder",
+        "operationId": "deletePurchaseOrder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/purchase-orders/{id}/items": {
+      "get": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "List line items for a purchase order",
+        "operationId": "listPurchaseOrderItems",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PurchaseOrderItem[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Add a line item to a purchase order",
+        "operationId": "createPurchaseOrderItem",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "PurchaseOrderItem",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "PurchaseOrderItem",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/purchase-orders/{id}/items/{itemId}": {
+      "put": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Update a purchase order line item",
+        "operationId": "updatePurchaseOrderItem",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "PurchaseOrderItem",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PurchaseOrderItem",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Delete a purchase order line item",
+        "operationId": "deletePurchaseOrderItem",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/purchase-orders/{id}/receive": {
+      "post": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Mark a purchase order as received and update stock",
+        "operationId": "receivePurchaseOrder",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "received_date (optional)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PurchaseOrder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/stats": {
+      "get": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Aggregate asset lifecycle stats (counts by status)",
+        "operationId": "getAssetStats",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AssetStats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/low-stock": {
+      "get": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "List inventory items below reorder threshold",
+        "operationId": "getLowStockItems",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "InventoryItem[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/scan": {
+      "post": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Lookup an asset by barcode or asset tag",
+        "operationId": "scanAsset",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "barcode",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Asset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets": {
+      "get": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "List assets",
+        "operationId": "listAssets",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Asset[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Create a Asset",
+        "operationId": "createAsset",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Asset",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Asset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/{id}": {
+      "get": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Get a Asset",
+        "operationId": "getAsset",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Asset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Update a Asset",
+        "operationId": "updateAsset",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Asset",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Asset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Delete a Asset",
+        "operationId": "deleteAsset",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/assets/{id}/barcode": {
+      "get": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Get barcode payload and metadata for an asset",
+        "operationId": "getAssetBarcode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "BarcodeData",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/{id}/depreciation": {
+      "get": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Calculate current book value and depreciation schedule",
+        "operationId": "getAssetDepreciation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DepreciationData",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/{id}/assign": {
+      "post": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Assign an asset to a client",
+        "operationId": "assignAsset",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "client_id + notes",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "AssetAssignment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/{id}/unassign": {
+      "post": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Return/unassign an asset from its current holder",
+        "operationId": "unassignAsset",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "notes (optional)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "AssetAssignment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/{id}/dispose": {
+      "post": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Dispose of an asset (write-off)",
+        "operationId": "disposeAsset",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "disposal_reason + disposal_notes",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Asset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/{id}/assignments": {
+      "get": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "List assignment history for an asset",
+        "operationId": "listAssetAssignments",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AssetAssignment[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rma-requests": {
+      "get": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "List rma-requests",
+        "operationId": "listRmaRequests",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RmaRequest[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Create a RmaRequest",
+        "operationId": "createRmaRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "RmaRequest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "RmaRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rma-requests/{id}": {
+      "get": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Get a RmaRequest",
+        "operationId": "getRmaRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RmaRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Update a RmaRequest",
+        "operationId": "updateRmaRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "RmaRequest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "RmaRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Delete a RmaRequest",
+        "operationId": "deleteRmaRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/rma-requests/{id}/ship": {
+      "post": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Mark RMA as shipped to vendor",
+        "operationId": "shipRmaRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "tracking_number (optional)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "RmaRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rma-requests/{id}/receive": {
+      "post": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Mark RMA as received back from vendor",
+        "operationId": "receiveRmaRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RmaRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rma-requests/{id}/close": {
+      "post": {
+        "tags": [
+          "Inventory & Asset Management"
+        ],
+        "summary": "Close an RMA request (resolved/cancelled/replaced)",
+        "operationId": "closeRmaRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "status + replacement_asset_id + notes",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "RmaRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/acs/cwmp": {
       "post": {
         "tags": [
@@ -38228,6 +39613,261 @@
             "type": "string"
           }
         }
+      },
+      "assets_createAsset": {
+        "type": "object",
+        "properties": {
+          "asset_tag": {
+            "type": "string",
+            "maximum": 100
+          },
+          "barcode": {
+            "type": "string",
+            "maximum": 200
+          },
+          "name": {
+            "type": "string",
+            "maximum": 255
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "router",
+              "switch",
+              "onu",
+              "olt",
+              "sfp",
+              "cable",
+              "antenna",
+              "cpe",
+              "server",
+              "tool",
+              "other"
+            ]
+          },
+          "manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "model": {
+            "type": "string",
+            "maximum": 100
+          },
+          "serial_number": {
+            "type": "string",
+            "maximum": 100
+          },
+          "inventory_item_id": {
+            "type": "number"
+          },
+          "warehouse_id": {
+            "type": "number"
+          },
+          "vendor_id": {
+            "type": "number"
+          },
+          "purchase_order_id": {
+            "type": "number"
+          },
+          "lifecycle_status": {
+            "type": "string",
+            "enum": [
+              "in_stock",
+              "assigned",
+              "deployed",
+              "maintenance",
+              "rma",
+              "disposed"
+            ]
+          },
+          "purchase_date": {
+            "type": "string"
+          },
+          "purchase_cost": {
+            "type": "number",
+            "minimum": 0
+          },
+          "warranty_expires_at": {
+            "type": "string"
+          },
+          "warranty_notes": {
+            "type": "string"
+          },
+          "depreciation_method": {
+            "type": "string",
+            "enum": [
+              "straight_line",
+              "declining_balance",
+              "none"
+            ]
+          },
+          "useful_life_months": {
+            "type": "number",
+            "minimum": 1
+          },
+          "salvage_value": {
+            "type": "number",
+            "minimum": 0
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "assets_updateAsset": {
+        "type": "object",
+        "properties": {
+          "asset_tag": {
+            "type": "string",
+            "maximum": 100
+          },
+          "barcode": {
+            "type": "string",
+            "maximum": 200
+          },
+          "name": {
+            "type": "string",
+            "maximum": 255
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "router",
+              "switch",
+              "onu",
+              "olt",
+              "sfp",
+              "cable",
+              "antenna",
+              "cpe",
+              "server",
+              "tool",
+              "other"
+            ]
+          },
+          "manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "model": {
+            "type": "string",
+            "maximum": 100
+          },
+          "serial_number": {
+            "type": "string",
+            "maximum": 100
+          },
+          "inventory_item_id": {
+            "type": "number"
+          },
+          "warehouse_id": {
+            "type": "number"
+          },
+          "vendor_id": {
+            "type": "number"
+          },
+          "purchase_order_id": {
+            "type": "number"
+          },
+          "lifecycle_status": {
+            "type": "string",
+            "enum": [
+              "in_stock",
+              "assigned",
+              "deployed",
+              "maintenance",
+              "rma",
+              "disposed"
+            ]
+          },
+          "purchase_date": {
+            "type": "string"
+          },
+          "purchase_cost": {
+            "type": "number",
+            "minimum": 0
+          },
+          "warranty_expires_at": {
+            "type": "string"
+          },
+          "warranty_notes": {
+            "type": "string"
+          },
+          "depreciation_method": {
+            "type": "string",
+            "enum": [
+              "straight_line",
+              "declining_balance",
+              "none"
+            ]
+          },
+          "useful_life_months": {
+            "type": "number",
+            "minimum": 1
+          },
+          "salvage_value": {
+            "type": "number",
+            "minimum": 0
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "assets_assignAsset": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number"
+          },
+          "device_id": {
+            "type": "number"
+          },
+          "port_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "assets_disposeAsset": {
+        "type": "object",
+        "properties": {
+          "disposal_reason": {
+            "type": "string",
+            "enum": [
+              "end_of_life",
+              "damaged",
+              "lost",
+              "stolen",
+              "sold",
+              "other"
+            ]
+          },
+          "disposal_notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "disposal_reason"
+        ]
+      },
+      "assets_scanAsset": {
+        "type": "object",
+        "properties": {
+          "barcode": {
+            "type": "string",
+            "maximum": 200
+          }
+        },
+        "required": [
+          "barcode"
+        ]
       },
       "auditLogs_listAuditLogs": {
         "type": "object",
@@ -49734,6 +51374,192 @@
           }
         }
       },
+      "purchaseOrders_createPurchaseOrder": {
+        "type": "object",
+        "properties": {
+          "vendor_id": {
+            "type": "number"
+          },
+          "po_number": {
+            "type": "string",
+            "maximum": 100
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "sent",
+              "partial",
+              "received",
+              "cancelled"
+            ]
+          },
+          "order_date": {
+            "type": "string"
+          },
+          "expected_date": {
+            "type": "string"
+          },
+          "received_date": {
+            "type": "string"
+          },
+          "warehouse_id": {
+            "type": "number"
+          },
+          "subtotal": {
+            "type": "number",
+            "minimum": 0
+          },
+          "tax_amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "total": {
+            "type": "number",
+            "minimum": 0
+          },
+          "currency": {
+            "type": "string",
+            "maximum": 3
+          },
+          "reference": {
+            "type": "string",
+            "maximum": 255
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "po_number"
+        ]
+      },
+      "purchaseOrders_updatePurchaseOrder": {
+        "type": "object",
+        "properties": {
+          "vendor_id": {
+            "type": "number"
+          },
+          "po_number": {
+            "type": "string",
+            "maximum": 100
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "sent",
+              "partial",
+              "received",
+              "cancelled"
+            ]
+          },
+          "order_date": {
+            "type": "string"
+          },
+          "expected_date": {
+            "type": "string"
+          },
+          "received_date": {
+            "type": "string"
+          },
+          "warehouse_id": {
+            "type": "number"
+          },
+          "subtotal": {
+            "type": "number",
+            "minimum": 0
+          },
+          "tax_amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "total": {
+            "type": "number",
+            "minimum": 0
+          },
+          "currency": {
+            "type": "string",
+            "maximum": 3
+          },
+          "reference": {
+            "type": "string",
+            "maximum": 255
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "purchaseOrders_createPoItem": {
+        "type": "object",
+        "properties": {
+          "inventory_item_id": {
+            "type": "number"
+          },
+          "description": {
+            "type": "string",
+            "maximum": 255
+          },
+          "quantity_ordered": {
+            "type": "number",
+            "minimum": 1
+          },
+          "quantity_received": {
+            "type": "number",
+            "minimum": 0
+          },
+          "unit_cost": {
+            "type": "number",
+            "minimum": 0
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "quantity_ordered"
+        ]
+      },
+      "purchaseOrders_updatePoItem": {
+        "type": "object",
+        "properties": {
+          "inventory_item_id": {
+            "type": "number"
+          },
+          "description": {
+            "type": "string",
+            "maximum": 255
+          },
+          "quantity_ordered": {
+            "type": "number",
+            "minimum": 1
+          },
+          "quantity_received": {
+            "type": "number",
+            "minimum": 0
+          },
+          "unit_cost": {
+            "type": "number",
+            "minimum": 0
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "purchaseOrders_receivePo": {
+        "type": "object",
+        "properties": {
+          "received_date": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
       "qualityClasses_createQualityClass": {
         "type": "object",
         "properties": {
@@ -50840,6 +52666,111 @@
             "maximum": 100
           }
         }
+      },
+      "rmaRequests_createRmaRequest": {
+        "type": "object",
+        "properties": {
+          "rma_number": {
+            "type": "string",
+            "maximum": 100
+          },
+          "asset_id": {
+            "type": "number"
+          },
+          "vendor_id": {
+            "type": "number"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "defective",
+              "wrong_item",
+              "damaged_in_transit",
+              "warranty_claim",
+              "other"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rma_number"
+        ]
+      },
+      "rmaRequests_updateRmaRequest": {
+        "type": "object",
+        "properties": {
+          "rma_number": {
+            "type": "string",
+            "maximum": 100
+          },
+          "asset_id": {
+            "type": "number"
+          },
+          "vendor_id": {
+            "type": "number"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "defective",
+              "wrong_item",
+              "damaged_in_transit",
+              "warranty_claim",
+              "other"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "replacement_asset_id": {
+            "type": "number"
+          }
+        }
+      },
+      "rmaRequests_shipRma": {
+        "type": "object",
+        "properties": {
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "rmaRequests_receiveRma": {
+        "type": "object",
+        "properties": {
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "rmaRequests_closeRma": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "closed",
+              "denied"
+            ]
+          },
+          "replacement_asset_id": {
+            "type": "number"
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ]
       },
       "roles_createRole": {
         "type": "object",
@@ -53362,6 +55293,109 @@
           "phone": {
             "type": "string",
             "maximum": 30
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        }
+      },
+      "vendors_createVendor": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maximum": 255
+          },
+          "contact_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "email": {
+            "type": "string",
+            "maximum": 255
+          },
+          "phone": {
+            "type": "string",
+            "maximum": 50
+          },
+          "website": {
+            "type": "string",
+            "maximum": 255
+          },
+          "address": {
+            "type": "string"
+          },
+          "tax_id": {
+            "type": "string",
+            "maximum": 100
+          },
+          "payment_terms": {
+            "type": "string",
+            "maximum": 100
+          },
+          "currency": {
+            "type": "string",
+            "maximum": 3
+          },
+          "notes": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "vendors_updateVendor": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maximum": 255
+          },
+          "contact_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "email": {
+            "type": "string",
+            "maximum": 255
+          },
+          "phone": {
+            "type": "string",
+            "maximum": 50
+          },
+          "website": {
+            "type": "string",
+            "maximum": 255
+          },
+          "address": {
+            "type": "string"
+          },
+          "tax_id": {
+            "type": "string",
+            "maximum": 100
+          },
+          "payment_terms": {
+            "type": "string",
+            "maximum": 100
+          },
+          "currency": {
+            "type": "string",
+            "maximum": 3
+          },
+          "notes": {
+            "type": "string"
           },
           "status": {
             "type": "string",

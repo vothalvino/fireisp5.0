@@ -24,6 +24,7 @@ const interactionService = require('./interactionService');
 const campaignService = require('./campaignService');
 const lateFeeService = require('./lateFeeService');
 const paymentReminderService = require('./paymentReminderService');
+const assetService = require('./assetService');
 const emailTemplates = require('../views/emailTemplates');
 const { backup: runBackup } = require('../scripts/backup');
 
@@ -131,6 +132,8 @@ async function runTask(taskName, organizationId = null) {
       const geoFenceService = require('./geoFenceService');
       return geoFenceService.evaluateAll(organizationId);
     }
+    case 'inventory_low_stock_check':
+      return handleInventoryLowStockCheck(organizationId);
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }
@@ -437,4 +440,28 @@ async function handleSlaBreachCheck(organizationId) {
   return { checked: events.length, breached };
 }
 
-module.exports = { listTasks, runTask, markTaskRun, runAutoInvoice, runAutoSuspend, runSuspensionWarnings, runBillingCycle, runCsdExpiryCheck, handleSlaBreachCheck };
+/**
+ * Check all inventory items that have fallen below their reorder_level and
+ * surface them as alert-style results so operators can restock.
+ * Mirrors the sla_breach_check pattern: query, iterate, return a summary.
+ * The task is seeded with organization_id = NULL (global) so orgId may be null —
+ * getLowStockItems already handles that by omitting the org filter.
+ */
+async function handleInventoryLowStockCheck(organizationId) {
+  const items = await assetService.getLowStockItems(organizationId);
+
+  return {
+    checked: items.length,
+    low_stock_count: items.length,
+    items: items.map(i => ({
+      item_id: i.item_id,
+      name: i.name,
+      sku: i.sku,
+      reorder_level: i.reorder_level,
+      total_stock: i.total_stock,
+      deficit: i.reorder_level - i.total_stock,
+    })),
+  };
+}
+
+module.exports = { listTasks, runTask, markTaskRun, runAutoInvoice, runAutoSuspend, runSuspensionWarnings, runBillingCycle, runCsdExpiryCheck, handleSlaBreachCheck, handleInventoryLowStockCheck };

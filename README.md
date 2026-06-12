@@ -84,7 +84,7 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 - Customer interaction tracking — unified per-client activity timeline (calls, emails, tickets, payments, visits), manual interaction logging, follow-up reminders with automated due notifications, NPS/CSAT satisfaction surveys (auto-dispatched on ticket resolution) with aggregate metrics, and ticket escalation management with auto-escalation of stale unresolved tickets
 - Internationalization (i18n) — English, Spanish, and Brazilian Portuguese locale support
 - Customer self-service portal (§11) — dashboard with plan overview, live session status, daily usage graph; invoice PDF/CFDI download; online payment (card/OXXO/SPEI/PayPal via checkout session); payment history; self-service requests (plan upgrade with proration, Wi-Fi/PPPoE password change, static IP, cancellation, visit schedule) with admin approval workflow; knowledge-base / FAQ with rating; embedded speed test (queues `subscriber_speed_test_jobs`, results view); AI-powered chatbot with automatic ticket-creation fallback; callback request; Web Push notification subscriptions (outage/billing/ticket events); PWA with offline service worker and web app manifest
-- RESTful API with 369 endpoints, interactive Swagger UI documentation (`/api/docs`), and static OpenAPI spec (`docs/openapi.json`)
+- RESTful API with 409 REST API endpoints, interactive Swagger UI documentation (`/api/docs`), and static OpenAPI spec (`docs/openapi.json`)
 - GraphQL gateway (`/api/v1/graphql`) powered by graphql-yoga v5 — single-request multi-entity fetches, real-time subscriptions via SSE (PubSub), and a live ClientDetail query replacing multiple REST round-trips
 - Real-time event hub (WebSocket + SSE dual-broadcast) — live Dashboard device-status indicator, live TicketDetail comment stream, and a useWebSocket React hook for all frontend consumers
 - httpOnly SameSite=Strict cookie authentication — access token in memory, refresh token in httpOnly cookie, Origin-based CSRF guard; eliminates localStorage token exposure
@@ -109,8 +109,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 254 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–304)
+│   ├── schema.sql           # Combined schema (all 260 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–307)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -416,6 +416,12 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 252 | `map_infrastructure_points` | Infrastructure map pins (§13.2) — towers, cabinets, ODFs, splice closures, poles, POPs; lat/lng, site_id FK, properties JSON, is_active |
 | 253 | `fiber_route_segments` | Fiber route polyline sub-segments (§13.2) — ordered sequence within a parent fiber_route, GeoJSON LineString coordinates, cable type, burial type, fiber count |
 | 254 | `device_dependency_edges` | Device parent-child dependency graph edges (§13.3) — directed parent-child relationship for cascade visualization and impact analysis; dependency_type ENUM, is_redundant flag |
+| 255 | `vendors` | Vendor/supplier registry (§14.2) — contact info, payment terms, currency, status; org-scoped with soft-delete |
+| 256 | `purchase_orders` | Purchase orders to vendors (§14.2) — po_number, status ENUM draft/sent/partial/received/cancelled, line items, subtotal/tax/total, destination warehouse; org-scoped with soft-delete |
+| 257 | `purchase_order_items` | Line items within a purchase order (§14.2) — inventory_item_id FK, description, quantity_ordered, quantity_received, unit_cost; total_cost GENERATED STORED column |
+| 258 | `assets` | Individual trackable assets with serial numbers (§14.2/§14.3) — asset_tag, barcode, lifecycle_status ENUM, warranty_expires_at, depreciation_method ENUM, purchase_date/cost, disposal fields; FKs to vendors/warehouses/purchase_orders |
+| 259 | `asset_assignments` | Equipment-to-customer and equipment-to-device assignments (§14.3) — client_id/device_id/port_name assignment targets, assigned_at/returned_at lifecycle, assigned_by/returned_by users |
+| 260 | `rma_requests` | Return Merchandise Authorization workflow (§14.2) — rma_number, status ENUM open/shipped/received/replacement_sent/closed/denied, reason ENUM, replacement_asset_id FK; linked to assets and vendors |
 
 > **Migration 165–173 table count note:** See migrations 241–246 below for the §5 Dual Stack tables. See migrations 249–263 for §6.1–6.6 SNMP & NMS tables.
 
@@ -512,6 +518,12 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 303 — Topology and Mapping Permissions (§13):** `303_seed_topology_permissions.sql` seeds 12 permissions across topology, mapping, and geofences modules. Admin gets all 12; technician gets 8; support gets 4; readonly gets 2.
 
 > **Migration 304 — Geofence Evaluation Task (§13.2):** `304_seed_geofence_evaluation_task.sql` seeds `geofence_evaluation` scheduled task (task_type=other, `*/10 * * * *`) running `geoFenceService.evaluateAll()` per org.
+
+> **Migration 305 — Inventory & Asset Management Tables (§14):** `305_inventory_asset_management_tables.sql` creates six new tables: `vendors` (supplier registry with contact info, payment terms, currency, soft-delete), `purchase_orders` (PO lifecycle draft→sent→partial→received/cancelled with warehouse destination and line-item totals), `purchase_order_items` (line items with GENERATED STORED total_cost), `assets` (individually tracked physical assets with serial numbers, barcodes, warranty expiry, depreciation, and disposal tracking — linked to vendors, warehouses, and purchase orders), `asset_assignments` (equipment assignment history for customer and device/port targets), and `rma_requests` (RMA workflow with replacement asset tracking).
+
+> **Migration 306 — Inventory & Asset Permissions Seed (§14):** `306_seed_inventory_asset_permissions.sql` seeds 20 permissions across four modules: `vendors.*` (4), `purchase_orders.*` (5 including purchase_orders.receive), `assets.*` (7 including assets.assign/dispose/scan), `rma.*` (4 including rma.close). Role matrix: admin (all 20), technician (8 operational permissions), readonly (4 view-only permissions).
+
+> **Migration 307 — Low-Stock Scheduled Task (§14.1):** `307_seed_inventory_low_stock_task.sql` seeds `inventory_low_stock_check` (task_type=notification, cron `0 * * * *` — every hour) to scan inventory items below their reorder level and dispatch low-stock alert notifications.
 
 > **Migrations 237–240 — §4 PPPoE Management Phase B (Service Profiles, Diagnostics, Permissions):**
 > `237_create_pppoe_service_profiles.sql` creates `pppoe_service_profiles` table and adds guarded `service_profile_id` columns to `ip_pools` and `radius` (both FK→pppoe_service_profiles ON DELETE SET NULL). `238_create_radpostauth.sql` adds `radpostauth` table (no FKs — FreeRADIUS writes directly). `239_create_pppoe_event_logs.sql` adds `pppoe_event_logs` table (no FKs on organization_id/nas_id for loose-coupling syslog ingest). `240_seed_pppoe_phase_b_permissions.sql` seeds 6 RBAC permissions (`pppoe_service_profiles.view/create/update/delete`, `pppoe.diagnostics`, `pppoe.events_ingest`) and registers the `scan_auth_failures` scheduled task (every 15 min). New services: `pppoeDiagnosticsService` with `classifyAuthFailures()` (org-scoped radpostauth query, reason classification: bad_password/unknown_user/session_limit/no_pool/other), `detectMtuIssues()` (profile MTU > 1492 advisory + heuristic LCP-failure/MTU-mismatch advisory), `scanAuthFailures()` (scheduler handler, emits `pppoe.auth_failures` events). `syncFreeradiusTables()` extended: loads active service profiles per org, determines effective profile per subscriber (account-level `service_profile_id` overrides pool-level), emits `Framed-MTU`, `MS-Primary-DNS-Server`, `MS-Secondary-DNS-Server`, `Session-Timeout`, `Idle-Timeout`, `Filter-Id`, `Mikrotik-Address-List`, and `Mikrotik-Rate-Limit` radreply rows. RouterOS log line parser `parseRouterOsLogLine()` handles PADI/PADS/LCP/IPCP/AUTH/PADT patterns. New API endpoints: full CRUD under `/pppoe-service-profiles` + restore; `GET /pppoe/diagnostics/auth-failures`, `GET /pppoe/diagnostics/mtu-issues`, `GET /pppoe/events` (JWT auth); `POST /pppoe/events` (M2M secret auth via `X-Pppoe-Secret` header or `Authorization: Bearer`). Env vars: `PPPOE_EVENTS_SECRET` (M2M secret, falls back to `RADIUS_ACCOUNTING_SECRET`).

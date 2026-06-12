@@ -525,27 +525,27 @@
 ## 14. Inventory & Asset Management
 
 ### 14.1 Stock Management
-- [ ] Warehouses / storage locations
-- [ ] Product catalog: cables, converters, ONTs, routers, switches, SFP modules, splitters, fiber patch cords, connectors
-- [ ] Stock in/out tracking with document reference (PO, invoice)
-- [ ] Barcode/QR code generation and scanning
-- [ ] Minimum stock alerts
-- [ ] Stock transfer between locations
+- [x] Warehouses / storage locations
+- [x] Product catalog: cables, converters, ONTs, routers, switches, SFP modules, splitters, fiber patch cords, connectors
+- [x] Stock in/out tracking with document reference (PO, invoice)
+- [x] Barcode/QR code generation and scanning
+- [x] Minimum stock alerts
+- [x] Stock transfer between locations
 
 ### 14.2 Lifecycle
-- [ ] Purchase order management
-- [ ] Vendor / supplier management
-- [ ] Warranty tracking and expiration alerts
-- [ ] Depreciation calculation
-- [ ] Disposal / write-off tracking
-- [ ] Asset tagging and scanning
+- [x] Purchase order management
+- [x] Vendor / supplier management
+- [x] Warranty tracking and expiration alerts
+- [x] Depreciation calculation
+- [x] Disposal / write-off tracking
+- [x] Asset tagging and scanning
 
 ### 14.3 Assignment
-- [ ] Equipment-to-customer assignment
-- [ ] Equipment-to-OLT/switch port assignment
-- [ ] Equipment swap workflow
-- [ ] Serial number tracking for all network equipment
-- [ ] RMA (Return Merchandise Authorization) workflow
+- [x] Equipment-to-customer assignment
+- [x] Equipment-to-OLT/switch port assignment
+- [x] Equipment swap workflow
+- [x] Serial number tracking for all network equipment
+- [x] RMA (Return Merchandise Authorization) workflow
 
 ---
 

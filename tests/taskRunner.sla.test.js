@@ -36,8 +36,10 @@ jest.mock('../src/services/paymentReminderService', () => ({}));
 jest.mock('../src/views/emailTemplates',          () => ({}));
 jest.mock('../src/scripts/backup',               () => ({ backup: jest.fn() }));
 jest.mock('../src/utils/logger',                  () => ({ child: () => ({ warn: jest.fn(), info: jest.fn(), error: jest.fn() }) }));
+jest.mock('../src/services/assetService',         () => ({ getLowStockItems: jest.fn() }));
 
 const { runTask } = require('../src/services/taskRunner');
+const assetService = require('../src/services/assetService');
 
 afterEach(() => jest.clearAllMocks());
 
@@ -89,5 +91,41 @@ describe('taskRunner — sla_breach_check', () => {
       expect.not.stringContaining('t.organization_id = ?'),
       [],
     );
+  });
+});
+
+describe('taskRunner — inventory_low_stock_check', () => {
+  it('dispatches to assetService.getLowStockItems and returns summary shape', async () => {
+    assetService.getLowStockItems.mockResolvedValueOnce([
+      { item_id: 1, name: 'Cable CAT6', sku: 'CAT6-100', reorder_level: 50, total_stock: 10 },
+      { item_id: 2, name: 'SFP Module', sku: 'SFP-1G',   reorder_level: 20, total_stock: 5 },
+    ]);
+
+    const result = await runTask('inventory_low_stock_check', 1);
+
+    expect(assetService.getLowStockItems).toHaveBeenCalledWith(1);
+    expect(result.checked).toBe(2);
+    expect(result.low_stock_count).toBe(2);
+    expect(result.items).toHaveLength(2);
+    expect(result.items[0]).toMatchObject({ item_id: 1, deficit: 40 });
+    expect(result.items[1]).toMatchObject({ item_id: 2, deficit: 15 });
+  });
+
+  it('returns zero counts when all items are adequately stocked', async () => {
+    assetService.getLowStockItems.mockResolvedValueOnce([]);
+
+    const result = await runTask('inventory_low_stock_check', 1);
+
+    expect(result.checked).toBe(0);
+    expect(result.low_stock_count).toBe(0);
+    expect(result.items).toEqual([]);
+  });
+
+  it('passes null organizationId through to getLowStockItems for the global seeded task', async () => {
+    assetService.getLowStockItems.mockResolvedValueOnce([]);
+
+    await runTask('inventory_low_stock_check', null);
+
+    expect(assetService.getLowStockItems).toHaveBeenCalledWith(null);
   });
 });

@@ -182,6 +182,7 @@ function generateSpec() {
       { name: 'Work Orders', description: 'Field work order management with GPS scheduling and material tracking — §12.3' },
       { name: 'Technician Tracking', description: 'Real-time technician GPS breadcrumbs, last-known positions, and route optimization — §12.3' },
       { name: 'Topology Map', description: 'Network topology map — device graph, link utilization, geographic layers, geofences, dependency analysis — §13' },
+      { name: 'Inventory & Asset Management', description: 'Vendor management, purchase orders, asset tracking, assignments, and RMA workflow' },
     ],
     paths: {
       // ---- Auth ----
@@ -1997,6 +1998,37 @@ function generateSpec() {
       '/topology/dependencies/{id}': {
         delete: { tags: ['Topology Map'], summary: 'Delete a device dependency edge', operationId: 'deleteDependencyEdge', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
       },
+
+      // ---- Inventory & Asset Management §14 ----
+      ...crudPaths('vendors', 'Inventory & Asset Management', 'Vendor'),
+      '/vendors/{id}/restore': { post: { tags: ['Inventory & Asset Management'], summary: 'Restore a soft-deleted vendor', operationId: 'restoreVendor', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Vendor') } },
+
+      ...crudPaths('purchase-orders', 'Inventory & Asset Management', 'PurchaseOrder'),
+      '/purchase-orders/{id}/items': {
+        get: { tags: ['Inventory & Asset Management'], summary: 'List line items for a purchase order', operationId: 'listPurchaseOrderItems', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('PurchaseOrderItem[]') },
+        post: { tags: ['Inventory & Asset Management'], summary: 'Add a line item to a purchase order', operationId: 'createPurchaseOrderItem', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('PurchaseOrderItem'), responses: r201('PurchaseOrderItem') },
+      },
+      '/purchase-orders/{id}/items/{itemId}': {
+        put: { tags: ['Inventory & Asset Management'], summary: 'Update a purchase order line item', operationId: 'updatePurchaseOrderItem', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'itemId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('PurchaseOrderItem'), responses: r200('PurchaseOrderItem') },
+        delete: { tags: ['Inventory & Asset Management'], summary: 'Delete a purchase order line item', operationId: 'deletePurchaseOrderItem', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'itemId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/purchase-orders/{id}/receive': { post: { tags: ['Inventory & Asset Management'], summary: 'Mark a purchase order as received and update stock', operationId: 'receivePurchaseOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('received_date (optional)'), responses: r200('PurchaseOrder') } },
+
+      '/assets/stats': { get: { tags: ['Inventory & Asset Management'], summary: 'Aggregate asset lifecycle stats (counts by status)', operationId: 'getAssetStats', security: [{ bearerAuth: [] }], responses: r200('AssetStats') } },
+      '/assets/low-stock': { get: { tags: ['Inventory & Asset Management'], summary: 'List inventory items below reorder threshold', operationId: 'getLowStockItems', security: [{ bearerAuth: [] }], responses: r200('InventoryItem[]') } },
+      '/assets/scan': { post: { tags: ['Inventory & Asset Management'], summary: 'Lookup an asset by barcode or asset tag', operationId: 'scanAsset', security: [{ bearerAuth: [] }], requestBody: jsonBody('barcode'), responses: r200('Asset') } },
+      ...crudPaths('assets', 'Inventory & Asset Management', 'Asset'),
+      '/assets/{id}/barcode': { get: { tags: ['Inventory & Asset Management'], summary: 'Get barcode payload and metadata for an asset', operationId: 'getAssetBarcode', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('BarcodeData') } },
+      '/assets/{id}/depreciation': { get: { tags: ['Inventory & Asset Management'], summary: 'Calculate current book value and depreciation schedule', operationId: 'getAssetDepreciation', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DepreciationData') } },
+      '/assets/{id}/assign': { post: { tags: ['Inventory & Asset Management'], summary: 'Assign an asset to a client', operationId: 'assignAsset', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('client_id + notes'), responses: r201('AssetAssignment') } },
+      '/assets/{id}/unassign': { post: { tags: ['Inventory & Asset Management'], summary: 'Return/unassign an asset from its current holder', operationId: 'unassignAsset', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('notes (optional)'), responses: r200('AssetAssignment') } },
+      '/assets/{id}/dispose': { post: { tags: ['Inventory & Asset Management'], summary: 'Dispose of an asset (write-off)', operationId: 'disposeAsset', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('disposal_reason + disposal_notes'), responses: r200('Asset') } },
+      '/assets/{id}/assignments': { get: { tags: ['Inventory & Asset Management'], summary: 'List assignment history for an asset', operationId: 'listAssetAssignments', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('AssetAssignment[]') } },
+
+      ...crudPaths('rma-requests', 'Inventory & Asset Management', 'RmaRequest'),
+      '/rma-requests/{id}/ship': { post: { tags: ['Inventory & Asset Management'], summary: 'Mark RMA as shipped to vendor', operationId: 'shipRmaRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('tracking_number (optional)'), responses: r200('RmaRequest') } },
+      '/rma-requests/{id}/receive': { post: { tags: ['Inventory & Asset Management'], summary: 'Mark RMA as received back from vendor', operationId: 'receiveRmaRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('RmaRequest') } },
+      '/rma-requests/{id}/close': { post: { tags: ['Inventory & Asset Management'], summary: 'Close an RMA request (resolved/cancelled/replaced)', operationId: 'closeRmaRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('status + replacement_asset_id + notes'), responses: r200('RmaRequest') } },
 
       // ---- ACS / CWMP (outside /api/v1) ----
       '/acs/cwmp': {
