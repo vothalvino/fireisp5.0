@@ -11255,15 +11255,15 @@ CREATE TABLE IF NOT EXISTS technician_gps_breadcrumbs (
 -- Table: ticket_attachments (migration 300 — §12)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ticket_attachments (
-  id               INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  ticket_id        INT UNSIGNED NOT NULL,
+  id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  ticket_id        BIGINT UNSIGNED NOT NULL,
   filename         VARCHAR(255) NOT NULL,
   original_filename VARCHAR(255) NOT NULL,
   mime_type        VARCHAR(100) NOT NULL,
   file_size        INT UNSIGNED NOT NULL,
   storage_path     VARCHAR(500) NOT NULL,
-  uploaded_by      INT UNSIGNED NOT NULL,
-  organization_id  INT UNSIGNED NOT NULL,
+  uploaded_by      BIGINT UNSIGNED NOT NULL,
+  organization_id  BIGINT UNSIGNED NOT NULL,
   created_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_ticket_attachments_ticket (ticket_id),
@@ -11277,15 +11277,15 @@ CREATE TABLE IF NOT EXISTS ticket_attachments (
 -- Table: work_order_attachments (migration 301 — §12)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS work_order_attachments (
-  id               INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  work_order_id    INT UNSIGNED NOT NULL,
+  id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  work_order_id    BIGINT UNSIGNED NOT NULL,
   filename         VARCHAR(255) NOT NULL,
   original_filename VARCHAR(255) NOT NULL,
   mime_type        VARCHAR(100) NOT NULL,
   file_size        INT UNSIGNED NOT NULL,
   storage_path     VARCHAR(500) NOT NULL,
-  uploaded_by      INT UNSIGNED NOT NULL,
-  organization_id  INT UNSIGNED NOT NULL,
+  uploaded_by      BIGINT UNSIGNED NOT NULL,
+  organization_id  BIGINT UNSIGNED NOT NULL,
   created_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_wo_attachments_work_order (work_order_id),

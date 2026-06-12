@@ -2,13 +2,40 @@
 // FireISP 5.0 — Work Order Routes — §12.3
 // =============================================================================
 
+const path = require('path');
+const fs = require('fs');
 const { Router } = require('express');
+const multer = require('multer');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createWorkOrder, updateWorkOrder, patchWorkOrder } = require('../middleware/schemas/workOrders');
 const db = require('../config/database');
+
+// ---------------------------------------------------------------------------
+// Multer — work order attachments (disk storage, 20 MB limit)
+// ---------------------------------------------------------------------------
+const ATTACH_DIR = path.resolve(__dirname, '../../uploads/work-orders');
+if (!fs.existsSync(ATTACH_DIR)) fs.mkdirSync(ATTACH_DIR, { recursive: true });
+
+const workOrderAttachUpload = multer({
+  storage: multer.diskStorage({
+    destination: ATTACH_DIR,
+    filename: (_req, file, cb) => {
+      const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      cb(null, unique + path.extname(file.originalname));
+    },
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 },
+}).single('file');
+
+function uploadAttachment(req, res, next) {
+  workOrderAttachUpload(req, res, (err) => {
+    if (err) return res.status(422).json({ error: err.message });
+    next();
+  });
+}
 
 const router = Router();
 
@@ -180,6 +207,57 @@ router.delete('/:id/materials/:matId', requirePermission('work_order_materials.d
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Material not found' });
     res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Work order attachments (§12.3 — installation photos)
+// ---------------------------------------------------------------------------
+router.get('/:id/attachments', requirePermission('work_order_attachments.view'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT id, filename, original_filename, mime_type, file_size, uploaded_by, created_at FROM work_order_attachments WHERE work_order_id = ? AND organization_id = ? ORDER BY created_at DESC',
+      [req.params.id, req.orgId],
+    );
+    res.json({ data: rows });
+  } catch (err) { next(err); }
+});
+
+router.post('/:id/attachments', requirePermission('work_order_attachments.create'), uploadAttachment, async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(422).json({ error: 'No file uploaded' });
+    const [result] = await db.query(
+      'INSERT INTO work_order_attachments (work_order_id, filename, original_filename, mime_type, file_size, storage_path, uploaded_by, organization_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [req.params.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, req.file.path, req.user.id, req.orgId],
+    );
+    const [[row]] = await db.query('SELECT id, filename, original_filename, mime_type, file_size, uploaded_by, created_at FROM work_order_attachments WHERE id = ?', [result.insertId]);
+    res.status(201).json({ data: row });
+  } catch (err) { next(err); }
+});
+
+router.delete('/:id/attachments/:attachmentId', requirePermission('work_order_attachments.delete'), async (req, res, next) => {
+  try {
+    const [[row]] = await db.query(
+      'SELECT storage_path FROM work_order_attachments WHERE id = ? AND work_order_id = ? AND organization_id = ?',
+      [req.params.attachmentId, req.params.id, req.orgId],
+    );
+    if (!row) return res.status(404).json({ error: 'Attachment not found' });
+    await db.query('DELETE FROM work_order_attachments WHERE id = ?', [req.params.attachmentId]);
+    fs.unlink(row.storage_path, () => {});
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+router.get('/:id/attachments/:attachmentId/download', requirePermission('work_order_attachments.view'), async (req, res, next) => {
+  try {
+    const [[row]] = await db.query(
+      'SELECT * FROM work_order_attachments WHERE id = ? AND work_order_id = ? AND organization_id = ?',
+      [req.params.attachmentId, req.params.id, req.orgId],
+    );
+    if (!row) return res.status(404).json({ error: 'Attachment not found' });
+    res.setHeader('Content-Disposition', `attachment; filename="${row.original_filename}"`);
+    res.setHeader('Content-Type', row.mime_type);
+    res.sendFile(row.storage_path);
   } catch (err) { next(err); }
 });
 

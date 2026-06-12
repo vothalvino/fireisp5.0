@@ -36,3 +36,6 @@ Thumbs.db
 
 # Build artifacts
 dist/
+
+# Runtime file uploads (ticket / work order attachments)
+uploads/

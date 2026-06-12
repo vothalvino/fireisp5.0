@@ -1919,6 +1919,16 @@ function generateSpec() {
       '/work-orders/{id}/materials/{matId}': {
         delete: { tags: ['Work Orders'], summary: 'Remove a material log entry', operationId: 'deleteWorkOrderMaterial', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'matId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
       },
+      '/work-orders/{id}/attachments': {
+        get: { tags: ['Work Orders'], summary: 'List work order attachments', operationId: 'listWorkOrderAttachments', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('WorkOrderAttachment[]') },
+        post: { tags: ['Work Orders'], summary: 'Upload work order attachment (installation photo)', operationId: 'uploadWorkOrderAttachment', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } } } }, responses: r201('WorkOrderAttachment') },
+      },
+      '/work-orders/{id}/attachments/{attachmentId}': {
+        delete: { tags: ['Work Orders'], summary: 'Delete work order attachment', operationId: 'deleteWorkOrderAttachment', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'attachmentId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/work-orders/{id}/attachments/{attachmentId}/download': {
+        get: { tags: ['Work Orders'], summary: 'Download work order attachment', operationId: 'downloadWorkOrderAttachment', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'attachmentId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200File('application/octet-stream') },
+      },
 
       // ---- Technician Tracking §12.3 ----
       '/technician-tracking/breadcrumb': {
