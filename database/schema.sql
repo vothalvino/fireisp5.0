@@ -10591,7 +10591,7 @@ CREATE TABLE IF NOT EXISTS cpe_lifecycle_history (
 
 -- ---------------------------------------------------------------------------
 -- §9.3 Scheduled task: wireless AP sector poll (migration 284)
--- Placed after all CREATE TABLEs — scheduled_tasks must exist before this
+-- Placed after all table definitions — scheduled_tasks must exist before this
 -- seed runs when schema.sql is applied standalone.
 -- ---------------------------------------------------------------------------
 INSERT INTO scheduled_tasks
