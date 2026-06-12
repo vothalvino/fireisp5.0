@@ -164,6 +164,7 @@ const bandwidthTestRoutes = require('./routes/bandwidthTests');
 const nocDashboardRoutes = require('./routes/nocDashboard');
 const workOrderRoutes = require('./routes/workOrders');
 const technicianTrackingRoutes = require('./routes/technicianTracking');
+const topologyMapRoutes = require('./routes/topologyMap');
 const acsService = require('./services/acsService');
 const graphqlMiddleware = require('./graphql');
 
@@ -446,6 +447,7 @@ v1.use('/outages', outageRoutes);
 v1.use('/noc', nocDashboardRoutes);
 v1.use('/work-orders', workOrderRoutes);
 v1.use('/technician-tracking', technicianTrackingRoutes);
+v1.use('/topology', topologyMapRoutes);
 v1.use('/roles', adminIpAllowlist, roleRoutes);
 v1.use('/api-tokens', apiTokenRoutes);
 v1.use('/sla-definitions', slaDefinitionRoutes);

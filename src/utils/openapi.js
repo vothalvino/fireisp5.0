@@ -181,6 +181,7 @@ function generateSpec() {
       { name: 'NOC Dashboard', description: 'Network Operations Center dashboard — health, alarms, outages, ticket queue, SLA compliance — §12.2' },
       { name: 'Work Orders', description: 'Field work order management with GPS scheduling and material tracking — §12.3' },
       { name: 'Technician Tracking', description: 'Real-time technician GPS breadcrumbs, last-known positions, and route optimization — §12.3' },
+      { name: 'Topology Map', description: 'Network topology map — device graph, link utilization, geographic layers, geofences, dependency analysis — §13' },
     ],
     paths: {
       // ---- Auth ----
@@ -1942,6 +1943,59 @@ function generateSpec() {
       },
       '/technician-tracking/{userId}/history': {
         get: { tags: ['Technician Tracking'], summary: 'Get GPS breadcrumb history for a technician', operationId: 'getTechnicianHistory', security: [{ bearerAuth: [] }], parameters: [{ name: 'userId', in: 'path', required: true, schema: { type: 'integer' } }, limitParam()], responses: r200('GpsBreadcrumb[]') },
+      },
+
+      // ---- Topology Map §13 ----
+      '/topology/map/network': {
+        get: { tags: ['Topology Map'], summary: 'Network device graph with link utilization', operationId: 'getNetworkGraph', security: [{ bearerAuth: [] }], parameters: [{ name: 'layer', in: 'query', required: false, schema: { type: 'string', enum: ['l2', 'l3', 'physical'] } }], responses: r200('nodes + edges') },
+      },
+      '/topology/map/customers': {
+        get: { tags: ['Topology Map'], summary: 'Customer location pins with lat/lng', operationId: 'getCustomerLocations', security: [{ bearerAuth: [] }], responses: r200('Customer[]') },
+      },
+      '/topology/map/coverage': {
+        get: { tags: ['Topology Map'], summary: 'Service area polygons and coverage zones', operationId: 'getCoverageData', security: [{ bearerAuth: [] }], responses: r200('service_areas + coverage_zones') },
+      },
+      '/topology/map/fiber-routes': {
+        get: { tags: ['Topology Map'], summary: 'Fiber route polylines with segments', operationId: 'getFiberRoutes', security: [{ bearerAuth: [] }], responses: r200('FiberRoute[]') },
+      },
+      '/topology/map/infrastructure': {
+        get: { tags: ['Topology Map'], summary: 'Infrastructure map pins — combined infrastructure + sites', operationId: 'getInfrastructurePins', security: [{ bearerAuth: [] }], responses: r200('infrastructure + sites') },
+      },
+      '/topology/map/dual-homed': {
+        get: { tags: ['Topology Map'], summary: 'Devices with 2+ upstream links (dual-homed / redundant)', operationId: 'getDualHomedDevices', security: [{ bearerAuth: [] }], responses: r200('Device[]') },
+      },
+      '/topology/map/impact/{deviceId}': {
+        get: { tags: ['Topology Map'], summary: 'Impact analysis — devices impacted by a device failure', operationId: 'getImpactAnalysis', security: [{ bearerAuth: [] }], parameters: [{ name: 'deviceId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('device + impacted[]') },
+      },
+      '/topology/map/cascade/{deviceId}': {
+        get: { tags: ['Topology Map'], summary: 'Cascade chain — upstream failure chain for a device', operationId: 'getCascadeChain', security: [{ bearerAuth: [] }], parameters: [{ name: 'deviceId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('device + chain[]') },
+      },
+      '/topology/geofences': {
+        get: { tags: ['Topology Map'], summary: 'List geofence zones', operationId: 'listGeofences', security: [{ bearerAuth: [] }], responses: r200('Geofence[]') },
+        post: { tags: ['Topology Map'], summary: 'Create a geofence zone', operationId: 'createGeofence', security: [{ bearerAuth: [] }], requestBody: jsonBody('topologyMap_createGeofence'), responses: r201('Geofence') },
+      },
+      '/topology/geofences/{id}': {
+        get: { tags: ['Topology Map'], summary: 'Get a geofence zone', operationId: 'getGeofence', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Geofence') },
+        put: { tags: ['Topology Map'], summary: 'Update a geofence zone', operationId: 'updateGeofence', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('topologyMap_updateGeofence'), responses: r200('Geofence') },
+        delete: { tags: ['Topology Map'], summary: 'Delete a geofence zone', operationId: 'deleteGeofence', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/topology/infrastructure': {
+        get: { tags: ['Topology Map'], summary: 'List infrastructure map pins', operationId: 'listInfrastructure', security: [{ bearerAuth: [] }], responses: r200('InfrastructurePoint[]') },
+        post: { tags: ['Topology Map'], summary: 'Create an infrastructure map pin', operationId: 'createInfrastructurePoint', security: [{ bearerAuth: [] }], requestBody: jsonBody('topologyMap_createInfrastructure'), responses: r201('InfrastructurePoint') },
+      },
+      '/topology/infrastructure/{id}': {
+        get: { tags: ['Topology Map'], summary: 'Get an infrastructure map pin', operationId: 'getInfrastructurePoint', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('InfrastructurePoint') },
+        put: { tags: ['Topology Map'], summary: 'Update an infrastructure map pin', operationId: 'updateInfrastructurePoint', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('topologyMap_updateInfrastructure'), responses: r200('InfrastructurePoint') },
+        delete: { tags: ['Topology Map'], summary: 'Delete an infrastructure map pin', operationId: 'deleteInfrastructurePoint', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/topology/dependencies/{deviceId}': {
+        get: { tags: ['Topology Map'], summary: 'Get dependency edges for a device (both parent and child)', operationId: 'getDependencyEdges', security: [{ bearerAuth: [] }], parameters: [{ name: 'deviceId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('DependencyEdge[]') },
+      },
+      '/topology/dependencies': {
+        post: { tags: ['Topology Map'], summary: 'Create a device dependency edge', operationId: 'createDependencyEdge', security: [{ bearerAuth: [] }], requestBody: jsonBody('topologyMap_createDependencyEdge'), responses: r201('DependencyEdge') },
+      },
+      '/topology/dependencies/{id}': {
+        delete: { tags: ['Topology Map'], summary: 'Delete a device dependency edge', operationId: 'deleteDependencyEdge', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
       },
 
       // ---- ACS / CWMP (outside /api/v1) ----

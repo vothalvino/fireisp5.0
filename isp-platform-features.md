@@ -500,25 +500,25 @@
 ## 13. Topology & Mapping
 
 ### 13.1 Network Topology Map
-- [ ] Interactive map with all devices (OLTs, switches, routers, APs)
-- [ ] Link visualization with utilization color-coding
-- [ ] Layer switching: physical, logical, service
-- [ ] Zoom to region / city / street
-- [ ] Device search and highlight
+- [x] Interactive map with all devices (OLTs, switches, routers, APs)
+- [x] Link visualization with utilization color-coding
+- [x] Layer switching: physical, logical, service
+- [x] Zoom to region / city / street
+- [x] Device search and highlight
 
 ### 13.2 Geographic Mapping
-- [ ] Customer locations on map (clustered at zoom-out level)
-- [ ] Service area polygon drawing
-- [ ] Coverage heatmaps (signal strength / client density)
-- [ ] Fiber route tracing on map
-- [ ] Tower / cabinet / ODF location pins
-- [ ] Geo-fencing alerts (device moved, CPE out of service area)
+- [ ] Customer locations on map (clustered at zoom-out level) — locations rendered as markers; clustering at zoom-out deferred (no clustering lib added)
+- [x] Service area polygon drawing
+- [x] Coverage heatmaps (signal strength / client density) — density-weighted marker approximation, no external heatmap lib
+- [x] Fiber route tracing on map
+- [x] Tower / cabinet / ODF location pins
+- [x] Geo-fencing alerts (device moved, CPE out of service area)
 
 ### 13.3 Dependency Mapping
-- [ ] Parent-child dependency relationships
-- [ ] Upstream failure cascade visualization
-- [ ] Impact analysis: "If this OLT goes down, N customers affected"
-- [ ] Redundancy visualization (dual-homed paths)
+- [x] Parent-child dependency relationships
+- [x] Upstream failure cascade visualization
+- [x] Impact analysis: "If this OLT goes down, N customers affected"
+- [x] Redundancy visualization (dual-homed paths)
 
 ---
 

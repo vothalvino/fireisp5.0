@@ -84,7 +84,7 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 - Customer interaction tracking — unified per-client activity timeline (calls, emails, tickets, payments, visits), manual interaction logging, follow-up reminders with automated due notifications, NPS/CSAT satisfaction surveys (auto-dispatched on ticket resolution) with aggregate metrics, and ticket escalation management with auto-escalation of stale unresolved tickets
 - Internationalization (i18n) — English, Spanish, and Brazilian Portuguese locale support
 - Customer self-service portal (§11) — dashboard with plan overview, live session status, daily usage graph; invoice PDF/CFDI download; online payment (card/OXXO/SPEI/PayPal via checkout session); payment history; self-service requests (plan upgrade with proration, Wi-Fi/PPPoE password change, static IP, cancellation, visit schedule) with admin approval workflow; knowledge-base / FAQ with rating; embedded speed test (queues `subscriber_speed_test_jobs`, results view); AI-powered chatbot with automatic ticket-creation fallback; callback request; Web Push notification subscriptions (outage/billing/ticket events); PWA with offline service worker and web app manifest
-- RESTful API with 350 endpoints, interactive Swagger UI documentation (`/api/docs`), and static OpenAPI spec (`docs/openapi.json`)
+- RESTful API with 369 endpoints, interactive Swagger UI documentation (`/api/docs`), and static OpenAPI spec (`docs/openapi.json`)
 - GraphQL gateway (`/api/v1/graphql`) powered by graphql-yoga v5 — single-request multi-entity fetches, real-time subscriptions via SSE (PubSub), and a live ClientDetail query replacing multiple REST round-trips
 - Real-time event hub (WebSocket + SSE dual-broadcast) — live Dashboard device-status indicator, live TicketDetail comment stream, and a useWebSocket React hook for all frontend consumers
 - httpOnly SameSite=Strict cookie authentication — access token in memory, refresh token in httpOnly cookie, Origin-based CSRF guard; eliminates localStorage token exposure
@@ -109,8 +109,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 250 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–301)
+│   ├── schema.sql           # Combined schema (all 254 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–304)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -412,6 +412,10 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 248 | `technician_gps_breadcrumbs` | GPS position log for field technicians (§12) — append-only, no FKs (write-hot), user_id, lat/lng DECIMAL(10,7), accuracy_m FLOAT, recorded_at; composite index on (user_id, recorded_at DESC) |
 | 249 | `ticket_attachments` | File attachments for support tickets (§12) — filename, original_filename, mime_type, file_size, storage_path, uploaded_by; FK to tickets CASCADE, org-scoped |
 | 250 | `work_order_attachments` | File attachments for work orders (§12) — filename, original_filename, mime_type, file_size, storage_path, uploaded_by; FK to work_orders CASCADE, org-scoped |
+| 251 | `map_geofences` | Geofence zones (§13.2) — polygon boundary (GeoJSON) or radius-based circle; optional device_id pin; is_active flag; triggers geofence_evaluation task alerts |
+| 252 | `map_infrastructure_points` | Infrastructure map pins (§13.2) — towers, cabinets, ODFs, splice closures, poles, POPs; lat/lng, site_id FK, properties JSON, is_active |
+| 253 | `fiber_route_segments` | Fiber route polyline sub-segments (§13.2) — ordered sequence within a parent fiber_route, GeoJSON LineString coordinates, cable type, burial type, fiber count |
+| 254 | `device_dependency_edges` | Device parent-child dependency graph edges (§13.3) — directed parent-child relationship for cascade visualization and impact analysis; dependency_type ENUM, is_redundant flag |
 
 > **Migration 165–173 table count note:** See migrations 241–246 below for the §5 Dual Stack tables. See migrations 249–263 for §6.1–6.6 SNMP & NMS tables.
 
@@ -500,6 +504,14 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 300 — Ticket Attachments (§12):** `300_create_ticket_attachments.sql` creates `ticket_attachments` table (FK to tickets CASCADE) and seeds 3 permissions (view/create/delete) assigned to admin/support/technician/readonly.
 
 > **Migration 301 — Work Order Attachments (§12):** `301_create_workorder_attachments.sql` creates `work_order_attachments` table (FK to work_orders CASCADE) and seeds 3 permissions assigned to admin/support/technician/readonly.
+
+
+
+> **Migration 302 — Topology and Mapping Tables (§13):** `302_topology_mapping_tables.sql` adds `latitude`, `longitude`, and `parent_device_id` columns to `devices` via INFORMATION_SCHEMA guards, and creates: `map_geofences` (polygon/radius zones), `map_infrastructure_points` (tower/cabinet/ODF pins), `fiber_route_segments` (fiber polyline segments), `device_dependency_edges` (directed dependency graph for impact analysis).
+
+> **Migration 303 — Topology and Mapping Permissions (§13):** `303_seed_topology_permissions.sql` seeds 12 permissions across topology, mapping, and geofences modules. Admin gets all 12; technician gets 8; support gets 4; readonly gets 2.
+
+> **Migration 304 — Geofence Evaluation Task (§13.2):** `304_seed_geofence_evaluation_task.sql` seeds `geofence_evaluation` scheduled task (task_type=other, `*/10 * * * *`) running `geoFenceService.evaluateAll()` per org.
 
 > **Migrations 237–240 — §4 PPPoE Management Phase B (Service Profiles, Diagnostics, Permissions):**
 > `237_create_pppoe_service_profiles.sql` creates `pppoe_service_profiles` table and adds guarded `service_profile_id` columns to `ip_pools` and `radius` (both FK→pppoe_service_profiles ON DELETE SET NULL). `238_create_radpostauth.sql` adds `radpostauth` table (no FKs — FreeRADIUS writes directly). `239_create_pppoe_event_logs.sql` adds `pppoe_event_logs` table (no FKs on organization_id/nas_id for loose-coupling syslog ingest). `240_seed_pppoe_phase_b_permissions.sql` seeds 6 RBAC permissions (`pppoe_service_profiles.view/create/update/delete`, `pppoe.diagnostics`, `pppoe.events_ingest`) and registers the `scan_auth_failures` scheduled task (every 15 min). New services: `pppoeDiagnosticsService` with `classifyAuthFailures()` (org-scoped radpostauth query, reason classification: bad_password/unknown_user/session_limit/no_pool/other), `detectMtuIssues()` (profile MTU > 1492 advisory + heuristic LCP-failure/MTU-mismatch advisory), `scanAuthFailures()` (scheduler handler, emits `pppoe.auth_failures` events). `syncFreeradiusTables()` extended: loads active service profiles per org, determines effective profile per subscriber (account-level `service_profile_id` overrides pool-level), emits `Framed-MTU`, `MS-Primary-DNS-Server`, `MS-Secondary-DNS-Server`, `Session-Timeout`, `Idle-Timeout`, `Filter-Id`, `Mikrotik-Address-List`, and `Mikrotik-Rate-Limit` radreply rows. RouterOS log line parser `parseRouterOsLogLine()` handles PADI/PADS/LCP/IPCP/AUTH/PADT patterns. New API endpoints: full CRUD under `/pppoe-service-profiles` + restore; `GET /pppoe/diagnostics/auth-failures`, `GET /pppoe/diagnostics/mtu-issues`, `GET /pppoe/events` (JWT auth); `POST /pppoe/events` (M2M secret auth via `X-Pppoe-Secret` header or `Authorization: Bearer`). Env vars: `PPPOE_EVENTS_SECRET` (M2M secret, falls back to `RADIUS_ACCOUNTING_SECRET`).
@@ -1160,3 +1172,7 @@ Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md)
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+
+
+
