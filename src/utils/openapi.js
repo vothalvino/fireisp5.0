@@ -1819,6 +1819,26 @@ function generateSpec() {
         delete: { tags: ['Portal Support'], summary: 'Delete knowledge-base article', operationId: 'adminDeleteKbArticle', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Message') },
       },
 
+      // ---- Portal Service Requests Admin (staff-side) §11.3 ----
+      '/portal-service-requests': {
+        get: { tags: ['Portal Support'], summary: 'List portal service requests (admin)', operationId: 'adminListServiceRequests', security: [{ bearerAuth: [] }], parameters: [{ name: 'status', in: 'query', schema: { type: 'string' } }, { name: 'request_type', in: 'query', schema: { type: 'string' } }, { name: 'client_id', in: 'query', schema: { type: 'integer' } }], responses: r200('ServiceRequest[]') },
+      },
+      '/portal-service-requests/push-subscriptions': {
+        get: { tags: ['Portal Push'], summary: 'List active Web Push subscriptions (admin)', operationId: 'adminListPushSubscriptions', security: [{ bearerAuth: [] }], parameters: [{ name: 'client_id', in: 'query', schema: { type: 'integer' } }], responses: r200('PushSubscription[]') },
+      },
+      '/portal-service-requests/{id}': {
+        get: { tags: ['Portal Support'], summary: 'Get portal service request detail (admin)', operationId: 'adminGetServiceRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceRequest') },
+      },
+      '/portal-service-requests/{id}/approve': {
+        post: { tags: ['Portal Support'], summary: 'Approve a service request and execute its action', operationId: 'adminApproveServiceRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('notes (optional)'), responses: r200('ServiceRequest') },
+      },
+      '/portal-service-requests/{id}/reject': {
+        post: { tags: ['Portal Support'], summary: 'Reject a service request', operationId: 'adminRejectServiceRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('notes'), responses: r200('ServiceRequest') },
+      },
+      '/portal-service-requests/{id}/complete': {
+        post: { tags: ['Portal Support'], summary: 'Mark an approved service request as completed', operationId: 'adminCompleteServiceRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('notes (optional)'), responses: r200('ServiceRequest') },
+      },
+
       // ---- ACS / CWMP (outside /api/v1) ----
       '/acs/cwmp': {
         post: { tags: ['CPE Management'], summary: 'CWMP/TR-069 ACS endpoint — CPE-to-server SOAP over HTTP (HTTP Basic auth)', operationId: 'acsCwmp', requestBody: { description: 'CWMP SOAP XML envelope', required: false, content: { 'text/xml': { schema: { type: 'string' } } } }, responses: r200('CWMP SOAP Response XML') },

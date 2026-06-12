@@ -355,3 +355,19 @@ describe('portalPushService.dispatch() — VAPID not configured', () => {
     expect(result).toEqual({ sent: 0, failed: 0 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Router registration order
+// ---------------------------------------------------------------------------
+
+describe('portalServiceRequests router', () => {
+  test('registers GET /push-subscriptions before GET /:id so the static path is reachable', () => {
+    const router = require('../src/routes/portalServiceRequests');
+    const getPaths = router.stack
+      .filter((layer) => layer.route && layer.route.methods.get)
+      .map((layer) => layer.route.path);
+    expect(getPaths).toContain('/push-subscriptions');
+    expect(getPaths).toContain('/:id');
+    expect(getPaths.indexOf('/push-subscriptions')).toBeLessThan(getPaths.indexOf('/:id'));
+  });
+});

@@ -103,6 +103,75 @@ router.get('/', requirePermission('portal_service_requests.view'), async (req, r
 });
 
 // ---------------------------------------------------------------------------
+// GET /push-subscriptions — admin: list active push subscriptions for an org
+// (registered before /:id so the static path is not captured by the param)
+// ---------------------------------------------------------------------------
+
+/**
+ * @openapi
+ * /portal-service-requests/push-subscriptions:
+ *   get:
+ *     tags: [Portal]
+ *     summary: List active Web Push subscriptions (admin)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: client_id
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 25
+ *     responses:
+ *       200:
+ *         description: Paginated list of push subscriptions
+ */
+router.get('/push-subscriptions', requirePermission('portal_push.view'), async (req, res, next) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page || '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '25', 10)));
+    const offset = (page - 1) * limit;
+    const clientId = req.query.client_id ? parseInt(req.query.client_id, 10) : null;
+
+    let where = 'WHERE pps.organization_id = ? AND pps.deleted_at IS NULL';
+    const params = [req.orgId];
+
+    if (clientId) {
+      where += ' AND pps.client_id = ?';
+      params.push(clientId);
+    }
+
+    const [rows] = await db.query(
+      `SELECT pps.id, pps.client_id, pps.user_agent,
+              pps.notify_outage, pps.notify_billing, pps.notify_ticket,
+              pps.last_sent_at, pps.created_at, pps.updated_at,
+              CONCAT(cl.first_name, ' ', cl.last_name) AS client_name
+       FROM portal_push_subscriptions pps
+       LEFT JOIN clients cl ON cl.id = pps.client_id
+       ${where}
+       ORDER BY pps.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset],
+    );
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM portal_push_subscriptions pps ${where}`,
+      params,
+    );
+    res.json({ data: rows, meta: { page, limit, total, pages: Math.ceil(total / limit) } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /:id — request detail
 // ---------------------------------------------------------------------------
 
@@ -288,73 +357,5 @@ router.post(
     }
   },
 );
-
-// ---------------------------------------------------------------------------
-// GET /push-subscriptions — admin: list active push subscriptions for an org
-// ---------------------------------------------------------------------------
-
-/**
- * @openapi
- * /portal-service-requests/push-subscriptions:
- *   get:
- *     tags: [Portal]
- *     summary: List active Web Push subscriptions (admin)
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: client_id
- *         schema:
- *           type: integer
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 25
- *     responses:
- *       200:
- *         description: Paginated list of push subscriptions
- */
-router.get('/push-subscriptions', requirePermission('portal_push.view'), async (req, res, next) => {
-  try {
-    const page = Math.max(1, parseInt(req.query.page || '1', 10));
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '25', 10)));
-    const offset = (page - 1) * limit;
-    const clientId = req.query.client_id ? parseInt(req.query.client_id, 10) : null;
-
-    let where = 'WHERE pps.organization_id = ? AND pps.deleted_at IS NULL';
-    const params = [req.orgId];
-
-    if (clientId) {
-      where += ' AND pps.client_id = ?';
-      params.push(clientId);
-    }
-
-    const [rows] = await db.query(
-      `SELECT pps.id, pps.client_id, pps.user_agent,
-              pps.notify_outage, pps.notify_billing, pps.notify_ticket,
-              pps.last_sent_at, pps.created_at, pps.updated_at,
-              CONCAT(cl.first_name, ' ', cl.last_name) AS client_name
-       FROM portal_push_subscriptions pps
-       LEFT JOIN clients cl ON cl.id = pps.client_id
-       ${where}
-       ORDER BY pps.created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, limit, offset],
-    );
-    const [[{ total }]] = await db.query(
-      `SELECT COUNT(*) AS total FROM portal_push_subscriptions pps ${where}`,
-      params,
-    );
-    res.json({ data: rows, meta: { page, limit, total, pages: Math.ceil(total / limit) } });
-  } catch (err) {
-    next(err);
-  }
-});
 
 module.exports = router;
