@@ -109,6 +109,34 @@ router.put('/:id', requirePermission('reports.schedule'), async (req, res, next)
   } catch (err) { next(err); }
 });
 
+// POST /api/scheduled-reports/:id/run — manually trigger a schedule now (on-demand)
+router.post('/:id/run', requirePermission('reports.generate'), async (req, res, next) => {
+  try {
+    const [rows] = await db.queryReplica(
+      'SELECT * FROM scheduled_reports WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [req.params.id, req.orgId],
+    );
+    if (!rows.length) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Scheduled report not found' } });
+
+    const schedule = rows[0];
+    const { runOnDemand } = require('../services/scheduledReportService');
+    const result = await runOnDemand({
+      organizationId: req.orgId,
+      reportDefName: schedule.report_def_name,
+      format: schedule.format,
+      parameters: schedule.parameters ? JSON.parse(schedule.parameters) : {},
+      scheduledReportId: schedule.id,
+      generatedBy: req.user.id,
+    });
+
+    const [genRows] = await db.queryReplica(
+      'SELECT id, organization_id, scheduled_report_id, report_def_name, format, status, generated_at FROM generated_reports WHERE id = ?',
+      [result.reportId],
+    );
+    res.status(202).json({ data: genRows[0] });
+  } catch (err) { next(err); }
+});
+
 // DELETE /api/scheduled-reports/:id
 router.delete('/:id', requirePermission('reports.schedule'), async (req, res, next) => {
   try {

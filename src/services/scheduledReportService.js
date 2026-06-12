@@ -219,10 +219,52 @@ function toCSV(rows) {
   return lines.join('\n');
 }
 
+/**
+ * Run an on-demand report: generate data, format, insert into generated_reports.
+ * Used by POST /reports/generate and POST /scheduled-reports/:id/run.
+ *
+ * @param {object} opts
+ * @param {number} opts.organizationId
+ * @param {string} opts.reportDefName  - report slug (e.g. 'aging', 'revenue-by-period')
+ * @param {string} opts.format         - 'csv' | 'xlsx' | 'pdf'
+ * @param {object} opts.parameters     - optional runtime params { from, to, months, ... }
+ * @param {number|null} opts.scheduledReportId - null for pure on-demand
+ * @param {number|null} opts.generatedBy       - user id who triggered
+ * @returns {{ reportId: number, status: string }}
+ */
+async function runOnDemand({ organizationId, reportDefName, format = 'csv', parameters = {}, scheduledReportId = null, generatedBy = null }) {
+  // Insert a pending history row first so we always have a record
+  const [pendingResult] = await db.query(
+    `INSERT INTO generated_reports
+       (organization_id, scheduled_report_id, report_def_name, format, status, generated_by, generated_at)
+     VALUES (?, ?, ?, ?, 'pending', ?, NOW())`,
+    [organizationId, scheduledReportId, reportDefName, format, generatedBy],
+  );
+  const reportId = pendingResult.insertId;
+
+  try {
+    const data = await generateReportData(organizationId, reportDefName, parameters);
+    // formatReport is async (xlsx/pdf use streams)
+    await formatReport(data, reportDefName, format); // result not stored — buffer returned to caller
+    await db.query(
+      'UPDATE generated_reports SET status = \'completed\' WHERE id = ?',
+      [reportId],
+    );
+    return { reportId, status: 'completed' };
+  } catch (err) {
+    await db.query(
+      'UPDATE generated_reports SET status = \'failed\', error_message = ? WHERE id = ?',
+      [err.message, reportId],
+    );
+    throw err;
+  }
+}
+
 module.exports = {
   processScheduledReports,
   runSchedule,
   generateReportData,
   formatReport,
   toCSV,
+  runOnDemand,
 };

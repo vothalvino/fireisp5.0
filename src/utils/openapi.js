@@ -702,6 +702,16 @@ function generateSpec() {
       '/reports/interception-readiness': { get: { tags: ['Reports'], summary: 'Traffic interception readiness', operationId: 'interceptionReadiness', security: [{ bearerAuth: [] }], responses: r200('Report') } },
       '/reports/regulatory-export': { get: { tags: ['Reports'], summary: 'Regulatory filing data export', operationId: 'regulatoryExport', security: [{ bearerAuth: [] }], responses: r200('Report') } },
       '/reports/{report}/export': { get: { tags: ['Reports'], summary: 'Export any report as CSV/XLSX/PDF', operationId: 'exportReport', security: [{ bearerAuth: [] }], parameters: [{ name: 'report', in: 'path', required: true, schema: { type: 'string' } }, { name: 'format', in: 'query', schema: { type: 'string', enum: ['csv', 'xlsx', 'pdf'] } }], responses: r200File('application/octet-stream') } },
+      '/reports/generate': { post: { tags: ['Reports'], summary: 'Generate a report on-demand', operationId: 'generateReport', security: [{ bearerAuth: [] }], requestBody: jsonBody('report_def_name + format + parameters'), responses: { '202': { description: 'Accepted — generated_reports record created', content: { 'application/json': { schema: { type: 'object' } } } } } } },
+      '/report-definitions': {
+        get: { tags: ['Reports'], summary: 'List report definitions (built-in + org)', operationId: 'listReportDefinitions', security: [{ bearerAuth: [] }], responses: r200('ReportDefinition[]') },
+        post: { tags: ['Reports'], summary: 'Create a report definition', operationId: 'createReportDefinition', security: [{ bearerAuth: [] }], requestBody: jsonBody('ReportDefinition'), responses: r201('ReportDefinition') },
+      },
+      '/report-definitions/{id}': {
+        get: { tags: ['Reports'], summary: 'Get a report definition', operationId: 'getReportDefinition', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ReportDefinition') },
+        put: { tags: ['Reports'], summary: 'Update a report definition', operationId: 'updateReportDefinition', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('ReportDefinition'), responses: r200('ReportDefinition') },
+        delete: { tags: ['Reports'], summary: 'Delete a report definition', operationId: 'deleteReportDefinition', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
       '/scheduled-reports': {
         get: { tags: ['Reports'], summary: 'List scheduled reports', operationId: 'listScheduledReports', security: [{ bearerAuth: [] }], responses: r200('ScheduledReport[]') },
         post: { tags: ['Reports'], summary: 'Create a scheduled report', operationId: 'createScheduledReport', security: [{ bearerAuth: [] }], requestBody: jsonBody('ScheduledReport'), responses: r201('ScheduledReport') },
@@ -711,6 +721,7 @@ function generateSpec() {
         put: { tags: ['Reports'], summary: 'Update a scheduled report', operationId: 'updateScheduledReport', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('ScheduledReport'), responses: r200('ScheduledReport') },
         delete: { tags: ['Reports'], summary: 'Delete a scheduled report', operationId: 'deleteScheduledReport', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
       },
+      '/scheduled-reports/{id}/run': { post: { tags: ['Reports'], summary: 'Manually trigger a scheduled report now', operationId: 'runScheduledReport', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: { '202': { description: 'Accepted — generated_reports record created', content: { 'application/json': { schema: { type: 'object' } } } } } } },
       '/dashboard-widgets': {
         get: { tags: ['Reports'], summary: 'List dashboard widgets', operationId: 'listDashboardWidgets', security: [{ bearerAuth: [] }], responses: r200('DashboardWidget[]') },
         post: { tags: ['Reports'], summary: 'Create a dashboard widget', operationId: 'createDashboardWidget', security: [{ bearerAuth: [] }], requestBody: jsonBody('DashboardWidget'), responses: r201('DashboardWidget') },

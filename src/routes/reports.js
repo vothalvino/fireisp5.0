@@ -353,10 +353,43 @@ router.get('/regulatory-export', requirePermission('reports.view'), async (req, 
 });
 
 // ============================================================================
-// §15.5 Generic Export endpoint — must be LAST to avoid catching named routes
+// §15.5 On-demand Report Generation
 // ============================================================================
 
-const { formatReport } = require('../services/scheduledReportService');
+const { formatReport, generateReportData, runOnDemand } = require('../services/scheduledReportService');
+
+// POST /api/reports/generate — trigger an on-demand report, record in generated_reports
+router.post('/generate', requirePermission('reports.generate'), async (req, res, next) => {
+  try {
+    const { report_def_name, format = 'csv', parameters = {} } = req.body;
+
+    if (!report_def_name) {
+      return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'report_def_name is required' } });
+    }
+    if (!['csv', 'xlsx', 'pdf'].includes(format)) {
+      return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'format must be csv, xlsx, or pdf' } });
+    }
+
+    const result = await runOnDemand({
+      organizationId: req.orgId,
+      reportDefName: report_def_name,
+      format,
+      parameters,
+      scheduledReportId: null,
+      generatedBy: req.user.id,
+    });
+
+    const [rows] = await require('../config/database').queryReplica(
+      'SELECT id, organization_id, report_def_name, format, status, generated_at FROM generated_reports WHERE id = ?',
+      [result.reportId],
+    );
+    res.status(202).json({ data: rows[0] });
+  } catch (err) { next(err); }
+});
+
+// ============================================================================
+// §15.5 Generic Export endpoint — must be LAST to avoid catching named routes
+// ============================================================================
 
 // GET /api/reports/:report/export?format=csv|xlsx|pdf
 router.get('/:report/export', requirePermission('reports.export'), async (req, res, next) => {
@@ -369,7 +402,6 @@ router.get('/:report/export', requirePermission('reports.export'), async (req, r
     }
 
     // Dispatch to reportService
-    const { generateReportData } = require('../services/scheduledReportService');
     const params = {
       from: req.query.from,
       to: req.query.to,
