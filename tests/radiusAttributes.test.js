@@ -40,7 +40,7 @@ describe('radiusAttributeService.generateAttributes()', () => {
       burst_upload_mbps: 40,
       radius_vendor: 'mikrotik',
     });
-    expect(attrs['Mikrotik-Rate-Limit']).toBe('100M/20M 200M/40M 100M/20M');
+    expect(attrs['Mikrotik-Rate-Limit']).toBe('100M/20M 200M/40M 100M/20M 8');
   });
 
   it('defaults burst to 2x speed when burst fields are null', () => {
@@ -51,7 +51,7 @@ describe('radiusAttributeService.generateAttributes()', () => {
       burst_upload_mbps: null,
       radius_vendor: 'mikrotik',
     });
-    expect(attrs['Mikrotik-Rate-Limit']).toBe('10M/2M 20M/4M 10M/2M');
+    expect(attrs['Mikrotik-Rate-Limit']).toBe('10M/2M 20M/4M 10M/2M 8');
   });
 
   it('returns Cisco AVPair attributes for cisco vendor', () => {

@@ -390,30 +390,30 @@
 ## 10. Bandwidth & QoS Management
 
 ### 10.1 Speed Profiles
-- [ ] Named speed plans with download/upload rate limits
-- [ ] Bursty allowances ( Mb allowance over X seconds)
-- [ ] Time-of-day speed profiles (peak vs off-peak)
-- [ ] Per-queue priority (VoIP > Video > Web > Download)
-- [ ] Tree-based hierarchical QoS (MikroTik Queue Tree / Simple Queue)
+- [x] Named speed plans with download/upload rate limits
+- [x] Bursty allowances ( Mb allowance over X seconds)
+- [x] Time-of-day speed profiles (peak vs off-peak)
+- [x] Per-queue priority (VoIP > Video > Web > Download)
+- [x] Tree-based hierarchical QoS (MikroTik Queue Tree / Simple Queue)
 
 ### 10.2 Rate Limiting
-- [ ] Per-subscriber rate limit via RADIUS or router-side queues
-- [ ] Per-protocol/port shaping (torrent throttling, etc.)
-- [ ] Rate limit templates per service type
+- [x] Per-subscriber rate limit via RADIUS or router-side queues
+- [x] Per-protocol/port shaping (torrent throttling, etc.)
+- [x] Rate limit templates per service type
 
 ### 10.3 FUP / Data Caps
-- [ ] Monthly data cap per plan
-- [ ] Rollover data from previous month
-- [ ] FUP threshold with notification (80%, 90%, 100%)
-- [ ] Speed reduction after cap reached
-- [ ] Top-up / data pack purchase via customer portal
+- [x] Monthly data cap per plan
+- [x] Rollover data from previous month
+- [x] FUP threshold with notification (80%, 90%, 100%)
+- [x] Speed reduction after cap reached
+- [x] Top-up / data pack purchase via customer portal
 
 ### 10.4 Traffic Engineering
-- [ ] Per-interface QoS policy
-- [ ] MPLS / VLAN-based traffic prioritization (for enterprise)
-- [ ] DSCP marking and policy
-- [ ] CBQ / HFSC / PCQ queue types (MikroTik-specific)
-- [ ] Bandwidth test server with scheduled speed tests per subscriber
+- [x] Per-interface QoS policy
+- [x] MPLS / VLAN-based traffic prioritization (for enterprise)
+- [x] DSCP marking and policy
+- [x] CBQ / HFSC / PCQ queue types (MikroTik-specific)
+- [x] Bandwidth test server with scheduled speed tests per subscriber
 
 ---
 

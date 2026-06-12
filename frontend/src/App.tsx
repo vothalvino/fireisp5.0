@@ -139,6 +139,7 @@ import { CpeDiagnosticsPage } from '@/pages/CpeDiagnosticsPage';
 import { CpeInventoryPage } from '@/pages/CpeInventoryPage';
 import { WirelessManagementPage } from '@/pages/WirelessManagementPage';
 import { WirelessMetricsPage } from '@/pages/WirelessMetricsPage';
+import { QosBandwidthPage } from '@/pages/QosBandwidthPage';
 import { NotFound } from '@/pages/NotFound';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
 
@@ -252,6 +253,7 @@ export function App() {
                 <Route path="cpe-inventory" element={<CpeInventoryPage />} />
                 <Route path="wireless" element={<WirelessManagementPage />} />
                 <Route path="wireless-metrics" element={<WirelessMetricsPage />} />
+                <Route path="qos-bandwidth" element={<QosBandwidthPage />} />
               </Route>
             </Route>
 
