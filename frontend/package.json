@@ -20,13 +20,16 @@
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@tanstack/react-query": "^5.62.0",
     "@testing-library/dom": "^10.4.1",
+    "@types/leaflet": "^1.9.21",
     "graphql-request": "^7.4.0",
     "i18next": "^26.0.8",
     "i18next-browser-languagedetector": "^8.2.1",
+    "leaflet": "^1.9.4",
     "openapi-fetch": "^0.17.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-i18next": "^17.0.6",
+    "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.15.0"
   },
   "devDependencies": {
