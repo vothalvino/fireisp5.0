@@ -2304,22 +2304,6 @@ SELECT
 FROM snmp_profiles p
 WHERE p.name = 'Mimosa Networks';
 
--- ---------------------------------------------------------------------------
--- §9.3 Scheduled task: wireless AP sector poll (migration 284)
--- ---------------------------------------------------------------------------
-INSERT INTO scheduled_tasks
-    (task_name, task_type, cron_expression, priority, is_enabled, description)
-SELECT
-    'wireless_ap_sector_poll',
-    'snmp_poll',
-    '*/5 * * * *',
-    'normal',
-    TRUE,
-    'Poll AP sector metrics: noise floor, air utilization, connected clients, GPS sync'
-WHERE NOT EXISTS (
-    SELECT 1 FROM scheduled_tasks WHERE task_name = 'wireless_ap_sector_poll'
-);
-
 -- =============================================================================
 -- Connection Logs (Compliance & Usage)
 -- =============================================================================
@@ -10604,5 +10588,23 @@ CREATE TABLE IF NOT EXISTS cpe_lifecycle_history (
     CONSTRAINT fk_cpe_lh_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_lh_device FOREIGN KEY (cpe_device_id) REFERENCES cpe_devices(id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Immutable lifecycle state transition audit trail per CPE device (§8.4)';
+
+-- ---------------------------------------------------------------------------
+-- §9.3 Scheduled task: wireless AP sector poll (migration 284)
+-- Placed after all CREATE TABLEs — scheduled_tasks must exist before this
+-- seed runs when schema.sql is applied standalone.
+-- ---------------------------------------------------------------------------
+INSERT INTO scheduled_tasks
+    (task_name, task_type, cron_expression, priority, is_enabled, description)
+SELECT
+    'wireless_ap_sector_poll',
+    'snmp_poll',
+    '*/5 * * * *',
+    'normal',
+    TRUE,
+    'Poll AP sector metrics: noise floor, air utilization, connected clients, GPS sync'
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks WHERE task_name = 'wireless_ap_sector_poll'
+);
 
 SET FOREIGN_KEY_CHECKS = 1;
