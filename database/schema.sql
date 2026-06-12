@@ -11036,9 +11036,9 @@ CREATE TABLE IF NOT EXISTS portal_service_requests (
   KEY idx_psr_type (request_type),
   KEY idx_psr_status (status),
   KEY idx_psr_deleted (deleted_at),
-  CONSTRAINT fk_psr_org FOREIGN KEY (organization_id)
+  CONSTRAINT fk_portal_sr_org FOREIGN KEY (organization_id)
     REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT fk_psr_client FOREIGN KEY (client_id)
+  CONSTRAINT fk_portal_sr_client FOREIGN KEY (client_id)
     REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
