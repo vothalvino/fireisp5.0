@@ -10,14 +10,48 @@
 //
 // Authenticated (requires portal JWT):
 //   GET    /portal/auth/me
-//   GET    /portal/invoices           list the client's own invoices
-//   GET    /portal/invoices/:id       invoice detail + line items
-//   POST   /portal/invoices/:id/pay   create a checkout session (online payment)
-//   GET    /portal/tickets            list the client's own tickets
-//   POST   /portal/tickets            open a new ticket
-//   GET    /portal/tickets/:id        ticket detail with comments
-//   POST   /portal/tickets/:id/comments  add a comment
-//   PUT    /portal/auth/password      update portal password
+//   PUT    /portal/auth/password
+//
+//   --- §11.1 Dashboard ---
+//   GET    /portal/dashboard            account overview (plan, balance, session)
+//   GET    /portal/usage/current-month  daily usage data for current billing month
+//
+//   --- §11.2 Billing & Payments ---
+//   GET    /portal/invoices             list own invoices
+//   GET    /portal/invoices/:id         invoice detail + line items
+//   GET    /portal/invoices/:id/pdf     download invoice PDF
+//   GET    /portal/invoices/:id/cfdi    download CFDI XML for invoice
+//   POST   /portal/invoices/:id/pay     create a checkout session
+//   GET    /portal/payments             payment history
+//
+//   --- §11.3 Self-Service Actions ---
+//   GET    /portal/service-requests          list own requests
+//   POST   /portal/service-requests          create a request
+//   POST   /portal/service-requests/:id/cancel  cancel pending request
+//
+//   --- §11.4 Support ---
+//   GET    /portal/tickets              list own tickets
+//   POST   /portal/tickets             open a new ticket
+//   GET    /portal/tickets/:id          ticket detail + comments
+//   POST   /portal/tickets/:id/comments add a comment
+//   GET    /portal/kb                   list knowledge-base articles
+//   GET    /portal/kb/:slugOrId         get KB article detail
+//   POST   /portal/kb/:slugOrId/rate    rate a KB article helpful/unhelpful
+//   POST   /portal/speed-test           queue a speed test job
+//   GET    /portal/speed-test/results   list speed test results
+//   POST   /portal/chat/start           start an AI chat session
+//   POST   /portal/chat/:token/message  send a chat message, get AI reply
+//   GET    /portal/callback-request     submit a callback request (creates ticket)
+//
+//   --- §11.5 Mobile / PWA ---
+//   POST   /portal/push/subscribe       register Web Push subscription
+//   DELETE /portal/push/subscribe       remove Web Push subscription
+//
+//   --- §10.3 Data Packs (pre-existing) ---
+//   GET    /portal/data-packs
+//   POST   /portal/data-packs/:packId/purchase
+//   GET    /portal/data-packs/my-purchases
+//   GET    /portal/usage/allowance
 // =============================================================================
 
 const { Router } = require('express');
@@ -29,6 +63,9 @@ const checkoutService = require('../services/checkoutService');
 const db = require('../config/database');
 const { NotFoundError, ValidationError } = require('../utils/errors');
 const dataPackService = require('../services/dataPackService');
+const portalServiceRequestService = require('../services/portalServiceRequestService');
+const pdfService = require('../services/pdfService');
+const aiReplyService = require('../services/aiReplyService');
 
 const router = Router();
 
@@ -59,6 +96,30 @@ const createTicketSchema = {
 
 const createCommentSchema = {
   body: { type: 'string', required: true, min: 1, max: 5000 },
+};
+
+const createServiceRequestSchema = {
+  request_type: {
+    type: 'string',
+    required: true,
+    enum: ['plan_upgrade', 'wifi_password_change', 'pppoe_password_change',
+      'static_ip_request', 'cancellation', 'visit_schedule'],
+  },
+  payload: { type: 'object' },
+};
+
+const chatMessageSchema = {
+  message: { type: 'string', required: true, min: 1, max: 2000 },
+};
+
+const pushSubscribeSchema = {
+  endpoint: { type: 'string', required: true, min: 10, max: 2048 },
+  p256dh: { type: 'string', required: true },
+  auth: { type: 'string', required: true },
+};
+
+const kbRateSchema = {
+  helpful: { type: 'boolean', required: true },
 };
 
 // ---------------------------------------------------------------------------
@@ -422,6 +483,623 @@ router.get('/usage/allowance', apiLimiter, async (req, res, next) => {
 
     const allowance = await dataPackService.getEffectiveAllowance(contracts[0].id);
     res.json({ data: allowance });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// §11.1 DASHBOARD
+// ---------------------------------------------------------------------------
+
+// GET /portal/dashboard — account overview (plan, balance, session, speed tier)
+router.get('/dashboard', apiLimiter, async (req, res, next) => {
+  try {
+    const clientId = req.client.id;
+
+    // Contract + plan info
+    const [contracts] = await db.query(
+      `SELECT c.id AS contract_id, c.status AS contract_status, c.start_date,
+              c.connection_type, c.ip_address,
+              p.id AS plan_id, p.name AS plan_name, p.price,
+              p.download_speed_mbps, p.upload_speed_mbps,
+              p.billing_cycle_months, p.data_cap_gb
+       FROM contracts c
+       JOIN plans p ON p.id = c.plan_id
+       WHERE c.client_id = ? AND c.status = 'active' AND c.deleted_at IS NULL
+       LIMIT 1`,
+      [clientId],
+    );
+    const contract = contracts[0] || null;
+
+    // Outstanding balance (sum of unpaid invoices)
+    const [[{ balance }]] = await db.query(
+      `SELECT COALESCE(SUM(total), 0) AS balance
+       FROM invoices
+       WHERE client_id = ? AND status IN ('issued','overdue') AND deleted_at IS NULL`,
+      [clientId],
+    );
+
+    // Next due date
+    const [[{ next_due }]] = await db.query(
+      `SELECT MIN(due_date) AS next_due
+       FROM invoices
+       WHERE client_id = ? AND status IN ('issued','overdue') AND deleted_at IS NULL`,
+      [clientId],
+    );
+
+    // Current RADIUS session status
+    let session = null;
+    if (contract) {
+      const [sessions] = await db.query(
+        `SELECT r.username, r.status AS radius_status,
+                ra.acct_session_id, ra.framed_ip, ra.calling_station_id,
+                ra.acctsessiontime AS session_seconds,
+                ra.acctinputoctets AS bytes_in, ra.acctoutputoctets AS bytes_out
+         FROM radius r
+         LEFT JOIN radacct ra ON ra.username = r.username
+           AND ra.acctstoptime IS NULL
+         WHERE r.contract_id = ?
+         LIMIT 1`,
+        [contract.contract_id],
+      );
+      if (sessions[0]) {
+        const s = sessions[0];
+        session = {
+          status: s.radius_status === 'active' ? 'connected' : 'disconnected',
+          username: s.username,
+          ip: s.framed_ip || null,
+          mac: s.calling_station_id || null,
+          session_seconds: s.session_seconds || 0,
+          bytes_in: s.bytes_in || 0,
+          bytes_out: s.bytes_out || 0,
+        };
+      }
+    }
+
+    // Current month usage summary
+    let usage = null;
+    if (contract) {
+      const now = new Date();
+      const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      const [[usageRow]] = await db.query(
+        `SELECT COALESCE(SUM(bytes_in), 0) AS bytes_in,
+                COALESCE(SUM(bytes_out), 0) AS bytes_out
+         FROM connection_logs
+         WHERE contract_id = ? AND event_type IN ('stop','interim-update')
+           AND event_at >= ?`,
+        [contract.contract_id, monthStart],
+      );
+      usage = {
+        download_bytes: usageRow.bytes_in,
+        upload_bytes: usageRow.bytes_out,
+        total_bytes: usageRow.bytes_in + usageRow.bytes_out,
+        download_gb: parseFloat((usageRow.bytes_in / 1073741824).toFixed(3)),
+        upload_gb: parseFloat((usageRow.bytes_out / 1073741824).toFixed(3)),
+        total_gb: parseFloat(((usageRow.bytes_in + usageRow.bytes_out) / 1073741824).toFixed(3)),
+      };
+    }
+
+    res.json({
+      data: {
+        client: {
+          id: req.client.id,
+          name: req.client.name,
+          email: req.client.email,
+        },
+        contract: contract ? {
+          id: contract.contract_id,
+          status: contract.contract_status,
+          connection_type: contract.connection_type,
+          ip_address: contract.ip_address,
+          plan: {
+            id: contract.plan_id,
+            name: contract.plan_name,
+            price: parseFloat(contract.price),
+            download_speed_mbps: contract.download_speed_mbps,
+            upload_speed_mbps: contract.upload_speed_mbps,
+            billing_cycle_months: contract.billing_cycle_months,
+            data_cap_gb: contract.data_cap_gb,
+          },
+        } : null,
+        balance: parseFloat(balance),
+        next_due_date: next_due || null,
+        session,
+        usage_this_month: usage,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /portal/usage/current-month — daily usage breakdown for chart
+router.get('/usage/current-month', apiLimiter, async (req, res, next) => {
+  try {
+    const [contracts] = await db.query(
+      `SELECT id FROM contracts
+       WHERE client_id = ? AND status = 'active' AND deleted_at IS NULL
+       LIMIT 1`,
+      [req.client.id],
+    );
+    if (!contracts[0]) return res.json({ data: [] });
+
+    const now = new Date();
+    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+
+    const [rows] = await db.query(
+      `SELECT DATE(event_at) AS date,
+              COALESCE(SUM(bytes_in), 0) AS download_bytes,
+              COALESCE(SUM(bytes_out), 0) AS upload_bytes,
+              COALESCE(SUM(bytes_in + bytes_out), 0) AS total_bytes
+       FROM connection_logs
+       WHERE contract_id = ? AND event_type IN ('stop','interim-update')
+         AND event_at >= ?
+       GROUP BY DATE(event_at)
+       ORDER BY date ASC`,
+      [contracts[0].id, monthStart],
+    );
+
+    res.json({
+      data: rows.map(r => ({
+        date: r.date,
+        download_gb: parseFloat((r.download_bytes / 1073741824).toFixed(3)),
+        upload_gb: parseFloat((r.upload_bytes / 1073741824).toFixed(3)),
+        total_gb: parseFloat((r.total_bytes / 1073741824).toFixed(3)),
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// §11.2 BILLING — additional endpoints
+// ---------------------------------------------------------------------------
+
+// GET /portal/invoices/:id/pdf — download invoice as PDF
+router.get('/invoices/:id/pdf', async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT id, invoice_number, organization_id FROM invoices WHERE id = ? AND client_id = ? AND deleted_at IS NULL',
+      [req.params.id, req.client.id],
+    );
+    if (!rows[0]) throw new NotFoundError('Invoice');
+
+    const pdfBuffer = await pdfService.generateInvoicePdf(rows[0].id, { locale: 'es' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="invoice-${rows[0].invoice_number}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /portal/invoices/:id/cfdi — download CFDI XML for an invoice
+router.get('/invoices/:id/cfdi', async (req, res, next) => {
+  try {
+    const [invoiceRows] = await db.query(
+      'SELECT id, client_id FROM invoices WHERE id = ? AND client_id = ? AND deleted_at IS NULL',
+      [req.params.id, req.client.id],
+    );
+    if (!invoiceRows[0]) throw new NotFoundError('Invoice');
+
+    const [cfdiRows] = await db.query(
+      `SELECT cd.id, cd.uuid, cd.xml_content, cd.stamp_status
+       FROM cfdi_documents cd
+       WHERE cd.invoice_id = ? AND cd.deleted_at IS NULL
+         AND cd.stamp_status = 'stamped'
+       ORDER BY cd.created_at DESC
+       LIMIT 1`,
+      [req.params.id],
+    );
+    if (!cfdiRows[0]) {
+      throw new NotFoundError('CFDI document');
+    }
+
+    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Disposition', `attachment; filename="cfdi-${cfdiRows[0].uuid || cfdiRows[0].id}.xml"`);
+    res.send(cfdiRows[0].xml_content || '');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /portal/payments — payment history
+router.get('/payments', apiLimiter, async (req, res, next) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page || '1', 10));
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || '20', 10)));
+    const offset = (page - 1) * limit;
+
+    const [rows] = await db.query(
+      `SELECT p.id, p.amount, p.currency, p.payment_method, p.payment_date,
+              p.reference, p.status, p.notes, p.created_at
+       FROM payments p
+       WHERE p.client_id = ? AND p.deleted_at IS NULL
+       ORDER BY p.payment_date DESC, p.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [req.client.id, limit, offset],
+    );
+
+    const [[{ total }]] = await db.query(
+      'SELECT COUNT(*) AS total FROM payments WHERE client_id = ? AND deleted_at IS NULL',
+      [req.client.id],
+    );
+
+    res.json({
+      data: rows,
+      meta: { page, limit, total, pages: Math.ceil(total / limit) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// §11.3 SELF-SERVICE REQUESTS
+// ---------------------------------------------------------------------------
+
+// GET /portal/service-requests — list own requests
+router.get('/service-requests', apiLimiter, async (req, res, next) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page || '1', 10));
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || '20', 10)));
+    const requestType = req.query.request_type || null;
+
+    const { rows, total } = await portalServiceRequestService.listRequests(
+      req.client.id,
+      { page, limit, requestType },
+    );
+    res.json({
+      data: rows,
+      meta: { page, limit, total, pages: Math.ceil(total / limit) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /portal/service-requests — create a new request
+router.post('/service-requests', apiLimiter, validate(createServiceRequestSchema), async (req, res, next) => {
+  try {
+    const { request_type, payload } = req.body;
+    const request = await portalServiceRequestService.createRequest({
+      clientId: req.client.id,
+      organizationId: req.client.organizationId,
+      requestType: request_type,
+      payload: payload || {},
+    });
+    res.status(201).json({ data: request });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /portal/service-requests/:id/cancel — cancel a pending request
+router.post('/service-requests/:id/cancel', async (req, res, next) => {
+  try {
+    const result = await portalServiceRequestService.cancelRequest(
+      req.params.id,
+      req.client.id,
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// §11.4 SUPPORT — knowledge base, speed test, AI chatbot, callback
+// ---------------------------------------------------------------------------
+
+// GET /portal/kb — list KB articles (public within portal)
+router.get('/kb', apiLimiter, async (req, res, next) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page || '1', 10));
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || '20', 10)));
+    const { category, search } = req.query;
+
+    const { rows, total } = await portalServiceRequestService.listKbArticles(
+      req.client.organizationId,
+      { category, search, page, limit },
+    );
+    res.json({
+      data: rows,
+      meta: { page, limit, total, pages: Math.ceil(total / limit) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /portal/kb/:slugOrId — get KB article detail
+router.get('/kb/:slugOrId', async (req, res, next) => {
+  try {
+    const article = await portalServiceRequestService.getKbArticle(
+      req.client.organizationId,
+      req.params.slugOrId,
+    );
+    res.json({ data: article });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /portal/kb/:slugOrId/rate — rate a KB article
+router.post('/kb/:slugOrId/rate', validate(kbRateSchema), async (req, res, next) => {
+  try {
+    const result = await portalServiceRequestService.rateKbArticle(
+      req.client.organizationId,
+      req.params.slugOrId,
+      req.body.helpful,
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /portal/speed-test — queue a speed test job for this client
+router.post('/speed-test', apiLimiter, async (req, res, next) => {
+  try {
+    const [contracts] = await db.query(
+      `SELECT id, organization_id FROM contracts
+       WHERE client_id = ? AND status = 'active' AND deleted_at IS NULL
+       LIMIT 1`,
+      [req.client.id],
+    );
+    if (!contracts[0]) throw new ValidationError('No active contract found');
+
+    // Pick an available test server for this org (or any global one)
+    const [servers] = await db.query(
+      `SELECT id FROM bandwidth_test_servers
+       WHERE (organization_id = ? OR organization_id IS NULL)
+         AND is_active = 1 AND deleted_at IS NULL
+       LIMIT 1`,
+      [req.client.organizationId],
+    );
+
+    const [result] = await db.query(
+      `INSERT INTO subscriber_speed_test_jobs
+         (organization_id, contract_id, test_server_id, requested_by, scheduled_at, status)
+       VALUES (?, ?, ?, 'client_portal', NOW(), 'queued')`,
+      [
+        contracts[0].organization_id,
+        contracts[0].id,
+        servers[0] ? servers[0].id : null,
+      ],
+    );
+
+    res.status(201).json({
+      data: {
+        job_id: result.insertId,
+        status: 'queued',
+        message: 'Speed test has been queued. Results will be available shortly.',
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /portal/speed-test/results — list speed test results for this client
+router.get('/speed-test/results', apiLimiter, async (req, res, next) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page || '1', 10));
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || '20', 10)));
+    const offset = (page - 1) * limit;
+
+    const [contracts] = await db.query(
+      `SELECT id FROM contracts
+       WHERE client_id = ? AND status = 'active' AND deleted_at IS NULL
+       LIMIT 1`,
+      [req.client.id],
+    );
+    if (!contracts[0]) return res.json({ data: [], meta: { page, limit, total: 0, pages: 0 } });
+
+    const [rows] = await db.query(
+      `SELECT id, status, scheduled_at, completed_at, requested_by,
+              download_mbps, upload_mbps, latency_ms, jitter_ms, packet_loss_pct,
+              protocol, error_message, created_at
+       FROM subscriber_speed_test_jobs
+       WHERE contract_id = ?
+       ORDER BY created_at DESC
+       LIMIT ? OFFSET ?`,
+      [contracts[0].id, limit, offset],
+    );
+
+    const [[{ total }]] = await db.query(
+      'SELECT COUNT(*) AS total FROM subscriber_speed_test_jobs WHERE contract_id = ?',
+      [contracts[0].id],
+    );
+
+    res.json({
+      data: rows,
+      meta: { page, limit, total, pages: Math.ceil(total / limit) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /portal/chat/start — start a new AI chat session
+router.post('/chat/start', apiLimiter, async (req, res, next) => {
+  try {
+    const token = portalServiceRequestService.generateChatToken();
+    const [result] = await db.query(
+      `INSERT INTO portal_chat_sessions
+         (organization_id, client_id, session_token, messages, status, turn_count)
+       VALUES (?, ?, ?, ?, 'active', 0)`,
+      [req.client.organizationId, req.client.id, token, JSON.stringify([])],
+    );
+    res.status(201).json({
+      data: {
+        session_id: result.insertId,
+        session_token: token,
+        status: 'active',
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /portal/chat/:token/message — send a chat message, get AI reply
+router.post('/chat/:token/message', apiLimiter, validate(chatMessageSchema), async (req, res, next) => {
+  try {
+    const { token } = req.params;
+    const { message } = req.body;
+
+    // Verify session belongs to this client
+    const [sessions] = await db.query(
+      `SELECT id, messages, status, turn_count, ticket_id
+       FROM portal_chat_sessions
+       WHERE session_token = ? AND client_id = ?`,
+      [token, req.client.id],
+    );
+    const session = sessions[0];
+    if (!session) throw new NotFoundError('Chat session');
+    if (session.status !== 'active') {
+      throw new ValidationError(`Chat session is ${session.status}`);
+    }
+
+    const messages = Array.isArray(session.messages)
+      ? session.messages
+      : (typeof session.messages === 'string' ? JSON.parse(session.messages) : []);
+
+    // Append client message
+    messages.push({ role: 'client', content: message, ts: new Date().toISOString() });
+
+    // Try AI reply — uses existing aiReplyService via a synthetic inbound text
+    let aiText = null;
+    let escalated = false;
+    let newTicketId = null;
+
+    try {
+      // Build a minimal ticket context for aiReplyService
+      // We create a temporary ticket and use aiReplyService to generate a draft
+      const [ticketResult] = await db.query(
+        `INSERT INTO tickets
+           (organization_id, client_id, subject, description, priority, category, status)
+         VALUES (?, ?, ?, ?, 'medium', 'chat', 'open')`,
+        [
+          req.client.organizationId,
+          req.client.id,
+          `Chat session ${token.slice(0, 8)}`,
+          messages.map(m => `${m.role}: ${m.content}`).join('\n'),
+        ],
+      );
+      const tempTicketId = ticketResult.insertId;
+
+      const aiResult = await aiReplyService.generate({
+        orgId: req.client.organizationId,
+        ticketId: tempTicketId,
+        channel: 'portal',
+        inboundText: message,
+      });
+
+      if (aiResult.skipped) {
+        // AI not configured or disabled — respond with a helpful fallback
+        aiText = 'I\'m here to help! Our support team will follow up shortly. You can also open a support ticket for faster assistance.';
+      } else {
+        aiText = aiResult.draftText || 'Thank you for your message. A support agent will be with you soon.';
+
+        if (aiResult.action === 'escalate') {
+          escalated = true;
+          newTicketId = tempTicketId;
+        } else {
+          // Clean up temp ticket if not escalated
+          await db.query('UPDATE tickets SET status = \'closed\' WHERE id = ?', [tempTicketId]);
+        }
+      }
+    } catch (_aiErr) {
+      aiText = 'Thank you for your message. Our team will get back to you soon.';
+    }
+
+    messages.push({ role: 'ai', content: aiText, ts: new Date().toISOString() });
+
+    const newTurnCount = (session.turn_count || 0) + 1;
+    const newStatus = escalated ? 'escalated' : 'active';
+
+    await db.query(
+      `UPDATE portal_chat_sessions
+       SET messages = ?, turn_count = ?, status = ?, ticket_id = ?, updated_at = NOW()
+       WHERE id = ?`,
+      [JSON.stringify(messages), newTurnCount, newStatus, newTicketId || session.ticket_id, session.id],
+    );
+
+    res.json({
+      data: {
+        reply: aiText,
+        session_status: newStatus,
+        turn_count: newTurnCount,
+        ticket_id: escalated ? newTicketId : null,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /portal/callback-request — create a callback request ticket
+router.post('/callback-request', apiLimiter, async (req, res, next) => {
+  try {
+    const { preferred_time, phone, notes } = req.body || {};
+    const description = [
+      'Callback request from client portal.',
+      phone ? `Phone: ${phone}` : null,
+      preferred_time ? `Preferred time: ${preferred_time}` : null,
+      notes ? `Notes: ${notes}` : null,
+    ].filter(Boolean).join('\n');
+
+    const [result] = await db.query(
+      `INSERT INTO tickets
+         (organization_id, client_id, subject, description, priority, category, status)
+       VALUES (?, ?, 'Callback Request', ?, 'medium', 'callback', 'open')`,
+      [req.client.organizationId, req.client.id, description],
+    );
+
+    const [rows] = await db.query(
+      'SELECT id, subject, priority, status, created_at FROM tickets WHERE id = ?',
+      [result.insertId],
+    );
+
+    res.status(201).json({ data: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// §11.5 WEB PUSH SUBSCRIPTIONS
+// ---------------------------------------------------------------------------
+
+// POST /portal/push/subscribe — register / update Web Push subscription
+router.post('/push/subscribe', validate(pushSubscribeSchema), async (req, res, next) => {
+  try {
+    const { endpoint, p256dh, auth } = req.body;
+    const result = await portalServiceRequestService.upsertPushSubscription({
+      clientId: req.client.id,
+      organizationId: req.client.organizationId,
+      endpoint,
+      p256dh,
+      auth,
+      userAgent: req.headers['user-agent'] || null,
+    });
+    res.status(result.updated ? 200 : 201).json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /portal/push/subscribe — remove a Web Push subscription
+router.delete('/push/subscribe', async (req, res, next) => {
+  try {
+    const { endpoint } = req.body || {};
+    if (!endpoint) throw new ValidationError('endpoint is required');
+    await portalServiceRequestService.deletePushSubscription(req.client.id, endpoint);
+    res.json({ message: 'Push subscription removed' });
   } catch (err) {
     next(err);
   }

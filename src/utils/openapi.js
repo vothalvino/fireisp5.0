@@ -172,6 +172,12 @@ function generateSpec() {
       { name: 'DSCP Marking Policies', description: 'DSCP/ToS marking policy catalog with MikroTik mangle export — §10.4' },
       { name: 'Bandwidth Test Servers', description: 'iperf3 / speedtest node registry for subscriber speed testing — §10.4' },
       { name: 'Subscriber Speed Test Jobs', description: 'Scheduled and on-demand per-subscriber speed test job queue — §10.4' },
+      { name: 'Portal Auth', description: 'Client self-service portal authentication — login, refresh, logout, password change — §11' },
+      { name: 'Portal Dashboard', description: 'Portal account overview: plan, balance, session status, usage graph — §11.1' },
+      { name: 'Portal Billing', description: 'Portal invoice history, PDF/CFDI download, online payment, payment history — §11.2' },
+      { name: 'Portal Service Requests', description: 'Self-service requests: plan upgrade, Wi-Fi/PPPoE password change, static IP, cancellation, visit schedule — §11.3' },
+      { name: 'Portal Support', description: 'Portal support: tickets, knowledge base, callback request, speed test, AI chatbot — §11.4' },
+      { name: 'Portal Push', description: 'Web Push notification subscription management — §11.5' },
     ],
     paths: {
       // ---- Auth ----
@@ -1704,6 +1710,113 @@ function generateSpec() {
       },
       '/portal/usage/allowance': {
         get: { tags: ['Data Rollover'], summary: 'Effective total data allowance for the authenticated subscriber', operationId: 'portalGetUsageAllowance', security: [{ bearerAuth: [] }], responses: r200('EffectiveAllowance') },
+      },
+
+      // ---- Portal Auth §11 ----
+      '/portal/auth/login': {
+        post: { tags: ['Portal Auth'], summary: 'Client portal login', operationId: 'portalLogin', requestBody: jsonBody('email + password'), responses: r200('AccessToken + RefreshToken') },
+      },
+      '/portal/auth/refresh': {
+        post: { tags: ['Portal Auth'], summary: 'Refresh portal access token', operationId: 'portalRefreshToken', requestBody: jsonBody('refreshToken'), responses: r200('Token pair') },
+      },
+      '/portal/auth/logout': {
+        post: { tags: ['Portal Auth'], summary: 'Portal logout', operationId: 'portalLogout', responses: r200('Message') },
+      },
+      '/portal/auth/me': {
+        get: { tags: ['Portal Auth'], summary: 'Get authenticated portal client profile', operationId: 'portalMe', security: [{ bearerAuth: [] }], responses: r200('Client') },
+      },
+      '/portal/auth/password': {
+        put: { tags: ['Portal Auth'], summary: 'Change portal password', operationId: 'portalChangePassword', security: [{ bearerAuth: [] }], requestBody: jsonBody('currentPassword + newPassword'), responses: r200('Message') },
+      },
+
+      // ---- Portal Dashboard §11.1 ----
+      '/portal/dashboard': {
+        get: { tags: ['Portal Dashboard'], summary: 'Account overview (plan, balance, session status, usage)', operationId: 'portalDashboard', security: [{ bearerAuth: [] }], responses: r200('DashboardOverview') },
+      },
+      '/portal/usage/current-month': {
+        get: { tags: ['Portal Dashboard'], summary: 'Daily usage data for the current billing month', operationId: 'portalCurrentMonthUsage', security: [{ bearerAuth: [] }], responses: r200('DailyUsage[]') },
+      },
+
+      // ---- Portal Billing §11.2 ----
+      '/portal/invoices': {
+        get: { tags: ['Portal Billing'], summary: 'List own invoices (paginated)', operationId: 'portalListInvoices', security: [{ bearerAuth: [] }], responses: r200('Invoice[]') },
+      },
+      '/portal/invoices/{id}': {
+        get: { tags: ['Portal Billing'], summary: 'Get invoice detail with line items and payments', operationId: 'portalGetInvoice', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Invoice') },
+      },
+      '/portal/invoices/{id}/pdf': {
+        get: { tags: ['Portal Billing'], summary: 'Download invoice as PDF', operationId: 'portalDownloadInvoicePdf', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200File('application/pdf') },
+      },
+      '/portal/invoices/{id}/cfdi': {
+        get: { tags: ['Portal Billing'], summary: 'Download stamped CFDI XML for an invoice', operationId: 'portalDownloadInvoiceCfdi', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200File('application/xml') },
+      },
+      '/portal/invoices/{id}/pay': {
+        post: { tags: ['Portal Billing'], summary: 'Create a checkout session for online payment', operationId: 'portalPayInvoice', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('return_url'), responses: r201('CheckoutSession') },
+      },
+      '/portal/payments': {
+        get: { tags: ['Portal Billing'], summary: 'Payment history (paginated)', operationId: 'portalListPayments', security: [{ bearerAuth: [] }], responses: r200('Payment[]') },
+      },
+
+      // ---- Portal Service Requests §11.3 ----
+      '/portal/service-requests': {
+        get: { tags: ['Portal Service Requests'], summary: 'List own service requests', operationId: 'portalListServiceRequests', security: [{ bearerAuth: [] }], responses: r200('PortalServiceRequest[]') },
+        post: { tags: ['Portal Service Requests'], summary: 'Submit a new self-service request', operationId: 'portalCreateServiceRequest', security: [{ bearerAuth: [] }], requestBody: jsonBody('request_type + payload'), responses: r201('PortalServiceRequest') },
+      },
+      '/portal/service-requests/{id}/cancel': {
+        post: { tags: ['Portal Service Requests'], summary: 'Cancel a pending service request', operationId: 'portalCancelServiceRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('PortalServiceRequest') },
+      },
+
+      // ---- Portal Support §11.4 ----
+      '/portal/tickets': {
+        get: { tags: ['Portal Support'], summary: 'List own support tickets', operationId: 'portalListTickets', security: [{ bearerAuth: [] }], responses: r200('Ticket[]') },
+        post: { tags: ['Portal Support'], summary: 'Open a new support ticket', operationId: 'portalCreateTicket', security: [{ bearerAuth: [] }], requestBody: jsonBody('subject + description + priority + category'), responses: r201('Ticket') },
+      },
+      '/portal/tickets/{id}': {
+        get: { tags: ['Portal Support'], summary: 'Get ticket detail with comments', operationId: 'portalGetTicket', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Ticket') },
+      },
+      '/portal/tickets/{id}/comments': {
+        post: { tags: ['Portal Support'], summary: 'Add a comment to a ticket', operationId: 'portalAddTicketComment', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('body'), responses: r201('TicketComment') },
+      },
+      '/portal/kb': {
+        get: { tags: ['Portal Support'], summary: 'List published knowledge-base articles', operationId: 'portalListKbArticles', security: [{ bearerAuth: [] }], responses: r200('KbArticle[]') },
+      },
+      '/portal/kb/{slugOrId}': {
+        get: { tags: ['Portal Support'], summary: 'Get knowledge-base article detail', operationId: 'portalGetKbArticle', security: [{ bearerAuth: [] }], parameters: [{ name: 'slugOrId', in: 'path', required: true, schema: { type: 'string' } }], responses: r200('KbArticle') },
+      },
+      '/portal/kb/{slugOrId}/rate': {
+        post: { tags: ['Portal Support'], summary: 'Rate a KB article helpful or not', operationId: 'portalRateKbArticle', security: [{ bearerAuth: [] }], parameters: [{ name: 'slugOrId', in: 'path', required: true, schema: { type: 'string' } }], requestBody: jsonBody('helpful: boolean'), responses: r200('Rating result') },
+      },
+      '/portal/speed-test': {
+        post: { tags: ['Portal Support'], summary: 'Queue a speed test job for this subscriber', operationId: 'portalQueueSpeedTest', security: [{ bearerAuth: [] }], responses: r201('SpeedTestJob') },
+      },
+      '/portal/speed-test/results': {
+        get: { tags: ['Portal Support'], summary: 'List speed test results for this subscriber', operationId: 'portalListSpeedTestResults', security: [{ bearerAuth: [] }], responses: r200('SpeedTestJob[]') },
+      },
+      '/portal/chat/start': {
+        post: { tags: ['Portal Support'], summary: 'Start a new AI chat session', operationId: 'portalStartChat', security: [{ bearerAuth: [] }], responses: r201('ChatSession') },
+      },
+      '/portal/chat/{token}/message': {
+        post: { tags: ['Portal Support'], summary: 'Send a message in an AI chat session', operationId: 'portalChatMessage', security: [{ bearerAuth: [] }], parameters: [{ name: 'token', in: 'path', required: true, schema: { type: 'string' } }], requestBody: jsonBody('message'), responses: r200('ChatReply') },
+      },
+      '/portal/callback-request': {
+        post: { tags: ['Portal Support'], summary: 'Submit a callback request (creates a support ticket)', operationId: 'portalCallbackRequest', security: [{ bearerAuth: [] }], requestBody: jsonBody('preferred_time + phone + notes'), responses: r201('Ticket') },
+      },
+
+      // ---- Portal Push §11.5 ----
+      '/portal/push/subscribe': {
+        post: { tags: ['Portal Push'], summary: 'Register or update a Web Push subscription', operationId: 'portalPushSubscribe', security: [{ bearerAuth: [] }], requestBody: jsonBody('endpoint + p256dh + auth'), responses: r201('PushSubscription') },
+        delete: { tags: ['Portal Push'], summary: 'Remove a Web Push subscription', operationId: 'portalPushUnsubscribe', security: [{ bearerAuth: [] }], requestBody: jsonBody('endpoint'), responses: r200('Message') },
+      },
+
+      // ---- Portal KB Admin (staff-side) §11.4 ----
+      '/portal-kb': {
+        get: { tags: ['Portal Support'], summary: 'List portal knowledge-base articles (admin)', operationId: 'adminListKbArticles', security: [{ bearerAuth: [] }], responses: r200('KbArticle[]') },
+        post: { tags: ['Portal Support'], summary: 'Create a knowledge-base article', operationId: 'adminCreateKbArticle', security: [{ bearerAuth: [] }], requestBody: jsonBody('category + title + slug + body + is_published'), responses: r201('KbArticle') },
+      },
+      '/portal-kb/{id}': {
+        get: { tags: ['Portal Support'], summary: 'Get knowledge-base article (admin)', operationId: 'adminGetKbArticle', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('KbArticle') },
+        put: { tags: ['Portal Support'], summary: 'Update knowledge-base article', operationId: 'adminUpdateKbArticle', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('KbArticle fields'), responses: r200('KbArticle') },
+        delete: { tags: ['Portal Support'], summary: 'Delete knowledge-base article', operationId: 'adminDeleteKbArticle', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Message') },
       },
 
       // ---- ACS / CWMP (outside /api/v1) ----

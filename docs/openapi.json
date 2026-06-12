@@ -543,6 +543,30 @@
     {
       "name": "Subscriber Speed Test Jobs",
       "description": "Scheduled and on-demand per-subscriber speed test job queue — §10.4"
+    },
+    {
+      "name": "Portal Auth",
+      "description": "Client self-service portal authentication — login, refresh, logout, password change — §11"
+    },
+    {
+      "name": "Portal Dashboard",
+      "description": "Portal account overview: plan, balance, session status, usage graph — §11.1"
+    },
+    {
+      "name": "Portal Billing",
+      "description": "Portal invoice history, PDF/CFDI download, online payment, payment history — §11.2"
+    },
+    {
+      "name": "Portal Service Requests",
+      "description": "Self-service requests: plan upgrade, Wi-Fi/PPPoE password change, static IP, cancellation, visit schedule — §11.3"
+    },
+    {
+      "name": "Portal Support",
+      "description": "Portal support: tickets, knowledge base, callback request, speed test, AI chatbot — §11.4"
+    },
+    {
+      "name": "Portal Push",
+      "description": "Web Push notification subscription management — §11.5"
     }
   ],
   "paths": {
@@ -34001,6 +34025,1161 @@
         "responses": {
           "200": {
             "description": "EffectiveAllowance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/auth/login": {
+      "post": {
+        "tags": [
+          "Portal Auth"
+        ],
+        "summary": "Client portal login",
+        "operationId": "portalLogin",
+        "requestBody": {
+          "description": "email + password",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "AccessToken + RefreshToken",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/auth/refresh": {
+      "post": {
+        "tags": [
+          "Portal Auth"
+        ],
+        "summary": "Refresh portal access token",
+        "operationId": "portalRefreshToken",
+        "requestBody": {
+          "description": "refreshToken",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token pair",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/auth/logout": {
+      "post": {
+        "tags": [
+          "Portal Auth"
+        ],
+        "summary": "Portal logout",
+        "operationId": "portalLogout",
+        "responses": {
+          "200": {
+            "description": "Message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/auth/me": {
+      "get": {
+        "tags": [
+          "Portal Auth"
+        ],
+        "summary": "Get authenticated portal client profile",
+        "operationId": "portalMe",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Client",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/auth/password": {
+      "put": {
+        "tags": [
+          "Portal Auth"
+        ],
+        "summary": "Change portal password",
+        "operationId": "portalChangePassword",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "currentPassword + newPassword",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/dashboard": {
+      "get": {
+        "tags": [
+          "Portal Dashboard"
+        ],
+        "summary": "Account overview (plan, balance, session status, usage)",
+        "operationId": "portalDashboard",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DashboardOverview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/usage/current-month": {
+      "get": {
+        "tags": [
+          "Portal Dashboard"
+        ],
+        "summary": "Daily usage data for the current billing month",
+        "operationId": "portalCurrentMonthUsage",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DailyUsage[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/invoices": {
+      "get": {
+        "tags": [
+          "Portal Billing"
+        ],
+        "summary": "List own invoices (paginated)",
+        "operationId": "portalListInvoices",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invoice[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/invoices/{id}": {
+      "get": {
+        "tags": [
+          "Portal Billing"
+        ],
+        "summary": "Get invoice detail with line items and payments",
+        "operationId": "portalGetInvoice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invoice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/invoices/{id}/pdf": {
+      "get": {
+        "tags": [
+          "Portal Billing"
+        ],
+        "summary": "Download invoice as PDF",
+        "operationId": "portalDownloadInvoicePdf",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File download",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/invoices/{id}/cfdi": {
+      "get": {
+        "tags": [
+          "Portal Billing"
+        ],
+        "summary": "Download stamped CFDI XML for an invoice",
+        "operationId": "portalDownloadInvoiceCfdi",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File download",
+            "content": {
+              "application/xml": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/invoices/{id}/pay": {
+      "post": {
+        "tags": [
+          "Portal Billing"
+        ],
+        "summary": "Create a checkout session for online payment",
+        "operationId": "portalPayInvoice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "return_url",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "CheckoutSession",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/payments": {
+      "get": {
+        "tags": [
+          "Portal Billing"
+        ],
+        "summary": "Payment history (paginated)",
+        "operationId": "portalListPayments",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Payment[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/service-requests": {
+      "get": {
+        "tags": [
+          "Portal Service Requests"
+        ],
+        "summary": "List own service requests",
+        "operationId": "portalListServiceRequests",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PortalServiceRequest[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Portal Service Requests"
+        ],
+        "summary": "Submit a new self-service request",
+        "operationId": "portalCreateServiceRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "request_type + payload",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "PortalServiceRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/service-requests/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Portal Service Requests"
+        ],
+        "summary": "Cancel a pending service request",
+        "operationId": "portalCancelServiceRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PortalServiceRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/tickets": {
+      "get": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "List own support tickets",
+        "operationId": "portalListTickets",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ticket[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "Open a new support ticket",
+        "operationId": "portalCreateTicket",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "subject + description + priority + category",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/tickets/{id}": {
+      "get": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "Get ticket detail with comments",
+        "operationId": "portalGetTicket",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/tickets/{id}/comments": {
+      "post": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "Add a comment to a ticket",
+        "operationId": "portalAddTicketComment",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "body",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "TicketComment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/kb": {
+      "get": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "List published knowledge-base articles",
+        "operationId": "portalListKbArticles",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "KbArticle[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/kb/{slugOrId}": {
+      "get": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "Get knowledge-base article detail",
+        "operationId": "portalGetKbArticle",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "KbArticle",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/kb/{slugOrId}/rate": {
+      "post": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "Rate a KB article helpful or not",
+        "operationId": "portalRateKbArticle",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "helpful: boolean",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rating result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/speed-test": {
+      "post": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "Queue a speed test job for this subscriber",
+        "operationId": "portalQueueSpeedTest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "SpeedTestJob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/speed-test/results": {
+      "get": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "List speed test results for this subscriber",
+        "operationId": "portalListSpeedTestResults",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SpeedTestJob[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/chat/start": {
+      "post": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "Start a new AI chat session",
+        "operationId": "portalStartChat",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "ChatSession",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/chat/{token}/message": {
+      "post": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "Send a message in an AI chat session",
+        "operationId": "portalChatMessage",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "message",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ChatReply",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/callback-request": {
+      "post": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "Submit a callback request (creates a support ticket)",
+        "operationId": "portalCallbackRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "preferred_time + phone + notes",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/push/subscribe": {
+      "post": {
+        "tags": [
+          "Portal Push"
+        ],
+        "summary": "Register or update a Web Push subscription",
+        "operationId": "portalPushSubscribe",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "endpoint + p256dh + auth",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "PushSubscription",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Portal Push"
+        ],
+        "summary": "Remove a Web Push subscription",
+        "operationId": "portalPushUnsubscribe",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "endpoint",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal-kb": {
+      "get": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "List portal knowledge-base articles (admin)",
+        "operationId": "adminListKbArticles",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "KbArticle[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "Create a knowledge-base article",
+        "operationId": "adminCreateKbArticle",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "category + title + slug + body + is_published",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "KbArticle",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal-kb/{id}": {
+      "get": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "Get knowledge-base article (admin)",
+        "operationId": "adminGetKbArticle",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "KbArticle",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "Update knowledge-base article",
+        "operationId": "adminUpdateKbArticle",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "KbArticle fields",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "KbArticle",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Portal Support"
+        ],
+        "summary": "Delete knowledge-base article",
+        "operationId": "adminDeleteKbArticle",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Message",
             "content": {
               "application/json": {
                 "schema": {
