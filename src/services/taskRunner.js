@@ -127,6 +127,10 @@ async function runTask(taskName, organizationId = null) {
     }
     case 'sla_breach_check':
       return handleSlaBreachCheck(organizationId);
+    case 'geofence_evaluation': {
+      const geoFenceService = require('./geoFenceService');
+      return geoFenceService.evaluateAll(organizationId);
+    }
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }
