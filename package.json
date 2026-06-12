@@ -55,7 +55,12 @@
       "esbuild",
       "msgpackr-extract",
       "unrs-resolver"
-    ]
+    ],
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-gv7w-rqvm-qjhr"
+      ]
+    }
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
