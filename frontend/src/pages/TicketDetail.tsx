@@ -918,6 +918,524 @@ function AiSuggestedReplyPanel({ ticket, onReplySent }: AiSuggestedReplyPanelPro
 }
 
 // ---------------------------------------------------------------------------
+// AI Triage panel
+// ---------------------------------------------------------------------------
+
+interface AiTriageData {
+  id: number;
+  suggested_category: string | null;
+  suggested_priority: string | null;
+  suggested_resolution: string | null;
+  kb_article_ids: string | null;
+}
+
+async function fetchAiTriage(ticketId: number): Promise<AiTriageData | null> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/tickets/${ticketId}/ai-triage`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return null;
+  const body = await res.json() as { data?: AiTriageData };
+  return body.data ?? null;
+}
+
+async function postAiSummary(ticketId: number): Promise<string> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/tickets/${ticketId}/ai-summary`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error('Failed to generate summary');
+  const body = await res.json() as { data?: { summary?: string }; summary?: string };
+  return body.data?.summary ?? (body as { summary?: string }).summary ?? '';
+}
+
+function AiTriagePanel({ ticketId }: { ticketId: number }) {
+  const { t } = useTranslation();
+  const [summary, setSummary] = useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryErr, setSummaryErr] = useState('');
+
+  const { data: triage } = useQuery({
+    queryKey: ['ai-triage', ticketId],
+    queryFn: () => fetchAiTriage(ticketId),
+  });
+
+  async function handleGenerateSummary() {
+    setSummaryLoading(true);
+    setSummaryErr('');
+    try {
+      const s = await postAiSummary(ticketId);
+      setSummary(s);
+    } catch (e) {
+      setSummaryErr((e as Error).message);
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
+
+  const kbIds: number[] = triage?.kb_article_ids
+    ? (triage.kb_article_ids.split(',').map(Number).filter(Boolean))
+    : [];
+
+  return (
+    <div style={{ ...card, marginTop: '1.5rem', border: '1px solid #e0e7ff', background: 'var(--bg-card)' }}>
+      <h3 style={{ ...cardTitle, color: '#4338ca' }}>{t('ticketDetail.aiTriage')}</h3>
+
+      {!triage ? (
+        <p style={{ color: '#6b7280', fontSize: '0.85rem', margin: 0 }}>{t('ticketDetail.aiTriageNone')}</p>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem 1.5rem', fontSize: '0.85rem' }}>
+          {triage.suggested_category && (
+            <div>
+              <div style={{ fontWeight: 600, color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase' }}>{t('ticketDetail.aiTriageCategory')}</div>
+              <div>{triage.suggested_category}</div>
+            </div>
+          )}
+          {triage.suggested_priority && (
+            <div>
+              <div style={{ fontWeight: 600, color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase' }}>{t('ticketDetail.aiTriagePriority')}</div>
+              <PriorityBadge priority={triage.suggested_priority} />
+            </div>
+          )}
+          {triage.suggested_resolution && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <div style={{ fontWeight: 600, color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase' }}>{t('ticketDetail.aiTriageResolution')}</div>
+              <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5, marginTop: 2 }}>{triage.suggested_resolution}</div>
+            </div>
+          )}
+          {kbIds.length > 0 && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <div style={{ fontWeight: 600, color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase' }}>{t('ticketDetail.aiTriageKb')}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                {kbIds.map(id => (
+                  <span key={id} style={{ background: '#e0e7ff', color: '#3730a3', padding: '2px 8px', borderRadius: 10, fontSize: '0.78rem' }}>
+                    KB #{id}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ marginTop: '1rem', borderTop: '1px solid #e5e7eb', paddingTop: '0.75rem' }}>
+        <div style={{ fontWeight: 600, fontSize: '0.88rem', color: '#374151', marginBottom: 6 }}>{t('ticketDetail.aiSummary')}</div>
+        {summaryErr && <div style={errStyle}>{summaryErr}</div>}
+        {summary && (
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '0.75rem', fontSize: '0.85rem', whiteSpace: 'pre-wrap', lineHeight: 1.6, marginBottom: 8 }}>
+            <div style={{ fontWeight: 600, color: '#6b7280', fontSize: '0.75rem', marginBottom: 4 }}>{t('ticketDetail.aiSummaryResult')}</div>
+            {summary}
+          </div>
+        )}
+        <button
+          style={{ ...btnPrimary, fontSize: '0.82rem', padding: '5px 14px' }}
+          disabled={summaryLoading}
+          onClick={() => void handleGenerateSummary()}
+        >
+          {summaryLoading ? t('ticketDetail.aiSummaryGenerating') : t('ticketDetail.aiSummaryGenerate')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Relations panel
+// ---------------------------------------------------------------------------
+
+interface TicketRelation {
+  id: number;
+  ticket_id_a: number;
+  ticket_id_b: number;
+  relation_type: string;
+}
+
+async function fetchRelations(ticketId: number): Promise<TicketRelation[]> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/tickets/${ticketId}/relations`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return [];
+  const body = await res.json() as { data: TicketRelation[] };
+  return body.data ?? [];
+}
+
+async function addRelation(ticketId: number, relatedId: number, relationType: string): Promise<void> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/tickets/${ticketId}/relations`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ related_ticket_id: relatedId, relation_type: relationType }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(err.error || 'Failed to add relation');
+  }
+}
+
+async function removeRelation(ticketId: number, relId: number): Promise<void> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/tickets/${ticketId}/relations/${relId}`, {
+    method: 'DELETE',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error('Failed to remove relation');
+}
+
+function RelationsPanel({ ticketId }: { ticketId: number }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [relatedId, setRelatedId] = useState('');
+  const [relationType, setRelationType] = useState('related');
+  const [formErr, setFormErr] = useState('');
+
+  const { data: relations = [], refetch } = useQuery({
+    queryKey: ['ticket-relations', ticketId],
+    queryFn: () => fetchRelations(ticketId),
+  });
+
+  const addMut = useMutation({
+    mutationFn: () => addRelation(ticketId, Number(relatedId), relationType),
+    onSuccess: () => {
+      setShowForm(false);
+      setRelatedId('');
+      setFormErr('');
+      void refetch();
+      queryClient.invalidateQueries({ queryKey: ['ticket-relations', ticketId] });
+    },
+    onError: (e: Error) => setFormErr(e.message),
+  });
+
+  const removeMut = useMutation({
+    mutationFn: (relId: number) => removeRelation(ticketId, relId),
+    onSuccess: () => void refetch(),
+  });
+
+  const RELATION_TYPES = ['related', 'blocks', 'blocked_by', 'duplicate'];
+  const typeLabel = (type: string) => {
+    const map: Record<string, string> = {
+      related: t('ticketDetail.relationsTypeRelated'),
+      blocks: t('ticketDetail.relationsTypeBlocks'),
+      blocked_by: t('ticketDetail.relationsTypeBlockedBy'),
+      duplicate: t('ticketDetail.relationsTypeDuplicate'),
+    };
+    return map[type] ?? type;
+  };
+
+  return (
+    <div style={{ ...card, marginTop: '1.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+        <h3 style={{ ...cardTitle, margin: 0 }}>{t('ticketDetail.relations')}</h3>
+        <button style={{ ...btnPrimary, fontSize: '0.78rem', padding: '4px 12px' }} onClick={() => setShowForm(s => !s)}>
+          {t('ticketDetail.relationsAdd')}
+        </button>
+      </div>
+
+      {showForm && (
+        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '0.75rem', marginBottom: '0.75rem' }}>
+          {formErr && <div style={errStyle}>{formErr}</div>}
+          <label style={labelStyle}>{t('ticketDetail.relationsRelatedId')}</label>
+          <input
+            type="number"
+            style={inputStyle}
+            value={relatedId}
+            onChange={e => setRelatedId(e.target.value)}
+            placeholder="e.g. 1234"
+          />
+          <label style={labelStyle}>{t('ticketDetail.relationsType')}</label>
+          <select style={inputStyle} value={relationType} onChange={e => setRelationType(e.target.value)}>
+            {RELATION_TYPES.map(rt => <option key={rt} value={rt}>{typeLabel(rt)}</option>)}
+          </select>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button style={btnPrimary} disabled={!relatedId || addMut.isPending} onClick={() => addMut.mutate()}>
+              {addMut.isPending ? '...' : t('ticketDetail.relationsAdd')}
+            </button>
+            <button style={btnSecondary} onClick={() => { setShowForm(false); setFormErr(''); }}>
+              {t('common.cancel', 'Cancel')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {relations.length === 0 ? (
+        <p style={{ color: '#9ca3af', fontSize: '0.85rem', margin: 0 }}>{t('ticketDetail.relationsNone')}</p>
+      ) : (
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {relations.map(rel => {
+            const other = rel.ticket_id_a === ticketId ? rel.ticket_id_b : rel.ticket_id_a;
+            return (
+              <li key={rel.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
+                <span style={{ background: '#f3f4f6', color: '#374151', padding: '2px 8px', borderRadius: 10 }}>{typeLabel(rel.relation_type)}</span>
+                <span>Ticket #{other}</span>
+                <button
+                  style={{ marginLeft: 'auto', ...commentDeleteBtn, fontSize: '0.75rem', padding: '2px 8px' }}
+                  disabled={removeMut.isPending}
+                  onClick={() => removeMut.mutate(rel.id)}
+                >
+                  {t('ticketDetail.relationsRemove')}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Time Logs panel
+// ---------------------------------------------------------------------------
+
+interface TimeLog {
+  id: number;
+  ticket_id: number;
+  user_id: number;
+  minutes: number;
+  work_date: string;
+  description: string | null;
+  first_name: string | null;
+  last_name: string | null;
+}
+
+async function fetchTimeLogs(ticketId: number): Promise<TimeLog[]> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/tickets/${ticketId}/time-logs`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return [];
+  const body = await res.json() as { data: TimeLog[] };
+  return body.data ?? [];
+}
+
+async function addTimeLog(ticketId: number, minutes: number, workDate: string, description: string): Promise<void> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/tickets/${ticketId}/time-logs`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ minutes, work_date: workDate, description }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(err.error || 'Failed to log time');
+  }
+}
+
+function TimeLogsPanel({ ticketId }: { ticketId: number }) {
+  const { t } = useTranslation();
+  const [showForm, setShowForm] = useState(false);
+  const [minutes, setMinutes] = useState('');
+  const [workDate, setWorkDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [description, setDescription] = useState('');
+  const [formErr, setFormErr] = useState('');
+
+  const { data: logs = [], refetch } = useQuery({
+    queryKey: ['ticket-time-logs', ticketId],
+    queryFn: () => fetchTimeLogs(ticketId),
+  });
+
+  const addMut = useMutation({
+    mutationFn: () => addTimeLog(ticketId, Number(minutes), workDate, description),
+    onSuccess: () => {
+      setShowForm(false);
+      setMinutes('');
+      setDescription('');
+      setFormErr('');
+      void refetch();
+    },
+    onError: (e: Error) => setFormErr(e.message),
+  });
+
+  const totalMinutes = logs.reduce((sum, l) => sum + (l.minutes ?? 0), 0);
+  const fmtDuration = (mins: number) => `${Math.floor(mins / 60)}h ${mins % 60}m`;
+
+  return (
+    <div style={{ ...card, marginTop: '1.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+        <h3 style={{ ...cardTitle, margin: 0 }}>
+          {t('ticketDetail.timeLogs')}
+          {totalMinutes > 0 && (
+            <span style={{ fontSize: '0.8rem', fontWeight: 400, color: '#6b7280', marginLeft: 8 }}>
+              ({t('ticketDetail.timeLogsTotal')}: {fmtDuration(totalMinutes)})
+            </span>
+          )}
+        </h3>
+        <button style={{ ...btnPrimary, fontSize: '0.78rem', padding: '4px 12px' }} onClick={() => setShowForm(s => !s)}>
+          {t('ticketDetail.timeLogsAdd')}
+        </button>
+      </div>
+
+      {showForm && (
+        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '0.75rem', marginBottom: '0.75rem' }}>
+          {formErr && <div style={errStyle}>{formErr}</div>}
+          <label style={labelStyle}>{t('ticketDetail.timeLogsMinutes')}</label>
+          <input type="number" min="1" style={inputStyle} value={minutes} onChange={e => setMinutes(e.target.value)} />
+          <label style={labelStyle}>{t('ticketDetail.timeLogsDate')}</label>
+          <input type="date" style={inputStyle} value={workDate} onChange={e => setWorkDate(e.target.value)} />
+          <label style={labelStyle}>{t('ticketDetail.timeLogsDescription')}</label>
+          <input type="text" style={inputStyle} value={description} onChange={e => setDescription(e.target.value)} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button style={btnPrimary} disabled={!minutes || addMut.isPending} onClick={() => addMut.mutate()}>
+              {addMut.isPending ? '...' : t('ticketDetail.timeLogsSave')}
+            </button>
+            <button style={btnSecondary} onClick={() => { setShowForm(false); setFormErr(''); }}>
+              {t('common.cancel', 'Cancel')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {logs.length === 0 ? (
+        <p style={{ color: '#9ca3af', fontSize: '0.85rem', margin: 0 }}>{t('ticketDetail.timeLogsNone')}</p>
+      ) : (
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {logs.map(log => (
+            <li key={log.id} style={{ fontSize: '0.85rem', display: 'flex', gap: 10, padding: '6px 0', borderBottom: '1px solid #f3f4f6' }}>
+              <span style={{ fontWeight: 600, minWidth: 48, color: '#374151' }}>{fmtDuration(log.minutes)}</span>
+              <span style={{ color: '#6b7280' }}>{log.work_date?.slice(0, 10) ?? '—'}</span>
+              {(log.first_name || log.last_name) && (
+                <span style={{ color: '#6b7280' }}>{log.first_name} {log.last_name}</span>
+              )}
+              {log.description && <span style={{ flex: 1, color: '#374151' }}>{log.description}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Attachments panel
+// ---------------------------------------------------------------------------
+
+interface TicketAttachment {
+  id: number;
+  filename: string;
+  original_filename: string;
+  mime_type: string;
+  file_size: number;
+  created_at: string;
+}
+
+async function fetchAttachments(ticketId: number): Promise<TicketAttachment[]> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/tickets/${ticketId}/attachments`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return [];
+  const body = await res.json() as { data: TicketAttachment[] };
+  return body.data ?? [];
+}
+
+async function deleteAttachment(ticketId: number, attachmentId: number): Promise<void> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/tickets/${ticketId}/attachments/${attachmentId}`, {
+    method: 'DELETE',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error('Failed to delete attachment');
+}
+
+function AttachmentsPanel({ ticketId }: { ticketId: number }) {
+  const { t } = useTranslation();
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState('');
+
+  const { data: attachments = [], refetch } = useQuery({
+    queryKey: ['ticket-attachments', ticketId],
+    queryFn: () => fetchAttachments(ticketId),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (attachmentId: number) => deleteAttachment(ticketId, attachmentId),
+    onSuccess: () => void refetch(),
+  });
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadErr('');
+    try {
+      const token = tokenStore.getAccess();
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`${API_BASE}/tickets/${ticketId}/attachments`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error || 'Upload failed');
+      }
+      void refetch();
+    } catch (err) {
+      setUploadErr((err as Error).message);
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  }
+
+  const fmtSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  return (
+    <div style={{ ...card, marginTop: '1.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+        <h3 style={{ ...cardTitle, margin: 0 }}>{t('ticketDetail.attachments')}</h3>
+        <label style={{ ...btnPrimary, fontSize: '0.78rem', padding: '4px 12px', cursor: 'pointer' }}>
+          {uploading ? t('ticketDetail.attachmentsUploading') : t('ticketDetail.attachmentsUpload')}
+          <input type="file" style={{ display: 'none' }} disabled={uploading} onChange={e => void handleFileChange(e)} />
+        </label>
+      </div>
+
+      {uploadErr && <div style={errStyle}>{uploadErr}</div>}
+
+      {attachments.length === 0 ? (
+        <p style={{ color: '#9ca3af', fontSize: '0.85rem', margin: 0 }}>{t('ticketDetail.attachmentsNone')}</p>
+      ) : (
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {attachments.map(att => (
+            <li key={att.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid #f3f4f6', fontSize: '0.85rem' }}>
+              <span style={{ flex: 1, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.original_filename}</span>
+              <span style={{ color: '#9ca3af', fontSize: '0.78rem' }}>{fmtSize(att.file_size)}</span>
+              <a
+                href={`${API_BASE}/tickets/${ticketId}/attachments/${att.id}/download`}
+                style={{ color: 'var(--link)', fontSize: '0.78rem', textDecoration: 'none' }}
+                download={att.original_filename}
+              >
+                {t('ticketDetail.attachmentsDownload')}
+              </a>
+              <button
+                style={{ ...commentDeleteBtn, fontSize: '0.75rem', padding: '2px 8px' }}
+                disabled={deleteMut.isPending}
+                onClick={() => deleteMut.mutate(att.id)}
+              >
+                {t('ticketDetail.attachmentsDelete')}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
@@ -1059,6 +1577,18 @@ export function TicketDetail() {
             ticket={ticket}
             onReplySent={() => void refetchComments()}
           />
+
+          {/* AI Triage Suggestions + AI Summary */}
+          <AiTriagePanel ticketId={ticket.id} />
+
+          {/* Relations */}
+          <RelationsPanel ticketId={ticket.id} />
+
+          {/* Time Logs */}
+          <TimeLogsPanel ticketId={ticket.id} />
+
+          {/* Attachments */}
+          <AttachmentsPanel ticketId={ticket.id} />
         </div>
 
         {/* Right — actions sidebar */}
