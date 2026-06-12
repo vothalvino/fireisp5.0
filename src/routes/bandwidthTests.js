@@ -15,8 +15,7 @@ const db = require('../config/database');
 
 const router = Router();
 
-router.use(authenticate);
-router.use(orgScope);
+router.use(['/bandwidth-test-servers', '/subscriber-speed-test-jobs'], authenticate, orgScope);
 
 // ---------------------------------------------------------------------------
 // Bandwidth Test Servers

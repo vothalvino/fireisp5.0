@@ -17,8 +17,7 @@ const fupNotificationService = require('../services/fupNotificationService');
 
 const router = Router();
 
-router.use(authenticate);
-router.use(orgScope);
+router.use(['/data-packs', '/data-pack-purchases', '/contracts', '/rollover', '/fup'], authenticate, orgScope);
 
 // ---------------------------------------------------------------------------
 // Data Pack Catalog

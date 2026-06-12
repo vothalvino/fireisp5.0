@@ -18,8 +18,7 @@ const db = require('../config/database');
 
 const router = Router();
 
-router.use(authenticate);
-router.use(orgScope);
+router.use(['/interface-qos-policies', '/mpls-vlan-prioritization', '/dscp-marking-policies'], authenticate, orgScope);
 
 // ---------------------------------------------------------------------------
 // Helper: generic soft-delete CRUD factory
