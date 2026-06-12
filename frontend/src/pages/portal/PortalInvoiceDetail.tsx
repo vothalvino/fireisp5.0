@@ -97,6 +97,23 @@ export function PortalInvoiceDetail() {
 
   const canPay = invoice.status === 'issued' || invoice.status === 'overdue';
 
+  const token = portalTokenStore.getAccess();
+
+  function downloadFile(url: string, filename: string) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    // For auth headers we fetch as blob
+    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then(r => r.blob())
+      .then(blob => {
+        const blobUrl = URL.createObjectURL(blob);
+        a.href = blobUrl;
+        a.click();
+        URL.revokeObjectURL(blobUrl);
+      });
+  }
+
   return (
     <div>
       <div style={styles.breadcrumb}>
@@ -120,18 +137,32 @@ export function PortalInvoiceDetail() {
             <span style={{ ...styles.badge, ...badgeColor(invoice.status) }}>
               {invoice.status.toUpperCase()}
             </span>
-            {canPay && (
-              <div style={{ marginTop: '0.75rem' }}>
-                {payError && <p style={styles.payError}>{payError}</p>}
-                <button
-                  onClick={() => { setPayError(null); payMutation.mutate(); }}
-                  disabled={payMutation.isPending}
-                  style={styles.payBtn}
-                >
-                  {payMutation.isPending ? 'Processing…' : '💳 Pay Now'}
-                </button>
-              </div>
-            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem' }}>
+              {canPay && (
+                <>
+                  {payError && <p style={styles.payError}>{payError}</p>}
+                  <button
+                    onClick={() => { setPayError(null); payMutation.mutate(); }}
+                    disabled={payMutation.isPending}
+                    style={styles.payBtn}
+                  >
+                    {payMutation.isPending ? 'Processing…' : 'Pay Now'}
+                  </button>
+                </>
+              )}
+              <button
+                onClick={() => downloadFile(`${API_BASE}/invoices/${invoice.id}/pdf`, `invoice-${invoice.invoice_number}.pdf`)}
+                style={styles.dlBtn}
+              >
+                Download PDF
+              </button>
+              <button
+                onClick={() => downloadFile(`${API_BASE}/invoices/${invoice.id}/cfdi`, `cfdi-${invoice.invoice_number}.xml`)}
+                style={styles.dlBtn}
+              >
+                Download CFDI XML
+              </button>
+            </div>
           </div>
         </div>
 
@@ -223,6 +254,7 @@ const styles = {
   statusBlock: { textAlign: 'right' as const },
   badge: { display: 'inline-block', padding: '0.3rem 0.75rem', borderRadius: 12, fontSize: '0.8rem', fontWeight: 700 },
   payBtn: { padding: '0.6rem 1.5rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4, fontSize: '1rem', fontWeight: 600, cursor: 'pointer' },
+  dlBtn: { padding: '0.4rem 1rem', background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 4, fontSize: '0.875rem', cursor: 'pointer' },
   payError: { color: '#b91c1c', fontSize: '0.85rem', margin: '0 0 0.5rem' },
   sectionTitle: { fontSize: '1rem', color: 'var(--text-secondary)', margin: '1.25rem 0 0.5rem' },
   table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: '0.875rem' },

@@ -10998,4 +10998,121 @@ CREATE TABLE IF NOT EXISTS subscriber_speed_test_jobs (
     REFERENCES bandwidth_test_servers (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ---------------------------------------------------------------------------
+-- §11 Customer Self-Service Portal — migrations 295-296
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS portal_service_requests (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NULL,
+  client_id       BIGINT UNSIGNED NOT NULL,
+  contract_id     BIGINT UNSIGNED NULL,
+  request_type    ENUM(
+                    'plan_upgrade',
+                    'wifi_password_change',
+                    'pppoe_password_change',
+                    'static_ip_request',
+                    'cancellation',
+                    'visit_schedule'
+                  ) NOT NULL,
+  status          ENUM('pending','approved','rejected','completed','cancelled')
+                  NOT NULL DEFAULT 'pending',
+  payload         JSON NULL,
+  notes           TEXT NULL,
+  approved_by     BIGINT UNSIGNED NULL,
+  approved_at     DATETIME NULL,
+  completed_at    DATETIME NULL,
+  cancelled_at    DATETIME NULL,
+  proration_credit   DECIMAL(10,2) NULL,
+  proration_charge   DECIMAL(10,2) NULL,
+  proration_net      DECIMAL(10,2) NULL,
+  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at      DATETIME NULL,
+  PRIMARY KEY (id),
+  KEY idx_psr_org (organization_id),
+  KEY idx_psr_client (client_id),
+  KEY idx_psr_contract (contract_id),
+  KEY idx_psr_type (request_type),
+  KEY idx_psr_status (status),
+  KEY idx_psr_deleted (deleted_at),
+  CONSTRAINT fk_portal_sr_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_portal_sr_client FOREIGN KEY (client_id)
+    REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS portal_kb_articles (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NULL,
+  category        VARCHAR(100) NOT NULL DEFAULT 'general',
+  title           VARCHAR(300) NOT NULL,
+  slug            VARCHAR(320) NOT NULL,
+  body            LONGTEXT NOT NULL,
+  is_published    TINYINT(1) NOT NULL DEFAULT 1,
+  view_count      INT UNSIGNED NOT NULL DEFAULT 0,
+  helpful_yes     INT UNSIGNED NOT NULL DEFAULT 0,
+  helpful_no      INT UNSIGNED NOT NULL DEFAULT 0,
+  created_by      BIGINT UNSIGNED NULL,
+  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at      DATETIME NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_kb_org_slug (organization_id, slug),
+  KEY idx_kb_org (organization_id),
+  KEY idx_kb_category (category),
+  KEY idx_kb_published (is_published),
+  KEY idx_kb_deleted (deleted_at),
+  CONSTRAINT fk_kb_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS portal_chat_sessions (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NULL,
+  client_id       BIGINT UNSIGNED NOT NULL,
+  session_token   VARCHAR(64) NOT NULL,
+  messages        JSON NOT NULL DEFAULT (JSON_ARRAY()),
+  status          ENUM('active','resolved','escalated') NOT NULL DEFAULT 'active',
+  ticket_id       BIGINT UNSIGNED NULL,
+  ai_reply_log_id BIGINT UNSIGNED NULL,
+  turn_count      SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_pcs_token (session_token),
+  KEY idx_pcs_client (client_id),
+  KEY idx_pcs_org (organization_id),
+  KEY idx_pcs_status (status),
+  CONSTRAINT fk_pcs_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_pcs_client FOREIGN KEY (client_id)
+    REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS portal_push_subscriptions (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NULL,
+  client_id       BIGINT UNSIGNED NOT NULL,
+  endpoint        VARCHAR(2048) NOT NULL,
+  p256dh          VARCHAR(512) NOT NULL,
+  auth            VARCHAR(256) NOT NULL,
+  user_agent      VARCHAR(255) NULL,
+  notify_outage   TINYINT(1) NOT NULL DEFAULT 1,
+  notify_billing  TINYINT(1) NOT NULL DEFAULT 1,
+  notify_ticket   TINYINT(1) NOT NULL DEFAULT 1,
+  last_sent_at    DATETIME NULL,
+  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at      DATETIME NULL,
+  PRIMARY KEY (id),
+  KEY idx_pps_client (client_id),
+  KEY idx_pps_org (organization_id),
+  KEY idx_pps_deleted (deleted_at),
+  CONSTRAINT fk_pps_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_pps_client FOREIGN KEY (client_id)
+    REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

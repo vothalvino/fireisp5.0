@@ -23,6 +23,10 @@ import { PortalInvoices } from '@/pages/portal/PortalInvoices';
 import { PortalInvoiceDetail } from '@/pages/portal/PortalInvoiceDetail';
 import { PortalTickets } from '@/pages/portal/PortalTickets';
 import { PortalTicketDetail } from '@/pages/portal/PortalTicketDetail';
+import { PortalAccount } from '@/pages/portal/PortalAccount';
+import { PortalKb } from '@/pages/portal/PortalKb';
+import { PortalSpeedTest } from '@/pages/portal/PortalSpeedTest';
+import { PortalChat } from '@/pages/portal/PortalChat';
 import { Dashboard } from '@/pages/Dashboard';
 import { ClientList } from '@/pages/ClientList';
 import { ClientDetail } from '@/pages/ClientDetail';
@@ -172,6 +176,10 @@ export function App() {
                   <Route path="/portal/invoices/:id" element={<PortalInvoiceDetail />} />
                   <Route path="/portal/tickets" element={<PortalTickets />} />
                   <Route path="/portal/tickets/:id" element={<PortalTicketDetail />} />
+                  <Route path="/portal/account" element={<PortalAccount />} />
+                  <Route path="/portal/kb" element={<PortalKb />} />
+                  <Route path="/portal/speed-test" element={<PortalSpeedTest />} />
+                  <Route path="/portal/chat" element={<PortalChat />} />
                 </Route>
               </Route>
 

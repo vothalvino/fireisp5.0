@@ -82,6 +82,7 @@
     "openid-client": "^5.7.1",
     "pdfkit": "^0.18.0",
     "pino": "^10.3.1",
+    "web-push": "^3.6.7",
     "ws": "^8.20.1"
   },
   "devDependencies": {

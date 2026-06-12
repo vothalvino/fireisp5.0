@@ -10,6 +10,7 @@ const emailTransport = require('./emailTransport');
 const smsTransport = require('./smsTransport');
 const templates = require('../views/emailTemplates');
 const webhookService = require('./webhookService');
+const portalPushService = require('./portalPushService');
 const logger = require('../utils/logger');
 
 // Lazy-load broadcast to avoid circular dependency
@@ -124,6 +125,19 @@ function registerHooks() {
         total: invoice.total,
         currency: invoice.currency,
       });
+
+      // Web Push to client's portal subscriptions
+      if (invoice.client_id) {
+        await portalPushService.dispatch({
+          clientId: invoice.client_id,
+          eventType: 'billing',
+          payload: {
+            title: 'Nueva factura disponible',
+            body: `Factura ${invoice.invoice_number} por ${invoice.currency} ${invoice.total}`,
+            url: '/portal/invoices',
+          },
+        }).catch(err2 => logger.warn({ err: err2, event: 'invoice.created' }, 'Portal push dispatch error'));
+      }
     } catch (err) {
       logger.error({ err, event: 'invoice.created' }, 'Notification hook error');
     }
@@ -175,6 +189,19 @@ function registerHooks() {
         amount: payment.amount,
         currency: payment.currency,
       });
+
+      // Web Push to client's portal subscriptions
+      if (payment.client_id) {
+        await portalPushService.dispatch({
+          clientId: payment.client_id,
+          eventType: 'billing',
+          payload: {
+            title: 'Pago recibido',
+            body: `Recibimos tu pago de ${payment.currency} ${payment.amount}. ¡Gracias!`,
+            url: '/portal/payments',
+          },
+        }).catch(err2 => logger.warn({ err: err2, event: 'payment.received' }, 'Portal push dispatch error'));
+      }
     } catch (err) {
       logger.error({ err, event: 'payment.received' }, 'Notification hook error');
     }
@@ -295,6 +322,29 @@ function registerHooks() {
         title: outage.title,
         severity: outage.severity,
       });
+
+      // Web Push — send to all clients in the org that have outage notifications enabled
+      try {
+        const db = require('../config/database');
+        const [subs] = await db.query(
+          `SELECT DISTINCT client_id FROM portal_push_subscriptions
+           WHERE organization_id = ? AND notify_outage = 1 AND deleted_at IS NULL`,
+          [organizationId],
+        );
+        for (const sub of subs) {
+          await portalPushService.dispatch({
+            clientId: sub.client_id,
+            eventType: 'outage',
+            payload: {
+              title: 'Interrupción de servicio',
+              body: outage.title || 'Se reportó una interrupción en su área',
+              url: '/portal/dashboard',
+            },
+          }).catch(err2 => logger.warn({ err: err2, clientId: sub.client_id }, 'Portal push outage dispatch error'));
+        }
+      } catch (pushErr) {
+        logger.warn({ err: pushErr, event: 'outage.reported' }, 'Portal push bulk dispatch error');
+      }
 
       // Notify admins/support by email when a new outage is reported — §1.4
       try {
