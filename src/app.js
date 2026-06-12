@@ -156,6 +156,9 @@ const qualityClassRoutes = require('./routes/qualityClasses');
 const queueTreeNodeRoutes = require('./routes/queueTreeNodes');
 const rateLimitTemplateRoutes = require('./routes/rateLimitTemplates');
 const protocolShapingRuleRoutes = require('./routes/protocolShapingRules');
+const dataManagementRoutes = require('./routes/dataManagement');
+const trafficEngineeringRoutes = require('./routes/trafficEngineering');
+const bandwidthTestRoutes = require('./routes/bandwidthTests');
 const acsService = require('./services/acsService');
 const graphqlMiddleware = require('./graphql');
 
@@ -538,6 +541,9 @@ v1.use('/quality-classes', qualityClassRoutes);
 v1.use('/queue-tree-nodes', queueTreeNodeRoutes);
 v1.use('/rate-limit-templates', rateLimitTemplateRoutes);
 v1.use('/protocol-shaping-rules', protocolShapingRuleRoutes);
+v1.use('/', apiLimiter, dataManagementRoutes);
+v1.use('/', apiLimiter, trafficEngineeringRoutes);
+v1.use('/', apiLimiter, bandwidthTestRoutes);
 v1.use('/graphql', authenticate, orgScope, graphqlMiddleware);
 
 // Mount v1 at both /api (backward compat) and /api/v1 (versioned)

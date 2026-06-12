@@ -515,6 +515,34 @@
     {
       "name": "Protocol Shaping Rules",
       "description": "Per-protocol/port traffic shaping rules (torrent throttling, VoIP priority) with MikroTik mangle export — §10.2"
+    },
+    {
+      "name": "Data Packs",
+      "description": "Add-on data pack catalog: pricing, GB allowance, validity — §10.3"
+    },
+    {
+      "name": "Data Rollover",
+      "description": "Monthly unused-data carry-forward balances per subscriber contract — §10.3"
+    },
+    {
+      "name": "Interface QoS Policies",
+      "description": "Per-interface hierarchical QoS policy bindings (HTB/CBQ/HFSC/PCQ) — §10.4"
+    },
+    {
+      "name": "MPLS VLAN Prioritization",
+      "description": "MPLS EXP / 802.1p CoS / DSCP re-marking rules — §10.4"
+    },
+    {
+      "name": "DSCP Marking Policies",
+      "description": "DSCP/ToS marking policy catalog with MikroTik mangle export — §10.4"
+    },
+    {
+      "name": "Bandwidth Test Servers",
+      "description": "iperf3 / speedtest node registry for subscriber speed testing — §10.4"
+    },
+    {
+      "name": "Subscriber Speed Test Jobs",
+      "description": "Scheduled and on-demand per-subscriber speed test job queue — §10.4"
     }
   ],
   "paths": {
@@ -32398,6 +32426,1592 @@
         }
       }
     },
+    "/data-packs": {
+      "get": {
+        "tags": [
+          "Data Packs"
+        ],
+        "summary": "List available data packs",
+        "operationId": "listDataPacks",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DataPack[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Data Packs"
+        ],
+        "summary": "Create a data pack",
+        "operationId": "createDataPack",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "DataPack",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "DataPack",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/data-packs/{id}": {
+      "put": {
+        "tags": [
+          "Data Packs"
+        ],
+        "summary": "Update a data pack",
+        "operationId": "updateDataPack",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "DataPack",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DataPack",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Data Packs"
+        ],
+        "summary": "Soft-delete a data pack",
+        "operationId": "deleteDataPack",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/data-packs/{id}/restore": {
+      "post": {
+        "tags": [
+          "Data Packs"
+        ],
+        "summary": "Restore a soft-deleted data pack",
+        "operationId": "restoreDataPack",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DataPack",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/data-packs/{id}/purchases": {
+      "get": {
+        "tags": [
+          "Data Packs"
+        ],
+        "summary": "List purchases for a specific data pack",
+        "operationId": "listDataPackPurchases",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DataPackPurchase[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contracts/{contractId}/data-packs": {
+      "get": {
+        "tags": [
+          "Data Packs"
+        ],
+        "summary": "Effective data allowance and purchases for a contract",
+        "operationId": "getContractDataPacks",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ allowance, purchases }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contracts/{contractId}/data-packs/{packId}/purchase": {
+      "post": {
+        "tags": [
+          "Data Packs"
+        ],
+        "summary": "Purchase a data pack for a subscriber (admin)",
+        "operationId": "purchaseDataPackAdmin",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "packId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "DataPackPurchase",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/data-pack-purchases/{id}/cancel": {
+      "put": {
+        "tags": [
+          "Data Packs"
+        ],
+        "summary": "Cancel a data pack purchase",
+        "operationId": "cancelDataPackPurchase",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DataPackPurchase",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contracts/{contractId}/rollover": {
+      "get": {
+        "tags": [
+          "Data Rollover"
+        ],
+        "summary": "Get rollover balance for a contract",
+        "operationId": "getContractRollover",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RolloverBalance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rollover/accrue": {
+      "post": {
+        "tags": [
+          "Data Rollover"
+        ],
+        "summary": "Trigger manual rollover accrual for the org",
+        "operationId": "accrueRollover",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ processed, rolled_over_contracts }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fup/notifications": {
+      "get": {
+        "tags": [
+          "Data Rollover"
+        ],
+        "summary": "List recent FUP usage notifications",
+        "operationId": "listFupNotifications",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "contract_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FupUsageNotification[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fup/check-thresholds": {
+      "post": {
+        "tags": [
+          "Data Rollover"
+        ],
+        "summary": "Manually trigger FUP threshold check and notifications",
+        "operationId": "checkFupThresholds",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ checked, notified }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/interface-qos-policies": {
+      "get": {
+        "tags": [
+          "Interface QoS Policies"
+        ],
+        "summary": "List interface-qos-policies",
+        "operationId": "listInterfaceQosPolicys",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "InterfaceQosPolicy[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Interface QoS Policies"
+        ],
+        "summary": "Create a InterfaceQosPolicy",
+        "operationId": "createInterfaceQosPolicy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "InterfaceQosPolicy",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "InterfaceQosPolicy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/interface-qos-policies/{id}": {
+      "get": {
+        "tags": [
+          "Interface QoS Policies"
+        ],
+        "summary": "Get a InterfaceQosPolicy",
+        "operationId": "getInterfaceQosPolicy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "InterfaceQosPolicy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Interface QoS Policies"
+        ],
+        "summary": "Update a InterfaceQosPolicy",
+        "operationId": "updateInterfaceQosPolicy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "InterfaceQosPolicy",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "InterfaceQosPolicy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Interface QoS Policies"
+        ],
+        "summary": "Delete a InterfaceQosPolicy",
+        "operationId": "deleteInterfaceQosPolicy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/interface-qos-policies/{id}/restore": {
+      "post": {
+        "tags": [
+          "Interface QoS Policies"
+        ],
+        "summary": "Restore a soft-deleted interface QoS policy",
+        "operationId": "restoreInterfaceQosPolicy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "InterfaceQosPolicy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mpls-vlan-prioritization": {
+      "get": {
+        "tags": [
+          "MPLS VLAN Prioritization"
+        ],
+        "summary": "List mpls-vlan-prioritization",
+        "operationId": "listMplsVlanPrioritizationRules",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MplsVlanPrioritizationRule[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "MPLS VLAN Prioritization"
+        ],
+        "summary": "Create a MplsVlanPrioritizationRule",
+        "operationId": "createMplsVlanPrioritizationRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "MplsVlanPrioritizationRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "MplsVlanPrioritizationRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mpls-vlan-prioritization/{id}": {
+      "get": {
+        "tags": [
+          "MPLS VLAN Prioritization"
+        ],
+        "summary": "Get a MplsVlanPrioritizationRule",
+        "operationId": "getMplsVlanPrioritizationRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MplsVlanPrioritizationRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "MPLS VLAN Prioritization"
+        ],
+        "summary": "Update a MplsVlanPrioritizationRule",
+        "operationId": "updateMplsVlanPrioritizationRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "MplsVlanPrioritizationRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "MplsVlanPrioritizationRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "MPLS VLAN Prioritization"
+        ],
+        "summary": "Delete a MplsVlanPrioritizationRule",
+        "operationId": "deleteMplsVlanPrioritizationRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/mpls-vlan-prioritization/{id}/restore": {
+      "post": {
+        "tags": [
+          "MPLS VLAN Prioritization"
+        ],
+        "summary": "Restore a soft-deleted MPLS/VLAN prioritization rule",
+        "operationId": "restoreMplsVlanRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MplsVlanPrioritizationRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dscp-marking-policies": {
+      "get": {
+        "tags": [
+          "DSCP Marking Policies"
+        ],
+        "summary": "List dscp-marking-policies",
+        "operationId": "listDscpMarkingPolicys",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DscpMarkingPolicy[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "DSCP Marking Policies"
+        ],
+        "summary": "Create a DscpMarkingPolicy",
+        "operationId": "createDscpMarkingPolicy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "DscpMarkingPolicy",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "DscpMarkingPolicy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dscp-marking-policies/{id}": {
+      "get": {
+        "tags": [
+          "DSCP Marking Policies"
+        ],
+        "summary": "Get a DscpMarkingPolicy",
+        "operationId": "getDscpMarkingPolicy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DscpMarkingPolicy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "DSCP Marking Policies"
+        ],
+        "summary": "Update a DscpMarkingPolicy",
+        "operationId": "updateDscpMarkingPolicy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "DscpMarkingPolicy",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DscpMarkingPolicy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "DSCP Marking Policies"
+        ],
+        "summary": "Delete a DscpMarkingPolicy",
+        "operationId": "deleteDscpMarkingPolicy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/dscp-marking-policies/{id}/restore": {
+      "post": {
+        "tags": [
+          "DSCP Marking Policies"
+        ],
+        "summary": "Restore a soft-deleted DSCP marking policy",
+        "operationId": "restoreDscpMarkingPolicy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DscpMarkingPolicy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dscp-marking-policies/export/config": {
+      "get": {
+        "tags": [
+          "DSCP Marking Policies"
+        ],
+        "summary": "Export MikroTik mangle rules for active DSCP policies",
+        "operationId": "exportDscpConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "text"
+              ],
+              "default": "json"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MikroTik mangle script or JSON array",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bandwidth-test-servers": {
+      "get": {
+        "tags": [
+          "Bandwidth Test Servers"
+        ],
+        "summary": "List bandwidth-test-servers",
+        "operationId": "listBandwidthTestServers",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "BandwidthTestServer[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Bandwidth Test Servers"
+        ],
+        "summary": "Create a BandwidthTestServer",
+        "operationId": "createBandwidthTestServer",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "BandwidthTestServer",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "BandwidthTestServer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bandwidth-test-servers/{id}": {
+      "get": {
+        "tags": [
+          "Bandwidth Test Servers"
+        ],
+        "summary": "Get a BandwidthTestServer",
+        "operationId": "getBandwidthTestServer",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "BandwidthTestServer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Bandwidth Test Servers"
+        ],
+        "summary": "Update a BandwidthTestServer",
+        "operationId": "updateBandwidthTestServer",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "BandwidthTestServer",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "BandwidthTestServer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Bandwidth Test Servers"
+        ],
+        "summary": "Delete a BandwidthTestServer",
+        "operationId": "deleteBandwidthTestServer",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/bandwidth-test-servers/{id}/restore": {
+      "post": {
+        "tags": [
+          "Bandwidth Test Servers"
+        ],
+        "summary": "Restore a soft-deleted bandwidth test server",
+        "operationId": "restoreBandwidthTestServer",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "BandwidthTestServer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subscriber-speed-test-jobs": {
+      "get": {
+        "tags": [
+          "Subscriber Speed Test Jobs"
+        ],
+        "summary": "List subscriber speed test jobs",
+        "operationId": "listSubscriberSpeedTestJobs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "contract_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SubscriberSpeedTestJob[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Subscriber Speed Test Jobs"
+        ],
+        "summary": "Schedule a subscriber speed test job",
+        "operationId": "createSubscriberSpeedTestJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "SubscriberSpeedTestJob",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "SubscriberSpeedTestJob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subscriber-speed-test-jobs/{id}": {
+      "get": {
+        "tags": [
+          "Subscriber Speed Test Jobs"
+        ],
+        "summary": "Get a subscriber speed test job",
+        "operationId": "getSubscriberSpeedTestJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SubscriberSpeedTestJob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subscriber-speed-test-jobs/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Subscriber Speed Test Jobs"
+        ],
+        "summary": "Cancel a queued or running speed test job",
+        "operationId": "cancelSubscriberSpeedTestJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SubscriberSpeedTestJob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/data-packs": {
+      "get": {
+        "tags": [
+          "Data Packs"
+        ],
+        "summary": "List available data packs (portal)",
+        "operationId": "portalListDataPacks",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DataPack[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/data-packs/{packId}/purchase": {
+      "post": {
+        "tags": [
+          "Data Packs"
+        ],
+        "summary": "Purchase a data pack via subscriber portal",
+        "operationId": "portalPurchaseDataPack",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "packId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "DataPackPurchase",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/data-packs/my-purchases": {
+      "get": {
+        "tags": [
+          "Data Packs"
+        ],
+        "summary": "List subscriber data pack purchases (portal)",
+        "operationId": "portalListMyDataPackPurchases",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DataPackPurchase[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/usage/allowance": {
+      "get": {
+        "tags": [
+          "Data Rollover"
+        ],
+        "summary": "Effective total data allowance for the authenticated subscriber",
+        "operationId": "portalGetUsageAllowance",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "EffectiveAllowance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/acs/cwmp": {
       "post": {
         "tags": [
@@ -33196,6 +34810,128 @@
         "required": [
           "organizationId"
         ]
+      },
+      "bandwidthTestServers_createBandwidthTestServer": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 1000
+          },
+          "host": {
+            "type": "string",
+            "maximum": 255
+          },
+          "port": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "tcp",
+              "udp",
+              "iperf3",
+              "speedtest"
+            ]
+          },
+          "region": {
+            "type": "string",
+            "maximum": 100
+          },
+          "site_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "auth_token": {
+            "type": "string",
+            "maximum": 255
+          },
+          "max_bandwidth_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "maintenance"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "host"
+        ]
+      },
+      "bandwidthTestServers_updateBandwidthTestServer": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 1000
+          },
+          "host": {
+            "type": "string",
+            "maximum": 255
+          },
+          "port": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "tcp",
+              "udp",
+              "iperf3",
+              "speedtest"
+            ]
+          },
+          "region": {
+            "type": "string",
+            "maximum": 100
+          },
+          "site_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "auth_token": {
+            "type": "string",
+            "maximum": 255
+          },
+          "max_bandwidth_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "maintenance"
+            ]
+          }
+        }
       },
       "billing_generatePeriod": {
         "type": "object",
@@ -35906,6 +37642,89 @@
           }
         }
       },
+      "dataPacks_createDataPack": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 1000
+          },
+          "data_gb": {
+            "type": "number",
+            "minimum": 0
+          },
+          "price": {
+            "type": "number",
+            "minimum": 0
+          },
+          "currency": {
+            "type": "string",
+            "maximum": 3
+          },
+          "validity_days": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 3650
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "deprecated"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "data_gb",
+          "price"
+        ]
+      },
+      "dataPacks_updateDataPack": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 1000
+          },
+          "data_gb": {
+            "type": "number",
+            "minimum": 0
+          },
+          "price": {
+            "type": "number",
+            "minimum": 0
+          },
+          "currency": {
+            "type": "string",
+            "maximum": 3
+          },
+          "validity_days": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 3650
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "deprecated"
+            ]
+          }
+        }
+      },
       "deviceConfigBackups_createDeviceConfigBackup": {
         "type": "object",
         "properties": {
@@ -36753,6 +38572,160 @@
         "required": [
           "cidr_ranges"
         ]
+      },
+      "dscpMarkingPolicies_createDscpMarkingPolicy": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 1000
+          },
+          "dscp_value": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 63
+          },
+          "dscp_name": {
+            "type": "string",
+            "maximum": 20
+          },
+          "traffic_class": {
+            "type": "string",
+            "maximum": 50
+          },
+          "match_protocol": {
+            "type": "string",
+            "enum": [
+              "tcp",
+              "udp",
+              "icmp",
+              "any"
+            ]
+          },
+          "match_dst_port": {
+            "type": "string",
+            "maximum": 100
+          },
+          "match_src_port": {
+            "type": "string",
+            "maximum": 100
+          },
+          "match_l7": {
+            "type": "string",
+            "maximum": 255
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "mark",
+              "remark",
+              "passthrough",
+              "trust",
+              "police"
+            ]
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "enabled": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "dscp_value"
+        ]
+      },
+      "dscpMarkingPolicies_updateDscpMarkingPolicy": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 1000
+          },
+          "dscp_value": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 63
+          },
+          "dscp_name": {
+            "type": "string",
+            "maximum": 20
+          },
+          "traffic_class": {
+            "type": "string",
+            "maximum": 50
+          },
+          "match_protocol": {
+            "type": "string",
+            "enum": [
+              "tcp",
+              "udp",
+              "icmp",
+              "any"
+            ]
+          },
+          "match_dst_port": {
+            "type": "string",
+            "maximum": 100
+          },
+          "match_src_port": {
+            "type": "string",
+            "maximum": 100
+          },
+          "match_l7": {
+            "type": "string",
+            "maximum": 255
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "mark",
+              "remark",
+              "passthrough",
+              "trust",
+              "police"
+            ]
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "enabled": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        }
       },
       "events_ticketStream": {
         "type": "object",
@@ -38195,6 +40168,175 @@
           }
         }
       },
+      "interfaceQosPolicies_createInterfaceQosPolicy": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 1000
+          },
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "interface_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "policy_type": {
+            "type": "string",
+            "enum": [
+              "htb",
+              "cbq",
+              "hfsc",
+              "pcq",
+              "prio",
+              "sfq",
+              "generic"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "ingress",
+              "egress",
+              "both"
+            ]
+          },
+          "parent_policy_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "bandwidth_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "ceil_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "vendor_platform": {
+            "type": "string",
+            "enum": [
+              "mikrotik",
+              "cisco",
+              "juniper",
+              "generic"
+            ]
+          },
+          "vendor_config": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "interfaceQosPolicies_updateInterfaceQosPolicy": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 1000
+          },
+          "device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "interface_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "policy_type": {
+            "type": "string",
+            "enum": [
+              "htb",
+              "cbq",
+              "hfsc",
+              "pcq",
+              "prio",
+              "sfq",
+              "generic"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "ingress",
+              "egress",
+              "both"
+            ]
+          },
+          "parent_policy_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "bandwidth_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "ceil_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "vendor_platform": {
+            "type": "string",
+            "enum": [
+              "mikrotik",
+              "cisco",
+              "juniper",
+              "generic"
+            ]
+          },
+          "vendor_config": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        }
+      },
       "inventory_createInventoryItem": {
         "type": "object",
         "properties": {
@@ -39420,6 +41562,129 @@
       "metrics_metricsQuery": {
         "type": "object",
         "properties": {}
+      },
+      "mplsVlanPrioritization_createMplsVlanRule": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 1000
+          },
+          "rule_type": {
+            "type": "string",
+            "enum": [
+              "vlan",
+              "mpls",
+              "qinq",
+              "mpls_vlan"
+            ]
+          },
+          "vlan_id": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 4094
+          },
+          "inner_vlan_id": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 4094
+          },
+          "mpls_label": {
+            "type": "number",
+            "minimum": 0
+          },
+          "traffic_class": {
+            "type": "string",
+            "maximum": 50
+          },
+          "priority_bits": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 7
+          },
+          "dscp_value": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 63
+          },
+          "queue_class": {
+            "type": "string",
+            "maximum": 100
+          },
+          "enabled": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "mplsVlanPrioritization_updateMplsVlanRule": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 1000
+          },
+          "rule_type": {
+            "type": "string",
+            "enum": [
+              "vlan",
+              "mpls",
+              "qinq",
+              "mpls_vlan"
+            ]
+          },
+          "vlan_id": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 4094
+          },
+          "inner_vlan_id": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 4094
+          },
+          "mpls_label": {
+            "type": "number",
+            "minimum": 0
+          },
+          "traffic_class": {
+            "type": "string",
+            "maximum": 50
+          },
+          "priority_bits": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 7
+          },
+          "dscp_value": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 63
+          },
+          "queue_class": {
+            "type": "string",
+            "maximum": 100
+          },
+          "enabled": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
       },
       "nas_createNas": {
         "type": "object",
@@ -46433,6 +48698,74 @@
           "revocation_reason": {
             "type": "string",
             "maximum": 255
+          }
+        }
+      },
+      "subscriberSpeedTestJobs_createSpeedTestJob": {
+        "type": "object",
+        "properties": {
+          "contract_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "test_server_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "scheduled_at": {
+            "type": "string",
+            "maximum": 30
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "contract_id"
+        ]
+      },
+      "subscriberSpeedTestJobs_updateSpeedTestJob": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "download_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "upload_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "latency_ms": {
+            "type": "number",
+            "minimum": 0
+          },
+          "jitter_ms": {
+            "type": "number",
+            "minimum": 0
+          },
+          "packet_loss_pct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "error_message": {
+            "type": "string",
+            "maximum": 2000
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 1000
           }
         }
       },

@@ -28,6 +28,7 @@ const portalAuthService = require('../services/portalAuthService');
 const checkoutService = require('../services/checkoutService');
 const db = require('../config/database');
 const { NotFoundError, ValidationError } = require('../utils/errors');
+const dataPackService = require('../services/dataPackService');
 
 const router = Router();
 
@@ -344,6 +345,83 @@ router.post('/tickets/:id/comments', validate(createCommentSchema), async (req, 
     );
 
     res.status(201).json({ data: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DATA PACKS (§10.3 — portal self-service)
+// ---------------------------------------------------------------------------
+
+// GET /portal/data-packs — list available packs for this org
+router.get('/data-packs', apiLimiter, async (req, res, next) => {
+  try {
+    const packs = await dataPackService.listPacks(req.client.organizationId);
+    res.json({ data: packs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /portal/data-packs/:packId/purchase — self-service purchase
+router.post('/data-packs/:packId/purchase', apiLimiter, async (req, res, next) => {
+  try {
+    // Resolve the subscriber's active contract
+    const [contracts] = await db.query(
+      `SELECT id FROM contracts
+       WHERE client_id = ? AND status = 'active' AND deleted_at IS NULL
+       LIMIT 1`,
+      [req.client.id],
+    );
+    if (!contracts[0]) throw new NotFoundError('Active contract');
+
+    const purchase = await dataPackService.purchasePack(
+      req.client.organizationId,
+      contracts[0].id,
+      req.params.packId,
+      { purchasedBy: 'client_portal' },
+    );
+    res.status(201).json({ data: purchase });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /portal/data-packs/my-purchases — list this client's purchases
+router.get('/data-packs/my-purchases', apiLimiter, async (req, res, next) => {
+  try {
+    const [contracts] = await db.query(
+      `SELECT id FROM contracts
+       WHERE client_id = ? AND status = 'active' AND deleted_at IS NULL
+       LIMIT 1`,
+      [req.client.id],
+    );
+    if (!contracts[0]) return res.json({ data: [] });
+
+    const purchases = await dataPackService.listPurchases(
+      req.client.organizationId,
+      contracts[0].id,
+    );
+    res.json({ data: purchases });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /portal/usage/allowance — effective total data allowance
+router.get('/usage/allowance', apiLimiter, async (req, res, next) => {
+  try {
+    const [contracts] = await db.query(
+      `SELECT id FROM contracts
+       WHERE client_id = ? AND status = 'active' AND deleted_at IS NULL
+       LIMIT 1`,
+      [req.client.id],
+    );
+    if (!contracts[0]) return res.json({ data: null });
+
+    const allowance = await dataPackService.getEffectiveAllowance(contracts[0].id);
+    res.json({ data: allowance });
   } catch (err) {
     next(err);
   }

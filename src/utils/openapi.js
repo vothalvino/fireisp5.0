@@ -165,6 +165,13 @@ function generateSpec() {
       { name: 'Queue Tree Nodes', description: 'Hierarchical queue tree node definitions (MikroTik Queue Tree / Simple Queue) with export to RouterOS script — §10.1' },
       { name: 'Rate Limit Templates', description: 'Named rate-limit templates per service type (PPPoE/DHCP/hotspot) with vendor-specific rate-string generation — §10.2' },
       { name: 'Protocol Shaping Rules', description: 'Per-protocol/port traffic shaping rules (torrent throttling, VoIP priority) with MikroTik mangle export — §10.2' },
+      { name: 'Data Packs', description: 'Add-on data pack catalog: pricing, GB allowance, validity — §10.3' },
+      { name: 'Data Rollover', description: 'Monthly unused-data carry-forward balances per subscriber contract — §10.3' },
+      { name: 'Interface QoS Policies', description: 'Per-interface hierarchical QoS policy bindings (HTB/CBQ/HFSC/PCQ) — §10.4' },
+      { name: 'MPLS VLAN Prioritization', description: 'MPLS EXP / 802.1p CoS / DSCP re-marking rules — §10.4' },
+      { name: 'DSCP Marking Policies', description: 'DSCP/ToS marking policy catalog with MikroTik mangle export — §10.4' },
+      { name: 'Bandwidth Test Servers', description: 'iperf3 / speedtest node registry for subscriber speed testing — §10.4' },
+      { name: 'Subscriber Speed Test Jobs', description: 'Scheduled and on-demand per-subscriber speed test job queue — §10.4' },
     ],
     paths: {
       // ---- Auth ----
@@ -1605,6 +1612,98 @@ function generateSpec() {
       },
       '/protocol-shaping-rules/export/config': {
         get: { tags: ['Protocol Shaping Rules'], summary: 'Export MikroTik mangle rules script for active shaping rules', operationId: 'exportShapingRulesConfig', security: [{ bearerAuth: [] }], parameters: [{ name: 'plan_id', in: 'query', required: false, schema: { type: 'integer' } }, { name: 'format', in: 'query', required: false, schema: { type: 'string', enum: ['json', 'text'], default: 'json' } }], responses: r200('RouterOS mangle script or JSON with script + rule_count') },
+      },
+
+      // ---- Data Packs §10.3 ----
+      '/data-packs': {
+        get: { tags: ['Data Packs'], summary: 'List available data packs', operationId: 'listDataPacks', security: [{ bearerAuth: [] }], responses: r200('DataPack[]') },
+        post: { tags: ['Data Packs'], summary: 'Create a data pack', operationId: 'createDataPack', security: [{ bearerAuth: [] }], requestBody: jsonBody('DataPack'), responses: r201('DataPack') },
+      },
+      '/data-packs/{id}': {
+        put: { tags: ['Data Packs'], summary: 'Update a data pack', operationId: 'updateDataPack', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('DataPack'), responses: r200('DataPack') },
+        delete: { tags: ['Data Packs'], summary: 'Soft-delete a data pack', operationId: 'deleteDataPack', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/data-packs/{id}/restore': {
+        post: { tags: ['Data Packs'], summary: 'Restore a soft-deleted data pack', operationId: 'restoreDataPack', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DataPack') },
+      },
+      '/data-packs/{id}/purchases': {
+        get: { tags: ['Data Packs'], summary: 'List purchases for a specific data pack', operationId: 'listDataPackPurchases', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DataPackPurchase[]') },
+      },
+      '/contracts/{contractId}/data-packs': {
+        get: { tags: ['Data Packs'], summary: 'Effective data allowance and purchases for a contract', operationId: 'getContractDataPacks', security: [{ bearerAuth: [] }], parameters: [{ name: 'contractId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('{ allowance, purchases }') },
+      },
+      '/contracts/{contractId}/data-packs/{packId}/purchase': {
+        post: { tags: ['Data Packs'], summary: 'Purchase a data pack for a subscriber (admin)', operationId: 'purchaseDataPackAdmin', security: [{ bearerAuth: [] }], parameters: [{ name: 'contractId', in: 'path', required: true, schema: { type: 'integer' } }, { name: 'packId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r201('DataPackPurchase') },
+      },
+      '/data-pack-purchases/{id}/cancel': {
+        put: { tags: ['Data Packs'], summary: 'Cancel a data pack purchase', operationId: 'cancelDataPackPurchase', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DataPackPurchase') },
+      },
+
+      // ---- Data Rollover §10.3 ----
+      '/contracts/{contractId}/rollover': {
+        get: { tags: ['Data Rollover'], summary: 'Get rollover balance for a contract', operationId: 'getContractRollover', security: [{ bearerAuth: [] }], parameters: [{ name: 'contractId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('RolloverBalance') },
+      },
+      '/rollover/accrue': {
+        post: { tags: ['Data Rollover'], summary: 'Trigger manual rollover accrual for the org', operationId: 'accrueRollover', security: [{ bearerAuth: [] }], responses: r200('{ processed, rolled_over_contracts }') },
+      },
+      '/fup/notifications': {
+        get: { tags: ['Data Rollover'], summary: 'List recent FUP usage notifications', operationId: 'listFupNotifications', security: [{ bearerAuth: [] }], parameters: [{ name: 'contract_id', in: 'query', required: false, schema: { type: 'integer' } }, { name: 'month', in: 'query', required: false, schema: { type: 'string' } }], responses: r200('FupUsageNotification[]') },
+      },
+      '/fup/check-thresholds': {
+        post: { tags: ['Data Rollover'], summary: 'Manually trigger FUP threshold check and notifications', operationId: 'checkFupThresholds', security: [{ bearerAuth: [] }], responses: r200('{ checked, notified }') },
+      },
+
+      // ---- Interface QoS Policies §10.4 ----
+      ...crudPaths('interface-qos-policies', 'Interface QoS Policies', 'InterfaceQosPolicy'),
+      '/interface-qos-policies/{id}/restore': {
+        post: { tags: ['Interface QoS Policies'], summary: 'Restore a soft-deleted interface QoS policy', operationId: 'restoreInterfaceQosPolicy', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('InterfaceQosPolicy') },
+      },
+
+      // ---- MPLS VLAN Prioritization §10.4 ----
+      ...crudPaths('mpls-vlan-prioritization', 'MPLS VLAN Prioritization', 'MplsVlanPrioritizationRule'),
+      '/mpls-vlan-prioritization/{id}/restore': {
+        post: { tags: ['MPLS VLAN Prioritization'], summary: 'Restore a soft-deleted MPLS/VLAN prioritization rule', operationId: 'restoreMplsVlanRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('MplsVlanPrioritizationRule') },
+      },
+
+      // ---- DSCP Marking Policies §10.4 ----
+      ...crudPaths('dscp-marking-policies', 'DSCP Marking Policies', 'DscpMarkingPolicy'),
+      '/dscp-marking-policies/{id}/restore': {
+        post: { tags: ['DSCP Marking Policies'], summary: 'Restore a soft-deleted DSCP marking policy', operationId: 'restoreDscpMarkingPolicy', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DscpMarkingPolicy') },
+      },
+      '/dscp-marking-policies/export/config': {
+        get: { tags: ['DSCP Marking Policies'], summary: 'Export MikroTik mangle rules for active DSCP policies', operationId: 'exportDscpConfig', security: [{ bearerAuth: [] }], parameters: [{ name: 'format', in: 'query', required: false, schema: { type: 'string', enum: ['json', 'text'], default: 'json' } }], responses: r200('MikroTik mangle script or JSON array') },
+      },
+
+      // ---- Bandwidth Test Servers §10.4 ----
+      ...crudPaths('bandwidth-test-servers', 'Bandwidth Test Servers', 'BandwidthTestServer'),
+      '/bandwidth-test-servers/{id}/restore': {
+        post: { tags: ['Bandwidth Test Servers'], summary: 'Restore a soft-deleted bandwidth test server', operationId: 'restoreBandwidthTestServer', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('BandwidthTestServer') },
+      },
+
+      // ---- Subscriber Speed Test Jobs §10.4 ----
+      '/subscriber-speed-test-jobs': {
+        get: { tags: ['Subscriber Speed Test Jobs'], summary: 'List subscriber speed test jobs', operationId: 'listSubscriberSpeedTestJobs', security: [{ bearerAuth: [] }], parameters: [{ name: 'contract_id', in: 'query', required: false, schema: { type: 'integer' } }, { name: 'status', in: 'query', required: false, schema: { type: 'string' } }, pageParam(), limitParam()], responses: r200('SubscriberSpeedTestJob[]') },
+        post: { tags: ['Subscriber Speed Test Jobs'], summary: 'Schedule a subscriber speed test job', operationId: 'createSubscriberSpeedTestJob', security: [{ bearerAuth: [] }], requestBody: jsonBody('SubscriberSpeedTestJob'), responses: r201('SubscriberSpeedTestJob') },
+      },
+      '/subscriber-speed-test-jobs/{id}': {
+        get: { tags: ['Subscriber Speed Test Jobs'], summary: 'Get a subscriber speed test job', operationId: 'getSubscriberSpeedTestJob', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SubscriberSpeedTestJob') },
+      },
+      '/subscriber-speed-test-jobs/{id}/cancel': {
+        post: { tags: ['Subscriber Speed Test Jobs'], summary: 'Cancel a queued or running speed test job', operationId: 'cancelSubscriberSpeedTestJob', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SubscriberSpeedTestJob') },
+      },
+
+      // ---- Portal Data Packs §10.3 ----
+      '/portal/data-packs': {
+        get: { tags: ['Data Packs'], summary: 'List available data packs (portal)', operationId: 'portalListDataPacks', security: [{ bearerAuth: [] }], responses: r200('DataPack[]') },
+      },
+      '/portal/data-packs/{packId}/purchase': {
+        post: { tags: ['Data Packs'], summary: 'Purchase a data pack via subscriber portal', operationId: 'portalPurchaseDataPack', security: [{ bearerAuth: [] }], parameters: [{ name: 'packId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r201('DataPackPurchase') },
+      },
+      '/portal/data-packs/my-purchases': {
+        get: { tags: ['Data Packs'], summary: 'List subscriber data pack purchases (portal)', operationId: 'portalListMyDataPackPurchases', security: [{ bearerAuth: [] }], responses: r200('DataPackPurchase[]') },
+      },
+      '/portal/usage/allowance': {
+        get: { tags: ['Data Rollover'], summary: 'Effective total data allowance for the authenticated subscriber', operationId: 'portalGetUsageAllowance', security: [{ bearerAuth: [] }], responses: r200('EffectiveAllowance') },
       },
 
       // ---- ACS / CWMP (outside /api/v1) ----

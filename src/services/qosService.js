@@ -230,9 +230,49 @@ async function exportShapingRulesConfig(organizationId, planId = null) {
   return { script: lines.join('\n'), rule_count: rules.length };
 }
 
+// ---------------------------------------------------------------------------
+// DSCP marking policy export (§10.4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Export DSCP marking policies for an org as MikroTik mangle rules or JSON.
+ *
+ * @param {number} organizationId
+ * @param {'json'|'text'} [format='json']
+ * @returns {Promise<string|Array>}
+ */
+async function exportDscpConfig(organizationId, format = 'json') {
+  const [rows] = await db.query(
+    `SELECT * FROM dscp_marking_policies
+     WHERE (organization_id = ? OR organization_id IS NULL)
+       AND deleted_at IS NULL
+       AND status = 'active'
+     ORDER BY priority ASC`,
+    [organizationId],
+  );
+
+  if (format === 'text') {
+    const lines = [
+      '# FireISP 5.0 — MikroTik Mangle Rules (DSCP Marking)',
+      '# Generated: ' + new Date().toISOString(),
+      '',
+      '/ip firewall mangle',
+    ];
+    for (const r of rows) {
+      const mark = r.dscp_name ? r.dscp_name : `mark_${r.dscp_value}`;
+      lines.push(
+        `/ip firewall mangle add chain=prerouting action=mark-connection new-connection-mark=${mark} passthrough=yes comment="${r.name}" dscp=${r.dscp_value}`,
+      );
+    }
+    return lines.join('\n');
+  }
+  return rows;
+}
+
 module.exports = {
   buildRateString,
   buildMikrotikRateString,
   exportQueueTreeConfig,
   exportShapingRulesConfig,
+  exportDscpConfig,
 };

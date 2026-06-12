@@ -10647,8 +10647,10 @@ CREATE TABLE IF NOT EXISTS queue_tree_nodes (
                          COMMENT 'Parent queue tree node; NULL = root node',
   name                 VARCHAR(100) NOT NULL,
   description          TEXT NULL,
-  queue_type           ENUM('tree','simple') NOT NULL DEFAULT 'tree'
+  queue_type           ENUM('tree','simple','cbq','hfsc','pcq') NOT NULL DEFAULT 'tree'
                          COMMENT 'MikroTik queue implementation: Queue Tree or Simple Queue',
+  vendor_platform      ENUM('mikrotik','cisco','juniper','generic') NULL
+                         COMMENT 'Vendor platform target for this queue node',
   interface            VARCHAR(100) NULL
                          COMMENT 'NAS interface this queue attaches to',
   max_limit_mbps       INT UNSIGNED NULL,
@@ -10744,6 +10746,256 @@ CREATE TABLE IF NOT EXISTS protocol_shaping_rules (
     REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT fk_psr_plan FOREIGN KEY (plan_id)
     REFERENCES plans (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- §10.3 FUP/Data Caps: rollover, data packs, purchases, notifications (mig 290)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS data_rollover_balances (
+  id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id      BIGINT UNSIGNED NULL,
+  contract_id          BIGINT UNSIGNED NOT NULL,
+  billing_month        DATE NOT NULL COMMENT 'First day of the month (YYYY-MM-01)',
+  rollover_gb          DECIMAL(10,3) NOT NULL DEFAULT 0.000,
+  consumed_rollover_gb DECIMAL(10,3) NOT NULL DEFAULT 0.000,
+  created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_rollover_contract_month (contract_id, billing_month),
+  KEY idx_drb_org (organization_id),
+  KEY idx_drb_contract (contract_id),
+  CONSTRAINT fk_drb_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_drb_contract FOREIGN KEY (contract_id)
+    REFERENCES contracts (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS data_packs (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NULL,
+  name            VARCHAR(100) NOT NULL,
+  description     TEXT NULL,
+  data_gb         DECIMAL(10,3) NOT NULL,
+  price           DECIMAL(10,2) NOT NULL,
+  currency        CHAR(3) NOT NULL DEFAULT 'MXN',
+  validity_days   SMALLINT UNSIGNED NOT NULL DEFAULT 30,
+  is_active       TINYINT(1) NOT NULL DEFAULT 1,
+  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at      DATETIME NULL,
+  PRIMARY KEY (id),
+  KEY idx_data_packs_org (organization_id),
+  KEY idx_data_packs_active (is_active),
+  KEY idx_data_packs_deleted (deleted_at),
+  CONSTRAINT fk_dp_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS data_pack_purchases (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NULL,
+  contract_id     BIGINT UNSIGNED NOT NULL,
+  data_pack_id    BIGINT UNSIGNED NOT NULL,
+  purchased_by    ENUM('client_portal','admin','api') NOT NULL DEFAULT 'admin',
+  purchased_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  activated_at    TIMESTAMP NULL,
+  expires_at      TIMESTAMP NULL,
+  gb_applied      DECIMAL(10,3) NOT NULL,
+  invoice_id      BIGINT UNSIGNED NULL,
+  status          ENUM('pending','active','expired','cancelled') NOT NULL DEFAULT 'pending',
+  notes           TEXT NULL,
+  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_dpp_contract (contract_id),
+  KEY idx_dpp_data_pack (data_pack_id),
+  KEY idx_dpp_status (status),
+  KEY idx_dpp_org (organization_id),
+  KEY idx_dpp_expires (expires_at),
+  CONSTRAINT fk_dpp_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_dpp_contract FOREIGN KEY (contract_id)
+    REFERENCES contracts (id) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_dpp_data_pack FOREIGN KEY (data_pack_id)
+    REFERENCES data_packs (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_dpp_invoice FOREIGN KEY (invoice_id)
+    REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS fup_usage_notifications (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NULL,
+  contract_id     BIGINT UNSIGNED NOT NULL,
+  billing_month   DATE NOT NULL,
+  threshold_pct   TINYINT UNSIGNED NOT NULL,
+  notified_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  channel         ENUM('email','sms','push') NOT NULL DEFAULT 'email',
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_fup_notif (contract_id, billing_month, threshold_pct),
+  KEY idx_fun_org (organization_id),
+  KEY idx_fun_contract (contract_id),
+  CONSTRAINT fk_fun_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_fun_contract FOREIGN KEY (contract_id)
+    REFERENCES contracts (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- §10.4 Traffic Engineering: interface QoS, MPLS/VLAN, DSCP, bandwidth tests
+-- (migrations 292-293)
+-- ---------------------------------------------------------------------------
+
+-- queue_tree_nodes: extended ENUM + vendor_platform already reflected in CREATE TABLE above (migration 292).
+
+CREATE TABLE IF NOT EXISTS interface_qos_policies (
+  id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id  BIGINT UNSIGNED NULL,
+  name             VARCHAR(100) NOT NULL,
+  description      TEXT NULL,
+  device_id        BIGINT UNSIGNED NULL,
+  interface_name   VARCHAR(100) NULL,
+  policy_type      ENUM('htb','cbq','hfsc','pcq','prio','sfq','generic') NOT NULL DEFAULT 'htb',
+  direction        ENUM('ingress','egress','both') NOT NULL DEFAULT 'both',
+  parent_policy_id BIGINT UNSIGNED NULL,
+  bandwidth_mbps   INT UNSIGNED NULL,
+  ceil_mbps        INT UNSIGNED NULL,
+  burst_mbps       INT UNSIGNED NULL,
+  priority         TINYINT UNSIGNED NOT NULL DEFAULT 4,
+  vendor_config    TEXT NULL,
+  status           ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at       DATETIME NULL,
+  PRIMARY KEY (id),
+  KEY idx_iqp_org (organization_id),
+  KEY idx_iqp_device (device_id),
+  KEY idx_iqp_parent (parent_policy_id),
+  KEY idx_iqp_status (status),
+  KEY idx_iqp_deleted (deleted_at),
+  CONSTRAINT fk_iqp_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_iqp_device FOREIGN KEY (device_id)
+    REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_iqp_parent FOREIGN KEY (parent_policy_id)
+    REFERENCES interface_qos_policies (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS mpls_vlan_prioritization_rules (
+  id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id      BIGINT UNSIGNED NULL,
+  name                 VARCHAR(100) NOT NULL,
+  description          TEXT NULL,
+  rule_type            ENUM('mpls_exp','dot1p','dscp_to_dot1p','dot1p_to_dscp','combined') NOT NULL DEFAULT 'dot1p',
+  match_vlan_id        SMALLINT UNSIGNED NULL,
+  match_inner_vlan_id  SMALLINT UNSIGNED NULL,
+  match_dscp           TINYINT UNSIGNED NULL,
+  match_dot1p          TINYINT UNSIGNED NULL,
+  set_mpls_exp         TINYINT UNSIGNED NULL,
+  set_dot1p            TINYINT UNSIGNED NULL,
+  set_dscp             TINYINT UNSIGNED NULL,
+  priority             TINYINT UNSIGNED NOT NULL DEFAULT 5,
+  enabled              TINYINT(1) NOT NULL DEFAULT 1,
+  created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at           DATETIME NULL,
+  PRIMARY KEY (id),
+  KEY idx_mvpr_org (organization_id),
+  KEY idx_mvpr_enabled (enabled),
+  KEY idx_mvpr_priority (priority),
+  KEY idx_mvpr_deleted (deleted_at),
+  CONSTRAINT fk_mvpr_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS dscp_marking_policies (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NULL,
+  name            VARCHAR(100) NOT NULL,
+  description     TEXT NULL,
+  dscp_value      TINYINT UNSIGNED NOT NULL,
+  dscp_name       VARCHAR(20) NULL,
+  traffic_class   ENUM('voice','video','interactive','bulk','scavenger','best_effort') NOT NULL DEFAULT 'best_effort',
+  match_protocol  ENUM('tcp','udp','icmp','any') NOT NULL DEFAULT 'any',
+  match_dst_port  VARCHAR(100) NULL,
+  match_src_port  VARCHAR(100) NULL,
+  match_l7        VARCHAR(255) NULL,
+  action          ENUM('mark','remark','trust','police') NOT NULL DEFAULT 'mark',
+  priority        TINYINT UNSIGNED NOT NULL DEFAULT 5,
+  status          ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at      DATETIME NULL,
+  PRIMARY KEY (id),
+  KEY idx_dmp_org (organization_id),
+  KEY idx_dmp_dscp (dscp_value),
+  KEY idx_dmp_status (status),
+  KEY idx_dmp_deleted (deleted_at),
+  CONSTRAINT fk_dmp_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS bandwidth_test_servers (
+  id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id    BIGINT UNSIGNED NULL,
+  name               VARCHAR(100) NOT NULL,
+  description        TEXT NULL,
+  host               VARCHAR(255) NOT NULL,
+  port               SMALLINT UNSIGNED NOT NULL DEFAULT 5201,
+  protocol           ENUM('iperf3','speedtest_cli','custom') NOT NULL DEFAULT 'iperf3',
+  region             VARCHAR(100) NULL,
+  site_id            BIGINT UNSIGNED NULL,
+  is_active          TINYINT(1) NOT NULL DEFAULT 1,
+  auth_token         VARCHAR(255) NULL,
+  max_bandwidth_mbps INT UNSIGNED NULL,
+  last_tested_at     DATETIME NULL,
+  last_rtt_ms        DECIMAL(8,3) NULL,
+  created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at         DATETIME NULL,
+  PRIMARY KEY (id),
+  KEY idx_bts_org (organization_id),
+  KEY idx_bts_site (site_id),
+  KEY idx_bts_active (is_active),
+  KEY idx_bts_deleted (deleted_at),
+  CONSTRAINT fk_bts_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_bts_site FOREIGN KEY (site_id)
+    REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS subscriber_speed_test_jobs (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NULL,
+  contract_id     BIGINT UNSIGNED NOT NULL,
+  test_server_id  BIGINT UNSIGNED NULL,
+  requested_by    ENUM('admin','scheduler','client_portal','api') NOT NULL DEFAULT 'admin',
+  scheduled_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  started_at      DATETIME NULL,
+  completed_at    DATETIME NULL,
+  status          ENUM('queued','running','completed','failed','cancelled') NOT NULL DEFAULT 'queued',
+  download_mbps   DECIMAL(10,3) NULL,
+  upload_mbps     DECIMAL(10,3) NULL,
+  latency_ms      DECIMAL(8,3) NULL,
+  jitter_ms       DECIMAL(8,3) NULL,
+  packet_loss_pct DECIMAL(5,2) NULL,
+  protocol        ENUM('iperf3','speedtest_cli','custom') NULL,
+  error_message   TEXT NULL,
+  raw_result      JSON NULL,
+  notes           TEXT NULL,
+  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_sstj_contract (contract_id),
+  KEY idx_sstj_server (test_server_id),
+  KEY idx_sstj_status (status),
+  KEY idx_sstj_org (organization_id),
+  KEY idx_sstj_scheduled (scheduled_at),
+  CONSTRAINT fk_sstj_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_sstj_contract FOREIGN KEY (contract_id)
+    REFERENCES contracts (id) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_sstj_server FOREIGN KEY (test_server_id)
+    REFERENCES bandwidth_test_servers (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

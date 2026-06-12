@@ -139,6 +139,133 @@ interface ListResponse<T> {
   meta: { total: number; page: number; limit: number };
 }
 
+// §10.3 FUP / Data Caps
+
+interface DataPack {
+  id: number;
+  name: string;
+  data_gb: number;
+  price: number;
+  validity_days: number | null;
+  status: string;
+}
+
+interface DataPackBody {
+  name: string;
+  data_gb: number;
+  price: number;
+  validity_days?: number;
+  status?: string;
+}
+
+interface FupNotification {
+  id: number;
+  contract_id: number;
+  billing_month: string;
+  threshold_pct: number;
+  used_gb: number;
+  cap_gb: number;
+  notified_at: string;
+}
+
+// §10.4 Traffic Engineering
+
+interface InterfaceQosPolicy {
+  id: number;
+  name: string;
+  interface_name: string | null;
+  algorithm: string;
+  max_bandwidth_mbps: number | null;
+  committed_bandwidth_mbps: number | null;
+  burst_bandwidth_mbps: number | null;
+  priority: number;
+  vendor_platform: string | null;
+  status: string;
+  notes: string | null;
+}
+
+interface InterfaceQosPolicyBody {
+  name: string;
+  interface_name?: string;
+  algorithm?: string;
+  max_bandwidth_mbps?: number;
+  committed_bandwidth_mbps?: number;
+  burst_bandwidth_mbps?: number;
+  priority?: number;
+  vendor_platform?: string;
+  status?: string;
+  notes?: string;
+}
+
+interface DscpMarkingPolicy {
+  id: number;
+  name: string;
+  traffic_class: string;
+  dscp_value: number;
+  dscp_name: string | null;
+  match_protocol: string | null;
+  match_port_range: string | null;
+  action: string;
+  priority: number;
+  enabled: number;
+}
+
+interface DscpMarkingPolicyBody {
+  name: string;
+  traffic_class?: string;
+  dscp_value?: number;
+  dscp_name?: string;
+  match_protocol?: string;
+  match_port_range?: string;
+  action?: string;
+  priority?: number;
+  enabled?: number;
+}
+
+interface MplsVlanRule {
+  id: number;
+  name: string;
+  rule_type: string;
+  vlan_id: number | null;
+  mpls_label: number | null;
+  traffic_class: string | null;
+  priority_bits: number | null;
+  queue_class: string | null;
+  enabled: number;
+}
+
+interface MplsVlanRuleBody {
+  name: string;
+  rule_type?: string;
+  vlan_id?: number;
+  mpls_label?: number;
+  traffic_class?: string;
+  priority_bits?: number;
+  queue_class?: string;
+  enabled?: number;
+}
+
+interface BandwidthTestServer {
+  id: number;
+  name: string;
+  host: string;
+  port: number;
+  protocol: string;
+  region: string | null;
+  site_id: number | null;
+  status: string;
+}
+
+interface BandwidthTestServerBody {
+  name: string;
+  host: string;
+  port?: number;
+  protocol?: string;
+  region?: string;
+  site_id?: number;
+  status?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -154,6 +281,11 @@ const PROTOCOLS = ['tcp', 'udp', 'icmp', 'any'];
 const DIRECTIONS = ['download', 'upload', 'both'];
 const ACTIONS = ['limit', 'drop', 'mark', 'throttle'];
 const STATUSES = ['active', 'inactive'];
+const QOS_ALGORITHMS = ['htb', 'cbq', 'hfsc', 'pcq', 'pfifo', 'sfq'];
+const TE_VENDOR_PLATFORMS = ['mikrotik', 'cisco', 'juniper', 'generic'];
+const DSCP_ACTIONS = ['mark', 'remark', 'passthrough'];
+const MPLS_VLAN_RULE_TYPES = ['vlan', 'mpls', 'qinq', 'mpls_vlan'];
+const BWT_PROTOCOLS = ['tcp', 'udp', 'iperf3', 'speedtest'];
 
 // ---------------------------------------------------------------------------
 // API helpers — Quality Classes
@@ -302,6 +434,168 @@ async function exportShapingRulesConfig(): Promise<{ script: string; rule_count:
 }
 
 // ---------------------------------------------------------------------------
+// API helpers — Data Packs (§10.3)
+// ---------------------------------------------------------------------------
+
+async function fetchDataPacks(page: number): Promise<ListResponse<DataPack>> {
+  const res = await api.GET('/data-packs' as never, {
+    params: { query: { page, limit: PAGE_SIZE } as never },
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to load data packs');
+  return (res as { data: unknown }).data as unknown as ListResponse<DataPack>;
+}
+
+async function createDataPack(body: DataPackBody): Promise<void> {
+  const res = await api.POST('/data-packs' as never, { body: body as never } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to create data pack');
+}
+
+async function updateDataPack(id: number, body: Partial<DataPackBody>): Promise<void> {
+  const res = await api.PATCH('/data-packs/{id}' as never, {
+    params: { path: { id } },
+    body: body as never,
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to update data pack');
+}
+
+async function deleteDataPack(id: number): Promise<void> {
+  const res = await api.DELETE('/data-packs/{id}' as never, {
+    params: { path: { id } },
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to delete data pack');
+}
+
+async function fetchFupNotifications(page: number): Promise<ListResponse<FupNotification>> {
+  const res = await api.GET('/fup/notifications' as never, {
+    params: { query: { page, limit: PAGE_SIZE } as never },
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to load FUP notifications');
+  return (res as { data: unknown }).data as unknown as ListResponse<FupNotification>;
+}
+
+// ---------------------------------------------------------------------------
+// API helpers — Traffic Engineering (§10.4)
+// ---------------------------------------------------------------------------
+
+async function fetchInterfaceQosPolicies(page: number): Promise<ListResponse<InterfaceQosPolicy>> {
+  const res = await api.GET('/interface-qos-policies' as never, {
+    params: { query: { page, limit: PAGE_SIZE } as never },
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to load interface QoS policies');
+  return (res as { data: unknown }).data as unknown as ListResponse<InterfaceQosPolicy>;
+}
+
+async function createInterfaceQosPolicy(body: InterfaceQosPolicyBody): Promise<void> {
+  const res = await api.POST('/interface-qos-policies' as never, { body: body as never } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to create interface QoS policy');
+}
+
+async function updateInterfaceQosPolicy(id: number, body: Partial<InterfaceQosPolicyBody>): Promise<void> {
+  const res = await api.PATCH('/interface-qos-policies/{id}' as never, {
+    params: { path: { id } },
+    body: body as never,
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to update interface QoS policy');
+}
+
+async function deleteInterfaceQosPolicy(id: number): Promise<void> {
+  const res = await api.DELETE('/interface-qos-policies/{id}' as never, {
+    params: { path: { id } },
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to delete interface QoS policy');
+}
+
+async function fetchDscpMarkingPolicies(page: number): Promise<ListResponse<DscpMarkingPolicy>> {
+  const res = await api.GET('/dscp-marking-policies' as never, {
+    params: { query: { page, limit: PAGE_SIZE } as never },
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to load DSCP marking policies');
+  return (res as { data: unknown }).data as unknown as ListResponse<DscpMarkingPolicy>;
+}
+
+async function createDscpMarkingPolicy(body: DscpMarkingPolicyBody): Promise<void> {
+  const res = await api.POST('/dscp-marking-policies' as never, { body: body as never } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to create DSCP marking policy');
+}
+
+async function updateDscpMarkingPolicy(id: number, body: Partial<DscpMarkingPolicyBody>): Promise<void> {
+  const res = await api.PATCH('/dscp-marking-policies/{id}' as never, {
+    params: { path: { id } },
+    body: body as never,
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to update DSCP marking policy');
+}
+
+async function deleteDscpMarkingPolicy(id: number): Promise<void> {
+  const res = await api.DELETE('/dscp-marking-policies/{id}' as never, {
+    params: { path: { id } },
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to delete DSCP marking policy');
+}
+
+async function exportDscpConfig(): Promise<{ rules: unknown[] }> {
+  const res = await api.GET('/dscp-marking-policies/export/config' as never, {} as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to export DSCP config');
+  return (res as { data: unknown }).data as unknown as { rules: unknown[] };
+}
+
+async function fetchMplsVlanRules(page: number): Promise<ListResponse<MplsVlanRule>> {
+  const res = await api.GET('/mpls-vlan-prioritization' as never, {
+    params: { query: { page, limit: PAGE_SIZE } as never },
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to load MPLS/VLAN rules');
+  return (res as { data: unknown }).data as unknown as ListResponse<MplsVlanRule>;
+}
+
+async function createMplsVlanRule(body: MplsVlanRuleBody): Promise<void> {
+  const res = await api.POST('/mpls-vlan-prioritization' as never, { body: body as never } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to create MPLS/VLAN rule');
+}
+
+async function updateMplsVlanRule(id: number, body: Partial<MplsVlanRuleBody>): Promise<void> {
+  const res = await api.PATCH('/mpls-vlan-prioritization/{id}' as never, {
+    params: { path: { id } },
+    body: body as never,
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to update MPLS/VLAN rule');
+}
+
+async function deleteMplsVlanRule(id: number): Promise<void> {
+  const res = await api.DELETE('/mpls-vlan-prioritization/{id}' as never, {
+    params: { path: { id } },
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to delete MPLS/VLAN rule');
+}
+
+async function fetchBandwidthTestServers(page: number): Promise<ListResponse<BandwidthTestServer>> {
+  const res = await api.GET('/bandwidth-test-servers' as never, {
+    params: { query: { page, limit: PAGE_SIZE } as never },
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to load bandwidth test servers');
+  return (res as { data: unknown }).data as unknown as ListResponse<BandwidthTestServer>;
+}
+
+async function createBandwidthTestServer(body: BandwidthTestServerBody): Promise<void> {
+  const res = await api.POST('/bandwidth-test-servers' as never, { body: body as never } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to create bandwidth test server');
+}
+
+async function updateBandwidthTestServer(id: number, body: Partial<BandwidthTestServerBody>): Promise<void> {
+  const res = await api.PATCH('/bandwidth-test-servers/{id}' as never, {
+    params: { path: { id } },
+    body: body as never,
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to update bandwidth test server');
+}
+
+async function deleteBandwidthTestServer(id: number): Promise<void> {
+  const res = await api.DELETE('/bandwidth-test-servers/{id}' as never, {
+    params: { path: { id } },
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to delete bandwidth test server');
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -340,7 +634,7 @@ export function QosBandwidthPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
 
-  type Tab = 'qualityClasses' | 'queueTree' | 'rateLimitTemplates' | 'shapingRules';
+  type Tab = 'qualityClasses' | 'queueTree' | 'rateLimitTemplates' | 'shapingRules' | 'fupDataCaps' | 'trafficEngineering';
   const [tab, setTab] = useState<Tab>('qualityClasses');
 
   // ============================== QUALITY CLASSES ==============================
@@ -575,6 +869,210 @@ export function QosBandwidthPage() {
 
   const psrTotalPages = Math.ceil((psrQ.data?.meta.total ?? 0) / PAGE_SIZE) || 1;
 
+  // ============================== DATA PACKS (§10.3) ==============================
+
+  const [dpPage, setDpPage] = useState(1);
+  const dpQ = useQuery({
+    queryKey: ['qos', 'dataPacks', dpPage],
+    queryFn: () => fetchDataPacks(dpPage),
+    enabled: tab === 'fupDataCaps',
+  });
+  const [showDpModal, setShowDpModal] = useState(false);
+  const [editingDp, setEditingDp] = useState<DataPack | null>(null);
+  const [dpForm, setDpForm] = useState<Partial<DataPackBody>>({});
+  const [dpErr, setDpErr] = useState('');
+
+  function openDpModal(item?: DataPack) {
+    setEditingDp(item ?? null);
+    setDpForm(item
+      ? { name: item.name, data_gb: item.data_gb, price: item.price, validity_days: item.validity_days ?? undefined, status: item.status }
+      : { status: 'active' });
+    setDpErr('');
+    setShowDpModal(true);
+  }
+
+  const saveDpMut = useMutation({
+    mutationFn: () => editingDp
+      ? updateDataPack(editingDp.id, dpForm)
+      : createDataPack(dpForm as DataPackBody),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['qos', 'dataPacks'] }); setShowDpModal(false); },
+    onError: (e: unknown) => setDpErr((e as { message?: string })?.message ?? 'Failed'),
+  });
+
+  const deleteDpMut = useMutation({
+    mutationFn: deleteDataPack,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['qos', 'dataPacks'] }),
+  });
+
+  const dpTotalPages = Math.ceil((dpQ.data?.meta.total ?? 0) / PAGE_SIZE) || 1;
+
+  const [fupNotifPage, setFupNotifPage] = useState(1);
+  const fupNotifQ = useQuery({
+    queryKey: ['qos', 'fupNotifications', fupNotifPage],
+    queryFn: () => fetchFupNotifications(fupNotifPage),
+    enabled: tab === 'fupDataCaps',
+  });
+  const fupNotifTotalPages = Math.ceil((fupNotifQ.data?.meta.total ?? 0) / PAGE_SIZE) || 1;
+
+  // ============================== INTERFACE QoS POLICIES (§10.4) ==============================
+
+  const [iqpPage, setIqpPage] = useState(1);
+  const iqpQ = useQuery({
+    queryKey: ['qos', 'interfaceQosPolicies', iqpPage],
+    queryFn: () => fetchInterfaceQosPolicies(iqpPage),
+    enabled: tab === 'trafficEngineering',
+  });
+  const [showIqpModal, setShowIqpModal] = useState(false);
+  const [editingIqp, setEditingIqp] = useState<InterfaceQosPolicy | null>(null);
+  const [iqpForm, setIqpForm] = useState<Partial<InterfaceQosPolicyBody>>({});
+  const [iqpErr, setIqpErr] = useState('');
+
+  function openIqpModal(item?: InterfaceQosPolicy) {
+    setEditingIqp(item ?? null);
+    setIqpForm(item
+      ? { name: item.name, interface_name: item.interface_name ?? '', algorithm: item.algorithm, max_bandwidth_mbps: item.max_bandwidth_mbps ?? undefined, committed_bandwidth_mbps: item.committed_bandwidth_mbps ?? undefined, burst_bandwidth_mbps: item.burst_bandwidth_mbps ?? undefined, priority: item.priority, vendor_platform: item.vendor_platform ?? '', status: item.status, notes: item.notes ?? '' }
+      : { algorithm: 'htb', priority: 4, status: 'active' });
+    setIqpErr('');
+    setShowIqpModal(true);
+  }
+
+  const saveIqpMut = useMutation({
+    mutationFn: () => editingIqp
+      ? updateInterfaceQosPolicy(editingIqp.id, iqpForm)
+      : createInterfaceQosPolicy(iqpForm as InterfaceQosPolicyBody),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['qos', 'interfaceQosPolicies'] }); setShowIqpModal(false); },
+    onError: (e: unknown) => setIqpErr((e as { message?: string })?.message ?? 'Failed'),
+  });
+
+  const deleteIqpMut = useMutation({
+    mutationFn: deleteInterfaceQosPolicy,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['qos', 'interfaceQosPolicies'] }),
+  });
+
+  const iqpTotalPages = Math.ceil((iqpQ.data?.meta.total ?? 0) / PAGE_SIZE) || 1;
+
+  // ============================== DSCP MARKING POLICIES (§10.4) ==============================
+
+  const [dscpPage, setDscpPage] = useState(1);
+  const dscpQ = useQuery({
+    queryKey: ['qos', 'dscpPolicies', dscpPage],
+    queryFn: () => fetchDscpMarkingPolicies(dscpPage),
+    enabled: tab === 'trafficEngineering',
+  });
+  const [showDscpModal, setShowDscpModal] = useState(false);
+  const [editingDscp, setEditingDscp] = useState<DscpMarkingPolicy | null>(null);
+  const [dscpForm, setDscpForm] = useState<Partial<DscpMarkingPolicyBody>>({});
+  const [dscpErr, setDscpErr] = useState('');
+  const [exportingDscp, setExportingDscp] = useState(false);
+
+  function openDscpModal(item?: DscpMarkingPolicy) {
+    setEditingDscp(item ?? null);
+    setDscpForm(item
+      ? { name: item.name, traffic_class: item.traffic_class, dscp_value: item.dscp_value, dscp_name: item.dscp_name ?? '', match_protocol: item.match_protocol ?? '', match_port_range: item.match_port_range ?? '', action: item.action, priority: item.priority, enabled: item.enabled }
+      : { action: 'mark', priority: 4, enabled: 1 });
+    setDscpErr('');
+    setShowDscpModal(true);
+  }
+
+  const saveDscpMut = useMutation({
+    mutationFn: () => editingDscp
+      ? updateDscpMarkingPolicy(editingDscp.id, dscpForm)
+      : createDscpMarkingPolicy(dscpForm as DscpMarkingPolicyBody),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['qos', 'dscpPolicies'] }); setShowDscpModal(false); },
+    onError: (e: unknown) => setDscpErr((e as { message?: string })?.message ?? 'Failed'),
+  });
+
+  const deleteDscpMut = useMutation({
+    mutationFn: deleteDscpMarkingPolicy,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['qos', 'dscpPolicies'] }),
+  });
+
+  async function handleExportDscp() {
+    setExportingDscp(true);
+    try {
+      const result = await exportDscpConfig();
+      downloadScript('dscp-config.json', JSON.stringify(result, null, 2));
+    } finally {
+      setExportingDscp(false);
+    }
+  }
+
+  const dscpTotalPages = Math.ceil((dscpQ.data?.meta.total ?? 0) / PAGE_SIZE) || 1;
+
+  // ============================== MPLS/VLAN PRIORITIZATION (§10.4) ==============================
+
+  const [mvPage, setMvPage] = useState(1);
+  const mvQ = useQuery({
+    queryKey: ['qos', 'mplsVlan', mvPage],
+    queryFn: () => fetchMplsVlanRules(mvPage),
+    enabled: tab === 'trafficEngineering',
+  });
+  const [showMvModal, setShowMvModal] = useState(false);
+  const [editingMv, setEditingMv] = useState<MplsVlanRule | null>(null);
+  const [mvForm, setMvForm] = useState<Partial<MplsVlanRuleBody>>({});
+  const [mvErr, setMvErr] = useState('');
+
+  function openMvModal(item?: MplsVlanRule) {
+    setEditingMv(item ?? null);
+    setMvForm(item
+      ? { name: item.name, rule_type: item.rule_type, vlan_id: item.vlan_id ?? undefined, mpls_label: item.mpls_label ?? undefined, traffic_class: item.traffic_class ?? '', priority_bits: item.priority_bits ?? undefined, queue_class: item.queue_class ?? '', enabled: item.enabled }
+      : { rule_type: 'vlan', enabled: 1 });
+    setMvErr('');
+    setShowMvModal(true);
+  }
+
+  const saveMvMut = useMutation({
+    mutationFn: () => editingMv
+      ? updateMplsVlanRule(editingMv.id, mvForm)
+      : createMplsVlanRule(mvForm as MplsVlanRuleBody),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['qos', 'mplsVlan'] }); setShowMvModal(false); },
+    onError: (e: unknown) => setMvErr((e as { message?: string })?.message ?? 'Failed'),
+  });
+
+  const deleteMvMut = useMutation({
+    mutationFn: deleteMplsVlanRule,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['qos', 'mplsVlan'] }),
+  });
+
+  const mvTotalPages = Math.ceil((mvQ.data?.meta.total ?? 0) / PAGE_SIZE) || 1;
+
+  // ============================== BANDWIDTH TEST SERVERS (§10.4) ==============================
+
+  const [bwtPage, setBwtPage] = useState(1);
+  const bwtQ = useQuery({
+    queryKey: ['qos', 'bandwidthTestServers', bwtPage],
+    queryFn: () => fetchBandwidthTestServers(bwtPage),
+    enabled: tab === 'trafficEngineering',
+  });
+  const [showBwtModal, setShowBwtModal] = useState(false);
+  const [editingBwt, setEditingBwt] = useState<BandwidthTestServer | null>(null);
+  const [bwtForm, setBwtForm] = useState<Partial<BandwidthTestServerBody>>({});
+  const [bwtErr, setBwtErr] = useState('');
+
+  function openBwtModal(item?: BandwidthTestServer) {
+    setEditingBwt(item ?? null);
+    setBwtForm(item
+      ? { name: item.name, host: item.host, port: item.port, protocol: item.protocol, region: item.region ?? '', status: item.status }
+      : { port: 5201, protocol: 'iperf3', status: 'active' });
+    setBwtErr('');
+    setShowBwtModal(true);
+  }
+
+  const saveBwtMut = useMutation({
+    mutationFn: () => editingBwt
+      ? updateBandwidthTestServer(editingBwt.id, bwtForm)
+      : createBandwidthTestServer(bwtForm as BandwidthTestServerBody),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['qos', 'bandwidthTestServers'] }); setShowBwtModal(false); },
+    onError: (e: unknown) => setBwtErr((e as { message?: string })?.message ?? 'Failed'),
+  });
+
+  const deleteBwtMut = useMutation({
+    mutationFn: deleteBandwidthTestServer,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['qos', 'bandwidthTestServers'] }),
+  });
+
+  const bwtTotalPages = Math.ceil((bwtQ.data?.meta.total ?? 0) / PAGE_SIZE) || 1;
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -593,7 +1091,7 @@ export function QosBandwidthPage() {
 
       {/* Tab bar */}
       <div style={{ borderBottom: '1px solid var(--border)', marginBottom: '1.5rem', display: 'flex', gap: '0.25rem' }}>
-        {(['qualityClasses', 'queueTree', 'rateLimitTemplates', 'shapingRules'] as const).map(t2 => (
+        {(['qualityClasses', 'queueTree', 'rateLimitTemplates', 'shapingRules', 'fupDataCaps', 'trafficEngineering'] as const).map(t2 => (
           <button key={t2} style={tabBtn(tab === t2)} onClick={() => setTab(t2)}>
             {t(`qosBandwidth.tabs.${t2}`)}
           </button>
@@ -1234,6 +1732,726 @@ export function QosBandwidthPage() {
               <button style={styles.btnPrimary} disabled={savePsrMut.isPending} onClick={() => savePsrMut.mutate()}>{t('qosBandwidth.save')}</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ================================================================ */}
+      {/* TAB: FUP & Data Caps (§10.3) */}
+      {/* ================================================================ */}
+      {tab === 'fupDataCaps' && (
+        <div>
+
+          {/* ---- Data Packs sub-section ---- */}
+          <h2 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '0.75rem' }}>
+            {t('qosBandwidth.fupDataCaps.dataPacks')}
+          </h2>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+            <button style={styles.btnPrimary} onClick={() => openDpModal()}>
+              + {t('qosBandwidth.fupDataCaps.newDataPack')}
+            </button>
+          </div>
+          {dpQ.isLoading && <p style={styles.msg}>{t('qosBandwidth.loading')}</p>}
+          {dpQ.isError && <p style={styles.msgError}>{t('qosBandwidth.fupDataCaps.loadError')}</p>}
+          {dpQ.data && (
+            <>
+              <div style={styles.tableCard}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.thNum}>ID</th>
+                      <th style={styles.th}>{t('qosBandwidth.fupDataCaps.name')}</th>
+                      <th style={styles.thNum}>{t('qosBandwidth.fupDataCaps.dataGb')}</th>
+                      <th style={styles.thNum}>{t('qosBandwidth.fupDataCaps.price')}</th>
+                      <th style={styles.thNum}>{t('qosBandwidth.fupDataCaps.validityDays')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.fupDataCaps.status')}</th>
+                      <th style={styles.th}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dpQ.data.data.length === 0 && (
+                      <tr><td colSpan={7} style={styles.msg}>{t('qosBandwidth.fupDataCaps.noDataPacks')}</td></tr>
+                    )}
+                    {dpQ.data.data.map(item => (
+                      <tr key={item.id} style={styles.tr}>
+                        <td style={styles.tdNum}>{item.id}</td>
+                        <td style={styles.td}><strong>{item.name}</strong></td>
+                        <td style={styles.tdNum}>{item.data_gb} GB</td>
+                        <td style={styles.tdNum}>${item.price}</td>
+                        <td style={styles.tdNum}>{item.validity_days ?? '—'}</td>
+                        <td style={styles.td}>
+                          <span style={{ color: item.status === 'active' ? '#059669' : '#6b7280', fontWeight: 600, fontSize: '0.82rem' }}>
+                            {item.status}
+                          </span>
+                        </td>
+                        <td style={styles.td}>
+                          <button style={styles.actionBtn} onClick={() => openDpModal(item)}>
+                            {t('qosBandwidth.edit')}
+                          </button>
+                          <button
+                            style={{ ...styles.actionBtn, color: 'var(--danger)' }}
+                            onClick={() => { if (window.confirm(t('qosBandwidth.confirmDelete'))) deleteDpMut.mutate(item.id); }}
+                          >
+                            {t('qosBandwidth.delete')}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={styles.pagination}>
+                <button style={styles.pageBtn} onClick={() => setDpPage(p => Math.max(1, p - 1))} disabled={dpPage <= 1}>
+                  &laquo; {t('qosBandwidth.prev')}
+                </button>
+                <span style={styles.pageInfo}>{dpPage} / {dpTotalPages}</span>
+                <button style={styles.pageBtn} onClick={() => setDpPage(p => p + 1)} disabled={dpPage >= dpTotalPages}>
+                  {t('qosBandwidth.next')} &raquo;
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ---- FUP Notifications sub-section ---- */}
+          <h2 style={{ fontSize: '1rem', fontWeight: 700, margin: '2rem 0 0.75rem' }}>
+            {t('qosBandwidth.fupDataCaps.notifications')}
+          </h2>
+          {fupNotifQ.isLoading && <p style={styles.msg}>{t('qosBandwidth.loading')}</p>}
+          {fupNotifQ.isError && <p style={styles.msgError}>{t('qosBandwidth.fupDataCaps.loadError')}</p>}
+          {fupNotifQ.data && (
+            <>
+              <div style={styles.tableCard}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.thNum}>ID</th>
+                      <th style={styles.thNum}>{t('qosBandwidth.fupDataCaps.contractId')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.fupDataCaps.billingMonth')}</th>
+                      <th style={styles.thNum}>{t('qosBandwidth.fupDataCaps.thresholdPct')}</th>
+                      <th style={styles.thNum}>{t('qosBandwidth.fupDataCaps.usedGb')}</th>
+                      <th style={styles.thNum}>{t('qosBandwidth.fupDataCaps.capGb')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.fupDataCaps.notifiedAt')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fupNotifQ.data.data.length === 0 && (
+                      <tr><td colSpan={7} style={styles.msg}>{t('qosBandwidth.fupDataCaps.noNotifications')}</td></tr>
+                    )}
+                    {fupNotifQ.data.data.map(item => (
+                      <tr key={item.id} style={styles.tr}>
+                        <td style={styles.tdNum}>{item.id}</td>
+                        <td style={styles.tdNum}>{item.contract_id}</td>
+                        <td style={styles.td}>{item.billing_month}</td>
+                        <td style={styles.tdNum}>
+                          <span style={{ color: item.threshold_pct >= 100 ? '#dc2626' : item.threshold_pct >= 90 ? '#d97706' : '#2563eb', fontWeight: 700 }}>
+                            {item.threshold_pct}%
+                          </span>
+                        </td>
+                        <td style={styles.tdNum}>{item.used_gb} GB</td>
+                        <td style={styles.tdNum}>{item.cap_gb} GB</td>
+                        <td style={styles.td}>{new Date(item.notified_at).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={styles.pagination}>
+                <button style={styles.pageBtn} onClick={() => setFupNotifPage(p => Math.max(1, p - 1))} disabled={fupNotifPage <= 1}>
+                  &laquo; {t('qosBandwidth.prev')}
+                </button>
+                <span style={styles.pageInfo}>{fupNotifPage} / {fupNotifTotalPages}</span>
+                <button style={styles.pageBtn} onClick={() => setFupNotifPage(p => p + 1)} disabled={fupNotifPage >= fupNotifTotalPages}>
+                  {t('qosBandwidth.next')} &raquo;
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ---- Data Pack Modal ---- */}
+          {showDpModal && (
+            <div style={modalStyles.backdrop}>
+              <div style={modalStyles.panel}>
+                <div style={modalStyles.header}>
+                  <h3 style={modalStyles.title}>
+                    {editingDp ? t('qosBandwidth.fupDataCaps.editDataPack') : t('qosBandwidth.fupDataCaps.newDataPack')}
+                  </h3>
+                  <button style={modalStyles.closeBtn} onClick={() => setShowDpModal(false)}>&#x2715;</button>
+                </div>
+                <div style={modalStyles.form}>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.fupDataCaps.name')} <RequiredMark />
+                    <input style={modalStyles.input} value={dpForm.name ?? ''} onChange={e => setDpForm(f => ({ ...f, name: e.target.value }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.fupDataCaps.dataGb')} <RequiredMark />
+                    <input style={modalStyles.input} type="number" min={0} step={0.1} value={dpForm.data_gb ?? ''} onChange={e => setDpForm(f => ({ ...f, data_gb: Number(e.target.value) }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.fupDataCaps.price')} <RequiredMark />
+                    <input style={modalStyles.input} type="number" min={0} step={0.01} value={dpForm.price ?? ''} onChange={e => setDpForm(f => ({ ...f, price: Number(e.target.value) }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.fupDataCaps.validityDays')}
+                    <input style={modalStyles.input} type="number" min={1} value={dpForm.validity_days ?? ''} onChange={e => setDpForm(f => ({ ...f, validity_days: e.target.value ? Number(e.target.value) : undefined }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.fupDataCaps.status')}
+                    <select style={modalStyles.select} value={dpForm.status ?? 'active'} onChange={e => setDpForm(f => ({ ...f, status: e.target.value }))}>
+                      {STATUSES.map(v => <option key={v} value={v}>{v}</option>)}
+                    </select>
+                  </label>
+                </div>
+                {dpErr && <p style={modalStyles.error}>{dpErr}</p>}
+                <div style={modalStyles.actions}>
+                  <button style={styles.btnSecondary} onClick={() => setShowDpModal(false)}>{t('qosBandwidth.cancel')}</button>
+                  <button style={styles.btnPrimary} disabled={saveDpMut.isPending} onClick={() => saveDpMut.mutate()}>{t('qosBandwidth.save')}</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ================================================================ */}
+      {/* TAB: Traffic Engineering (§10.4) */}
+      {/* ================================================================ */}
+      {tab === 'trafficEngineering' && (
+        <div>
+
+          {/* ---- Interface QoS Policies sub-section ---- */}
+          <h2 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '0.75rem' }}>
+            {t('qosBandwidth.trafficEngineering.interfaceQosPolicies')}
+          </h2>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+            <button style={styles.btnPrimary} onClick={() => openIqpModal()}>
+              + {t('qosBandwidth.trafficEngineering.newPolicy')}
+            </button>
+          </div>
+          {iqpQ.isLoading && <p style={styles.msg}>{t('qosBandwidth.loading')}</p>}
+          {iqpQ.isError && <p style={styles.msgError}>{t('qosBandwidth.trafficEngineering.loadError')}</p>}
+          {iqpQ.data && (
+            <>
+              <div style={styles.tableCard}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.thNum}>ID</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.name')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.interface')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.algorithm')}</th>
+                      <th style={styles.thNum}>{t('qosBandwidth.trafficEngineering.maxBandwidth')}</th>
+                      <th style={styles.thNum}>{t('qosBandwidth.trafficEngineering.priority')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.vendor')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.status')}</th>
+                      <th style={styles.th}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {iqpQ.data.data.length === 0 && (
+                      <tr><td colSpan={9} style={styles.msg}>{t('qosBandwidth.trafficEngineering.noItems')}</td></tr>
+                    )}
+                    {iqpQ.data.data.map(item => (
+                      <tr key={item.id} style={styles.tr}>
+                        <td style={styles.tdNum}>{item.id}</td>
+                        <td style={styles.td}><strong>{item.name}</strong></td>
+                        <td style={styles.td}>{item.interface_name ?? '—'}</td>
+                        <td style={styles.td}><span style={styles.tdMono}>{item.algorithm}</span></td>
+                        <td style={styles.tdNum}>{item.max_bandwidth_mbps !== null ? `${item.max_bandwidth_mbps}M` : '—'}</td>
+                        <td style={styles.tdNum}>
+                          <span style={{ color: priorityColor(item.priority), fontWeight: 700 }}>{item.priority}</span>
+                        </td>
+                        <td style={styles.td}>{item.vendor_platform ?? '—'}</td>
+                        <td style={styles.td}>
+                          <span style={{ color: item.status === 'active' ? '#059669' : '#6b7280', fontWeight: 600, fontSize: '0.82rem' }}>
+                            {item.status}
+                          </span>
+                        </td>
+                        <td style={styles.td}>
+                          <button style={styles.actionBtn} onClick={() => openIqpModal(item)}>
+                            {t('qosBandwidth.edit')}
+                          </button>
+                          <button
+                            style={{ ...styles.actionBtn, color: 'var(--danger)' }}
+                            onClick={() => { if (window.confirm(t('qosBandwidth.confirmDelete'))) deleteIqpMut.mutate(item.id); }}
+                          >
+                            {t('qosBandwidth.delete')}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={styles.pagination}>
+                <button style={styles.pageBtn} onClick={() => setIqpPage(p => Math.max(1, p - 1))} disabled={iqpPage <= 1}>
+                  &laquo; {t('qosBandwidth.prev')}
+                </button>
+                <span style={styles.pageInfo}>{iqpPage} / {iqpTotalPages}</span>
+                <button style={styles.pageBtn} onClick={() => setIqpPage(p => p + 1)} disabled={iqpPage >= iqpTotalPages}>
+                  {t('qosBandwidth.next')} &raquo;
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ---- DSCP Marking Policies sub-section ---- */}
+          <h2 style={{ fontSize: '1rem', fontWeight: 700, margin: '2rem 0 0.75rem' }}>
+            {t('qosBandwidth.trafficEngineering.dscpMarkingPolicies')}
+          </h2>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginBottom: '1rem' }}>
+            <button style={styles.btnSecondary} onClick={handleExportDscp} disabled={exportingDscp}>
+              {exportingDscp ? t('qosBandwidth.exporting') : t('qosBandwidth.trafficEngineering.exportDscp')}
+            </button>
+            <button style={styles.btnPrimary} onClick={() => openDscpModal()}>
+              + {t('qosBandwidth.trafficEngineering.newDscpPolicy')}
+            </button>
+          </div>
+          {dscpQ.isLoading && <p style={styles.msg}>{t('qosBandwidth.loading')}</p>}
+          {dscpQ.isError && <p style={styles.msgError}>{t('qosBandwidth.trafficEngineering.loadError')}</p>}
+          {dscpQ.data && (
+            <>
+              <div style={styles.tableCard}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.thNum}>ID</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.name')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.trafficClass')}</th>
+                      <th style={styles.thNum}>{t('qosBandwidth.trafficEngineering.dscpValue')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.dscpName')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.action')}</th>
+                      <th style={styles.thNum}>{t('qosBandwidth.trafficEngineering.priority')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.enabled')}</th>
+                      <th style={styles.th}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dscpQ.data.data.length === 0 && (
+                      <tr><td colSpan={9} style={styles.msg}>{t('qosBandwidth.trafficEngineering.noItems')}</td></tr>
+                    )}
+                    {dscpQ.data.data.map(item => (
+                      <tr key={item.id} style={styles.tr}>
+                        <td style={styles.tdNum}>{item.id}</td>
+                        <td style={styles.td}><strong>{item.name}</strong></td>
+                        <td style={styles.td}>{item.traffic_class}</td>
+                        <td style={styles.tdNum}><span style={styles.tdMono}>{item.dscp_value}</span></td>
+                        <td style={styles.tdMono}>{item.dscp_name ?? '—'}</td>
+                        <td style={styles.td}>{item.action}</td>
+                        <td style={styles.tdNum}>
+                          <span style={{ color: priorityColor(item.priority), fontWeight: 700 }}>{item.priority}</span>
+                        </td>
+                        <td style={styles.td}>
+                          <span style={{ color: item.enabled ? '#059669' : '#6b7280', fontWeight: 600, fontSize: '0.82rem' }}>
+                            {item.enabled ? 'on' : 'off'}
+                          </span>
+                        </td>
+                        <td style={styles.td}>
+                          <button style={styles.actionBtn} onClick={() => openDscpModal(item)}>
+                            {t('qosBandwidth.edit')}
+                          </button>
+                          <button
+                            style={{ ...styles.actionBtn, color: 'var(--danger)' }}
+                            onClick={() => { if (window.confirm(t('qosBandwidth.confirmDelete'))) deleteDscpMut.mutate(item.id); }}
+                          >
+                            {t('qosBandwidth.delete')}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={styles.pagination}>
+                <button style={styles.pageBtn} onClick={() => setDscpPage(p => Math.max(1, p - 1))} disabled={dscpPage <= 1}>
+                  &laquo; {t('qosBandwidth.prev')}
+                </button>
+                <span style={styles.pageInfo}>{dscpPage} / {dscpTotalPages}</span>
+                <button style={styles.pageBtn} onClick={() => setDscpPage(p => p + 1)} disabled={dscpPage >= dscpTotalPages}>
+                  {t('qosBandwidth.next')} &raquo;
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ---- MPLS/VLAN Prioritization sub-section ---- */}
+          <h2 style={{ fontSize: '1rem', fontWeight: 700, margin: '2rem 0 0.75rem' }}>
+            {t('qosBandwidth.trafficEngineering.mplsVlanPrioritization')}
+          </h2>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+            <button style={styles.btnPrimary} onClick={() => openMvModal()}>
+              + {t('qosBandwidth.trafficEngineering.newMplsVlanRule')}
+            </button>
+          </div>
+          {mvQ.isLoading && <p style={styles.msg}>{t('qosBandwidth.loading')}</p>}
+          {mvQ.isError && <p style={styles.msgError}>{t('qosBandwidth.trafficEngineering.loadError')}</p>}
+          {mvQ.data && (
+            <>
+              <div style={styles.tableCard}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.thNum}>ID</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.name')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.ruleType')}</th>
+                      <th style={styles.thNum}>{t('qosBandwidth.trafficEngineering.vlanId')}</th>
+                      <th style={styles.thNum}>{t('qosBandwidth.trafficEngineering.mplsLabel')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.trafficClass')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.enabled')}</th>
+                      <th style={styles.th}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mvQ.data.data.length === 0 && (
+                      <tr><td colSpan={8} style={styles.msg}>{t('qosBandwidth.trafficEngineering.noItems')}</td></tr>
+                    )}
+                    {mvQ.data.data.map(item => (
+                      <tr key={item.id} style={styles.tr}>
+                        <td style={styles.tdNum}>{item.id}</td>
+                        <td style={styles.td}><strong>{item.name}</strong></td>
+                        <td style={styles.td}>{item.rule_type}</td>
+                        <td style={styles.tdNum}>{item.vlan_id ?? '—'}</td>
+                        <td style={styles.tdNum}>{item.mpls_label ?? '—'}</td>
+                        <td style={styles.td}>{item.traffic_class ?? '—'}</td>
+                        <td style={styles.td}>
+                          <span style={{ color: item.enabled ? '#059669' : '#6b7280', fontWeight: 600, fontSize: '0.82rem' }}>
+                            {item.enabled ? 'on' : 'off'}
+                          </span>
+                        </td>
+                        <td style={styles.td}>
+                          <button style={styles.actionBtn} onClick={() => openMvModal(item)}>
+                            {t('qosBandwidth.edit')}
+                          </button>
+                          <button
+                            style={{ ...styles.actionBtn, color: 'var(--danger)' }}
+                            onClick={() => { if (window.confirm(t('qosBandwidth.confirmDelete'))) deleteMvMut.mutate(item.id); }}
+                          >
+                            {t('qosBandwidth.delete')}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={styles.pagination}>
+                <button style={styles.pageBtn} onClick={() => setMvPage(p => Math.max(1, p - 1))} disabled={mvPage <= 1}>
+                  &laquo; {t('qosBandwidth.prev')}
+                </button>
+                <span style={styles.pageInfo}>{mvPage} / {mvTotalPages}</span>
+                <button style={styles.pageBtn} onClick={() => setMvPage(p => p + 1)} disabled={mvPage >= mvTotalPages}>
+                  {t('qosBandwidth.next')} &raquo;
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ---- Bandwidth Test Servers sub-section ---- */}
+          <h2 style={{ fontSize: '1rem', fontWeight: 700, margin: '2rem 0 0.75rem' }}>
+            {t('qosBandwidth.trafficEngineering.bandwidthTestServers')}
+          </h2>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+            <button style={styles.btnPrimary} onClick={() => openBwtModal()}>
+              + {t('qosBandwidth.trafficEngineering.newBwtServer')}
+            </button>
+          </div>
+          {bwtQ.isLoading && <p style={styles.msg}>{t('qosBandwidth.loading')}</p>}
+          {bwtQ.isError && <p style={styles.msgError}>{t('qosBandwidth.trafficEngineering.loadError')}</p>}
+          {bwtQ.data && (
+            <>
+              <div style={styles.tableCard}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.thNum}>ID</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.name')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.host')}</th>
+                      <th style={styles.thNum}>{t('qosBandwidth.trafficEngineering.port')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.protocol')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.region')}</th>
+                      <th style={styles.th}>{t('qosBandwidth.trafficEngineering.status')}</th>
+                      <th style={styles.th}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bwtQ.data.data.length === 0 && (
+                      <tr><td colSpan={8} style={styles.msg}>{t('qosBandwidth.trafficEngineering.noItems')}</td></tr>
+                    )}
+                    {bwtQ.data.data.map(item => (
+                      <tr key={item.id} style={styles.tr}>
+                        <td style={styles.tdNum}>{item.id}</td>
+                        <td style={styles.td}><strong>{item.name}</strong></td>
+                        <td style={styles.tdMono}>{item.host}</td>
+                        <td style={styles.tdNum}>{item.port}</td>
+                        <td style={styles.td}>{item.protocol}</td>
+                        <td style={styles.td}>{item.region ?? '—'}</td>
+                        <td style={styles.td}>
+                          <span style={{ color: item.status === 'active' ? '#059669' : '#6b7280', fontWeight: 600, fontSize: '0.82rem' }}>
+                            {item.status}
+                          </span>
+                        </td>
+                        <td style={styles.td}>
+                          <button style={styles.actionBtn} onClick={() => openBwtModal(item)}>
+                            {t('qosBandwidth.edit')}
+                          </button>
+                          <button
+                            style={{ ...styles.actionBtn, color: 'var(--danger)' }}
+                            onClick={() => { if (window.confirm(t('qosBandwidth.confirmDelete'))) deleteBwtMut.mutate(item.id); }}
+                          >
+                            {t('qosBandwidth.delete')}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={styles.pagination}>
+                <button style={styles.pageBtn} onClick={() => setBwtPage(p => Math.max(1, p - 1))} disabled={bwtPage <= 1}>
+                  &laquo; {t('qosBandwidth.prev')}
+                </button>
+                <span style={styles.pageInfo}>{bwtPage} / {bwtTotalPages}</span>
+                <button style={styles.pageBtn} onClick={() => setBwtPage(p => p + 1)} disabled={bwtPage >= bwtTotalPages}>
+                  {t('qosBandwidth.next')} &raquo;
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ---- Interface QoS Policy Modal ---- */}
+          {showIqpModal && (
+            <div style={modalStyles.backdrop}>
+              <div style={modalStyles.panel}>
+                <div style={modalStyles.header}>
+                  <h3 style={modalStyles.title}>
+                    {editingIqp ? t('qosBandwidth.trafficEngineering.editPolicy') : t('qosBandwidth.trafficEngineering.newPolicy')}
+                  </h3>
+                  <button style={modalStyles.closeBtn} onClick={() => setShowIqpModal(false)}>&#x2715;</button>
+                </div>
+                <div style={modalStyles.form}>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.name')} <RequiredMark />
+                    <input style={modalStyles.input} value={iqpForm.name ?? ''} onChange={e => setIqpForm(f => ({ ...f, name: e.target.value }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.interface')}
+                    <input style={modalStyles.input} placeholder="ether1" value={iqpForm.interface_name ?? ''} onChange={e => setIqpForm(f => ({ ...f, interface_name: e.target.value || undefined }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.algorithm')}
+                    <select style={modalStyles.select} value={iqpForm.algorithm ?? 'htb'} onChange={e => setIqpForm(f => ({ ...f, algorithm: e.target.value }))}>
+                      {QOS_ALGORITHMS.map(v => <option key={v} value={v}>{v.toUpperCase()}</option>)}
+                    </select>
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.maxBandwidth')} (Mbps)
+                    <input style={modalStyles.input} type="number" min={0} value={iqpForm.max_bandwidth_mbps ?? ''} onChange={e => setIqpForm(f => ({ ...f, max_bandwidth_mbps: e.target.value ? Number(e.target.value) : undefined }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.committedBandwidth')} (Mbps)
+                    <input style={modalStyles.input} type="number" min={0} value={iqpForm.committed_bandwidth_mbps ?? ''} onChange={e => setIqpForm(f => ({ ...f, committed_bandwidth_mbps: e.target.value ? Number(e.target.value) : undefined }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.burstBandwidth')} (Mbps)
+                    <input style={modalStyles.input} type="number" min={0} value={iqpForm.burst_bandwidth_mbps ?? ''} onChange={e => setIqpForm(f => ({ ...f, burst_bandwidth_mbps: e.target.value ? Number(e.target.value) : undefined }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.priority')}
+                    <input style={modalStyles.input} type="number" min={1} max={8} value={iqpForm.priority ?? 4} onChange={e => setIqpForm(f => ({ ...f, priority: Number(e.target.value) }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.vendor')}
+                    <select style={modalStyles.select} value={iqpForm.vendor_platform ?? ''} onChange={e => setIqpForm(f => ({ ...f, vendor_platform: e.target.value || undefined }))}>
+                      <option value="">—</option>
+                      {TE_VENDOR_PLATFORMS.map(v => <option key={v} value={v}>{v}</option>)}
+                    </select>
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.status')}
+                    <select style={modalStyles.select} value={iqpForm.status ?? 'active'} onChange={e => setIqpForm(f => ({ ...f, status: e.target.value }))}>
+                      {STATUSES.map(v => <option key={v} value={v}>{v}</option>)}
+                    </select>
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.notes')}
+                    <input style={modalStyles.input} value={iqpForm.notes ?? ''} onChange={e => setIqpForm(f => ({ ...f, notes: e.target.value || undefined }))} />
+                  </label>
+                </div>
+                {iqpErr && <p style={modalStyles.error}>{iqpErr}</p>}
+                <div style={modalStyles.actions}>
+                  <button style={styles.btnSecondary} onClick={() => setShowIqpModal(false)}>{t('qosBandwidth.cancel')}</button>
+                  <button style={styles.btnPrimary} disabled={saveIqpMut.isPending} onClick={() => saveIqpMut.mutate()}>{t('qosBandwidth.save')}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ---- DSCP Marking Policy Modal ---- */}
+          {showDscpModal && (
+            <div style={modalStyles.backdrop}>
+              <div style={modalStyles.panel}>
+                <div style={modalStyles.header}>
+                  <h3 style={modalStyles.title}>
+                    {editingDscp ? t('qosBandwidth.trafficEngineering.editDscpPolicy') : t('qosBandwidth.trafficEngineering.newDscpPolicy')}
+                  </h3>
+                  <button style={modalStyles.closeBtn} onClick={() => setShowDscpModal(false)}>&#x2715;</button>
+                </div>
+                <div style={modalStyles.form}>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.name')} <RequiredMark />
+                    <input style={modalStyles.input} value={dscpForm.name ?? ''} onChange={e => setDscpForm(f => ({ ...f, name: e.target.value }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.trafficClass')}
+                    <input style={modalStyles.input} placeholder="voip, video, web, bulk" value={dscpForm.traffic_class ?? ''} onChange={e => setDscpForm(f => ({ ...f, traffic_class: e.target.value }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.dscpValue')} (0–63)
+                    <input style={modalStyles.input} type="number" min={0} max={63} value={dscpForm.dscp_value ?? ''} onChange={e => setDscpForm(f => ({ ...f, dscp_value: Number(e.target.value) }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.dscpName')}
+                    <input style={modalStyles.input} placeholder="EF, AF41, CS3, BE" value={dscpForm.dscp_name ?? ''} onChange={e => setDscpForm(f => ({ ...f, dscp_name: e.target.value || undefined }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.matchProtocol')}
+                    <input style={modalStyles.input} placeholder="tcp, udp, any" value={dscpForm.match_protocol ?? ''} onChange={e => setDscpForm(f => ({ ...f, match_protocol: e.target.value || undefined }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.matchPortRange')}
+                    <input style={modalStyles.input} placeholder="5060-5061" value={dscpForm.match_port_range ?? ''} onChange={e => setDscpForm(f => ({ ...f, match_port_range: e.target.value || undefined }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.action')}
+                    <select style={modalStyles.select} value={dscpForm.action ?? 'mark'} onChange={e => setDscpForm(f => ({ ...f, action: e.target.value }))}>
+                      {DSCP_ACTIONS.map(v => <option key={v} value={v}>{v}</option>)}
+                    </select>
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.priority')}
+                    <input style={modalStyles.input} type="number" min={1} max={8} value={dscpForm.priority ?? 4} onChange={e => setDscpForm(f => ({ ...f, priority: Number(e.target.value) }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.enabled')}
+                    <select style={modalStyles.select} value={String(dscpForm.enabled ?? 1)} onChange={e => setDscpForm(f => ({ ...f, enabled: Number(e.target.value) }))}>
+                      <option value="1">{t('qosBandwidth.shapingRules.on')}</option>
+                      <option value="0">{t('qosBandwidth.shapingRules.off')}</option>
+                    </select>
+                  </label>
+                </div>
+                {dscpErr && <p style={modalStyles.error}>{dscpErr}</p>}
+                <div style={modalStyles.actions}>
+                  <button style={styles.btnSecondary} onClick={() => setShowDscpModal(false)}>{t('qosBandwidth.cancel')}</button>
+                  <button style={styles.btnPrimary} disabled={saveDscpMut.isPending} onClick={() => saveDscpMut.mutate()}>{t('qosBandwidth.save')}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ---- MPLS/VLAN Rule Modal ---- */}
+          {showMvModal && (
+            <div style={modalStyles.backdrop}>
+              <div style={modalStyles.panel}>
+                <div style={modalStyles.header}>
+                  <h3 style={modalStyles.title}>
+                    {editingMv ? t('qosBandwidth.trafficEngineering.editMplsVlanRule') : t('qosBandwidth.trafficEngineering.newMplsVlanRule')}
+                  </h3>
+                  <button style={modalStyles.closeBtn} onClick={() => setShowMvModal(false)}>&#x2715;</button>
+                </div>
+                <div style={modalStyles.form}>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.name')} <RequiredMark />
+                    <input style={modalStyles.input} value={mvForm.name ?? ''} onChange={e => setMvForm(f => ({ ...f, name: e.target.value }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.ruleType')}
+                    <select style={modalStyles.select} value={mvForm.rule_type ?? 'vlan'} onChange={e => setMvForm(f => ({ ...f, rule_type: e.target.value }))}>
+                      {MPLS_VLAN_RULE_TYPES.map(v => <option key={v} value={v}>{v}</option>)}
+                    </select>
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.vlanId')}
+                    <input style={modalStyles.input} type="number" min={1} max={4094} value={mvForm.vlan_id ?? ''} onChange={e => setMvForm(f => ({ ...f, vlan_id: e.target.value ? Number(e.target.value) : undefined }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.mplsLabel')}
+                    <input style={modalStyles.input} type="number" min={0} value={mvForm.mpls_label ?? ''} onChange={e => setMvForm(f => ({ ...f, mpls_label: e.target.value ? Number(e.target.value) : undefined }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.trafficClass')}
+                    <input style={modalStyles.input} placeholder="voip, video, bulk" value={mvForm.traffic_class ?? ''} onChange={e => setMvForm(f => ({ ...f, traffic_class: e.target.value || undefined }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.priorityBits')} (0–7)
+                    <input style={modalStyles.input} type="number" min={0} max={7} value={mvForm.priority_bits ?? ''} onChange={e => setMvForm(f => ({ ...f, priority_bits: e.target.value ? Number(e.target.value) : undefined }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.queueClass')}
+                    <input style={modalStyles.input} value={mvForm.queue_class ?? ''} onChange={e => setMvForm(f => ({ ...f, queue_class: e.target.value || undefined }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.enabled')}
+                    <select style={modalStyles.select} value={String(mvForm.enabled ?? 1)} onChange={e => setMvForm(f => ({ ...f, enabled: Number(e.target.value) }))}>
+                      <option value="1">{t('qosBandwidth.shapingRules.on')}</option>
+                      <option value="0">{t('qosBandwidth.shapingRules.off')}</option>
+                    </select>
+                  </label>
+                </div>
+                {mvErr && <p style={modalStyles.error}>{mvErr}</p>}
+                <div style={modalStyles.actions}>
+                  <button style={styles.btnSecondary} onClick={() => setShowMvModal(false)}>{t('qosBandwidth.cancel')}</button>
+                  <button style={styles.btnPrimary} disabled={saveMvMut.isPending} onClick={() => saveMvMut.mutate()}>{t('qosBandwidth.save')}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ---- Bandwidth Test Server Modal ---- */}
+          {showBwtModal && (
+            <div style={modalStyles.backdrop}>
+              <div style={modalStyles.panel}>
+                <div style={modalStyles.header}>
+                  <h3 style={modalStyles.title}>
+                    {editingBwt ? t('qosBandwidth.trafficEngineering.editBwtServer') : t('qosBandwidth.trafficEngineering.newBwtServer')}
+                  </h3>
+                  <button style={modalStyles.closeBtn} onClick={() => setShowBwtModal(false)}>&#x2715;</button>
+                </div>
+                <div style={modalStyles.form}>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.name')} <RequiredMark />
+                    <input style={modalStyles.input} value={bwtForm.name ?? ''} onChange={e => setBwtForm(f => ({ ...f, name: e.target.value }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.host')} <RequiredMark />
+                    <input style={modalStyles.input} placeholder="192.168.1.100 or speedtest.example.com" value={bwtForm.host ?? ''} onChange={e => setBwtForm(f => ({ ...f, host: e.target.value }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.port')}
+                    <input style={modalStyles.input} type="number" min={1} max={65535} value={bwtForm.port ?? 5201} onChange={e => setBwtForm(f => ({ ...f, port: Number(e.target.value) }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.protocol')}
+                    <select style={modalStyles.select} value={bwtForm.protocol ?? 'iperf3'} onChange={e => setBwtForm(f => ({ ...f, protocol: e.target.value }))}>
+                      {BWT_PROTOCOLS.map(v => <option key={v} value={v}>{v}</option>)}
+                    </select>
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.region')}
+                    <input style={modalStyles.input} placeholder="us-west, mx-central" value={bwtForm.region ?? ''} onChange={e => setBwtForm(f => ({ ...f, region: e.target.value || undefined }))} />
+                  </label>
+                  <label style={modalStyles.label}>
+                    {t('qosBandwidth.trafficEngineering.status')}
+                    <select style={modalStyles.select} value={bwtForm.status ?? 'active'} onChange={e => setBwtForm(f => ({ ...f, status: e.target.value }))}>
+                      {STATUSES.map(v => <option key={v} value={v}>{v}</option>)}
+                    </select>
+                  </label>
+                </div>
+                {bwtErr && <p style={modalStyles.error}>{bwtErr}</p>}
+                <div style={modalStyles.actions}>
+                  <button style={styles.btnSecondary} onClick={() => setShowBwtModal(false)}>{t('qosBandwidth.cancel')}</button>
+                  <button style={styles.btnPrimary} disabled={saveBwtMut.isPending} onClick={() => saveBwtMut.mutate()}>{t('qosBandwidth.save')}</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
