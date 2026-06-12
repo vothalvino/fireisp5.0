@@ -390,16 +390,16 @@
 ## 10. Bandwidth & QoS Management
 
 ### 10.1 Speed Profiles
-- [ ] Named speed plans with download/upload rate limits
-- [ ] Bursty allowances ( Mb allowance over X seconds)
-- [ ] Time-of-day speed profiles (peak vs off-peak)
-- [ ] Per-queue priority (VoIP > Video > Web > Download)
-- [ ] Tree-based hierarchical QoS (MikroTik Queue Tree / Simple Queue)
+- [x] Named speed plans with download/upload rate limits
+- [x] Bursty allowances ( Mb allowance over X seconds)
+- [x] Time-of-day speed profiles (peak vs off-peak)
+- [x] Per-queue priority (VoIP > Video > Web > Download)
+- [x] Tree-based hierarchical QoS (MikroTik Queue Tree / Simple Queue)
 
 ### 10.2 Rate Limiting
-- [ ] Per-subscriber rate limit via RADIUS or router-side queues
-- [ ] Per-protocol/port shaping (torrent throttling, etc.)
-- [ ] Rate limit templates per service type
+- [x] Per-subscriber rate limit via RADIUS or router-side queues
+- [x] Per-protocol/port shaping (torrent throttling, etc.)
+- [x] Rate limit templates per service type
 
 ### 10.3 FUP / Data Caps
 - [ ] Monthly data cap per plan
