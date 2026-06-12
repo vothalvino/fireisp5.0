@@ -2,6 +2,9 @@
 // FireISP 5.0 — Ticket Routes
 // =============================================================================
 
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const { Router } = require('express');
 const Ticket = require('../models/Ticket');
 const { crudController } = require('../controllers/crudController');
@@ -15,6 +18,30 @@ const { pubsub } = require('../services/pubsub');
 const jobQueue = require('../services/jobQueueService');
 const logger = require('../utils/logger').child({ service: 'routes/tickets' });
 const aiReplyService = require('../services/aiReplyService');
+
+// ---------------------------------------------------------------------------
+// Multer — ticket attachments (disk storage, 20 MB limit)
+// ---------------------------------------------------------------------------
+const ATTACH_DIR = path.resolve(__dirname, '../../uploads/tickets');
+if (!fs.existsSync(ATTACH_DIR)) fs.mkdirSync(ATTACH_DIR, { recursive: true });
+
+const ticketAttachUpload = multer({
+  storage: multer.diskStorage({
+    destination: ATTACH_DIR,
+    filename: (_req, file, cb) => {
+      const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      cb(null, unique + path.extname(file.originalname));
+    },
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 },
+}).single('file');
+
+function uploadAttachment(req, res, next) {
+  ticketAttachUpload(req, res, (err) => {
+    if (err) return res.status(422).json({ error: err.message });
+    next();
+  });
+}
 
 const router = Router();
 const ctrl = crudController(Ticket);
@@ -285,6 +312,57 @@ router.post('/:id/ai-summary', requirePermission('tickets.view'), async (req, re
       contractId: ticket.contract_id || null,
     });
     res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Ticket attachments
+// ---------------------------------------------------------------------------
+router.get('/:id/attachments', requirePermission('ticket_attachments.view'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT id, filename, original_filename, mime_type, file_size, uploaded_by, created_at FROM ticket_attachments WHERE ticket_id = ? AND organization_id = ? ORDER BY created_at DESC',
+      [req.params.id, req.orgId],
+    );
+    res.json({ data: rows });
+  } catch (err) { next(err); }
+});
+
+router.post('/:id/attachments', requirePermission('ticket_attachments.create'), uploadAttachment, async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(422).json({ error: 'No file uploaded' });
+    const [result] = await db.query(
+      'INSERT INTO ticket_attachments (ticket_id, filename, original_filename, mime_type, file_size, storage_path, uploaded_by, organization_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [req.params.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, req.file.path, req.user.id, req.orgId],
+    );
+    const [[row]] = await db.query('SELECT id, filename, original_filename, mime_type, file_size, uploaded_by, created_at FROM ticket_attachments WHERE id = ?', [result.insertId]);
+    res.status(201).json({ data: row });
+  } catch (err) { next(err); }
+});
+
+router.delete('/:ticketId/attachments/:attachmentId', requirePermission('ticket_attachments.delete'), async (req, res, next) => {
+  try {
+    const [[row]] = await db.query(
+      'SELECT storage_path FROM ticket_attachments WHERE id = ? AND ticket_id = ? AND organization_id = ?',
+      [req.params.attachmentId, req.params.ticketId, req.orgId],
+    );
+    if (!row) return res.status(404).json({ error: 'Attachment not found' });
+    await db.query('DELETE FROM ticket_attachments WHERE id = ?', [req.params.attachmentId]);
+    fs.unlink(row.storage_path, () => {});
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+router.get('/:ticketId/attachments/:attachmentId/download', requirePermission('ticket_attachments.view'), async (req, res, next) => {
+  try {
+    const [[row]] = await db.query(
+      'SELECT * FROM ticket_attachments WHERE id = ? AND ticket_id = ? AND organization_id = ?',
+      [req.params.attachmentId, req.params.ticketId, req.orgId],
+    );
+    if (!row) return res.status(404).json({ error: 'Attachment not found' });
+    res.setHeader('Content-Disposition', `attachment; filename="${row.original_filename}"`);
+    res.setHeader('Content-Type', row.mime_type);
+    res.sendFile(row.storage_path);
   } catch (err) { next(err); }
 });
 

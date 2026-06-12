@@ -109,8 +109,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 249 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–299)
+│   ├── schema.sql           # Combined schema (all 250 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–301)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -409,6 +409,8 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 245 | `work_orders` | Field work orders linked to tickets or standalone (§12) — org-scoped, assigned_to technician, status ENUM (pending/assigned/in_progress/completed/cancelled), GPS coordinates, soft-delete |
 | 246 | `work_order_materials` | Material usage log per work order (§12) — item_name, quantity DECIMAL, unit, unit_cost; FK to work_orders CASCADE |
 | 247 | `technician_gps_breadcrumbs` | GPS position log for field technicians (§12) — append-only, no FKs (write-hot), user_id, lat/lng DECIMAL(10,7), accuracy_m FLOAT, recorded_at; composite index on (user_id, recorded_at DESC) |
+| 248 | `ticket_attachments` | File attachments for support tickets (§12) — filename, original_filename, mime_type, file_size, storage_path, uploaded_by; FK to tickets CASCADE, org-scoped |
+| 249 | `work_order_attachments` | File attachments for work orders (§12) — filename, original_filename, mime_type, file_size, storage_path, uploaded_by; FK to work_orders CASCADE, org-scoped |
 
 > **Migration 165–173 table count note:** See migrations 241–246 below for the §5 Dual Stack tables. See migrations 249–263 for §6.1–6.6 SNMP & NMS tables.
 
@@ -493,6 +495,10 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 298 — NOC, Work Order, and Ticket Extension Permissions Seed (§12):** `298_seed_noc_permissions.sql` seeds 14 permissions across 3 modules: `noc` module (`noc.view`, `work_orders.*` (5), `work_order_materials.*` (3), `technician_tracking.*` (2)), `tickets` module (`ticket_relations.*` (2), `ticket_time_logs.*` (2)). Role matrix: admin (all 14), support (11: all except work_orders.delete, work_order_materials.delete, tracking.ingest), technician (8: work_orders view/update, materials view/create, tracking view/ingest, time_logs view/manage), readonly (6: view-only).
 
 > **Migration 299 — SLA Breach Check Scheduled Task Seed (§12):** `299_seed_sla_breach_check_task.sql` seeds `sla_breach_check` scheduled task (task_type=notification, `*/5 * * * *`) to detect and escalate open tickets approaching or past their SLA deadline. Uses `WHERE NOT EXISTS` guard.
+
+> **Migration 300 — Ticket Attachments (§12):** `300_create_ticket_attachments.sql` creates `ticket_attachments` table (FK to tickets CASCADE) and seeds 3 permissions (view/create/delete) assigned to admin/support/technician/readonly.
+
+> **Migration 301 — Work Order Attachments (§12):** `301_create_workorder_attachments.sql` creates `work_order_attachments` table (FK to work_orders CASCADE) and seeds 3 permissions assigned to admin/support/technician/readonly.
 
 > **Migrations 237–240 — §4 PPPoE Management Phase B (Service Profiles, Diagnostics, Permissions):**
 > `237_create_pppoe_service_profiles.sql` creates `pppoe_service_profiles` table and adds guarded `service_profile_id` columns to `ip_pools` and `radius` (both FK→pppoe_service_profiles ON DELETE SET NULL). `238_create_radpostauth.sql` adds `radpostauth` table (no FKs — FreeRADIUS writes directly). `239_create_pppoe_event_logs.sql` adds `pppoe_event_logs` table (no FKs on organization_id/nas_id for loose-coupling syslog ingest). `240_seed_pppoe_phase_b_permissions.sql` seeds 6 RBAC permissions (`pppoe_service_profiles.view/create/update/delete`, `pppoe.diagnostics`, `pppoe.events_ingest`) and registers the `scan_auth_failures` scheduled task (every 15 min). New services: `pppoeDiagnosticsService` with `classifyAuthFailures()` (org-scoped radpostauth query, reason classification: bad_password/unknown_user/session_limit/no_pool/other), `detectMtuIssues()` (profile MTU > 1492 advisory + heuristic LCP-failure/MTU-mismatch advisory), `scanAuthFailures()` (scheduler handler, emits `pppoe.auth_failures` events). `syncFreeradiusTables()` extended: loads active service profiles per org, determines effective profile per subscriber (account-level `service_profile_id` overrides pool-level), emits `Framed-MTU`, `MS-Primary-DNS-Server`, `MS-Secondary-DNS-Server`, `Session-Timeout`, `Idle-Timeout`, `Filter-Id`, `Mikrotik-Address-List`, and `Mikrotik-Rate-Limit` radreply rows. RouterOS log line parser `parseRouterOsLogLine()` handles PADI/PADS/LCP/IPCP/AUTH/PADT patterns. New API endpoints: full CRUD under `/pppoe-service-profiles` + restore; `GET /pppoe/diagnostics/auth-failures`, `GET /pppoe/diagnostics/mtu-issues`, `GET /pppoe/events` (JWT auth); `POST /pppoe/events` (M2M secret auth via `X-Pppoe-Secret` header or `Authorization: Bearer`). Env vars: `PPPOE_EVENTS_SECRET` (M2M secret, falls back to `RADIUS_ACCOUNTING_SECRET`).

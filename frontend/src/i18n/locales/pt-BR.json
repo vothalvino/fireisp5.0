@@ -51,6 +51,8 @@
     "followUps": "⏰ Acompanhamentos",
     "surveys": "⭐ Pesquisas",
     "escalations": "🚨 Escalonamentos",
+    "nocDashboard": "🖥 Painel NOC",
+    "workOrders": "🔧 Ordens de Trabalho",
     "devices": "🖧 Dispositivos",
     "inventory": "📦 Inventário",
     "warehouses": "🏭 Armazéns",
@@ -2407,6 +2409,33 @@
       "port": "Porta",
       "protocol": "Protocolo",
       "region": "Região"
+    }
+  },
+  "noc": {
+    "title": "Painel NOC",
+    "networkHealth": "Saúde da Rede",
+    "alarms": "Alarmes Ativos",
+    "outages": "Quedas em Andamento",
+    "ticketQueue": "Fila de Tickets",
+    "events": "Eventos Recentes",
+    "slaCompliance": "Conformidade de SLA",
+    "devicesUp": "Dispositivos Ativos",
+    "devicesDown": "Dispositivos Inativos",
+    "noOutages": "Sem quedas em andamento",
+    "compliancePct": "Conformidade"
+  },
+  "workOrders": {
+    "title": "Ordens de Trabalho",
+    "new": "Nova Ordem de Trabalho",
+    "noOrders": "Nenhuma ordem de trabalho encontrada",
+    "materials": "Materiais",
+    "addMaterial": "Adicionar Material",
+    "status": {
+      "pending": "Pendente",
+      "assigned": "Atribuído",
+      "inProgress": "Em Andamento",
+      "completed": "Concluído",
+      "cancelled": "Cancelado"
     }
   }
 }

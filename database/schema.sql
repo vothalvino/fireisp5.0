@@ -11251,4 +11251,48 @@ CREATE TABLE IF NOT EXISTS technician_gps_breadcrumbs (
   KEY idx_tgb_user_recorded (user_id, recorded_at DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ---------------------------------------------------------------------------
+-- Table: ticket_attachments (migration 300 — §12)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ticket_attachments (
+  id               INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  ticket_id        INT UNSIGNED NOT NULL,
+  filename         VARCHAR(255) NOT NULL,
+  original_filename VARCHAR(255) NOT NULL,
+  mime_type        VARCHAR(100) NOT NULL,
+  file_size        INT UNSIGNED NOT NULL,
+  storage_path     VARCHAR(500) NOT NULL,
+  uploaded_by      INT UNSIGNED NOT NULL,
+  organization_id  INT UNSIGNED NOT NULL,
+  created_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_ticket_attachments_ticket (ticket_id),
+  KEY idx_ticket_attachments_org (organization_id),
+  CONSTRAINT fk_ticket_attachments_ticket   FOREIGN KEY (ticket_id)       REFERENCES tickets(id)       ON DELETE CASCADE,
+  CONSTRAINT fk_ticket_attachments_uploader FOREIGN KEY (uploaded_by)     REFERENCES users(id),
+  CONSTRAINT fk_ticket_attachments_org      FOREIGN KEY (organization_id)  REFERENCES organizations(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- Table: work_order_attachments (migration 301 — §12)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS work_order_attachments (
+  id               INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  work_order_id    INT UNSIGNED NOT NULL,
+  filename         VARCHAR(255) NOT NULL,
+  original_filename VARCHAR(255) NOT NULL,
+  mime_type        VARCHAR(100) NOT NULL,
+  file_size        INT UNSIGNED NOT NULL,
+  storage_path     VARCHAR(500) NOT NULL,
+  uploaded_by      INT UNSIGNED NOT NULL,
+  organization_id  INT UNSIGNED NOT NULL,
+  created_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_wo_attachments_work_order (work_order_id),
+  KEY idx_wo_attachments_org (organization_id),
+  CONSTRAINT fk_wo_attachments_work_order FOREIGN KEY (work_order_id)    REFERENCES work_orders(id)   ON DELETE CASCADE,
+  CONSTRAINT fk_wo_attachments_uploader   FOREIGN KEY (uploaded_by)      REFERENCES users(id),
+  CONSTRAINT fk_wo_attachments_org        FOREIGN KEY (organization_id)  REFERENCES organizations(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 SET FOREIGN_KEY_CHECKS = 1;

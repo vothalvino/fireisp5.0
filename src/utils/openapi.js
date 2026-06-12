@@ -1873,6 +1873,16 @@ function generateSpec() {
       '/tickets/{id}/merge': {
         post: { tags: ['Tickets'], summary: 'Merge a source ticket into this ticket', operationId: 'mergeTicket', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('source_ticket_id'), responses: r200('MergeResult') },
       },
+      '/tickets/{id}/attachments': {
+        get: { tags: ['Tickets'], summary: 'List ticket attachments', operationId: 'listTicketAttachments', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('TicketAttachment[]') },
+        post: { tags: ['Tickets'], summary: 'Upload ticket attachment', operationId: 'uploadTicketAttachment', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } } } }, responses: r201('TicketAttachment') },
+      },
+      '/tickets/{ticketId}/attachments/{attachmentId}': {
+        delete: { tags: ['Tickets'], summary: 'Delete ticket attachment', operationId: 'deleteTicketAttachment', security: [{ bearerAuth: [] }], parameters: [{ name: 'ticketId', in: 'path', required: true, schema: { type: 'integer' } }, { name: 'attachmentId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/tickets/{ticketId}/attachments/{attachmentId}/download': {
+        get: { tags: ['Tickets'], summary: 'Download ticket attachment', operationId: 'downloadTicketAttachment', security: [{ bearerAuth: [] }], parameters: [{ name: 'ticketId', in: 'path', required: true, schema: { type: 'integer' } }, { name: 'attachmentId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200File('application/octet-stream') },
+      },
 
       // ---- NOC Dashboard §12.2 ----
       '/noc/health': {
