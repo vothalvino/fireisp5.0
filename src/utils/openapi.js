@@ -161,6 +161,10 @@ function generateSpec() {
       { name: 'Link Planning', description: 'Link budget calculator — haversine distance, FSPL, Fresnel zone, saved runs — §9.2' },
       { name: 'RF Metrics', description: 'RF metric dashboards — noise floor, air utilization, GPS sync, signal distribution — §9.3' },
       { name: 'Spectrum Scans', description: 'AP spectrum scan results — raw scan data, peak interference, channel recommendations — §9.3' },
+      { name: 'Quality Classes', description: 'QoS priority class registry (VoIP/Video/Web/Download) with DSCP marks and MikroTik queue kind — §10.1' },
+      { name: 'Queue Tree Nodes', description: 'Hierarchical queue tree node definitions (MikroTik Queue Tree / Simple Queue) with export to RouterOS script — §10.1' },
+      { name: 'Rate Limit Templates', description: 'Named rate-limit templates per service type (PPPoE/DHCP/hotspot) with vendor-specific rate-string generation — §10.2' },
+      { name: 'Protocol Shaping Rules', description: 'Per-protocol/port traffic shaping rules (torrent throttling, VoIP priority) with MikroTik mangle export — §10.2' },
     ],
     paths: {
       // ---- Auth ----
@@ -1568,6 +1572,39 @@ function generateSpec() {
       },
       '/wireless/spectrum-scans/{id}': {
         get: { tags: ['Spectrum Scans'], summary: 'Get a spectrum scan result', operationId: 'getSpectrumScan', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SpectrumScan') },
+      },
+
+      // ---- Quality Classes §10.1 ----
+      ...crudPaths('quality-classes', 'Quality Classes', 'QualityClass'),
+      '/quality-classes/{id}/restore': {
+        post: { tags: ['Quality Classes'], summary: 'Restore a soft-deleted quality class', operationId: 'restoreQualityClass', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('QualityClass') },
+      },
+
+      // ---- Queue Tree Nodes §10.1 ----
+      ...crudPaths('queue-tree-nodes', 'Queue Tree Nodes', 'QueueTreeNode'),
+      '/queue-tree-nodes/{id}/restore': {
+        post: { tags: ['Queue Tree Nodes'], summary: 'Restore a soft-deleted queue tree node', operationId: 'restoreQueueTreeNode', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('QueueTreeNode') },
+      },
+      '/queue-tree-nodes/export/config': {
+        get: { tags: ['Queue Tree Nodes'], summary: 'Export MikroTik Queue Tree / Simple Queue configuration script', operationId: 'exportQueueTreeConfig', security: [{ bearerAuth: [] }], parameters: [{ name: 'vendor', in: 'query', required: false, schema: { type: 'string', enum: ['mikrotik'], default: 'mikrotik' } }, { name: 'format', in: 'query', required: false, schema: { type: 'string', enum: ['json', 'text'], default: 'json' } }], responses: r200('RouterOS script or JSON with script + node_count') },
+      },
+
+      // ---- Rate Limit Templates §10.2 ----
+      ...crudPaths('rate-limit-templates', 'Rate Limit Templates', 'RateLimitTemplate'),
+      '/rate-limit-templates/{id}/restore': {
+        post: { tags: ['Rate Limit Templates'], summary: 'Restore a soft-deleted rate-limit template', operationId: 'restoreRateLimitTemplate', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('RateLimitTemplate') },
+      },
+      '/rate-limit-templates/preview': {
+        post: { tags: ['Rate Limit Templates'], summary: 'Preview the rendered vendor rate string for given parameters', operationId: 'previewRateLimitString', security: [{ bearerAuth: [] }], requestBody: jsonBody('RateLimitTemplate params'), responses: r200('{ rate_string: string }') },
+      },
+
+      // ---- Protocol Shaping Rules §10.2 ----
+      ...crudPaths('protocol-shaping-rules', 'Protocol Shaping Rules', 'ProtocolShapingRule'),
+      '/protocol-shaping-rules/{id}/restore': {
+        post: { tags: ['Protocol Shaping Rules'], summary: 'Restore a soft-deleted protocol shaping rule', operationId: 'restoreProtocolShapingRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ProtocolShapingRule') },
+      },
+      '/protocol-shaping-rules/export/config': {
+        get: { tags: ['Protocol Shaping Rules'], summary: 'Export MikroTik mangle rules script for active shaping rules', operationId: 'exportShapingRulesConfig', security: [{ bearerAuth: [] }], parameters: [{ name: 'plan_id', in: 'query', required: false, schema: { type: 'integer' } }, { name: 'format', in: 'query', required: false, schema: { type: 'string', enum: ['json', 'text'], default: 'json' } }], responses: r200('RouterOS mangle script or JSON with script + rule_count') },
       },
 
       // ---- ACS / CWMP (outside /api/v1) ----

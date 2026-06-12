@@ -13,7 +13,10 @@ const createPlan = {
   data_cap_gb: { type: 'number', min: 0 },
   burst_download_mbps: { type: 'number', min: 0 },
   burst_upload_mbps: { type: 'number', min: 0 },
+  burst_threshold_mbps: { type: 'number', min: 0 },
+  burst_time_seconds: { type: 'number', min: 1, max: 255 },
   priority: { type: 'number', min: 1, max: 8 },
+  priority_class_id: { type: 'number', min: 1 },
   status: { type: 'string', enum: ['active', 'inactive', 'archived'] },
   stack_type: { type: 'string', enum: ['ipv4_only', 'ipv6_only', 'dual_stack'] },
 };
@@ -29,7 +32,10 @@ const updatePlan = {
   data_cap_gb: { type: 'number', min: 0 },
   burst_download_mbps: { type: 'number', min: 0 },
   burst_upload_mbps: { type: 'number', min: 0 },
+  burst_threshold_mbps: { type: 'number', min: 0 },
+  burst_time_seconds: { type: 'number', min: 1, max: 255 },
   priority: { type: 'number', min: 1, max: 8 },
+  priority_class_id: { type: 'number', min: 1 },
   status: { type: 'string', enum: ['active', 'inactive', 'archived'] },
   stack_type: { type: 'string', enum: ['ipv4_only', 'ipv6_only', 'dual_stack'] },
 };

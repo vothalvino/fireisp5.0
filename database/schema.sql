@@ -381,6 +381,8 @@ CREATE TABLE IF NOT EXISTS plans (
     billing_cycle   ENUM('monthly', 'quarterly', 'semi_annual', 'annual') NOT NULL DEFAULT 'monthly',
     burst_download_mbps INT UNSIGNED NULL COMMENT 'Burst download speed in Mbps',
     burst_upload_mbps   INT UNSIGNED NULL COMMENT 'Burst upload speed in Mbps',
+    burst_threshold_mbps INT UNSIGNED NULL COMMENT 'MikroTik burst-threshold in Mbps; burst allowed when avg < this value (migration 286)',
+    burst_time_seconds  TINYINT UNSIGNED NULL COMMENT 'MikroTik burst-time window in seconds (migration 286)',
     radius_vendor       ENUM('mikrotik','cisco','juniper') NULL DEFAULT NULL,
     radius_rate_limit_template VARCHAR(200) NULL,
     fup_threshold_gb    DECIMAL(10,2) NULL COMMENT 'GB at which FUP kicks in; NULL = same as data_cap_gb',
@@ -392,6 +394,7 @@ CREATE TABLE IF NOT EXISTS plans (
     trial_days          INT UNSIGNED NULL COMMENT 'Number of free trial days; NULL = no trial',
     trial_price         DECIMAL(10,2) NOT NULL DEFAULT 0.00,
     priority        TINYINT UNSIGNED NULL COMMENT 'Plan priority 1-8 (1 = highest)',
+    priority_class_id   BIGINT UNSIGNED NULL COMMENT 'Quality class assigned to subscribers on this plan; drives queue priority (migration 286)',
     status          ENUM('active', 'inactive', 'archived') NOT NULL DEFAULT 'active',
     stack_type      ENUM('ipv4_only','ipv6_only','dual_stack') NOT NULL DEFAULT 'dual_stack' COMMENT 'IP stack type: IPv4-only, IPv6-only, or dual-stack (migration 243)',
     session_timeout_seconds INT UNSIGNED NULL COMMENT 'RADIUS Session-Timeout for subscribers on this plan (migration 225)',
@@ -10606,5 +10609,141 @@ SELECT
 WHERE NOT EXISTS (
     SELECT 1 FROM scheduled_tasks WHERE task_name = 'wireless_ap_sector_poll'
 );
+
+-- ---------------------------------------------------------------------------
+-- §10.1 QoS Speed Profiles: quality_classes, queue_tree_nodes (migration 286)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS quality_classes (
+  id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id     BIGINT UNSIGNED NULL,
+  name                VARCHAR(100) NOT NULL,
+  description         TEXT NULL,
+  traffic_type        ENUM('voip','video','web','download','other') NOT NULL DEFAULT 'other'
+                        COMMENT 'Traffic type used to infer default priority',
+  priority            TINYINT UNSIGNED NOT NULL DEFAULT 4
+                        COMMENT 'Queue priority 1 (highest) to 8 (lowest)',
+  dscp_mark           VARCHAR(20) NULL
+                        COMMENT 'DSCP marking (e.g. EF, AF41, CS3, BE); NULL = no marking',
+  mikrotik_queue_kind ENUM('pcq','sfq','fifo','red','sfb') NOT NULL DEFAULT 'pcq',
+  max_limit_pct       TINYINT UNSIGNED NULL
+                        COMMENT 'Max percent of parent queue bandwidth; NULL = unlimited',
+  status              ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at          DATETIME NULL,
+  PRIMARY KEY (id),
+  KEY idx_quality_classes_org (organization_id),
+  KEY idx_quality_classes_traffic_type (traffic_type),
+  KEY idx_quality_classes_priority (priority),
+  KEY idx_quality_classes_deleted (deleted_at),
+  CONSTRAINT fk_quality_classes_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS queue_tree_nodes (
+  id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id      BIGINT UNSIGNED NULL,
+  parent_id            BIGINT UNSIGNED NULL
+                         COMMENT 'Parent queue tree node; NULL = root node',
+  name                 VARCHAR(100) NOT NULL,
+  description          TEXT NULL,
+  queue_type           ENUM('tree','simple') NOT NULL DEFAULT 'tree'
+                         COMMENT 'MikroTik queue implementation: Queue Tree or Simple Queue',
+  interface            VARCHAR(100) NULL
+                         COMMENT 'NAS interface this queue attaches to',
+  max_limit_mbps       INT UNSIGNED NULL,
+  burst_limit_mbps     INT UNSIGNED NULL,
+  burst_threshold_mbps INT UNSIGNED NULL,
+  burst_time_seconds   TINYINT UNSIGNED NULL,
+  priority             TINYINT UNSIGNED NOT NULL DEFAULT 4,
+  queue_kind           ENUM('pcq','sfq','fifo','red','sfb') NOT NULL DEFAULT 'pcq',
+  status               ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  sort_order           SMALLINT UNSIGNED NOT NULL DEFAULT 100,
+  created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at           DATETIME NULL,
+  PRIMARY KEY (id),
+  KEY idx_queue_tree_nodes_org (organization_id),
+  KEY idx_queue_tree_nodes_parent (parent_id),
+  KEY idx_queue_tree_nodes_deleted (deleted_at),
+  CONSTRAINT fk_queue_tree_nodes_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_queue_tree_nodes_parent FOREIGN KEY (parent_id)
+    REFERENCES queue_tree_nodes (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- FK: plans.priority_class_id → quality_classes (added after quality_classes is created)
+-- (column already in plans body above; FK added here after quality_classes exists)
+ALTER TABLE plans
+  ADD CONSTRAINT IF NOT EXISTS fk_plans_priority_class
+    FOREIGN KEY (priority_class_id) REFERENCES quality_classes (id)
+    ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- ---------------------------------------------------------------------------
+-- §10.2 Rate Limiting: rate_limit_templates, protocol_shaping_rules (migration 288)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS rate_limit_templates (
+  id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id      BIGINT UNSIGNED NULL,
+  name                 VARCHAR(100) NOT NULL,
+  description          TEXT NULL,
+  service_type         ENUM('pppoe','dhcp','hotspot','static','other') NOT NULL DEFAULT 'pppoe',
+  radius_vendor        ENUM('mikrotik','cisco','juniper','generic') NOT NULL DEFAULT 'mikrotik',
+  download_mbps        INT UNSIGNED NOT NULL,
+  upload_mbps          INT UNSIGNED NOT NULL,
+  burst_download_mbps  INT UNSIGNED NULL,
+  burst_upload_mbps    INT UNSIGNED NULL,
+  burst_threshold_mbps INT UNSIGNED NULL,
+  burst_time_seconds   TINYINT UNSIGNED NULL,
+  rate_string          VARCHAR(255) NULL
+                         COMMENT 'Cached/rendered vendor rate string',
+  priority             TINYINT UNSIGNED NOT NULL DEFAULT 4,
+  status               ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at           DATETIME NULL,
+  PRIMARY KEY (id),
+  KEY idx_rlt_org (organization_id),
+  KEY idx_rlt_service_type (service_type),
+  KEY idx_rlt_status (status),
+  KEY idx_rlt_deleted (deleted_at),
+  CONSTRAINT fk_rlt_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS protocol_shaping_rules (
+  id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id     BIGINT UNSIGNED NULL,
+  plan_id             BIGINT UNSIGNED NULL
+                        COMMENT 'When set, rule applies only to this plan; NULL = global org rule',
+  name                VARCHAR(100) NOT NULL,
+  description         TEXT NULL,
+  protocol            ENUM('tcp','udp','icmp','any') NOT NULL DEFAULT 'tcp',
+  direction           ENUM('download','upload','both') NOT NULL DEFAULT 'both',
+  dst_port_range      VARCHAR(100) NULL,
+  src_port_range      VARCHAR(100) NULL,
+  l7_pattern          VARCHAR(255) NULL,
+  action              ENUM('limit','drop','mark','throttle') NOT NULL DEFAULT 'limit',
+  limit_download_mbps INT UNSIGNED NULL,
+  limit_upload_mbps   INT UNSIGNED NULL,
+  dscp_mark           VARCHAR(20) NULL,
+  priority            TINYINT UNSIGNED NOT NULL DEFAULT 5,
+  enabled             TINYINT(1) NOT NULL DEFAULT 1,
+  preset              VARCHAR(50) NULL
+                        COMMENT 'Optional preset identifier (e.g. bittorrent_throttle)',
+  created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at          DATETIME NULL,
+  PRIMARY KEY (id),
+  KEY idx_psr_org (organization_id),
+  KEY idx_psr_plan (plan_id),
+  KEY idx_psr_protocol (protocol),
+  KEY idx_psr_enabled (enabled),
+  KEY idx_psr_deleted (deleted_at),
+  CONSTRAINT fk_psr_org FOREIGN KEY (organization_id)
+    REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_psr_plan FOREIGN KEY (plan_id)
+    REFERENCES plans (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

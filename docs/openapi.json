@@ -499,6 +499,22 @@
     {
       "name": "Spectrum Scans",
       "description": "AP spectrum scan results — raw scan data, peak interference, channel recommendations — §9.3"
+    },
+    {
+      "name": "Quality Classes",
+      "description": "QoS priority class registry (VoIP/Video/Web/Download) with DSCP marks and MikroTik queue kind — §10.1"
+    },
+    {
+      "name": "Queue Tree Nodes",
+      "description": "Hierarchical queue tree node definitions (MikroTik Queue Tree / Simple Queue) with export to RouterOS script — §10.1"
+    },
+    {
+      "name": "Rate Limit Templates",
+      "description": "Named rate-limit templates per service type (PPPoE/DHCP/hotspot) with vendor-specific rate-string generation — §10.2"
+    },
+    {
+      "name": "Protocol Shaping Rules",
+      "description": "Per-protocol/port traffic shaping rules (torrent throttling, VoIP priority) with MikroTik mangle export — §10.2"
     }
   ],
   "paths": {
@@ -31432,6 +31448,956 @@
         }
       }
     },
+    "/quality-classes": {
+      "get": {
+        "tags": [
+          "Quality Classes"
+        ],
+        "summary": "List quality-classes",
+        "operationId": "listQualityClasss",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "QualityClass[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Quality Classes"
+        ],
+        "summary": "Create a QualityClass",
+        "operationId": "createQualityClass",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "QualityClass",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "QualityClass",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quality-classes/{id}": {
+      "get": {
+        "tags": [
+          "Quality Classes"
+        ],
+        "summary": "Get a QualityClass",
+        "operationId": "getQualityClass",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "QualityClass",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Quality Classes"
+        ],
+        "summary": "Update a QualityClass",
+        "operationId": "updateQualityClass",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "QualityClass",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "QualityClass",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Quality Classes"
+        ],
+        "summary": "Delete a QualityClass",
+        "operationId": "deleteQualityClass",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/quality-classes/{id}/restore": {
+      "post": {
+        "tags": [
+          "Quality Classes"
+        ],
+        "summary": "Restore a soft-deleted quality class",
+        "operationId": "restoreQualityClass",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "QualityClass",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/queue-tree-nodes": {
+      "get": {
+        "tags": [
+          "Queue Tree Nodes"
+        ],
+        "summary": "List queue-tree-nodes",
+        "operationId": "listQueueTreeNodes",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "QueueTreeNode[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Queue Tree Nodes"
+        ],
+        "summary": "Create a QueueTreeNode",
+        "operationId": "createQueueTreeNode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "QueueTreeNode",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "QueueTreeNode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/queue-tree-nodes/{id}": {
+      "get": {
+        "tags": [
+          "Queue Tree Nodes"
+        ],
+        "summary": "Get a QueueTreeNode",
+        "operationId": "getQueueTreeNode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "QueueTreeNode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Queue Tree Nodes"
+        ],
+        "summary": "Update a QueueTreeNode",
+        "operationId": "updateQueueTreeNode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "QueueTreeNode",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "QueueTreeNode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Queue Tree Nodes"
+        ],
+        "summary": "Delete a QueueTreeNode",
+        "operationId": "deleteQueueTreeNode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/queue-tree-nodes/{id}/restore": {
+      "post": {
+        "tags": [
+          "Queue Tree Nodes"
+        ],
+        "summary": "Restore a soft-deleted queue tree node",
+        "operationId": "restoreQueueTreeNode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "QueueTreeNode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/queue-tree-nodes/export/config": {
+      "get": {
+        "tags": [
+          "Queue Tree Nodes"
+        ],
+        "summary": "Export MikroTik Queue Tree / Simple Queue configuration script",
+        "operationId": "exportQueueTreeConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "vendor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "mikrotik"
+              ],
+              "default": "mikrotik"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "text"
+              ],
+              "default": "json"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RouterOS script or JSON with script + node_count",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rate-limit-templates": {
+      "get": {
+        "tags": [
+          "Rate Limit Templates"
+        ],
+        "summary": "List rate-limit-templates",
+        "operationId": "listRateLimitTemplates",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RateLimitTemplate[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Rate Limit Templates"
+        ],
+        "summary": "Create a RateLimitTemplate",
+        "operationId": "createRateLimitTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "RateLimitTemplate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "RateLimitTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rate-limit-templates/{id}": {
+      "get": {
+        "tags": [
+          "Rate Limit Templates"
+        ],
+        "summary": "Get a RateLimitTemplate",
+        "operationId": "getRateLimitTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RateLimitTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Rate Limit Templates"
+        ],
+        "summary": "Update a RateLimitTemplate",
+        "operationId": "updateRateLimitTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "RateLimitTemplate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "RateLimitTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Rate Limit Templates"
+        ],
+        "summary": "Delete a RateLimitTemplate",
+        "operationId": "deleteRateLimitTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/rate-limit-templates/{id}/restore": {
+      "post": {
+        "tags": [
+          "Rate Limit Templates"
+        ],
+        "summary": "Restore a soft-deleted rate-limit template",
+        "operationId": "restoreRateLimitTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RateLimitTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rate-limit-templates/preview": {
+      "post": {
+        "tags": [
+          "Rate Limit Templates"
+        ],
+        "summary": "Preview the rendered vendor rate string for given parameters",
+        "operationId": "previewRateLimitString",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "RateLimitTemplate params",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ rate_string: string }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/protocol-shaping-rules": {
+      "get": {
+        "tags": [
+          "Protocol Shaping Rules"
+        ],
+        "summary": "List protocol-shaping-rules",
+        "operationId": "listProtocolShapingRules",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ProtocolShapingRule[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Protocol Shaping Rules"
+        ],
+        "summary": "Create a ProtocolShapingRule",
+        "operationId": "createProtocolShapingRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "ProtocolShapingRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ProtocolShapingRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/protocol-shaping-rules/{id}": {
+      "get": {
+        "tags": [
+          "Protocol Shaping Rules"
+        ],
+        "summary": "Get a ProtocolShapingRule",
+        "operationId": "getProtocolShapingRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ProtocolShapingRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Protocol Shaping Rules"
+        ],
+        "summary": "Update a ProtocolShapingRule",
+        "operationId": "updateProtocolShapingRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "ProtocolShapingRule",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ProtocolShapingRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Protocol Shaping Rules"
+        ],
+        "summary": "Delete a ProtocolShapingRule",
+        "operationId": "deleteProtocolShapingRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/protocol-shaping-rules/{id}/restore": {
+      "post": {
+        "tags": [
+          "Protocol Shaping Rules"
+        ],
+        "summary": "Restore a soft-deleted protocol shaping rule",
+        "operationId": "restoreProtocolShapingRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ProtocolShapingRule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/protocol-shaping-rules/export/config": {
+      "get": {
+        "tags": [
+          "Protocol Shaping Rules"
+        ],
+        "summary": "Export MikroTik mangle rules script for active shaping rules",
+        "operationId": "exportShapingRulesConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "text"
+              ],
+              "default": "json"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RouterOS mangle script or JSON with script + rule_count",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/acs/cwmp": {
       "post": {
         "tags": [
@@ -41690,10 +42656,23 @@
             "type": "number",
             "minimum": 0
           },
+          "burst_threshold_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_time_seconds": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 255
+          },
           "priority": {
             "type": "number",
             "minimum": 1,
             "maximum": 8
+          },
+          "priority_class_id": {
+            "type": "number",
+            "minimum": 1
           },
           "status": {
             "type": "string",
@@ -41768,10 +42747,23 @@
             "type": "number",
             "minimum": 0
           },
+          "burst_threshold_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_time_seconds": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 255
+          },
           "priority": {
             "type": "number",
             "minimum": 1,
             "maximum": 8
+          },
+          "priority_class_id": {
+            "type": "number",
+            "minimum": 1
           },
           "status": {
             "type": "string",
@@ -41840,10 +42832,23 @@
             "type": "number",
             "minimum": 0
           },
+          "burst_threshold_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_time_seconds": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 255
+          },
           "priority": {
             "type": "number",
             "minimum": 1,
             "maximum": 8
+          },
+          "priority_class_id": {
+            "type": "number",
+            "minimum": 1
           },
           "status": {
             "type": "string",
@@ -42640,6 +43645,169 @@
           }
         }
       },
+      "protocolShapingRules_createProtocolShapingRule": {
+        "type": "object",
+        "properties": {
+          "plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "tcp",
+              "udp",
+              "icmp",
+              "any"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "download",
+              "upload",
+              "both"
+            ]
+          },
+          "dst_port_range": {
+            "type": "string",
+            "maximum": 100
+          },
+          "src_port_range": {
+            "type": "string",
+            "maximum": 100
+          },
+          "l7_pattern": {
+            "type": "string",
+            "maximum": 255
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "limit",
+              "drop",
+              "mark",
+              "throttle"
+            ]
+          },
+          "limit_download_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "limit_upload_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "dscp_mark": {
+            "type": "string",
+            "maximum": 20
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "preset": {
+            "type": "string",
+            "maximum": 50
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "protocolShapingRules_updateProtocolShapingRule": {
+        "type": "object",
+        "properties": {
+          "plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "tcp",
+              "udp",
+              "icmp",
+              "any"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "download",
+              "upload",
+              "both"
+            ]
+          },
+          "dst_port_range": {
+            "type": "string",
+            "maximum": 100
+          },
+          "src_port_range": {
+            "type": "string",
+            "maximum": 100
+          },
+          "l7_pattern": {
+            "type": "string",
+            "maximum": 255
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "limit",
+              "drop",
+              "mark",
+              "throttle"
+            ]
+          },
+          "limit_download_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "limit_upload_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "dscp_mark": {
+            "type": "string",
+            "maximum": 20
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "preset": {
+            "type": "string",
+            "maximum": 50
+          }
+        }
+      },
       "ptrRecords_createPtrRecord": {
         "type": "object",
         "properties": {
@@ -42721,6 +43889,268 @@
           "notes": {
             "type": "string",
             "maximum": 5000
+          }
+        }
+      },
+      "qualityClasses_createQualityClass": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "traffic_type": {
+            "type": "string",
+            "enum": [
+              "voip",
+              "video",
+              "web",
+              "download",
+              "other"
+            ]
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "dscp_mark": {
+            "type": "string",
+            "maximum": 20
+          },
+          "mikrotik_queue_kind": {
+            "type": "string",
+            "enum": [
+              "pcq",
+              "sfq",
+              "fifo",
+              "red",
+              "sfb"
+            ]
+          },
+          "max_limit_pct": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "qualityClasses_updateQualityClass": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "traffic_type": {
+            "type": "string",
+            "enum": [
+              "voip",
+              "video",
+              "web",
+              "download",
+              "other"
+            ]
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "dscp_mark": {
+            "type": "string",
+            "maximum": 20
+          },
+          "mikrotik_queue_kind": {
+            "type": "string",
+            "enum": [
+              "pcq",
+              "sfq",
+              "fifo",
+              "red",
+              "sfb"
+            ]
+          },
+          "max_limit_pct": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        }
+      },
+      "queueTreeNodes_createQueueTreeNode": {
+        "type": "object",
+        "properties": {
+          "parent_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "queue_type": {
+            "type": "string",
+            "enum": [
+              "tree",
+              "simple"
+            ]
+          },
+          "interface": {
+            "type": "string",
+            "maximum": 100
+          },
+          "max_limit_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_limit_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_threshold_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_time_seconds": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "queue_kind": {
+            "type": "string",
+            "enum": [
+              "pcq",
+              "sfq",
+              "fifo",
+              "red",
+              "sfb"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "sort_order": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "queueTreeNodes_updateQueueTreeNode": {
+        "type": "object",
+        "properties": {
+          "parent_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "queue_type": {
+            "type": "string",
+            "enum": [
+              "tree",
+              "simple"
+            ]
+          },
+          "interface": {
+            "type": "string",
+            "maximum": 100
+          },
+          "max_limit_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_limit_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_threshold_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_time_seconds": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "queue_kind": {
+            "type": "string",
+            "enum": [
+              "pcq",
+              "sfq",
+              "fifo",
+              "red",
+              "sfb"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "sort_order": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 65535
           }
         }
       },
@@ -43116,6 +44546,151 @@
           },
           "allowed_destinations": {
             "type": "string"
+          }
+        }
+      },
+      "rateLimitTemplates_createRateLimitTemplate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "service_type": {
+            "type": "string",
+            "enum": [
+              "pppoe",
+              "dhcp",
+              "hotspot",
+              "static",
+              "other"
+            ]
+          },
+          "radius_vendor": {
+            "type": "string",
+            "enum": [
+              "mikrotik",
+              "cisco",
+              "juniper",
+              "generic"
+            ]
+          },
+          "download_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "upload_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_download_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_upload_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_threshold_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_time_seconds": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "download_mbps",
+          "upload_mbps"
+        ]
+      },
+      "rateLimitTemplates_updateRateLimitTemplate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
+          },
+          "service_type": {
+            "type": "string",
+            "enum": [
+              "pppoe",
+              "dhcp",
+              "hotspot",
+              "static",
+              "other"
+            ]
+          },
+          "radius_vendor": {
+            "type": "string",
+            "enum": [
+              "mikrotik",
+              "cisco",
+              "juniper",
+              "generic"
+            ]
+          },
+          "download_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "upload_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_download_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_upload_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_threshold_mbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_time_seconds": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
           }
         }
       },
