@@ -10677,7 +10677,7 @@ CREATE TABLE IF NOT EXISTS queue_tree_nodes (
 -- FK: plans.priority_class_id → quality_classes (added after quality_classes is created)
 -- (column already in plans body above; FK added here after quality_classes exists)
 ALTER TABLE plans
-  ADD CONSTRAINT IF NOT EXISTS fk_plans_priority_class
+  ADD CONSTRAINT fk_plans_priority_class
     FOREIGN KEY (priority_class_id) REFERENCES quality_classes (id)
     ON DELETE SET NULL ON UPDATE CASCADE;
 
