@@ -84,13 +84,13 @@ CREATE TABLE IF NOT EXISTS subscriber_speed_test_jobs (
 -- ---------------------------------------------------------------------------
 -- 3. Scheduled task: subscriber_speed_test_run
 -- ---------------------------------------------------------------------------
-INSERT INTO scheduled_tasks (name, task_type, cron_expression, is_active, priority, description, created_at, updated_at)
+INSERT INTO scheduled_tasks (task_name, task_type, cron_expression, is_enabled, priority, description, created_at, updated_at)
 SELECT 'subscriber_speed_test_run', 'other', '*/5 * * * *', 1, 'low',
   'Dispatch queued subscriber speed test jobs and record results',
   NOW(), NOW()
 FROM DUAL
 WHERE NOT EXISTS (
-  SELECT 1 FROM scheduled_tasks WHERE name = 'subscriber_speed_test_run'
+  SELECT 1 FROM scheduled_tasks WHERE task_name = 'subscriber_speed_test_run'
 );
 
 SET FOREIGN_KEY_CHECKS=1;

@@ -121,25 +121,25 @@ CREATE TABLE IF NOT EXISTS fup_usage_notifications (
 -- ---------------------------------------------------------------------------
 -- 5. Scheduled task: fup_threshold_notify
 -- ---------------------------------------------------------------------------
-INSERT INTO scheduled_tasks (name, task_type, cron_expression, is_active, priority, description, created_at, updated_at)
+INSERT INTO scheduled_tasks (task_name, task_type, cron_expression, is_enabled, priority, description, created_at, updated_at)
 SELECT 'fup_threshold_notify', 'notification', '*/15 * * * *', 1, 'normal',
   'Check FUP usage thresholds and send 80/90/100% notifications',
   NOW(), NOW()
 FROM DUAL
 WHERE NOT EXISTS (
-  SELECT 1 FROM scheduled_tasks WHERE name = 'fup_threshold_notify'
+  SELECT 1 FROM scheduled_tasks WHERE task_name = 'fup_threshold_notify'
 );
 
 -- ---------------------------------------------------------------------------
 -- 6. Scheduled task: rollover_balance_accrue
 -- ---------------------------------------------------------------------------
-INSERT INTO scheduled_tasks (name, task_type, cron_expression, is_active, priority, description, created_at, updated_at)
+INSERT INTO scheduled_tasks (task_name, task_type, cron_expression, is_enabled, priority, description, created_at, updated_at)
 SELECT 'rollover_balance_accrue', 'usage_rollup', '0 0 1 * *', 1, 'normal',
   'Monthly: accrue unused data allowance as rollover balance to next month',
   NOW(), NOW()
 FROM DUAL
 WHERE NOT EXISTS (
-  SELECT 1 FROM scheduled_tasks WHERE name = 'rollover_balance_accrue'
+  SELECT 1 FROM scheduled_tasks WHERE task_name = 'rollover_balance_accrue'
 );
 
 SET FOREIGN_KEY_CHECKS=1;

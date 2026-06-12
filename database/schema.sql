@@ -10845,7 +10845,7 @@ CREATE TABLE IF NOT EXISTS fup_usage_notifications (
 -- (migrations 292-293)
 -- ---------------------------------------------------------------------------
 
--- queue_tree_nodes: extended ENUM + vendor_platform already reflected in CREATE TABLE above (migration 292).
+-- queue_tree_nodes: extended ENUM + vendor_platform already reflected in the table definition above (migration 292).
 
 CREATE TABLE IF NOT EXISTS interface_qos_policies (
   id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
