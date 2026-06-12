@@ -46,6 +46,8 @@ Bash cannot parse the script on Windows. This is a known issue unrelated to appl
 **How to apply:** When running the full suite and seeing only those 2 failures, they can be ignored.
 They were present before any §1.x work began.
 
+**Frontend tests have ZERO pre-existing failures.** During §13 ~20 frontend test failures (i18n.test.ts, Login.test.tsx, Layout.test.tsx, aiSettings.test.tsx) were misdiagnosed as "pre-existing" — they were actually caused by cp1252 mojibake that the §13 work itself introduced into the locale files (repaired before merge; main is clean and CI green). If frontend tests fail on a branch, the branch caused it: first check for mojibake (`grep -l "â€\|Ã©\|ðŸ" $(git diff --name-only origin/main..HEAD)`) and verify the same test passes on origin/main before calling anything pre-existing.
+
 ## snmpPoller: mock queue depth must account for UPDATE calls
 
 `snmpPoller.poll()` fires `db.query(...).catch(() => {})` after each device result:
@@ -76,3 +78,33 @@ and add a guard like `&& !sql.includes(entity-specific-filter)` to distinguish q
 
 `pnpm test run` is WRONG — vitest interprets "run" as a file filter, finds nothing, exits 1.
 Use `pnpm test` (the script is `vitest run` without argument).
+
+## react-leaflet components require mocking in vitest
+
+`react-leaflet`'s `MapContainer` and other components try to access DOM canvas/SVG which jsdom doesn't support. Any test for a page that imports from `react-leaflet` must mock the module:
+
+```typescript
+vi.mock('react-leaflet', () => ({
+  MapContainer: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="map-container">{children}</div>
+  ),
+  TileLayer: () => null,
+  CircleMarker: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="circle-marker">{children}</div>
+  ),
+  Polyline: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="polyline">{children}</div>
+  ),
+  Popup: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="popup">{children}</div>
+  ),
+  Tooltip: ({ children }: { children: React.ReactNode }) => (
+    <span data-testid="tooltip">{children}</span>
+  ),
+}));
+
+// Also mock the CSS import:
+vi.mock('leaflet/dist/leaflet.css', () => ({}));
+```
+
+**How to apply:** Any frontend test file that renders a component with `MapContainer` from react-leaflet must include both mocks above, or the test will fail with jsdom canvas errors.

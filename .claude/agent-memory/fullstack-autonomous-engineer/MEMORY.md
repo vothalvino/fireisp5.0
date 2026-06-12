@@ -9,4 +9,5 @@
 - [Section 7 FTTH OLT/ONU](section7-ftth-olt-onu.md) — migrations 266-273; §7.1–§7.4 done; 208 tables total, 64 perms, 4 React pages; live device I/O stubbed; next migration: 274
 - [Section 9 Wireless/WISP](section9-wireless-wisp.md) — migrations 279-285 complete; all 14 §9 items done; 7 new tables, 60 perms; next migration: 286
 - [Section 10 QoS & Bandwidth](section10-qos-bandwidth.md) — migrations 286-294 complete; all §10.1-10.4 done; 13 tables, 44 perms, 6-tab frontend page; next migration: 295
-- [Section 12 Ticketing & NOC](section12-ticketing-noc.md) — migrations 297-299 complete; 7 tables, 14 perms, 3 new route files + tickets.js extensions; next migration: 300
+- [Section 12 Ticketing & NOC](section12-ticketing-noc.md) — migrations 297-301 complete; 8 tables, 20 perms, 3 new route files + tickets.js extensions + NOC/work-order frontend; next migration: 302
+- [Section 13 Topology & Mapping](section13-topology-mapping.md) — migrations 302-304 complete; 4 new tables, 12 perms, 19 endpoints, react-leaflet frontend; next migration: 305
