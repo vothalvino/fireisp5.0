@@ -24,13 +24,14 @@
 import { useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type Tab = 'revenue' | 'growth' | 'aging' | 'ift' | 'technicians' | 'exports';
+type Tab = 'revenue' | 'growth' | 'aging' | 'ift' | 'technicians' | 'exports' | 'network' | 'compliance' | 'scheduled' | 'custom' | 'widgets';
 
 // Revenue
 interface FinancialData {
@@ -828,17 +829,833 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 // ---------------------------------------------------------------------------
+// Types for §15 new tabs
+// ---------------------------------------------------------------------------
+
+// Network report
+interface NetworkReportData {
+  device_reboots: number;
+  capacity_forecast: { month: string; predicted_subscribers: number }[];
+  pon_utilization: { olt_id: number; olt_name?: string; utilization_pct: number }[];
+}
+
+// Compliance report
+interface RetentionRow {
+  table_name: string;
+  old_record_count: number;
+}
+interface InterceptionReadiness {
+  has_nas: boolean;
+  ready: boolean;
+}
+interface ComplianceReportData {
+  data_retention: RetentionRow[];
+  interception_readiness: InterceptionReadiness;
+}
+
+// Scheduled reports
+interface ScheduledReport {
+  id: number;
+  report_def_name: string;
+  format: string;
+  cron_expression: string;
+  is_enabled: number | boolean;
+  last_run_at: string | null;
+  recipients?: string | null;
+}
+interface ScheduledReportListData {
+  data: ScheduledReport[];
+  meta: { total: number; page: number; limit: number };
+}
+
+// Custom reports
+interface CustomReport {
+  id: number;
+  name: string;
+  query_type: string;
+  is_public: number | boolean;
+  sql_query?: string;
+}
+interface CustomReportListData {
+  data: CustomReport[];
+  meta: { total: number; page: number; limit: number };
+}
+interface CustomReportResult {
+  rows: Record<string, unknown>[];
+  fields: string[];
+}
+
+// Dashboard widgets
+interface DashboardWidget {
+  id: number;
+  widget_type: string;
+  title: string;
+  position_x: number;
+  position_y: number;
+  width: number;
+  height: number;
+}
+interface DashboardWidgetListData {
+  data: DashboardWidget[];
+  meta: { total: number; page: number; limit: number };
+}
+
+const WIDGET_TYPES = [
+  'revenue_chart',
+  'subscriber_growth',
+  'aging_summary',
+  'capacity_forecast',
+  'custom',
+] as const;
+
+// ---------------------------------------------------------------------------
+// Tab: Network
+// ---------------------------------------------------------------------------
+
+function NetworkTab() {
+  const { t } = useTranslation();
+  const { data, isFetching, error } = useQuery<{ data: NetworkReportData }>({
+    queryKey: ['reports', 'network'],
+    queryFn: () => apiFetch('/reports/network'),
+  });
+
+  const d = data?.data;
+
+  return (
+    <div style={styles.tabContent}>
+      <h2 style={styles.sectionTitle}>{t('reports.networkReports')}</h2>
+      {isFetching && <p style={styles.muted}>Loading…</p>}
+      {error && <p style={styles.error}>{String(error)}</p>}
+      {d && (
+        <>
+          <div style={styles.kpiRow}>
+            <KpiCard
+              label={t('reports.deviceReboots')}
+              value={String(d.device_reboots ?? 0)}
+              sub=""
+              color="#e67e22"
+            />
+          </div>
+
+          {d.capacity_forecast && d.capacity_forecast.length > 0 && (
+            <>
+              <h3 style={styles.sectionTitle}>{t('reports.capacityForecast')}</h3>
+              <LineChart
+                labels={d.capacity_forecast.map(r => r.month)}
+                series={[
+                  {
+                    label: 'Predicted Subscribers',
+                    values: d.capacity_forecast.map(r => Number(r.predicted_subscribers)),
+                    color: '#4a90e2',
+                  },
+                ]}
+              />
+            </>
+          )}
+
+          {d.pon_utilization && d.pon_utilization.length > 0 && (
+            <>
+              <h3 style={styles.sectionTitle}>{t('reports.ponUtilization')}</h3>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>OLT ID</th>
+                    <th style={styles.th}>Name</th>
+                    <th style={styles.th}>Utilization %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.pon_utilization.map(row => (
+                    <tr key={row.olt_id}>
+                      <td style={styles.td}>{row.olt_id}</td>
+                      <td style={styles.td}>{row.olt_name ?? '—'}</td>
+                      <td style={styles.td}>{Number(row.utilization_pct).toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tab: Compliance
+// ---------------------------------------------------------------------------
+
+function ComplianceTab() {
+  const { t } = useTranslation();
+  const { data, isFetching, error } = useQuery<{ data: ComplianceReportData }>({
+    queryKey: ['reports', 'compliance'],
+    queryFn: () => apiFetch('/reports/compliance'),
+  });
+
+  const d = data?.data;
+  const readiness = d?.interception_readiness;
+
+  return (
+    <div style={styles.tabContent}>
+      <h2 style={styles.sectionTitle}>{t('reports.complianceReports')}</h2>
+      {isFetching && <p style={styles.muted}>Loading…</p>}
+      {error && <p style={styles.error}>{String(error)}</p>}
+      {d && (
+        <>
+          {/* Interception readiness card */}
+          <h3 style={styles.sectionTitle}>{t('reports.interceptionReadiness')}</h3>
+          {readiness && (
+            <div style={{ ...styles.kpiCard, maxWidth: 320, marginBottom: 20 }}>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: '0.8rem', color: '#888', marginBottom: 4 }}>Has NAS</div>
+                  <span style={{
+                    ...styles.badge,
+                    background: readiness.has_nas ? '#27ae60' : '#e74c3c',
+                  }}>
+                    {readiness.has_nas ? 'Yes' : 'No'}
+                  </span>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.8rem', color: '#888', marginBottom: 4 }}>Status</div>
+                  <span style={{
+                    ...styles.badge,
+                    background: readiness.ready ? '#27ae60' : '#e67e22',
+                  }}>
+                    {readiness.ready ? 'Ready' : 'Not Ready'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Data retention table */}
+          {d.data_retention && d.data_retention.length > 0 && (
+            <>
+              <h3 style={styles.sectionTitle}>{t('reports.dataRetention')}</h3>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Table</th>
+                    <th style={styles.th}>Old Record Count</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.data_retention.map(row => (
+                    <tr key={row.table_name}>
+                      <td style={styles.td}>{row.table_name}</td>
+                      <td style={styles.td}>{row.old_record_count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tab: Scheduled Reports
+// ---------------------------------------------------------------------------
+
+interface ScheduledReportForm {
+  report_def_name: string;
+  format: string;
+  cron_expression: string;
+  recipients: string;
+}
+
+function ScheduledTab() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState<ScheduledReportForm>({
+    report_def_name: '',
+    format: 'csv',
+    cron_expression: '0 8 * * 1',
+    recipients: '',
+  });
+  const [createError, setCreateError] = useState('');
+
+  const { data, isFetching, error } = useQuery<ScheduledReportListData>({
+    queryKey: ['scheduled-reports'],
+    queryFn: () => apiFetch('/scheduled-reports'),
+  });
+
+  const createMut = useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch('/scheduled-reports', { method: 'POST', body: JSON.stringify(body) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['scheduled-reports'] });
+      setShowCreate(false);
+      setForm({ report_def_name: '', format: 'csv', cron_expression: '0 8 * * 1', recipients: '' });
+      setCreateError('');
+    },
+    onError: (err: Error) => setCreateError(err.message),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/scheduled-reports/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['scheduled-reports'] }),
+  });
+
+  function handleCreate(e: FormEvent) {
+    e.preventDefault();
+    createMut.mutate({
+      report_def_name: form.report_def_name,
+      format: form.format,
+      cron_expression: form.cron_expression,
+      recipients: form.recipients ? form.recipients.split(',').map(s => s.trim()) : [],
+    });
+  }
+
+  const rows = data?.data ?? [];
+
+  return (
+    <div style={styles.tabContent}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <h3 style={{ ...styles.sectionTitle, margin: 0 }}>{t('reports.scheduledReports')}</h3>
+        <button onClick={() => setShowCreate(true)} style={styles.btnPrimary}>
+          + {t('reports.createScheduledReport')}
+        </button>
+      </div>
+
+      {isFetching && <p style={styles.muted}>Loading…</p>}
+      {error && <p style={styles.error}>{String(error)}</p>}
+
+      <table style={styles.table}>
+        <thead>
+          <tr>
+            <th style={styles.th}>ID</th>
+            <th style={styles.th}>{t('reports.reportDefName')}</th>
+            <th style={styles.th}>{t('reports.format')}</th>
+            <th style={styles.th}>{t('reports.cronExpression')}</th>
+            <th style={styles.th}>Enabled</th>
+            <th style={styles.th}>Last Run</th>
+            <th style={styles.th}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.id}>
+              <td style={styles.td}>{r.id}</td>
+              <td style={styles.td}>{r.report_def_name}</td>
+              <td style={styles.td}>{r.format}</td>
+              <td style={styles.td}><code>{r.cron_expression}</code></td>
+              <td style={styles.td}>
+                <span style={{ ...styles.badge, background: r.is_enabled ? '#27ae60' : '#95a5a6' }}>
+                  {r.is_enabled ? 'Yes' : 'No'}
+                </span>
+              </td>
+              <td style={styles.td}>{r.last_run_at ? r.last_run_at.slice(0, 16).replace('T', ' ') : '—'}</td>
+              <td style={styles.td}>
+                <button
+                  onClick={() => deleteMut.mutate(r.id)}
+                  disabled={deleteMut.isPending}
+                  style={{ ...styles.btnSm, color: '#e74c3c' }}
+                >
+                  Delete
+                </button>
+              </td>
+            </tr>
+          ))}
+          {rows.length === 0 && !isFetching && (
+            <tr>
+              <td colSpan={7} style={{ ...styles.td, textAlign: 'center', color: '#999' }}>
+                No scheduled reports
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      {showCreate && (
+        <Modal
+          title={t('reports.createScheduledReport')}
+          onClose={() => { setShowCreate(false); setCreateError(''); }}
+        >
+          <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <Field label={t('reports.reportDefName')}>
+              <input
+                required
+                value={form.report_def_name}
+                onChange={e => setForm(f => ({ ...f, report_def_name: e.target.value }))}
+                style={styles.input}
+              />
+            </Field>
+            <Field label={t('reports.format')}>
+              <select
+                value={form.format}
+                onChange={e => setForm(f => ({ ...f, format: e.target.value }))}
+                style={styles.input}
+              >
+                <option value="csv">CSV</option>
+                <option value="pdf">PDF</option>
+                <option value="xlsx">XLSX</option>
+                <option value="json">JSON</option>
+              </select>
+            </Field>
+            <Field label={t('reports.cronExpression')}>
+              <input
+                required
+                value={form.cron_expression}
+                onChange={e => setForm(f => ({ ...f, cron_expression: e.target.value }))}
+                style={styles.input}
+                placeholder="0 8 * * 1"
+              />
+            </Field>
+            <Field label={t('reports.recipients')}>
+              <input
+                value={form.recipients}
+                onChange={e => setForm(f => ({ ...f, recipients: e.target.value }))}
+                style={styles.input}
+                placeholder="email1@example.com, email2@example.com"
+              />
+            </Field>
+            {createError && <p style={styles.error}>{createError}</p>}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+              <button
+                type="button"
+                onClick={() => { setShowCreate(false); setCreateError(''); }}
+                style={styles.btnSm}
+              >
+                Cancel
+              </button>
+              <button type="submit" disabled={createMut.isPending} style={styles.btnPrimary}>
+                {createMut.isPending ? 'Creating…' : t('reports.createScheduledReport')}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tab: Custom Reports
+// ---------------------------------------------------------------------------
+
+interface CustomReportForm {
+  name: string;
+  query_type: string;
+  sql_query: string;
+}
+
+function CustomTab() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState<CustomReportForm>({ name: '', query_type: 'sql', sql_query: '' });
+  const [createError, setCreateError] = useState('');
+  const [execResult, setExecResult] = useState<CustomReportResult | null>(null);
+  const [execError, setExecError] = useState('');
+
+  const { data, isFetching, error } = useQuery<CustomReportListData>({
+    queryKey: ['custom-reports'],
+    queryFn: () => apiFetch('/custom-reports'),
+  });
+
+  const createMut = useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch('/custom-reports', { method: 'POST', body: JSON.stringify(body) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['custom-reports'] });
+      setShowCreate(false);
+      setForm({ name: '', query_type: 'sql', sql_query: '' });
+      setCreateError('');
+    },
+    onError: (err: Error) => setCreateError(err.message),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/custom-reports/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['custom-reports'] }),
+  });
+
+  const execMut = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<CustomReportResult>(`/custom-reports/${id}/execute`, { method: 'POST' }),
+    onSuccess: (result) => {
+      setExecResult(result);
+      setExecError('');
+    },
+    onError: (err: Error) => setExecError(err.message),
+  });
+
+  function handleCreate(e: FormEvent) {
+    e.preventDefault();
+    createMut.mutate({
+      name: form.name,
+      query_type: form.query_type,
+      sql_query: form.sql_query,
+    });
+  }
+
+  const rows = data?.data ?? [];
+
+  return (
+    <div style={styles.tabContent}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <h3 style={{ ...styles.sectionTitle, margin: 0 }}>{t('reports.customReports')}</h3>
+        <button onClick={() => setShowCreate(true)} style={styles.btnPrimary}>
+          + {t('reports.createCustomReport')}
+        </button>
+      </div>
+
+      {isFetching && <p style={styles.muted}>Loading…</p>}
+      {error && <p style={styles.error}>{String(error)}</p>}
+
+      <table style={styles.table}>
+        <thead>
+          <tr>
+            <th style={styles.th}>ID</th>
+            <th style={styles.th}>Name</th>
+            <th style={styles.th}>{t('reports.queryType')}</th>
+            <th style={styles.th}>Public</th>
+            <th style={styles.th}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.id}>
+              <td style={styles.td}>{r.id}</td>
+              <td style={styles.td}>{r.name}</td>
+              <td style={styles.td}>{r.query_type}</td>
+              <td style={styles.td}>
+                <span style={{ ...styles.badge, background: r.is_public ? '#27ae60' : '#95a5a6' }}>
+                  {r.is_public ? 'Yes' : 'No'}
+                </span>
+              </td>
+              <td style={{ ...styles.td, display: 'flex', gap: 6 }}>
+                <button
+                  onClick={() => execMut.mutate(r.id)}
+                  disabled={execMut.isPending}
+                  style={styles.btnSm}
+                >
+                  {t('reports.execute')}
+                </button>
+                <button
+                  onClick={() => deleteMut.mutate(r.id)}
+                  disabled={deleteMut.isPending}
+                  style={{ ...styles.btnSm, color: '#e74c3c' }}
+                >
+                  Delete
+                </button>
+              </td>
+            </tr>
+          ))}
+          {rows.length === 0 && !isFetching && (
+            <tr>
+              <td colSpan={5} style={{ ...styles.td, textAlign: 'center', color: '#999' }}>
+                No custom reports
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      {execError && <p style={{ ...styles.error, marginTop: 8 }}>{execError}</p>}
+
+      {execResult && (
+        <>
+          <h3 style={styles.sectionTitle}>{t('reports.executeResult')}</h3>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  {execResult.fields.map(f => (
+                    <th key={f} style={styles.th}>{f}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {execResult.rows.map((row, i) => (
+                  <tr key={i}>
+                    {execResult.fields.map(f => (
+                      <td key={f} style={styles.td}>{String(row[f] ?? '—')}</td>
+                    ))}
+                  </tr>
+                ))}
+                {execResult.rows.length === 0 && (
+                  <tr>
+                    <td colSpan={execResult.fields.length} style={{ ...styles.td, textAlign: 'center', color: '#999' }}>
+                      No rows returned
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {showCreate && (
+        <Modal
+          title={t('reports.createCustomReport')}
+          onClose={() => { setShowCreate(false); setCreateError(''); }}
+        >
+          <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <Field label="Name">
+              <input
+                required
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                style={styles.input}
+              />
+            </Field>
+            <Field label={t('reports.queryType')}>
+              <select
+                value={form.query_type}
+                onChange={e => setForm(f => ({ ...f, query_type: e.target.value }))}
+                style={styles.input}
+              >
+                <option value="sql">SQL</option>
+              </select>
+            </Field>
+            <Field label={t('reports.sqlQuery')}>
+              <textarea
+                required
+                value={form.sql_query}
+                onChange={e => setForm(f => ({ ...f, sql_query: e.target.value }))}
+                style={{ ...styles.input, height: 120, resize: 'vertical', fontFamily: 'var(--font-mono, monospace)' }}
+                placeholder="SELECT * FROM clients LIMIT 10"
+              />
+            </Field>
+            {createError && <p style={styles.error}>{createError}</p>}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+              <button
+                type="button"
+                onClick={() => { setShowCreate(false); setCreateError(''); }}
+                style={styles.btnSm}
+              >
+                Cancel
+              </button>
+              <button type="submit" disabled={createMut.isPending} style={styles.btnPrimary}>
+                {createMut.isPending ? 'Creating…' : t('reports.createCustomReport')}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tab: Dashboard Widgets
+// ---------------------------------------------------------------------------
+
+interface WidgetForm {
+  widget_type: string;
+  title: string;
+}
+
+function WidgetsTab() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState<WidgetForm>({ widget_type: 'revenue_chart', title: '' });
+  const [createError, setCreateError] = useState('');
+
+  const { data, isFetching, error } = useQuery<DashboardWidgetListData>({
+    queryKey: ['dashboard-widgets'],
+    queryFn: () => apiFetch('/dashboard-widgets'),
+  });
+
+  const createMut = useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch('/dashboard-widgets', { method: 'POST', body: JSON.stringify(body) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['dashboard-widgets'] });
+      setShowCreate(false);
+      setForm({ widget_type: 'revenue_chart', title: '' });
+      setCreateError('');
+    },
+    onError: (err: Error) => setCreateError(err.message),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/dashboard-widgets/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['dashboard-widgets'] }),
+  });
+
+  const savePositionsMut = useMutation({
+    mutationFn: (widgets: DashboardWidget[]) =>
+      apiFetch('/dashboard-widgets/batch', {
+        method: 'PUT',
+        body: JSON.stringify({
+          widgets: widgets.map(w => ({
+            id: w.id,
+            position_x: w.position_x,
+            position_y: w.position_y,
+            width: w.width,
+            height: w.height,
+          })),
+        }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['dashboard-widgets'] }),
+  });
+
+  function handleCreate(e: FormEvent) {
+    e.preventDefault();
+    createMut.mutate({ widget_type: form.widget_type, title: form.title });
+  }
+
+  const rows = data?.data ?? [];
+
+  return (
+    <div style={styles.tabContent}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <h3 style={{ ...styles.sectionTitle, margin: 0 }}>{t('reports.dashboardWidgets')}</h3>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={() => savePositionsMut.mutate(rows)}
+            disabled={savePositionsMut.isPending || rows.length === 0}
+            style={styles.btn}
+          >
+            {savePositionsMut.isPending ? 'Saving…' : t('reports.savePositions')}
+          </button>
+          <button onClick={() => setShowCreate(true)} style={styles.btnPrimary}>
+            + {t('reports.createWidget')}
+          </button>
+        </div>
+      </div>
+
+      {isFetching && <p style={styles.muted}>Loading…</p>}
+      {error && <p style={styles.error}>{String(error)}</p>}
+
+      <table style={styles.table}>
+        <thead>
+          <tr>
+            <th style={styles.th}>ID</th>
+            <th style={styles.th}>{t('reports.widgetType')}</th>
+            <th style={styles.th}>{t('reports.title')}</th>
+            <th style={styles.th}>X</th>
+            <th style={styles.th}>Y</th>
+            <th style={styles.th}>W</th>
+            <th style={styles.th}>H</th>
+            <th style={styles.th}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.id}>
+              <td style={styles.td}>{r.id}</td>
+              <td style={styles.td}>
+                <span style={{ ...styles.badge, background: '#4a90e2' }}>{r.widget_type}</span>
+              </td>
+              <td style={styles.td}>{r.title}</td>
+              <td style={styles.td}>{r.position_x}</td>
+              <td style={styles.td}>{r.position_y}</td>
+              <td style={styles.td}>{r.width}</td>
+              <td style={styles.td}>{r.height}</td>
+              <td style={styles.td}>
+                <button
+                  onClick={() => deleteMut.mutate(r.id)}
+                  disabled={deleteMut.isPending}
+                  style={{ ...styles.btnSm, color: '#e74c3c' }}
+                >
+                  Delete
+                </button>
+              </td>
+            </tr>
+          ))}
+          {rows.length === 0 && !isFetching && (
+            <tr>
+              <td colSpan={8} style={{ ...styles.td, textAlign: 'center', color: '#999' }}>
+                No widgets configured
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      {showCreate && (
+        <Modal
+          title={t('reports.createWidget')}
+          onClose={() => { setShowCreate(false); setCreateError(''); }}
+        >
+          <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <Field label={t('reports.widgetType')}>
+              <select
+                value={form.widget_type}
+                onChange={e => setForm(f => ({ ...f, widget_type: e.target.value }))}
+                style={styles.input}
+              >
+                {WIDGET_TYPES.map(wt => (
+                  <option key={wt} value={wt}>{wt}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label={t('reports.title')}>
+              <input
+                required
+                value={form.title}
+                onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                style={styles.input}
+              />
+            </Field>
+            {createError && <p style={styles.error}>{createError}</p>}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+              <button
+                type="button"
+                onClick={() => { setShowCreate(false); setCreateError(''); }}
+                style={styles.btnSm}
+              >
+                Cancel
+              </button>
+              <button type="submit" disabled={createMut.isPending} style={styles.btnPrimary}>
+                {createMut.isPending ? 'Creating…' : t('reports.createWidget')}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'revenue', label: '💰 Revenue' },
-  { key: 'growth', label: '📈 Subscriber Growth' },
-  { key: 'aging', label: '⏳ AR Aging' },
-  { key: 'ift', label: '🏛️ IFT Statistical' },
-  { key: 'technicians', label: '🔧 Technicians' },
-  { key: 'exports', label: '⬇ Export' },
-];
+function ReportsTabBar({ tab, onTabChange }: { tab: Tab; onTabChange: (t: Tab) => void }) {
+  const { t } = useTranslation();
+  const TABS: { key: Tab; label: string }[] = [
+    { key: 'revenue', label: '💰 Revenue' },
+    { key: 'growth', label: '📈 Subscriber Growth' },
+    { key: 'aging', label: '⏳ AR Aging' },
+    { key: 'ift', label: '🏛️ IFT Statistical' },
+    { key: 'technicians', label: '🔧 Technicians' },
+    { key: 'exports', label: '⬇ Export' },
+    { key: 'network', label: t('reports.networkTab') },
+    { key: 'compliance', label: t('reports.complianceTab') },
+    { key: 'scheduled', label: t('reports.scheduledTab') },
+    { key: 'custom', label: t('reports.customTab') },
+    { key: 'widgets', label: t('reports.widgetsTab') },
+  ];
+  return (
+    <div style={styles.tabs}>
+      {TABS.map(tabDef => (
+        <button
+          key={tabDef.key}
+          onClick={() => onTabChange(tabDef.key)}
+          style={{ ...styles.tabBtn, ...(tab === tabDef.key ? styles.tabBtnActive : {}) }}
+        >
+          {tabDef.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Export panel — CSV downloads for core datasets
@@ -897,17 +1714,7 @@ export function Reports() {
     <div style={styles.page}>
       <h1 style={styles.pageTitle}>Reports</h1>
 
-      <div style={styles.tabs}>
-        {TABS.map(t => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            style={{ ...styles.tabBtn, ...(tab === t.key ? styles.tabBtnActive : {}) }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <ReportsTabBar tab={tab} onTabChange={setTab} />
 
       {tab === 'revenue' && <RevenueTab />}
       {tab === 'growth' && <GrowthTab />}
@@ -915,6 +1722,11 @@ export function Reports() {
       {tab === 'ift' && <IftTab />}
       {tab === 'technicians' && <TechnicianTab />}
       {tab === 'exports' && <ExportPanel />}
+      {tab === 'network' && <NetworkTab />}
+      {tab === 'compliance' && <ComplianceTab />}
+      {tab === 'scheduled' && <ScheduledTab />}
+      {tab === 'custom' && <CustomTab />}
+      {tab === 'widgets' && <WidgetsTab />}
     </div>
   );
 }

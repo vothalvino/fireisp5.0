@@ -152,6 +152,15 @@ describe('taskRunner', () => {
       expect(result).toHaveProperty('expiring_certificates', 0);
     });
 
+    test('dispatches generate_scheduled_reports task', async () => {
+      // processScheduledReports: no due schedules
+      db.query.mockResolvedValueOnce([[]]); // scheduled_reports SELECT
+      const result = await taskRunner.runTask('generate_scheduled_reports');
+      expect(result).toHaveProperty('processed', 0);
+      expect(result).toHaveProperty('failed', 0);
+      expect(result).toHaveProperty('total', 0);
+    });
+
     test('returns unknown message for unrecognized task', async () => {
       const result = await taskRunner.runTask('nonexistent_task');
       expect(result.message).toContain('Unknown task');

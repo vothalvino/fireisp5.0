@@ -80,6 +80,7 @@
     "nodemailer": "^8.0.5",
     "openai": "^6.35.0",
     "openid-client": "^5.7.1",
+    "exceljs": "^4.4.0",
     "pdfkit": "^0.18.0",
     "pino": "^10.3.1",
     "web-push": "^3.6.7",

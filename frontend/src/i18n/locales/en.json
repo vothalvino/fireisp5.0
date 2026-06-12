@@ -126,6 +126,7 @@
     "messageTemplates": "✉️ Message Templates",
     "jobs": "🛠️ Field Jobs",
     "queueStats": "📥 Queue Status",
+    "analyticsDashboard": "Analytics Dashboard",
     "sections": {
       "clients": "Clients",
       "billing": "Billing",
@@ -2568,5 +2569,49 @@
       "reason": "Reason",
       "status": "Status"
     }
+  },
+  "reports": {
+    "networkTab": "Network",
+    "complianceTab": "Compliance",
+    "scheduledTab": "Scheduled",
+    "customTab": "Custom",
+    "widgetsTab": "Widgets",
+    "scheduledReports": "Scheduled Reports",
+    "createScheduledReport": "Create Scheduled Report",
+    "reportDefName": "Report Name",
+    "format": "Format",
+    "cronExpression": "Cron Expression",
+    "recipients": "Recipients (comma-separated)",
+    "customReports": "Custom Reports",
+    "createCustomReport": "Create Custom Report",
+    "queryType": "Query Type",
+    "sqlQuery": "SQL Query",
+    "execute": "Execute",
+    "executeResult": "Execution Result",
+    "dashboardWidgets": "Dashboard Widgets",
+    "createWidget": "Create Widget",
+    "widgetType": "Widget Type",
+    "title": "Title",
+    "savePositions": "Save Positions",
+    "networkReports": "Network Reports",
+    "deviceReboots": "Device Reboots",
+    "capacityForecast": "Capacity Forecast",
+    "ponUtilization": "PON Utilization",
+    "complianceReports": "Compliance Reports",
+    "dataRetention": "Data Retention",
+    "interceptionReadiness": "Interception Readiness"
+  },
+  "analyticsDashboard": {
+    "title": "Analytics Dashboard",
+    "loading": "Loading…",
+    "error": "Failed to load widgets.",
+    "noWidgets": "No widgets configured.",
+    "totalRevenue": "Total Revenue",
+    "subscriberGrowth": "Subscriber Growth",
+    "agingSummary": "AR Aging Summary",
+    "capacityForecast": "Capacity Forecast",
+    "totalOutstanding": "Total Outstanding",
+    "months": "months",
+    "predicted": "Predicted Subscribers"
   }
 }
