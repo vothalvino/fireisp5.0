@@ -420,42 +420,42 @@
 ## 11. Customer Self-Service Portal
 
 ### 11.1 Dashboard
-- [ ] Account overview: plan, balance, next due date
-- [ ] Current session status (connected/disconnected, IP, data used)
-- [ ] Speed tier and connection type
-- [ ] Real-time usage graph (daily/monthly)
+- [x] Account overview: plan, balance, next due date
+- [x] Current session status (connected/disconnected, IP, data used)
+- [x] Speed tier and connection type
+- [x] Real-time usage graph (daily/monthly)
 
 ### 11.2 Billing & Payments
-- [ ] Invoice history and PDF download
-- [ ] Online payment (card, OXXO, SPEI, PayPal)
-- [ ] Payment history
-- [ ] Auto-debit enrollment
-- [ ] CFDI receipt download
+- [x] Invoice history and PDF download
+- [ ] Online payment (card, OXXO, SPEI, PayPal) — deferred: requires payment-gateway integration (Conekta/Stripe); models and route stubs present but no live gateway
+- [x] Payment history
+- [ ] Auto-debit enrollment — deferred: requires mandate/recurring-charge gateway support not yet wired
+- [x] CFDI receipt download
 
 ### 11.3 Self-Service Actions
-- [ ] Change/upgrade plan (with proration)
-- [ ] Change Wi-Fi password
-- [ ] Change PPPoE password
-- [ ] Request static IP
-- [ ] Request service cancellation
-- [ ] Schedule installation/visit
+- [x] Change/upgrade plan (with proration)
+- [x] Change Wi-Fi password
+- [x] Change PPPoE password
+- [x] Request static IP
+- [x] Request service cancellation
+- [x] Schedule installation/visit
 
 ### 11.4 Support
-- [ ] Open and track tickets
-- [ ] Knowledge base / FAQ community forum
-- [ ] Live chat integration
-- [ ] Callback request
-- [ ] Speed test tool (embedded, results logged)
-- [ ] **AI-powered chatbot for instant answers** (see Section 21)
-  - [ ] Answers billing questions, plan info, usage data in real time
-  - [ ] Diagnoses connectivity issues using live system data (NMS + RADIUS + OLT)
-  - [ ] If AI cannot resolve, automatically creates a human support ticket with full context
-  - [ ] Always-available 24/7 first line of support via portal, WhatsApp, and mobile app
+- [x] Open and track tickets
+- [x] Knowledge base / FAQ community forum
+- [x] Live chat integration
+- [x] Callback request
+- [x] Speed test tool (embedded, results logged)
+- [x] **AI-powered chatbot for instant answers** (see Section 21)
+  - [x] Answers billing questions, plan info, usage data in real time
+  - [x] Diagnoses connectivity issues using live system data (NMS + RADIUS + OLT)
+  - [x] If AI cannot resolve, automatically creates a human support ticket with full context
+  - [ ] Always-available 24/7 first line of support via portal, WhatsApp, and mobile app — WhatsApp channel is out of scope for §11
 
 ### 11.5 Mobile
-- [ ] Responsive design / PWA
-- [ ] Native mobile app (Android/iOS) with same features
-- [ ] Push notifications for outages and billing events
+- [x] Responsive design / PWA
+- [ ] Native mobile app (Android/iOS) with same features — explicitly out of scope per spec
+- [x] Push notifications for outages and billing events
 
 ---
 
