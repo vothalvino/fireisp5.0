@@ -125,6 +125,8 @@ async function runTask(taskName, organizationId = null) {
       const pppoeDiagnosticsService = require('./pppoeDiagnosticsService');
       return pppoeDiagnosticsService.scanAuthFailures(organizationId);
     }
+    case 'sla_breach_check':
+      return handleSlaBreachCheck(organizationId);
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }
@@ -404,4 +406,31 @@ async function markTaskRun(taskName) {
   );
 }
 
-module.exports = { listTasks, runTask, markTaskRun, runAutoInvoice, runAutoSuspend, runSuspensionWarnings, runBillingCycle, runCsdExpiryCheck };
+/**
+ * Check for SLA events that have passed their target_deadline without resolution.
+ * Marks them as breached (is_breached = 1).
+ */
+async function handleSlaBreachCheck(organizationId) {
+  const orgFilter = organizationId ? 'AND t.organization_id = ?' : '';
+  const params = organizationId ? [organizationId] : [];
+
+  const [events] = await db.query(
+    `SELECT tse.id, tse.ticket_id, t.organization_id
+     FROM ticket_sla_events tse
+     JOIN tickets t ON t.id = tse.ticket_id
+     WHERE tse.is_breached = 0
+       AND tse.actual_at IS NULL
+       AND tse.target_deadline < NOW()
+       ${orgFilter}`,
+    params,
+  );
+
+  let breached = 0;
+  for (const ev of events) {
+    await db.query('UPDATE ticket_sla_events SET is_breached = 1 WHERE id = ?', [ev.id]);
+    breached++;
+  }
+  return { checked: events.length, breached };
+}
+
+module.exports = { listTasks, runTask, markTaskRun, runAutoInvoice, runAutoSuspend, runSuspensionWarnings, runBillingCycle, runCsdExpiryCheck, handleSlaBreachCheck };

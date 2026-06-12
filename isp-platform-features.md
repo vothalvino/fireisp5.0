@@ -462,38 +462,38 @@
 ## 12. Ticketing & NOC
 
 ### 12.1 Ticket Management
-- [ ] Ticket creation: manual, auto (from alert), customer (from portal), **AI-escalated (from chatbot)**
-- [ ] **AI pre-processing on ticket creation**:
-  - [ ] AI reads ticket description and pulls relevant context: recent alerts on subscriber's OLT/ONU, billing status, past tickets, speed test history
-  - [ ] AI suggests category, priority, and possible resolution to human agent
-  - [ ] AI auto-suggests KB articles and troubleshooting steps based on ticket content
-- [ ] Categories: outage, billing, installation, maintenance, general
-- [ ] Priority: critical, high, medium, low
-- [ ] Assignment to technician / department
-- [ ] SLA tracking with breach alerts
-- [ ] Escalation rules (time-based, priority-based)
-- [ ] Ticket merging and linking
-- [ ] Internal notes (not visible to customer)
-- [ ] File attachment (photos of installation, screenshots)
-- [ ] Time logging per ticket (tech work duration)
-- [ ] **AI-powered ticket summarization**: auto-generate technical summary from conversation thread
+- [x] Ticket creation: manual, auto (from alert via `POST /tickets/from-alert`), customer (from portal, existing §11), **AI-escalated (from chatbot, existing §11 `portal_chat_sessions.ticket_id`)**
+- [x] **AI pre-processing on ticket creation**:
+  - [x] AI reads ticket description and pulls relevant context: recent alerts on subscriber's OLT/ONU, billing status, past tickets, speed test history (via `aiReplyService.generate` — degrades gracefully when no LLM key configured)
+  - [x] AI suggests category, priority, and possible resolution to human agent (stored in `ticket_ai_triage` table; surfaced via `GET /tickets/:id/ai-triage`; displayed in TicketDetail AI Triage panel)
+  - [x] AI auto-suggests KB articles and troubleshooting steps based on ticket content (`kb_article_ids` field in `ticket_ai_triage`; KB article IDs shown in TicketDetail AI Triage panel)
+- [x] Categories: outage, billing, installation, maintenance, general (`tickets.category` VARCHAR column, existing)
+- [x] Priority: critical, high, medium, low (`tickets.priority` ENUM, existing)
+- [x] Assignment to technician / department (`tickets.assigned_to` FK to users, existing)
+- [x] SLA tracking with breach alerts (`ticket_sla_events` table + `sla_breach_check` scheduled task seeded in migration 299)
+- [x] Escalation rules (time-based, priority-based) (`ticket_escalations` table + `auto_escalate_tickets` task, existing §1.3)
+- [x] Ticket merging and linking (`POST /tickets/:id/merge` + `ticket_relations` table + `GET/POST/DELETE /tickets/:id/relations`; frontend: TicketDetail Relations panel with add/remove)
+- [x] Internal notes (not visible to customer) (`ticket_comments.is_internal` flag; frontend: TicketDetail comment form includes is_internal toggle)
+- [x] File attachment (photos of installation, screenshots) (dedicated `ticket_attachments` table, migration 300; `GET/POST/DELETE /tickets/:id/attachments` + `/tickets/:ticketId/attachments/:id/download`; multer disk storage 20 MB limit; frontend upload/list/delete/download in TicketDetail)
+- [x] Time logging per ticket (tech work duration) (`ticket_time_logs` table + `GET/POST/PUT/DELETE /tickets/:id/time-logs`; frontend: TicketDetail Time Logs panel with add form and total display)
+- [x] **AI-powered ticket summarization**: auto-generate technical summary from conversation thread (`POST /tickets/:id/ai-summary` — degrades gracefully when no LLM key configured; frontend: "Generate Summary" button in TicketDetail AI Triage panel)
 
 ### 12.2 NOC Dashboard
-- [ ] Network-wide health status (green/yellow/red)
-- [ ] Active alarm count by severity
-- [ ] Ongoing outage map
-- [ ] Technician GPS tracking (mobile app)
-- [ ] Ticket queue by priority and due time
-- [ ] Recent events timeline
-- [ ] SLA compliance percentage
+- [x] Network-wide health status (green/yellow/red) (`GET /noc/health` — device status counts + active alert counts by severity; frontend: `NocDashboard.tsx` panel)
+- [x] Active alarm count by severity (`GET /noc/alarms` — `alert_events` grouped by severity; frontend: NOC Dashboard alarms panel)
+- [x] Ongoing outage map (`GET /noc/outages` — ongoing outages grouped by site; list/grouping, no map dependency added; frontend: NOC Dashboard outages panel)
+- [ ] Technician GPS tracking (mobile app) — GPS data ingested via `GET /technician-tracking/positions`; live map display requires a frontend map component not added (no heavy map dependency introduced per spec guidance)
+- [x] Ticket queue by priority and due time (`GET /noc/ticket-queue`; frontend: NOC Dashboard queue panel)
+- [x] Recent events timeline (`GET /noc/events` — last 50 combined alert/outage/ticket events; frontend: NOC Dashboard events panel)
+- [x] SLA compliance percentage (`GET /noc/sla-compliance` — % non-breached over last 30 days; frontend: NOC Dashboard SLA panel)
 
 ### 12.3 Field Operations
-- [ ] Work order creation and dispatch
-- [ ] Technician mobile app: view assigned jobs, navigate, log hours, take photos, capture customer signature
-- [ ] Route optimization for field visits
-- [ ] Material usage logging (cable length, converters, etc.)
-- [ ] GPS breadcrumb tracking of technician movements
-- [ ] Offline capability with auto-sync
+- [x] Work order creation and dispatch (`work_orders` table + full CRUD under `/work-orders`; frontend: `WorkOrders.tsx` list/create/status-dispatch/detail view)
+- [ ] Technician mobile app: view assigned jobs, navigate, log hours, take photos, capture customer signature — API surface implemented (`GET /work-orders`, `PATCH /work-orders/:id`, `POST /work-orders/:id/materials`, `POST /technician-tracking/breadcrumb`); native mobile app UI and offline sync are out of scope (deferred per spec guidance)
+- [x] Route optimization for field visits (`POST /technician-tracking/route-optimize` — nearest-neighbor TSP in pure JS, no external API; frontend: WorkOrders route-optimize action)
+- [x] Material usage logging (cable length, converters, etc.) (`work_order_materials` table + `GET/POST/DELETE /work-orders/:id/materials`; frontend: WorkOrders materials sub-panel; `work_order_attachments` table migration 301 for work order photos)
+- [x] GPS breadcrumb tracking of technician movements (`technician_gps_breadcrumbs` table + `POST /technician-tracking/breadcrumb` + `GET /technician-tracking/:userId/history`)
+- [ ] Offline capability with auto-sync — deferred; requires native mobile app (React Native / PWA with service worker background sync); server-side conflict-resolution endpoint not implemented
 
 ---
 

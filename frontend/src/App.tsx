@@ -144,6 +144,8 @@ import { CpeInventoryPage } from '@/pages/CpeInventoryPage';
 import { WirelessManagementPage } from '@/pages/WirelessManagementPage';
 import { WirelessMetricsPage } from '@/pages/WirelessMetricsPage';
 import { QosBandwidthPage } from '@/pages/QosBandwidthPage';
+import { NocDashboard } from '@/pages/NocDashboard';
+import { WorkOrders } from '@/pages/WorkOrders';
 import { NotFound } from '@/pages/NotFound';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
 
@@ -262,6 +264,8 @@ export function App() {
                 <Route path="wireless" element={<WirelessManagementPage />} />
                 <Route path="wireless-metrics" element={<WirelessMetricsPage />} />
                 <Route path="qos-bandwidth" element={<QosBandwidthPage />} />
+                <Route path="noc-dashboard" element={<NocDashboard />} />
+                <Route path="work-orders" element={<WorkOrders />} />
               </Route>
             </Route>
 

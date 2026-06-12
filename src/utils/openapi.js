@@ -178,6 +178,9 @@ function generateSpec() {
       { name: 'Portal Service Requests', description: 'Self-service requests: plan upgrade, Wi-Fi/PPPoE password change, static IP, cancellation, visit schedule — §11.3' },
       { name: 'Portal Support', description: 'Portal support: tickets, knowledge base, callback request, speed test, AI chatbot — §11.4' },
       { name: 'Portal Push', description: 'Web Push notification subscription management — §11.5' },
+      { name: 'NOC Dashboard', description: 'Network Operations Center dashboard — health, alarms, outages, ticket queue, SLA compliance — §12.2' },
+      { name: 'Work Orders', description: 'Field work order management with GPS scheduling and material tracking — §12.3' },
+      { name: 'Technician Tracking', description: 'Real-time technician GPS breadcrumbs, last-known positions, and route optimization — §12.3' },
     ],
     paths: {
       // ---- Auth ----
@@ -1837,6 +1840,108 @@ function generateSpec() {
       },
       '/portal-service-requests/{id}/complete': {
         post: { tags: ['Portal Support'], summary: 'Mark an approved service request as completed', operationId: 'adminCompleteServiceRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('notes (optional)'), responses: r200('ServiceRequest') },
+      },
+
+      // ---- Tickets §12 extensions ----
+      '/tickets/stats': {
+        get: { tags: ['Tickets'], summary: 'Ticket counts grouped by status', operationId: 'getTicketStats', security: [{ bearerAuth: [] }], responses: r200('StatusCount[]') },
+      },
+      '/tickets/from-alert': {
+        post: { tags: ['Tickets'], summary: 'Create a ticket from an alert event', operationId: 'createTicketFromAlert', security: [{ bearerAuth: [] }], requestBody: jsonBody('alert_event_id + client_id + subject + description + priority'), responses: r201('Ticket') },
+      },
+      '/tickets/{id}/relations': {
+        get: { tags: ['Tickets'], summary: 'List ticket relations', operationId: 'listTicketRelations', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('TicketRelation[]') },
+        post: { tags: ['Tickets'], summary: 'Create a ticket relation', operationId: 'createTicketRelation', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('related_ticket_id + relation_type'), responses: r201('TicketRelation') },
+      },
+      '/tickets/{id}/relations/{relId}': {
+        delete: { tags: ['Tickets'], summary: 'Delete a ticket relation', operationId: 'deleteTicketRelation', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'relId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/tickets/{id}/time-logs': {
+        get: { tags: ['Tickets'], summary: 'List time logs for a ticket', operationId: 'listTicketTimeLogs', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('TimeLog[]') },
+        post: { tags: ['Tickets'], summary: 'Create a time log entry', operationId: 'createTicketTimeLog', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('minutes + work_date + description'), responses: r201('TimeLog') },
+      },
+      '/tickets/{id}/time-logs/{logId}': {
+        put: { tags: ['Tickets'], summary: 'Update a time log entry', operationId: 'updateTicketTimeLog', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'logId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('minutes + work_date + description'), responses: r200('TimeLog') },
+        delete: { tags: ['Tickets'], summary: 'Delete a time log entry', operationId: 'deleteTicketTimeLog', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'logId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/tickets/{id}/ai-triage': {
+        get: { tags: ['Tickets'], summary: 'Get AI triage result for a ticket', operationId: 'getTicketAiTriage', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('AiTriage') },
+      },
+      '/tickets/{id}/ai-summary': {
+        post: { tags: ['Tickets'], summary: 'Generate AI summary for a ticket', operationId: 'generateTicketAiSummary', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('AiSummary') },
+      },
+      '/tickets/{id}/merge': {
+        post: { tags: ['Tickets'], summary: 'Merge a source ticket into this ticket', operationId: 'mergeTicket', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('source_ticket_id'), responses: r200('MergeResult') },
+      },
+      '/tickets/{id}/attachments': {
+        get: { tags: ['Tickets'], summary: 'List ticket attachments', operationId: 'listTicketAttachments', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('TicketAttachment[]') },
+        post: { tags: ['Tickets'], summary: 'Upload ticket attachment', operationId: 'uploadTicketAttachment', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } } } }, responses: r201('TicketAttachment') },
+      },
+      '/tickets/{ticketId}/attachments/{attachmentId}': {
+        delete: { tags: ['Tickets'], summary: 'Delete ticket attachment', operationId: 'deleteTicketAttachment', security: [{ bearerAuth: [] }], parameters: [{ name: 'ticketId', in: 'path', required: true, schema: { type: 'integer' } }, { name: 'attachmentId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/tickets/{ticketId}/attachments/{attachmentId}/download': {
+        get: { tags: ['Tickets'], summary: 'Download ticket attachment', operationId: 'downloadTicketAttachment', security: [{ bearerAuth: [] }], parameters: [{ name: 'ticketId', in: 'path', required: true, schema: { type: 'integer' } }, { name: 'attachmentId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200File('application/octet-stream') },
+      },
+
+      // ---- NOC Dashboard §12.2 ----
+      '/noc/health': {
+        get: { tags: ['NOC Dashboard'], summary: 'Network health rollup — device counts by status + active alert summary', operationId: 'nocHealth', security: [{ bearerAuth: [] }], responses: r200('NetworkHealth') },
+      },
+      '/noc/alarms': {
+        get: { tags: ['NOC Dashboard'], summary: 'Active alarm counts grouped by severity', operationId: 'nocAlarms', security: [{ bearerAuth: [] }], responses: r200('AlarmCounts') },
+      },
+      '/noc/outages': {
+        get: { tags: ['NOC Dashboard'], summary: 'Ongoing outages grouped by site', operationId: 'nocOutages', security: [{ bearerAuth: [] }], responses: r200('Outage[]') },
+      },
+      '/noc/ticket-queue': {
+        get: { tags: ['NOC Dashboard'], summary: 'Open ticket queue ordered by priority', operationId: 'nocTicketQueue', security: [{ bearerAuth: [] }], responses: r200('Ticket[]') },
+      },
+      '/noc/events': {
+        get: { tags: ['NOC Dashboard'], summary: 'Recent 50 events timeline (alerts, outages, tickets)', operationId: 'nocEvents', security: [{ bearerAuth: [] }], responses: r200('Event[]') },
+      },
+      '/noc/sla-compliance': {
+        get: { tags: ['NOC Dashboard'], summary: 'SLA compliance percentage for the last 30 days', operationId: 'nocSlaCompliance', security: [{ bearerAuth: [] }], responses: r200('SlaCompliance') },
+      },
+
+      // ---- Work Orders §12.3 ----
+      '/work-orders/stats': {
+        get: { tags: ['Work Orders'], summary: 'Work order counts grouped by status', operationId: 'getWorkOrderStats', security: [{ bearerAuth: [] }], responses: r200('StatusCount[]') },
+      },
+      ...crudPaths('work-orders', 'Work Orders', 'WorkOrder'),
+      '/work-orders/{id}/restore': {
+        post: { tags: ['Work Orders'], summary: 'Restore a soft-deleted work order', operationId: 'restoreWorkOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('WorkOrder') },
+      },
+      '/work-orders/{id}/materials': {
+        get: { tags: ['Work Orders'], summary: 'List materials used on a work order', operationId: 'listWorkOrderMaterials', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('WorkOrderMaterial[]') },
+        post: { tags: ['Work Orders'], summary: 'Log material usage on a work order', operationId: 'createWorkOrderMaterial', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('item_name + quantity + unit + unit_cost + notes'), responses: r201('WorkOrderMaterial') },
+      },
+      '/work-orders/{id}/materials/{matId}': {
+        delete: { tags: ['Work Orders'], summary: 'Remove a material log entry', operationId: 'deleteWorkOrderMaterial', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'matId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/work-orders/{id}/attachments': {
+        get: { tags: ['Work Orders'], summary: 'List work order attachments', operationId: 'listWorkOrderAttachments', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('WorkOrderAttachment[]') },
+        post: { tags: ['Work Orders'], summary: 'Upload work order attachment (installation photo)', operationId: 'uploadWorkOrderAttachment', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } } } }, responses: r201('WorkOrderAttachment') },
+      },
+      '/work-orders/{id}/attachments/{attachmentId}': {
+        delete: { tags: ['Work Orders'], summary: 'Delete work order attachment', operationId: 'deleteWorkOrderAttachment', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'attachmentId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/work-orders/{id}/attachments/{attachmentId}/download': {
+        get: { tags: ['Work Orders'], summary: 'Download work order attachment', operationId: 'downloadWorkOrderAttachment', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'attachmentId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200File('application/octet-stream') },
+      },
+
+      // ---- Technician Tracking §12.3 ----
+      '/technician-tracking/breadcrumb': {
+        post: { tags: ['Technician Tracking'], summary: 'Ingest a GPS breadcrumb (mobile client)', operationId: 'ingestGpsBreadcrumb', security: [{ bearerAuth: [] }], requestBody: jsonBody('latitude + longitude + accuracy_m + recorded_at'), responses: r201('Ok') },
+      },
+      '/technician-tracking/positions': {
+        get: { tags: ['Technician Tracking'], summary: 'Get last-known GPS position for each technician', operationId: 'getTechnicianPositions', security: [{ bearerAuth: [] }], responses: r200('TechnicianPosition[]') },
+      },
+      '/technician-tracking/route-optimize': {
+        post: { tags: ['Technician Tracking'], summary: 'Compute nearest-neighbor optimized route for a technician', operationId: 'optimizeTechnicianRoute', security: [{ bearerAuth: [] }], requestBody: jsonBody('technician_id + start_lat + start_lng'), responses: r200('OptimizedRoute') },
+      },
+      '/technician-tracking/{userId}/history': {
+        get: { tags: ['Technician Tracking'], summary: 'Get GPS breadcrumb history for a technician', operationId: 'getTechnicianHistory', security: [{ bearerAuth: [] }], parameters: [{ name: 'userId', in: 'path', required: true, schema: { type: 'integer' } }, limitParam()], responses: r200('GpsBreadcrumb[]') },
       },
 
       // ---- ACS / CWMP (outside /api/v1) ----

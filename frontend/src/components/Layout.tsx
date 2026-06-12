@@ -42,6 +42,8 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/follow-up-reminders', labelKey: 'nav.followUps' },
       { to: '/satisfaction-surveys', labelKey: 'nav.surveys' },
       { to: '/escalations', labelKey: 'nav.escalations' },
+      { to: '/noc-dashboard', labelKey: 'nav.nocDashboard', requiredRole: 'technician' },
+      { to: '/work-orders', labelKey: 'nav.workOrders', requiredRole: 'technician' },
     ],
   },
   {
