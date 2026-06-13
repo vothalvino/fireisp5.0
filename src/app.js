@@ -173,6 +173,11 @@ const vendorRoutes = require('./routes/vendors');
 const purchaseOrderRoutes = require('./routes/purchaseOrders');
 const assetRoutes = require('./routes/assets');
 const rmaRoutes = require('./routes/rmaRequests');
+const regulatoryComplianceRoutes = require('./routes/regulatoryCompliance');
+const numberingManagementRoutes = require('./routes/numberingManagement');
+const universalServiceRoutes = require('./routes/universalService');
+const consumerProtectionRoutes = require('./routes/consumerProtection');
+const dataResidencyRoutes = require('./routes/dataResidency');
 const acsService = require('./services/acsService');
 const graphqlMiddleware = require('./graphql');
 
@@ -572,6 +577,11 @@ v1.use('/protocol-shaping-rules', protocolShapingRuleRoutes);
 v1.use('/', apiLimiter, dataManagementRoutes);
 v1.use('/', apiLimiter, trafficEngineeringRoutes);
 v1.use('/', apiLimiter, bandwidthTestRoutes);
+v1.use('/regulatory-compliance', regulatoryComplianceRoutes);
+v1.use('/numbering-management', numberingManagementRoutes);
+v1.use('/universal-service', universalServiceRoutes);
+v1.use('/consumer-protection', consumerProtectionRoutes);
+v1.use('/data-residency', dataResidencyRoutes);
 v1.use('/graphql', authenticate, orgScope, graphqlMiddleware);
 
 // Mount v1 at both /api (backward compat) and /api/v1 (versioned)

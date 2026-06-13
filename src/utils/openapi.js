@@ -184,6 +184,11 @@ function generateSpec() {
       { name: 'Topology Map', description: 'Network topology map — device graph, link utilization, geographic layers, geofences, dependency analysis — §13' },
       { name: 'Inventory & Asset Management', description: 'Vendor management, purchase orders, asset tracking, assignments, and RMA workflow' },
       { name: 'Analytics Dashboard', description: 'Drag/drop analytics dashboard — §15.5' },
+      { name: 'Regulatory Compliance MX', description: '§16 consent, DSAR workflow, identity verification, gov data requests' },
+      { name: 'Numbering Management', description: '§16.4 phone number inventory, portability, numbering blocks' },
+      { name: 'Universal Service', description: '§16.6 USO obligations and rural coverage reporting' },
+      { name: 'Consumer Protection MX', description: '§16.7 service modification notices and contract templates (MX)' },
+      { name: 'Data Residency', description: '§16.8 data localization and residency compliance config' },
     ],
     paths: {
       // ---- Auth ----
@@ -2104,6 +2109,101 @@ function generateSpec() {
       // ---- ACS / CWMP (outside /api/v1) ----
       '/acs/cwmp': {
         post: { tags: ['CPE Management'], summary: 'CWMP/TR-069 ACS endpoint — CPE-to-server SOAP over HTTP (HTTP Basic auth)', operationId: 'acsCwmp', requestBody: { description: 'CWMP SOAP XML envelope', required: false, content: { 'text/xml': { schema: { type: 'string' } } } }, responses: r200('CWMP SOAP Response XML') },
+      },
+
+      // ---- §16 Regulatory Compliance ----
+      '/regulatory-compliance/consent': {
+        get: { tags: ['Regulatory Compliance MX'], summary: 'List subscriber consents', operationId: 'listSubscriberConsents', security: [{ bearerAuth: [] }], responses: r200('Consent list') },
+        post: { tags: ['Regulatory Compliance MX'], summary: 'Record subscriber consent', operationId: 'createSubscriberConsent', security: [{ bearerAuth: [] }], requestBody: jsonBody('regulatoryCompliance_createConsent'), responses: r201('Consent') },
+      },
+      '/regulatory-compliance/consent/client/{clientId}': {
+        get: { tags: ['Regulatory Compliance MX'], summary: 'Get consents for a client', operationId: 'getClientConsents', security: [{ bearerAuth: [] }], parameters: [{ name: 'clientId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('Consent list') },
+      },
+      '/regulatory-compliance/consent/{id}/withdraw': {
+        put: { tags: ['Regulatory Compliance MX'], summary: 'Withdraw consent', operationId: 'withdrawConsent', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
+      },
+      '/regulatory-compliance/dsar-requests': {
+        get: { tags: ['Regulatory Compliance MX'], summary: 'List DSAR requests', operationId: 'listDsarRequests', security: [{ bearerAuth: [] }], responses: r200('DSAR list') },
+        post: { tags: ['Regulatory Compliance MX'], summary: 'Create DSAR request', operationId: 'createDsarRequest', security: [{ bearerAuth: [] }], requestBody: jsonBody('regulatoryCompliance_createDsarRequest'), responses: r201('DSAR request') },
+      },
+      '/regulatory-compliance/dsar-requests/{id}': {
+        get: { tags: ['Regulatory Compliance MX'], summary: 'Get DSAR request', operationId: 'getDsarRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('DSAR request') },
+      },
+      '/regulatory-compliance/dsar-requests/{id}/fulfill': {
+        put: { tags: ['Regulatory Compliance MX'], summary: 'Fulfill DSAR request', operationId: 'fulfillDsarRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
+      },
+      '/regulatory-compliance/dsar-requests/{id}/reject': {
+        put: { tags: ['Regulatory Compliance MX'], summary: 'Reject DSAR request', operationId: 'rejectDsarRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
+      },
+      '/regulatory-compliance/dsar-requests/{id}/legal-hold': {
+        put: { tags: ['Regulatory Compliance MX'], summary: 'Set legal hold on DSAR request', operationId: 'legalHoldDsarRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
+      },
+      '/regulatory-compliance/identity-verification': {
+        get: { tags: ['Regulatory Compliance MX'], summary: 'List identity verifications', operationId: 'listIdentityVerifications', security: [{ bearerAuth: [] }], responses: r200('Verification list') },
+        post: { tags: ['Regulatory Compliance MX'], summary: 'Create identity verification record', operationId: 'createIdentityVerification', security: [{ bearerAuth: [] }], requestBody: jsonBody('regulatoryCompliance_createIdVerif'), responses: r201('Verification') },
+      },
+      '/regulatory-compliance/identity-verification/{id}': {
+        get: { tags: ['Regulatory Compliance MX'], summary: 'Get identity verification', operationId: 'getIdentityVerification', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Verification') },
+      },
+      '/regulatory-compliance/identity-verification/{id}/verify': {
+        put: { tags: ['Regulatory Compliance MX'], summary: 'Mark identity verified', operationId: 'verifyIdentity', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
+      },
+      '/regulatory-compliance/identity-verification/{id}/reject': {
+        put: { tags: ['Regulatory Compliance MX'], summary: 'Reject identity verification', operationId: 'rejectIdentityVerification', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
+      },
+      '/regulatory-compliance/gov-data-requests': {
+        get: { tags: ['Regulatory Compliance MX'], summary: 'List government data requests', operationId: 'listGovDataRequests', security: [{ bearerAuth: [] }], responses: r200('Gov data request list') },
+        post: { tags: ['Regulatory Compliance MX'], summary: 'Log government data request', operationId: 'createGovDataRequest', security: [{ bearerAuth: [] }], requestBody: jsonBody('regulatoryCompliance_createGovDataRequest'), responses: r201('Gov data request') },
+      },
+      '/regulatory-compliance/gov-data-requests/{id}': {
+        get: { tags: ['Regulatory Compliance MX'], summary: 'Get government data request', operationId: 'getGovDataRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Gov data request') },
+      },
+      '/regulatory-compliance/gov-data-requests/{id}/fulfill': {
+        put: { tags: ['Regulatory Compliance MX'], summary: 'Fulfill government data request', operationId: 'fulfillGovDataRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
+      },
+      '/regulatory-compliance/gov-data-requests/{id}/reject': {
+        put: { tags: ['Regulatory Compliance MX'], summary: 'Reject government data request', operationId: 'rejectGovDataRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
+      },
+      // Audit export + report access logs
+      '/audit-logs/export': {
+        get: { tags: ['Audit Logs'], summary: 'Export audit logs for regulatory inspection', operationId: 'exportAuditLogs', security: [{ bearerAuth: [] }], responses: r200('Audit export') },
+      },
+      '/audit-logs/report-access-logs': {
+        get: { tags: ['Audit Logs'], summary: 'List report access logs', operationId: 'listReportAccessLogs', security: [{ bearerAuth: [] }], responses: r200('Report access log list') },
+      },
+      '/dsar/requests': {
+        get: { tags: ['DSAR'], summary: 'List DSAR requests (convenience)', operationId: 'listDsarRequestsConvenience', security: [{ bearerAuth: [] }], responses: r200('DSAR list') },
+      },
+      // ---- Numbering Management ----
+      ...crudPaths('numbering-management/phone-numbers', 'Numbering Management', 'PhoneNumberInventory'),
+      ...crudPaths('numbering-management/portability', 'Numbering Management', 'NumberPortabilityRecord'),
+      ...crudPaths('numbering-management/numbering-blocks', 'Numbering Management', 'NumberingBlock'),
+      '/numbering-management/portability/{id}/complete': {
+        put: { tags: ['Numbering Management'], summary: 'Mark number portability complete', operationId: 'completePortability', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
+      },
+      // ---- Universal Service ----
+      ...crudPaths('universal-service/uso-obligations', 'Universal Service', 'UsoObligation'),
+      ...crudPaths('universal-service/rural-coverage', 'Universal Service', 'RuralCoverageReport'),
+      '/universal-service/uso-obligations/{id}/report': {
+        put: { tags: ['Universal Service'], summary: 'Mark USO obligation as reported', operationId: 'reportUsoObligation', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
+      },
+      '/universal-service/rural-coverage/summary': {
+        get: { tags: ['Universal Service'], summary: 'Get rural coverage aggregate summary', operationId: 'getRuralCoverageSummary', security: [{ bearerAuth: [] }], responses: r200('Summary') },
+      },
+      // ---- Consumer Protection MX ----
+      ...crudPaths('consumer-protection/service-modifications', 'Consumer Protection MX', 'ServiceModificationNotice'),
+      ...crudPaths('consumer-protection/contract-templates-mx', 'Consumer Protection MX', 'ContractTemplateMx'),
+      '/consumer-protection/service-modifications/{id}/send': {
+        put: { tags: ['Consumer Protection MX'], summary: 'Mark service modification notice as sent', operationId: 'sendServiceModificationNotice', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
+      },
+      // ---- Data Residency ----
+      '/data-residency': {
+        get: { tags: ['Data Residency'], summary: 'Get data residency configuration', operationId: 'getDataResidencyConfig', security: [{ bearerAuth: [] }], responses: r200('Config') },
+        post: { tags: ['Data Residency'], summary: 'Create data residency configuration', operationId: 'createDataResidencyConfig', security: [{ bearerAuth: [] }], requestBody: jsonBody('dataResidency_createConfig'), responses: r201('Config') },
+        put: { tags: ['Data Residency'], summary: 'Update data residency configuration', operationId: 'updateDataResidencyConfig', security: [{ bearerAuth: [] }], requestBody: jsonBody('dataResidency_updateConfig'), responses: r200('Config') },
+      },
+      '/data-residency/check': {
+        post: { tags: ['Data Residency'], summary: 'Run compliance check for data residency', operationId: 'checkDataResidencyCompliance', security: [{ bearerAuth: [] }], responses: r200('Check result') },
       },
     },
     components: {

@@ -48,4 +48,65 @@ router.get('/', requirePermission('audit_logs.view'), async (req, res, next) => 
   }
 });
 
+// Export audit logs for regulatory inspection (no pagination — up to 10000 rows)
+router.get('/export', requirePermission('audit_export.view'), async (req, res, next) => {
+  try {
+    const { date_from, date_to, action, entity_type } = req.query;
+
+    const conditions = ['organization_id = ?'];
+    const params = [req.orgId];
+
+    if (action) { conditions.push('action = ?'); params.push(action); }
+    if (entity_type) { conditions.push('table_name = ?'); params.push(entity_type); }
+    if (date_from) { conditions.push('created_at >= ?'); params.push(date_from); }
+    if (date_to) { conditions.push('created_at <= ?'); params.push(date_to); }
+
+    const where = conditions.join(' AND ');
+
+    const [rows] = await db.query(
+      `SELECT * FROM audit_logs WHERE ${where} ORDER BY created_at DESC LIMIT 10000`,
+      params,
+    );
+
+    // Log to report_access_logs
+    await db.query(
+      `INSERT INTO report_access_logs (organization_id, user_id, report_type, entity_type, parameters, ip_address, user_agent, accessed_at)
+       VALUES (?, ?, 'audit_export', 'audit_logs', ?, ?, ?, NOW())`,
+      [req.orgId, req.user.id, JSON.stringify(req.query), req.ip || null, req.get('user-agent') || null],
+    );
+
+    res.json({
+      data: rows,
+      meta: {
+        total: rows.length,
+        exported_at: new Date().toISOString(),
+        exported_by: req.user.email,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// List report access logs
+router.get('/report-access-logs', requirePermission('report_access_logs.view'), async (req, res, next) => {
+  try {
+    const { page = 1, limit = 50 } = req.query;
+    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+
+    const [rows] = await db.query(
+      'SELECT * FROM report_access_logs WHERE organization_id = ? ORDER BY accessed_at DESC LIMIT ? OFFSET ?',
+      [req.orgId, parseInt(limit, 10), offset],
+    );
+    const [countResult] = await db.query(
+      'SELECT COUNT(*) AS total FROM report_access_logs WHERE organization_id = ?',
+      [req.orgId],
+    );
+
+    res.json({ data: rows, meta: { total: countResult[0].total, page: parseInt(page, 10), limit: parseInt(limit, 10) } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

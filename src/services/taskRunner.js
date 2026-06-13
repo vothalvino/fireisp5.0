@@ -137,6 +137,8 @@ async function runTask(taskName, organizationId = null) {
       return handleInventoryLowStockCheck(organizationId);
     case 'generate_scheduled_reports':
       return scheduledReportService.processScheduledReports();
+    case 'data_retention_compliance_check':
+      return handleDataRetentionComplianceCheck(organizationId);
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }
@@ -467,4 +469,38 @@ async function handleInventoryLowStockCheck(organizationId) {
   };
 }
 
-module.exports = { listTasks, runTask, markTaskRun, runAutoInvoice, runAutoSuspend, runSuspensionWarnings, runBillingCycle, runCsdExpiryCheck, handleSlaBreachCheck, handleInventoryLowStockCheck };
+/**
+ * Check for overdue DSAR requests and stale government data requests.
+ * Surfaces them as a compliance report for operators to action.
+ */
+async function handleDataRetentionComplianceCheck(organizationId) {
+  const orgFilter = organizationId ? 'AND organization_id = ?' : '';
+  const params = organizationId ? [organizationId] : [];
+
+  const [overdue] = await db.query(
+    `SELECT id, organization_id, client_id, request_type, due_at
+     FROM dsar_requests
+     WHERE status IN ('pending', 'in_review')
+       AND due_at < NOW()
+       ${orgFilter}`,
+    params,
+  );
+
+  // Check for gov_data_requests that have been processing for >30 days
+  const [stalGov] = await db.query(
+    `SELECT id, organization_id, authority_name, created_at
+     FROM gov_data_requests
+     WHERE status IN ('received', 'processing')
+       AND created_at < DATE_SUB(NOW(), INTERVAL 30 DAY)
+       ${orgFilter}`,
+    params,
+  );
+
+  return {
+    overdue_dsar_requests: overdue.length,
+    stale_gov_data_requests: stalGov.length,
+    items: { overdue_dsars: overdue, stale_gov_requests: stalGov },
+  };
+}
+
+module.exports = { listTasks, runTask, markTaskRun, runAutoInvoice, runAutoSuspend, runSuspensionWarnings, runBillingCycle, runCsdExpiryCheck, handleSlaBreachCheck, handleInventoryLowStockCheck, handleDataRetentionComplianceCheck };
