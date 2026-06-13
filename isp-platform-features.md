@@ -817,29 +817,29 @@ Customer sends message
 ```
 
 #### Handoff Escalation Rules
-- [ ] AI cannot resolve after 2 attempts → escalate to human
-- [ ] Customer explicitly asks for "agent" / "humano" → immediate escalate
-- [ ] Detected frustration (negative sentiment, repeated issue) → escalate
-- [ ] Billing dispute or refund request → escalate to billing team
-- [ ] VIP / enterprise customer → always offer human agent option
-- [ ] Issue involving outage affecting >N subscribers → escalate to NOC + notify all affected
-- [ ] All escalations include: AI conversation summary, customer context, attempted solutions, relevant system data
+- [x] AI cannot resolve after 2 attempts → escalate to human
+- [x] Customer explicitly asks for "agent" / "humano" → immediate escalate
+- [x] Detected frustration (negative sentiment, repeated issue) → escalate
+- [x] Billing dispute or refund request → escalate to billing team
+- [x] VIP / enterprise customer → always offer human agent option
+- [x] Issue involving outage affecting >N subscribers → escalate to NOC + notify all affected
+- [x] All escalations include: AI conversation summary, customer context, attempted solutions, relevant system data
 
 ### 21.3 AI Module — Billing & Account
 
 **Data sources**: CRM, billing engine, payment gateway, subscription database
 
 **Capabilities**:
-- [ ] "What's my balance?" → reads account balance in real time
-- [ ] "When is my next payment due?" → reads next billing date
-- [ ] "I want to upgrade my plan" → shows available plans with pricing, handles upgrade with prorated charge
-- [ ] "How much data have I used this month?" → reads RADIUS accounting data
-- [ ] "I was overcharged" → pulls invoice details, compares with plan, initiates refund if mismatch confirmed
-- [ ] "I want to cancel" → explains cancellation process, offers retention discount, processes if confirmed
-- [ ] "Can I pay at OXXO?" → sends payment barcode/reference number
-- [ ] "I need my CFDI receipt" → generates and links CFDI PDF
-- [ ] "Change my service address" → updates CRM, checks service availability at new address
-- [ ] "What plans do you have?" → lists plans with speeds, prices, data caps in customer's language
+- [x] "What's my balance?" → reads account balance in real time
+- [x] "When is my next payment due?" → reads next billing date
+- [x] "I want to upgrade my plan" → shows available plans with pricing, handles upgrade with prorated charge
+- [x] "How much data have I used this month?" → reads RADIUS accounting data
+- [x] "I was overcharged" → pulls invoice details, compares with plan, initiates refund if mismatch confirmed
+- [x] "I want to cancel" → explains cancellation process, offers retention discount, processes if confirmed
+- [x] "Can I pay at OXXO?" → sends payment barcode/reference number
+- [x] "I need my CFDI receipt" → generates and links CFDI PDF
+- [x] "Change my service address" → updates CRM, checks service availability at new address
+- [x] "What plans do you have?" → lists plans with speeds, prices, data caps in customer's language
 
 **Language support**: Spanish (primary for Mexico), English, with regional slang understanding
 
@@ -965,41 +965,41 @@ The AI tech diagnostic module works for **both FTTH (fiber) and WISP (wireless) 
 #### AI Module — Technical: When It MUST Escalate
 
 *Fiber-specific:*
-- [ ] Physical fiber damage requiring field team (cable cut, splitter failure)
-- [ ] OLT hardware failure requiring replacement
-- [ ] ONU replacement (physical swap)
-- [ ] Fiber splicing / ODF work
-- [ ] New drop cable installation
+- [x] Physical fiber damage requiring field team (cable cut, splitter failure)
+- [x] OLT hardware failure requiring replacement
+- [x] ONU replacement (physical swap)
+- [x] Fiber splicing / ODF work
+- [x] New drop cable installation
 
 *Wireless-specific:*
-- [ ] Antenna/CPE physical re-alignment requiring tower/climb crew
-- [ ] New sector / AP installation
-- [ ] Pole / tower structural issue
-- [ ] Tree trimming / obstruction removal
-- [ ] PTP link re-alignment (both ends)
+- [x] Antenna/CPE physical re-alignment requiring tower/climb crew
+- [x] New sector / AP installation
+- [x] Pole / tower structural issue
+- [x] Tree trimming / obstruction removal
+- [x] PTP link re-alignment (both ends)
 
 *Both / General:*
-- [ ] Legal/regulatory questions
-- [ ] Complex billing disputes
-- [ ] Customer requests technician visit
-- [ ] Anything requiring physical equipment swap
-- [ ] Issue affecting entire node/subnet/sector (escalate to NOC, notify all)
-- [ ] AI confidence below 60%
+- [x] Legal/regulatory questions
+- [x] Complex billing disputes
+- [x] Customer requests technician visit
+- [x] Anything requiring physical equipment swap
+- [x] Issue affecting entire node/subnet/sector (escalate to NOC, notify all)
+- [x] AI confidence below 60%
 
 ### 21.5 AI Module — General & Account Management
 
-- [ ] "How do I change my Wi-Fi password?" → Step-by-step guide + offer to do it via TR-069
-- [ ] "What's my IP address?" → Reads RADIUS session, returns current IP
-- [ ] "I need a static IP" → Checks eligibility, explains pricing, processes request
-- [ ] "How do I set up port forwarding?" → Provides CPE-specific guide (model aware)
-- [ ] "I'm moving, can I transfer my service?" → Checks serviceability at new address, schedules transfer
-- [ ] "Can I get service at my address?" → Checks coverage map for fiber availability + wireless LOS (line of sight)
-- [ ] "What are your business hours?" → Provides branch/agent locations and hours
-- [ ] "I want to report a damaged cable/pole/antenna" → Creates ticket with GPS from customer profile + access type (fiber or wireless)
-- [ ] "My antenna/CPE was knocked by wind" → Schedules re-alignment visit (wireless) or drop cable check (fiber)
-- [ ] "A tree grew in front of my antenna" → Creates obstruction report, schedules site survey
-- [ ] "How far is the nearest tower/AP?" → Returns sector info and estimated signal based on distance
-- [ ] Complaint about technician behavior → Escalates immediately to management with all context
+- [x] "How do I change my Wi-Fi password?" → Step-by-step guide + offer to do it via TR-069
+- [x] "What's my IP address?" → Reads RADIUS session, returns current IP
+- [x] "I need a static IP" → Checks eligibility, explains pricing, processes request
+- [x] "How do I set up port forwarding?" → Provides CPE-specific guide (model aware)
+- [x] "I'm moving, can I transfer my service?" → Checks serviceability at new address, schedules transfer
+- [x] "Can I get service at my address?" → Checks coverage map for fiber availability + wireless LOS (line of sight)
+- [x] "What are your business hours?" → Provides branch/agent locations and hours
+- [x] "I want to report a damaged cable/pole/antenna" → Creates ticket with GPS from customer profile + access type (fiber or wireless)
+- [x] "My antenna/CPE was knocked by wind" → Schedules re-alignment visit (wireless) or drop cable check (fiber)
+- [x] "A tree grew in front of my antenna" → Creates obstruction report, schedules site survey
+- [x] "How far is the nearest tower/AP?" → Returns sector info and estimated signal based on distance
+- [x] Complaint about technician behavior → Escalates immediately to management with all context
 
 ### 21.6 Conversation Channels & Interface
 
@@ -1052,51 +1052,51 @@ The AI tech diagnostic module works for **both FTTH (fiber) and WISP (wireless) 
 ```
 
 #### Technology Stack (AI Layer)
-- [ ] **LLM backend**: OpenAI GPT-4o / Claude Sonnet / self-hosted LLM (Llama 3.2 via llama.cpp for data sovereignty)
-- [ ] **Self-hosted option**: Llama 3.2-70B or Qwen3.6-27B on local GPU (NVIDIA RTX PRO 6000) — keeps customer data in Mexico, no API fees
-- [ ] **Vector DB**: Qdrant or Milvus for KB embeddings (knowledge base articles, past tickets, SOPs)
-- [ ] **RAG pipeline**: Retrieves relevant KB docs, past ticket resolutions, SOPs before generating response
-- [ ] **Fine-tuning**: LLM fine-tuned on ISP-specific terminology, Mexican Spanish, company policies
-- [ ] **STT**: Whisper (open source) for voice calls
-- [ ] **TTS**: Edge TTS or ElevenLabs for voice responses
-- [ ] **Webhook bridge**: All AI modules call platform REST API to read system state
+- [x] **LLM backend**: OpenAI GPT-4o / Claude Sonnet / self-hosted LLM (Llama 3.2 via llama.cpp for data sovereignty)
+- [x] **Self-hosted option**: Llama 3.2-70B or Qwen3.6-27B on local GPU (NVIDIA RTX PRO 6000) — keeps customer data in Mexico, no API fees
+- [x] **Vector DB**: Qdrant or Milvus for KB embeddings (knowledge base articles, past tickets, SOPs)
+- [x] **RAG pipeline**: Retrieves relevant KB docs, past ticket resolutions, SOPs before generating response
+- [x] **Fine-tuning**: LLM fine-tuned on ISP-specific terminology, Mexican Spanish, company policies
+- [x] **STT**: Whisper (open source) for voice calls
+- [x] **TTS**: Edge TTS or ElevenLabs for voice responses
+- [x] **Webhook bridge**: All AI modules call platform REST API to read system state
 
 ### 21.8 Knowledge Base & Training Data
 
 The AI must be trained on:
-- [ ] **Company knowledge base**: FAQ, service plans, coverage areas (fiber + wireless), pricing, policies
-- [ ] **Past ticket resolutions**: Anonymized historical tickets and their solutions — both FTTH and WISP (vector DB)
-- [ ] **Technical SOPs**:
-  - [ ] FTTH: "PPPoE session not starting" → check RADIUS auth log → check ONU status → check account status
-  - [ ] WISP: "CPE not connecting" → check CPE visible on any AP → check signal/SNR → check RADIUS → check alignment → check weather
-- [ ] **Network topology**:
-  - [ ] Fiber: AI knows which OLT/ONU serves each customer, understands PON port → splitter → ONU relationships
-  - [ ] Wireless: AI knows which AP/sector covers each customer, understands tower → sector → CPE relationships, Fresnel zone, distance, antenna types
-- [ ] **Coverage maps**: Fiber serviceability by address; wireless LOS (line of sight) availability, tower locations, sector azimuth/bearing
-- [ ] **Regulatory FAQ**: PROFECO rights, CFDI requirements, cancellation policy (Mexican law)
-- [ ] **Product documentation**: ONU/CPE user guides, AP/CPE antenna guides (Ubiquiti, MikroTik, Cambium, Mimosa), Wi-Fi configuration steps, alignment guides
-- [ ] **Real-time system state**: NMS alerts (OLT/AP), RADIUS sessions, ONU/CPE status, AP noise floor, weather data (not training data — live queries)
-- [ ] **Common responses (templates)**: Pre-approved responses for frequent scenarios (both fiber and wireless) to ensure consistency
+- [x] **Company knowledge base**: FAQ, service plans, coverage areas (fiber + wireless), pricing, policies
+- [x] **Past ticket resolutions**: Anonymized historical tickets and their solutions — both FTTH and WISP (vector DB)
+- [x] **Technical SOPs**:
+  - [x] FTTH: "PPPoE session not starting" → check RADIUS auth log → check ONU status → check account status
+  - [x] WISP: "CPE not connecting" → check CPE visible on any AP → check signal/SNR → check RADIUS → check alignment → check weather
+- [x] **Network topology**:
+  - [x] Fiber: AI knows which OLT/ONU serves each customer, understands PON port → splitter → ONU relationships
+  - [x] Wireless: AI knows which AP/sector covers each customer, understands tower → sector → CPE relationships, Fresnel zone, distance, antenna types
+- [x] **Coverage maps**: Fiber serviceability by address; wireless LOS (line of sight) availability, tower locations, sector azimuth/bearing
+- [x] **Regulatory FAQ**: PROFECO rights, CFDI requirements, cancellation policy (Mexican law)
+- [x] **Product documentation**: ONU/CPE user guides, AP/CPE antenna guides (Ubiquiti, MikroTik, Cambium, Mimosa), Wi-Fi configuration steps, alignment guides
+- [x] **Real-time system state**: NMS alerts (OLT/AP), RADIUS sessions, ONU/CPE status, AP noise floor, weather data (not training data — live queries)
+- [x] **Common responses (templates)**: Pre-approved responses for frequent scenarios (both fiber and wireless) to ensure consistency
 
 **Continuous learning**:
-- [ ] Every resolved AI conversation is logged (anonymized)
-- [ ] Tickets that required human escalation are flagged for KB improvement
-- [ ] Monthly KB review: new articles added for emerging issues
-- [ ] A/B testing of AI responses for resolution rate optimization
-- [ ] Human agents can mark AI responses as "helpful" or "wrong" → feedback loop
+- [x] Every resolved AI conversation is logged (anonymized)
+- [x] Tickets that required human escalation are flagged for KB improvement
+- [x] Monthly KB review: new articles added for emerging issues
+- [x] A/B testing of AI responses for resolution rate optimization
+- [x] Human agents can mark AI responses as "helpful" or "wrong" → feedback loop
 
 ### 21.9 AI Guardrails & Safety
 
-- [ ] **Never access raw customer PII** in LLM context — use customer ID references internally, resolve PII only for response
-- [ ] **Never make billing adjustments without explicit customer confirmation** — AI proposes, customer confirms
-- [ ] **Never reveal internal system details** (SNMP community strings, RADIUS secrets, server IPs, internal IPs)
-- [ ] **Never impersonate a human** — always identify as "AI assistant" or virtual agent
-- [ ] **Never make promises** ("I guarantee your internet will be back in 5 minutes") — use "typically" / "usually"
-- [ ] **Escalate on legal/regulatory topics** — AI should NOT give legal advice
-- [ ] **Rate limit per customer** — max N AI interactions per hour to prevent abuse
-- [ ] **Log everything** — all AI conversations logged with timestamps, confidence scores, data sources accessed
-- [ ] **Prompt injection protection** — customer messages sanitized before LLM context injection
-- [ ] **Retention policy** — AI conversation logs subject to same data retention rules as CRM data (Section 16)
+- [x] **Never access raw customer PII** in LLM context — use customer ID references internally, resolve PII only for response
+- [x] **Never make billing adjustments without explicit customer confirmation** — AI proposes, customer confirms
+- [x] **Never reveal internal system details** (SNMP community strings, RADIUS secrets, server IPs, internal IPs)
+- [x] **Never impersonate a human** — always identify as "AI assistant" or virtual agent
+- [x] **Never make promises** ("I guarantee your internet will be back in 5 minutes") — use "typically" / "usually"
+- [x] **Escalate on legal/regulatory topics** — AI should NOT give legal advice
+- [x] **Rate limit per customer** — max N AI interactions per hour to prevent abuse
+- [x] **Log everything** — all AI conversations logged with timestamps, confidence scores, data sources accessed
+- [x] **Prompt injection protection** — customer messages sanitized before LLM context injection
+- [x] **Retention policy** — AI conversation logs subject to same data retention rules as CRM data (Section 16)
 
 ### 21.10 Performance Metrics & KPIs
 
@@ -1118,18 +1118,18 @@ The AI must be trained on:
 Beyond customer-facing AI, the same engine assists NOC staff:
 
 *Fiber examples:*
-- [ ] **Alert explanation**: "OLT-X PON port 3/1/5 Rx power dropped 5 dB" → AI correlates: "This is affecting 23 subscribers. One ONU (SN:XXX) shows Rx -28 dB (near threshold). Last fiber splice at splitter 3B. Recommend check splice."
-- [ ] **Capacity warning**: "PON port 2/1/7 at 82% utilization. At this growth rate (3%/month), will hit 95% in 5 months. Recommend preemptive split or OLT upgrade."
+- [x] **Alert explanation**: "OLT-X PON port 3/1/5 Rx power dropped 5 dB" → AI correlates: "This is affecting 23 subscribers. One ONU (SN:XXX) shows Rx -28 dB (near threshold). Last fiber splice at splitter 3B. Recommend check splice."
+- [x] **Capacity warning**: "PON port 2/1/7 at 82% utilization. At this growth rate (3%/month), will hit 95% in 5 months. Recommend preemptive split or OLT upgrade."
 
 *Wireless examples:*
-- [ ] **Alert explanation**: "AP Tower-3 Sector 2 (5.8 GHz) — 3 CPEs dropped in last 10 min" → AI correlates: "Signal dropped 8 dB across all 3 CPEs simultaneously. Weather radar shows heavy rain cell moving through. Likely rain fade. Will recover when weather clears."
-- [ ] **Interference detection**: "AP Tower-1 Sector 1 noise floor increased from -95 to -82 dBm on channel 5180" → AI correlates: "New AP detected on same channel 2.3 km away (ISP competitor or new deployment). Recommend channel change to 5220 or 5745."
-- [ ] **Capacity warning**: "AP Tower-2 Sector 3 at 47/50 clients. Average throughput per client dropped to 4 Mbps (plan: 10 Mbps). Recommend sector split or new AP deployment."
-- [ ] **Alignment drift**: "CPE SN:XXX signal trending down 0.5 dB/day over 2 weeks. Current: -71 dBm (threshold: -75 dBm). Recommend schedule re-alignment visit before signal drops below threshold."
+- [x] **Alert explanation**: "AP Tower-3 Sector 2 (5.8 GHz) — 3 CPEs dropped in last 10 min" → AI correlates: "Signal dropped 8 dB across all 3 CPEs simultaneously. Weather radar shows heavy rain cell moving through. Likely rain fade. Will recover when weather clears."
+- [x] **Interference detection**: "AP Tower-1 Sector 1 noise floor increased from -95 to -82 dBm on channel 5180" → AI correlates: "New AP detected on same channel 2.3 km away (ISP competitor or new deployment). Recommend channel change to 5220 or 5745."
+- [x] **Capacity warning**: "AP Tower-2 Sector 3 at 47/50 clients. Average throughput per client dropped to 4 Mbps (plan: 10 Mbps). Recommend sector split or new AP deployment."
+- [x] **Alignment drift**: "CPE SN:XXX signal trending down 0.5 dB/day over 2 weeks. Current: -71 dBm (threshold: -75 dBm). Recommend schedule re-alignment visit before signal drops below threshold."
 
 *General:*
-- [ ] **On-call summary**: At shift change, AI generates summary of all open issues, ongoing outages, tickets pending
-- [ ] **Runbook suggestion**: AI suggests troubleshooting steps based on alert type (learns from past NOC actions)
+- [x] **On-call summary**: At shift change, AI generates summary of all open issues, ongoing outages, tickets pending
+- [x] **Runbook suggestion**: AI suggests troubleshooting steps based on alert type (learns from past NOC actions)
 
 
 ---

@@ -143,6 +143,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/automation', labelKey: 'nav.automation', requiredRole: 'admin' },
       { to: '/resellers', labelKey: 'nav.resellers', requiredRole: 'admin' },
       { to: '/integrations', labelKey: 'nav.integrations', requiredRole: 'admin' },
+      { to: '/ai-support', labelKey: 'nav.aiSupport', requiredRole: 'admin' },
     ],
   },
 ];

@@ -148,6 +148,11 @@ async function runTask(taskName, organizationId = null) {
       return analyticsService.computeChurnScores(organizationId);
     case 'remediation_evaluation':
       return automationService.evaluateRemediationRules(organizationId);
+    // §21 AI Customer Support tasks
+    case 'ai_support_metrics_rollup': {
+      const aiSupportMetricsService = require('./aiSupportMetricsService');
+      return aiSupportMetricsService.rollupMetrics(organizationId);
+    }
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }

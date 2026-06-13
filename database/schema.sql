@@ -13228,4 +13228,202 @@ CREATE TABLE IF NOT EXISTS integration_sync_logs (
   CONSTRAINT fk_isl_org          FOREIGN KEY (organization_id) REFERENCES organizations           (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ---------------------------------------------------------------------------
+-- Table: support_conversations (migration 351 - §21.2)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS support_conversations (
+  id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id     BIGINT UNSIGNED NOT NULL,
+  client_id           BIGINT UNSIGNED NOT NULL,
+  channel             VARCHAR(30)     NOT NULL DEFAULT 'web',
+  status              ENUM('open','escalated','closed') NOT NULL DEFAULT 'open',
+  intent              VARCHAR(50)     NULL,
+  confidence          DECIMAL(4,3)    NULL,
+  escalation_reason   VARCHAR(255)    NULL,
+  escalated_at        DATETIME        NULL,
+  ticket_id           BIGINT UNSIGNED NULL,
+  created_at          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_sc_org      (organization_id),
+  KEY idx_sc_client   (client_id),
+  KEY idx_sc_status   (status),
+  KEY idx_sc_ticket   (ticket_id),
+  CONSTRAINT fk_sc_org    FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE,
+  CONSTRAINT fk_sc_client FOREIGN KEY (client_id)       REFERENCES clients       (id) ON DELETE CASCADE,
+  CONSTRAINT fk_sc_ticket FOREIGN KEY (ticket_id)       REFERENCES tickets       (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: support_messages (migration 351 - §21.2)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS support_messages (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  conversation_id BIGINT UNSIGNED NOT NULL,
+  role            ENUM('customer','assistant','system') NOT NULL,
+  content         TEXT            NOT NULL,
+  intent          VARCHAR(50)     NULL,
+  confidence      DECIMAL(4,3)    NULL,
+  data_sources    JSON            NULL,
+  created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_smsg_conv    (conversation_id),
+  KEY idx_smsg_created (created_at),
+  CONSTRAINT fk_sm_conversation FOREIGN KEY (conversation_id) REFERENCES support_conversations (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: ai_diagnostic_runs (migration 352 - §21.3)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ai_diagnostic_runs (
+  id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id     BIGINT UNSIGNED NOT NULL,
+  client_id           BIGINT UNSIGNED NOT NULL,
+  conversation_id     BIGINT UNSIGNED NULL,
+  access_type         ENUM('fiber','wireless','unknown') NOT NULL DEFAULT 'unknown',
+  symptom             VARCHAR(100)    NOT NULL,
+  checks_run          JSON            NULL,
+  cause               VARCHAR(500)    NULL,
+  recommendation      TEXT            NULL,
+  auto_fix_available  TINYINT(1)      NOT NULL DEFAULT 0,
+  confidence          DECIMAL(4,3)    NULL,
+  escalate            TINYINT(1)      NOT NULL DEFAULT 0,
+  escalation_reason   VARCHAR(500)    NULL,
+  created_at          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_adr_org          (organization_id),
+  KEY idx_adr_client       (client_id),
+  KEY idx_adr_conversation (conversation_id),
+  CONSTRAINT fk_adr_org          FOREIGN KEY (organization_id) REFERENCES organizations         (id) ON DELETE CASCADE,
+  CONSTRAINT fk_adr_client       FOREIGN KEY (client_id)       REFERENCES clients               (id) ON DELETE CASCADE,
+  CONSTRAINT fk_adr_conversation FOREIGN KEY (conversation_id) REFERENCES support_conversations (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: kb_articles (migration 353 - §21.4)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS kb_articles (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NOT NULL,
+  title           VARCHAR(500)    NOT NULL,
+  body            TEXT            NOT NULL,
+  category        VARCHAR(100)    NOT NULL DEFAULT 'general',
+  locale          VARCHAR(10)     NOT NULL DEFAULT 'es',
+  tags            VARCHAR(500)    NULL,
+  is_published    TINYINT(1)      NOT NULL DEFAULT 1,
+  created_by      BIGINT UNSIGNED NULL,
+  created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_kba_org       (organization_id),
+  KEY idx_kba_category  (category),
+  KEY idx_kba_locale    (locale),
+  KEY idx_kba_published (is_published),
+  CONSTRAINT fk_kba_org  FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE,
+  CONSTRAINT fk_kba_user FOREIGN KEY (created_by)      REFERENCES users         (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: kb_article_embeddings (migration 353 - §21.4)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS kb_article_embeddings (
+  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  article_id  BIGINT UNSIGNED NOT NULL,
+  provider_id BIGINT UNSIGNED NULL,
+  embedding   MEDIUMBLOB      NULL,
+  dimensions  INT             NOT NULL DEFAULT 1536,
+  created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_kbe_article  (article_id),
+  KEY idx_kbe_provider (provider_id),
+  CONSTRAINT fk_kbe_article  FOREIGN KEY (article_id)  REFERENCES kb_articles  (id) ON DELETE CASCADE,
+  CONSTRAINT fk_kbe_provider FOREIGN KEY (provider_id) REFERENCES ai_providers (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: kb_feedback (migration 353 - §21.4)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS kb_feedback (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  article_id      BIGINT UNSIGNED NOT NULL,
+  conversation_id BIGINT UNSIGNED NULL,
+  feedback        ENUM('helpful','wrong','partial') NOT NULL,
+  notes           VARCHAR(500)    NULL,
+  created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_kbf_article (article_id),
+  KEY idx_kbf_conv    (conversation_id),
+  CONSTRAINT fk_kbf_article FOREIGN KEY (article_id)      REFERENCES kb_articles         (id) ON DELETE CASCADE,
+  CONSTRAINT fk_kbf_conv    FOREIGN KEY (conversation_id) REFERENCES support_conversations (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: support_channel_configs (migration 354 - §21.5)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS support_channel_configs (
+  id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id     BIGINT UNSIGNED NOT NULL,
+  channel             VARCHAR(30)     NOT NULL,
+  is_enabled          TINYINT(1)      NOT NULL DEFAULT 1,
+  availability_hours  JSON            NULL,
+  handoff_behavior    VARCHAR(50)     NOT NULL DEFAULT 'queue',
+  webhook_url         VARCHAR(500)    NULL,
+  config_json         JSON            NULL,
+  created_at          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_channel_config (organization_id, channel),
+  KEY idx_scc_org (organization_id),
+  CONSTRAINT fk_scc_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: ai_support_metrics (migration 354 - §21.6)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ai_support_metrics (
+  id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id       BIGINT UNSIGNED NOT NULL,
+  period_date           DATE            NOT NULL,
+  resolution_rate       DECIMAL(5,2)    NOT NULL DEFAULT 0.00,
+  fcr_rate              DECIMAL(5,2)    NOT NULL DEFAULT 0.00,
+  avg_handle_time_sec   INT             NOT NULL DEFAULT 0,
+  escalation_rate       DECIMAL(5,2)    NOT NULL DEFAULT 0.00,
+  csat_avg              DECIMAL(3,1)    NULL,
+  false_positive_rate   DECIMAL(5,2)    NULL,
+  avg_latency_ms        INT             NULL,
+  total_conversations   INT             NOT NULL DEFAULT 0,
+  total_escalations     INT             NOT NULL DEFAULT 0,
+  total_ai_cost_usd     DECIMAL(10,4)   NOT NULL DEFAULT 0.0000,
+  created_at            DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at            DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_metrics_period (organization_id, period_date),
+  KEY idx_asm_org    (organization_id),
+  KEY idx_asm_period (period_date),
+  CONSTRAINT fk_asm_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: noc_ai_insights (migration 355 - §21.7)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS noc_ai_insights (
+  id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id       BIGINT UNSIGNED NOT NULL,
+  insight_type          ENUM('alert_explanation','capacity_warning','interference_detection','alignment_drift','shift_summary','runbook_suggestion') NOT NULL,
+  alert_id              BIGINT UNSIGNED NULL,
+  device_id             BIGINT UNSIGNED NULL,
+  affected_subscribers  INT             NOT NULL DEFAULT 0,
+  summary               TEXT            NOT NULL,
+  recommendation        TEXT            NULL,
+  confidence            DECIMAL(4,3)    NULL,
+  provider_id           BIGINT UNSIGNED NULL,
+  created_at            DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_nai_org      (organization_id),
+  KEY idx_nai_type     (insight_type),
+  KEY idx_nai_created  (created_at),
+  CONSTRAINT fk_nai_org      FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE,
+  CONSTRAINT fk_nai_provider FOREIGN KEY (provider_id)     REFERENCES ai_providers  (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

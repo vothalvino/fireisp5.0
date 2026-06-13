@@ -647,6 +647,14 @@
     {
       "name": "Integration Connections",
       "description": "§20.2 Per-org configured integration connections — credentials encrypted at rest, never returned in responses"
+    },
+    {
+      "name": "AI Support",
+      "description": "§21 AI customer support — conversations, knowledge base, channel configs, diagnostics, and KPI metrics"
+    },
+    {
+      "name": "NOC AI",
+      "description": "§21.11 NOC AI insights — alert explanation, capacity warnings, interference detection, shift summaries, runbook suggestions"
     }
   ],
   "paths": {
@@ -47269,6 +47277,1011 @@
           }
         }
       }
+    },
+    "/support/metrics": {
+      "get": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "Get AI support KPI metrics",
+        "operationId": "getAiSupportMetrics",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "date_from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AiSupportMetrics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/support/channels": {
+      "get": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "List support channel configurations",
+        "operationId": "listSupportChannels",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SupportChannelConfig[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/support/channels/{channel}": {
+      "put": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "Upsert support channel configuration",
+        "operationId": "updateSupportChannel",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "channel",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "supportConversations_updateChannelConfig",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SupportChannelConfig",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/support/kb": {
+      "get": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "List KB articles",
+        "operationId": "listKbArticles",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "category",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "locale",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "KbArticle[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "Create KB article",
+        "operationId": "createKbArticle",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "supportConversations_createKbArticle",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "KbArticle",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/support/kb/search": {
+      "get": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "Search KB articles by keyword",
+        "operationId": "searchKbArticles",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "locale",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "KbArticle[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/support/kb/{id}": {
+      "get": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "Get a KB article",
+        "operationId": "getKbArticle",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "KbArticle",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "Update a KB article",
+        "operationId": "updateKbArticle",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "supportConversations_updateKbArticle",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "KbArticle",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "Delete a KB article",
+        "operationId": "deleteKbArticle",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/support/kb/{id}/embed": {
+      "post": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "Trigger embedding for a KB article",
+        "operationId": "embedKbArticle",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "EmbedResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/support/kb/{id}/feedback": {
+      "post": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "Submit feedback on a KB article",
+        "operationId": "submitKbFeedback",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "supportConversations_kbFeedback",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "KbFeedback",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/support/conversations": {
+      "get": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "List support conversations",
+        "operationId": "listSupportConversations",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "escalated",
+                "closed"
+              ]
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SupportConversation[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "Start a new AI support conversation",
+        "operationId": "startSupportConversation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "supportConversations_startConversation",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "SupportConversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/support/conversations/{id}": {
+      "get": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "Get conversation with messages",
+        "operationId": "getSupportConversation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SupportConversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "Close/delete a conversation",
+        "operationId": "deleteSupportConversation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/support/conversations/{id}/messages": {
+      "post": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "Send a message in a conversation",
+        "operationId": "sendSupportMessage",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "supportConversations_sendMessage",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "SupportConversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/support/conversations/{id}/escalate": {
+      "post": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "Manually escalate a conversation to a human agent",
+        "operationId": "escalateSupportConversation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "supportConversations_escalateConversation",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SupportConversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/support/conversations/{id}/diagnose": {
+      "post": {
+        "tags": [
+          "AI Support"
+        ],
+        "summary": "Run a connectivity diagnostic for a conversation",
+        "operationId": "diagnoseSupportConversation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "symptom + accessType",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DiagnosticResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/noc-ai/insights": {
+      "get": {
+        "tags": [
+          "NOC AI"
+        ],
+        "summary": "List recent NOC AI insights",
+        "operationId": "listNocAiInsights",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "NocAiInsight[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/noc-ai/insights/alert-explain": {
+      "post": {
+        "tags": [
+          "NOC AI"
+        ],
+        "summary": "Explain an alert with AI",
+        "operationId": "nocAiAlertExplain",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "nocAi_explainAlert",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "NocAiInsight",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/noc-ai/insights/capacity-warning": {
+      "post": {
+        "tags": [
+          "NOC AI"
+        ],
+        "summary": "Run capacity warning analysis",
+        "operationId": "nocAiCapacityWarning",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "providerId (optional)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "NocAiInsight",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/noc-ai/insights/interference": {
+      "post": {
+        "tags": [
+          "NOC AI"
+        ],
+        "summary": "Run RF interference detection",
+        "operationId": "nocAiInterference",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "providerId (optional)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "NocAiInsight",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/noc-ai/insights/alignment-drift": {
+      "post": {
+        "tags": [
+          "NOC AI"
+        ],
+        "summary": "Run antenna alignment drift detection",
+        "operationId": "nocAiAlignmentDrift",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "providerId (optional)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "NocAiInsight",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/noc-ai/insights/shift-summary": {
+      "post": {
+        "tags": [
+          "NOC AI"
+        ],
+        "summary": "Generate NOC shift summary",
+        "operationId": "nocAiShiftSummary",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "providerId (optional)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "NocAiInsight",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/noc-ai/insights/runbook": {
+      "post": {
+        "tags": [
+          "NOC AI"
+        ],
+        "summary": "Get runbook suggestion for an alert type",
+        "operationId": "nocAiRunbook",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "nocAi_runbookSuggestion",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "NocAiInsight",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -55605,6 +56618,35 @@
           }
         }
       },
+      "nocAi_explainAlert": {
+        "type": "object",
+        "properties": {
+          "alertId": {
+            "type": "string"
+          },
+          "providerId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "alertId"
+        ]
+      },
+      "nocAi_runbookSuggestion": {
+        "type": "object",
+        "properties": {
+          "alertType": {
+            "type": "string",
+            "maximum": 100
+          },
+          "providerId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "alertType"
+        ]
+      },
       "odfFrames_createOdfFrame": {
         "type": "object",
         "properties": {
@@ -62849,6 +63891,173 @@
             "maximum": 1000
           }
         }
+      },
+      "supportConversations_startConversation": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string",
+            "maximum": 30
+          },
+          "message": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 2000
+          }
+        },
+        "required": [
+          "clientId",
+          "message"
+        ]
+      },
+      "supportConversations_sendMessage": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 2000
+          }
+        },
+        "required": [
+          "content"
+        ]
+      },
+      "supportConversations_escalateConversation": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maximum": 255
+          }
+        }
+      },
+      "supportConversations_updateChannelConfig": {
+        "type": "object",
+        "properties": {
+          "isEnabled": {
+            "type": "boolean"
+          },
+          "availabilityHours": {
+            "type": "string"
+          },
+          "handoffBehavior": {
+            "type": "string",
+            "maximum": 50
+          },
+          "webhookUrl": {
+            "type": "string",
+            "maximum": 500
+          },
+          "configJson": {
+            "type": "string"
+          }
+        }
+      },
+      "supportConversations_createKbArticle": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "body": {
+            "type": "string",
+            "minimum": 1
+          },
+          "category": {
+            "type": "string",
+            "maximum": 100
+          },
+          "locale": {
+            "type": "string",
+            "maximum": 10
+          },
+          "tags": {
+            "type": "string",
+            "maximum": 500
+          },
+          "isPublished": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "title",
+          "body"
+        ]
+      },
+      "supportConversations_updateKbArticle": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "body": {
+            "type": "string",
+            "minimum": 1
+          },
+          "category": {
+            "type": "string",
+            "maximum": 100
+          },
+          "locale": {
+            "type": "string",
+            "maximum": 10
+          },
+          "tags": {
+            "type": "string",
+            "maximum": 500
+          },
+          "isPublished": {
+            "type": "boolean"
+          }
+        }
+      },
+      "supportConversations_kbFeedback": {
+        "type": "object",
+        "properties": {
+          "feedback": {
+            "type": "string",
+            "enum": [
+              "helpful",
+              "wrong",
+              "partial"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 500
+          }
+        },
+        "required": [
+          "feedback"
+        ]
+      },
+      "supportConversations_kbSearch": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "locale": {
+            "type": "string",
+            "maximum": 10
+          },
+          "limit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "q"
+        ]
       },
       "suspension_suspend": {
         "type": "object",
