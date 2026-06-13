@@ -190,6 +190,10 @@ function generateSpec() {
       { name: 'Consumer Protection MX', description: '§16.7 service modification notices and contract templates (MX)' },
       { name: 'Data Residency', description: '§16.8 data localization and residency compliance config' },
       { name: 'Security', description: '§17 security & access control — WebAuthn, IP allowlist, password policy, firewall, DDoS, DNS blocklists, CPE scans, encryption keys, data masking, secure deletion, webhook signing' },
+      { name: 'Automation', description: '§18.1 workflow automation rules, batch subscriber operations, provisioning pipelines, auto-remediation' },
+      { name: 'Scripting', description: '§18.2 script storage, library, execution logging (STUB — no live dispatch)' },
+      { name: 'Router Drivers', description: '§18.3 vendor router API integration — MikroTik live, Cisco/Juniper/ZTE/Huawei/REST stubbed' },
+      { name: 'Analytics', description: '§18.4 heuristic analytics — z-score anomaly detection, predictive failure, alert correlation, bandwidth forecast, churn scoring' },
     ],
     paths: {
       // ---- Auth ----
@@ -2314,6 +2318,127 @@ function generateSpec() {
       },
       '/webhook-security/delivery-logs': {
         get: { tags: ['Security'], summary: 'List webhook delivery logs for org', operationId: 'listWebhookDeliveryLogs', security: [{ bearerAuth: [] }], responses: r200('WebhookDelivery[]') },
+      },
+
+      // ---- §18.1 Workflow Automation ----
+      '/automation-rules': {
+        get: { tags: ['Automation'], summary: 'List automation rules', operationId: 'listAutomationRules', security: [{ bearerAuth: [] }], responses: r200('AutomationRule[]') },
+        post: { tags: ['Automation'], summary: 'Create automation rule', operationId: 'createAutomationRule', security: [{ bearerAuth: [] }], requestBody: jsonBody('AutomationRule'), responses: r201('AutomationRule') },
+      },
+      '/automation-rules/{id}': {
+        get: { tags: ['Automation'], summary: 'Get automation rule', operationId: 'getAutomationRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('AutomationRule') },
+        put: { tags: ['Automation'], summary: 'Update automation rule', operationId: 'updateAutomationRule', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('AutomationRule'), responses: r200('AutomationRule') },
+        delete: { tags: ['Automation'], summary: 'Delete automation rule', operationId: 'deleteAutomationRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/automation-rules/{id}/execute': {
+        post: { tags: ['Automation'], summary: 'Manually trigger an automation rule', operationId: 'executeAutomationRule', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('payload'), responses: r200('ExecutionResult') },
+      },
+      '/automation-rules/{id}/executions': {
+        get: { tags: ['Automation'], summary: 'List executions for an automation rule', operationId: 'listAutomationRuleExecutions', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('AutomationRuleExecution[]') },
+      },
+
+      '/batch-jobs': {
+        get: { tags: ['Automation'], summary: 'List batch jobs', operationId: 'listBatchJobs', security: [{ bearerAuth: [] }], responses: r200('BatchJob[]') },
+        post: { tags: ['Automation'], summary: 'Create and run a batch subscriber job', operationId: 'createBatchJob', security: [{ bearerAuth: [] }], requestBody: jsonBody('BatchJob'), responses: r201('BatchJob') },
+      },
+      '/batch-jobs/{id}': {
+        get: { tags: ['Automation'], summary: 'Get batch job', operationId: 'getBatchJob', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('BatchJob') },
+      },
+      '/batch-jobs/{id}/items': {
+        get: { tags: ['Automation'], summary: 'List batch job items', operationId: 'listBatchJobItems', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('BatchJobItem[]') },
+      },
+      '/batch-jobs/{id}/cancel': {
+        post: { tags: ['Automation'], summary: 'Cancel a running batch job', operationId: 'cancelBatchJob', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('BatchJob') },
+      },
+
+      '/provisioning-pipelines': {
+        get: { tags: ['Automation'], summary: 'List provisioning pipeline runs', operationId: 'listProvisioningPipelines', security: [{ bearerAuth: [] }], responses: r200('ProvisioningPipeline[]') },
+        post: { tags: ['Automation'], summary: 'Trigger a provisioning pipeline run', operationId: 'createProvisioningPipeline', security: [{ bearerAuth: [] }], requestBody: jsonBody('name + contract_id + client_id'), responses: r201('ProvisioningPipeline') },
+      },
+      '/provisioning-pipelines/{id}': {
+        get: { tags: ['Automation'], summary: 'Get provisioning pipeline with stage details', operationId: 'getProvisioningPipeline', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ProvisioningPipeline') },
+      },
+
+      '/remediation-rules': {
+        get: { tags: ['Automation'], summary: 'List auto-remediation rules', operationId: 'listRemediationRules', security: [{ bearerAuth: [] }], responses: r200('RemediationRule[]') },
+        post: { tags: ['Automation'], summary: 'Create auto-remediation rule', operationId: 'createRemediationRule', security: [{ bearerAuth: [] }], requestBody: jsonBody('RemediationRule'), responses: r201('RemediationRule') },
+      },
+      '/remediation-rules/{id}': {
+        get: { tags: ['Automation'], summary: 'Get remediation rule', operationId: 'getRemediationRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('RemediationRule') },
+        put: { tags: ['Automation'], summary: 'Update remediation rule', operationId: 'updateRemediationRule', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('RemediationRule'), responses: r200('RemediationRule') },
+        delete: { tags: ['Automation'], summary: 'Delete remediation rule', operationId: 'deleteRemediationRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/remediation-rules/{id}/executions': {
+        get: { tags: ['Automation'], summary: 'List executions for a remediation rule', operationId: 'listRemediationExecutions', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('RemediationExecution[]') },
+      },
+      '/remediation-rules/evaluate': {
+        post: { tags: ['Automation'], summary: 'Run remediation rule evaluation now', operationId: 'evaluateRemediationRules', security: [{ bearerAuth: [] }], responses: r200('EvaluationResult') },
+      },
+
+      // ---- §18.2 Scripting Engine ----
+      '/automation-scripts': {
+        get: { tags: ['Scripting'], summary: 'List automation scripts (org + shared)', operationId: 'listAutomationScripts', security: [{ bearerAuth: [] }], responses: r200('AutomationScript[]') },
+        post: { tags: ['Scripting'], summary: 'Create automation script (admin only)', operationId: 'createAutomationScript', security: [{ bearerAuth: [] }], requestBody: jsonBody('AutomationScript'), responses: r201('AutomationScript') },
+      },
+      '/automation-scripts/{id}': {
+        get: { tags: ['Scripting'], summary: 'Get automation script', operationId: 'getAutomationScript', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('AutomationScript') },
+        put: { tags: ['Scripting'], summary: 'Update automation script', operationId: 'updateAutomationScript', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('AutomationScript'), responses: r200('AutomationScript') },
+        delete: { tags: ['Scripting'], summary: 'Delete automation script', operationId: 'deleteAutomationScript', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/automation-scripts/{id}/execute': {
+        post: { tags: ['Scripting'], summary: 'Queue script execution (STUB — sandboxed executor required)', operationId: 'executeAutomationScript', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('input_params'), responses: { 202: { description: 'Queued', content: { 'application/json': { schema: { type: 'object' } } } } } },
+      },
+      '/automation-scripts/{id}/executions': {
+        get: { tags: ['Scripting'], summary: 'List executions for a script', operationId: 'listScriptExecutions', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ScriptExecution[]') },
+      },
+      '/automation-scripts/executions/list': {
+        get: { tags: ['Scripting'], summary: 'List all script executions for org', operationId: 'listAllScriptExecutions', security: [{ bearerAuth: [] }], responses: r200('ScriptExecution[]') },
+      },
+
+      // ---- §18.3 Router API Integration ----
+      '/router-drivers': {
+        get: { tags: ['Router Drivers'], summary: 'List router driver configurations', operationId: 'listRouterDrivers', security: [{ bearerAuth: [] }], responses: r200('RouterDriverConfig[]') },
+        post: { tags: ['Router Drivers'], summary: 'Create router driver configuration', operationId: 'createRouterDriver', security: [{ bearerAuth: [] }], requestBody: jsonBody('RouterDriverConfig'), responses: r201('RouterDriverConfig') },
+      },
+      '/router-drivers/{id}': {
+        get: { tags: ['Router Drivers'], summary: 'Get router driver configuration', operationId: 'getRouterDriver', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('RouterDriverConfig') },
+        put: { tags: ['Router Drivers'], summary: 'Update router driver configuration', operationId: 'updateRouterDriver', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('RouterDriverConfig'), responses: r200('RouterDriverConfig') },
+        delete: { tags: ['Router Drivers'], summary: 'Delete router driver configuration', operationId: 'deleteRouterDriver', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/router-drivers/{id}/test': {
+        post: { tags: ['Router Drivers'], summary: 'Test router driver connectivity', operationId: 'testRouterDriver', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('TestResult') },
+      },
+      '/router-drivers/{id}/dispatch': {
+        post: { tags: ['Router Drivers'], summary: 'Dispatch command to router (MikroTik live; others STUBBED)', operationId: 'dispatchRouterCommand', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('command + params'), responses: r200('CommandResult') },
+      },
+      '/router-drivers/command-executions/list': {
+        get: { tags: ['Router Drivers'], summary: 'List device command executions', operationId: 'listDeviceCommandExecutions', security: [{ bearerAuth: [] }], responses: r200('DeviceCommandExecution[]') },
+      },
+
+      // ---- §18.4 AI/ML Analytics ----
+      '/analytics/anomalies': {
+        get: { tags: ['Analytics'], summary: 'List detected traffic anomalies (heuristic z-score)', operationId: 'listAnalyticsAnomalies', security: [{ bearerAuth: [] }], responses: r200('Anomaly[]') },
+      },
+      '/analytics/anomalies/detect': {
+        post: { tags: ['Analytics'], summary: 'Run z-score anomaly detection now (heuristic)', operationId: 'detectAnomalies', security: [{ bearerAuth: [] }], responses: r200('AnomalyDetectionResult') },
+      },
+      '/analytics/anomalies/{id}/acknowledge': {
+        post: { tags: ['Analytics'], summary: 'Acknowledge an anomaly detection', operationId: 'acknowledgeAnomaly', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Anomaly') },
+      },
+      '/analytics/predictive-failure': {
+        get: { tags: ['Analytics'], summary: 'SFP degradation + ONU offline analysis (heuristic thresholds)', operationId: 'predictiveFailure', security: [{ bearerAuth: [] }], responses: r200('PredictiveFailureResult') },
+      },
+      '/analytics/alert-correlation': {
+        get: { tags: ['Analytics'], summary: 'Correlated alert groups for noise reduction (reuses §6)', operationId: 'alertCorrelation', security: [{ bearerAuth: [] }], responses: r200('AlertCorrelationResult') },
+      },
+      '/analytics/bandwidth-forecast': {
+        get: { tags: ['Analytics'], summary: 'Bandwidth forecast reusing §15 capacity forecast (linear regression)', operationId: 'bandwidthForecast', security: [{ bearerAuth: [] }], responses: r200('BandwidthForecastResult') },
+      },
+      '/analytics/churn-scores': {
+        get: { tags: ['Analytics'], summary: 'List client churn risk scores (heuristic rule-based)', operationId: 'listChurnScores', security: [{ bearerAuth: [] }], responses: r200('ChurnScore[]') },
+      },
+      '/analytics/churn-scores/compute': {
+        post: { tags: ['Analytics'], summary: 'Run churn score computation for org (heuristic)', operationId: 'computeChurnScores', security: [{ bearerAuth: [] }], responses: r200('ChurnComputeResult') },
       },
     },
     components: {

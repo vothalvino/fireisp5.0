@@ -109,8 +109,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 289 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–335)
+│   ├── schema.sql           # Combined schema (all 303 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–343)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -451,8 +451,24 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 287 | `encryption_key_metadata` | §17.4 Encryption key lifecycle registry — key_alias, algorithm, key_size, purpose, status ENUM(active/retired/revoked), created_by FK→users, rotated_at, expires_at, notes |
 | 288 | `data_masking_rules` | §17.4 Column-level data masking configuration — table_name, column_name, masking_type ENUM(full/partial/hash/tokenize), mask_pattern, roles_exempt JSON, is_active; unique per org+table+column |
 | 289 | `secure_deletion_log` | §17.4 Audit trail for GDPR/LFPDPPP secure deletion runs — table_name, records_deleted, policy_applied, deletion_method, details JSON, triggered_by FK→users |
+| 290 | `automation_rules` | §18.1 Event-triggered workflow rules — trigger_event, trigger_conditions JSON, action_type, action_config JSON, priority, is_enabled; soft-delete |
+| 291 | `automation_rule_executions` | §18.1 Audit log for automation rule runs — trigger_payload JSON, status ENUM(success/failure/skipped), result_message, duration_ms |
+| 292 | `batch_jobs` | §18.1 Bulk subscriber operation jobs — operation ENUM(suspend/unsuspend/rate_limit/…), filter_criteria JSON, total/processed/success/failed item counts |
+| 293 | `batch_job_items` | §18.1 Per-entity result for each batch job — entity_type ENUM(contract/client/device), entity_id, status, result_message |
+| 294 | `provisioning_pipelines` | §18.1 Ordered provisioning pipeline runs — stages_config JSON, stages_results JSON, current_stage, contract_id/client_id optional FKs |
+| 295 | `provisioning_pipeline_stages` | §18.1 Individual stage records within a pipeline run — stage_order, stage_name, input_data/output_data JSON, started_at/completed_at |
+| 296 | `remediation_rules` | §18.1 Auto-remediation rules — condition_metric, condition_operator ENUM(gt/lt/gte/lte/eq/neq/is_true), condition_threshold, cooldown_minutes, action_type; soft-delete |
+| 297 | `remediation_executions` | §18.1 Auto-remediation execution records — status ENUM(queued/success/failure/stubbed DEFAULT stubbed), error_message |
+| 298 | `automation_scripts` | §18.2 Script storage — language ENUM(bash/python/powershell/javascript), script_body LONGTEXT (NEVER executed via child_process), version, is_shared, tags JSON, api_endpoint |
+| 299 | `script_executions` | §18.2 Script execution log — status ENUM(queued/running/success/failure/cancelled DEFAULT queued), stdout/stderr LONGTEXT, exit_code (populated by real sandboxed executor) |
+| 300 | `router_driver_configs` | §18.3 Vendor router API configs — vendor ENUM(mikrotik/cisco_ios/cisco_iosxe/juniper_junos/zte/huawei/generic_rest), protocol, encrypted_password/api_token (AES-256-GCM); soft-delete |
+| 301 | `device_command_executions` | §18.3 Router command dispatch log — command, params JSON, status ENUM(queued/success/failure/stubbed), response JSON, duration_ms |
+| 302 | `analytics_anomalies` | §18.4 Z-score anomaly detection results — metric, device_id, detected_value, baseline_mean/stddev, z_score, severity ENUM(low/medium/high/critical), is_acknowledged |
+| 303 | `churn_scores` | §18.4 Rule-based churn risk scores — score DECIMAL(5,2), risk_band ENUM(low/medium/high/critical), tenure_months, overdue_invoices, open_tickets, suspensions_30d, payments_late_90d, factors JSON |
 
 > **Migration 323–335 — Security & Access Control (§17):** webauthn_credentials, admin_ip_allowlist, password_policies, api_key_rate_limits, firewall_rules, ddos_protection_rules, blackhole_routes, dns_blocklists, cpe_security_scans, encryption_key_metadata, data_masking_rules, secure_deletion_log; plus 4 new roles (super_admin, noc_operator, reseller_admin, auditor) and 36 security module permissions.
+
+> **Migration 336–343 — Automation & Scripting (§18):** automation_rules, automation_rule_executions, batch_jobs, batch_job_items, provisioning_pipelines, provisioning_pipeline_stages, remediation_rules, remediation_executions, automation_scripts, script_executions, router_driver_configs, device_command_executions, analytics_anomalies, churn_scores; plus 30 automation/analytics permissions and 3 scheduled tasks (anomaly_detection, churn_score_computation, remediation_evaluation). Script execution is STUB — no child_process dispatch; sandboxed executor required for live runs.
 
 > **Migration 165–173 table count note:** See migrations 241–246 below for the §5 Dual Stack tables. See migrations 249–263 for §6.1–6.6 SNMP & NMS tables.
 

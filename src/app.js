@@ -182,6 +182,13 @@ const securityAdminRoutes = require('./routes/securityAdmin');
 const networkSecurityRoutes = require('./routes/networkSecurity');
 const dataSecurityRoutes = require('./routes/dataSecurity');
 const webhookSecurityRoutes = require('./routes/webhookSecurity');
+const automationRulesRoutes = require('./routes/automationRules');
+const batchJobsRoutes = require('./routes/batchJobs');
+const provisioningPipelinesRoutes = require('./routes/provisioningPipelines');
+const remediationRulesRoutes = require('./routes/remediationRules');
+const automationScriptsRoutes = require('./routes/automationScripts');
+const routerDriversRoutes = require('./routes/routerDrivers');
+const analyticsAIRoutes = require('./routes/analyticsAI');
 const acsService = require('./services/acsService');
 const graphqlMiddleware = require('./graphql');
 
@@ -590,6 +597,16 @@ v1.use('/security-admin', adminIpAllowlist, securityAdminRoutes);
 v1.use('/network-security', networkSecurityRoutes);
 v1.use('/data-security', adminIpAllowlist, dataSecurityRoutes);
 v1.use('/webhook-security', webhookSecurityRoutes);
+
+// §18 Automation & Scripting
+v1.use('/automation-rules', automationRulesRoutes);
+v1.use('/batch-jobs', batchJobsRoutes);
+v1.use('/provisioning-pipelines', provisioningPipelinesRoutes);
+v1.use('/remediation-rules', remediationRulesRoutes);
+v1.use('/automation-scripts', adminIpAllowlist, automationScriptsRoutes);
+v1.use('/router-drivers', routerDriversRoutes);
+v1.use('/analytics', analyticsAIRoutes);
+
 v1.use('/graphql', authenticate, orgScope, graphqlMiddleware);
 
 // Mount v1 at both /api (backward compat) and /api/v1 (versioned)

@@ -12571,4 +12571,394 @@ INSERT IGNORE INTO roles (name, description, is_system) VALUES
     ('reseller_admin', 'Reseller administrator — manage reseller customers and billing', TRUE),
     ('auditor',        'Read-only auditor — view all resources for compliance and audit purposes', TRUE);
 
+-- ---------------------------------------------------------------------------
+-- Table: automation_rules (migration 336 — §18.1)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS automation_rules (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NOT NULL,
+    name                VARCHAR(255)    NOT NULL,
+    description         TEXT            NULL,
+    trigger_event       VARCHAR(100)    NOT NULL,
+    trigger_conditions  JSON            NULL,
+    action_type         VARCHAR(100)    NOT NULL,
+    action_config       JSON            NULL,
+    is_enabled          TINYINT(1)      NOT NULL DEFAULT 1,
+    run_count           INT UNSIGNED    NOT NULL DEFAULT 0,
+    last_triggered_at   DATETIME        NULL,
+    priority            SMALLINT        NOT NULL DEFAULT 50,
+    created_by          BIGINT UNSIGNED NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_automation_rules_org (organization_id),
+    KEY idx_automation_rules_trigger (trigger_event),
+    KEY idx_automation_rules_enabled (is_enabled),
+    KEY idx_automation_rules_deleted_at (deleted_at),
+    CONSTRAINT fk_automation_rules_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_automation_rules_created_by FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Event-triggered workflow automation rules (§18.1)';
+
+-- ---------------------------------------------------------------------------
+-- Table: automation_rule_executions (migration 336 — §18.1)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS automation_rule_executions (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NOT NULL,
+    automation_rule_id  BIGINT UNSIGNED NOT NULL,
+    trigger_event       VARCHAR(100)    NOT NULL,
+    trigger_payload     JSON            NULL,
+    status              ENUM('success','failure','skipped') NOT NULL DEFAULT 'success',
+    result_message      TEXT            NULL,
+    duration_ms         INT UNSIGNED    NULL,
+    executed_at         DATETIME        NOT NULL DEFAULT (NOW()),
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_auto_rule_exec_org (organization_id),
+    KEY idx_auto_rule_exec_rule (automation_rule_id),
+    KEY idx_auto_rule_exec_status (status),
+    KEY idx_auto_rule_exec_executed_at (executed_at),
+    CONSTRAINT fk_auto_rule_exec_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_auto_rule_exec_rule FOREIGN KEY (automation_rule_id) REFERENCES automation_rules (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Execution audit log for automation_rules (§18.1)';
+
+-- ---------------------------------------------------------------------------
+-- Table: batch_jobs (migration 337 — §18.1)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS batch_jobs (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NOT NULL,
+    name                VARCHAR(255)    NOT NULL,
+    operation           ENUM('suspend','unsuspend','rate_limit','send_notification','apply_tag','remove_tag','change_plan','send_email','send_sms') NOT NULL,
+    filter_criteria     JSON            NOT NULL,
+    operation_params    JSON            NULL,
+    status              ENUM('pending','running','completed','failed','cancelled') NOT NULL DEFAULT 'pending',
+    total_items         INT UNSIGNED    NOT NULL DEFAULT 0,
+    processed_items     INT UNSIGNED    NOT NULL DEFAULT 0,
+    success_items       INT UNSIGNED    NOT NULL DEFAULT 0,
+    failed_items        INT UNSIGNED    NOT NULL DEFAULT 0,
+    started_at          DATETIME        NULL,
+    completed_at        DATETIME        NULL,
+    created_by          BIGINT UNSIGNED NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_batch_jobs_org (organization_id),
+    KEY idx_batch_jobs_status (status),
+    KEY idx_batch_jobs_operation (operation),
+    KEY idx_batch_jobs_created_at (created_at),
+    CONSTRAINT fk_batch_jobs_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_batch_jobs_created_by FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Batch subscriber operations (§18.1)';
+
+-- ---------------------------------------------------------------------------
+-- Table: batch_job_items (migration 337 — §18.1)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS batch_job_items (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    batch_job_id        BIGINT UNSIGNED NOT NULL,
+    organization_id     BIGINT UNSIGNED NOT NULL,
+    entity_type         ENUM('contract','client','device') NOT NULL DEFAULT 'contract',
+    entity_id           BIGINT UNSIGNED NOT NULL,
+    status              ENUM('pending','success','failure','skipped') NOT NULL DEFAULT 'pending',
+    result_message      VARCHAR(500)    NULL,
+    processed_at        DATETIME        NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_batch_job_items_job (batch_job_id),
+    KEY idx_batch_job_items_org (organization_id),
+    KEY idx_batch_job_items_status (status),
+    KEY idx_batch_job_items_entity (entity_type, entity_id),
+    CONSTRAINT fk_batch_job_items_job FOREIGN KEY (batch_job_id) REFERENCES batch_jobs (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_batch_job_items_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Per-entity result records for batch_jobs (§18.1)';
+
+-- ---------------------------------------------------------------------------
+-- Table: provisioning_pipelines (migration 338 — §18.1)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS provisioning_pipelines (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NOT NULL,
+    name                VARCHAR(255)    NOT NULL,
+    contract_id         BIGINT UNSIGNED NULL,
+    client_id           BIGINT UNSIGNED NULL,
+    status              ENUM('pending','running','completed','failed','cancelled') NOT NULL DEFAULT 'pending',
+    current_stage       VARCHAR(100)    NULL,
+    stages_config       JSON            NULL,
+    stages_results      JSON            NULL,
+    started_at          DATETIME        NULL,
+    completed_at        DATETIME        NULL,
+    error_message       TEXT            NULL,
+    triggered_by        BIGINT UNSIGNED NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_prov_pipelines_org (organization_id),
+    KEY idx_prov_pipelines_contract (contract_id),
+    KEY idx_prov_pipelines_status (status),
+    KEY idx_prov_pipelines_created_at (created_at),
+    CONSTRAINT fk_prov_pipelines_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_prov_pipelines_triggered_by FOREIGN KEY (triggered_by) REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Auto-provisioning pipeline runs (§18.1)';
+
+-- ---------------------------------------------------------------------------
+-- Table: provisioning_pipeline_stages (migration 338 — §18.1)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS provisioning_pipeline_stages (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    pipeline_id         BIGINT UNSIGNED NOT NULL,
+    organization_id     BIGINT UNSIGNED NOT NULL,
+    stage_order         SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    stage_name          VARCHAR(100)    NOT NULL,
+    status              ENUM('pending','running','completed','failed','skipped') NOT NULL DEFAULT 'pending',
+    input_data          JSON            NULL,
+    output_data         JSON            NULL,
+    error_message       TEXT            NULL,
+    started_at          DATETIME        NULL,
+    completed_at        DATETIME        NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_prov_stages_pipeline (pipeline_id),
+    KEY idx_prov_stages_org (organization_id),
+    KEY idx_prov_stages_status (status),
+    CONSTRAINT fk_prov_stages_pipeline FOREIGN KEY (pipeline_id) REFERENCES provisioning_pipelines (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_prov_stages_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Per-stage execution records for provisioning_pipelines (§18.1)';
+
+-- ---------------------------------------------------------------------------
+-- Table: remediation_rules (migration 339 — §18.1)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS remediation_rules (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NOT NULL,
+    name                VARCHAR(255)    NOT NULL,
+    description         TEXT            NULL,
+    condition_metric    VARCHAR(100)    NOT NULL,
+    condition_operator  ENUM('gt','lt','gte','lte','eq','neq','is_true') NOT NULL DEFAULT 'is_true',
+    condition_threshold DECIMAL(10,4)   NULL,
+    condition_duration_minutes INT UNSIGNED NULL,
+    action_type         VARCHAR(100)    NOT NULL,
+    action_config       JSON            NULL,
+    cooldown_minutes    INT UNSIGNED    NOT NULL DEFAULT 30,
+    is_enabled          TINYINT(1)      NOT NULL DEFAULT 1,
+    run_count           INT UNSIGNED    NOT NULL DEFAULT 0,
+    last_triggered_at   DATETIME        NULL,
+    created_by          BIGINT UNSIGNED NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_remediation_rules_org (organization_id),
+    KEY idx_remediation_rules_enabled (is_enabled),
+    KEY idx_remediation_rules_deleted_at (deleted_at),
+    CONSTRAINT fk_remediation_rules_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_remediation_rules_created_by FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Auto-remediation rules with stubbed device actions (§18.1)';
+
+-- ---------------------------------------------------------------------------
+-- Table: remediation_executions (migration 339 — §18.1)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS remediation_executions (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NOT NULL,
+    remediation_rule_id BIGINT UNSIGNED NOT NULL,
+    device_id           BIGINT UNSIGNED NULL,
+    action_type         VARCHAR(100)    NOT NULL,
+    status              ENUM('queued','success','failure','stubbed') NOT NULL DEFAULT 'stubbed',
+    result_message      TEXT            NULL,
+    duration_ms         INT UNSIGNED    NULL,
+    executed_at         DATETIME        NOT NULL DEFAULT (NOW()),
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_remediation_exec_org (organization_id),
+    KEY idx_remediation_exec_rule (remediation_rule_id),
+    KEY idx_remediation_exec_device (device_id),
+    KEY idx_remediation_exec_status (status),
+    KEY idx_remediation_exec_executed_at (executed_at),
+    CONSTRAINT fk_remediation_exec_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_remediation_exec_rule FOREIGN KEY (remediation_rule_id) REFERENCES remediation_rules (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Audit log for remediation_rules executions (STUBBED) (§18.1)';
+
+-- ---------------------------------------------------------------------------
+-- Table: automation_scripts (migration 340 — §18.2)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS automation_scripts (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    name                VARCHAR(255)    NOT NULL,
+    description         TEXT            NULL,
+    language            ENUM('bash','python','powershell','javascript') NOT NULL DEFAULT 'bash',
+    script_body         LONGTEXT        NOT NULL,
+    version             SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    is_shared           TINYINT(1)      NOT NULL DEFAULT 0,
+    tags                JSON            NULL,
+    scheduled_task_id   BIGINT UNSIGNED NULL,
+    api_endpoint        VARCHAR(500)    NULL,
+    created_by          BIGINT UNSIGNED NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_automation_scripts_org (organization_id),
+    KEY idx_automation_scripts_language (language),
+    KEY idx_automation_scripts_shared (is_shared),
+    KEY idx_automation_scripts_deleted_at (deleted_at),
+    CONSTRAINT fk_automation_scripts_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_automation_scripts_created_by FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Script library — stored only, NOT executed directly (§18.2)';
+
+-- ---------------------------------------------------------------------------
+-- Table: script_executions (migration 340 — §18.2)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS script_executions (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NOT NULL,
+    script_id           BIGINT UNSIGNED NOT NULL,
+    status              ENUM('queued','running','success','failure','cancelled') NOT NULL DEFAULT 'queued',
+    triggered_by        BIGINT UNSIGNED NULL,
+    input_params        JSON            NULL,
+    stdout              LONGTEXT        NULL,
+    stderr              LONGTEXT        NULL,
+    exit_code           SMALLINT        NULL,
+    duration_ms         INT UNSIGNED    NULL,
+    error_message       TEXT            NULL,
+    started_at          DATETIME        NULL,
+    completed_at        DATETIME        NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_script_executions_org (organization_id),
+    KEY idx_script_executions_script (script_id),
+    KEY idx_script_executions_status (status),
+    KEY idx_script_executions_triggered_by (triggered_by),
+    KEY idx_script_executions_created_at (created_at),
+    CONSTRAINT fk_script_executions_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_script_executions_script FOREIGN KEY (script_id) REFERENCES automation_scripts (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Execution log for automation_scripts (STUBBED dispatcher) (§18.2)';
+
+-- ---------------------------------------------------------------------------
+-- Table: router_driver_configs (migration 341 — §18.3)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS router_driver_configs (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NOT NULL,
+    device_id           BIGINT UNSIGNED NULL,
+    vendor              ENUM('mikrotik','cisco_ios','cisco_iosxe','juniper_junos','zte','huawei','generic_rest') NOT NULL DEFAULT 'mikrotik',
+    protocol            ENUM('routeros_api','ssh','restconf','netconf','rest','tl1') NOT NULL DEFAULT 'routeros_api',
+    host                VARCHAR(253)    NULL,
+    port                SMALLINT UNSIGNED NOT NULL DEFAULT 8728,
+    username            VARCHAR(255)    NULL,
+    encrypted_password  TEXT            NULL,
+    api_token           TEXT            NULL,
+    ssl_enabled         TINYINT(1)      NOT NULL DEFAULT 0,
+    ssl_verify          TINYINT(1)      NOT NULL DEFAULT 1,
+    timeout_ms          INT UNSIGNED    NOT NULL DEFAULT 10000,
+    extra_params        JSON            NULL,
+    is_active           TINYINT(1)      NOT NULL DEFAULT 1,
+    last_tested_at      DATETIME        NULL,
+    last_test_status    ENUM('ok','failed','pending') NULL,
+    created_by          BIGINT UNSIGNED NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_router_driver_configs_org (organization_id),
+    KEY idx_router_driver_configs_device (device_id),
+    KEY idx_router_driver_configs_vendor (vendor),
+    KEY idx_router_driver_configs_active (is_active),
+    KEY idx_router_driver_configs_deleted_at (deleted_at),
+    CONSTRAINT fk_router_driver_configs_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_router_driver_cfg_created_by FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Vendor router driver configs; non-MikroTik STUBBED (§18.3)';
+
+-- ---------------------------------------------------------------------------
+-- Table: device_command_executions (migration 341 — §18.3)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS device_command_executions (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NOT NULL,
+    driver_config_id    BIGINT UNSIGNED NULL,
+    device_id           BIGINT UNSIGNED NULL,
+    vendor              VARCHAR(50)     NOT NULL,
+    command             VARCHAR(500)    NOT NULL,
+    params              JSON            NULL,
+    status              ENUM('queued','success','failure','stubbed') NOT NULL DEFAULT 'queued',
+    response            JSON            NULL,
+    error_message       TEXT            NULL,
+    duration_ms         INT UNSIGNED    NULL,
+    executed_by         BIGINT UNSIGNED NULL,
+    executed_at         DATETIME        NOT NULL DEFAULT (NOW()),
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_dev_cmd_exec_org (organization_id),
+    KEY idx_dev_cmd_exec_driver (driver_config_id),
+    KEY idx_dev_cmd_exec_device (device_id),
+    KEY idx_dev_cmd_exec_vendor (vendor),
+    KEY idx_dev_cmd_exec_status (status),
+    KEY idx_dev_cmd_exec_executed_at (executed_at),
+    CONSTRAINT fk_dev_cmd_exec_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_dev_cmd_exec_driver FOREIGN KEY (driver_config_id) REFERENCES router_driver_configs (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_dev_cmd_exec_executed_by FOREIGN KEY (executed_by) REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Router command dispatch audit log; non-MikroTik STUBBED (§18.3)';
+
+-- ---------------------------------------------------------------------------
+-- Table: analytics_anomalies (migration 342 — §18.4)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS analytics_anomalies (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NOT NULL,
+    device_id           BIGINT UNSIGNED NULL,
+    metric              VARCHAR(100)    NOT NULL,
+    detected_value      DECIMAL(20,4)   NOT NULL,
+    baseline_mean       DECIMAL(20,4)   NULL,
+    baseline_stddev     DECIMAL(20,4)   NULL,
+    z_score             DECIMAL(10,4)   NULL,
+    severity            ENUM('low','medium','high','critical') NOT NULL DEFAULT 'medium',
+    anomaly_type        VARCHAR(100)    NOT NULL DEFAULT 'threshold',
+    description         TEXT            NULL,
+    is_acknowledged     TINYINT(1)      NOT NULL DEFAULT 0,
+    acknowledged_by     BIGINT UNSIGNED NULL,
+    acknowledged_at     DATETIME        NULL,
+    detected_at         DATETIME        NOT NULL DEFAULT (NOW()),
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_analytics_anomalies_org (organization_id),
+    KEY idx_analytics_anomalies_device (device_id),
+    KEY idx_analytics_anomalies_metric (metric),
+    KEY idx_analytics_anomalies_severity (severity),
+    KEY idx_analytics_anomalies_type (anomaly_type),
+    KEY idx_analytics_anomalies_ack (is_acknowledged),
+    KEY idx_analytics_anomalies_detected_at (detected_at),
+    CONSTRAINT fk_analytics_anomalies_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_analytics_anomalies_acknowledged_by FOREIGN KEY (acknowledged_by) REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Z-score anomaly detection results (heuristic) (§18.4)';
+
+-- ---------------------------------------------------------------------------
+-- Table: churn_scores (migration 342 — §18.4)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS churn_scores (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NOT NULL,
+    client_id           BIGINT UNSIGNED NOT NULL,
+    score               DECIMAL(5,2)    NOT NULL,
+    risk_band           ENUM('low','medium','high','critical') NOT NULL DEFAULT 'low',
+    tenure_months       SMALLINT UNSIGNED NULL,
+    overdue_invoices    SMALLINT UNSIGNED NULL,
+    open_tickets        SMALLINT UNSIGNED NULL,
+    suspensions_30d     SMALLINT UNSIGNED NULL,
+    payments_late_90d   SMALLINT UNSIGNED NULL,
+    factors             JSON            NULL,
+    scored_at           DATETIME        NOT NULL DEFAULT (NOW()),
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_churn_scores_org (organization_id),
+    KEY idx_churn_scores_client (client_id),
+    KEY idx_churn_scores_risk_band (risk_band),
+    KEY idx_churn_scores_score (score),
+    KEY idx_churn_scores_scored_at (scored_at),
+    CONSTRAINT fk_churn_scores_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_churn_scores_client FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Rule-based churn risk scores per client (heuristic) (§18.4)';
+
 SET FOREIGN_KEY_CHECKS = 1;

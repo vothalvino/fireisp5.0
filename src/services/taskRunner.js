@@ -6,6 +6,8 @@
 // =============================================================================
 
 const db = require('../config/database');
+const automationService = require('./automationService');
+const analyticsService = require('./analyticsService');
 const billingService = require('./billingService');
 const suspensionService = require('./suspensionService');
 const radiusService = require('./radiusService');
@@ -139,6 +141,13 @@ async function runTask(taskName, organizationId = null) {
       return scheduledReportService.processScheduledReports();
     case 'data_retention_compliance_check':
       return handleDataRetentionComplianceCheck(organizationId);
+    // §18 Automation & Scripting tasks
+    case 'anomaly_detection':
+      return analyticsService.detectAnomalies(organizationId);
+    case 'churn_score_computation':
+      return analyticsService.computeChurnScores(organizationId);
+    case 'remediation_evaluation':
+      return automationService.evaluateRemediationRules(organizationId);
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }
