@@ -109,8 +109,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 277 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–322)
+│   ├── schema.sql           # Combined schema (all 289 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–335)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -439,6 +439,20 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 275 | `service_modification_notices` | §16.7 Mandatory service modification notice tracking — modification type, effective date, notice sent date, notice period days, regulatory requirement reference, and affected contracts count |
 | 276 | `data_residency_config` | §16.8 Data localization and residency compliance config — storage region, backup region, cross-border transfer allowed flag, transfer legal basis, ATDT/CRT rule reference, and last reviewed date |
 | 277 | `report_access_logs` | §16.9 Who accessed/downloaded what subscriber data — user ID, report type, data scope, access timestamp, IP address, export format, and row count for regulatory audit trail |
+| 278 | `webauthn_credentials` | §17.1 WebAuthn/FIDO2 hardware key credential storage — credential_id (opaque handle), public_key, AAGUID, transports JSON; org + user scoped with soft-delete |
+| 279 | `admin_ip_allowlist` | §17.1 Org-scoped IP/CIDR allowlist for admin portal access — ip_address (IPv4/CIDR), is_active, optional expiry timestamp |
+| 280 | `password_policies` | §17.1 Per-org password policy — min/max length, uppercase/lowercase/digits/symbols flags, rotation_days, history_count, lockout_attempts + duration; unique per org |
+| 281 | `api_key_rate_limits` | §17.2 Per-token rate limits — requests_per_minute/hour/day and burst_size; unique per org+token with ON DUPLICATE KEY UPDATE upsert |
+| 282 | `firewall_rules` | §17.3 Subscriber/org firewall rule management — action ENUM(allow/deny/log), protocol ENUM, src/dst IP + port, direction ENUM, priority, soft-delete |
+| 283 | `ddos_protection_rules` | §17.3 Flowspec/RTBH DDoS mitigation rules — rule_type ENUM(flowspec/rtbh), target_prefix, action ENUM(drop/ratelimit/redirect), threshold PPS/BPS, triggered_at, deactivated_at |
+| 284 | `blackhole_routes` | §17.3 RTBH blackhole routing — target_prefix, reason, next_hop, is_active flag, released_at timestamp; create activates route, release endpoint clears it |
+| 285 | `dns_blocklists` | §17.3 DNS blocklist entries for malware/phishing/botnet/ads blocking — domain, category ENUM, source, is_active; scoped per org |
+| 286 | `cpe_security_scans` | §17.3 CPE security scan records — scan_type ENUM(default_credentials/open_ports/firmware_cve/configuration_audit/full), status ENUM(pending/running/completed/failed), device/cpe references, started_at, completed_at, results JSON |
+| 287 | `encryption_key_metadata` | §17.4 Encryption key lifecycle registry — key_alias, algorithm, key_size, purpose, status ENUM(active/retired/revoked), created_by FK→users, rotated_at, expires_at, notes |
+| 288 | `data_masking_rules` | §17.4 Column-level data masking configuration — table_name, column_name, masking_type ENUM(full/partial/hash/tokenize), mask_pattern, roles_exempt JSON, is_active; unique per org+table+column |
+| 289 | `secure_deletion_log` | §17.4 Audit trail for GDPR/LFPDPPP secure deletion runs — table_name, records_deleted, policy_applied, deletion_method, details JSON, triggered_by FK→users |
+
+> **Migration 323–335 — Security & Access Control (§17):** webauthn_credentials, admin_ip_allowlist, password_policies, api_key_rate_limits, firewall_rules, ddos_protection_rules, blackhole_routes, dns_blocklists, cpe_security_scans, encryption_key_metadata, data_masking_rules, secure_deletion_log; plus 4 new roles (super_admin, noc_operator, reseller_admin, auditor) and 36 security module permissions.
 
 > **Migration 165–173 table count note:** See migrations 241–246 below for the §5 Dual Stack tables. See migrations 249–263 for §6.1–6.6 SNMP & NMS tables.
 

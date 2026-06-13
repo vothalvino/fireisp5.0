@@ -12153,4 +12153,422 @@ CREATE TABLE IF NOT EXISTS report_access_logs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Audit log of who accessed/downloaded subscriber data reports (§16.9)';
 
+-- ---------------------------------------------------------------------------
+-- Table: webauthn_credentials (migration 323 — §17)
+-- Purpose: WebAuthn/FIDO2 hardware key credential registrations per user.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id             BIGINT UNSIGNED NOT NULL COMMENT 'User who owns this credential',
+    organization_id     BIGINT UNSIGNED NULL COMMENT 'Tenant organization; NULL = single-tenant deployment',
+    credential_id       VARCHAR(1024)   NOT NULL COMMENT 'Base64url-encoded credential ID from authenticator',
+    public_key          TEXT            NOT NULL COMMENT 'COSE-encoded public key (base64url)',
+    aaguid              VARCHAR(36)     NULL COMMENT 'Authenticator AAGUID (UUID format)',
+    sign_count          BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Monotonic signature counter for clone detection',
+    transports          JSON            NULL COMMENT 'Supported transports: [usb, nfc, ble, internal, hybrid]',
+    attestation_type    VARCHAR(50)     NULL COMMENT 'none, self, packed, tpm, android-key, fido-u2f',
+    device_type         ENUM('platform','cross-platform') NOT NULL DEFAULT 'cross-platform',
+    is_backup_eligible  TINYINT(1)      NOT NULL DEFAULT 0,
+    is_backed_up        TINYINT(1)      NOT NULL DEFAULT 0,
+    friendly_name       VARCHAR(100)    NULL COMMENT 'User-visible label, e.g. "YubiKey 5C"',
+    last_used_at        DATETIME        NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_webauthn_credentials_credential_id (credential_id(512)),
+    KEY idx_webauthn_credentials_user_id (user_id),
+    KEY idx_webauthn_credentials_org_id (organization_id),
+    KEY idx_webauthn_credentials_deleted_at (deleted_at),
+    CONSTRAINT fk_webauthn_credentials_user FOREIGN KEY (user_id)
+        REFERENCES users (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_webauthn_credentials_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='WebAuthn/FIDO2 hardware key credential registrations per user (§17)';
+
+-- ---------------------------------------------------------------------------
+-- Table: admin_ip_allowlist (migration 324 — §17)
+-- Purpose: Per-org DB-driven IP allowlist entries for admin panel access.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS admin_ip_allowlist (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL COMMENT 'Scoped to organization; NULL = global/single-tenant',
+    cidr                VARCHAR(50)     NOT NULL COMMENT 'IPv4 or IPv6 CIDR, e.g. 203.0.113.0/24 or ::1/128',
+    description         VARCHAR(255)    NULL COMMENT 'Human-readable label, e.g. "Office network"',
+    is_active           TINYINT(1)      NOT NULL DEFAULT 1,
+    created_by          BIGINT UNSIGNED NULL COMMENT 'User who added this entry',
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_admin_ip_allowlist_org_id (organization_id),
+    KEY idx_admin_ip_allowlist_cidr (cidr),
+    KEY idx_admin_ip_allowlist_active (is_active),
+    KEY idx_admin_ip_allowlist_deleted_at (deleted_at),
+    CONSTRAINT fk_admin_ip_allowlist_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_admin_ip_allowlist_created_by FOREIGN KEY (created_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Per-org DB-driven IP allowlist entries for admin access (§17)';
+
+-- ---------------------------------------------------------------------------
+-- Table: password_policies (migration 325 — §17)
+-- Purpose: Per-organization password policy configuration.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS password_policies (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id         BIGINT UNSIGNED NOT NULL,
+    min_length              TINYINT UNSIGNED NOT NULL DEFAULT 12,
+    require_uppercase       TINYINT(1)      NOT NULL DEFAULT 1,
+    require_lowercase       TINYINT(1)      NOT NULL DEFAULT 1,
+    require_digits          TINYINT(1)      NOT NULL DEFAULT 1,
+    require_special_chars   TINYINT(1)      NOT NULL DEFAULT 1,
+    max_repeated_chars      TINYINT UNSIGNED NULL DEFAULT 3 COMMENT 'Max consecutive identical chars; NULL = no limit',
+    rotation_days           SMALLINT UNSIGNED NULL DEFAULT 90 COMMENT 'Force password change after N days; NULL = never',
+    history_count           TINYINT UNSIGNED NOT NULL DEFAULT 5 COMMENT 'Number of previous passwords to remember',
+    lockout_attempts        TINYINT UNSIGNED NOT NULL DEFAULT 5 COMMENT 'Failed attempts before lockout',
+    lockout_duration_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 15,
+    is_active               TINYINT(1)      NOT NULL DEFAULT 1,
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_password_policies_org (organization_id),
+    CONSTRAINT fk_password_policies_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Per-organization password policy configuration (§17)';
+
+-- ---------------------------------------------------------------------------
+-- Table: api_key_rate_limits (migration 326 — §17)
+-- Purpose: Per-API-key rate limit overrides linked to api_tokens.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS api_key_rate_limits (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    api_token_id            BIGINT UNSIGNED NOT NULL COMMENT 'FK to api_tokens.id',
+    organization_id         BIGINT UNSIGNED NULL,
+    requests_per_minute     INT UNSIGNED    NULL DEFAULT 60 COMMENT 'Max requests per minute; NULL = use global default',
+    requests_per_hour       INT UNSIGNED    NULL DEFAULT 1000 COMMENT 'Max requests per hour; NULL = use global default',
+    requests_per_day        INT UNSIGNED    NULL DEFAULT 10000 COMMENT 'Max requests per day; NULL = use global default',
+    burst_size              SMALLINT UNSIGNED NULL DEFAULT 20 COMMENT 'Token-bucket burst capacity',
+    is_active               TINYINT(1)      NOT NULL DEFAULT 1,
+    notes                   VARCHAR(500)    NULL,
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_api_key_rate_limits_token (api_token_id),
+    KEY idx_api_key_rate_limits_org (organization_id),
+    CONSTRAINT fk_api_key_rate_limits_token FOREIGN KEY (api_token_id)
+        REFERENCES api_tokens (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_api_key_rate_limits_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Per-API-key rate limit overrides (§17)';
+
+-- ---------------------------------------------------------------------------
+-- Table: firewall_rules (migration 327 — §17)
+-- Purpose: Network firewall rules per subscriber IP pool.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS firewall_rules (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL COMMENT 'Tenant org; NULL = single-tenant',
+    pool_id             BIGINT UNSIGNED NULL COMMENT 'FK to ip_pools; NULL = applies to all pools',
+    name                VARCHAR(150)    NOT NULL,
+    description         TEXT            NULL,
+    action              ENUM('allow','deny','drop','reject','log') NOT NULL DEFAULT 'deny',
+    direction           ENUM('inbound','outbound','both') NOT NULL DEFAULT 'both',
+    protocol            ENUM('tcp','udp','icmp','icmpv6','esp','ah','gre','any') NOT NULL DEFAULT 'any',
+    src_ip              VARCHAR(50)     NULL COMMENT 'Source IP or CIDR; NULL = any',
+    src_port            VARCHAR(50)     NULL COMMENT 'Source port or range (e.g. 1024-65535); NULL = any',
+    dst_ip              VARCHAR(50)     NULL COMMENT 'Destination IP or CIDR; NULL = any',
+    dst_port            VARCHAR(50)     NULL COMMENT 'Destination port or range; NULL = any',
+    priority            SMALLINT        NOT NULL DEFAULT 100 COMMENT 'Lower value = higher priority; evaluated in order',
+    is_active           TINYINT(1)      NOT NULL DEFAULT 1,
+    log_matches         TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Log matched packets to audit_logs',
+    created_by          BIGINT UNSIGNED NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_firewall_rules_org (organization_id),
+    KEY idx_firewall_rules_pool (pool_id),
+    KEY idx_firewall_rules_priority (priority),
+    KEY idx_firewall_rules_active (is_active),
+    KEY idx_firewall_rules_deleted_at (deleted_at),
+    CONSTRAINT fk_firewall_rules_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_firewall_rules_pool FOREIGN KEY (pool_id)
+        REFERENCES ip_pools (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_firewall_rules_created_by FOREIGN KEY (created_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Network firewall rules per subscriber IP pool (§17)';
+
+-- ---------------------------------------------------------------------------
+-- Table: ddos_protection_rules (migration 328 — §17)
+-- Purpose: DDoS Flowspec/RTBH mitigation rules.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ddos_protection_rules (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    name                VARCHAR(150)    NOT NULL,
+    rule_type           ENUM('flowspec','rtbh','scrubbing','rate_limit') NOT NULL DEFAULT 'rtbh'
+                            COMMENT 'Mitigation mechanism: Flowspec (RFC 5575), RTBH, scrubbing center, or rate limiting',
+    target_prefix       VARCHAR(50)     NOT NULL COMMENT 'Target IP prefix under attack (CIDR notation)',
+    target_protocol     ENUM('tcp','udp','icmp','any') NULL DEFAULT 'any',
+    target_port         VARCHAR(50)     NULL COMMENT 'Port or range; NULL = all ports',
+    action              ENUM('blackhole','rate_limit','redirect_scrubbing','flowspec_drop','monitor_only') NOT NULL DEFAULT 'blackhole',
+    bandwidth_threshold_mbps INT UNSIGNED NULL COMMENT 'Traffic threshold that triggers auto-activation (Mbps)',
+    pps_threshold       BIGINT UNSIGNED NULL COMMENT 'Packets-per-second threshold for auto-activation',
+    status              ENUM('inactive','active','auto_triggered','expired') NOT NULL DEFAULT 'inactive',
+    triggered_at        DATETIME        NULL COMMENT 'When this rule was last activated',
+    expires_at          DATETIME        NULL COMMENT 'Auto-deactivation time; NULL = manual only',
+    activated_by        BIGINT UNSIGNED NULL COMMENT 'User who manually activated; NULL = auto',
+    notes               TEXT            NULL,
+    created_by          BIGINT UNSIGNED NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_ddos_protection_rules_org (organization_id),
+    KEY idx_ddos_protection_rules_status (status),
+    KEY idx_ddos_protection_rules_prefix (target_prefix),
+    KEY idx_ddos_protection_rules_deleted_at (deleted_at),
+    CONSTRAINT fk_ddos_protection_rules_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_ddos_protection_rules_activated_by FOREIGN KEY (activated_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_ddos_protection_rules_created_by FOREIGN KEY (created_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='DDoS Flowspec/RTBH mitigation rules (§17)';
+
+-- ---------------------------------------------------------------------------
+-- Table: blackhole_routes (migration 329 — §17)
+-- Purpose: Blackhole routing records for subscriber IPs/prefixes under attack.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS blackhole_routes (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    prefix              VARCHAR(50)     NOT NULL COMMENT 'IPv4/IPv6 prefix or host address being blackholed',
+    subscriber_id       BIGINT UNSIGNED NULL COMMENT 'FK to clients.id; NULL if non-subscriber prefix',
+    reason              VARCHAR(500)    NOT NULL COMMENT 'Human-readable reason for blackholing',
+    triggered_by        ENUM('manual','auto_ddos','policy','abuse','law_enforcement') NOT NULL DEFAULT 'manual',
+    triggered_by_user   BIGINT UNSIGNED NULL COMMENT 'User who triggered manual blackhole',
+    ddos_rule_id        BIGINT UNSIGNED NULL COMMENT 'FK to ddos_protection_rules if auto-triggered',
+    is_active           TINYINT(1)      NOT NULL DEFAULT 1,
+    activated_at        DATETIME        NOT NULL COMMENT 'When blackhole was applied',
+    expires_at          DATETIME        NULL COMMENT 'Scheduled deactivation; NULL = manual removal only',
+    deactivated_at      DATETIME        NULL,
+    deactivated_by      BIGINT UNSIGNED NULL,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_blackhole_routes_org (organization_id),
+    KEY idx_blackhole_routes_prefix (prefix),
+    KEY idx_blackhole_routes_active (is_active),
+    KEY idx_blackhole_routes_subscriber (subscriber_id),
+    KEY idx_blackhole_routes_activated_at (activated_at),
+    CONSTRAINT fk_blackhole_routes_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_blackhole_routes_subscriber FOREIGN KEY (subscriber_id)
+        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_blackhole_routes_triggered_by_user FOREIGN KEY (triggered_by_user)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_blackhole_routes_ddos_rule FOREIGN KEY (ddos_rule_id)
+        REFERENCES ddos_protection_rules (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_blackhole_routes_deactivated_by FOREIGN KEY (deactivated_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Blackhole routing records for subscriber IPs/prefixes (§17)';
+
+-- ---------------------------------------------------------------------------
+-- Table: dns_blocklists (migration 330 — §17)
+-- Purpose: DNS blocklist entries per organization (malware, phishing, ads).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS dns_blocklists (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL COMMENT 'Tenant org; NULL = global/single-tenant',
+    domain              VARCHAR(253)    NOT NULL COMMENT 'FQDN to block (e.g. malware.example.com)',
+    category            ENUM('malware','phishing','ads','spam','adult','gambling','botnet','other')
+                            NOT NULL DEFAULT 'malware',
+    entry_type          ENUM('manual','auto_import','threat_feed') NOT NULL DEFAULT 'manual',
+    threat_feed_source  VARCHAR(150)    NULL COMMENT 'Name of threat intelligence feed (if auto_import)',
+    is_active           TINYINT(1)      NOT NULL DEFAULT 1,
+    expires_at          DATETIME        NULL COMMENT 'Auto-expire; NULL = permanent',
+    added_by            BIGINT UNSIGNED NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        NULL,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_dns_blocklists_org_domain (organization_id, domain),
+    KEY idx_dns_blocklists_org (organization_id),
+    KEY idx_dns_blocklists_domain (domain),
+    KEY idx_dns_blocklists_category (category),
+    KEY idx_dns_blocklists_active (is_active),
+    KEY idx_dns_blocklists_deleted_at (deleted_at),
+    CONSTRAINT fk_dns_blocklists_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_dns_blocklists_added_by FOREIGN KEY (added_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='DNS blocklist entries per organization (§17)';
+
+-- ---------------------------------------------------------------------------
+-- Table: cpe_security_scans (migration 331 — §17)
+-- Purpose: CPE security scan results including default credential detection.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cpe_security_scans (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id         BIGINT UNSIGNED NULL,
+    device_id               BIGINT UNSIGNED NULL COMMENT 'FK to devices.id',
+    cpe_device_id           BIGINT UNSIGNED NULL COMMENT 'FK to cpe_devices.id',
+    scan_type               ENUM('default_credentials','open_ports','firmware_cve','configuration_audit','full') NOT NULL DEFAULT 'full',
+    status                  ENUM('pending','running','completed','failed','cancelled') NOT NULL DEFAULT 'pending',
+    default_password_found  TINYINT(1)      NOT NULL DEFAULT 0 COMMENT '1 if factory/default credentials detected',
+    open_ports              JSON            NULL COMMENT 'Array of open port numbers found',
+    cve_findings            JSON            NULL COMMENT 'Array of CVE IDs found in firmware',
+    risk_level              ENUM('none','low','medium','high','critical') NULL DEFAULT 'none',
+    result_summary          TEXT            NULL COMMENT 'Human-readable scan summary',
+    raw_result              LONGTEXT        NULL COMMENT 'Full raw scan output (JSON or text)',
+    started_at              DATETIME        NULL,
+    completed_at            DATETIME        NULL,
+    initiated_by            BIGINT UNSIGNED NULL COMMENT 'User who triggered the scan; NULL = auto/scheduled',
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_cpe_security_scans_org (organization_id),
+    KEY idx_cpe_security_scans_device (device_id),
+    KEY idx_cpe_security_scans_cpe_device (cpe_device_id),
+    KEY idx_cpe_security_scans_scan_type (scan_type),
+    KEY idx_cpe_security_scans_status (status),
+    KEY idx_cpe_security_scans_risk_level (risk_level),
+    KEY idx_cpe_security_scans_created_at (created_at),
+    CONSTRAINT fk_cpe_security_scans_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_security_scans_device FOREIGN KEY (device_id)
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_security_scans_cpe_device FOREIGN KEY (cpe_device_id)
+        REFERENCES cpe_devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_security_scans_initiated_by FOREIGN KEY (initiated_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='CPE security scan results including default credential detection (§17)';
+
+-- ---------------------------------------------------------------------------
+-- Table: encryption_key_metadata (migration 332 — §17)
+-- Purpose: Encryption key management and rotation tracking.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS encryption_key_metadata (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL COMMENT 'Tenant scope; NULL = system-wide key',
+    key_id              VARCHAR(100)    NOT NULL COMMENT 'Unique key identifier (e.g. key-2024-01-aes256)',
+    purpose             VARCHAR(100)    NOT NULL COMMENT 'What this key encrypts (e.g. snmp_credentials, payment_data, totp_secrets)',
+    algorithm           VARCHAR(50)     NOT NULL DEFAULT 'AES-256-GCM' COMMENT 'Encryption algorithm',
+    key_length_bits     SMALLINT UNSIGNED NULL DEFAULT 256,
+    key_reference       VARCHAR(500)    NULL COMMENT 'KMS key ARN or Vault path; NULL if local key',
+    status              ENUM('active','retired','compromised','pending_rotation') NOT NULL DEFAULT 'active',
+    version             SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    rotated_at          DATETIME        NULL COMMENT 'When key was last rotated',
+    expires_at          DATETIME        NULL COMMENT 'Scheduled expiry; NULL = no expiry',
+    next_rotation_at    DATETIME        NULL COMMENT 'Scheduled next rotation',
+    rotated_by          BIGINT UNSIGNED NULL,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_encryption_key_metadata_key_id (key_id),
+    KEY idx_encryption_key_metadata_org (organization_id),
+    KEY idx_encryption_key_metadata_purpose (purpose),
+    KEY idx_encryption_key_metadata_status (status),
+    CONSTRAINT fk_encryption_key_metadata_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_encryption_key_metadata_rotated_by FOREIGN KEY (rotated_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Encryption key management and rotation tracking (§17)';
+
+-- ---------------------------------------------------------------------------
+-- Table: data_masking_rules (migration 333 — §17)
+-- Purpose: Data masking configuration per table column.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS data_masking_rules (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id         BIGINT UNSIGNED NULL,
+    table_name              VARCHAR(100)    NOT NULL COMMENT 'Database table containing sensitive column',
+    column_name             VARCHAR(100)    NOT NULL COMMENT 'Column to mask',
+    mask_type               ENUM('full','partial','hash','tokenize','redact') NOT NULL DEFAULT 'partial'
+                                COMMENT 'full=*****, partial=show first/last chars, hash=SHA256, tokenize=reversible token, redact=remove from output',
+    mask_pattern            VARCHAR(100)    NULL COMMENT 'Custom masking pattern, e.g. XXXX-XXXX-XXXX-{last4}',
+    min_role_to_view_plain  VARCHAR(50)     NOT NULL DEFAULT 'admin' COMMENT 'Minimum role name allowed to see unmasked value',
+    is_active               TINYINT(1)      NOT NULL DEFAULT 1,
+    notes                   VARCHAR(500)    NULL,
+    created_by              BIGINT UNSIGNED NULL,
+    created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_data_masking_rules_table_col (organization_id, table_name, column_name),
+    KEY idx_data_masking_rules_org (organization_id),
+    KEY idx_data_masking_rules_table (table_name),
+    KEY idx_data_masking_rules_active (is_active),
+    CONSTRAINT fk_data_masking_rules_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_data_masking_rules_created_by FOREIGN KEY (created_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Data masking configuration per table column (§17)';
+
+-- ---------------------------------------------------------------------------
+-- Table: secure_deletion_log (migration 334 — §17)
+-- Purpose: Audit log of secure deletion operations for GDPR/LFPDPPP compliance.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS secure_deletion_log (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL,
+    table_name          VARCHAR(100)    NOT NULL COMMENT 'Table from which records were deleted',
+    record_count        INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Number of rows deleted in this operation',
+    deletion_method     ENUM('soft_delete','hard_delete','overwrite','anonymize') NOT NULL DEFAULT 'hard_delete',
+    reason              VARCHAR(500)    NOT NULL COMMENT 'Reason for deletion (e.g. DSAR erasure, retention_policy, manual)',
+    requestor_type      ENUM('user','system','dsar','retention_policy','legal') NOT NULL DEFAULT 'user',
+    requestor_id        BIGINT UNSIGNED NULL COMMENT 'User who requested deletion; NULL = system/automated',
+    dsar_request_id     BIGINT UNSIGNED NULL COMMENT 'FK to dsar_requests.id if triggered by a DSAR',
+    criteria            JSON            NULL COMMENT 'Filter criteria used to identify deleted records',
+    checksum            VARCHAR(64)     NULL COMMENT 'SHA-256 of deleted record IDs list for audit trail',
+    deleted_at          DATETIME        NOT NULL COMMENT 'Timestamp of deletion operation',
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    KEY idx_secure_deletion_log_org (organization_id),
+    KEY idx_secure_deletion_log_table (table_name),
+    KEY idx_secure_deletion_log_deleted_at (deleted_at),
+    KEY idx_secure_deletion_log_requestor (requestor_id),
+    CONSTRAINT fk_secure_deletion_log_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_secure_deletion_log_requestor FOREIGN KEY (requestor_id)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Audit log of secure deletion operations for compliance (§17)';
+
+-- ---------------------------------------------------------------------------
+-- Seed: new §17 roles (migration 335)
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO roles (name, description, is_system) VALUES
+    ('super_admin',    'Super administrator — full system access including security settings', TRUE),
+    ('noc_operator',   'NOC operator — network monitoring, device management, and incident response', TRUE),
+    ('reseller_admin', 'Reseller administrator — manage reseller customers and billing', TRUE),
+    ('auditor',        'Read-only auditor — view all resources for compliance and audit purposes', TRUE);
+
 SET FOREIGN_KEY_CHECKS = 1;

@@ -128,6 +128,7 @@
                 "queueStats":  "📥 Status das Filas",
                 "analyticsDashboard":  "Painel de Análises",
                 "regulatoryCompliance": "Conformidade Regulatoria",
+                "securityAccessControl": "Seguranca e Acesso",
                 "sections":  {
                                  "clients":  "Clientes",
                                  "billing":  "Faturamento",
@@ -2680,6 +2681,87 @@
       "reportType": "Tipo de Relatorio",
       "accessedAt": "Acessado Em",
       "userId": "ID do Usuario"
+    }
+  },
+  "securityAccessControl": {
+    "title": "Seguranca e Controle de Acesso",
+    "tabs": {
+      "userSecurity": "Seguranca de Usuarios",
+      "apiSecurity": "Seguranca de API",
+      "networkSecurity": "Seguranca de Rede",
+      "dataSecurity": "Seguranca de Dados"
+    },
+    "userSecurity": {
+      "webauthn": "Credenciais WebAuthn / MFA",
+      "noCredentials": "Nenhuma credencial WebAuthn registrada",
+      "credentialId": "ID da Credencial",
+      "friendlyName": "Nome Amigavel",
+      "createdAt": "Registrado Em",
+      "passwordPolicy": "Politica de Senhas",
+      "noPolicyConfigured": "Nenhuma politica de senhas configurada",
+      "minLength": "Comprimento Minimo",
+      "maxLength": "Comprimento Maximo",
+      "rotationDays": "Rotacao de Senha (dias)",
+      "lockoutAttempts": "Bloqueio Apos (tentativas)",
+      "adminIpAllowlist": "Lista de IPs Permitidos para Admin",
+      "noIpEntries": "Nenhuma entrada de IP permitido configurada",
+      "ipAddress": "Endereco IP / CIDR",
+      "expiresAt": "Expira Em"
+    },
+    "apiSecurity": {
+      "rateLimits": "Limites de Taxa por Chave API",
+      "noRateLimits": "Nenhum limite de taxa configurado",
+      "tokenId": "ID do Token",
+      "perMinute": "Req / Minuto",
+      "perHour": "Req / Hora",
+      "perDay": "Req / Dia"
+    },
+    "networkSecurity": {
+      "firewallRules": "Regras de Firewall",
+      "noFirewallRules": "Nenhuma regra de firewall configurada",
+      "action": "Acao",
+      "protocol": "Protocolo",
+      "srcIp": "IP de Origem",
+      "dstIp": "IP de Destino",
+      "ruleType": "Tipo de Regra",
+      "targetPrefix": "Prefixo Alvo",
+      "ddosProtection": "Regras de Protecao DDoS",
+      "noDdosRules": "Nenhuma regra de protecao DDoS configurada",
+      "blackholeRoutes": "Rotas Blackhole",
+      "noBlackholeRoutes": "Nenhuma rota blackhole ativa",
+      "reason": "Motivo",
+      "releasedAt": "Liberado Em",
+      "released": "Liberado",
+      "dnsBlocklists": "Listas de Bloqueio DNS",
+      "noDnsBlocklists": "Nenhuma entrada na lista de bloqueio DNS",
+      "domain": "Dominio",
+      "category": "Categoria",
+      "cpeScans": "Varreduras de Seguranca CPE",
+      "noCpeScans": "Nenhuma varredura de seguranca CPE registrada",
+      "scanType": "Tipo de Varredura",
+      "startedAt": "Iniciado Em",
+      "completedAt": "Concluido Em"
+    },
+    "dataSecurity": {
+      "tlsConfig": "Configuracao TLS",
+      "minTls": "Versao TLS Minima",
+      "recommendedTls": "Versao TLS Recomendada",
+      "encryptionKeys": "Metadados de Chaves de Criptografia",
+      "noEncryptionKeys": "Nenhum metadado de chave de criptografia registrado",
+      "keyAlias": "Alias da Chave",
+      "algorithm": "Algoritmo",
+      "rotatedAt": "Ultima Rotacao",
+      "dataMasking": "Regras de Mascaramento de Dados",
+      "noMaskingRules": "Nenhuma regra de mascaramento configurada",
+      "tableName": "Tabela",
+      "columnName": "Coluna",
+      "maskingType": "Tipo de Mascaramento",
+      "tableNameCol": "Tabela",
+      "secureDeletionLog": "Log de Exclusao Segura",
+      "noDeletionLog": "Nenhum evento de exclusao segura registrado",
+      "recordsDeleted": "Registros Excluidos",
+      "policyApplied": "Politica Aplicada",
+      "deletedAt": "Excluido Em"
     }
   }
 }
