@@ -95,19 +95,19 @@ WHERE r.name IN ('noc_operator', 'super_admin')
 -- Scheduled tasks for §18 (anomaly detection + churn scoring + remediation eval)
 -- ---------------------------------------------------------------------------
 INSERT INTO scheduled_tasks (task_name, task_type, cron_expression, is_enabled, priority)
-SELECT 'anomaly_detection', 'system', '*/15 * * * *', 1, 60
-WHERE NOT EXISTS (
+SELECT 'anomaly_detection', 'other', '*/15 * * * *', 1, 'normal'
+FROM DUAL WHERE NOT EXISTS (
   SELECT 1 FROM scheduled_tasks WHERE task_name = 'anomaly_detection'
 );
 
 INSERT INTO scheduled_tasks (task_name, task_type, cron_expression, is_enabled, priority)
-SELECT 'churn_score_computation', 'system', '0 2 * * *', 1, 40
-WHERE NOT EXISTS (
+SELECT 'churn_score_computation', 'other', '0 2 * * *', 1, 'low'
+FROM DUAL WHERE NOT EXISTS (
   SELECT 1 FROM scheduled_tasks WHERE task_name = 'churn_score_computation'
 );
 
 INSERT INTO scheduled_tasks (task_name, task_type, cron_expression, is_enabled, priority)
-SELECT 'remediation_evaluation', 'system', '*/5 * * * *', 1, 70
-WHERE NOT EXISTS (
+SELECT 'remediation_evaluation', 'other', '*/5 * * * *', 1, 'high'
+FROM DUAL WHERE NOT EXISTS (
   SELECT 1 FROM scheduled_tasks WHERE task_name = 'remediation_evaluation'
 );
