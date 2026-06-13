@@ -17,6 +17,7 @@ const {
   encodeWord,
   encodeSentence,
   readWord,
+  parseSentences,
   parseAttrs,
   RouterOSClient,
   pppoeCreate,
@@ -329,6 +330,74 @@ describe('RouterOSClient', () => {
     });
     await expect(client.connect()).rejects.toThrow();
   });
+
+  test('close() resolves immediately when socket is null', async () => {
+    // After a failed connect, _socket is null — close() should resolve instantly
+    const client = new RouterOSClient({ host: '127.0.0.1', port: 19999, user: 'u', password: 'p' });
+    // _socket starts as null before connect() is called
+    await expect(client.close()).resolves.toBeUndefined();
+  });
+
+  test('rejects with !fatal login response', async () => {
+    // !fatal is handled in _onSentence same as !trap — rejects with message
+    const handler = sequenceServer([
+      [['!fatal', '=message=fatal error during auth']],
+    ]);
+    await withMockServer(handler, async (port) => {
+      const client = new RouterOSClient({ host: '127.0.0.1', port, user: 'admin', password: '' });
+      await expect(client.connect()).rejects.toThrow('fatal error during auth');
+    });
+  });
+
+  test('_onSocketError rejects pending commands when socket emits error', async () => {
+    // Simulate a socket error occurring mid-command by destroying the server socket
+    // which causes the client socket to emit ECONNRESET (handled by _onSocketError)
+    let serverSideSocket;
+    const { server, port } = await createMockServer((sentence, socket) => {
+      if (sentence[0] === '/login') {
+        socket.write(buildSentence(['!done']));
+        serverSideSocket = socket;
+      }
+      // Don't reply to command — let the forced destroy trigger the error
+      return null;
+    });
+    try {
+      const client = new RouterOSClient({ host: '127.0.0.1', port, user: 'admin', password: '' });
+      await client.connect();
+      const runPromise = client.run(['/ppp/secret/print']);
+      // Destroy server socket → client gets ECONNRESET (fires _onSocketError)
+      if (serverSideSocket) serverSideSocket.destroy();
+      await expect(runPromise).rejects.toThrow();
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
+
+  test('_onClose rejects pending commands with connection-closed error (graceful close)', async () => {
+    // Simulate server ending connection gracefully (FIN, not RST)
+    // which fires socket close event → _onClose
+    let serverSideSocket;
+    const { server, port } = await createMockServer((sentence, socket) => {
+      if (sentence[0] === '/login') {
+        socket.write(buildSentence(['!done']));
+        serverSideSocket = socket;
+      }
+      // Don't reply to command
+      return null;
+    });
+    try {
+      const client = new RouterOSClient({ host: '127.0.0.1', port, user: 'admin', password: '' });
+      await client.connect();
+      const runPromise = client.run(['/ppp/secret/print']);
+      // End server socket gracefully (sends FIN, fires close on client)
+      if (serverSideSocket) serverSideSocket.end();
+      const rejection = await runPromise.catch((e) => e);
+      // Either ECONNRESET, connection closed, or similar
+      expect(rejection).toBeInstanceOf(Error);
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
 });
 
 // =============================================================================
@@ -630,6 +699,191 @@ describe('configBackup', () => {
     await withMockServer(mockHandler, async (port) => {
       const result = await configBackup({ ...BACKUP_CONN, port }, {});
       expect(result.content).toBe('valid line');
+    });
+  });
+});
+
+// =============================================================================
+// encodeWord — 3-byte length prefix branch (len >= 0x4000 = 16384)
+// =============================================================================
+
+describe('encodeWord — multi-byte prefix branches', () => {
+  test('encodes word of 16384 bytes with 3-byte prefix (0xc0 marker)', () => {
+    // len = 0x4000, first encoded byte = (0x4000 >> 16) | 0xc0 = 0xc0
+    // But 0x4000 >> 16 = 0, so first byte = 0xc0, second = 0x40, third = 0x00
+    const word = 'z'.repeat(16384);
+    const buf = encodeWord(word);
+    // 3-byte header: 0xc0, 0x40, 0x00
+    expect(buf[0]).toBe(0xc0);
+    expect(buf[1]).toBe(0x40);
+    expect(buf[2]).toBe(0x00);
+    expect(buf.length).toBe(16387); // 3 header + 16384 data
+  });
+
+  test('round-trips 3-byte-prefix word through readWord', () => {
+    const word = 'a'.repeat(16384);
+    const buf = encodeWord(word);
+    const result = readWord(buf, 0);
+    expect(result).not.toBeNull();
+    expect(result.word.length).toBe(16384);
+    expect(result.word[0]).toBe('a');
+    expect(result.nextOffset).toBe(buf.length);
+  });
+
+  test('readWord returns null when 3-byte prefix word has insufficient data', () => {
+    // Craft a 3-byte prefix header for len=16384 but provide no data
+    const header = Buffer.from([0xc0, 0x40, 0x00]);
+    const result = readWord(header, 0);
+    expect(result).toBeNull();
+  });
+});
+
+// =============================================================================
+// readWord — 4-byte and 5-byte prefix branches (crafted raw bytes)
+// =============================================================================
+
+describe('readWord — 4-byte and 5-byte prefix parsing', () => {
+  test('reads a 4-byte-prefix word (0xe0 marker)', () => {
+    // Build a word with len=3 using 4-byte header: 0xe0, 0x00, 0x00, 0x03
+    // This is the 0xe0 branch: b0 & 0xf0 === 0xe0
+    const header = Buffer.from([0xe0, 0x00, 0x00, 0x03]);
+    const data = Buffer.from('abc');
+    const terminator = Buffer.from([0x00]);
+    const buf = Buffer.concat([header, data, terminator]);
+    const result = readWord(buf, 0);
+    expect(result).not.toBeNull();
+    expect(result.word).toBe('abc');
+    expect(result.nextOffset).toBe(7); // 4 header + 3 data
+  });
+
+  test('readWord returns null when 4-byte prefix header is incomplete', () => {
+    // Only 3 bytes provided but 4-byte header needs offset+4
+    const buf = Buffer.from([0xe0, 0x00, 0x00]); // incomplete 4-byte header
+    expect(readWord(buf, 0)).toBeNull();
+  });
+
+  test('reads a 5-byte-prefix word (0xf0 marker)', () => {
+    // 5-byte header: first byte 0xf0, then 4 bytes of length
+    // len = 3 => bytes: 0xf0, 0x00, 0x00, 0x00, 0x03
+    const header = Buffer.from([0xf0, 0x00, 0x00, 0x00, 0x03]);
+    const data = Buffer.from('xyz');
+    const buf = Buffer.concat([header, data]);
+    const result = readWord(buf, 0);
+    expect(result).not.toBeNull();
+    expect(result.word).toBe('xyz');
+    expect(result.nextOffset).toBe(8); // 5 header + 3 data
+  });
+
+  test('readWord returns null when 5-byte prefix header is incomplete', () => {
+    const buf = Buffer.from([0xf0, 0x00, 0x00]); // only 3 bytes
+    expect(readWord(buf, 0)).toBeNull();
+  });
+
+  test('readWord returns null when data follows 5-byte prefix but is shorter than len', () => {
+    // len=100 but only 2 bytes of data after 5-byte header
+    const header = Buffer.from([0xf0, 0x00, 0x00, 0x00, 0x64]); // len=100
+    const data = Buffer.from('hi'); // only 2 bytes
+    const buf = Buffer.concat([header, data]);
+    expect(readWord(buf, 0)).toBeNull();
+  });
+});
+
+// =============================================================================
+// parseSentences — standalone parser
+// =============================================================================
+
+describe('parseSentences', () => {
+  test('parses a single complete sentence from buffer', () => {
+    const buf = encodeSentence(['/ppp/secret/print', '?name=user1']);
+    const { sentences, remaining } = parseSentences(buf);
+    expect(sentences).toHaveLength(1);
+    expect(sentences[0]).toEqual(['/ppp/secret/print', '?name=user1']);
+    expect(remaining.length).toBe(0);
+  });
+
+  test('parses multiple sentences', () => {
+    const s1 = encodeSentence(['!re', '=.id=*1', '=name=user1']);
+    const s2 = encodeSentence(['!done']);
+    const buf = Buffer.concat([s1, s2]);
+    const { sentences } = parseSentences(buf);
+    expect(sentences).toHaveLength(2);
+    expect(sentences[0][0]).toBe('!re');
+    expect(sentences[1][0]).toBe('!done');
+  });
+
+  test('returns remaining bytes when sentence is incomplete', () => {
+    // Only a partial sentence (word without terminator)
+    const partial = encodeWord('/login');
+    const { sentences, remaining } = parseSentences(partial);
+    expect(sentences).toHaveLength(0);
+    expect(remaining.length).toBe(partial.length);
+  });
+
+  test('handles empty buffer', () => {
+    const { sentences, remaining } = parseSentences(Buffer.alloc(0));
+    expect(sentences).toHaveLength(0);
+    expect(remaining.length).toBe(0);
+  });
+});
+
+// =============================================================================
+// findPppoeSecretId, findQueueId, findAddressListEntryId — internal helpers
+// Tested indirectly via pppoeDelete, queueSet, and addressListRemove which
+// call these internal functions through mock-server round-trips.
+// =============================================================================
+
+describe('findPppoeSecretId — via pppoeDelete (not-found branch)', () => {
+  test('pppoeDelete handles !re sentence without .id attribute', async () => {
+    // findPppoeSecretId: if sentence is !re but has no .id, returns null
+    const handler = sequenceServer([
+      [['!done']],                    // login
+      [['!re', '=name=user1'], ['!done']], // print — no .id attr
+    ]);
+    await withMockServer(handler, async (port) => {
+      await expect(
+        pppoeDelete({ ...CONN, port }, { name: 'user1' }),
+      ).rejects.toThrow('not found');
+    });
+  });
+
+  test('findPppoeSecretId returns id from !re sentence', async () => {
+    // Verified indirectly: pppoeDelete succeeds when !re has .id
+    const handler = sequenceServer([
+      [['!done']],                                          // login
+      [['!re', '=.id=*5', '=name=user1'], ['!done']],      // print — found
+      [['!done']],                                          // remove
+    ]);
+    await withMockServer(handler, async (port) => {
+      const result = await pppoeDelete({ ...CONN, port }, { name: 'user1' });
+      expect(result.deleted).toBe(true);
+    });
+  });
+});
+
+describe('findQueueId — via queueSet (not-found creates new)', () => {
+  test('findQueueId returns null when !re has no .id (creates queue)', async () => {
+    const handler = sequenceServer([
+      [['!done']],                                   // login
+      [['!re', '=name=q1'], ['!done']],              // queue print — no .id
+      [['!done', '=ret=*99']],                       // queue add
+    ]);
+    await withMockServer(handler, async (port) => {
+      const result = await queueSet({ ...CONN, port }, { name: 'q1', target: '10.0.0.1/32' });
+      expect(result.created).toBe(true);
+    });
+  });
+});
+
+describe('findAddressListEntryId — via addressListRemove (not-found error)', () => {
+  test('findAddressListEntryId returns null when !re has no .id', async () => {
+    const handler = sequenceServer([
+      [['!done']],                                          // login
+      [['!re', '=list=blocked', '=address=9.9.9.9'], ['!done']], // print — no .id
+    ]);
+    await withMockServer(handler, async (port) => {
+      await expect(
+        addressListRemove({ ...CONN, port }, { list: 'blocked', address: '9.9.9.9' }),
+      ).rejects.toThrow('not found');
     });
   });
 });

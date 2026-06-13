@@ -705,32 +705,32 @@
 ## 18. Automation & Scripting
 
 ### 18.1 Workflow Automation
-- [ ] Event-triggered rules (if X then Y)
-- [ ] Scheduled tasks (cron-based)
-- [ ] Batch subscriber operations (suspend, rate-limit, send notification)
-- [ ] Auto-provisioning pipeline: order → assign IP → configure → activate → notify
-- [ ] Auto-remediation scripts (e.g., reboot ONU if offline > 5 min)
+- [x] Event-triggered rules (if X then Y)
+- [x] Scheduled tasks (cron-based)
+- [x] Batch subscriber operations (suspend, rate-limit, send notification)
+- [x] Auto-provisioning pipeline: order → assign IP → configure → activate → notify
+- [x] Auto-remediation scripts (e.g., reboot ONU if offline > 5 min)
 
 ### 18.2 Scripting Engine
-- [ ] Built-in script editor (Bash / Python / PowerShell)
-- [ ] Script library with community/shared scripts
-- [ ] Script execution logging and error handling
-- [ ] API call from within scripts (to platform APIs and external)
-- [ ] Scheduler for recurring scripts
+- [x] Built-in script editor (Bash / Python / PowerShell)
+- [x] Script library with community/shared scripts
+- [x] Script execution logging and error handling
+- [x] API call from within scripts (to platform APIs and external)
+- [x] Scheduler for recurring scripts
 
 ### 18.3 Router API Integration
-- [ ] MikroTik RouterOS API (primary)
-- [ ] Cisco IOS/IOS-XE SSH / RESTCONF
-- [ ] Juniper JunOS NETCONF / REST
-- [ ] ZTE/Huawei OTL TL1 / SSH / NETCONF
-- [ ] REST API for modern NMS devices
+- [x] MikroTik RouterOS API (primary)
+- [x] Cisco IOS/IOS-XE SSH / RESTCONF
+- [x] Juniper JunOS NETCONF / REST
+- [x] ZTE/Huawei OTL TL1 / SSH / NETCONF
+- [x] REST API for modern NMS devices
 
 ### 18.4 AI / ML — NMS & Operations Analytics (summary)
-- [ ] Anomaly detection on traffic patterns
-- [ ] Predictive failure analysis (SFP degradation, ONU failure)
-- [ ] Smart alert correlation and noise reduction
-- [ ] Bandwidth forecasting (capacity planning)
-- [ ] Churn prediction scoring
+- [x] Anomaly detection on traffic patterns
+- [x] Predictive failure analysis (SFP degradation, ONU failure)
+- [x] Smart alert correlation and noise reduction
+- [x] Bandwidth forecasting (capacity planning)
+- [x] Churn prediction scoring
 - [ ] **Full AI-powered customer support system — see Section 21**
 
 ---
