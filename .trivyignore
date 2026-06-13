@@ -1,0 +1,14 @@
+# Trivy ignore list — each entry MUST carry a rationale and (where possible) a removal condition.
+# Format: one CVE/GHSA id per line. Consulted by aquasecurity/trivy-action in CI (.github/workflows/ci.yml).
+
+# CVE-2026-41907 — uuid <14.0.0: v3/v5/v6 accept external output buffers without rejecting
+# out-of-range writes (silent partial writes). NVD severity MEDIUM; Trivy rates HIGH via vendor feed.
+# Reaches the image ONLY as a transitive dependency of `autocannon` (an HTTP load-testing DEV tool):
+#   uuid@8.3.2 <- hyperid@3.3.0 <- autocannon@7.15.0 <- fireisp (devDependencies)
+# It is NOT in the production dependency tree — a clean `pnpm install --frozen-lockfile --prod`
+# (as the Dockerfile runtime stage uses) resolves zero uuid packages. The affected APIs (v3/v5/v6
+# with caller-provided buffers) are never exercised by any runtime code path.
+# Newly published advisory: the PR scan (exit-code 0, non-blocking) passed; the push-to-main scan
+# (exit-code 1, blocking) began failing only once Trivy's DB picked up this CVE.
+# Remove this entry once autocannon ships a release whose uuid resolves to >=11.1.1.
+CVE-2026-41907

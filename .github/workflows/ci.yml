@@ -466,6 +466,7 @@ jobs:
           exit-code: 0
           vuln-type: os,library
           ignore-unfixed: true
+          trivyignores: .trivyignore
 
       - name: Scan image with Trivy (blocking)
         if: github.event_name != 'pull_request'
@@ -479,6 +480,7 @@ jobs:
           exit-code: 1
           vuln-type: os,library
           ignore-unfixed: true
+          trivyignores: .trivyignore
 
       - name: Upload Trivy SARIF report
         uses: actions/upload-artifact@v6
