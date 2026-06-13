@@ -194,6 +194,8 @@ function generateSpec() {
       { name: 'Scripting', description: '§18.2 script storage, library, execution logging (STUB — no live dispatch)' },
       { name: 'Router Drivers', description: '§18.3 vendor router API integration — MikroTik live, Cisco/Juniper/ZTE/Huawei/REST stubbed' },
       { name: 'Analytics', description: '§18.4 heuristic analytics — z-score anomaly detection, predictive failure, alert correlation, bandwidth forecast, churn scoring' },
+      { name: 'Resellers', description: '§19 Multi-Tenancy / Reseller Support — hierarchy, pricing, commissions, resource allocation, and reseller portal' },
+      { name: 'Reseller Portal', description: '§19.3 Reseller portal endpoints — dashboard, customer management, invoices, inventory' },
     ],
     paths: {
       // ---- Auth ----
@@ -2439,6 +2441,76 @@ function generateSpec() {
       },
       '/analytics/churn-scores/compute': {
         post: { tags: ['Analytics'], summary: 'Run churn score computation for org (heuristic)', operationId: 'computeChurnScores', security: [{ bearerAuth: [] }], responses: r200('ChurnComputeResult') },
+      },
+
+      // ---- §19 Resellers ----
+      '/resellers': {
+        get: { tags: ['Resellers'], summary: 'List resellers', operationId: 'listResellers', security: [{ bearerAuth: [] }], responses: r200('Reseller[]') },
+        post: { tags: ['Resellers'], summary: 'Create reseller', operationId: 'createReseller', security: [{ bearerAuth: [] }], requestBody: jsonBody('Reseller'), responses: r201('Reseller') },
+      },
+      '/resellers/{id}': {
+        get: { tags: ['Resellers'], summary: 'Get reseller', operationId: 'getReseller', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Reseller') },
+        put: { tags: ['Resellers'], summary: 'Update reseller', operationId: 'updateReseller', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('Reseller'), responses: r200('Reseller') },
+        delete: { tags: ['Resellers'], summary: 'Delete reseller', operationId: 'deleteReseller', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/resellers/{id}/suspend': {
+        post: { tags: ['Resellers'], summary: 'Toggle reseller suspension', operationId: 'suspendReseller', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Status') },
+      },
+      '/resellers/{id}/plan-prices': {
+        get: { tags: ['Resellers'], summary: 'List custom plan prices', operationId: 'listResellerPlanPrices', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('PlanPrice[]') },
+        post: { tags: ['Resellers'], summary: 'Set custom plan price', operationId: 'setResellerPlanPrice', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('PlanPrice'), responses: r201('PlanPrice') },
+      },
+      '/resellers/{id}/plan-prices/{ppId}': {
+        delete: { tags: ['Resellers'], summary: 'Remove custom plan price', operationId: 'deleteResellerPlanPrice', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'ppId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/resellers/{id}/commissions': {
+        get: { tags: ['Resellers'], summary: 'List commission records', operationId: 'listResellerCommissions', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Commission[]') },
+      },
+      '/resellers/{id}/commissions/{cId}/approve': {
+        post: { tags: ['Resellers'], summary: 'Approve or mark commission paid', operationId: 'approveResellerCommission', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'cId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('status'), responses: r200('Commission') },
+      },
+      '/resellers/{id}/ip-pools': {
+        get: { tags: ['Resellers'], summary: 'List IP pool allocations', operationId: 'listResellerIpPools', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('IpPoolAllocation[]') },
+        post: { tags: ['Resellers'], summary: 'Add IP pool allocation', operationId: 'addResellerIpPool', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('ip_pool_id'), responses: r201('IpPoolAllocation') },
+      },
+      '/resellers/{id}/ip-pools/{allocId}': {
+        delete: { tags: ['Resellers'], summary: 'Remove IP pool allocation', operationId: 'removeResellerIpPool', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'allocId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/resellers/{id}/bandwidth-quota': {
+        get: { tags: ['Resellers'], summary: 'Get bandwidth quota', operationId: 'getResellerBandwidthQuota', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('BandwidthQuota') },
+        put: { tags: ['Resellers'], summary: 'Set bandwidth quota', operationId: 'setResellerBandwidthQuota', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('BandwidthQuota'), responses: r200('BandwidthQuota') },
+      },
+      '/resellers/{id}/olt-ports': {
+        get: { tags: ['Resellers'], summary: 'List OLT port assignments', operationId: 'listResellerOltPorts', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('OltPortAssignment[]') },
+        post: { tags: ['Resellers'], summary: 'Add OLT port assignment', operationId: 'addResellerOltPort', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('olt_port_id'), responses: r201('OltPortAssignment') },
+      },
+      '/resellers/{id}/olt-ports/{aId}': {
+        delete: { tags: ['Resellers'], summary: 'Remove OLT port assignment', operationId: 'removeResellerOltPort', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'aId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/resellers/{id}/billing-entity': {
+        get: { tags: ['Resellers'], summary: 'Get billing entity', operationId: 'getResellerBillingEntity', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('BillingEntity') },
+        put: { tags: ['Resellers'], summary: 'Upsert billing entity', operationId: 'upsertResellerBillingEntity', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('BillingEntity'), responses: r200('BillingEntity') },
+      },
+
+      // ---- §19.3 Reseller Portal ----
+      '/reseller-portal/{id}/dashboard': {
+        get: { tags: ['Reseller Portal'], summary: 'Reseller dashboard aggregates', operationId: 'getResellerDashboard', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ResellerDashboard') },
+      },
+      '/reseller-portal/{id}/clients': {
+        get: { tags: ['Reseller Portal'], summary: 'List reseller clients', operationId: 'listResellerPortalClients', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Client[]') },
+        post: { tags: ['Reseller Portal'], summary: 'Create client under reseller', operationId: 'createResellerPortalClient', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('Client'), responses: r201('Client') },
+      },
+      '/reseller-portal/{id}/clients/{cId}/suspend': {
+        post: { tags: ['Reseller Portal'], summary: 'Suspend or reactivate client', operationId: 'suspendResellerPortalClient', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'cId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('Status') },
+      },
+      '/reseller-portal/{id}/clients/{cId}/cancel': {
+        post: { tags: ['Reseller Portal'], summary: 'Cancel (set inactive) client', operationId: 'cancelResellerPortalClient', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'cId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('Status') },
+      },
+      '/reseller-portal/{id}/invoices': {
+        get: { tags: ['Reseller Portal'], summary: 'List reseller client invoices', operationId: 'listResellerPortalInvoices', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Invoice[]') },
+      },
+      '/reseller-portal/{id}/inventory': {
+        get: { tags: ['Reseller Portal'], summary: 'List reseller assigned inventory', operationId: 'listResellerPortalInventory', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('AssetAssignment[]') },
       },
     },
     components: {

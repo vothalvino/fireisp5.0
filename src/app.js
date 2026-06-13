@@ -189,6 +189,8 @@ const remediationRulesRoutes = require('./routes/remediationRules');
 const automationScriptsRoutes = require('./routes/automationScripts');
 const routerDriversRoutes = require('./routes/routerDrivers');
 const analyticsAIRoutes = require('./routes/analyticsAI');
+const resellerRoutes = require('./routes/resellers');
+const resellerPortalRoutes = require('./routes/resellerPortal');
 const acsService = require('./services/acsService');
 const graphqlMiddleware = require('./graphql');
 
@@ -606,6 +608,10 @@ v1.use('/remediation-rules', remediationRulesRoutes);
 v1.use('/automation-scripts', adminIpAllowlist, automationScriptsRoutes);
 v1.use('/router-drivers', routerDriversRoutes);
 v1.use('/analytics', analyticsAIRoutes);
+
+// §19 Multi-Tenancy / Reseller Support
+v1.use('/resellers', resellerRoutes);
+v1.use('/reseller-portal', resellerPortalRoutes);
 
 v1.use('/graphql', authenticate, orgScope, graphqlMiddleware);
 

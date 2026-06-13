@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS clients (
     version         INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
     suspension_exempt        TINYINT(1)   NOT NULL DEFAULT 0   COMMENT 'When 1, suspension rules will never be applied to this client',
     suspension_exempt_reason VARCHAR(500) NULL                 COMMENT 'Optional explanation for why this client is exempt from suspension',
+    reseller_id     BIGINT UNSIGNED NULL     COMMENT 'Reseller this client belongs to; NULL = direct ISP customer (§19)',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
@@ -88,11 +89,14 @@ CREATE TABLE IF NOT EXISTS clients (
     KEY idx_clients_status (status),
     KEY idx_clients_email (email),
     KEY idx_clients_risk_rating (risk_rating),
+    KEY idx_clients_reseller_id (reseller_id),
     KEY idx_clients_deleted_at (deleted_at),
     CONSTRAINT fk_clients_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_clients_client_group FOREIGN KEY (client_group_id)
-        REFERENCES client_groups (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES client_groups (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_clients_reseller FOREIGN KEY (reseller_id)
+        REFERENCES resellers (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -12960,5 +12964,192 @@ CREATE TABLE IF NOT EXISTS churn_scores (
     CONSTRAINT fk_churn_scores_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_churn_scores_client FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Rule-based churn risk scores per client (heuristic) (§18.4)';
+
+-- ---------------------------------------------------------------------------
+-- Table: resellers (migration 344 — §19.1 Multi-Tenancy / Reseller Support)
+-- Purpose: ISP → Master Reseller → Sub-Reseller hierarchy with white-label branding
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS resellers (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED NULL     COMMENT 'Tenant organization; NULL = single-tenant',
+    parent_id           BIGINT UNSIGNED NULL     COMMENT 'NULL = top-level; non-null = sub-reseller',
+    level               TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '1=Master Reseller, 2=Sub-Reseller',
+    name                VARCHAR(255)    NOT NULL,
+    email               VARCHAR(255)    NULL,
+    phone               VARCHAR(30)     NULL,
+    contact_name        VARCHAR(255)    NULL,
+    status              ENUM('active', 'suspended', 'inactive') NOT NULL DEFAULT 'active',
+    commission_rate     DECIMAL(5, 2)  NOT NULL DEFAULT 0.00,
+    brand_logo_url      VARCHAR(500)    NULL,
+    brand_primary_color VARCHAR(7)      NULL,
+    brand_accent_color  VARCHAR(7)      NULL,
+    portal_domain       VARCHAR(255)    NULL,
+    portal_name         VARCHAR(255)    NULL,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at          DATETIME        DEFAULT NULL,
+    PRIMARY KEY (id),
+    KEY idx_resellers_organization_id (organization_id),
+    KEY idx_resellers_parent_id (parent_id),
+    KEY idx_resellers_status (status),
+    KEY idx_resellers_deleted_at (deleted_at),
+    CONSTRAINT fk_resellers_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_resellers_parent FOREIGN KEY (parent_id)
+        REFERENCES resellers (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Multi-level reseller hierarchy (§19.1)';
+
+-- ---------------------------------------------------------------------------
+-- Table: reseller_plan_prices (migration 344 — §19.1)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS reseller_plan_prices (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    reseller_id     BIGINT UNSIGNED NOT NULL,
+    plan_id         BIGINT UNSIGNED NOT NULL,
+    custom_price    DECIMAL(12, 2)  NOT NULL,
+    currency        VARCHAR(3)      NOT NULL DEFAULT 'USD',
+    is_active       TINYINT(1)      NOT NULL DEFAULT 1,
+    notes           TEXT            NULL,
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_reseller_plan_prices (reseller_id, plan_id),
+    KEY idx_reseller_plan_prices_reseller_id (reseller_id),
+    KEY idx_reseller_plan_prices_plan_id (plan_id),
+    CONSTRAINT fk_rpp_reseller FOREIGN KEY (reseller_id)
+        REFERENCES resellers (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_rpp_plan FOREIGN KEY (plan_id)
+        REFERENCES plans (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Per-reseller custom plan pricing overrides (§19.1)';
+
+-- ---------------------------------------------------------------------------
+-- Table: reseller_commissions (migration 344 — §19.1)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS reseller_commissions (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    reseller_id     BIGINT UNSIGNED NOT NULL,
+    invoice_id      BIGINT UNSIGNED NOT NULL,
+    client_id       BIGINT UNSIGNED NOT NULL,
+    commission_rate DECIMAL(5, 2)   NOT NULL,
+    invoice_total   DECIMAL(12, 2)  NOT NULL,
+    commission_amount DECIMAL(12, 2) NOT NULL,
+    currency        VARCHAR(3)      NOT NULL DEFAULT 'USD',
+    status          ENUM('pending', 'approved', 'paid', 'cancelled') NOT NULL DEFAULT 'pending',
+    paid_at         DATETIME        NULL,
+    notes           TEXT            NULL,
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_reseller_commissions (reseller_id, invoice_id),
+    KEY idx_reseller_commissions_reseller_id (reseller_id),
+    KEY idx_reseller_commissions_invoice_id (invoice_id),
+    KEY idx_reseller_commissions_client_id (client_id),
+    KEY idx_reseller_commissions_status (status),
+    CONSTRAINT fk_rc_reseller FOREIGN KEY (reseller_id)
+        REFERENCES resellers (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_rc_invoice FOREIGN KEY (invoice_id)
+        REFERENCES invoices (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_rc_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Commission earnings per reseller per invoice (§19.1)';
+
+-- ---------------------------------------------------------------------------
+-- Table: reseller_ip_pool_allocations (migration 346 — §19.2)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS reseller_ip_pool_allocations (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    reseller_id     BIGINT UNSIGNED NOT NULL,
+    ip_pool_id      BIGINT UNSIGNED NOT NULL,
+    notes           TEXT            NULL,
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_reseller_ip_pool (reseller_id, ip_pool_id),
+    KEY idx_ripa_reseller_id (reseller_id),
+    KEY idx_ripa_ip_pool_id (ip_pool_id),
+    CONSTRAINT fk_ripa_reseller FOREIGN KEY (reseller_id)
+        REFERENCES resellers (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_ripa_ip_pool FOREIGN KEY (ip_pool_id)
+        REFERENCES ip_pools (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='IP pool allocation mapping per reseller (§19.2)';
+
+-- ---------------------------------------------------------------------------
+-- Table: reseller_bandwidth_quotas (migration 346 — §19.2)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS reseller_bandwidth_quotas (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    reseller_id         BIGINT UNSIGNED NOT NULL,
+    download_mbps       INT UNSIGNED    NULL,
+    upload_mbps         INT UNSIGNED    NULL,
+    burst_download_mbps INT UNSIGNED    NULL,
+    burst_upload_mbps   INT UNSIGNED    NULL,
+    is_enforced         TINYINT(1)      NOT NULL DEFAULT 1,
+    notes               TEXT            NULL,
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_reseller_bandwidth_quota (reseller_id),
+    KEY idx_rbq_reseller_id (reseller_id),
+    CONSTRAINT fk_rbq_reseller FOREIGN KEY (reseller_id)
+        REFERENCES resellers (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Aggregate bandwidth quota per reseller (§19.2)';
+
+-- ---------------------------------------------------------------------------
+-- Table: reseller_olt_port_assignments (migration 346 — §19.2)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS reseller_olt_port_assignments (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    reseller_id     BIGINT UNSIGNED NOT NULL,
+    olt_port_id     BIGINT UNSIGNED NOT NULL,
+    notes           TEXT            NULL,
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_reseller_olt_port (reseller_id, olt_port_id),
+    KEY idx_ropa_reseller_id (reseller_id),
+    KEY idx_ropa_olt_port_id (olt_port_id),
+    CONSTRAINT fk_ropa_reseller FOREIGN KEY (reseller_id)
+        REFERENCES resellers (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_ropa_olt_port FOREIGN KEY (olt_port_id)
+        REFERENCES olt_ports (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='OLT port assignment mapping per reseller (§19.2)';
+
+-- ---------------------------------------------------------------------------
+-- Table: reseller_billing_entities (migration 346 — §19.2)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS reseller_billing_entities (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    reseller_id     BIGINT UNSIGNED NOT NULL,
+    legal_name      VARCHAR(255)    NOT NULL,
+    tax_id          VARCHAR(50)     NULL,
+    address         TEXT            NULL,
+    city            VARCHAR(100)    NULL,
+    state           VARCHAR(100)    NULL,
+    country         VARCHAR(100)    NULL DEFAULT 'MX',
+    zip_code        VARCHAR(20)     NULL,
+    phone           VARCHAR(30)     NULL,
+    email           VARCHAR(255)    NULL,
+    invoice_prefix  VARCHAR(20)     NULL,
+    invoice_footer  TEXT            NULL,
+    bank_name       VARCHAR(255)    NULL,
+    bank_account    VARCHAR(100)    NULL,
+    bank_clabe      VARCHAR(18)     NULL,
+    currency        VARCHAR(3)      NOT NULL DEFAULT 'USD',
+    is_active       TINYINT(1)      NOT NULL DEFAULT 1,
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_reseller_billing_entity (reseller_id),
+    KEY idx_rbe_reseller_id (reseller_id),
+    CONSTRAINT fk_rbe_reseller FOREIGN KEY (reseller_id)
+        REFERENCES resellers (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Separate billing entity per reseller (§19.2)';
+
+-- ---------------------------------------------------------------------------
+-- Column added to clients by migration 345 (§19.1 reseller scoping):
+--   reseller_id  BIGINT UNSIGNED NULL (FK → resellers ON DELETE SET NULL)
+-- Applied via stored-procedure guard. See migration 345.
+-- ---------------------------------------------------------------------------
 
 SET FOREIGN_KEY_CHECKS = 1;

@@ -109,8 +109,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 303 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–343)
+│   ├── schema.sql           # Combined schema (all 310 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–347)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -465,10 +465,19 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 301 | `device_command_executions` | §18.3 Router command dispatch log — command, params JSON, status ENUM(queued/success/failure/stubbed), response JSON, duration_ms |
 | 302 | `analytics_anomalies` | §18.4 Z-score anomaly detection results — metric, device_id, detected_value, baseline_mean/stddev, z_score, severity ENUM(low/medium/high/critical), is_acknowledged |
 | 303 | `churn_scores` | §18.4 Rule-based churn risk scores — score DECIMAL(5,2), risk_band ENUM(low/medium/high/critical), tenure_months, overdue_invoices, open_tickets, suspensions_30d, payments_late_90d, factors JSON |
+| 304 | `resellers` | §19.1 Reseller hierarchy — self-referencing parent_id, level (1=master, 2=sub), commission_rate, white-label branding (logo, primary/accent color, portal_domain, portal_name), status ENUM(active/suspended/inactive); soft-delete |
+| 305 | `reseller_plan_prices` | §19.1 Custom plan pricing per reseller — reseller_id+plan_id unique pair, custom_price overrides the base plan price, currency, is_active; upsert-safe |
+| 306 | `reseller_commissions` | §19.1 Commission earnings per invoice — invoice_id FK, client_id FK, commission_rate snapshot, invoice_total, commission_amount, status ENUM(pending/approved/paid/cancelled), paid_at; INSERT IGNORE for idempotency |
+| 307 | `reseller_ip_pool_allocations` | §19.2 IP pool access grants per reseller — FK to ip_pools (§5), INSERT IGNORE prevents duplicates, notes |
+| 308 | `reseller_bandwidth_quotas` | §19.2 Per-reseller bandwidth cap — download/upload Mbps, burst limits, is_enforced flag; upsert-safe ON DUPLICATE KEY |
+| 309 | `reseller_olt_port_assignments` | §19.2 OLT port grants per reseller — FK to olt_ports (§7), INSERT IGNORE, notes |
+| 310 | `reseller_billing_entities` | §19.2 White-label billing entity per reseller — legal_name, tax_id, address, bank details (bank_name, bank_account, bank_clabe), invoice_prefix, invoice_footer, currency, is_active; upsert-safe |
 
 > **Migration 323–335 — Security & Access Control (§17):** webauthn_credentials, admin_ip_allowlist, password_policies, api_key_rate_limits, firewall_rules, ddos_protection_rules, blackhole_routes, dns_blocklists, cpe_security_scans, encryption_key_metadata, data_masking_rules, secure_deletion_log; plus 4 new roles (super_admin, noc_operator, reseller_admin, auditor) and 36 security module permissions.
 
 > **Migration 336–343 — Automation & Scripting (§18):** automation_rules, automation_rule_executions, batch_jobs, batch_job_items, provisioning_pipelines, provisioning_pipeline_stages, remediation_rules, remediation_executions, automation_scripts, script_executions, router_driver_configs, device_command_executions, analytics_anomalies, churn_scores; plus 30 automation/analytics permissions and 3 scheduled tasks (anomaly_detection, churn_score_computation, remediation_evaluation). Script execution is STUB — no child_process dispatch; sandboxed executor required for live runs.
+
+> **Migration 344–347 — Multi-Tenancy / Reseller Support (§19):** resellers (self-referencing hierarchy up to 2 levels deep, white-label branding, commission_rate), reseller_plan_prices (custom pricing overrides per reseller+plan), reseller_commissions (per-invoice earnings with approve/pay workflow), reseller_ip_pool_allocations, reseller_bandwidth_quotas, reseller_olt_port_assignments, reseller_billing_entities; plus `reseller_id` FK on clients table for reseller scoping. Includes 22 permissions across resellers, reseller_plan_prices, reseller_commissions, reseller_*_allocations/quotas/assignments, reseller_billing_entities, and reseller_portal modules, granted to admin, reseller_admin, and super_admin roles.
 
 > **Migration 165–173 table count note:** See migrations 241–246 below for the §5 Dual Stack tables. See migrations 249–263 for §6.1–6.6 SNMP & NMS tables.
 
