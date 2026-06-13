@@ -13,6 +13,13 @@
 const db = require('../config/database');
 const logger = require('../utils/logger').child({ service: 'automationService' });
 
+// Lazily required to avoid circular deps at module load
+let _suspensionService = null;
+function getSuspensionService() {
+  if (!_suspensionService) _suspensionService = require('./suspensionService');
+  return _suspensionService;
+}
+
 // ---------------------------------------------------------------------------
 // Automation Rules — evaluate a trigger event against all matching rules
 // ---------------------------------------------------------------------------
@@ -160,9 +167,8 @@ async function createBatchJob(organizationId, data) {
 
   for (const target of targets) {
     let status = 'success';
-    let msg = `${operation} applied (stub)`;
+    let msg = `${operation} applied`;
     try {
-      // STUB: real operation would call suspensionService, radiusService, etc.
       await applyBatchOperation(organizationId, operation, target, operation_params || {});
     } catch (err) {
       status = 'failure';
@@ -218,9 +224,81 @@ async function resolveBatchTargets(organizationId, operation, filterCriteria) {
   return rows;
 }
 
+/**
+ * Apply a single batch operation to one target entity.
+ *
+ * IMPLEMENTED for safe contract-level operations that use existing services:
+ *   suspend    → suspensionService.suspendContract()
+ *   unsuspend  → suspensionService.reconnectContract()
+ *   change_plan → direct DB update on contract plan_id
+ *
+ * NOT IMPLEMENTED (throws to surface honest failure):
+ *   rate_limit, send_notification, apply_tag, remove_tag, send_email, send_sms
+ *   — these require additional service integrations not yet wired here.
+ */
 async function applyBatchOperation(organizationId, operation, target, params) {
-  // STUB: log intended operation; real implementation calls appropriate services
-  logger.info({ organizationId, operation, target, params }, 'Batch operation stub');
+  const contractId = target.entity_id;
+
+  switch (operation) {
+    case 'suspend': {
+      // Only suspend contracts belonging to this org
+      const [rows] = await db.query(
+        'SELECT id FROM contracts WHERE id = ? AND organization_id = ?',
+        [contractId, organizationId],
+      );
+      if (!rows.length) {
+        throw new Error(`Contract ${contractId} not found in organization`);
+      }
+      const suspSvc = getSuspensionService();
+      await suspSvc.suspendContract(contractId, params.rule_id || null, params.user_id || null, params.invoice_id || null);
+      logger.info({ organizationId, contractId, operation }, 'Batch suspend applied');
+      return;
+    }
+
+    case 'unsuspend': {
+      const [rows] = await db.query(
+        'SELECT id FROM contracts WHERE id = ? AND organization_id = ?',
+        [contractId, organizationId],
+      );
+      if (!rows.length) {
+        throw new Error(`Contract ${contractId} not found in organization`);
+      }
+      const suspSvc = getSuspensionService();
+      await suspSvc.reconnectContract(contractId, params.user_id || null, params.invoice_id || null);
+      logger.info({ organizationId, contractId, operation }, 'Batch unsuspend applied');
+      return;
+    }
+
+    case 'change_plan': {
+      if (!params.plan_id) {
+        throw new Error('change_plan requires operation_params.plan_id');
+      }
+      const [rows] = await db.query(
+        'SELECT id FROM contracts WHERE id = ? AND organization_id = ?',
+        [contractId, organizationId],
+      );
+      if (!rows.length) {
+        throw new Error(`Contract ${contractId} not found in organization`);
+      }
+      await db.query(
+        'UPDATE contracts SET plan_id = ?, updated_at = NOW() WHERE id = ? AND organization_id = ?',
+        [params.plan_id, contractId, organizationId],
+      );
+      logger.info({ organizationId, contractId, planId: params.plan_id, operation }, 'Batch plan change applied');
+      return;
+    }
+
+    default: {
+      // Not implemented — throw so createBatchJob records this item as 'failure'
+      // and the operator knows the operation did not execute.
+      const err = new Error(
+        `Batch operation '${operation}' is not implemented — target ${target.entity_type}:${contractId} was NOT modified`,
+      );
+      err.code = 'BATCH_OPERATION_NOT_IMPLEMENTED';
+      logger.warn({ organizationId, operation, target, params }, err.message);
+      throw err;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -304,10 +382,17 @@ async function executeProvisioningStage(stageName, ctx) {
       // Reuse pool assignment service in production; stub here
       logger.info(ctx, 'Provisioning: assign_ip (stub)');
       return { assigned_ip: '0.0.0.0', note: 'STUB — poolAssignmentService integration pending' };
-    case 'configure_device':
-      // STUB: live device configuration — no real SSH/API call
-      logger.info(ctx, 'Provisioning: configure_device (STUBBED — no live device I/O)');
-      return { note: 'STUBBED — device configuration dispatch not yet wired to routerDriverService' };
+    case 'configure_device': {
+      // Not implemented: routerDriverService integration pending.
+      // Throw so the pipeline records this stage as 'failed' instead of silently succeeding.
+      logger.warn(ctx, 'Provisioning: configure_device stage not implemented — failing pipeline stage honestly');
+      const devErr = new Error(
+        'configure_device stage is not implemented — no device I/O was performed. ' +
+        'Wire routerDriverService here to enable live device provisioning.',
+      );
+      devErr.code = 'PROVISIONING_STAGE_NOT_IMPLEMENTED';
+      throw devErr;
+    }
     case 'activate_contract':
       if (ctx.contract_id) {
         await db.query("UPDATE contracts SET status = 'active' WHERE id = ? AND status = 'pending'", [ctx.contract_id]);
@@ -351,9 +436,10 @@ async function evaluateRemediationRules(organizationId) {
     if (!conditionMet) continue;
 
     const start = Date.now();
-    // STUB: device action recorded but not dispatched to live device
-    const execStatus = 'stubbed';
-    const resultMessage = `Action '${rule.action_type}' queued (STUBBED — live device dispatch not yet implemented)`;
+    // Device actions are not dispatched to live devices — record as not_dispatched so
+    // the caller knows no real action was taken.
+    const execStatus = 'not_dispatched';
+    const resultMessage = `Action '${rule.action_type}' was NOT dispatched — live device dispatch is not yet implemented`;
 
     await db.query(
       `INSERT INTO remediation_executions

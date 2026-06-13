@@ -62,6 +62,6 @@ describe('TicketList page', () => {
   it('shows empty row when no tickets', async () => {
     mockApiGet.mockResolvedValue({ data: { data: [], meta: { total: 0, page: 1, limit: 20, totalPages: 0 } }, error: undefined });
     renderTicketList();
-    await waitFor(() => expect(screen.getByText('No tickets found')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/No tickets found/)).toBeInTheDocument());
   });
 });

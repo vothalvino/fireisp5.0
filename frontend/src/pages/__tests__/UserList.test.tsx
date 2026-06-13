@@ -77,6 +77,6 @@ describe('UserList page', () => {
       json: () => Promise.resolve({ data: [], meta: { total: 0, page: 1, limit: 25, totalPages: 0 } }),
     } as Response);
     renderUserList();
-    await waitFor(() => expect(screen.getByText('No users found')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/No users found/)).toBeInTheDocument());
   });
 });

@@ -130,6 +130,10 @@ router.post('/:id/test', requirePermission('router_driver_configs.view'), async 
   try {
     const result = await routerDriverService.testDriverConnection(req.params.id, req.orgId);
     if (!result) return res.status(404).json({ error: { message: 'Router driver config not found' } });
+    // Non-implemented vendors return not_implemented — surface as 501 so clients know the test did not run
+    if (result.status === 'not_implemented') {
+      return res.status(501).json({ error: { message: result.message }, data: result });
+    }
     res.json({ data: result });
   } catch (err) { next(err); }
 });
@@ -141,6 +145,13 @@ router.post('/:id/dispatch', requirePermission('device_command_executions.execut
       req.params.id, req.orgId, req.body.command, req.body.params || {}, req.user.id,
     );
     if (!result) return res.status(404).json({ error: { message: 'Router driver config not found' } });
+    // Surface non-implemented vendor dispatch honestly — never return 200 for an unexecuted command
+    if (result.status === 'not_dispatched') {
+      return res.status(501).json({
+        error: { message: result.error_message, dispatched: false, vendor: result.vendor },
+        data: result,
+      });
+    }
     res.json({ data: result });
   } catch (err) { next(err); }
 });

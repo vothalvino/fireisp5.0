@@ -95,13 +95,15 @@ router.get('/admin-ip-allowlist', requirePermission('admin_ip_allowlist.view'), 
 });
 
 // POST /admin-ip-allowlist — add entry
+// Accepts `cidr` (new schema name) or legacy `ip_address` for backward compat.
 router.post('/admin-ip-allowlist', requirePermission('admin_ip_allowlist.create'), validate(createAdminIpAllowlist), async (req, res, next) => {
   try {
-    const { ip_address, description, is_active, expires_at } = req.body;
+    const { cidr, ip_address, description, is_active } = req.body;
+    const cidrValue = cidr ?? ip_address;
     const [result] = await db.query(
-      `INSERT INTO admin_ip_allowlist (organization_id, ip_address, description, is_active, expires_at)
+      `INSERT INTO admin_ip_allowlist (organization_id, cidr, description, is_active, created_by)
        VALUES (?, ?, ?, ?, ?)`,
-      [req.orgId, ip_address, description || null, is_active !== false ? 1 : 0, expires_at || null],
+      [req.orgId, cidrValue, description || null, is_active !== false ? 1 : 0, req.user.id],
     );
     res.status(201).json({ id: result.insertId });
   } catch (err) {
@@ -110,18 +112,19 @@ router.post('/admin-ip-allowlist', requirePermission('admin_ip_allowlist.create'
 });
 
 // PUT /admin-ip-allowlist/:id — update entry
+// Accepts `cidr` (new schema name) or legacy `ip_address` for backward compat.
 router.put('/admin-ip-allowlist/:id', requirePermission('admin_ip_allowlist.update'), async (req, res, next) => {
   try {
-    const { ip_address, description, is_active, expires_at } = req.body;
+    const { cidr, ip_address, description, is_active } = req.body;
+    const cidrValue = cidr ?? ip_address ?? null;
     const [result] = await db.query(
       `UPDATE admin_ip_allowlist
-       SET ip_address = COALESCE(?, ip_address),
+       SET cidr = COALESCE(?, cidr),
            description = ?,
            is_active = COALESCE(?, is_active),
-           expires_at = ?,
            updated_at = NOW()
        WHERE id = ? AND organization_id = ?`,
-      [ip_address || null, description !== undefined ? description : null, is_active !== undefined ? (is_active ? 1 : 0) : null, expires_at || null, req.params.id, req.orgId],
+      [cidrValue, description !== undefined ? description : null, is_active !== undefined ? (is_active ? 1 : 0) : null, req.params.id, req.orgId],
     );
     if (result.affectedRows === 0) throw new NotFoundError('Admin IP allowlist entry');
     res.json({ success: true });
@@ -167,28 +170,32 @@ router.put('/password-policy', requirePermission('password_policy.update'), vali
   try {
     const {
       min_length,
-      max_length,
       require_uppercase,
       require_lowercase,
       require_digits,
+      require_special_chars,
+      // Accept legacy require_symbols as alias for require_special_chars
       require_symbols,
+      max_repeated_chars,
       rotation_days,
       history_count,
       lockout_attempts,
       lockout_duration_minutes,
     } = req.body;
 
+    const specialChars = require_special_chars !== undefined ? require_special_chars : require_symbols;
+
     await db.query(
       `INSERT INTO password_policies
-        (organization_id, min_length, max_length, require_uppercase, require_lowercase, require_digits, require_symbols, rotation_days, history_count, lockout_attempts, lockout_duration_minutes)
+        (organization_id, min_length, require_uppercase, require_lowercase, require_digits, require_special_chars, max_repeated_chars, rotation_days, history_count, lockout_attempts, lockout_duration_minutes)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          min_length = VALUES(min_length),
-         max_length = VALUES(max_length),
          require_uppercase = VALUES(require_uppercase),
          require_lowercase = VALUES(require_lowercase),
          require_digits = VALUES(require_digits),
-         require_symbols = VALUES(require_symbols),
+         require_special_chars = VALUES(require_special_chars),
+         max_repeated_chars = VALUES(max_repeated_chars),
          rotation_days = VALUES(rotation_days),
          history_count = VALUES(history_count),
          lockout_attempts = VALUES(lockout_attempts),
@@ -197,11 +204,11 @@ router.put('/password-policy', requirePermission('password_policy.update'), vali
       [
         req.orgId,
         min_length !== undefined ? min_length : null,
-        max_length !== undefined ? max_length : null,
         require_uppercase !== undefined ? (require_uppercase ? 1 : 0) : null,
         require_lowercase !== undefined ? (require_lowercase ? 1 : 0) : null,
         require_digits !== undefined ? (require_digits ? 1 : 0) : null,
-        require_symbols !== undefined ? (require_symbols ? 1 : 0) : null,
+        specialChars !== undefined ? (specialChars ? 1 : 0) : null,
+        max_repeated_chars !== undefined ? max_repeated_chars : null,
         rotation_days !== undefined ? rotation_days : null,
         history_count !== undefined ? history_count : null,
         lockout_attempts !== undefined ? lockout_attempts : null,
@@ -240,7 +247,7 @@ router.put('/api-key-rate-limits/:tokenId', requirePermission('api_key_rate_limi
 
     await db.query(
       `INSERT INTO api_key_rate_limits
-        (organization_id, token_id, requests_per_minute, requests_per_hour, requests_per_day, burst_size)
+        (organization_id, api_token_id, requests_per_minute, requests_per_hour, requests_per_day, burst_size)
        VALUES (?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          requests_per_minute = VALUES(requests_per_minute),

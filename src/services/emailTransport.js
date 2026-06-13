@@ -73,8 +73,8 @@ async function processQueue() {
         from,
         to: entry.recipient,
         subject: entry.subject,
-        html: entry.body_html || undefined,
-        text: entry.body_text || undefined,
+        html: entry.body || undefined,
+        text: entry.body || undefined,
       });
 
       await db.query(

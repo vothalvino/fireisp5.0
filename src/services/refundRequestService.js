@@ -11,6 +11,7 @@ const eventBus = require('./eventBus');
 const billingAdjustmentService = require('./billingAdjustmentService');
 const { ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ service: 'refundRequest' });
+const paymentGatewayService = require('./paymentGatewayService');
 
 // ---------------------------------------------------------------------------
 // Create
@@ -106,7 +107,9 @@ async function reviewRequest(orgId, id, { status, review_notes }, reviewedByUser
  * @param {number} processedByUserId
  * @returns {Promise<object>} Updated row
  */
-async function processRequest(orgId, id, { refund_method, gateway_refund_reference }, processedByUserId) {
+async function processRequest(orgId, id, { refund_method, gateway_refund_reference: callerGatewayRef }, processedByUserId) {
+  // Allow the gateway refund path to overwrite the caller-supplied reference
+  let gateway_refund_reference = callerGatewayRef || null;
   const existing = await RefundRequest.findByIdOrFail(id, orgId);
 
   if (existing.status !== 'approved') {
@@ -125,6 +128,33 @@ async function processRequest(orgId, id, { refund_method, gateway_refund_referen
     client = clientRows[0] || null;
   } catch (err) {
     logger.warn({ err, clientId: existing.client_id }, 'Could not fetch client for refund processing');
+  }
+
+  // --- refund_method: original_method (gateway refund) ---
+  // For payments made through a payment gateway (Stripe, Conekta, etc.) the
+  // funds must be returned via the same processor before we update our DB.
+  if (refund_method === 'original_method') {
+    if (!existing.payment_id) {
+      throw new ValidationError(
+        'Cannot use original_method refund: no payment transaction linked to this refund request.',
+      );
+    }
+
+    let gatewayResult;
+    try {
+      gatewayResult = await paymentGatewayService.refund(existing.payment_id);
+    } catch (err) {
+      logger.error({ err, paymentId: existing.payment_id, refundRequestId: id }, 'Gateway refund failed');
+      throw err;
+    }
+
+    // gateway_refund_reference is returned by paymentGatewayService.refund()
+    gateway_refund_reference = gatewayResult.gateway_refund_reference || gateway_refund_reference || null;
+
+    logger.info(
+      { refundRequestId: id, paymentId: existing.payment_id, gateway_refund_reference },
+      'Gateway refund confirmed',
+    );
   }
 
   // --- refund_method: credit_balance ---

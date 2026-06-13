@@ -88,10 +88,18 @@ async function updateScript(scriptId, organizationId, data) {
 }
 
 /**
- * Queue a script for execution.
+ * Attempt to execute a script.
  *
- * STUB: Creates a 'queued' execution record. Does NOT call child_process.
- * A real sandboxed executor would pick up 'queued' records and update them.
+ * NOT IMPLEMENTED: The sandboxed script execution engine is not enabled.
+ * This function rejects with a clear error so callers are never led to
+ * believe a script will run when it won't.
+ *
+ * A sandboxed executor (separate worker process with strict resource limits)
+ * is required before this can be enabled. Wire it here and remove the guard.
+ *
+ * If the environment variable SCRIPT_EXECUTION_ENABLED is set to 'true',
+ * this function records a 'queued' row for a future executor to pick up.
+ * By default that variable is absent and this rejects immediately.
  */
 async function executeScript(scriptId, organizationId, { input_params, triggered_by } = {}) {
   const [scripts] = await db.query(
@@ -102,7 +110,23 @@ async function executeScript(scriptId, organizationId, { input_params, triggered
 
   const script = scripts[0];
 
-  // STUB: record execution as 'queued' — no child_process call.
+  // Guard: reject unless an executor is explicitly enabled via env var.
+  if (process.env.SCRIPT_EXECUTION_ENABLED !== 'true') {
+    logger.warn(
+      { scriptId, organizationId, language: script.language },
+      'Script execution rejected: sandboxed execution engine not enabled (SCRIPT_EXECUTION_ENABLED != true)',
+    );
+    const err = new Error(
+      'Script execution engine is not enabled. ' +
+      'A sandboxed executor must be configured before scripts can run. ' +
+      'Set SCRIPT_EXECUTION_ENABLED=true only when a real sandboxed worker is deployed.',
+    );
+    err.code = 'SCRIPT_EXECUTION_NOT_ENABLED';
+    err.statusCode = 501;
+    throw err;
+  }
+
+  // Only reached when SCRIPT_EXECUTION_ENABLED=true — record for executor pickup.
   const [result] = await db.query(
     `INSERT INTO script_executions
        (organization_id, script_id, status, triggered_by, input_params)
@@ -113,7 +137,7 @@ async function executeScript(scriptId, organizationId, { input_params, triggered
 
   logger.info(
     { scriptId, organizationId, executionId: result.insertId, language: script.language },
-    'Script execution queued (STUB — no child_process dispatch; sandboxed executor required)',
+    'Script execution queued for sandboxed executor',
   );
 
   const [rows] = await db.query('SELECT * FROM script_executions WHERE id = ?', [result.insertId]);

@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { extractApiError } from '@/components/ClientFormModal';
 
@@ -262,6 +263,7 @@ function NewTicketModal({ clients, users, onClose, onCreated }: NewTicketModalPr
 // ---------------------------------------------------------------------------
 
 export function TicketList() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
@@ -301,48 +303,48 @@ export function TicketList() {
     <div style={{ padding: '1.5rem', maxWidth: 1100 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-        <h1 style={{ margin: 0, fontSize: '1.4rem' }}>🎫 Tickets</h1>
-        <button style={btnPrimary} onClick={() => setShowNew(true)}>+ New Ticket</button>
+        <h1 style={{ margin: 0, fontSize: '1.4rem' }}>🎫 {t('ticketList.title')}</h1>
+        <button style={btnPrimary} onClick={() => setShowNew(true)}>{t('ticketList.newTicket')}</button>
       </div>
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', flexWrap: 'wrap' }}>
-        <select aria-label="Filter by status" style={filterSelect} value={statusFilter} onChange={handleFilterChange(setStatusFilter)}>
-          <option value="">All statuses</option>
+        <select aria-label={t('ticketList.filterStatus')} style={filterSelect} value={statusFilter} onChange={handleFilterChange(setStatusFilter)}>
+          <option value="">{t('ticketList.allStatuses')}</option>
           {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
         </select>
-        <select aria-label="Filter by priority" style={filterSelect} value={priorityFilter} onChange={handleFilterChange(setPriorityFilter)}>
-          <option value="">All priorities</option>
+        <select aria-label={t('ticketList.filterPriority')} style={filterSelect} value={priorityFilter} onChange={handleFilterChange(setPriorityFilter)}>
+          <option value="">{t('ticketList.allPriorities')}</option>
           {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
         {(statusFilter || priorityFilter) && (
           <button style={btnSecondary} onClick={() => { setStatusFilter(''); setPriorityFilter(''); setPage(1); }}>
-            Clear filters
+            {t('ticketList.clearFilters')}
           </button>
         )}
       </div>
 
       {/* Table */}
-      {isLoading && <p style={{ color: '#888' }}>Loading tickets…</p>}
-      {error && <p style={{ color: '#e00' }}>Failed to load tickets.</p>}
+      {isLoading && <p style={{ color: '#888' }}>{t('ticketList.loading')}</p>}
+      {error && <p style={{ color: '#e00' }}>{t('ticketList.error')}</p>}
       {!isLoading && !error && (
         <>
           <div style={{ overflowX: 'auto' }}>
             <table style={tableStyle}>
               <thead>
                 <tr>
-                  <th style={th}>#</th>
-                  <th style={th}>Subject</th>
-                  <th style={th}>Client</th>
-                  <th style={th}>Priority</th>
-                  <th style={th}>Status</th>
-                  <th style={th}>Assigned To</th>
-                  <th style={th}>Created</th>
+                  <th style={th}>{t('ticketList.table.id')}</th>
+                  <th style={th}>{t('ticketList.table.subject')}</th>
+                  <th style={th}>{t('ticketList.table.client')}</th>
+                  <th style={th}>{t('ticketList.table.priority')}</th>
+                  <th style={th}>{t('ticketList.table.status')}</th>
+                  <th style={th}>{t('ticketList.table.assignedTo')}</th>
+                  <th style={th}>{t('ticketList.table.created')}</th>
                 </tr>
               </thead>
               <tbody>
                 {tickets.length === 0 && (
-                  <tr><td colSpan={7} style={{ ...td, textAlign: 'center', color: '#888', padding: '2rem' }}>No tickets found</td></tr>
+                  <tr><td colSpan={7} style={{ ...td, textAlign: 'center', color: '#888', padding: '2rem' }}>{t('ticketList.noTickets')}</td></tr>
                 )}
                 {tickets.map(t => (
                   <tr
@@ -379,9 +381,9 @@ export function TicketList() {
           {/* Pagination */}
           {totalPages > 1 && (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: '1rem' }}>
-              <button style={btnSecondary} disabled={page <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
-              <span style={{ fontSize: '0.85rem', color: '#555' }}>Page {page} of {totalPages} ({meta?.total} tickets)</span>
-              <button style={btnSecondary} disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next →</button>
+              <button style={btnSecondary} disabled={page <= 1} onClick={() => setPage(p => p - 1)}>{t('clientList.prevPage')}</button>
+              <span style={{ fontSize: '0.85rem', color: '#555' }}>{t('clientList.pageInfo', { page, total: totalPages })} ({meta?.total} tickets)</span>
+              <button style={btnSecondary} disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>{t('clientList.nextPage')}</button>
             </div>
           )}
         </>

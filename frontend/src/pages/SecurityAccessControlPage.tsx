@@ -29,11 +29,11 @@ interface WebAuthnCredential {
 
 interface PasswordPolicy {
   min_length: number | null;
-  max_length: number | null;
   require_uppercase: number;
   require_lowercase: number;
   require_digits: number;
-  require_symbols: number;
+  require_special_chars: number;
+  max_repeated_chars: number | null;
   rotation_days: number | null;
   lockout_attempts: number | null;
   lockout_duration_minutes: number | null;
@@ -41,15 +41,14 @@ interface PasswordPolicy {
 
 interface AdminIpEntry {
   id: number;
-  ip_address: string;
+  cidr: string;
   description: string | null;
   is_active: number;
-  expires_at: string | null;
 }
 
 interface ApiKeyRateLimit {
   id: number;
-  token_id: number;
+  api_token_id: number;
   requests_per_minute: number | null;
   requests_per_hour: number | null;
   requests_per_day: number | null;
@@ -78,18 +77,19 @@ interface DdosRule {
 
 interface BlackholeRoute {
   id: number;
-  target_prefix: string;
+  prefix: string;
   reason: string;
   is_active: number;
   created_at: string;
-  released_at: string | null;
+  deactivated_at: string | null;
 }
 
 interface DnsBlocklist {
   id: number;
   domain: string;
   category: string;
-  reason: string | null;
+  entry_type: string;
+  threat_feed_source: string | null;
   is_active: number;
 }
 
@@ -103,9 +103,9 @@ interface CpeSecurityScan {
 
 interface EncryptionKeyMeta {
   id: number;
-  key_alias: string | null;
+  key_id: string | null;
   algorithm: string | null;
-  key_size: number | null;
+  key_length_bits: number | null;
   status: string;
   rotated_at: string | null;
   expires_at: string | null;
@@ -115,7 +115,7 @@ interface DataMaskingRule {
   id: number;
   table_name: string;
   column_name: string;
-  masking_type: string;
+  mask_type: string;
   is_active: number;
 }
 
@@ -259,7 +259,8 @@ function UserSecurityTab() {
           <table style={{ borderCollapse: 'collapse', marginBottom: 24 }}>
             <tbody>
               <tr><td style={{ padding: '4px 12px 4px 0', fontWeight: 'bold' }}>{t('securityAccessControl.userSecurity.minLength')}</td><td style={{ padding: '4px 0' }}>{policy.min_length ?? '—'}</td></tr>
-              <tr><td style={{ padding: '4px 12px 4px 0', fontWeight: 'bold' }}>{t('securityAccessControl.userSecurity.maxLength')}</td><td style={{ padding: '4px 0' }}>{policy.max_length ?? '—'}</td></tr>
+              <tr><td style={{ padding: '4px 12px 4px 0', fontWeight: 'bold' }}>{t('securityAccessControl.userSecurity.requireSpecialChars')}</td><td style={{ padding: '4px 0' }}>{policy.require_special_chars ? t('common.yes') : t('common.no')}</td></tr>
+              <tr><td style={{ padding: '4px 12px 4px 0', fontWeight: 'bold' }}>{t('securityAccessControl.userSecurity.maxRepeatedChars')}</td><td style={{ padding: '4px 0' }}>{policy.max_repeated_chars ?? '—'}</td></tr>
               <tr><td style={{ padding: '4px 12px 4px 0', fontWeight: 'bold' }}>{t('securityAccessControl.userSecurity.rotationDays')}</td><td style={{ padding: '4px 0' }}>{policy.rotation_days ?? '—'}</td></tr>
               <tr><td style={{ padding: '4px 12px 4px 0', fontWeight: 'bold' }}>{t('securityAccessControl.userSecurity.lockoutAttempts')}</td><td style={{ padding: '4px 0' }}>{policy.lockout_attempts ?? '—'}</td></tr>
             </tbody>
@@ -278,16 +279,14 @@ function UserSecurityTab() {
                 <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('securityAccessControl.userSecurity.ipAddress')}</th>
                 <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('common.description')}</th>
                 <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('common.status')}</th>
-                <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('securityAccessControl.userSecurity.expiresAt')}</th>
               </tr>
             </thead>
             <tbody>
               {ipList.map(e => (
                 <tr key={e.id}>
-                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee', fontFamily: 'monospace' }}>{e.ip_address}</td>
+                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee', fontFamily: 'monospace' }}>{e.cidr}</td>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{e.description ?? '—'}</td>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{e.is_active ? t('common.active') : t('common.inactive')}</td>
-                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{e.expires_at ?? '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -335,7 +334,7 @@ function ApiSecurityTab() {
             <tbody>
               {rateLimits.map(r => (
                 <tr key={r.id}>
-                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{r.token_id}</td>
+                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{r.api_token_id}</td>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{r.requests_per_minute ?? '—'}</td>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{r.requests_per_hour ?? '—'}</td>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{r.requests_per_day ?? '—'}</td>
@@ -454,16 +453,16 @@ function NetworkSecurityTab() {
                 <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('securityAccessControl.networkSecurity.targetPrefix')}</th>
                 <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('securityAccessControl.networkSecurity.reason')}</th>
                 <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('common.status')}</th>
-                <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('securityAccessControl.networkSecurity.releasedAt')}</th>
+                <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('securityAccessControl.networkSecurity.deactivatedAt')}</th>
               </tr>
             </thead>
             <tbody>
               {blackholeRoutes.map(r => (
                 <tr key={r.id}>
-                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee', fontFamily: 'monospace' }}>{r.target_prefix}</td>
+                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee', fontFamily: 'monospace' }}>{r.prefix}</td>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{r.reason}</td>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{r.is_active ? t('common.active') : t('securityAccessControl.networkSecurity.released')}</td>
-                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{r.released_at ?? '—'}</td>
+                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{r.deactivated_at ?? '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -480,7 +479,7 @@ function NetworkSecurityTab() {
               <tr>
                 <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('securityAccessControl.networkSecurity.domain')}</th>
                 <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('securityAccessControl.networkSecurity.category')}</th>
-                <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('securityAccessControl.networkSecurity.reason')}</th>
+                <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('securityAccessControl.networkSecurity.entryType')}</th>
                 <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('common.status')}</th>
               </tr>
             </thead>
@@ -489,7 +488,7 @@ function NetworkSecurityTab() {
                 <tr key={b.id}>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee', fontFamily: 'monospace' }}>{b.domain}</td>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{b.category}</td>
-                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{b.reason ?? '—'}</td>
+                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{b.entry_type}</td>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{b.is_active ? t('common.active') : t('common.inactive')}</td>
                 </tr>
               ))}
@@ -589,7 +588,7 @@ function DataSecurityTab() {
             <tbody>
               {encryptionKeys.map(k => (
                 <tr key={k.id}>
-                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee', fontFamily: 'monospace' }}>{k.key_alias ?? '—'}</td>
+                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee', fontFamily: 'monospace' }}>{k.key_id ?? '—'}</td>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{k.algorithm ?? '—'}</td>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{k.status}</td>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{k.rotated_at ?? '—'}</td>
@@ -618,7 +617,7 @@ function DataSecurityTab() {
                 <tr key={r.id}>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee', fontFamily: 'monospace' }}>{r.table_name}</td>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee', fontFamily: 'monospace' }}>{r.column_name}</td>
-                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{r.masking_type}</td>
+                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{r.mask_type}</td>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{r.is_active ? t('common.active') : t('common.inactive')}</td>
                 </tr>
               ))}

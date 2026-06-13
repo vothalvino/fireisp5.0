@@ -26,17 +26,21 @@ const createDdosRule = {
 };
 
 const createBlackholeRoute = {
-  target_prefix: { required: true },
+  // Accepts `prefix` (new schema column) or legacy `target_prefix` — route maps either.
+  prefix: {},
+  target_prefix: {},
   reason: { required: true },
-  next_hop: {},
   notes: {},
 };
 
 const createDnsBlocklist = {
   domain: { required: true },
-  category: { required: true, enum: ['malware', 'phishing', 'ads', 'botnet', 'other'] },
-  reason: {},
+  category: { required: true, enum: ['malware', 'phishing', 'ads', 'spam', 'adult', 'gambling', 'botnet', 'other'] },
+  // New schema columns; legacy `source` also accepted by the route handler.
+  entry_type: { enum: ['manual', 'auto_import', 'threat_feed'] },
+  threat_feed_source: {},
   source: {},
+  is_active: { type: 'boolean' },
 };
 
 const createWebAuthn = {
@@ -49,11 +53,13 @@ const createWebAuthn = {
 
 const updatePasswordPolicy = {
   min_length: { type: 'integer', min: 8, max: 128 },
-  max_length: { type: 'integer', min: 8, max: 256 },
   require_uppercase: { type: 'boolean' },
   require_lowercase: { type: 'boolean' },
   require_digits: { type: 'boolean' },
+  // New schema column name; legacy require_symbols also accepted by the route handler.
+  require_special_chars: { type: 'boolean' },
   require_symbols: { type: 'boolean' },
+  max_repeated_chars: { type: 'integer', min: 0 },
   rotation_days: { type: 'integer', min: 0 },
   history_count: { type: 'integer', min: 0 },
   lockout_attempts: { type: 'integer', min: 0 },
@@ -61,10 +67,11 @@ const updatePasswordPolicy = {
 };
 
 const createAdminIpAllowlist = {
-  ip_address: { required: true },
+  // Accepts `cidr` (new schema column) or legacy `ip_address` — route maps either.
+  cidr: {},
+  ip_address: {},
   description: {},
   is_active: { type: 'boolean' },
-  expires_at: {},
 };
 
 const triggerCpeScan = {

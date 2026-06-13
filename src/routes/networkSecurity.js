@@ -246,14 +246,17 @@ router.get('/blackhole-routes', requirePermission('blackhole_routes.view'), asyn
 });
 
 // POST /blackhole-routes — create/trigger
+// Accepts `prefix` (new schema name) or legacy `target_prefix` for backward compat.
+// Schema has no next_hop column; that field is silently ignored if sent.
 router.post('/blackhole-routes', requirePermission('blackhole_routes.create'), validate(createBlackholeRoute), async (req, res, next) => {
   try {
-    const { target_prefix, reason, next_hop, notes } = req.body;
+    const { prefix, target_prefix, reason, notes } = req.body;
+    const prefixValue = prefix ?? target_prefix;
     const [result] = await db.query(
       `INSERT INTO blackhole_routes
-        (organization_id, target_prefix, reason, next_hop, is_active, triggered_by, triggered_at, notes)
-       VALUES (?, ?, ?, ?, 1, ?, NOW(), ?)`,
-      [req.orgId, target_prefix, reason, next_hop || null, req.user.id, notes || null],
+        (organization_id, prefix, reason, is_active, triggered_by, triggered_by_user, activated_at, notes)
+       VALUES (?, ?, ?, 1, 'manual', ?, NOW(), ?)`,
+      [req.orgId, prefixValue, reason, req.user.id, notes || null],
     );
     res.status(201).json({ id: result.insertId });
   } catch (err) {
@@ -279,11 +282,11 @@ router.delete('/blackhole-routes/:id', requirePermission('blackhole_routes.delet
 router.post('/blackhole-routes/:id/release', requirePermission('blackhole_routes.update'), async (req, res, next) => {
   try {
     const [result] = await db.query(
-      'UPDATE blackhole_routes SET is_active = 0, released_at = NOW(), updated_at = NOW() WHERE id = ? AND organization_id = ? AND is_active = 1',
-      [req.params.id, req.orgId],
+      'UPDATE blackhole_routes SET is_active = 0, deactivated_at = NOW(), deactivated_by = ?, updated_at = NOW() WHERE id = ? AND organization_id = ? AND is_active = 1',
+      [req.user.id, req.params.id, req.orgId],
     );
     if (result.affectedRows === 0) throw new NotFoundError('Blackhole route');
-    res.json({ success: true, released_at: new Date().toISOString() });
+    res.json({ success: true, deactivated_at: new Date().toISOString() });
   } catch (err) {
     next(err);
   }
@@ -307,13 +310,17 @@ router.get('/dns-blocklists', requirePermission('dns_blocklists.view'), async (r
 });
 
 // POST /dns-blocklists
+// Accepts entry_type (new) or legacy source/reason for backward compat.
 router.post('/dns-blocklists', requirePermission('dns_blocklists.create'), validate(createDnsBlocklist), async (req, res, next) => {
   try {
-    const { domain, category, reason, source } = req.body;
+    const { domain, category, entry_type, threat_feed_source, source, is_active } = req.body;
+    // Map legacy `source` to threat_feed_source; default entry_type to 'manual'
+    const entryTypeValue = entry_type || 'manual';
+    const feedSourceValue = threat_feed_source ?? source ?? null;
     const [result] = await db.query(
-      `INSERT INTO dns_blocklists (organization_id, domain, category, reason, source, is_active)
-       VALUES (?, ?, ?, ?, ?, 1)`,
-      [req.orgId, domain, category, reason || null, source || null],
+      `INSERT INTO dns_blocklists (organization_id, domain, category, entry_type, threat_feed_source, is_active, added_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [req.orgId, domain, category, entryTypeValue, feedSourceValue, is_active !== false ? 1 : 0, req.user.id],
     );
     res.status(201).json({ id: result.insertId });
   } catch (err) {
@@ -322,21 +329,24 @@ router.post('/dns-blocklists', requirePermission('dns_blocklists.create'), valid
 });
 
 // PUT /dns-blocklists/:id
+// Accepts entry_type (new) or legacy source for backward compat.
 router.put('/dns-blocklists/:id', requirePermission('dns_blocklists.update'), async (req, res, next) => {
   try {
-    const { domain, category, reason, source, is_active, expires_at } = req.body;
+    const { domain, category, entry_type, threat_feed_source, source, is_active, expires_at } = req.body;
+    const feedSourceValue = threat_feed_source !== undefined ? threat_feed_source : (source !== undefined ? source : undefined);
     const [result] = await db.query(
       `UPDATE dns_blocklists SET
          domain = COALESCE(?, domain),
          category = COALESCE(?, category),
-         reason = COALESCE(?, reason),
-         source = COALESCE(?, source),
+         entry_type = COALESCE(?, entry_type),
+         threat_feed_source = COALESCE(?, threat_feed_source),
          is_active = COALESCE(?, is_active),
          expires_at = ?,
          updated_at = NOW()
        WHERE id = ? AND organization_id = ?`,
       [
-        domain || null, category || null, reason || null, source || null,
+        domain || null, category || null, entry_type || null,
+        feedSourceValue !== undefined ? (feedSourceValue || null) : null,
         is_active !== undefined ? (is_active ? 1 : 0) : null,
         expires_at || null,
         req.params.id, req.orgId,

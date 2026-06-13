@@ -130,7 +130,7 @@ function NetworkTopologyTab() {
     queryFn: async () => {
       const q = layer ? { layer } : {};
       const res = await api.GET(
-        '/v1/topology/map/network' as never,
+        '/topology/map/network' as never,
         { params: { query: q } } as never,
       );
       return (res as { data: { data: NetworkGraph } }).data?.data as NetworkGraph;
@@ -247,7 +247,7 @@ function GeographicMapTab() {
   const { data: customers } = useQuery({
     queryKey: ['topology-customers'],
     queryFn: async () => {
-      const res = await api.GET('/v1/topology/map/customers' as never, {} as never);
+      const res = await api.GET('/topology/map/customers' as never, {} as never);
       return (res as { data: { data: CustomerLocation[] } }).data?.data ?? [];
     },
   });
@@ -255,7 +255,7 @@ function GeographicMapTab() {
   const { data: infraData } = useQuery({
     queryKey: ['topology-infrastructure-pins'],
     queryFn: async () => {
-      const res = await api.GET('/v1/topology/map/infrastructure' as never, {} as never);
+      const res = await api.GET('/topology/map/infrastructure' as never, {} as never);
       return (res as { data: { data: { infrastructure: InfraPin[]; sites: InfraPin[] } } }).data?.data;
     },
   });
@@ -263,7 +263,7 @@ function GeographicMapTab() {
   const { data: fiberData } = useQuery({
     queryKey: ['topology-fiber-routes'],
     queryFn: async () => {
-      const res = await api.GET('/v1/topology/map/fiber-routes' as never, {} as never);
+      const res = await api.GET('/topology/map/fiber-routes' as never, {} as never);
       return (res as { data: { data: FiberRoute[] } }).data?.data ?? [];
     },
   });
@@ -374,7 +374,7 @@ function DependencyTab() {
   const { data: dualHomed } = useQuery({
     queryKey: ['topology-dual-homed'],
     queryFn: async () => {
-      const res = await api.GET('/v1/topology/map/dual-homed' as never, {} as never);
+      const res = await api.GET('/topology/map/dual-homed' as never, {} as never);
       return (res as { data: { data: Array<DeviceNode & { upstream_link_count?: number }> } }).data?.data ?? [];
     },
   });
@@ -384,8 +384,8 @@ function DependencyTab() {
     setAnalysisLoading(true);
     try {
       const endpoint = analysisType === 'impact'
-        ? `/v1/topology/map/impact/${deviceId}`
-        : `/v1/topology/map/cascade/${deviceId}`;
+        ? `/topology/map/impact/${deviceId}`
+        : `/topology/map/cascade/${deviceId}`;
       const res = await api.GET(endpoint as never, {} as never);
       setAnalysisResult((res as { data: { data: ImpactAnalysis } }).data?.data ?? null);
     } catch {
@@ -397,7 +397,7 @@ function DependencyTab() {
 
   const createEdgeMut = useMutation({
     mutationFn: async (body: typeof newEdge) => {
-      return api.POST('/v1/topology/dependencies' as never, {
+      return api.POST('/topology/dependencies' as never, {
         body: {
           parent_device_id: Number(body.parent_device_id),
           child_device_id: Number(body.child_device_id),

@@ -101,7 +101,7 @@ const tabBtn = (active: boolean): React.CSSProperties => ({
 // ---------------------------------------------------------------------------
 
 async function fetchInventoryItems(page: number): Promise<ListResponse<InventoryItem>> {
-  const res = await api.GET('/inventory-items' as never, {
+  const res = await api.GET('/inventory/items' as never, {
     params: { query: { page, limit: PAGE_SIZE } as never },
   } as never);
   if ((res as { error?: unknown }).error) throw new Error('Failed to load inventory items');

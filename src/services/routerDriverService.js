@@ -115,10 +115,10 @@ async function testDriverConnection(configId, organizationId) {
       logger.warn({ configId, err }, 'MikroTik connection test failed');
     }
   } else {
-    // STUB for non-MikroTik vendors
-    testStatus = 'ok';
-    testMessage = `Vendor '${config.vendor}' driver is STUBBED — connection not tested live`;
-    logger.info({ configId, vendor: config.vendor }, 'Non-MikroTik driver test stub');
+    // Non-MikroTik vendor drivers are not implemented — report honestly as not_tested
+    testStatus = 'not_implemented';
+    testMessage = `Vendor '${config.vendor}' driver is not implemented — no live connection test available`;
+    logger.info({ configId, vendor: config.vendor }, 'Non-MikroTik driver test: not_implemented');
   }
 
   await db.query(
@@ -177,10 +177,11 @@ async function dispatchCommand(configId, organizationId, command, params = {}, e
       logger.error({ configId, command, err }, 'MikroTik command dispatch failed');
     }
   } else {
-    // STUB: non-MikroTik vendor
-    status = 'stubbed';
-    response = { note: `Vendor '${config.vendor}' driver is STUBBED — no live ${config.protocol} dispatch` };
-    logger.info({ configId, vendor: config.vendor, command }, 'Non-MikroTik command stub');
+    // Non-MikroTik vendor: driver not implemented — record as not_dispatched and surface clearly
+    status = 'not_dispatched';
+    errorMessage = `Vendor '${config.vendor}' driver is not implemented — command '${command}' was NOT sent to the device`;
+    response = { dispatched: false, reason: `${config.vendor} driver not implemented` };
+    logger.warn({ configId, vendor: config.vendor, command }, 'Non-MikroTik command not dispatched: driver not implemented');
   }
 
   const duration = Date.now() - start;

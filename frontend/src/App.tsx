@@ -115,6 +115,7 @@ import { DrDrillStatus } from '@/pages/DrDrillStatus';
 import { JobList } from '@/pages/JobList';
 import { QueueStats } from '@/pages/QueueStats';
 import { CsdCertificateList } from '@/pages/CsdCertificateList';
+import { SubscriberCertificateList } from '@/pages/SubscriberCertificateList';
 import { PacProviderList } from '@/pages/PacProviderList';
 import { SatCatalogList } from '@/pages/SatCatalogList';
 import { RegulatoryFilingList } from '@/pages/RegulatoryFilingList';
@@ -223,6 +224,7 @@ export function App() {
                 <Route path="inventory" element={<InventoryList />} />
                 <Route path="warehouses" element={<WarehouseList />} />
                 <Route path="radius-sessions" element={<RadiusSessions />} />
+                <Route path="subscriber-certificates" element={<SubscriberCertificateList />} />
                 <Route path="session-accounting" element={<SessionAccounting />} />
                 <Route path="snmp-metrics" element={<SnmpMetrics />} />
                 <Route path="snmp-traps" element={<SnmpTraps />} />

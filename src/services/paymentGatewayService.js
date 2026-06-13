@@ -12,6 +12,7 @@ const { URLSearchParams } = require('url');
 const { createCircuitBreaker } = require('../utils/circuitBreaker');
 const { decrypt } = require('../utils/encryption');
 const logger = require('../utils/logger');
+const { PaymentGatewayError } = require('../utils/errors');
 
 // Default idempotency key TTL: 24 hours
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -113,10 +114,16 @@ async function charge({ organizationId, clientId, amount, currency, description,
         result = await paymentCircuitBreaker.call(() =>
           chargeConekta(gateway, amount, currency || 'MXN', description, paymentMethodToken));
         break;
-      default:
-        // Generic / manual — mark as succeeded with placeholder reference
-        result = { gatewayRef: `${gateway.provider}_${Date.now()}`, status: 'succeeded' };
+      case 'manual':
+        // Manual / offline-recorded payment: no API call needed; record as succeeded.
+        result = { gatewayRef: `manual_${Date.now()}`, status: 'succeeded' };
         break;
+      default:
+        // Provider is configured in the schema but not yet implemented.
+        throw new PaymentGatewayError(
+          `Payment provider '${gateway.provider}' is not yet supported for automated charges. ` +
+          'Use provider \'manual\' to record offline payments, or configure a supported provider (stripe, conekta).',
+        );
     }
 
     await db.query(
@@ -260,21 +267,156 @@ async function chargeConekta(gateway, amount, currency, description, _paymentMet
 }
 
 /**
+ * Call the Stripe refunds API for a previously-captured charge or payment intent.
+ * @param {object} gateway  - payment_gateways row (with secret_key_encrypted)
+ * @param {object} tx       - payment_transactions row
+ * @returns {Promise<{gatewayRefundRef: string}>}
+ */
+async function refundStripe(gateway, tx) {
+  const https = require('https');
+
+  const secretKey = decrypt(gateway.secret_key_encrypted);
+  const body = new URLSearchParams({
+    payment_intent: tx.gateway_reference_id,
+  }).toString();
+
+  const response = await new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: 'api.stripe.com',
+      path: '/v1/refunds',
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${secretKey}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(body),
+      },
+      timeout: 30000,
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => resolve({ statusCode: res.statusCode, body: data }));
+    });
+    req.on('timeout', () => req.destroy(new Error('Stripe refund request timed out')));
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+
+  const data = JSON.parse(response.body);
+  if (response.statusCode >= 400 || data.error) {
+    throw new PaymentGatewayError(data.error?.message || `Stripe refund error: HTTP ${response.statusCode}`);
+  }
+
+  return { gatewayRefundRef: data.id };
+}
+
+/**
+ * Call the Conekta order refund API for a previously-created order.
+ * @param {object} gateway  - payment_gateways row (with secret_key_encrypted)
+ * @param {object} tx       - payment_transactions row
+ * @returns {Promise<{gatewayRefundRef: string}>}
+ */
+async function refundConekta(gateway, tx) {
+  const https = require('https');
+
+  const secretKey = decrypt(gateway.secret_key_encrypted);
+  const body = JSON.stringify({ reason: 'requested_by_customer' });
+  const path = `/orders/${tx.gateway_reference_id}/refunds`;
+
+  const response = await new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: 'api.conekta.io',
+      path,
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${Buffer.from(secretKey + ':').toString('base64')}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/vnd.conekta-v2.1.0+json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+      timeout: 30000,
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => resolve({ statusCode: res.statusCode, body: data }));
+    });
+    req.on('timeout', () => req.destroy(new Error('Conekta refund request timed out')));
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+
+  const data = JSON.parse(response.body);
+  if (response.statusCode >= 400 || data.type === 'error') {
+    throw new PaymentGatewayError(
+      data.details?.[0]?.message || `Conekta refund error: HTTP ${response.statusCode}`,
+    );
+  }
+
+  return { gatewayRefundRef: data.id || tx.gateway_reference_id };
+}
+
+/**
  * Refund a payment transaction.
+ *
+ * For stripe/conekta: calls the processor first, then updates the DB only after
+ * the processor confirms success. Both external calls are wrapped in the circuit
+ * breaker.
+ * For manual: DB-only status flip (no processor call needed).
+ * For unimplemented providers: throws PaymentGatewayError.
+ *
+ * @param {number} transactionId
+ * @returns {Promise<{transaction_id: number, status: string, gateway_refund_reference?: string}>}
  */
 async function refund(transactionId) {
-  const [rows] = await db.query('SELECT * FROM payment_transactions WHERE id = ?', [transactionId]);
+  // Fetch transaction and join to gateway to get the provider
+  const [rows] = await db.query(
+    `SELECT pt.*, pg.provider, pg.secret_key_encrypted, pg.config_json
+     FROM payment_transactions pt
+     JOIN payment_gateways pg ON pg.id = pt.payment_gateway_id
+     WHERE pt.id = ?
+     LIMIT 1`,
+    [transactionId],
+  );
   const tx = rows[0];
 
   if (!tx) throw new Error('Transaction not found');
   if (tx.gateway_status !== 'succeeded') throw new Error('Can only refund succeeded transactions');
 
+  let gatewayRefundRef = null;
+
+  switch (tx.provider) {
+    case 'stripe': {
+      const refundResult = await paymentCircuitBreaker.call(() => refundStripe(tx, tx));
+      gatewayRefundRef = refundResult.gatewayRefundRef;
+      break;
+    }
+    case 'conekta': {
+      const refundResult = await paymentCircuitBreaker.call(() => refundConekta(tx, tx));
+      gatewayRefundRef = refundResult.gatewayRefundRef;
+      break;
+    }
+    case 'manual':
+      // Offline / manually-recorded payment: DB-only status flip is sufficient.
+      break;
+    default:
+      throw new PaymentGatewayError(
+        `Refunds for provider '${tx.provider}' are not yet supported. ` +
+        'Process the refund directly with the provider and record it manually.',
+      );
+  }
+
+  // Only update DB after processor confirms (or for manual, immediately)
   await db.query(
-    'UPDATE payment_transactions SET gateway_status = ? WHERE id = ?',
-    ['refunded', transactionId],
+    'UPDATE payment_transactions SET gateway_status = ?, gateway_reference_id = COALESCE(?, gateway_reference_id) WHERE id = ?',
+    ['refunded', gatewayRefundRef, transactionId],
   );
 
-  return { transaction_id: transactionId, status: 'refunded' };
+  return {
+    transaction_id: transactionId,
+    status: 'refunded',
+    ...(gatewayRefundRef && { gateway_refund_reference: gatewayRefundRef }),
+  };
 }
 
 /**

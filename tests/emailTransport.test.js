@@ -65,7 +65,8 @@ describe('emailTransport', () => {
   // =========================================================================
   describe('processQueue()', () => {
     test('processes queued emails and returns counts', async () => {
-      const entry = { id: 10, recipient: 'q@test.com', subject: 'Queued', body_html: '<p>Hi</p>', body_text: null };
+      // email_logs.body is the real schema column (single field, not body_html/body_text)
+      const entry = { id: 10, recipient: 'q@test.com', subject: 'Queued', body: '<p>Hi</p>' };
       db.query
         .mockResolvedValueOnce([[entry]])        // SELECT queued
         .mockResolvedValueOnce([{ affectedRows: 1 }]);  // UPDATE sent
@@ -73,6 +74,11 @@ describe('emailTransport', () => {
 
       const result = await emailTransport.processQueue();
       expect(result).toEqual({ sent: 1, failed: 0, total: 1 });
+      // Verify sendMail receives the body from the real column
+      expect(mockSendMail).toHaveBeenCalledWith(expect.objectContaining({
+        html: '<p>Hi</p>',
+        text: '<p>Hi</p>',
+      }));
     });
 
     test('returns zero counts on empty queue', async () => {
@@ -83,7 +89,8 @@ describe('emailTransport', () => {
     });
 
     test('counts failures when sendMail throws', async () => {
-      const entry = { id: 11, recipient: 'fail@test.com', subject: 'Bad', body_html: null, body_text: 'hi' };
+      // body is the real schema column
+      const entry = { id: 11, recipient: 'fail@test.com', subject: 'Bad', body: 'hi' };
       db.query
         .mockResolvedValueOnce([[entry]])
         .mockResolvedValueOnce([{ affectedRows: 1 }]);

@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
 
 // ---------------------------------------------------------------------------
@@ -680,6 +681,7 @@ type ConfirmAction =
 const STATUS_OPTIONS = ['', 'active', 'pending', 'suspended', 'cancelled', 'terminated', 'expired'];
 
 export function ContractList() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
@@ -768,26 +770,26 @@ export function ContractList() {
     <div style={styles.page}>
       {/* Header */}
       <div style={styles.header}>
-        <h1 style={styles.pageTitle}>📄 Contracts</h1>
+        <h1 style={styles.pageTitle}>📄 {t('contractList.title')}</h1>
         {meta && <span style={styles.countBadge}>{meta.total} total</span>}
         <button
           style={{ ...styles.btnPrimary, marginLeft: 'auto' }}
           onClick={() => setShowNew(true)}
         >
-          + New Contract
+          {t('contractList.newContract')}
         </button>
       </div>
 
       {/* Filters */}
       <div style={styles.filterRow}>
-        <label style={styles.filterLabel}>Status:</label>
+        <label style={styles.filterLabel}>{t('contractList.filterStatus')}</label>
         <select
           style={styles.filterSelect}
           value={statusFilter}
           onChange={e => handleFilterChange(e.target.value)}
         >
           {STATUS_OPTIONS.map(s => (
-            <option key={s} value={s}>{s ? capitalizeStatus(s) : 'All'}</option>
+            <option key={s} value={s}>{s ? capitalizeStatus(s) : t('contractList.filterAll')}</option>
           ))}
         </select>
         {statusFilter && (
@@ -796,7 +798,7 @@ export function ContractList() {
             style={styles.btnSecondary}
             onClick={() => handleFilterChange('')}
           >
-            Clear filter
+            {t('contractList.clearFilter')}
           </button>
         )}
       </div>
@@ -804,25 +806,36 @@ export function ContractList() {
       {/* Mutation error banner */}
       {(suspendMutation.isError || cancelMutation.isError || terminateMutation.isError || deleteMutation.isError) && (
         <p style={{ color: '#ef4444', marginBottom: '0.75rem', fontSize: '0.85rem' }}>
-          Action failed. Please try again.
+          {t('contractList.actionFailed')}
         </p>
       )}
 
       {/* Table */}
       <div style={styles.tableCard}>
         {contractsQ.isLoading ? (
-          <p style={styles.msg}>Loading…</p>
+          <p style={styles.msg}>{t('contractList.loading')}</p>
         ) : contractsQ.error ? (
-          <p style={styles.msgError}>Failed to load contracts.</p>
+          <p style={styles.msgError}>{t('contractList.error')}</p>
         ) : contracts.length === 0 ? (
-          <p style={styles.msg}>No contracts found{statusFilter ? ` with status "${statusFilter}"` : ''}.</p>
+          <p style={styles.msg}>{t('contractList.noContracts')}</p>
         ) : (
           <>
             <div style={{ overflowX: 'auto' }}>
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    {['ID', 'Client', 'Plan', 'Type', 'Start', 'End', 'Billing Day', 'IP', 'Status', 'Actions'].map(
+                    {[
+                      t('contractList.table.id'),
+                      t('contractList.table.client'),
+                      t('contractList.table.plan'),
+                      t('contractList.table.type'),
+                      t('contractList.table.start'),
+                      t('contractList.table.end'),
+                      t('contractList.table.billingDay'),
+                      t('contractList.table.ip'),
+                      t('contractList.table.status'),
+                      t('contractList.table.actions'),
+                    ].map(
                       h => <th key={h} style={styles.th}>{h}</th>,
                     )}
                   </tr>
@@ -853,15 +866,15 @@ export function ContractList() {
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   disabled={page === 1}
                 >
-                  ← Prev
+                  {t('clientList.prevPage')}
                 </button>
-                <span style={styles.pageInfo}>Page {page} of {meta.totalPages}</span>
+                <span style={styles.pageInfo}>{t('clientList.pageInfo', { page, total: meta.totalPages })}</span>
                 <button
                   style={styles.pageBtn}
                   onClick={() => setPage(p => Math.min(meta.totalPages, p + 1))}
                   disabled={page === meta.totalPages}
                 >
-                  Next →
+                  {t('clientList.nextPage')}
                 </button>
               </div>
             )}

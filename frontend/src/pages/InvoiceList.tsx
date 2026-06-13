@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { extractApiError } from '@/components/ClientFormModal';
 
@@ -381,6 +382,7 @@ function GenerateInvoiceModal({ clients, contracts, onClose, onGenerated }: Gene
 const STATUS_OPTIONS = ['', 'draft', 'pending', 'sent', 'paid', 'overdue', 'cancelled', 'void'];
 
 export function InvoiceList() {
+  const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [showGenerate, setShowGenerate] = useState(false);
@@ -416,9 +418,9 @@ export function InvoiceList() {
     <div style={{ padding: '1.5rem' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '1rem' }}>
-        <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700 }}>🧾 Invoices</h1>
+        <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700 }}>🧾 {t('invoiceList.title')}</h1>
         <button onClick={() => setShowGenerate(true)} style={submitBtn}>
-          + Generate Invoice
+          {t('invoiceList.generateInvoice')}
         </button>
       </div>
 
@@ -441,15 +443,22 @@ export function InvoiceList() {
       </div>
 
       {/* Table */}
-      {isLoading && <p style={{ color: '#888' }}>Loading…</p>}
-      {isError && <p style={{ color: 'var(--accent)' }}>Failed to load invoices.</p>}
+      {isLoading && <p style={{ color: '#888' }}>{t('invoiceList.loading')}</p>}
+      {isError && <p style={{ color: 'var(--accent)' }}>{t('invoiceList.error')}</p>}
       {data && (
         <>
           <div style={{ background: '#fff', borderRadius: 8, boxShadow: '0 0 0 1px var(--border)', overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
               <thead>
                 <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                  {['Invoice #', 'Client ID', 'Total', 'Due Date', 'Status', 'Created'].map(h => (
+                  {[
+                    t('invoiceList.table.invoiceNumber'),
+                    t('invoiceList.table.clientId'),
+                    t('invoiceList.table.total'),
+                    t('invoiceList.table.dueDate'),
+                    t('invoiceList.table.status'),
+                    t('invoiceList.table.created'),
+                  ].map(h => (
                     <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -458,7 +467,7 @@ export function InvoiceList() {
                 {data.data.length === 0 && (
                   <tr>
                     <td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
-                      No invoices found.
+                      {t('invoiceList.noInvoices')}
                     </td>
                   </tr>
                 )}

@@ -21,6 +21,57 @@ const router = Router();
 router.use(['/interface-qos-policies', '/mpls-vlan-prioritization', '/dscp-marking-policies'], authenticate, orgScope);
 
 // ---------------------------------------------------------------------------
+// Column whitelists — explicit list of client-settable columns per table.
+// id / organization_id / created_at / updated_at / deleted_at are NEVER
+// included: organization_id is always set server-side from req.orgId, and
+// the timestamp/PK columns are managed by MySQL or soft-delete logic only.
+// ---------------------------------------------------------------------------
+
+const WRITABLE_COLS = {
+  interface_qos_policies: new Set([
+    'name', 'description', 'device_id', 'interface_name', 'policy_type',
+    'direction', 'parent_policy_id', 'bandwidth_mbps', 'ceil_mbps',
+    'burst_mbps', 'priority', 'vendor_platform', 'vendor_config', 'status',
+  ]),
+  mpls_vlan_prioritization_rules: new Set([
+    'name', 'description', 'rule_type', 'match_vlan_id', 'match_inner_vlan_id',
+    'match_dscp', 'match_dot1p', 'set_mpls_exp', 'set_dot1p', 'set_dscp',
+    'priority', 'enabled',
+  ]),
+  dscp_marking_policies: new Set([
+    'name', 'description', 'dscp_value', 'dscp_name', 'traffic_class',
+    'match_protocol', 'match_dst_port', 'match_src_port', 'match_l7',
+    'action', 'priority', 'status',
+  ]),
+};
+
+/**
+ * Filter a plain object to only the keys present in the whitelist for a
+ * given table.  Returns { filteredBody, unknownKeys } where unknownKeys
+ * is only non-empty when a caller sends fields outside the whitelist (useful
+ * for debugging; silently ignored rather than rejected so existing behaviour
+ * is preserved).
+ */
+function filterBody(tableName, rawBody) {
+  const allowed = WRITABLE_COLS[tableName];
+  if (!allowed) {
+    // Should never happen — every tableName used here is in WRITABLE_COLS.
+    // Fail closed: allow nothing so we don't accidentally write arbitrary cols.
+    return { filteredBody: {}, unknownKeys: Object.keys(rawBody) };
+  }
+  const filteredBody = {};
+  const unknownKeys = [];
+  for (const key of Object.keys(rawBody)) {
+    if (allowed.has(key)) {
+      filteredBody[key] = rawBody[key];
+    } else {
+      unknownKeys.push(key);
+    }
+  }
+  return { filteredBody, unknownKeys };
+}
+
+// ---------------------------------------------------------------------------
 // Helper: generic soft-delete CRUD factory
 // ---------------------------------------------------------------------------
 
@@ -66,7 +117,8 @@ function teController(tableName) {
 
     async create(req, res, next) {
       try {
-        const body = { ...req.body, organization_id: req.orgId };
+        const { filteredBody } = filterBody(tableName, req.body);
+        const body = { ...filteredBody, organization_id: req.orgId };
         const cols = Object.keys(body).join(', ');
         const placeholders = Object.keys(body).map(() => '?').join(', ');
         const [result] = await db.query(
@@ -89,10 +141,16 @@ function teController(tableName) {
         );
         if (!existing) return res.status(404).json({ error: 'Not found' });
 
-        const sets = Object.keys(req.body).map(k => `${k} = ?`).join(', ');
+        const { filteredBody } = filterBody(tableName, req.body);
+        if (Object.keys(filteredBody).length === 0) {
+          // Nothing writable was sent — return the existing row unchanged.
+          res.json({ data: existing });
+          return;
+        }
+        const sets = Object.keys(filteredBody).map(k => `${k} = ?`).join(', ');
         await db.query(
           `UPDATE ${tableName} SET ${sets} WHERE id = ? AND organization_id = ? AND deleted_at IS NULL`,
-          [...Object.values(req.body), req.params.id, req.orgId],
+          [...Object.values(filteredBody), req.params.id, req.orgId],
         );
         const [[row]] = await db.query(`SELECT * FROM ${tableName} WHERE id = ?`, [req.params.id]);
         res.json({ data: row });
