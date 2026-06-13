@@ -552,49 +552,49 @@
 ## 15. Reporting & Analytics
 
 ### 15.1 Financial Reports
-- [ ] Revenue by period (daily, weekly, monthly, quarterly, annually)
-- [ ] Revenue by plan type, region, sales agent
-- [ ] Outstanding receivables aging report
-- [ ] Cash flow report
-- [ ] Payment method breakdown
-- [ ] Churn revenue impact
-- [ ] Agent commission calculations
-- [ ] Tax reports (IVA, ISR)
-- [ ] SAT-compliant reports for Mexico
+- [x] Revenue by period (daily, weekly, monthly, quarterly, annually)
+- [x] Revenue by plan type, region, sales agent
+- [x] Outstanding receivables aging report
+- [x] Cash flow report
+- [x] Payment method breakdown
+- [x] Churn revenue impact
+- [x] Agent commission calculations
+- [x] Tax reports (IVA, ISR)
+- [x] SAT-compliant reports for Mexico
 
 ### 15.2 Operational Reports
-- [ ] Subscriber count (active, suspended, cancelled) over time
-- [ ] Subscriber net growth / churn rate
-- [ ] Average revenue per user (ARPU)
-- [ ] Bandwidth utilization per OLT / per link / per region
-- [ ] Top 10 customers by consumption
-- [ ] Uptime/downtime per service area
-- [ ] Mean Time To Repair (MTTR)
-- [ ] Installation completion reports
+- [x] Subscriber count (active, suspended, cancelled) over time
+- [x] Subscriber net growth / churn rate
+- [x] Average revenue per user (ARPU)
+- [x] Bandwidth utilization per OLT / per link / per region
+- [x] Top 10 customers by consumption
+- [x] Uptime/downtime per service area
+- [x] Mean Time To Repair (MTTR)
+- [x] Installation completion reports
 
 ### 15.3 Network Reports
-- [ ] Top congested links
-- [ ] SFP lifespan and replacement forecast
-- [ ] Optical power degradation trends
-- [ ] Reboot frequency per device
-- [ ] SNMP polling success rate
-- [ ] Alert frequency and resolution time
-- [ ] Capacity planning forecast (subscriber growth vs. available capacity)
-- [ ] PON port utilization forecast
+- [x] Top congested links
+- [x] SFP lifespan and replacement forecast
+- [x] Optical power degradation trends
+- [x] Reboot frequency per device
+- [x] SNMP polling success rate
+- [x] Alert frequency and resolution time
+- [x] Capacity planning forecast (subscriber growth vs. available capacity)
+- [x] PON port utilization forecast
 
 ### 15.4 Compliance Reports
-- [ ] Data retention compliance report
-- [ ] IP assignment log (court order ready)
-- [ ] Subscriber identity verification report
-- [ ] Traffic interception capability readiness
-- [ ] Regulatory filing data export
+- [x] Data retention compliance report
+- [x] IP assignment log (court order ready)
+- [x] Subscriber identity verification report
+- [x] Traffic interception capability readiness
+- [x] Regulatory filing data export
 
 ### 15.5 Report Engine
-- [ ] Scheduled report generation (daily/weekly/monthly)
-- [ ] Export formats: PDF, Excel (XLSX), CSV
-- [ ] Dashboard widgets with drag/drop layout
-- [ ] Custom report builder (SQL-based or visual)
-- [ ] Email report delivery to stakeholders
+- [x] Scheduled report generation (daily/weekly/monthly)
+- [x] Export formats: PDF, Excel (XLSX), CSV
+- [x] Dashboard widgets with drag/drop layout
+- [x] Custom report builder (SQL-based or visual)
+- [x] Email report delivery to stakeholders
 
 ---
 

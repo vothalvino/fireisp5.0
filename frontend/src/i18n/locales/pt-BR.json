@@ -126,6 +126,7 @@
                 "messageTemplates":  "✉️ Modelos de Mensagem",
                 "jobs":  "🛠️ Ordens de Serviço",
                 "queueStats":  "📥 Status das Filas",
+                "analyticsDashboard":  "Painel de Análises",
                 "sections":  {
                                  "clients":  "Clientes",
                                  "billing":  "Faturamento",
@@ -2568,5 +2569,49 @@
             "reason": "Motivo",
             "status": "Status"
         }
-    }
+    },
+  "reports": {
+    "networkTab": "Rede",
+    "complianceTab": "Conformidade",
+    "scheduledTab": "Agendados",
+    "customTab": "Personalizados",
+    "widgetsTab": "Widgets",
+    "scheduledReports": "Relatórios Agendados",
+    "createScheduledReport": "Criar Relatório Agendado",
+    "reportDefName": "Nome do Relatório",
+    "format": "Formato",
+    "cronExpression": "Expressão Cron",
+    "recipients": "Destinatários (separados por vírgula)",
+    "customReports": "Relatórios Personalizados",
+    "createCustomReport": "Criar Relatório Personalizado",
+    "queryType": "Tipo de Consulta",
+    "sqlQuery": "Consulta SQL",
+    "execute": "Executar",
+    "executeResult": "Resultado da Execução",
+    "dashboardWidgets": "Widgets do Painel",
+    "createWidget": "Criar Widget",
+    "widgetType": "Tipo de Widget",
+    "title": "Título",
+    "savePositions": "Salvar Posições",
+    "networkReports": "Relatórios de Rede",
+    "deviceReboots": "Reinicializações de Dispositivo",
+    "capacityForecast": "Previsão de Capacidade",
+    "ponUtilization": "Utilização PON",
+    "complianceReports": "Relatórios de Conformidade",
+    "dataRetention": "Retenção de Dados",
+    "interceptionReadiness": "Prontidão para Interceptação"
+  },
+  "analyticsDashboard": {
+    "title": "Painel de Análises",
+    "loading": "Carregando…",
+    "error": "Falha ao carregar widgets.",
+    "noWidgets": "Nenhum widget configurado.",
+    "totalRevenue": "Receita Total",
+    "subscriberGrowth": "Crescimento de Assinantes",
+    "agingSummary": "Resumo de Inadimplência",
+    "capacityForecast": "Previsão de Capacidade",
+    "totalOutstanding": "Total em Aberto",
+    "months": "meses",
+    "predicted": "Assinantes Previstos"
+  }
 }

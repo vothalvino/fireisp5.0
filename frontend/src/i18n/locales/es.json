@@ -126,6 +126,7 @@
                 "messageTemplates":  "✉️ Plantillas de Mensajes",
                 "jobs":  "🛠️ Trabajos de Campo",
                 "queueStats":  "📥 Estado de Colas",
+                "analyticsDashboard":  "Panel de Analíticas",
                 "sections":  {
                                  "clients":  "Clientes",
                                  "billing":  "Facturación",
@@ -2568,5 +2569,49 @@
             "reason": "Razón",
             "status": "Estado"
         }
-    }
+    },
+  "reports": {
+    "networkTab": "Red",
+    "complianceTab": "Cumplimiento",
+    "scheduledTab": "Programados",
+    "customTab": "Personalizados",
+    "widgetsTab": "Widgets",
+    "scheduledReports": "Reportes Programados",
+    "createScheduledReport": "Crear Reporte Programado",
+    "reportDefName": "Nombre del Reporte",
+    "format": "Formato",
+    "cronExpression": "Expresión Cron",
+    "recipients": "Destinatarios (separados por coma)",
+    "customReports": "Reportes Personalizados",
+    "createCustomReport": "Crear Reporte Personalizado",
+    "queryType": "Tipo de Consulta",
+    "sqlQuery": "Consulta SQL",
+    "execute": "Ejecutar",
+    "executeResult": "Resultado de Ejecución",
+    "dashboardWidgets": "Widgets del Panel",
+    "createWidget": "Crear Widget",
+    "widgetType": "Tipo de Widget",
+    "title": "Título",
+    "savePositions": "Guardar Posiciones",
+    "networkReports": "Reportes de Red",
+    "deviceReboots": "Reinicios de Dispositivo",
+    "capacityForecast": "Pronóstico de Capacidad",
+    "ponUtilization": "Utilización PON",
+    "complianceReports": "Reportes de Cumplimiento",
+    "dataRetention": "Retención de Datos",
+    "interceptionReadiness": "Preparación para Interceptación"
+  },
+  "analyticsDashboard": {
+    "title": "Panel de Analíticas",
+    "loading": "Cargando…",
+    "error": "Error al cargar widgets.",
+    "noWidgets": "No hay widgets configurados.",
+    "totalRevenue": "Ingresos Totales",
+    "subscriberGrowth": "Crecimiento de Suscriptores",
+    "agingSummary": "Resumen de Cartera Vencida",
+    "capacityForecast": "Pronóstico de Capacidad",
+    "totalOutstanding": "Total Pendiente",
+    "months": "meses",
+    "predicted": "Suscriptores Proyectados"
+  }
 }

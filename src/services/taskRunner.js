@@ -25,6 +25,7 @@ const campaignService = require('./campaignService');
 const lateFeeService = require('./lateFeeService');
 const paymentReminderService = require('./paymentReminderService');
 const assetService = require('./assetService');
+const scheduledReportService = require('./scheduledReportService');
 const emailTemplates = require('../views/emailTemplates');
 const { backup: runBackup } = require('../scripts/backup');
 
@@ -134,6 +135,8 @@ async function runTask(taskName, organizationId = null) {
     }
     case 'inventory_low_stock_check':
       return handleInventoryLowStockCheck(organizationId);
+    case 'generate_scheduled_reports':
+      return scheduledReportService.processScheduledReports();
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }

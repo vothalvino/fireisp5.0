@@ -95,6 +95,7 @@ import { ConfigBackupScheduleList } from '@/pages/ConfigBackupScheduleList';
 import { ConfigComplianceRuleList } from '@/pages/ConfigComplianceRuleList';
 import { SuspensionRuleList } from '@/pages/SuspensionRuleList';
 import { Reports } from '@/pages/Reports';
+import { AnalyticsDashboard } from '@/pages/AnalyticsDashboard';
 import { TaxReports } from '@/pages/TaxReports';
 import { InvoiceSettings } from '@/pages/InvoiceSettings';
 import { LateFeeRuleList } from '@/pages/LateFeeRuleList';
@@ -303,6 +304,7 @@ export function App() {
                 <Route path="ift-statistical-reports" element={<IftStatisticalReportList />} />
                 <Route path="facturas-publicas" element={<FacturaPublicaList />} />
                 <Route path="reports" element={<Reports />} />
+                <Route path="analytics-dashboard" element={<AnalyticsDashboard />} />
                 <Route path="tax-reports" element={<TaxReports />} />
                 <Route path="invoice-settings" element={<InvoiceSettings />} />
                 <Route path="late-fee-rules" element={<LateFeeRuleList />} />
