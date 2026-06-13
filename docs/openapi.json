@@ -62369,13 +62369,13 @@
       "security_createBlackholeRoute": {
         "type": "object",
         "properties": {
+          "prefix": {
+            "type": "string"
+          },
           "target_prefix": {
             "type": "string"
           },
           "reason": {
-            "type": "string"
-          },
-          "next_hop": {
             "type": "string"
           },
           "notes": {
@@ -62383,7 +62383,6 @@
           }
         },
         "required": [
-          "target_prefix",
           "reason"
         ]
       },
@@ -62399,15 +62398,29 @@
               "malware",
               "phishing",
               "ads",
+              "spam",
+              "adult",
+              "gambling",
               "botnet",
               "other"
             ]
           },
-          "reason": {
+          "entry_type": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "auto_import",
+              "threat_feed"
+            ]
+          },
+          "threat_feed_source": {
             "type": "string"
           },
           "source": {
             "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -62447,11 +62460,6 @@
             "minimum": 8,
             "maximum": 128
           },
-          "max_length": {
-            "type": "string",
-            "minimum": 8,
-            "maximum": 256
-          },
           "require_uppercase": {
             "type": "boolean"
           },
@@ -62461,8 +62469,15 @@
           "require_digits": {
             "type": "boolean"
           },
+          "require_special_chars": {
+            "type": "boolean"
+          },
           "require_symbols": {
             "type": "boolean"
+          },
+          "max_repeated_chars": {
+            "type": "string",
+            "minimum": 0
           },
           "rotation_days": {
             "type": "string",
@@ -62485,6 +62500,9 @@
       "security_createAdminIpAllowlist": {
         "type": "object",
         "properties": {
+          "cidr": {
+            "type": "string"
+          },
           "ip_address": {
             "type": "string"
           },
@@ -62493,14 +62511,8 @@
           },
           "is_active": {
             "type": "boolean"
-          },
-          "expires_at": {
-            "type": "string"
           }
-        },
-        "required": [
-          "ip_address"
-        ]
+        }
       },
       "security_triggerCpeScan": {
         "type": "object",
