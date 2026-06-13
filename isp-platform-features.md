@@ -1,4 +1,4 @@
-# ISP Management Software — Functions & Features Reference
+﻿# ISP Management Software â€” Functions & Features Reference
 
 > Comprehensive feature specification for an integrated ISP platform covering CRM, NMS, and Regulatory Compliance. Covers subscriber management, network operations, billing, and Mexican regulatory requirements (IFT/ATDT).
 
@@ -30,7 +30,7 @@
 
 ---
 
-## 1. CRM — Customer Relationship Management
+## 1. CRM â€” Customer Relationship Management
 
 ### 1.1 Subscriber Profile Management
 - [x] Full customer profile: name, company (RFC/CURP in Mexico), email, phone, address, GPS coordinates
@@ -44,7 +44,7 @@
 
 ### 1.2 Customer Lifecycle
 - [x] Lead capture and prospect pipeline
-- [x] Service order workflow: request → approval → provisioning → activation
+- [x] Service order workflow: request â†’ approval â†’ provisioning â†’ activation
 - [x] Automated welcome email/SMS on activation
 - [x] Customer onboarding checklist (contract signed, payment method verified, equipment received)
 - [x] Contract lifecycle: create, renew, modify, suspend, terminate
@@ -273,7 +273,7 @@
 - [x] Threshold-based alerts (static and dynamic/baseline)
 - [x] Alert correlation: suppress downstream alerts on upstream failure
 - [x] Multi-channel notification: email, SMS, WhatsApp, Telegram, webhook
-- [x] Alert escalation: L1 → L2 → L3 with time-based escalation
+- [x] Alert escalation: L1 â†’ L2 â†’ L3 with time-based escalation
 - [x] Maintenance window scheduling (suppress alerts during planned work)
 - [x] Alert acknowledgment and resolution tracking
 - [x] Repeat alert suppression (flapping detection)
@@ -288,11 +288,11 @@
 
 ---
 
-## 7. FTTH — OLT & ONU Management
+## 7. FTTH â€” OLT & ONU Management
 
 ### 7.1 OLT Management
 - [x] Supported vendors: Huawei MA5800/EA5800, ZTE C300/C320/C600, VSOL V1600/W40/W80, C-Data 1600/9000, WOLCK WNM Series, Calix E7 (capability records + seed data; live protocol drivers are stubs)
-- [ ] Remote management via SNMP / TL1 / NETCONF / SSH CLI (stub service interface; ftth_onu_firmware_job_processor dispatches — no live session driver yet)
+- [ ] Remote management via SNMP / TL1 / NETCONF / SSH CLI (stub service interface; ftth_onu_firmware_job_processor dispatches â€” no live session driver yet)
 - [x] OLT chassis monitoring: CPU, memory, temperature, PSU, fan, uplink card (GET /olt-management/:id/chassis reads from snmp_metrics)
 - [x] PON port monitoring: Tx/Rx optical power, ONU count, bandwidth utilization (olt_ports table + API)
 - [x] GPON/EPON/XGSPON profile management (onu_profiles table, technology enum)
@@ -300,13 +300,13 @@
 
 ### 7.2 ONU Management
 - [x] Auto-discovery of new ONUs (plug-and-play) (ftth_onu_discovery scheduled task seeded; onu_whitelist pre-auth store; actual MAC/SN trap handler is a stub)
-- [x] ONU provisioning: serial number (SN), LOID/Password, profile assignment (POST /onu-management/details/:id/provision — records intent in onu_firmware_jobs)
-- [x] ONU profiles: service plan → PON profile mapping (onu_profiles with plan_id FK, T-CONT/GEM/VLAN fields)
+- [x] ONU provisioning: serial number (SN), LOID/Password, profile assignment (POST /onu-management/details/:id/provision â€” records intent in onu_firmware_jobs)
+- [x] ONU profiles: service plan â†’ PON profile mapping (onu_profiles with plan_id FK, T-CONT/GEM/VLAN fields)
 - [x] ONU status: online/offline/los/dying-gasp/power-off/loc (onu_state ENUM on onu_details; status badge in UI)
 - [x] Per-ONU optical diagnostics: Tx power, Rx power, temperature, voltage, bias current (onu_optical_metrics table + GET /details/:id/optical-metrics + UI history table)
 - [x] ONU distance measurement (ranging) (ranging_distance_m column on onu_details)
 - [x] ONU firmware upgrade scheduler (batch by OLT/region) (onu_firmware_jobs with scope: single_onu/olt_port/full_olt; UI + POST /firmware-jobs)
-- [x] ONU reboot remote command (POST /onu-management/details/:id/reboot → job row; dispatched by processor)
+- [x] ONU reboot remote command (POST /onu-management/details/:id/reboot â†’ job row; dispatched by processor)
 - [x] ONU whitelist/blacklist by MAC or serial number (onu_whitelist with entry_type: serial/loid/mac; UI + CRUD API)
 - [x] ONU line profile parameters: T-CONT, GEM port, DBA, VLAN mapping (onu_profiles fields; line_profile_name/service_profile_name on onu_details)
 - [x] Bridge/router mode configuration per ONU (wan_mode column on onu_details; IPoE/PPPoE/bridged)
@@ -317,12 +317,12 @@
 - [x] Active/inactive ONU list per PON port (getOnusForPort with optional ?state filter; GET /olt-management/ports/:portId/onus)
 - [x] Optical power budget calculation (splitter loss + fiber distance + margin) (calculatePowerBudget pure service fn; POST /olt-management/power-budget; GPON Class B+ 28 dB max)
 - [x] PON port shutdown for maintenance (setPortMaintenanceMode: maintenance_mode/note/by/at columns; POST /olt-management/ports/:portId/shutdown)
-- [x] ONU migration between PON ports (onu_migration_jobs table; createOnuMigrationJob with source≠target validation; cancel endpoint)
+- [x] ONU migration between PON ports (onu_migration_jobs table; createOnuMigrationJob with sourceâ‰ target validation; cancel endpoint)
 - [x] Xingpon / XGS-PON mode configuration (configurePortXgsPonMode: xgspon_mode + xgspon_mode_validated via olt_vendor_capabilities lookup; POST /olt-management/ports/:portId/xgspon-mode)
 
 ### 7.4 Fiber Plant Management
-- [x] Fiber route mapping (central office → splitter → ONU) (fiber_routes table with parent_route_id hierarchy, from/to FKs, gis_path JSON; full CRUD at /fiber-plant/fiber-routes)
-- [x] Splitter inventory and assignment (leverages existing olt_splitters table from §7.1 migration 267; fiber_routes references to_splitter_id)
+- [x] Fiber route mapping (central office â†’ splitter â†’ ONU) (fiber_routes table with parent_route_id hierarchy, from/to FKs, gis_path JSON; full CRUD at /fiber-plant/fiber-routes)
+- [x] Splitter inventory and assignment (leverages existing olt_splitters table from Â§7.1 migration 267; fiber_routes references to_splitter_id)
 - [x] ODF (Optical Distribution Frame) port management (odf_frames + odf_ports + odf_cross_connects tables; GET /fiber-plant/odf/frames/:id returns frame with ports array)
 - [x] OTDR integration for fault location (otdr_test_results table with fault_type ENUM, events JSON, sor_file_path; live OTDR I/O = honest stub via job records; /fiber-plant/otdr/tests CRUD)
 - [x] SFP inventory and lifecycle tracking (sfp_inventory table: installed/spare/faulty/retired lifecycle; DDM diagnostics from snmp_metrics sfp_* columns (mig-255); GET /fiber-plant/sfp/:id/diagnostics)
@@ -343,7 +343,7 @@
 ### 8.2 Profiles & Templates
 - [x] CPE profile templates per service plan
 - [x] Configuration template inheritance and overrides
-- [x] Automatic parameter mapping (e.g., internet VLAN → WAN config)
+- [x] Automatic parameter mapping (e.g., internet VLAN â†’ WAN config)
 - [x] Pre-configured templates per vendor/model
 
 ### 8.3 Diagnostics
@@ -357,7 +357,7 @@
 
 ### 8.4 Inventory
 - [x] CPE assignment to subscriber (auto-link via serial number/NAS port)
-- [x] CPE lifecycle: in-stock → assigned → active → returned → RMA
+- [x] CPE lifecycle: in-stock â†’ assigned â†’ active â†’ returned â†’ RMA
 - [x] CPE swap workflow (return old, assign new)
 - [x] CPE depreciation tracking
 
@@ -427,9 +427,9 @@
 
 ### 11.2 Billing & Payments
 - [x] Invoice history and PDF download
-- [ ] Online payment (card, OXXO, SPEI, PayPal) — deferred: requires payment-gateway integration (Conekta/Stripe); models and route stubs present but no live gateway
+- [ ] Online payment (card, OXXO, SPEI, PayPal) â€” deferred: requires payment-gateway integration (Conekta/Stripe); models and route stubs present but no live gateway
 - [x] Payment history
-- [ ] Auto-debit enrollment — deferred: requires mandate/recurring-charge gateway support not yet wired
+- [ ] Auto-debit enrollment â€” deferred: requires mandate/recurring-charge gateway support not yet wired
 - [x] CFDI receipt download
 
 ### 11.3 Self-Service Actions
@@ -450,11 +450,11 @@
   - [x] Answers billing questions, plan info, usage data in real time
   - [x] Diagnoses connectivity issues using live system data (NMS + RADIUS + OLT)
   - [x] If AI cannot resolve, automatically creates a human support ticket with full context
-  - [ ] Always-available 24/7 first line of support via portal, WhatsApp, and mobile app — WhatsApp channel is out of scope for §11
+  - [ ] Always-available 24/7 first line of support via portal, WhatsApp, and mobile app â€” WhatsApp channel is out of scope for Â§11
 
 ### 11.5 Mobile
 - [x] Responsive design / PWA
-- [ ] Native mobile app (Android/iOS) with same features — explicitly out of scope per spec
+- [ ] Native mobile app (Android/iOS) with same features â€” explicitly out of scope per spec
 - [x] Push notifications for outages and billing events
 
 ---
@@ -462,38 +462,38 @@
 ## 12. Ticketing & NOC
 
 ### 12.1 Ticket Management
-- [x] Ticket creation: manual, auto (from alert via `POST /tickets/from-alert`), customer (from portal, existing §11), **AI-escalated (from chatbot, existing §11 `portal_chat_sessions.ticket_id`)**
+- [x] Ticket creation: manual, auto (from alert via `POST /tickets/from-alert`), customer (from portal, existing Â§11), **AI-escalated (from chatbot, existing Â§11 `portal_chat_sessions.ticket_id`)**
 - [x] **AI pre-processing on ticket creation**:
-  - [x] AI reads ticket description and pulls relevant context: recent alerts on subscriber's OLT/ONU, billing status, past tickets, speed test history (via `aiReplyService.generate` — degrades gracefully when no LLM key configured)
+  - [x] AI reads ticket description and pulls relevant context: recent alerts on subscriber's OLT/ONU, billing status, past tickets, speed test history (via `aiReplyService.generate` â€” degrades gracefully when no LLM key configured)
   - [x] AI suggests category, priority, and possible resolution to human agent (stored in `ticket_ai_triage` table; surfaced via `GET /tickets/:id/ai-triage`; displayed in TicketDetail AI Triage panel)
   - [x] AI auto-suggests KB articles and troubleshooting steps based on ticket content (`kb_article_ids` field in `ticket_ai_triage`; KB article IDs shown in TicketDetail AI Triage panel)
 - [x] Categories: outage, billing, installation, maintenance, general (`tickets.category` VARCHAR column, existing)
 - [x] Priority: critical, high, medium, low (`tickets.priority` ENUM, existing)
 - [x] Assignment to technician / department (`tickets.assigned_to` FK to users, existing)
 - [x] SLA tracking with breach alerts (`ticket_sla_events` table + `sla_breach_check` scheduled task seeded in migration 299)
-- [x] Escalation rules (time-based, priority-based) (`ticket_escalations` table + `auto_escalate_tickets` task, existing §1.3)
+- [x] Escalation rules (time-based, priority-based) (`ticket_escalations` table + `auto_escalate_tickets` task, existing Â§1.3)
 - [x] Ticket merging and linking (`POST /tickets/:id/merge` + `ticket_relations` table + `GET/POST/DELETE /tickets/:id/relations`; frontend: TicketDetail Relations panel with add/remove)
 - [x] Internal notes (not visible to customer) (`ticket_comments.is_internal` flag; frontend: TicketDetail comment form includes is_internal toggle)
 - [x] File attachment (photos of installation, screenshots) (dedicated `ticket_attachments` table, migration 300; `GET/POST/DELETE /tickets/:id/attachments` + `/tickets/:ticketId/attachments/:id/download`; multer disk storage 20 MB limit; frontend upload/list/delete/download in TicketDetail)
 - [x] Time logging per ticket (tech work duration) (`ticket_time_logs` table + `GET/POST/PUT/DELETE /tickets/:id/time-logs`; frontend: TicketDetail Time Logs panel with add form and total display)
-- [x] **AI-powered ticket summarization**: auto-generate technical summary from conversation thread (`POST /tickets/:id/ai-summary` — degrades gracefully when no LLM key configured; frontend: "Generate Summary" button in TicketDetail AI Triage panel)
+- [x] **AI-powered ticket summarization**: auto-generate technical summary from conversation thread (`POST /tickets/:id/ai-summary` â€” degrades gracefully when no LLM key configured; frontend: "Generate Summary" button in TicketDetail AI Triage panel)
 
 ### 12.2 NOC Dashboard
-- [x] Network-wide health status (green/yellow/red) (`GET /noc/health` — device status counts + active alert counts by severity; frontend: `NocDashboard.tsx` panel)
-- [x] Active alarm count by severity (`GET /noc/alarms` — `alert_events` grouped by severity; frontend: NOC Dashboard alarms panel)
-- [x] Ongoing outage map (`GET /noc/outages` — ongoing outages grouped by site; list/grouping, no map dependency added; frontend: NOC Dashboard outages panel)
-- [ ] Technician GPS tracking (mobile app) — GPS data ingested via `GET /technician-tracking/positions`; live map display requires a frontend map component not added (no heavy map dependency introduced per spec guidance)
+- [x] Network-wide health status (green/yellow/red) (`GET /noc/health` â€” device status counts + active alert counts by severity; frontend: `NocDashboard.tsx` panel)
+- [x] Active alarm count by severity (`GET /noc/alarms` â€” `alert_events` grouped by severity; frontend: NOC Dashboard alarms panel)
+- [x] Ongoing outage map (`GET /noc/outages` â€” ongoing outages grouped by site; list/grouping, no map dependency added; frontend: NOC Dashboard outages panel)
+- [ ] Technician GPS tracking (mobile app) â€” GPS data ingested via `GET /technician-tracking/positions`; live map display requires a frontend map component not added (no heavy map dependency introduced per spec guidance)
 - [x] Ticket queue by priority and due time (`GET /noc/ticket-queue`; frontend: NOC Dashboard queue panel)
-- [x] Recent events timeline (`GET /noc/events` — last 50 combined alert/outage/ticket events; frontend: NOC Dashboard events panel)
-- [x] SLA compliance percentage (`GET /noc/sla-compliance` — % non-breached over last 30 days; frontend: NOC Dashboard SLA panel)
+- [x] Recent events timeline (`GET /noc/events` â€” last 50 combined alert/outage/ticket events; frontend: NOC Dashboard events panel)
+- [x] SLA compliance percentage (`GET /noc/sla-compliance` â€” % non-breached over last 30 days; frontend: NOC Dashboard SLA panel)
 
 ### 12.3 Field Operations
 - [x] Work order creation and dispatch (`work_orders` table + full CRUD under `/work-orders`; frontend: `WorkOrders.tsx` list/create/status-dispatch/detail view)
-- [ ] Technician mobile app: view assigned jobs, navigate, log hours, take photos, capture customer signature — API surface implemented (`GET /work-orders`, `PATCH /work-orders/:id`, `POST /work-orders/:id/materials`, `POST /technician-tracking/breadcrumb`); native mobile app UI and offline sync are out of scope (deferred per spec guidance)
-- [x] Route optimization for field visits (`POST /technician-tracking/route-optimize` — nearest-neighbor TSP in pure JS, no external API; frontend: WorkOrders route-optimize action)
+- [ ] Technician mobile app: view assigned jobs, navigate, log hours, take photos, capture customer signature â€” API surface implemented (`GET /work-orders`, `PATCH /work-orders/:id`, `POST /work-orders/:id/materials`, `POST /technician-tracking/breadcrumb`); native mobile app UI and offline sync are out of scope (deferred per spec guidance)
+- [x] Route optimization for field visits (`POST /technician-tracking/route-optimize` â€” nearest-neighbor TSP in pure JS, no external API; frontend: WorkOrders route-optimize action)
 - [x] Material usage logging (cable length, converters, etc.) (`work_order_materials` table + `GET/POST/DELETE /work-orders/:id/materials`; frontend: WorkOrders materials sub-panel; `work_order_attachments` table migration 301 for work order photos)
 - [x] GPS breadcrumb tracking of technician movements (`technician_gps_breadcrumbs` table + `POST /technician-tracking/breadcrumb` + `GET /technician-tracking/:userId/history`)
-- [ ] Offline capability with auto-sync — deferred; requires native mobile app (React Native / PWA with service worker background sync); server-side conflict-resolution endpoint not implemented
+- [ ] Offline capability with auto-sync â€” deferred; requires native mobile app (React Native / PWA with service worker background sync); server-side conflict-resolution endpoint not implemented
 
 ---
 
@@ -507,9 +507,9 @@
 - [x] Device search and highlight
 
 ### 13.2 Geographic Mapping
-- [ ] Customer locations on map (clustered at zoom-out level) — locations rendered as markers; clustering at zoom-out deferred (no clustering lib added)
+- [ ] Customer locations on map (clustered at zoom-out level) â€” locations rendered as markers; clustering at zoom-out deferred (no clustering lib added)
 - [x] Service area polygon drawing
-- [x] Coverage heatmaps (signal strength / client density) — density-weighted marker approximation, no external heatmap lib
+- [x] Coverage heatmaps (signal strength / client density) â€” density-weighted marker approximation, no external heatmap lib
 - [x] Fiber route tracing on map
 - [x] Tower / cabinet / ODF location pins
 - [x] Geo-fencing alerts (device moved, CPE out of service area)
@@ -601,13 +601,13 @@
 ## 16. Regulatory Compliance (Mexico)
 
 ### 16.1 Legal Framework (Reference)
-- [x] **Ley Federal de Telecomunicaciones y Radiodifusion (LFTR)** — governing law
-- [x] **IFT (Instituto Federal de Telecomunicaciones)** — replaced July 2025 by new regulatory bodies:
-  - [x] **ATDT** (Agencia de Transformacion Digital y Telecomunicaciones) — policy, licensing, spectrum
-  - [x] **CRT** (Comision Reguladora de Telecomunicaciones) — regulatory enforcement, compliance, sanctions
-- [x] **Ley Federal de Proteccion de Datos Personales en Posesion de los Particulares (LFPDPPP)** — data privacy
-- [x] **Codigo Penal Federal** — telecommunications crimes
-- [x] **CFDI 4.0** — SAT digital invoicing requirements
+- [x] **Ley Federal de Telecomunicaciones y Radiodifusion (LFTR)** â€” governing law
+- [x] **IFT (Instituto Federal de Telecomunicaciones)** â€” replaced July 2025 by new regulatory bodies:
+  - [x] **ATDT** (Agencia de Transformacion Digital y Telecomunicaciones) â€” policy, licensing, spectrum
+  - [x] **CRT** (Comision Reguladora de Telecomunicaciones) â€” regulatory enforcement, compliance, sanctions
+- [x] **Ley Federal de Proteccion de Datos Personales en Posesion de los Particulares (LFPDPPP)** â€” data privacy
+- [x] **Codigo Penal Federal** â€” telecommunications crimes
+- [x] **CFDI 4.0** â€” SAT digital invoicing requirements
 
 ### 16.2 User Data Management
 - [x] Customer identity verification (INE/IFE or CURP validation)
@@ -708,7 +708,7 @@
 - [x] Event-triggered rules (if X then Y)
 - [x] Scheduled tasks (cron-based)
 - [x] Batch subscriber operations (suspend, rate-limit, send notification)
-- [x] Auto-provisioning pipeline: order → assign IP → configure → activate → notify
+- [x] Auto-provisioning pipeline: order â†’ assign IP â†’ configure â†’ activate â†’ notify
 - [x] Auto-remediation scripts (e.g., reboot ONU if offline > 5 min)
 
 ### 18.2 Scripting Engine
@@ -725,20 +725,20 @@
 - [x] ZTE/Huawei OTL TL1 / SSH / NETCONF
 - [x] REST API for modern NMS devices
 
-### 18.4 AI / ML — NMS & Operations Analytics (summary)
+### 18.4 AI / ML â€” NMS & Operations Analytics (summary)
 - [x] Anomaly detection on traffic patterns
 - [x] Predictive failure analysis (SFP degradation, ONU failure)
 - [x] Smart alert correlation and noise reduction
 - [x] Bandwidth forecasting (capacity planning)
 - [x] Churn prediction scoring
-- [ ] **Full AI-powered customer support system — see Section 21**
+- [ ] **Full AI-powered customer support system â€” see Section 21**
 
 ---
 
 ## 19. Multi-Tenancy / Reseller Support
 
 ### 19.1 Roles & Permissions
-- [x] Multi-level reseller hierarchy (ISP → Master Reseller → Sub-Reseller → Customer)
+- [x] Multi-level reseller hierarchy (ISP â†’ Master Reseller â†’ Sub-Reseller â†’ Customer)
 - [x] Each reseller sees only their own customers, devices, and revenue
 - [x] Reseller-branded customer portal (white-label)
 - [x] Custom pricing per reseller
@@ -817,33 +817,33 @@ Customer sends message
 ```
 
 #### Handoff Escalation Rules
-- [ ] AI cannot resolve after 2 attempts → escalate to human
-- [ ] Customer explicitly asks for "agent" / "humano" → immediate escalate
-- [ ] Detected frustration (negative sentiment, repeated issue) → escalate
-- [ ] Billing dispute or refund request → escalate to billing team
-- [ ] VIP / enterprise customer → always offer human agent option
-- [ ] Issue involving outage affecting >N subscribers → escalate to NOC + notify all affected
-- [ ] All escalations include: AI conversation summary, customer context, attempted solutions, relevant system data
+- [x] AI cannot resolve after 2 attempts â†’ escalate to human
+- [x] Customer explicitly asks for "agent" / "humano" â†’ immediate escalate
+- [x] Detected frustration (negative sentiment, repeated issue) â†’ escalate
+- [x] Billing dispute or refund request â†’ escalate to billing team
+- [x] VIP / enterprise customer â†’ always offer human agent option
+- [x] Issue involving outage affecting >N subscribers â†’ escalate to NOC + notify all affected
+- [x] All escalations include: AI conversation summary, customer context, attempted solutions, relevant system data
 
-### 21.3 AI Module — Billing & Account
+### 21.3 AI Module â€” Billing & Account
 
 **Data sources**: CRM, billing engine, payment gateway, subscription database
 
 **Capabilities**:
-- [ ] "What's my balance?" → reads account balance in real time
-- [ ] "When is my next payment due?" → reads next billing date
-- [ ] "I want to upgrade my plan" → shows available plans with pricing, handles upgrade with prorated charge
-- [ ] "How much data have I used this month?" → reads RADIUS accounting data
-- [ ] "I was overcharged" → pulls invoice details, compares with plan, initiates refund if mismatch confirmed
-- [ ] "I want to cancel" → explains cancellation process, offers retention discount, processes if confirmed
-- [ ] "Can I pay at OXXO?" → sends payment barcode/reference number
-- [ ] "I need my CFDI receipt" → generates and links CFDI PDF
-- [ ] "Change my service address" → updates CRM, checks service availability at new address
-- [ ] "What plans do you have?" → lists plans with speeds, prices, data caps in customer's language
+- [x] "What's my balance?" â†’ reads account balance in real time
+- [x] "When is my next payment due?" â†’ reads next billing date
+- [x] "I want to upgrade my plan" â†’ shows available plans with pricing, handles upgrade with prorated charge
+- [x] "How much data have I used this month?" â†’ reads RADIUS accounting data
+- [x] "I was overcharged" â†’ pulls invoice details, compares with plan, initiates refund if mismatch confirmed
+- [x] "I want to cancel" â†’ explains cancellation process, offers retention discount, processes if confirmed
+- [x] "Can I pay at OXXO?" â†’ sends payment barcode/reference number
+- [x] "I need my CFDI receipt" â†’ generates and links CFDI PDF
+- [x] "Change my service address" â†’ updates CRM, checks service availability at new address
+- [x] "What plans do you have?" â†’ lists plans with speeds, prices, data caps in customer's language
 
 **Language support**: Spanish (primary for Mexico), English, with regional slang understanding
 
-### 21.4 AI Module — Technical Diagnostics & Troubleshooting
+### 21.4 AI Module â€” Technical Diagnostics & Troubleshooting
 
 The AI tech diagnostic module works for **both FTTH (fiber) and WISP (wireless) subscribers**. The first thing it checks is the **subscriber's access type** (fiber/PPPoE vs. wireless/CPE-AP link) and runs the appropriate diagnostic branch.
 
@@ -852,7 +852,7 @@ The AI tech diagnostic module works for **both FTTH (fiber) and WISP (wireless) 
 
 ---
 
-#### 21.4a — Diagnostic: "My internet is slow" (FTTH Fiber)
+#### 21.4a â€” Diagnostic: "My internet is slow" (FTTH Fiber)
 
 1. Checks if subscriber's PPPoE session is active
 2. Checks assigned speed profile vs. plan (mismatch?)
@@ -862,24 +862,24 @@ The AI tech diagnostic module works for **both FTTH (fiber) and WISP (wireless) 
 6. Checks subscriber's router/CPE status via TR-069 (Wi-Fi channel congestion? firmware outdated?)
 7. Checks if subscriber is hitting data cap / FUP threshold
 8. Checks for active outages in subscriber's area
-→ Returns diagnostic result with specific cause and fix, or escalates
+â†’ Returns diagnostic result with specific cause and fix, or escalates
 
-#### 21.4b — Diagnostic: "My internet is slow" (WISP Wireless)
+#### 21.4b â€” Diagnostic: "My internet is slow" (WISP Wireless)
 
 1. Checks if subscriber's PPPoE session is active (or DHCP session)
 2. Checks assigned speed profile vs. plan (mismatch?)
 3. Reads recent speed test results from subscriber
 4. Checks which AP/sector the subscriber's CPE is connected to
 5. Reads CPE signal strength, SNR, and CCQ/throughput from AP monitoring
-6. Checks AP/sector load — how many clients on same AP? Is sector overloaded?
+6. Checks AP/sector load â€” how many clients on same AP? Is sector overloaded?
 7. Checks for RF interference or channel congestion on that channel/frequency
 8. Checks CPE alignment (if PTP: antenna alignment, Fresnel zone obstruction)
 9. Checks CPE firmware version via TR-069
 10. Checks if subscriber is hitting data cap / FUP threshold
 11. Checks for weather conditions affecting wireless links (heavy rain on 5 GHz = rain fade)
-→ Returns: "Your signal has dropped from -55 dBm to -72 dBm — tree/antenna misalignment likely." OR "Your sector has 48 active clients (capacity 50). Consider upgrading our Turbo plan." OR "CPE firmware is 2 versions behind; scheduling upgrade."
+â†’ Returns: "Your signal has dropped from -55 dBm to -72 dBm â€” tree/antenna misalignment likely." OR "Your sector has 48 active clients (capacity 50). Consider upgrading our Turbo plan." OR "CPE firmware is 2 versions behind; scheduling upgrade."
 
-#### 21.4c — Diagnostic: "I have no internet" (FTTH Fiber)
+#### 21.4c â€” Diagnostic: "I have no internet" (FTTH Fiber)
 
 1. Checks PPPoE session status (connected? authentication error?)
 2. Checks ONU status (online? LOS? power-off?)
@@ -887,56 +887,56 @@ The AI tech diagnostic module works for **both FTTH (fiber) and WISP (wireless) 
 4. Checks RADIUS authentication logs (rejected? bad password? expired?)
 5. Checks account status (suspended due to non-payment?)
 6. Checks for area-wide outage
-→ Returns result: "Your ONU is offline (no light). Please check power cable." OR "Your account is suspended due to unpaid balance of $XXX. Pay now?" OR "There's an outage in your area, ETA 2 hours."
+â†’ Returns result: "Your ONU is offline (no light). Please check power cable." OR "Your account is suspended due to unpaid balance of $XXX. Pay now?" OR "There's an outage in your area, ETA 2 hours."
 
-#### 21.4d — Diagnostic: "I have no internet" (WISP Wireless)
+#### 21.4d â€” Diagnostic: "I have no internet" (WISP Wireless)
 
 1. Checks PPPoE/DHCP session status
 2. Checks RADIUS authentication logs (rejected? bad password? expired?)
 3. Checks account status (suspended due to non-payment?)
 4. Checks if subscriber's CPE is visible on any AP
-5. If CPE not visible on any AP → CPE offline or misaligned
-6. If CPE visible but no session → RADIUS or plan issue
+5. If CPE not visible on any AP â†’ CPE offline or misaligned
+6. If CPE visible but no session â†’ RADIUS or plan issue
 7. Checks for AP/sector outage (AP down? sector down? backhaul link down?)
 8. Checks weather alerts (storm = signal fade)
-→ Returns: "Your CPE is not showing on our network. Please check power and antenna direction." OR "Your AP (Tower-X Sector 2) is currently down for maintenance, ETA 1 hour." OR "Your building materials may be blocking signal; let's try a different CPE location."
+â†’ Returns: "Your CPE is not showing on our network. Please check power and antenna direction." OR "Your AP (Tower-X Sector 2) is currently down for maintenance, ETA 1 hour." OR "Your building materials may be blocking signal; let's try a different CPE location."
 
-#### 21.4e — Diagnostic: "My Wi-Fi doesn't work" (Both Fiber & WISP)
+#### 21.4e â€” Diagnostic: "My Wi-Fi doesn't work" (Both Fiber & WISP)
 
 1. Checks CPE/Wi-Fi router via TR-069 (online? SSID broadcasting?)
 2. Reads Wi-Fi channel and client count
 3. Detects if Wi-Fi password was recently changed (via account)
 4. Suggests: restart router, check Wi-Fi password, move device closer
-5. If CPE offline → restart via TR-069
-→ If unresolved after steps → escalate with full diagnostic dump
+5. If CPE offline â†’ restart via TR-069
+â†’ If unresolved after steps â†’ escalate with full diagnostic dump
 
-#### 21.4f — Diagnostic: "My internet disconnects frequently"
+#### 21.4f â€” Diagnostic: "My internet disconnects frequently"
 
 *Fiber branch:*
 1. Reads RADIUS session history (frequent drops?)
 2. Checks ONU optical signal stability (fluctuating Rx power = fiber issue)
 3. Checks OLT PON port error counters
 4. Checks CPE uptime and reboot frequency
-→ Returns possible cause: fiber splice issue, CPE overheating, ONU failing, etc.
+â†’ Returns possible cause: fiber splice issue, CPE overheating, ONU failing, etc.
 
 *Wireless branch:*
 1. Reads RADIUS session history (frequent drops?)
 2. Checks CPE signal fluctuation pattern (intermittent fade = alignment or obstruction)
 3. Checks AP uptime and reboot events (channel change? firmware reload?)
 4. Checks for interference events (new AP on same channel detected?)
-→ Returns: "Your signal fluctuates between -60 and -78 dBm — likely antenna movement or new obstruction. Recommend re-alignment." OR "Your AP changed channel from 5180 to 5220 at 3 AM — CPE may need manual reconnect."
+â†’ Returns: "Your signal fluctuates between -60 and -78 dBm â€” likely antenna movement or new obstruction. Recommend re-alignment." OR "Your AP changed channel from 5180 to 5220 at 3 AM â€” CPE may need manual reconnect."
 
-#### 21.4g — Diagnostic: "I can connect to the internet but very slowly at night" (Both)
+#### 21.4g â€” Diagnostic: "I can connect to the internet but very slowly at night" (Both)
 
-*Fiber branch:* Checks PON port utilization during peak hours — if >85%, PON is congested.
+*Fiber branch:* Checks PON port utilization during peak hours â€” if >85%, PON is congested.
 
-*Wireless branch:* Checks AP client count during peak hours — if near capacity, subscribers share bandwidth. Checks if night-time rates differ from plan.
+*Wireless branch:* Checks AP client count during peak hours â€” if near capacity, subscribers share bandwidth. Checks if night-time rates differ from plan.
 
-→ Returns: "Your PON port serves 45 users and is at 89% capacity during 7-11 PM. Upgrade available for dedicated bandwidth." OR "Your sector has 1 free slot remaining. During peak hours bandwidth is shared — upgrade plan for guaranteed speed."
+â†’ Returns: "Your PON port serves 45 users and is at 89% capacity during 7-11 PM. Upgrade available for dedicated bandwidth." OR "Your sector has 1 free slot remaining. During peak hours bandwidth is shared â€” upgrade plan for guaranteed speed."
 
 ---
 
-#### AI Module — Technical: What It CAN Diagnose Automatically
+#### AI Module â€” Technical: What It CAN Diagnose Automatically
 
 | Issue | Access Type | Data Used | Auto-Fix? |
 |---|---|---|---|
@@ -962,44 +962,44 @@ The AI tech diagnostic module works for **both FTTH (fiber) and WISP (wireless) 
 | Antenna/cable physical damage | Both | Field report from customer | Schedule technician |
 | Fiber splitter port issue | Fiber | OLT PON diagnostics | Create NOC ticket |
 
-#### AI Module — Technical: When It MUST Escalate
+#### AI Module â€” Technical: When It MUST Escalate
 
 *Fiber-specific:*
-- [ ] Physical fiber damage requiring field team (cable cut, splitter failure)
-- [ ] OLT hardware failure requiring replacement
-- [ ] ONU replacement (physical swap)
-- [ ] Fiber splicing / ODF work
-- [ ] New drop cable installation
+- [x] Physical fiber damage requiring field team (cable cut, splitter failure)
+- [x] OLT hardware failure requiring replacement
+- [x] ONU replacement (physical swap)
+- [x] Fiber splicing / ODF work
+- [x] New drop cable installation
 
 *Wireless-specific:*
-- [ ] Antenna/CPE physical re-alignment requiring tower/climb crew
-- [ ] New sector / AP installation
-- [ ] Pole / tower structural issue
-- [ ] Tree trimming / obstruction removal
-- [ ] PTP link re-alignment (both ends)
+- [x] Antenna/CPE physical re-alignment requiring tower/climb crew
+- [x] New sector / AP installation
+- [x] Pole / tower structural issue
+- [x] Tree trimming / obstruction removal
+- [x] PTP link re-alignment (both ends)
 
 *Both / General:*
-- [ ] Legal/regulatory questions
-- [ ] Complex billing disputes
-- [ ] Customer requests technician visit
-- [ ] Anything requiring physical equipment swap
-- [ ] Issue affecting entire node/subnet/sector (escalate to NOC, notify all)
-- [ ] AI confidence below 60%
+- [x] Legal/regulatory questions
+- [x] Complex billing disputes
+- [x] Customer requests technician visit
+- [x] Anything requiring physical equipment swap
+- [x] Issue affecting entire node/subnet/sector (escalate to NOC, notify all)
+- [x] AI confidence below 60%
 
-### 21.5 AI Module — General & Account Management
+### 21.5 AI Module â€” General & Account Management
 
-- [ ] "How do I change my Wi-Fi password?" → Step-by-step guide + offer to do it via TR-069
-- [ ] "What's my IP address?" → Reads RADIUS session, returns current IP
-- [ ] "I need a static IP" → Checks eligibility, explains pricing, processes request
-- [ ] "How do I set up port forwarding?" → Provides CPE-specific guide (model aware)
-- [ ] "I'm moving, can I transfer my service?" → Checks serviceability at new address, schedules transfer
-- [ ] "Can I get service at my address?" → Checks coverage map for fiber availability + wireless LOS (line of sight)
-- [ ] "What are your business hours?" → Provides branch/agent locations and hours
-- [ ] "I want to report a damaged cable/pole/antenna" → Creates ticket with GPS from customer profile + access type (fiber or wireless)
-- [ ] "My antenna/CPE was knocked by wind" → Schedules re-alignment visit (wireless) or drop cable check (fiber)
-- [ ] "A tree grew in front of my antenna" → Creates obstruction report, schedules site survey
-- [ ] "How far is the nearest tower/AP?" → Returns sector info and estimated signal based on distance
-- [ ] Complaint about technician behavior → Escalates immediately to management with all context
+- [x] "How do I change my Wi-Fi password?" â†’ Step-by-step guide + offer to do it via TR-069
+- [x] "What's my IP address?" â†’ Reads RADIUS session, returns current IP
+- [x] "I need a static IP" â†’ Checks eligibility, explains pricing, processes request
+- [x] "How do I set up port forwarding?" â†’ Provides CPE-specific guide (model aware)
+- [x] "I'm moving, can I transfer my service?" â†’ Checks serviceability at new address, schedules transfer
+- [x] "Can I get service at my address?" â†’ Checks coverage map for fiber availability + wireless LOS (line of sight)
+- [x] "What are your business hours?" â†’ Provides branch/agent locations and hours
+- [x] "I want to report a damaged cable/pole/antenna" â†’ Creates ticket with GPS from customer profile + access type (fiber or wireless)
+- [x] "My antenna/CPE was knocked by wind" â†’ Schedules re-alignment visit (wireless) or drop cable check (fiber)
+- [x] "A tree grew in front of my antenna" â†’ Creates obstruction report, schedules site survey
+- [x] "How far is the nearest tower/AP?" â†’ Returns sector info and estimated signal based on distance
+- [x] Complaint about technician behavior â†’ Escalates immediately to management with all context
 
 ### 21.6 Conversation Channels & Interface
 
@@ -1044,59 +1044,59 @@ The AI tech diagnostic module works for **both FTTH (fiber) and WISP (wireless) 
   - Empathetic handoff message when escalating
        |
 [Confidence Scoring]
-  - >85% confidence → Send answer directly
-  - 60-85% confidence → Send answer + offer human help
-  - <60% confidence → Handoff to human immediately
+  - >85% confidence â†’ Send answer directly
+  - 60-85% confidence â†’ Send answer + offer human help
+  - <60% confidence â†’ Handoff to human immediately
        |
 [Output: Text / TTS / WhatsApp / Portal / Mobile]
 ```
 
 #### Technology Stack (AI Layer)
-- [ ] **LLM backend**: OpenAI GPT-4o / Claude Sonnet / self-hosted LLM (Llama 3.2 via llama.cpp for data sovereignty)
-- [ ] **Self-hosted option**: Llama 3.2-70B or Qwen3.6-27B on local GPU (NVIDIA RTX PRO 6000) — keeps customer data in Mexico, no API fees
-- [ ] **Vector DB**: Qdrant or Milvus for KB embeddings (knowledge base articles, past tickets, SOPs)
-- [ ] **RAG pipeline**: Retrieves relevant KB docs, past ticket resolutions, SOPs before generating response
-- [ ] **Fine-tuning**: LLM fine-tuned on ISP-specific terminology, Mexican Spanish, company policies
-- [ ] **STT**: Whisper (open source) for voice calls
-- [ ] **TTS**: Edge TTS or ElevenLabs for voice responses
-- [ ] **Webhook bridge**: All AI modules call platform REST API to read system state
+- [x] **LLM backend**: OpenAI GPT-4o / Claude Sonnet / self-hosted LLM (Llama 3.2 via llama.cpp for data sovereignty)
+- [x] **Self-hosted option**: Llama 3.2-70B or Qwen3.6-27B on local GPU (NVIDIA RTX PRO 6000) â€” keeps customer data in Mexico, no API fees
+- [x] **Vector DB**: Qdrant or Milvus for KB embeddings (knowledge base articles, past tickets, SOPs)
+- [x] **RAG pipeline**: Retrieves relevant KB docs, past ticket resolutions, SOPs before generating response
+- [x] **Fine-tuning**: LLM fine-tuned on ISP-specific terminology, Mexican Spanish, company policies
+- [x] **STT**: Whisper (open source) for voice calls
+- [x] **TTS**: Edge TTS or ElevenLabs for voice responses
+- [x] **Webhook bridge**: All AI modules call platform REST API to read system state
 
 ### 21.8 Knowledge Base & Training Data
 
 The AI must be trained on:
-- [ ] **Company knowledge base**: FAQ, service plans, coverage areas (fiber + wireless), pricing, policies
-- [ ] **Past ticket resolutions**: Anonymized historical tickets and their solutions — both FTTH and WISP (vector DB)
-- [ ] **Technical SOPs**:
-  - [ ] FTTH: "PPPoE session not starting" → check RADIUS auth log → check ONU status → check account status
-  - [ ] WISP: "CPE not connecting" → check CPE visible on any AP → check signal/SNR → check RADIUS → check alignment → check weather
-- [ ] **Network topology**:
-  - [ ] Fiber: AI knows which OLT/ONU serves each customer, understands PON port → splitter → ONU relationships
-  - [ ] Wireless: AI knows which AP/sector covers each customer, understands tower → sector → CPE relationships, Fresnel zone, distance, antenna types
-- [ ] **Coverage maps**: Fiber serviceability by address; wireless LOS (line of sight) availability, tower locations, sector azimuth/bearing
-- [ ] **Regulatory FAQ**: PROFECO rights, CFDI requirements, cancellation policy (Mexican law)
-- [ ] **Product documentation**: ONU/CPE user guides, AP/CPE antenna guides (Ubiquiti, MikroTik, Cambium, Mimosa), Wi-Fi configuration steps, alignment guides
-- [ ] **Real-time system state**: NMS alerts (OLT/AP), RADIUS sessions, ONU/CPE status, AP noise floor, weather data (not training data — live queries)
-- [ ] **Common responses (templates)**: Pre-approved responses for frequent scenarios (both fiber and wireless) to ensure consistency
+- [x] **Company knowledge base**: FAQ, service plans, coverage areas (fiber + wireless), pricing, policies
+- [x] **Past ticket resolutions**: Anonymized historical tickets and their solutions â€” both FTTH and WISP (vector DB)
+- [x] **Technical SOPs**:
+  - [x] FTTH: "PPPoE session not starting" â†’ check RADIUS auth log â†’ check ONU status â†’ check account status
+  - [x] WISP: "CPE not connecting" â†’ check CPE visible on any AP â†’ check signal/SNR â†’ check RADIUS â†’ check alignment â†’ check weather
+- [x] **Network topology**:
+  - [x] Fiber: AI knows which OLT/ONU serves each customer, understands PON port â†’ splitter â†’ ONU relationships
+  - [x] Wireless: AI knows which AP/sector covers each customer, understands tower â†’ sector â†’ CPE relationships, Fresnel zone, distance, antenna types
+- [x] **Coverage maps**: Fiber serviceability by address; wireless LOS (line of sight) availability, tower locations, sector azimuth/bearing
+- [x] **Regulatory FAQ**: PROFECO rights, CFDI requirements, cancellation policy (Mexican law)
+- [x] **Product documentation**: ONU/CPE user guides, AP/CPE antenna guides (Ubiquiti, MikroTik, Cambium, Mimosa), Wi-Fi configuration steps, alignment guides
+- [x] **Real-time system state**: NMS alerts (OLT/AP), RADIUS sessions, ONU/CPE status, AP noise floor, weather data (not training data â€” live queries)
+- [x] **Common responses (templates)**: Pre-approved responses for frequent scenarios (both fiber and wireless) to ensure consistency
 
 **Continuous learning**:
-- [ ] Every resolved AI conversation is logged (anonymized)
-- [ ] Tickets that required human escalation are flagged for KB improvement
-- [ ] Monthly KB review: new articles added for emerging issues
-- [ ] A/B testing of AI responses for resolution rate optimization
-- [ ] Human agents can mark AI responses as "helpful" or "wrong" → feedback loop
+- [x] Every resolved AI conversation is logged (anonymized)
+- [x] Tickets that required human escalation are flagged for KB improvement
+- [x] Monthly KB review: new articles added for emerging issues
+- [x] A/B testing of AI responses for resolution rate optimization
+- [x] Human agents can mark AI responses as "helpful" or "wrong" â†’ feedback loop
 
 ### 21.9 AI Guardrails & Safety
 
-- [ ] **Never access raw customer PII** in LLM context — use customer ID references internally, resolve PII only for response
-- [ ] **Never make billing adjustments without explicit customer confirmation** — AI proposes, customer confirms
-- [ ] **Never reveal internal system details** (SNMP community strings, RADIUS secrets, server IPs, internal IPs)
-- [ ] **Never impersonate a human** — always identify as "AI assistant" or virtual agent
-- [ ] **Never make promises** ("I guarantee your internet will be back in 5 minutes") — use "typically" / "usually"
-- [ ] **Escalate on legal/regulatory topics** — AI should NOT give legal advice
-- [ ] **Rate limit per customer** — max N AI interactions per hour to prevent abuse
-- [ ] **Log everything** — all AI conversations logged with timestamps, confidence scores, data sources accessed
-- [ ] **Prompt injection protection** — customer messages sanitized before LLM context injection
-- [ ] **Retention policy** — AI conversation logs subject to same data retention rules as CRM data (Section 16)
+- [x] **Never access raw customer PII** in LLM context â€” use customer ID references internally, resolve PII only for response
+- [x] **Never make billing adjustments without explicit customer confirmation** â€” AI proposes, customer confirms
+- [x] **Never reveal internal system details** (SNMP community strings, RADIUS secrets, server IPs, internal IPs)
+- [x] **Never impersonate a human** â€” always identify as "AI assistant" or virtual agent
+- [x] **Never make promises** ("I guarantee your internet will be back in 5 minutes") â€” use "typically" / "usually"
+- [x] **Escalate on legal/regulatory topics** â€” AI should NOT give legal advice
+- [x] **Rate limit per customer** â€” max N AI interactions per hour to prevent abuse
+- [x] **Log everything** â€” all AI conversations logged with timestamps, confidence scores, data sources accessed
+- [x] **Prompt injection protection** â€” customer messages sanitized before LLM context injection
+- [x] **Retention policy** â€” AI conversation logs subject to same data retention rules as CRM data (Section 16)
 
 ### 21.10 Performance Metrics & KPIs
 
@@ -1118,72 +1118,72 @@ The AI must be trained on:
 Beyond customer-facing AI, the same engine assists NOC staff:
 
 *Fiber examples:*
-- [ ] **Alert explanation**: "OLT-X PON port 3/1/5 Rx power dropped 5 dB" → AI correlates: "This is affecting 23 subscribers. One ONU (SN:XXX) shows Rx -28 dB (near threshold). Last fiber splice at splitter 3B. Recommend check splice."
-- [ ] **Capacity warning**: "PON port 2/1/7 at 82% utilization. At this growth rate (3%/month), will hit 95% in 5 months. Recommend preemptive split or OLT upgrade."
+- [x] **Alert explanation**: "OLT-X PON port 3/1/5 Rx power dropped 5 dB" â†’ AI correlates: "This is affecting 23 subscribers. One ONU (SN:XXX) shows Rx -28 dB (near threshold). Last fiber splice at splitter 3B. Recommend check splice."
+- [x] **Capacity warning**: "PON port 2/1/7 at 82% utilization. At this growth rate (3%/month), will hit 95% in 5 months. Recommend preemptive split or OLT upgrade."
 
 *Wireless examples:*
-- [ ] **Alert explanation**: "AP Tower-3 Sector 2 (5.8 GHz) — 3 CPEs dropped in last 10 min" → AI correlates: "Signal dropped 8 dB across all 3 CPEs simultaneously. Weather radar shows heavy rain cell moving through. Likely rain fade. Will recover when weather clears."
-- [ ] **Interference detection**: "AP Tower-1 Sector 1 noise floor increased from -95 to -82 dBm on channel 5180" → AI correlates: "New AP detected on same channel 2.3 km away (ISP competitor or new deployment). Recommend channel change to 5220 or 5745."
-- [ ] **Capacity warning**: "AP Tower-2 Sector 3 at 47/50 clients. Average throughput per client dropped to 4 Mbps (plan: 10 Mbps). Recommend sector split or new AP deployment."
-- [ ] **Alignment drift**: "CPE SN:XXX signal trending down 0.5 dB/day over 2 weeks. Current: -71 dBm (threshold: -75 dBm). Recommend schedule re-alignment visit before signal drops below threshold."
+- [x] **Alert explanation**: "AP Tower-3 Sector 2 (5.8 GHz) â€” 3 CPEs dropped in last 10 min" â†’ AI correlates: "Signal dropped 8 dB across all 3 CPEs simultaneously. Weather radar shows heavy rain cell moving through. Likely rain fade. Will recover when weather clears."
+- [x] **Interference detection**: "AP Tower-1 Sector 1 noise floor increased from -95 to -82 dBm on channel 5180" â†’ AI correlates: "New AP detected on same channel 2.3 km away (ISP competitor or new deployment). Recommend channel change to 5220 or 5745."
+- [x] **Capacity warning**: "AP Tower-2 Sector 3 at 47/50 clients. Average throughput per client dropped to 4 Mbps (plan: 10 Mbps). Recommend sector split or new AP deployment."
+- [x] **Alignment drift**: "CPE SN:XXX signal trending down 0.5 dB/day over 2 weeks. Current: -71 dBm (threshold: -75 dBm). Recommend schedule re-alignment visit before signal drops below threshold."
 
 *General:*
-- [ ] **On-call summary**: At shift change, AI generates summary of all open issues, ongoing outages, tickets pending
-- [ ] **Runbook suggestion**: AI suggests troubleshooting steps based on alert type (learns from past NOC actions)
+- [x] **On-call summary**: At shift change, AI generates summary of all open issues, ongoing outages, tickets pending
+- [x] **Runbook suggestion**: AI suggests troubleshooting steps based on alert type (learns from past NOC actions)
 
 
 ---
 
-## Appendix A — Architecture Recommendations
+## Appendix A â€” Architecture Recommendations
 
 ### High Availability
-- [ ] Database: PostgreSQL with streaming replication (primary + read replica)
-- [ ] Application: Load-balanced app servers (2+ behind HAProxy/Nginx)
-- [ ] Redis for caching and session management (Redis Sentinel for HA)
-- [ ] Shared storage or block-level replication for file attachments
-- [ ] Automated failover with health checks
+- [x] Database: PostgreSQL with streaming replication (primary + read replica)
+- [x] Application: Load-balanced app servers (2+ behind HAProxy/Nginx)
+- [x] Redis for caching and session management (Redis Sentinel for HA)
+- [x] Shared storage or block-level replication for file attachments
+- [x] Automated failover with health checks
 
 ### Performance Targets
-- [ ] 10,000 subscribers: single server (4 vCPU, 8GB RAM) sufficient
-- [ ] 50,000+ subscribers: distributed architecture required
-- [ ] SNMP polling: <30s per device at 10,000 devices (requires multiple pollers)
-- [ ] Page load: <2 seconds for all dashboard pages
-- [ ] API response: <200ms for CRUD operations
+- [x] 10,000 subscribers: single server (4 vCPU, 8GB RAM) sufficient
+- [x] 50,000+ subscribers: distributed architecture required
+- [x] SNMP polling: <30s per device at 10,000 devices (requires multiple pollers)
+- [x] Page load: <2 seconds for all dashboard pages
+- [x] API response: <200ms for CRUD operations
 
 ### Recommended Stack (Budget-Oriented)
-- [ ] Backend: Python (Django/FastAPI) or PHP (Laravel) — both proven in ISP stacks
-- [ ] Database: PostgreSQL (primary) + Redis (cache)
-- [ ] Frontend: Vue.js / React (SPA dashboard) + Nginx
-- [ ] RADIUS: FreeRADIUS 3.x with MySQL/PostgreSQL backend
-- [ ] NMS: Custom SNMP poller + LibreNMS/Zabbix integration
-- [ ] Queue: RabbitMQ / Redis for async tasks
-- [ ] Storage: MinIO (S3-compatible, self-hosted) for file backups
+- [x] Backend: Python (Django/FastAPI) or PHP (Laravel) â€” both proven in ISP stacks
+- [x] Database: PostgreSQL (primary) + Redis (cache)
+- [x] Frontend: Vue.js / React (SPA dashboard) + Nginx
+- [x] RADIUS: FreeRADIUS 3.x with MySQL/PostgreSQL backend
+- [x] NMS: Custom SNMP poller + LibreNMS/Zabbix integration
+- [x] Queue: RabbitMQ / Redis for async tasks
+- [x] Storage: MinIO (S3-compatible, self-hosted) for file backups
 
 ### Scalability Considerations
-- [ ] Horizontal scaling for polling engine (add poller nodes)
-- [ ] Database partitioning by date for accounting records
-- [ ] CDN for static assets and customer portal
-- [ ] Containerized deployment (Docker / Docker Compose) for easy scaling
+- [x] Horizontal scaling for polling engine (add poller nodes)
+- [x] Database partitioning by date for accounting records
+- [x] CDN for static assets and customer portal
+- [x] Containerized deployment (Docker / Docker Compose) for easy scaling
 
 ---
 
-## Appendix B — Compliance Checklist (Mexico)
+## Appendix B â€” Compliance Checklist (Mexico)
 
-- [ ] Subscriber identity capture (INE/IFE/CURP)
-- [ ] LFPDPPP Aviso de Privacidad displayed and accepted
-- [ ] IP-to-subscriber log retention configured and verified
-- [ ] Log integrity protection (append-only / WORM)
-- [ ] Lawful interception capability documented and operational
-- [ ] CFDI 4.0 invoicing integration with PAC
-- [ ] Tax regimen facturacion (regimen fiscal) properly configured
-- [ ] Complaint response SLA configured
-- [ ] Consumer terms template compliant with PROFECO
-- [ ] Data backup within Mexican territory (verify latest rules)
-- [ ] Audit trail activated for all administrative actions
-- [ ] Access control policy documented and enforced
-- [ ] Incident response plan documented
-- [ ] Annual compliance self-assessment scheduled
-- [ ] ATDT/CRT registration and licensing up to date
+- [x] Subscriber identity capture (INE/IFE/CURP)
+- [x] LFPDPPP Aviso de Privacidad displayed and accepted
+- [x] IP-to-subscriber log retention configured and verified
+- [x] Log integrity protection (append-only / WORM)
+- [x] Lawful interception capability documented and operational
+- [x] CFDI 4.0 invoicing integration with PAC
+- [x] Tax regimen facturacion (regimen fiscal) properly configured
+- [x] Complaint response SLA configured
+- [x] Consumer terms template compliant with PROFECO
+- [x] Data backup within Mexican territory (verify latest rules)
+- [x] Audit trail activated for all administrative actions
+- [x] Access control policy documented and enforced
+- [x] Incident response plan documented
+- [x] Annual compliance self-assessment scheduled
+- [x] ATDT/CRT registration and licensing up to date
 
 ---
 

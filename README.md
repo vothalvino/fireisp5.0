@@ -109,8 +109,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 313 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–350)
+│   ├── schema.sql           # Combined schema (all 322 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–358)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -475,6 +475,15 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 311 | `integration_providers` | §20.2 Read-only catalog of 27 supported integration providers; seeded in migration 348; keyed by provider_key (UNIQUE) |
 | 312 | `integration_connections` | §20.2 Per-org configured integration instances; credentials_enc (AES-256-GCM encrypted, never returned in API responses), config_json, status, last_synced_at |
 | 313 | `integration_sync_logs` | §20.2 Sync execution records per connection — direction, status (queued/running/success/error/stubbed), records_in/out/error, error_message |
+| 314 | `support_conversations` | §21.2 AI support conversation thread per customer/channel — channel ENUM (web/whatsapp/sms/email), status ENUM (open/escalated/closed), intent, confidence score, escalation_reason, ticket_id FK on escalation |
+| 315 | `support_messages` | §21.2 Individual messages within a support conversation — role ENUM (customer/assistant/system), content TEXT, intent, confidence, data_sources JSON; FK to support_conversations CASCADE |
+| 316 | `ai_diagnostic_runs` | §21.4 Recorded results from the AI diagnostic engine — symptom, access_type, checks JSON, cause, recommendation, auto_fix_available flag, confidence, escalate flag, escalation_reason; FK to support_conversations (SET NULL) |
+| 317 | `kb_articles` | §21.8 Knowledge base articles for RAG support — title, body LONGTEXT, category, locale, tags, is_published flag, created_by FK; org-scoped with soft-delete |
+| 318 | `kb_article_embeddings` | §21.8 Vector embeddings for semantic KB search — chunk_index, chunk_text TEXT, embedding_json LONGTEXT (serialized float array), embedded_at; FK to kb_articles CASCADE |
+| 319 | `kb_feedback` | §21.8 User feedback on KB articles — feedback ENUM (helpful/not_helpful/inaccurate), notes, conversation_id FK (SET NULL); FK to kb_articles CASCADE |
+| 320 | `support_channel_configs` | §21.6 Per-channel AI support configuration per organization — channel ENUM (web/whatsapp/sms/email), is_enabled flag, provider_id FK (SET NULL), escalation_threshold_confidence DECIMAL, max_turns, greeting_message; UNIQUE on (organization_id, channel) |
+| 321 | `ai_support_metrics` | §21.10 Nightly KPI rollup for AI support — period_date, resolution_rate, fcr_rate (first-contact resolution), avg_handle_time_sec, escalation_rate, csat_avg, false_positive_rate, avg_latency_ms, total_conversations, total_escalations, total_ai_cost_usd; UNIQUE on (organization_id, period_date) |
+| 322 | `noc_ai_insights` | §21.11 AI-generated NOC insights and alerts — insight_type ENUM (shift_summary/alert_explanation/capacity_warning/runbook_suggestion/interference_detection/alignment_drift), alert_id FK (SET NULL), device_id FK (SET NULL), affected_subscribers, summary TEXT, recommendation TEXT, confidence, provider_id FK (SET NULL); org-scoped |
 
 > **Migration 323–335 — Security & Access Control (§17):** webauthn_credentials, admin_ip_allowlist, password_policies, api_key_rate_limits, firewall_rules, ddos_protection_rules, blackhole_routes, dns_blocklists, cpe_security_scans, encryption_key_metadata, data_masking_rules, secure_deletion_log; plus 4 new roles (super_admin, noc_operator, reseller_admin, auditor) and 36 security module permissions.
 
@@ -483,6 +492,22 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 344–347 — Multi-Tenancy / Reseller Support (§19):** resellers (self-referencing hierarchy up to 2 levels deep, white-label branding, commission_rate), reseller_plan_prices (custom pricing overrides per reseller+plan), reseller_commissions (per-invoice earnings with approve/pay workflow), reseller_ip_pool_allocations, reseller_bandwidth_quotas, reseller_olt_port_assignments, reseller_billing_entities; plus `reseller_id` FK on clients table for reseller scoping. Includes 22 permissions across resellers, reseller_plan_prices, reseller_commissions, reseller_*_allocations/quotas/assignments, reseller_billing_entities, and reseller_portal modules, granted to admin, reseller_admin, and super_admin roles.
 
 > **Migration 348–350 — APIs & Integrations (§20):** integration_providers (27-provider catalog seeded idempotently), integration_connections (per-org instances with AES-256-GCM encrypted credentials), integration_sync_logs (execution records). 8 permissions (integration_providers.view, integration_connections.view/create/update/delete/test/sync, integration_sync_logs.view) granted to admin and super_admin. Routes at /api/v1/integrations (10 endpoints). testConnection() and sync() are STUB — no live HTTP; credentials encrypted at rest and never returned in API responses.
+
+> **Migration 351 — §21.2 AI Support:** Adds `support_conversations` and `support_messages` tables for multi-channel AI customer support conversations.
+
+> **Migration 352 — §21.4 Diagnostics:** Adds `ai_diagnostic_runs` for recording diagnostic engine results.
+
+> **Migration 353 — §21.8 Knowledge Base:** Adds `kb_articles`, `kb_article_embeddings`, and `kb_feedback` for the RAG knowledge base.
+
+> **Migration 354 — §21.6/21.10:** Adds `support_channel_configs` and `ai_support_metrics` for channel configuration and nightly KPI rollup.
+
+> **Migration 355 — §21.11 NOC AI:** Adds `noc_ai_insights` table for AI-generated Network Operations Center insights.
+
+> **Migration 356 — §21 Permissions:** Seeds 14 support/NOC AI permissions and grants them to admin and super_admin roles.
+
+> **Migration 357 — §21 Channel Defaults:** No-op; channel configs created lazily per org on first use.
+
+> **Migration 358 — §21 Scheduled Task:** Seeds the `ai_support_metrics_rollup` task (nightly at 01:00, task_type=other).
 
 > **Migration 165–173 table count note:** See migrations 241–246 below for the §5 Dual Stack tables. See migrations 249–263 for §6.1–6.6 SNMP & NMS tables.
 
