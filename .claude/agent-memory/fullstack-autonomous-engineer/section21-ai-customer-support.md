@@ -71,5 +71,16 @@ Granted to: admin, super_admin
 - README: 001–358, all 322 tables (matches schema.sql grep -c "CREATE TABLE")
 - FK duplicates: only the 3 pre-existing tax_rate dups
 
-**Why:** [[section20-apis-integrations]] — same FROM DUAL / ENUM literal / permission column patterns applied here.
+## Orchestrator sweep fix: spec-file encoding
+The §21 checkbox edit had rewritten the ENTIRE isp-platform-features.md in cp1252 (BOM added, every em-dash/§/→ became mojibake — 68 corrupted lines). Code + locales were clean; only the spec doc was hit. Fixed by restoring the clean UTF-8 file from main (`git checkout origin/main -- isp-platform-features.md`) and re-ticking only §21 via byte-preserving `sed -i '781,1136 s/- \[ \]/- [x]/'`. LESSON: editing a file full of non-ASCII (em-dashes, §, →) can silently re-encode the whole file to cp1252 on Windows — after any edit to isp-platform-features.md (or locales), run `git diff origin/main -- <file> | grep -cE "^\+.*(â€|Ã©|ï»¿|Â§)"` and expect 0. Repair via git-checkout-clean + sed -i (sed -i preserves bytes; shell `awk > file` redirect does NOT — it re-encodes).
+
+## Test gotchas (service export shapes + mock ordering)
+- `kbService.createArticle()` returns `{ id: insertId }` (not the row); `searchArticles(orgId, query, locale, limit)` positional args; feedback export is `addFeedback({articleId,conversationId,feedback,notes})`.
+- `aiSupportMetricsService` exports `rollupMetrics` (not `rollup`).
+- `supportConversationService.listConversations()` returns `{ conversations, total }`; `getConversation()` returns `null | { conversation, messages }`. listConversations runs COUNT then SELECT — mock COUNT first.
+- `validate(schema)` reads `req.body`, so `GET /support/kb/search?q=` with kbSearchSchema always 422 (empty body) — tests expect 422 for that route with only query params.
+- Keyword dispatch traps: billing `plan_upgrade` regex needs "upgrade"/"cambiar plan" (not "cambiar mi plan"); general `nearest_tower` (torre|antena|ap) fires before `damage_report` (use "roto"/"broken" to hit damage_report).
+- `sendMessage` with escalation needs ~10 ordered db.query mocks (conv lookup → insert customer msg → update status escalated → insert ticket → update ticket_id → insert system msg → ...); `nocAiService.shiftSummary` runs 3 COUNT queries (open tickets, active alerts, escalated conversations) then inserts.
+
+**Why:** [[section20-apis-integrations]] — same FROM DUAL / ENUM literal / permission column patterns applied here. Folded in the duplicate `section21-ai-support-noc.md` slug the agent also wrote (deleted the orphan).
 **How to apply:** This is the LAST section of the 21-section build. Project is complete.
