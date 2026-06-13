@@ -127,6 +127,7 @@
                 "jobs":  "🛠️ Ordens de Serviço",
                 "queueStats":  "📥 Status das Filas",
                 "analyticsDashboard":  "Painel de Análises",
+                "regulatoryCompliance": "Conformidade Regulatoria",
                 "sections":  {
                                  "clients":  "Clientes",
                                  "billing":  "Faturamento",
@@ -2613,5 +2614,72 @@
     "totalOutstanding": "Total em Aberto",
     "months": "meses",
     "predicted": "Assinantes Previstos"
+  },
+  "regulatoryCompliance": {
+    "title": "Conformidade Regulatoria (Mexico)",
+    "tabs": {
+      "consent": "Gestao de Consentimentos",
+      "dsar": "Solicitacoes DSAR",
+      "identity": "Verificacao de Identidade",
+      "numbering": "Telefonia e Numeracao",
+      "uso": "Servico Universal",
+      "consumer": "Protecao ao Consumidor",
+      "residency": "Residencia de Dados",
+      "audit": "Auditoria e Exportacao"
+    },
+    "consent": {
+      "clientId": "ID do Cliente",
+      "purpose": "Finalidade",
+      "givenAt": "Consentimento Fornecido",
+      "status": "Status",
+      "withdrawn": "Retirado",
+      "active": "Ativo"
+    },
+    "dsar": {
+      "requestType": "Tipo de Solicitacao",
+      "status": "Status",
+      "dueAt": "Vencimento",
+      "legalHold": "Retencao Legal"
+    },
+    "identity": {
+      "clientId": "ID do Cliente",
+      "idType": "Tipo de ID",
+      "status": "Status",
+      "checksumValid": "Checksum Valido"
+    },
+    "numbering": {
+      "phoneNumber": "Numero de Telefone",
+      "type": "Tipo",
+      "status": "Status",
+      "lada": "LADA"
+    },
+    "uso": {
+      "type": "Tipo de Obrigacao",
+      "status": "Status",
+      "period": "Periodo",
+      "progress": "Progresso"
+    },
+    "consumer": {
+      "noticeType": "Tipo de Aviso",
+      "effectiveDate": "Data Efetiva",
+      "status": "Status",
+      "noticeDays": "Dias de Aviso"
+    },
+    "residency": {
+      "primaryCountry": "Pais de Armazenamento Principal",
+      "complianceStatus": "Status de Conformidade",
+      "crossBorder": "Transferencias Internacionais",
+      "lastCheck": "Ultima Verificacao",
+      "neverChecked": "Nunca verificado",
+      "runCheck": "Executar Verificacao",
+      "noConfig": "Nenhuma configuracao de residencia de dados encontrada"
+    },
+    "audit": {
+      "exportLogs": "Exportar Logs de Auditoria",
+      "reportAccessLogs": "Logs de Acesso a Relatorios",
+      "reportType": "Tipo de Relatorio",
+      "accessedAt": "Acessado Em",
+      "userId": "ID do Usuario"
+    }
   }
 }

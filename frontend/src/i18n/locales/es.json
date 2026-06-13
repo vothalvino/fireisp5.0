@@ -127,6 +127,7 @@
                 "jobs":  "🛠️ Trabajos de Campo",
                 "queueStats":  "📥 Estado de Colas",
                 "analyticsDashboard":  "Panel de Analíticas",
+                "regulatoryCompliance": "Cumplimiento Regulatorio",
                 "sections":  {
                                  "clients":  "Clientes",
                                  "billing":  "Facturación",
@@ -2613,5 +2614,72 @@
     "totalOutstanding": "Total Pendiente",
     "months": "meses",
     "predicted": "Suscriptores Proyectados"
+  },
+  "regulatoryCompliance": {
+    "title": "Cumplimiento Regulatorio (Mexico)",
+    "tabs": {
+      "consent": "Gestion de Consentimientos",
+      "dsar": "Solicitudes DSAR",
+      "identity": "Verificacion de Identidad",
+      "numbering": "Telefonia y Numeracion",
+      "uso": "Servicio Universal",
+      "consumer": "Proteccion al Consumidor",
+      "residency": "Residencia de Datos",
+      "audit": "Auditoria y Exportacion"
+    },
+    "consent": {
+      "clientId": "ID de Cliente",
+      "purpose": "Proposito",
+      "givenAt": "Consentimiento Otorgado",
+      "status": "Estado",
+      "withdrawn": "Retirado",
+      "active": "Activo"
+    },
+    "dsar": {
+      "requestType": "Tipo de Solicitud",
+      "status": "Estado",
+      "dueAt": "Vence",
+      "legalHold": "Retencion Legal"
+    },
+    "identity": {
+      "clientId": "ID de Cliente",
+      "idType": "Tipo de ID",
+      "status": "Estado",
+      "checksumValid": "Checksum Valido"
+    },
+    "numbering": {
+      "phoneNumber": "Numero Telefonico",
+      "type": "Tipo",
+      "status": "Estado",
+      "lada": "LADA"
+    },
+    "uso": {
+      "type": "Tipo de Obligacion",
+      "status": "Estado",
+      "period": "Periodo",
+      "progress": "Avance"
+    },
+    "consumer": {
+      "noticeType": "Tipo de Aviso",
+      "effectiveDate": "Fecha Efectiva",
+      "status": "Estado",
+      "noticeDays": "Dias de Aviso"
+    },
+    "residency": {
+      "primaryCountry": "Pais de Almacenamiento Principal",
+      "complianceStatus": "Estado de Cumplimiento",
+      "crossBorder": "Transferencias Transfronterizas",
+      "lastCheck": "Ultima Verificacion",
+      "neverChecked": "Nunca verificado",
+      "runCheck": "Ejecutar Verificacion",
+      "noConfig": "No se encontro configuracion de residencia de datos"
+    },
+    "audit": {
+      "exportLogs": "Exportar Registros de Auditoria",
+      "reportAccessLogs": "Registros de Acceso a Reportes",
+      "reportType": "Tipo de Reporte",
+      "accessedAt": "Accedido En",
+      "userId": "ID de Usuario"
+    }
   }
 }

@@ -118,6 +118,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/ift-statistical-reports', labelKey: 'nav.iftStatisticalReports', requiredRole: 'billing' },
       { to: '/facturas-publicas', labelKey: 'nav.facturasPublicas', requiredRole: 'billing' },
       { to: '/profeco-complaints', labelKey: 'nav.profecoComplaints', requiredRole: 'billing' },
+      { to: '/regulatory-compliance', labelKey: 'nav.regulatoryCompliance', requiredRole: 'billing' },
     ],
   },
   {

@@ -154,4 +154,31 @@ router.get('/clients/:id', requirePermission('clients.view'), async (req, res, n
   }
 });
 
+/**
+ * GET /dsar/requests
+ *
+ * Convenience listing of all DSAR requests for the authenticated organisation.
+ * The full CRUD is at /regulatory-compliance/dsar-requests; this endpoint
+ * provides a quick read-only view under the existing /dsar prefix.
+ */
+router.get('/requests', requirePermission('dsar_requests.view'), async (req, res, next) => {
+  try {
+    const { page = 1, limit = 50 } = req.query;
+    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+
+    const [rows] = await db.query(
+      'SELECT * FROM dsar_requests WHERE organization_id = ? ORDER BY requested_at DESC LIMIT ? OFFSET ?',
+      [req.orgId, parseInt(limit, 10), offset],
+    );
+    const [countResult] = await db.query(
+      'SELECT COUNT(*) AS total FROM dsar_requests WHERE organization_id = ?',
+      [req.orgId],
+    );
+
+    res.json({ data: rows, meta: { total: countResult[0].total, page: parseInt(page, 10), limit: parseInt(limit, 10) } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

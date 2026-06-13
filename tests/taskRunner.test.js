@@ -306,4 +306,27 @@ describe('taskRunner', () => {
       );
     });
   });
+
+  // =========================================================================
+  // handleDataRetentionComplianceCheck
+  // =========================================================================
+  describe('handleDataRetentionComplianceCheck', () => {
+    it('dispatches data_retention_compliance_check', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, organization_id: 10, client_id: 5, request_type: 'access', due_at: '2026-01-01' }]])
+        .mockResolvedValueOnce([[]]); // stale gov_data_requests
+      const result = await taskRunner.runTask('data_retention_compliance_check', null);
+      expect(result).toHaveProperty('overdue_dsar_requests');
+      expect(result).toHaveProperty('stale_gov_data_requests');
+    });
+
+    it('returns zero counts when no overdue items', async () => {
+      db.query
+        .mockResolvedValueOnce([[]])  // overdue dsar_requests
+        .mockResolvedValueOnce([[]]); // stale gov_data_requests
+      const result = await taskRunner.handleDataRetentionComplianceCheck(null);
+      expect(result.overdue_dsar_requests).toBe(0);
+      expect(result.stale_gov_data_requests).toBe(0);
+    });
+  });
 });

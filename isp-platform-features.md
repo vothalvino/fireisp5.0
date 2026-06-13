@@ -601,69 +601,69 @@
 ## 16. Regulatory Compliance (Mexico)
 
 ### 16.1 Legal Framework (Reference)
-- [ ] **Ley Federal de Telecomunicaciones y Radiodifusion (LFTR)** — governing law
-- [ ] **IFT (Instituto Federal de Telecomunicaciones)** — replaced July 2025 by new regulatory bodies:
-  - [ ] **ATDT** (Agencia de Transformacion Digital y Telecomunicaciones) — policy, licensing, spectrum
-  - [ ] **CRT** (Comision Reguladora de Telecomunicaciones) — regulatory enforcement, compliance, sanctions
-- [ ] **Ley Federal de Proteccion de Datos Personales en Posesion de los Particulares (LFPDPPP)** — data privacy
-- [ ] **Codigo Penal Federal** — telecommunications crimes
-- [ ] **CFDI 4.0** — SAT digital invoicing requirements
+- [x] **Ley Federal de Telecomunicaciones y Radiodifusion (LFTR)** — governing law
+- [x] **IFT (Instituto Federal de Telecomunicaciones)** — replaced July 2025 by new regulatory bodies:
+  - [x] **ATDT** (Agencia de Transformacion Digital y Telecomunicaciones) — policy, licensing, spectrum
+  - [x] **CRT** (Comision Reguladora de Telecomunicaciones) — regulatory enforcement, compliance, sanctions
+- [x] **Ley Federal de Proteccion de Datos Personales en Posesion de los Particulares (LFPDPPP)** — data privacy
+- [x] **Codigo Penal Federal** — telecommunications crimes
+- [x] **CFDI 4.0** — SAT digital invoicing requirements
 
 ### 16.2 User Data Management
-- [ ] Customer identity verification (INE/IFE or CURP validation)
-- [ ] Registration of all subscriber details per legal requirements
-- [ ] Personal consent tracking for data processing (LFPDPPP Aviso de Privacidad)
-- [ ] Data subject access request (DSAR) handling
-- [ ] Right to erasure (with legal hold exceptions)
-- [ ] Data minimization and purpose limitation enforcement
+- [x] Customer identity verification (INE/IFE or CURP validation)
+- [x] Registration of all subscriber details per legal requirements
+- [x] Personal consent tracking for data processing (LFPDPPP Aviso de Privacidad)
+- [x] Data subject access request (DSAR) handling
+- [x] Right to erasure (with legal hold exceptions)
+- [x] Data minimization and purpose limitation enforcement
 
 ### 16.3 IP Log Retention & Interception
-- [ ] **Mandatory IP-to-subscriber mapping log retention** (per Mexican telecom law)
-  - [ ] Minimum retention period: per current legislation (verify with ATDT/CRT for latest)
-  - [ ] Log: timestamp, subscriber ID, IP address, session start/end, NAS identifier
-  - [ ] Tamper-proof storage with integrity checks (WORM/append-only)
-- [ ] **Lawful interception capability**:
-  - [ ] Real-time traffic mirroring capability on request from authorities
-  - [ ] IP assignment traceability (which subscriber had which IP at what time)
-  - [ ] CDR (Call Detail Records) export in required format
-  - [ ] API endpoint for authorized law enforcement queries
-  - [ ] Audit log of all government data requests
+- [x] **Mandatory IP-to-subscriber mapping log retention** (per Mexican telecom law)
+  - [x] Minimum retention period: per current legislation (verify with ATDT/CRT for latest)
+  - [x] Log: timestamp, subscriber ID, IP address, session start/end, NAS identifier
+  - [x] Tamper-proof storage with integrity checks (WORM/append-only)
+- [x] **Lawful interception capability**:
+  - [x] Real-time traffic mirroring capability on request from authorities
+  - [x] IP assignment traceability (which subscriber had which IP at what time)
+  - [x] CDR (Call Detail Records) export in required format
+  - [x] API endpoint for authorized law enforcement queries
+  - [x] Audit log of all government data requests
 
 ### 16.4 Numbering and Addressing
-- [ ] Phone number inventory management (if offering VoIP)
-- [ ] Number portability support
-- [ ] CNMC (Mexican numbering) block management
-- [ ] Address standardization (SEPOMEX / INEGI codes)
+- [x] Phone number inventory management (if offering VoIP)
+- [x] Number portability support
+- [x] CNMC (Mexican numbering) block management
+- [x] Address standardization (SEPOMEX / INEGI codes)
 
 ### 16.5 Quality of Service Requirements
-- [ ] SLA monitoring against regulatory minimums
-- [ ] Complaint handling with mandated response times
-- [ ] Service availability tracking
-- [ ] Speed guarantee monitoring (advertised vs. delivered)
-- [ ] Quarterly/annual compliance report generation
+- [x] SLA monitoring against regulatory minimums
+- [x] Complaint handling with mandated response times
+- [x] Service availability tracking
+- [x] Speed guarantee monitoring (advertised vs. delivered)
+- [x] Quarterly/annual compliance report generation
 
 ### 16.6 Universal Service Contribution
-- [ ] Tracking of universal service obligations
-- [ ] Rural deployment reporting contribution tracking
-- [ ] Social coverage metrics (underserved areas)
+- [x] Tracking of universal service obligations
+- [x] Rural deployment reporting contribution tracking
+- [x] Social coverage metrics (underserved areas)
 
 ### 16.7 Consumer Protection (PROFECO)
-- [ ] Terms of service / contract template management
-- [ ] Mandatory consumer right information
-- [ ] Dispute resolution tracking
-- [ ] Service modification notification tracking (regulatory-mandated notice periods)
+- [x] Terms of service / contract template management
+- [x] Mandatory consumer right information
+- [x] Dispute resolution tracking
+- [x] Service modification notification tracking (regulatory-mandated notice periods)
 
 ### 16.8 Data Localization
-- [ ] Primary data storage within Mexico (recommended; verify latest ATDT/CRT rules)
-- [ ] Backup and disaster recovery location compliance
-- [ ] Cross-border transfer restrictions monitoring
+- [x] Primary data storage within Mexico (recommended; verify latest ATDT/CRT rules)
+- [x] Backup and disaster recovery location compliance
+- [x] Cross-border transfer restrictions monitoring
 
 ### 16.9 Audit Trail
-- [ ] Complete audit log for all system actions
-- [ ] Admin action logging (who deleted/modified what and when)
-- [ ] Report access logging (who downloaded subscriber data)
-- [ ] Retention period compliance automation
-- [ ] Read-only audit export for regulatory inspections
+- [x] Complete audit log for all system actions
+- [x] Admin action logging (who deleted/modified what and when)
+- [x] Report access logging (who downloaded subscriber data)
+- [x] Retention period compliance automation
+- [x] Read-only audit export for regulatory inspections
 
 ---
 

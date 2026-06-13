@@ -127,6 +127,7 @@
     "jobs": "🛠️ Field Jobs",
     "queueStats": "📥 Queue Status",
     "analyticsDashboard": "Analytics Dashboard",
+    "regulatoryCompliance": "Regulatory Compliance",
     "sections": {
       "clients": "Clients",
       "billing": "Billing",
@@ -2613,5 +2614,72 @@
     "totalOutstanding": "Total Outstanding",
     "months": "months",
     "predicted": "Predicted Subscribers"
+  },
+  "regulatoryCompliance": {
+    "title": "Regulatory Compliance (Mexico)",
+    "tabs": {
+      "consent": "Consent Management",
+      "dsar": "DSAR Requests",
+      "identity": "Identity Verification",
+      "numbering": "Phone & Numbering",
+      "uso": "Universal Service",
+      "consumer": "Consumer Protection",
+      "residency": "Data Residency",
+      "audit": "Audit & Export"
+    },
+    "consent": {
+      "clientId": "Client ID",
+      "purpose": "Purpose",
+      "givenAt": "Consent Given",
+      "status": "Status",
+      "withdrawn": "Withdrawn",
+      "active": "Active"
+    },
+    "dsar": {
+      "requestType": "Request Type",
+      "status": "Status",
+      "dueAt": "Due By",
+      "legalHold": "Legal Hold"
+    },
+    "identity": {
+      "clientId": "Client ID",
+      "idType": "ID Type",
+      "status": "Status",
+      "checksumValid": "Checksum Valid"
+    },
+    "numbering": {
+      "phoneNumber": "Phone Number",
+      "type": "Type",
+      "status": "Status",
+      "lada": "LADA"
+    },
+    "uso": {
+      "type": "Obligation Type",
+      "status": "Status",
+      "period": "Period",
+      "progress": "Progress"
+    },
+    "consumer": {
+      "noticeType": "Notice Type",
+      "effectiveDate": "Effective Date",
+      "status": "Status",
+      "noticeDays": "Notice Days"
+    },
+    "residency": {
+      "primaryCountry": "Primary Storage Country",
+      "complianceStatus": "Compliance Status",
+      "crossBorder": "Cross-border Transfers",
+      "lastCheck": "Last Compliance Check",
+      "neverChecked": "Never checked",
+      "runCheck": "Run Compliance Check",
+      "noConfig": "No data residency configuration found"
+    },
+    "audit": {
+      "exportLogs": "Export Audit Logs",
+      "reportAccessLogs": "Report Access Logs",
+      "reportType": "Report Type",
+      "accessedAt": "Accessed At",
+      "userId": "User ID"
+    }
   }
 }

@@ -102,6 +102,7 @@ import { LateFeeRuleList } from '@/pages/LateFeeRuleList';
 import { PaymentReminderSettings } from '@/pages/PaymentReminderSettings';
 import { Settings } from '@/pages/Settings';
 import { ProfecoComplaints } from '@/pages/ProfecoComplaints';
+import RegulatoryCompliancePage from '@/pages/RegulatoryCompliancePage';
 import { SlaDefinitionList } from '@/pages/SlaDefinitionList';
 import { RoleList } from '@/pages/RoleList';
 import { ApiTokenList } from '@/pages/ApiTokenList';
@@ -310,6 +311,7 @@ export function App() {
                 <Route path="late-fee-rules" element={<LateFeeRuleList />} />
                 <Route path="payment-reminder-settings" element={<PaymentReminderSettings />} />
                 <Route path="profeco-complaints" element={<ProfecoComplaints />} />
+                <Route path="regulatory-compliance" element={<RegulatoryCompliancePage />} />
               </Route>
             </Route>
 

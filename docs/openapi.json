@@ -591,6 +591,26 @@
     {
       "name": "Analytics Dashboard",
       "description": "Drag/drop analytics dashboard — §15.5"
+    },
+    {
+      "name": "Regulatory Compliance MX",
+      "description": "§16 consent, DSAR workflow, identity verification, gov data requests"
+    },
+    {
+      "name": "Numbering Management",
+      "description": "§16.4 phone number inventory, portability, numbering blocks"
+    },
+    {
+      "name": "Universal Service",
+      "description": "§16.6 USO obligations and rural coverage reporting"
+    },
+    {
+      "name": "Consumer Protection MX",
+      "description": "§16.7 service modification notices and contract templates (MX)"
+    },
+    {
+      "name": "Data Residency",
+      "description": "§16.8 data localization and residency compliance config"
     }
   ],
   "paths": {
@@ -40606,6 +40626,2179 @@
         "responses": {
           "200": {
             "description": "CWMP SOAP Response XML",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/consent": {
+      "get": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "List subscriber consents",
+        "operationId": "listSubscriberConsents",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consent list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Record subscriber consent",
+        "operationId": "createSubscriberConsent",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "regulatoryCompliance_createConsent",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Consent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/consent/client/{clientId}": {
+      "get": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Get consents for a client",
+        "operationId": "getClientConsents",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consent list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/consent/{id}/withdraw": {
+      "put": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Withdraw consent",
+        "operationId": "withdrawConsent",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/dsar-requests": {
+      "get": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "List DSAR requests",
+        "operationId": "listDsarRequests",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DSAR list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Create DSAR request",
+        "operationId": "createDsarRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "regulatoryCompliance_createDsarRequest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "DSAR request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/dsar-requests/{id}": {
+      "get": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Get DSAR request",
+        "operationId": "getDsarRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DSAR request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/dsar-requests/{id}/fulfill": {
+      "put": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Fulfill DSAR request",
+        "operationId": "fulfillDsarRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/dsar-requests/{id}/reject": {
+      "put": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Reject DSAR request",
+        "operationId": "rejectDsarRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/dsar-requests/{id}/legal-hold": {
+      "put": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Set legal hold on DSAR request",
+        "operationId": "legalHoldDsarRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/identity-verification": {
+      "get": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "List identity verifications",
+        "operationId": "listIdentityVerifications",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verification list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Create identity verification record",
+        "operationId": "createIdentityVerification",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "regulatoryCompliance_createIdVerif",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Verification",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/identity-verification/{id}": {
+      "get": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Get identity verification",
+        "operationId": "getIdentityVerification",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verification",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/identity-verification/{id}/verify": {
+      "put": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Mark identity verified",
+        "operationId": "verifyIdentity",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/identity-verification/{id}/reject": {
+      "put": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Reject identity verification",
+        "operationId": "rejectIdentityVerification",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/gov-data-requests": {
+      "get": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "List government data requests",
+        "operationId": "listGovDataRequests",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Gov data request list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Log government data request",
+        "operationId": "createGovDataRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "regulatoryCompliance_createGovDataRequest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Gov data request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/gov-data-requests/{id}": {
+      "get": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Get government data request",
+        "operationId": "getGovDataRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Gov data request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/gov-data-requests/{id}/fulfill": {
+      "put": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Fulfill government data request",
+        "operationId": "fulfillGovDataRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/gov-data-requests/{id}/reject": {
+      "put": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Reject government data request",
+        "operationId": "rejectGovDataRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/audit-logs/export": {
+      "get": {
+        "tags": [
+          "Audit Logs"
+        ],
+        "summary": "Export audit logs for regulatory inspection",
+        "operationId": "exportAuditLogs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit export",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/audit-logs/report-access-logs": {
+      "get": {
+        "tags": [
+          "Audit Logs"
+        ],
+        "summary": "List report access logs",
+        "operationId": "listReportAccessLogs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Report access log list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dsar/requests": {
+      "get": {
+        "tags": [
+          "DSAR"
+        ],
+        "summary": "List DSAR requests (convenience)",
+        "operationId": "listDsarRequestsConvenience",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DSAR list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/numbering-management/phone-numbers": {
+      "get": {
+        "tags": [
+          "Numbering Management"
+        ],
+        "summary": "List numbering-management/phone-numbers",
+        "operationId": "listPhoneNumberInventorys",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PhoneNumberInventory[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Numbering Management"
+        ],
+        "summary": "Create a PhoneNumberInventory",
+        "operationId": "createPhoneNumberInventory",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "PhoneNumberInventory",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "PhoneNumberInventory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/numbering-management/phone-numbers/{id}": {
+      "get": {
+        "tags": [
+          "Numbering Management"
+        ],
+        "summary": "Get a PhoneNumberInventory",
+        "operationId": "getPhoneNumberInventory",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PhoneNumberInventory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Numbering Management"
+        ],
+        "summary": "Update a PhoneNumberInventory",
+        "operationId": "updatePhoneNumberInventory",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "PhoneNumberInventory",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PhoneNumberInventory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Numbering Management"
+        ],
+        "summary": "Delete a PhoneNumberInventory",
+        "operationId": "deletePhoneNumberInventory",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/numbering-management/portability": {
+      "get": {
+        "tags": [
+          "Numbering Management"
+        ],
+        "summary": "List numbering-management/portability",
+        "operationId": "listNumberPortabilityRecords",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "NumberPortabilityRecord[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Numbering Management"
+        ],
+        "summary": "Create a NumberPortabilityRecord",
+        "operationId": "createNumberPortabilityRecord",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "NumberPortabilityRecord",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "NumberPortabilityRecord",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/numbering-management/portability/{id}": {
+      "get": {
+        "tags": [
+          "Numbering Management"
+        ],
+        "summary": "Get a NumberPortabilityRecord",
+        "operationId": "getNumberPortabilityRecord",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "NumberPortabilityRecord",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Numbering Management"
+        ],
+        "summary": "Update a NumberPortabilityRecord",
+        "operationId": "updateNumberPortabilityRecord",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "NumberPortabilityRecord",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "NumberPortabilityRecord",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Numbering Management"
+        ],
+        "summary": "Delete a NumberPortabilityRecord",
+        "operationId": "deleteNumberPortabilityRecord",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/numbering-management/numbering-blocks": {
+      "get": {
+        "tags": [
+          "Numbering Management"
+        ],
+        "summary": "List numbering-management/numbering-blocks",
+        "operationId": "listNumberingBlocks",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "NumberingBlock[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Numbering Management"
+        ],
+        "summary": "Create a NumberingBlock",
+        "operationId": "createNumberingBlock",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "NumberingBlock",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "NumberingBlock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/numbering-management/numbering-blocks/{id}": {
+      "get": {
+        "tags": [
+          "Numbering Management"
+        ],
+        "summary": "Get a NumberingBlock",
+        "operationId": "getNumberingBlock",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "NumberingBlock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Numbering Management"
+        ],
+        "summary": "Update a NumberingBlock",
+        "operationId": "updateNumberingBlock",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "NumberingBlock",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "NumberingBlock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Numbering Management"
+        ],
+        "summary": "Delete a NumberingBlock",
+        "operationId": "deleteNumberingBlock",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/numbering-management/portability/{id}/complete": {
+      "put": {
+        "tags": [
+          "Numbering Management"
+        ],
+        "summary": "Mark number portability complete",
+        "operationId": "completePortability",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/universal-service/uso-obligations": {
+      "get": {
+        "tags": [
+          "Universal Service"
+        ],
+        "summary": "List universal-service/uso-obligations",
+        "operationId": "listUsoObligations",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "UsoObligation[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Universal Service"
+        ],
+        "summary": "Create a UsoObligation",
+        "operationId": "createUsoObligation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "UsoObligation",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "UsoObligation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/universal-service/uso-obligations/{id}": {
+      "get": {
+        "tags": [
+          "Universal Service"
+        ],
+        "summary": "Get a UsoObligation",
+        "operationId": "getUsoObligation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "UsoObligation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Universal Service"
+        ],
+        "summary": "Update a UsoObligation",
+        "operationId": "updateUsoObligation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "UsoObligation",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "UsoObligation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Universal Service"
+        ],
+        "summary": "Delete a UsoObligation",
+        "operationId": "deleteUsoObligation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/universal-service/rural-coverage": {
+      "get": {
+        "tags": [
+          "Universal Service"
+        ],
+        "summary": "List universal-service/rural-coverage",
+        "operationId": "listRuralCoverageReports",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RuralCoverageReport[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Universal Service"
+        ],
+        "summary": "Create a RuralCoverageReport",
+        "operationId": "createRuralCoverageReport",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "RuralCoverageReport",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "RuralCoverageReport",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/universal-service/rural-coverage/{id}": {
+      "get": {
+        "tags": [
+          "Universal Service"
+        ],
+        "summary": "Get a RuralCoverageReport",
+        "operationId": "getRuralCoverageReport",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RuralCoverageReport",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Universal Service"
+        ],
+        "summary": "Update a RuralCoverageReport",
+        "operationId": "updateRuralCoverageReport",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "RuralCoverageReport",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "RuralCoverageReport",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Universal Service"
+        ],
+        "summary": "Delete a RuralCoverageReport",
+        "operationId": "deleteRuralCoverageReport",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/universal-service/uso-obligations/{id}/report": {
+      "put": {
+        "tags": [
+          "Universal Service"
+        ],
+        "summary": "Mark USO obligation as reported",
+        "operationId": "reportUsoObligation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/universal-service/rural-coverage/summary": {
+      "get": {
+        "tags": [
+          "Universal Service"
+        ],
+        "summary": "Get rural coverage aggregate summary",
+        "operationId": "getRuralCoverageSummary",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/consumer-protection/service-modifications": {
+      "get": {
+        "tags": [
+          "Consumer Protection MX"
+        ],
+        "summary": "List consumer-protection/service-modifications",
+        "operationId": "listServiceModificationNotices",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ServiceModificationNotice[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Consumer Protection MX"
+        ],
+        "summary": "Create a ServiceModificationNotice",
+        "operationId": "createServiceModificationNotice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "ServiceModificationNotice",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ServiceModificationNotice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/consumer-protection/service-modifications/{id}": {
+      "get": {
+        "tags": [
+          "Consumer Protection MX"
+        ],
+        "summary": "Get a ServiceModificationNotice",
+        "operationId": "getServiceModificationNotice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ServiceModificationNotice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Consumer Protection MX"
+        ],
+        "summary": "Update a ServiceModificationNotice",
+        "operationId": "updateServiceModificationNotice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "ServiceModificationNotice",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ServiceModificationNotice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Consumer Protection MX"
+        ],
+        "summary": "Delete a ServiceModificationNotice",
+        "operationId": "deleteServiceModificationNotice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/consumer-protection/contract-templates-mx": {
+      "get": {
+        "tags": [
+          "Consumer Protection MX"
+        ],
+        "summary": "List consumer-protection/contract-templates-mx",
+        "operationId": "listContractTemplateMxs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ContractTemplateMx[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Consumer Protection MX"
+        ],
+        "summary": "Create a ContractTemplateMx",
+        "operationId": "createContractTemplateMx",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "ContractTemplateMx",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ContractTemplateMx",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/consumer-protection/contract-templates-mx/{id}": {
+      "get": {
+        "tags": [
+          "Consumer Protection MX"
+        ],
+        "summary": "Get a ContractTemplateMx",
+        "operationId": "getContractTemplateMx",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ContractTemplateMx",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Consumer Protection MX"
+        ],
+        "summary": "Update a ContractTemplateMx",
+        "operationId": "updateContractTemplateMx",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "ContractTemplateMx",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ContractTemplateMx",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Consumer Protection MX"
+        ],
+        "summary": "Delete a ContractTemplateMx",
+        "operationId": "deleteContractTemplateMx",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/consumer-protection/service-modifications/{id}/send": {
+      "put": {
+        "tags": [
+          "Consumer Protection MX"
+        ],
+        "summary": "Mark service modification notice as sent",
+        "operationId": "sendServiceModificationNotice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/data-residency": {
+      "get": {
+        "tags": [
+          "Data Residency"
+        ],
+        "summary": "Get data residency configuration",
+        "operationId": "getDataResidencyConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Data Residency"
+        ],
+        "summary": "Create data residency configuration",
+        "operationId": "createDataResidencyConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "dataResidency_createConfig",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Data Residency"
+        ],
+        "summary": "Update data residency configuration",
+        "operationId": "updateDataResidencyConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "dataResidency_updateConfig",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/data-residency/check": {
+      "post": {
+        "tags": [
+          "Data Residency"
+        ],
+        "summary": "Run compliance check for data residency",
+        "operationId": "checkDataResidencyCompliance",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Check result",
             "content": {
               "application/json": {
                 "schema": {

@@ -11787,4 +11787,370 @@ CREATE TABLE IF NOT EXISTS custom_reports (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='User-defined custom report definitions (§15.5)';
 
+-- ---------------------------------------------------------------------------
+-- Table: subscriber_consents (migration 314 — §16.2)
+-- Purpose: Aviso de Privacidad consent tracking per subscriber.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS subscriber_consents (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL,
+    client_id       BIGINT UNSIGNED NOT NULL,
+    consent_version VARCHAR(20)     NOT NULL COMMENT 'Privacy notice version, e.g. ''2026-01''',
+    purpose         ENUM('service_delivery','marketing','analytics',
+                         'third_party_sharing','lawful_retention') NOT NULL,
+    given_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    withdrawn_at    TIMESTAMP       NULL,
+    ip_address      VARCHAR(45)     NULL,
+    channel         ENUM('web','app','paper','phone','email') NOT NULL DEFAULT 'web',
+    document_hash   VARCHAR(64)     NULL COMMENT 'SHA-256 of the privacy notice version',
+    notes           TEXT            NULL,
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_subscriber_consents_org     (organization_id),
+    KEY idx_subscriber_consents_client  (client_id),
+    KEY idx_subscriber_consents_purpose (purpose),
+    KEY idx_subscriber_consents_given_at (given_at),
+    CONSTRAINT fk_sub_consents_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_sub_consents_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Aviso de Privacidad consent tracking per subscriber (§16.2)';
+
+-- ---------------------------------------------------------------------------
+-- Table: dsar_requests (migration 314 — §16.2)
+-- Purpose: DSAR workflow — request intake through fulfillment.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS dsar_requests (
+    id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id   BIGINT UNSIGNED NULL,
+    client_id         BIGINT UNSIGNED NOT NULL,
+    request_type      ENUM('access','erasure','portability','rectification','restriction') NOT NULL,
+    status            ENUM('pending','in_review','fulfilled','rejected','legal_hold')
+                                      NOT NULL DEFAULT 'pending',
+    legal_hold        TINYINT(1)      NOT NULL DEFAULT 0,
+    legal_hold_reason TEXT            NULL,
+    requested_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    due_at            TIMESTAMP       NULL COMMENT '30-day statutory deadline',
+    fulfilled_at      TIMESTAMP       NULL,
+    fulfilled_by      BIGINT UNSIGNED NULL,
+    export_path       VARCHAR(500)    NULL COMMENT 'Path/URL to exported data package',
+    notes             TEXT            NULL,
+    created_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_dsar_requests_org    (organization_id),
+    KEY idx_dsar_requests_client (client_id),
+    KEY idx_dsar_requests_status (status),
+    KEY idx_dsar_requests_due_at (due_at),
+    CONSTRAINT fk_dsar_requests_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_dsar_requests_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_dsar_requests_fulfilled_by FOREIGN KEY (fulfilled_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='DSAR workflow: request intake through fulfillment (§16.2)';
+
+-- ---------------------------------------------------------------------------
+-- Table: identity_verification_records (migration 314 — §16.2)
+-- Purpose: INE/IFE/CURP identity verification records per subscriber.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS identity_verification_records (
+    id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id       BIGINT UNSIGNED NULL,
+    client_id             BIGINT UNSIGNED NOT NULL,
+    id_type               ENUM('INE','IFE','CURP','passport','RFC') NOT NULL,
+    id_number             VARCHAR(50)     NOT NULL,
+    curp_checksum_valid   TINYINT(1)      NULL COMMENT 'NULL = not applicable; 1 = valid; 0 = invalid',
+    verified_at           TIMESTAMP       NULL,
+    verified_by           BIGINT UNSIGNED NULL,
+    verification_method   ENUM('manual','automated','third_party') NOT NULL DEFAULT 'manual',
+    status                ENUM('pending','verified','rejected','expired') NOT NULL DEFAULT 'pending',
+    notes                 TEXT            NULL,
+    created_at            TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at            TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_identity_verif_org    (organization_id),
+    KEY idx_identity_verif_client (client_id),
+    KEY idx_identity_verif_status (status),
+    CONSTRAINT fk_identity_verif_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_identity_verif_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_identity_verif_verified_by FOREIGN KEY (verified_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='INE/IFE/CURP identity verification records per subscriber (§16.2)';
+
+-- ---------------------------------------------------------------------------
+-- Table: gov_data_requests (migration 315 — §16.3)
+-- Purpose: Audit log of all government data requests for lawful interception.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS gov_data_requests (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL,
+    authority_name  VARCHAR(255)    NOT NULL COMMENT 'Name of requesting authority (ATDT, CRT, Policia Federal, etc)',
+    authority_ref   VARCHAR(100)    NULL     COMMENT 'Official reference number of the request',
+    request_type    ENUM('ip_traceability','cdr_export','traffic_mirror',
+                         'subscriber_data','other') NOT NULL,
+    client_id       BIGINT UNSIGNED NULL     COMMENT 'Subscriber involved (if identified)',
+    ip_address      VARCHAR(45)     NULL     COMMENT 'IP address subject of the request',
+    date_from       DATE            NULL,
+    date_to         DATE            NULL,
+    status          ENUM('received','processing','fulfilled','rejected','pending_legal_review')
+                                    NOT NULL DEFAULT 'received',
+    fulfilled_at    TIMESTAMP       NULL,
+    fulfilled_by    BIGINT UNSIGNED NULL,
+    legal_basis     TEXT            NULL     COMMENT 'Legal authority cited in the request',
+    notes           TEXT            NULL,
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    row_hash        VARCHAR(64)     NULL     COMMENT 'SHA-256 of key fields for tamper-proof integrity check',
+    PRIMARY KEY (id),
+    KEY idx_gov_data_requests_org        (organization_id),
+    KEY idx_gov_data_requests_client     (client_id),
+    KEY idx_gov_data_requests_status     (status),
+    KEY idx_gov_data_requests_created_at (created_at),
+    CONSTRAINT fk_gov_data_requests_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_gov_data_requests_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_gov_data_requests_fulfilled_by FOREIGN KEY (fulfilled_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Audit log of all government data requests — lawful interception (§16.3)';
+
+-- ---------------------------------------------------------------------------
+-- Table: phone_number_inventory (migration 316 — §16.4)
+-- Purpose: VoIP/DID phone number inventory with Mexican LADA support.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS phone_number_inventory (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL,
+    phone_number    VARCHAR(30)     NOT NULL,
+    number_type     ENUM('geographic','non_geographic','mobile',
+                         'toll_free','premium') NOT NULL DEFAULT 'geographic',
+    lada            VARCHAR(10)     NULL COMMENT 'Area code (LADA) for Mexican numbering',
+    status          ENUM('available','assigned','ported_in','ported_out',
+                         'reserved','blocked') NOT NULL DEFAULT 'available',
+    client_id       BIGINT UNSIGNED NULL,
+    contract_id     BIGINT UNSIGNED NULL,
+    assigned_at     TIMESTAMP       NULL,
+    block_id        BIGINT UNSIGNED NULL COMMENT 'Parent numbering block (no FK — chicken-and-egg with numbering_blocks)',
+    notes           TEXT            NULL,
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_phone_number_inventory_number (phone_number),
+    CONSTRAINT fk_phone_num_inv_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_phone_num_inv_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_phone_num_inv_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='VoIP/DID phone number inventory with Mexican LADA support (§16.4)';
+
+-- ---------------------------------------------------------------------------
+-- Table: number_portability_records (migration 316 — §16.4)
+-- Purpose: MNP/FNP number portability records with IFETEL reference tracking.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS number_portability_records (
+    id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id   BIGINT UNSIGNED NULL,
+    phone_number      VARCHAR(30)     NOT NULL,
+    port_type         ENUM('port_in','port_out') NOT NULL,
+    donor_carrier     VARCHAR(100)    NULL COMMENT 'Previous carrier (port-in)',
+    recipient_carrier VARCHAR(100)    NULL COMMENT 'Receiving carrier (port-out)',
+    requested_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ported_at         TIMESTAMP       NULL,
+    status            ENUM('requested','approved','rejected','cancelled','completed')
+                                      NOT NULL DEFAULT 'requested',
+    ifetel_reference  VARCHAR(100)    NULL COMMENT 'IFT/CRT/IFETEL reference number',
+    client_id         BIGINT UNSIGNED NULL,
+    notes             TEXT            NULL,
+    created_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    CONSTRAINT fk_number_port_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_number_port_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='MNP/FNP number portability records with IFETEL reference tracking (§16.4)';
+
+-- ---------------------------------------------------------------------------
+-- Table: numbering_blocks (migration 316 — §16.4)
+-- Purpose: IFT/CRT/IFETEL numbered block assignments with SEPOMEX/INEGI codes.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS numbering_blocks (
+    id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id      BIGINT UNSIGNED NULL,
+    block_prefix         VARCHAR(20)     NOT NULL COMMENT 'E.g. 55 for Mexico City, 33 for Guadalajara',
+    range_start          VARCHAR(30)     NOT NULL,
+    range_end            VARCHAR(30)     NOT NULL,
+    block_size           INT UNSIGNED    NOT NULL DEFAULT 1000,
+    assigned_by_authority ENUM('IFT','CRT','IFETEL') NOT NULL DEFAULT 'CRT',
+    assigned_at          DATE            NULL,
+    expires_at           DATE            NULL,
+    status               ENUM('active','exhausted','returned','expired') NOT NULL DEFAULT 'active',
+    sepomex_cp           VARCHAR(10)     NULL COMMENT 'SEPOMEX postal code for geographic blocks',
+    inegi_code           VARCHAR(10)     NULL COMMENT 'INEGI geographic code',
+    notes                TEXT            NULL,
+    created_at           TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at           TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    CONSTRAINT fk_numbering_blocks_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='IFT/CRT/IFETEL numbered block assignments with SEPOMEX/INEGI codes (§16.4)';
+
+-- ---------------------------------------------------------------------------
+-- Table: uso_obligations (migration 317 — §16.6)
+-- Purpose: Universal Service Obligation tracking per obligation period.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS uso_obligations (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL,
+    obligation_type ENUM('universal_service','rural_deployment',
+                         'social_coverage','network_expansion') NOT NULL,
+    description     TEXT            NOT NULL,
+    target_metric   VARCHAR(100)    NULL COMMENT 'E.g. homes_passed, coverage_percent',
+    target_value    DECIMAL(15,4)   NULL,
+    actual_value    DECIMAL(15,4)   NULL,
+    period_start    DATE            NOT NULL,
+    period_end      DATE            NOT NULL,
+    status          ENUM('pending','in_progress','met','partially_met',
+                         'missed','reported') NOT NULL DEFAULT 'pending',
+    reported_at     TIMESTAMP       NULL,
+    authority_ref   VARCHAR(100)    NULL,
+    notes           TEXT            NULL,
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_uso_obligations_org    (organization_id),
+    KEY idx_uso_obligations_status (status),
+    KEY idx_uso_obligations_period (period_start, period_end),
+    CONSTRAINT fk_uso_obligations_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Universal Service Obligation tracking per obligation period (§16.6)';
+
+-- ---------------------------------------------------------------------------
+-- Table: rural_coverage_reports (migration 317 — §16.6)
+-- Purpose: Rural deployment coverage reports by INEGI locality.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS rural_coverage_reports (
+    id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED  NULL,
+    report_period       VARCHAR(7)       NOT NULL COMMENT 'YYYY-MM',
+    locality_name       VARCHAR(255)     NOT NULL,
+    inegi_code          VARCHAR(10)      NULL,
+    state               VARCHAR(100)     NULL,
+    municipality        VARCHAR(100)     NULL,
+    homes_passed        INT UNSIGNED     NOT NULL DEFAULT 0,
+    homes_connected     INT UNSIGNED     NOT NULL DEFAULT 0,
+    service_type        ENUM('broadband','mobile','fixed_wireless',
+                             'fiber','satellite') NOT NULL,
+    download_speed_mbps DECIMAL(10,2)    NULL,
+    upload_speed_mbps   DECIMAL(10,2)    NULL,
+    is_underserved      TINYINT(1)       NOT NULL DEFAULT 0,
+    notes               TEXT             NULL,
+    created_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    CONSTRAINT fk_rural_coverage_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Rural deployment coverage reports by INEGI locality (§16.6)';
+
+-- ---------------------------------------------------------------------------
+-- Table: service_modification_notices (migration 318 — §16.7)
+-- Purpose: Mandatory service change notice tracking for PROFECO compliance.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS service_modification_notices (
+    id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id      BIGINT UNSIGNED NULL,
+    client_id            BIGINT UNSIGNED NULL COMMENT 'NULL = applies to all subscribers',
+    notice_type          ENUM('price_change','plan_change','tos_change',
+                              'service_termination','interruption',
+                              'upgrade','downgrade') NOT NULL,
+    description          TEXT            NOT NULL,
+    effective_date       DATE            NOT NULL COMMENT 'Date the change takes effect',
+    notice_required_days INT             NOT NULL DEFAULT 30 COMMENT 'Regulatory minimum notice period in days',
+    noticed_at           TIMESTAMP       NULL COMMENT 'When the notice was sent',
+    status               ENUM('pending','sent','acknowledged','disputed')
+                                         NOT NULL DEFAULT 'pending',
+    channel              ENUM('email','sms','postal','portal','all')
+                                         NOT NULL DEFAULT 'email',
+    contract_id          BIGINT UNSIGNED NULL,
+    notes                TEXT            NULL,
+    created_at           TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at           TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    CONSTRAINT fk_svc_mod_notices_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_svc_mod_notices_client FOREIGN KEY (client_id)
+        REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_svc_mod_notices_contract FOREIGN KEY (contract_id)
+        REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Mandatory service change notice tracking for PROFECO compliance (§16.7)';
+
+-- ---------------------------------------------------------------------------
+-- Table: data_residency_config (migration 319 — §16.8)
+-- Purpose: Data localization flags and compliance status — one row per organization.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS data_residency_config (
+    id                          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id             BIGINT UNSIGNED NOT NULL,
+    primary_storage_country     VARCHAR(2)      NOT NULL DEFAULT 'MX' COMMENT 'ISO 3166-1 alpha-2 country code',
+    primary_storage_region      VARCHAR(100)    NULL COMMENT 'Cloud region or data center location',
+    backup_storage_country      VARCHAR(2)      NULL,
+    backup_storage_region       VARCHAR(100)    NULL,
+    cross_border_transfers_allowed TINYINT(1)   NOT NULL DEFAULT 0,
+    cross_border_destinations   JSON            NULL COMMENT 'List of allowed destination countries',
+    dr_site_country             VARCHAR(2)      NULL,
+    dr_site_region              VARCHAR(100)    NULL,
+    last_compliance_check       TIMESTAMP       NULL,
+    compliance_status           ENUM('compliant','non_compliant','unknown','under_review')
+                                                NOT NULL DEFAULT 'unknown',
+    notes                       TEXT            NULL,
+    created_at                  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at                  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_data_residency_config_org (organization_id),
+    CONSTRAINT fk_data_residency_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Data localization flags and compliance status — one row per organization (§16.8)';
+
+-- ---------------------------------------------------------------------------
+-- Table: report_access_logs (migration 320 — §16.9)
+-- Purpose: Audit log of who accessed/downloaded subscriber data reports.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS report_access_logs (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL,
+    user_id         BIGINT UNSIGNED NULL,
+    report_type     VARCHAR(100)    NOT NULL COMMENT 'Type of report accessed (e.g. dsar_export, ip_assignment_log, regulatory_export)',
+    entity_type     VARCHAR(50)     NULL COMMENT 'Related entity (e.g. clients, ip_assignments)',
+    entity_id       BIGINT UNSIGNED NULL,
+    parameters      JSON            NULL COMMENT 'Query parameters used',
+    ip_address      VARCHAR(45)     NULL,
+    user_agent      VARCHAR(500)    NULL,
+    accessed_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_report_access_logs_org         (organization_id),
+    KEY idx_report_access_logs_user        (user_id),
+    KEY idx_report_access_logs_type        (report_type),
+    KEY idx_report_access_logs_accessed_at (accessed_at),
+    CONSTRAINT fk_report_access_logs_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_report_access_logs_user FOREIGN KEY (user_id)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Audit log of who accessed/downloaded subscriber data reports (§16.9)';
+
 SET FOREIGN_KEY_CHECKS = 1;
