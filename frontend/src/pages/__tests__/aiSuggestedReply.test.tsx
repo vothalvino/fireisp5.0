@@ -279,6 +279,13 @@ describe('AiSuggestedReplyPanel', () => {
     mockFetchImpl();
     renderTicketDetail();
 
+    // Wait for the draft to be fully populated (draftText AND logId committed) before
+    // clicking Send — the Send handler closes over logId, so clicking before the
+    // latestLog effect commits state sends log_id: null. Waiting on the draft text
+    // (rendered only when hasDraft is true) guarantees logId is set first.
+    await waitFor(() => {
+      expect(screen.getByTestId('ai-draft-text').textContent).toBeTruthy();
+    });
     await waitFor(() => {
       expect(screen.queryByLabelText(/^Send$/i)).toBeTruthy();
     });
