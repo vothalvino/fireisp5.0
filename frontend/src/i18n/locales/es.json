@@ -128,6 +128,7 @@
                 "queueStats":  "📥 Estado de Colas",
                 "analyticsDashboard":  "Panel de Analíticas",
                 "regulatoryCompliance": "Cumplimiento Regulatorio",
+                "securityAccessControl": "Seguridad y Acceso",
                 "sections":  {
                                  "clients":  "Clientes",
                                  "billing":  "Facturación",
@@ -2680,6 +2681,87 @@
       "reportType": "Tipo de Reporte",
       "accessedAt": "Accedido En",
       "userId": "ID de Usuario"
+    }
+  },
+  "securityAccessControl": {
+    "title": "Seguridad y Control de Acceso",
+    "tabs": {
+      "userSecurity": "Seguridad de Usuarios",
+      "apiSecurity": "Seguridad de API",
+      "networkSecurity": "Seguridad de Red",
+      "dataSecurity": "Seguridad de Datos"
+    },
+    "userSecurity": {
+      "webauthn": "Credenciales WebAuthn / MFA",
+      "noCredentials": "No hay credenciales WebAuthn registradas",
+      "credentialId": "ID de Credencial",
+      "friendlyName": "Nombre Amigable",
+      "createdAt": "Registrado En",
+      "passwordPolicy": "Politica de Contrasenas",
+      "noPolicyConfigured": "No hay politica de contrasenas configurada",
+      "minLength": "Longitud Minima",
+      "maxLength": "Longitud Maxima",
+      "rotationDays": "Rotacion de Contrasena (dias)",
+      "lockoutAttempts": "Bloqueo Despues de (intentos)",
+      "adminIpAllowlist": "Lista de IPs Permitidas para Admin",
+      "noIpEntries": "No hay entradas de IP permitidas configuradas",
+      "ipAddress": "Direccion IP / CIDR",
+      "expiresAt": "Expira En"
+    },
+    "apiSecurity": {
+      "rateLimits": "Limites de Tasa por Clave API",
+      "noRateLimits": "No hay limites de tasa configurados",
+      "tokenId": "ID de Token",
+      "perMinute": "Req / Minuto",
+      "perHour": "Req / Hora",
+      "perDay": "Req / Dia"
+    },
+    "networkSecurity": {
+      "firewallRules": "Reglas de Firewall",
+      "noFirewallRules": "No hay reglas de firewall configuradas",
+      "action": "Accion",
+      "protocol": "Protocolo",
+      "srcIp": "IP Origen",
+      "dstIp": "IP Destino",
+      "ruleType": "Tipo de Regla",
+      "targetPrefix": "Prefijo Objetivo",
+      "ddosProtection": "Reglas de Proteccion DDoS",
+      "noDdosRules": "No hay reglas de proteccion DDoS configuradas",
+      "blackholeRoutes": "Rutas Blackhole",
+      "noBlackholeRoutes": "No hay rutas blackhole activas",
+      "reason": "Razon",
+      "releasedAt": "Liberado En",
+      "released": "Liberado",
+      "dnsBlocklists": "Listas de Bloqueo DNS",
+      "noDnsBlocklists": "No hay entradas en la lista de bloqueo DNS",
+      "domain": "Dominio",
+      "category": "Categoria",
+      "cpeScans": "Escaneos de Seguridad CPE",
+      "noCpeScans": "No hay escaneos de seguridad CPE registrados",
+      "scanType": "Tipo de Escaneo",
+      "startedAt": "Iniciado En",
+      "completedAt": "Completado En"
+    },
+    "dataSecurity": {
+      "tlsConfig": "Configuracion TLS",
+      "minTls": "Version TLS Minima",
+      "recommendedTls": "Version TLS Recomendada",
+      "encryptionKeys": "Metadata de Claves de Cifrado",
+      "noEncryptionKeys": "No hay metadata de claves de cifrado registrada",
+      "keyAlias": "Alias de Clave",
+      "algorithm": "Algoritmo",
+      "rotatedAt": "Ultima Rotacion",
+      "dataMasking": "Reglas de Enmascaramiento de Datos",
+      "noMaskingRules": "No hay reglas de enmascaramiento configuradas",
+      "tableName": "Tabla",
+      "columnName": "Columna",
+      "maskingType": "Tipo de Enmascaramiento",
+      "tableNameCol": "Tabla",
+      "secureDeletionLog": "Registro de Eliminacion Segura",
+      "noDeletionLog": "No hay eventos de eliminacion segura registrados",
+      "recordsDeleted": "Registros Eliminados",
+      "policyApplied": "Politica Aplicada",
+      "deletedAt": "Eliminado En"
     }
   }
 }

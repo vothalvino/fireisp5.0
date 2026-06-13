@@ -178,6 +178,10 @@ const numberingManagementRoutes = require('./routes/numberingManagement');
 const universalServiceRoutes = require('./routes/universalService');
 const consumerProtectionRoutes = require('./routes/consumerProtection');
 const dataResidencyRoutes = require('./routes/dataResidency');
+const securityAdminRoutes = require('./routes/securityAdmin');
+const networkSecurityRoutes = require('./routes/networkSecurity');
+const dataSecurityRoutes = require('./routes/dataSecurity');
+const webhookSecurityRoutes = require('./routes/webhookSecurity');
 const acsService = require('./services/acsService');
 const graphqlMiddleware = require('./graphql');
 
@@ -582,6 +586,10 @@ v1.use('/numbering-management', numberingManagementRoutes);
 v1.use('/universal-service', universalServiceRoutes);
 v1.use('/consumer-protection', consumerProtectionRoutes);
 v1.use('/data-residency', dataResidencyRoutes);
+v1.use('/security-admin', adminIpAllowlist, securityAdminRoutes);
+v1.use('/network-security', networkSecurityRoutes);
+v1.use('/data-security', adminIpAllowlist, dataSecurityRoutes);
+v1.use('/webhook-security', webhookSecurityRoutes);
 v1.use('/graphql', authenticate, orgScope, graphqlMiddleware);
 
 // Mount v1 at both /api (backward compat) and /api/v1 (versioned)

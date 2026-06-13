@@ -128,6 +128,7 @@
     "queueStats": "📥 Queue Status",
     "analyticsDashboard": "Analytics Dashboard",
     "regulatoryCompliance": "Regulatory Compliance",
+    "securityAccessControl": "Security & Access Control",
     "sections": {
       "clients": "Clients",
       "billing": "Billing",
@@ -2680,6 +2681,87 @@
       "reportType": "Report Type",
       "accessedAt": "Accessed At",
       "userId": "User ID"
+    }
+  },
+  "securityAccessControl": {
+    "title": "Security & Access Control",
+    "tabs": {
+      "userSecurity": "User Security",
+      "apiSecurity": "API Security",
+      "networkSecurity": "Network Security",
+      "dataSecurity": "Data Security"
+    },
+    "userSecurity": {
+      "webauthn": "WebAuthn / MFA Credentials",
+      "noCredentials": "No WebAuthn credentials registered",
+      "credentialId": "Credential ID",
+      "friendlyName": "Friendly Name",
+      "createdAt": "Registered At",
+      "passwordPolicy": "Password Policy",
+      "noPolicyConfigured": "No password policy configured",
+      "minLength": "Minimum Length",
+      "maxLength": "Maximum Length",
+      "rotationDays": "Password Rotation (days)",
+      "lockoutAttempts": "Lockout After (attempts)",
+      "adminIpAllowlist": "Admin IP Allowlist",
+      "noIpEntries": "No IP allowlist entries configured",
+      "ipAddress": "IP Address / CIDR",
+      "expiresAt": "Expires At"
+    },
+    "apiSecurity": {
+      "rateLimits": "API Key Rate Limits",
+      "noRateLimits": "No per-key rate limits configured",
+      "tokenId": "Token ID",
+      "perMinute": "Req / Minute",
+      "perHour": "Req / Hour",
+      "perDay": "Req / Day"
+    },
+    "networkSecurity": {
+      "firewallRules": "Firewall Rules",
+      "noFirewallRules": "No firewall rules configured",
+      "action": "Action",
+      "protocol": "Protocol",
+      "srcIp": "Source IP",
+      "dstIp": "Destination IP",
+      "ruleType": "Rule Type",
+      "targetPrefix": "Target Prefix",
+      "ddosProtection": "DDoS Protection Rules",
+      "noDdosRules": "No DDoS protection rules configured",
+      "blackholeRoutes": "Blackhole Routes",
+      "noBlackholeRoutes": "No blackhole routes active",
+      "reason": "Reason",
+      "releasedAt": "Released At",
+      "released": "Released",
+      "dnsBlocklists": "DNS Blocklists",
+      "noDnsBlocklists": "No DNS blocklist entries configured",
+      "domain": "Domain",
+      "category": "Category",
+      "cpeScans": "CPE Security Scans",
+      "noCpeScans": "No CPE security scans on record",
+      "scanType": "Scan Type",
+      "startedAt": "Started At",
+      "completedAt": "Completed At"
+    },
+    "dataSecurity": {
+      "tlsConfig": "TLS Configuration",
+      "minTls": "Minimum TLS Version",
+      "recommendedTls": "Recommended TLS Version",
+      "encryptionKeys": "Encryption Key Metadata",
+      "noEncryptionKeys": "No encryption key metadata registered",
+      "keyAlias": "Key Alias",
+      "algorithm": "Algorithm",
+      "rotatedAt": "Last Rotated",
+      "dataMasking": "Data Masking Rules",
+      "noMaskingRules": "No data masking rules configured",
+      "tableName": "Table",
+      "columnName": "Column",
+      "maskingType": "Masking Type",
+      "tableNameCol": "Table",
+      "secureDeletionLog": "Secure Deletion Log",
+      "noDeletionLog": "No secure deletion events recorded",
+      "recordsDeleted": "Records Deleted",
+      "policyApplied": "Policy Applied",
+      "deletedAt": "Deleted At"
     }
   }
 }

@@ -670,35 +670,35 @@
 ## 17. Security & Access Control
 
 ### 17.1 User Management
-- [ ] Admin user accounts with role-based access control (RBAC)
-- [ ] Roles: super admin, billing admin, NOC operator, technician, read-only auditor, reseller admin
-- [ ] 2FA / MFA support (TOTP, hardware key)
-- [ ] Session timeout and idle lock
-- [ ] IP-based whitelisting for admin access
-- [ ] Password policy enforcement (length, complexity, rotation)
+- [x] Admin user accounts with role-based access control (RBAC)
+- [x] Roles: super admin, billing admin, NOC operator, technician, read-only auditor, reseller admin
+- [x] 2FA / MFA support (TOTP, hardware key)
+- [x] Session timeout and idle lock
+- [x] IP-based whitelisting for admin access
+- [x] Password policy enforcement (length, complexity, rotation)
 
 ### 17.2 API Security
-- [ ] API key management with per-key permissions
-- [ ] OAuth 2.0 / JWT token authentication
-- [ ] Rate limiting per API key
-- [ ] IP whitelist for API access
-- [ ] Audit log of all API calls
-- [ ] Webhook signing verification
+- [x] API key management with per-key permissions
+- [x] OAuth 2.0 / JWT token authentication
+- [x] Rate limiting per API key
+- [x] IP whitelist for API access
+- [x] Audit log of all API calls
+- [x] Webhook signing verification
 
 ### 17.3 Network Security
-- [ ] Firewall rule management for each subscriber pool
-- [ ] DDoS protection integration (Flowspec, RTBH)
-- [ ] Blackhole routing for attacked subscribers
-- [ ] DNS blocklist management (malware/phishing domains)
-- [ ] CPE security scanning (default password detection)
+- [x] Firewall rule management for each subscriber pool
+- [x] DDoS protection integration (Flowspec, RTBH)
+- [x] Blackhole routing for attacked subscribers
+- [x] DNS blocklist management (malware/phishing domains)
+- [x] CPE security scanning (default password detection)
 
 ### 17.4 Data Security
-- [ ] Encryption at rest (AES-256) for PII and financial data
-- [ ] TLS 1.3 for all communication
-- [ ] Database backup encryption
-- [ ] Key management and rotation policy
-- [ ] Data masking for non-privileged users
-- [ ] Secure deletion of expired retention data
+- [x] Encryption at rest (AES-256) for PII and financial data
+- [x] TLS 1.3 for all communication
+- [x] Database backup encryption
+- [x] Key management and rotation policy
+- [x] Data masking for non-privileged users
+- [x] Secure deletion of expired retention data
 
 ---
 

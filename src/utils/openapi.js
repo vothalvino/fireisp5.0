@@ -189,6 +189,7 @@ function generateSpec() {
       { name: 'Universal Service', description: '§16.6 USO obligations and rural coverage reporting' },
       { name: 'Consumer Protection MX', description: '§16.7 service modification notices and contract templates (MX)' },
       { name: 'Data Residency', description: '§16.8 data localization and residency compliance config' },
+      { name: 'Security', description: '§17 security & access control — WebAuthn, IP allowlist, password policy, firewall, DDoS, DNS blocklists, CPE scans, encryption keys, data masking, secure deletion, webhook signing' },
     ],
     paths: {
       // ---- Auth ----
@@ -2204,6 +2205,112 @@ function generateSpec() {
       },
       '/data-residency/check': {
         post: { tags: ['Data Residency'], summary: 'Run compliance check for data residency', operationId: 'checkDataResidencyCompliance', security: [{ bearerAuth: [] }], responses: r200('Check result') },
+      },
+
+      // ---- §17 Security Admin ----
+      '/security-admin/webauthn': {
+        get: { tags: ['Security'], summary: 'List WebAuthn credentials for current user', operationId: 'listWebAuthnCredentials', security: [{ bearerAuth: [] }], responses: r200('WebAuthnCredential[]') },
+        post: { tags: ['Security'], summary: 'Register a WebAuthn credential', operationId: 'createWebAuthnCredential', security: [{ bearerAuth: [] }], requestBody: jsonBody('security_createWebAuthn'), responses: r201('WebAuthnCredential') },
+      },
+      '/security-admin/webauthn/{id}': {
+        delete: { tags: ['Security'], summary: 'Revoke a WebAuthn credential', operationId: 'deleteWebAuthnCredential', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Success') },
+      },
+      '/security-admin/admin-ip-allowlist': {
+        get: { tags: ['Security'], summary: 'List admin IP allowlist entries', operationId: 'listAdminIpAllowlist', security: [{ bearerAuth: [] }], responses: r200('AdminIpAllowlist[]') },
+        post: { tags: ['Security'], summary: 'Add admin IP allowlist entry', operationId: 'createAdminIpAllowlist', security: [{ bearerAuth: [] }], requestBody: jsonBody('security_createAdminIpAllowlist'), responses: r201('AdminIpAllowlist') },
+      },
+      '/security-admin/admin-ip-allowlist/{id}': {
+        put: { tags: ['Security'], summary: 'Update admin IP allowlist entry', operationId: 'updateAdminIpAllowlist', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('AdminIpAllowlist'), responses: r200('Success') },
+        delete: { tags: ['Security'], summary: 'Delete admin IP allowlist entry', operationId: 'deleteAdminIpAllowlist', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Success') },
+      },
+      '/security-admin/password-policy': {
+        get: { tags: ['Security'], summary: 'Get org password policy', operationId: 'getPasswordPolicy', security: [{ bearerAuth: [] }], responses: r200('PasswordPolicy') },
+        put: { tags: ['Security'], summary: 'Update org password policy', operationId: 'updatePasswordPolicy', security: [{ bearerAuth: [] }], requestBody: jsonBody('security_updatePasswordPolicy'), responses: r200('Success') },
+      },
+      '/security-admin/api-key-rate-limits': {
+        get: { tags: ['Security'], summary: 'List API key rate limits', operationId: 'listApiKeyRateLimits', security: [{ bearerAuth: [] }], responses: r200('ApiKeyRateLimit[]') },
+      },
+      '/security-admin/api-key-rate-limits/{tokenId}': {
+        put: { tags: ['Security'], summary: 'Set rate limit for an API token', operationId: 'setApiKeyRateLimit', security: [{ bearerAuth: [] }], parameters: [{ name: 'tokenId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('ApiKeyRateLimit'), responses: r200('Success') },
+      },
+
+      // ---- §17 Network Security ----
+      '/network-security/firewall-rules': {
+        get: { tags: ['Security'], summary: 'List firewall rules', operationId: 'listFirewallRules', security: [{ bearerAuth: [] }], responses: r200('FirewallRule[]') },
+        post: { tags: ['Security'], summary: 'Create firewall rule', operationId: 'createFirewallRule', security: [{ bearerAuth: [] }], requestBody: jsonBody('security_createFirewallRule'), responses: r201('FirewallRule') },
+      },
+      '/network-security/firewall-rules/{id}': {
+        put: { tags: ['Security'], summary: 'Update firewall rule', operationId: 'updateFirewallRule', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('FirewallRule'), responses: r200('Success') },
+        delete: { tags: ['Security'], summary: 'Delete firewall rule', operationId: 'deleteFirewallRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Success') },
+      },
+      '/network-security/ddos-protection': {
+        get: { tags: ['Security'], summary: 'List DDoS protection rules', operationId: 'listDdosProtectionRules', security: [{ bearerAuth: [] }], responses: r200('DdosProtectionRule[]') },
+        post: { tags: ['Security'], summary: 'Create DDoS protection rule', operationId: 'createDdosProtectionRule', security: [{ bearerAuth: [] }], requestBody: jsonBody('security_createDdosRule'), responses: r201('DdosProtectionRule') },
+      },
+      '/network-security/ddos-protection/{id}': {
+        put: { tags: ['Security'], summary: 'Update DDoS protection rule', operationId: 'updateDdosProtectionRule', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('DdosProtectionRule'), responses: r200('Success') },
+        delete: { tags: ['Security'], summary: 'Delete DDoS protection rule', operationId: 'deleteDdosProtectionRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Success') },
+      },
+      '/network-security/ddos-protection/{id}/activate': {
+        post: { tags: ['Security'], summary: 'Activate DDoS protection rule', operationId: 'activateDdosProtectionRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Activated') },
+      },
+      '/network-security/ddos-protection/{id}/deactivate': {
+        post: { tags: ['Security'], summary: 'Deactivate DDoS protection rule', operationId: 'deactivateDdosProtectionRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Deactivated') },
+      },
+      '/network-security/blackhole-routes': {
+        get: { tags: ['Security'], summary: 'List blackhole routes', operationId: 'listBlackholeRoutes', security: [{ bearerAuth: [] }], responses: r200('BlackholeRoute[]') },
+        post: { tags: ['Security'], summary: 'Create/trigger blackhole route', operationId: 'createBlackholeRoute', security: [{ bearerAuth: [] }], requestBody: jsonBody('security_createBlackholeRoute'), responses: r201('BlackholeRoute') },
+      },
+      '/network-security/blackhole-routes/{id}/release': {
+        post: { tags: ['Security'], summary: 'Release/deactivate blackhole route', operationId: 'releaseBlackholeRoute', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Released') },
+      },
+      '/network-security/dns-blocklists': {
+        get: { tags: ['Security'], summary: 'List DNS blocklist entries', operationId: 'listDnsBlocklists', security: [{ bearerAuth: [] }], responses: r200('DnsBlocklist[]') },
+        post: { tags: ['Security'], summary: 'Add DNS blocklist entry', operationId: 'createDnsBlocklist', security: [{ bearerAuth: [] }], requestBody: jsonBody('security_createDnsBlocklist'), responses: r201('DnsBlocklist') },
+      },
+      '/network-security/dns-blocklists/{id}': {
+        put: { tags: ['Security'], summary: 'Update DNS blocklist entry', operationId: 'updateDnsBlocklist', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('DnsBlocklist'), responses: r200('Success') },
+        delete: { tags: ['Security'], summary: 'Delete DNS blocklist entry', operationId: 'deleteDnsBlocklist', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Success') },
+      },
+      '/network-security/cpe-security-scans': {
+        get: { tags: ['Security'], summary: 'List CPE security scans', operationId: 'listCpeSecurityScans', security: [{ bearerAuth: [] }], responses: r200('CpeSecurityScan[]') },
+        post: { tags: ['Security'], summary: 'Trigger CPE security scan', operationId: 'triggerCpeSecurityScan', security: [{ bearerAuth: [] }], requestBody: jsonBody('security_triggerCpeScan'), responses: r201('CpeSecurityScan') },
+      },
+      '/network-security/cpe-security-scans/{id}': {
+        get: { tags: ['Security'], summary: 'Get CPE security scan details', operationId: 'getCpeSecurityScan', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('CpeSecurityScan') },
+      },
+
+      // ---- §17 Data Security ----
+      '/data-security/encryption-keys': {
+        get: { tags: ['Security'], summary: 'List encryption key metadata', operationId: 'listEncryptionKeys', security: [{ bearerAuth: [] }], responses: r200('EncryptionKeyMetadata[]') },
+        post: { tags: ['Security'], summary: 'Register encryption key metadata', operationId: 'createEncryptionKey', security: [{ bearerAuth: [] }], requestBody: jsonBody('EncryptionKeyMetadata'), responses: r201('EncryptionKeyMetadata') },
+      },
+      '/data-security/encryption-keys/{id}': {
+        put: { tags: ['Security'], summary: 'Update encryption key metadata (supports rotate action)', operationId: 'updateEncryptionKey', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('EncryptionKeyMetadata'), responses: r200('Success') },
+      },
+      '/data-security/data-masking': {
+        get: { tags: ['Security'], summary: 'List data masking rules', operationId: 'listDataMaskingRules', security: [{ bearerAuth: [] }], responses: r200('DataMaskingRule[]') },
+        put: { tags: ['Security'], summary: 'Upsert data masking rule', operationId: 'upsertDataMaskingRule', security: [{ bearerAuth: [] }], requestBody: jsonBody('DataMaskingRule'), responses: r200('Success') },
+      },
+      '/data-security/secure-deletion-log': {
+        get: { tags: ['Security'], summary: 'List secure deletion log', operationId: 'listSecureDeletionLog', security: [{ bearerAuth: [] }], responses: r200('SecureDeletionLog[]') },
+      },
+      '/data-security/secure-deletion': {
+        post: { tags: ['Security'], summary: 'Run secure deletion of expired retention data', operationId: 'runSecureDeletion', security: [{ bearerAuth: [] }], responses: r200('Deletion stats') },
+      },
+      '/data-security/tls-config': {
+        get: { tags: ['Security'], summary: 'Get TLS configuration documentation', operationId: 'getTlsConfig', security: [{ bearerAuth: [] }], responses: r200('TLS config docs') },
+      },
+
+      // ---- §17 Webhook Security ----
+      '/webhook-security/verify-signing': {
+        get: { tags: ['Security'], summary: 'Get webhook signing verification docs and status', operationId: 'getWebhookSigningInfo', security: [{ bearerAuth: [] }], responses: r200('Signing info') },
+      },
+      '/webhook-security/verify-signature': {
+        post: { tags: ['Security'], summary: 'Verify a webhook signature', operationId: 'verifyWebhookSignature', security: [{ bearerAuth: [] }], requestBody: jsonBody('signature + secret + payload'), responses: r200('{ valid: boolean }') },
+      },
+      '/webhook-security/delivery-logs': {
+        get: { tags: ['Security'], summary: 'List webhook delivery logs for org', operationId: 'listWebhookDeliveryLogs', security: [{ bearerAuth: [] }], responses: r200('WebhookDelivery[]') },
       },
     },
     components: {

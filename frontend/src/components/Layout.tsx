@@ -139,6 +139,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/ai-assistant', labelKey: 'nav.aiAssistant', requiredRole: 'admin' },
       { to: '/settings', labelKey: 'nav.settings', requiredRole: 'admin' },
       { to: '/message-templates', labelKey: 'nav.messageTemplates', requiredRole: 'admin' },
+      { to: '/security-access-control', labelKey: 'nav.securityAccessControl', requiredRole: 'admin' },
     ],
   },
 ];

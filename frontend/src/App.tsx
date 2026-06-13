@@ -151,6 +151,7 @@ import { WorkOrders } from '@/pages/WorkOrders';
 import { TopologyMapPage } from '@/pages/TopologyMapPage';
 import { InventoryManagement } from '@/pages/InventoryManagement';
 import { NotFound } from '@/pages/NotFound';
+import { SecurityAccessControlPage } from '@/pages/SecurityAccessControlPage';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
 
 const queryClient = new QueryClient({
@@ -333,6 +334,7 @@ export function App() {
                 <Route path="settings" element={<Settings />} />
                 <Route path="message-templates" element={<MessageTemplateList />} />
                 <Route path="ai-assistant" element={<AIAssistantSettings />} />
+                <Route path="security-access-control" element={<SecurityAccessControlPage />} />
               </Route>
             </Route>
 
