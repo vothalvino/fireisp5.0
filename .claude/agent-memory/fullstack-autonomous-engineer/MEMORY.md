@@ -14,3 +14,4 @@
 - [Section 14 Inventory & Asset Management](section14-inventory-asset.md) — migrations 305-307 complete; 6 tables, 20 perms, 4 route files + 5-tab frontend page; next migration: 308
 - [Section 15 Reporting & Analytics](section15-reporting-analytics.md) — migrations 308-313 complete; 5 tables, 11 perms, 712 total endpoints, 5 route files + 2 frontend pages; next migration: 314
 - [Section 16 Regulatory Compliance](section16-regulatory-compliance.md) — migrations 314-322 complete; 12 new tables (277 total), 47 perms, 5 route files + 8-tab frontend page, docs/compliance-mexico.md; next migration: 323
+- [Section 17 Security & Access Control](section17-security-access-control.md) — migrations 323-335 complete; 12 new tables (289 total), 36 perms + 4 new roles, 4 route files + 4-tab frontend page; next migration: 336
