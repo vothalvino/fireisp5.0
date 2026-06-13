@@ -132,6 +132,7 @@
                 "automation": "Automatización y Scripting",
                 "resellers": "Revendedores",
                 "integrations": "Integraciones",
+                "aiSupport": "🤖 Soporte IA",
                 "sections":  {
                                  "clients":  "Clientes",
                                  "billing":  "Facturación",
@@ -2957,5 +2958,59 @@
     "recordsError": "Errores",
     "errorMessage": "Error",
     "noLogs": "Sin registros de sincronizacion"
+  },
+  "aiSupport": {
+    "title": "Soporte IA al Cliente",
+    "tabs": { "chat": "Chat", "kb": "Base de Conocimiento", "metrics": "Métricas", "noc": "Perspectivas NOC" },
+    "chat": {
+      "newConversation": "Nueva Conversación",
+      "send": "Enviar",
+      "escalate": "Escalar a Agente",
+      "typing": "IA escribiendo...",
+      "noConversations": "Sin conversaciones aún",
+      "startNew": "Iniciar nueva conversación",
+      "channel": "Canal",
+      "status": "Estado",
+      "intent": "Intención",
+      "confidence": "Confianza"
+    },
+    "kb": {
+      "search": "Buscar artículos",
+      "create": "Nuevo Artículo",
+      "embed": "Generar Embedding",
+      "noArticles": "No se encontraron artículos",
+      "title": "Título",
+      "body": "Contenido",
+      "category": "Categoría",
+      "locale": "Idioma",
+      "tags": "Etiquetas",
+      "published": "Publicado",
+      "feedback": { "helpful": "Útil", "wrong": "Incorrecto", "partial": "Parcialmente útil" }
+    },
+    "metrics": {
+      "resolutionRate": "Tasa de Resolución",
+      "escalationRate": "Tasa de Escalación",
+      "handleTime": "Tiempo Promedio",
+      "csat": "CSAT",
+      "totalConversations": "Total Conversaciones",
+      "totalEscalations": "Total Escalaciones",
+      "noData": "Sin datos de métricas",
+      "dateRange": "Rango de Fechas"
+    },
+    "noc": {
+      "explainAlert": "Explicar Alerta",
+      "capacityWarning": "Advertencia de Capacidad",
+      "interference": "Detección de Interferencia",
+      "alignmentDrift": "Deriva de Alineación",
+      "shiftSummary": "Resumen de Turno",
+      "runbook": "Sugerencia de Runbook",
+      "noInsights": "Sin perspectivas aún",
+      "alertId": "ID de Alerta",
+      "alertType": "Tipo de Alerta",
+      "run": "Ejecutar Análisis",
+      "confidence": "Confianza",
+      "summary": "Resumen",
+      "recommendation": "Recomendación"
+    }
   }
 }

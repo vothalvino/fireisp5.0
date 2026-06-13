@@ -155,6 +155,7 @@ import { SecurityAccessControlPage } from '@/pages/SecurityAccessControlPage';
 import AutomationPage from '@/pages/AutomationPage';
 import ResellerPage from '@/pages/ResellerPage';
 import { IntegrationsPage } from '@/pages/IntegrationsPage';
+import { AiSupportPage } from '@/pages/AiSupportPage';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
 
 const queryClient = new QueryClient({
@@ -341,6 +342,7 @@ export function App() {
                 <Route path="automation" element={<AutomationPage />} />
                 <Route path="resellers" element={<ResellerPage />} />
                 <Route path="integrations" element={<IntegrationsPage />} />
+                <Route path="ai-support" element={<AiSupportPage />} />
               </Route>
             </Route>
 

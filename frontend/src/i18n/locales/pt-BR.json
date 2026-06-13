@@ -132,6 +132,7 @@
                 "automation": "Automatização e Scripting",
                 "resellers": "Revendedores",
                 "integrations": "Integracoes",
+                "aiSupport": "🤖 Suporte IA",
                 "sections":  {
                                  "clients":  "Clientes",
                                  "billing":  "Faturamento",
@@ -2957,5 +2958,59 @@
     "recordsError": "Erros",
     "errorMessage": "Erro",
     "noLogs": "Sem registros de sincronizacao"
+  },
+  "aiSupport": {
+    "title": "Suporte IA ao Cliente",
+    "tabs": { "chat": "Chat", "kb": "Base de Conhecimento", "metrics": "Métricas", "noc": "Perspectivas NOC" },
+    "chat": {
+      "newConversation": "Nova Conversa",
+      "send": "Enviar",
+      "escalate": "Escalar para Agente",
+      "typing": "IA digitando...",
+      "noConversations": "Sem conversas ainda",
+      "startNew": "Iniciar nova conversa",
+      "channel": "Canal",
+      "status": "Status",
+      "intent": "Intenção",
+      "confidence": "Confiança"
+    },
+    "kb": {
+      "search": "Pesquisar artigos",
+      "create": "Novo Artigo",
+      "embed": "Gerar Embedding",
+      "noArticles": "Nenhum artigo encontrado",
+      "title": "Título",
+      "body": "Conteúdo",
+      "category": "Categoria",
+      "locale": "Idioma",
+      "tags": "Tags",
+      "published": "Publicado",
+      "feedback": { "helpful": "Útil", "wrong": "Incorreto", "partial": "Parcialmente útil" }
+    },
+    "metrics": {
+      "resolutionRate": "Taxa de Resolução",
+      "escalationRate": "Taxa de Escalonamento",
+      "handleTime": "Tempo Médio",
+      "csat": "CSAT",
+      "totalConversations": "Total de Conversas",
+      "totalEscalations": "Total de Escalonamentos",
+      "noData": "Sem dados de métricas",
+      "dateRange": "Período"
+    },
+    "noc": {
+      "explainAlert": "Explicar Alerta",
+      "capacityWarning": "Aviso de Capacidade",
+      "interference": "Detecção de Interferência",
+      "alignmentDrift": "Deriva de Alinhamento",
+      "shiftSummary": "Resumo de Turno",
+      "runbook": "Sugestão de Runbook",
+      "noInsights": "Sem perspectivas ainda",
+      "alertId": "ID do Alerta",
+      "alertType": "Tipo de Alerta",
+      "run": "Executar Análise",
+      "confidence": "Confiança",
+      "summary": "Resumo",
+      "recommendation": "Recomendação"
+    }
   }
 }

@@ -132,6 +132,7 @@
     "automation": "Automation & Scripting",
     "resellers": "Resellers",
     "integrations": "Integrations",
+    "aiSupport": "🤖 AI Support",
     "sections": {
       "clients": "Clients",
       "billing": "Billing",
@@ -2957,5 +2958,59 @@
     "recordsError": "Errors",
     "errorMessage": "Error",
     "noLogs": "No sync logs yet"
+  },
+  "aiSupport": {
+    "title": "AI Customer Support",
+    "tabs": { "chat": "Chat", "kb": "Knowledge Base", "metrics": "Metrics", "noc": "NOC Insights" },
+    "chat": {
+      "newConversation": "New Conversation",
+      "send": "Send",
+      "escalate": "Escalate to Agent",
+      "typing": "AI is typing...",
+      "noConversations": "No conversations yet",
+      "startNew": "Start a new conversation",
+      "channel": "Channel",
+      "status": "Status",
+      "intent": "Intent",
+      "confidence": "Confidence"
+    },
+    "kb": {
+      "search": "Search articles",
+      "create": "New Article",
+      "embed": "Generate Embedding",
+      "noArticles": "No articles found",
+      "title": "Title",
+      "body": "Content",
+      "category": "Category",
+      "locale": "Language",
+      "tags": "Tags",
+      "published": "Published",
+      "feedback": { "helpful": "Helpful", "wrong": "Wrong", "partial": "Partially helpful" }
+    },
+    "metrics": {
+      "resolutionRate": "Resolution Rate",
+      "escalationRate": "Escalation Rate",
+      "handleTime": "Avg Handle Time",
+      "csat": "CSAT",
+      "totalConversations": "Total Conversations",
+      "totalEscalations": "Total Escalations",
+      "noData": "No metrics data available",
+      "dateRange": "Date Range"
+    },
+    "noc": {
+      "explainAlert": "Explain Alert",
+      "capacityWarning": "Capacity Warning",
+      "interference": "Interference Detection",
+      "alignmentDrift": "Alignment Drift",
+      "shiftSummary": "Shift Summary",
+      "runbook": "Runbook Suggestion",
+      "noInsights": "No insights yet",
+      "alertId": "Alert ID",
+      "alertType": "Alert Type",
+      "run": "Run Analysis",
+      "confidence": "Confidence",
+      "summary": "Summary",
+      "recommendation": "Recommendation"
+    }
   }
 }
