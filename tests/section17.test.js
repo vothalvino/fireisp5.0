@@ -552,6 +552,44 @@ describe('POST /api/v1/network-security/blackhole-routes/:id/release', () => {
   });
 });
 
+describe('DELETE /api/v1/network-security/blackhole-routes/:id', () => {
+  beforeEach(() => {
+    db.query.mockImplementation((sql) => {
+      if (typeof sql === 'string' && sql.includes('WHERE id = ?') && !sql.includes('blackhole')) {
+        return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 1 }]]);
+      }
+      if (typeof sql === 'string' && sql.includes('blackhole_routes') && sql.includes('DELETE')) {
+        return Promise.resolve([{ affectedRows: 1 }]);
+      }
+      return Promise.resolve([{ affectedRows: 0 }]);
+    });
+  });
+  afterEach(() => { jest.clearAllMocks(); });
+
+  it('returns 200 on blackhole route delete', async () => {
+    const res = await request(app)
+      .delete('/api/v1/network-security/blackhole-routes/1')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '1');
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('success', true);
+  });
+
+  it('returns 404 when blackhole route not found for delete', async () => {
+    db.query.mockImplementation((sql) => {
+      if (typeof sql === 'string' && sql.includes('WHERE id = ?') && !sql.includes('blackhole')) {
+        return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 1 }]]);
+      }
+      return Promise.resolve([{ affectedRows: 0 }]);
+    });
+    const res = await request(app)
+      .delete('/api/v1/network-security/blackhole-routes/999')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '1');
+    expect(res.status).toBe(404);
+  });
+});
+
 // =============================================================================
 // /network-security/dns-blocklists
 // =============================================================================

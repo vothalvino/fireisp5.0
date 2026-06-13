@@ -2261,6 +2261,9 @@ function generateSpec() {
         get: { tags: ['Security'], summary: 'List blackhole routes', operationId: 'listBlackholeRoutes', security: [{ bearerAuth: [] }], responses: r200('BlackholeRoute[]') },
         post: { tags: ['Security'], summary: 'Create/trigger blackhole route', operationId: 'createBlackholeRoute', security: [{ bearerAuth: [] }], requestBody: jsonBody('security_createBlackholeRoute'), responses: r201('BlackholeRoute') },
       },
+      '/network-security/blackhole-routes/{id}': {
+        delete: { tags: ['Security'], summary: 'Delete blackhole route', operationId: 'deleteBlackholeRoute', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Success') },
+      },
       '/network-security/blackhole-routes/{id}/release': {
         post: { tags: ['Security'], summary: 'Release/deactivate blackhole route', operationId: 'releaseBlackholeRoute', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Released') },
       },

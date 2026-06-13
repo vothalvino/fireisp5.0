@@ -43594,6 +43594,42 @@
         }
       }
     },
+    "/network-security/blackhole-routes/{id}": {
+      "delete": {
+        "tags": [
+          "Security"
+        ],
+        "summary": "Delete blackhole route",
+        "operationId": "deleteBlackholeRoute",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/network-security/blackhole-routes/{id}/release": {
       "post": {
         "tags": [

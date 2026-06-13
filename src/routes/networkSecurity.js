@@ -261,6 +261,20 @@ router.post('/blackhole-routes', requirePermission('blackhole_routes.create'), v
   }
 });
 
+// DELETE /blackhole-routes/:id
+router.delete('/blackhole-routes/:id', requirePermission('blackhole_routes.delete'), async (req, res, next) => {
+  try {
+    const [result] = await db.query(
+      'DELETE FROM blackhole_routes WHERE id = ? AND organization_id = ?',
+      [req.params.id, req.orgId],
+    );
+    if (result.affectedRows === 0) throw new NotFoundError('Blackhole route');
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // POST /blackhole-routes/:id/release — release/deactivate
 router.post('/blackhole-routes/:id/release', requirePermission('blackhole_routes.update'), async (req, res, next) => {
   try {
