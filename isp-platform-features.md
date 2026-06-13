@@ -738,24 +738,24 @@
 ## 19. Multi-Tenancy / Reseller Support
 
 ### 19.1 Roles & Permissions
-- [ ] Multi-level reseller hierarchy (ISP → Master Reseller → Sub-Reseller → Customer)
-- [ ] Each reseller sees only their own customers, devices, and revenue
-- [ ] Reseller-branded customer portal (white-label)
-- [ ] Custom pricing per reseller
-- [ ] Commission/profit tracking per reseller
+- [x] Multi-level reseller hierarchy (ISP → Master Reseller → Sub-Reseller → Customer)
+- [x] Each reseller sees only their own customers, devices, and revenue
+- [x] Reseller-branded customer portal (white-label)
+- [x] Custom pricing per reseller
+- [x] Commission/profit tracking per reseller
 
 ### 19.2 Resource Allocation
-- [ ] IP pool allocation per reseller
-- [ ] Bandwidth allocation per reseller
-- [ ] OLT / PON port assignment per reseller
-- [ ] Separate billing per reseller entity
-- [ ] Separate reporting per reseller
+- [x] IP pool allocation per reseller
+- [x] Bandwidth allocation per reseller
+- [x] OLT / PON port assignment per reseller
+- [x] Separate billing per reseller entity
+- [x] Separate reporting per reseller
 
 ### 19.3 Reseller Portal
-- [ ] Dashboard with their subscriber count, revenue, tickets
-- [ ] Customer management (create, suspend, cancel)
-- [ ] Invoice generation under their own brand
-- [ ] Stock management for their assigned equipment
+- [x] Dashboard with their subscriber count, revenue, tickets
+- [x] Customer management (create, suspend, cancel)
+- [x] Invoice generation under their own brand
+- [x] Stock management for their assigned equipment
 
 ---
 

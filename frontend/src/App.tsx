@@ -153,6 +153,7 @@ import { InventoryManagement } from '@/pages/InventoryManagement';
 import { NotFound } from '@/pages/NotFound';
 import { SecurityAccessControlPage } from '@/pages/SecurityAccessControlPage';
 import AutomationPage from '@/pages/AutomationPage';
+import ResellerPage from '@/pages/ResellerPage';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
 
 const queryClient = new QueryClient({
@@ -337,6 +338,7 @@ export function App() {
                 <Route path="ai-assistant" element={<AIAssistantSettings />} />
                 <Route path="security-access-control" element={<SecurityAccessControlPage />} />
                 <Route path="automation" element={<AutomationPage />} />
+                <Route path="resellers" element={<ResellerPage />} />
               </Route>
             </Route>
 

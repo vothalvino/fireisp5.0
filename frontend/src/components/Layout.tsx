@@ -141,6 +141,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/message-templates', labelKey: 'nav.messageTemplates', requiredRole: 'admin' },
       { to: '/security-access-control', labelKey: 'nav.securityAccessControl', requiredRole: 'admin' },
       { to: '/automation', labelKey: 'nav.automation', requiredRole: 'admin' },
+      { to: '/resellers', labelKey: 'nav.resellers', requiredRole: 'admin' },
     ],
   },
 ];

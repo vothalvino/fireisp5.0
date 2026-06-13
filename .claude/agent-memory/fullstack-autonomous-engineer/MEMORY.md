@@ -16,3 +16,4 @@
 - [Section 16 Regulatory Compliance](section16-regulatory-compliance.md) — migrations 314-322 complete; 12 new tables (277 total), 47 perms, 5 route files + 8-tab frontend page, docs/compliance-mexico.md; next migration: 323
 - [Section 17 Security & Access Control](section17-security-access-control.md) — migrations 323-335 complete; 12 new tables (289 total), 36 perms + 4 new roles, 4 route files + 4-tab frontend page; next migration: 336
 - [Section 18 Automation & Scripting](section18-automation-scripting.md) — migrations 336-343 complete; 14 new tables (303 total), 30 perms, 3 scheduled tasks, 7 route files + 7-tab frontend page; script exec stubbed; next migration: 344
+- [Section 19 Multi-Tenancy/Reseller Support](section19-reseller-support.md) — migrations 344-347 complete; 7 new tables (310 total) + reseller_id on clients, 22 perms, 2 route files + 6-tab frontend page; reseller_id scoping (not hard tenant isolation); next migration: 348
