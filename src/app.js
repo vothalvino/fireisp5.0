@@ -192,6 +192,9 @@ const analyticsAIRoutes = require('./routes/analyticsAI');
 const resellerRoutes = require('./routes/resellers');
 const resellerPortalRoutes = require('./routes/resellerPortal');
 const integrationRoutes = require('./routes/integrations');
+// §21 AI Customer Support
+const supportConversationRoutes = require('./routes/supportConversations');
+const nocAiRoutes = require('./routes/nocAi');
 const acsService = require('./services/acsService');
 const graphqlMiddleware = require('./graphql');
 
@@ -616,6 +619,10 @@ v1.use('/reseller-portal', resellerPortalRoutes);
 
 // §20 APIs & Integrations
 v1.use('/integrations', integrationRoutes);
+
+// §21 AI Customer Support
+v1.use('/support', supportConversationRoutes);
+v1.use('/noc-ai', nocAiRoutes);
 
 v1.use('/graphql', authenticate, orgScope, graphqlMiddleware);
 

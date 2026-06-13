@@ -198,6 +198,8 @@ function generateSpec() {
       { name: 'Reseller Portal', description: '§19.3 Reseller portal endpoints — dashboard, customer management, invoices, inventory' },
       { name: 'Integration Providers', description: '§20.2 Third-party integration provider catalog — read-only list of supported providers seeded at migration 348' },
       { name: 'Integration Connections', description: '§20.2 Per-org configured integration connections — credentials encrypted at rest, never returned in responses' },
+      { name: 'AI Support', description: '§21 AI customer support — conversations, knowledge base, channel configs, diagnostics, and KPI metrics' },
+      { name: 'NOC AI', description: '§21.11 NOC AI insights — alert explanation, capacity warnings, interference detection, shift summaries, runbook suggestions' },
     ],
     paths: {
       // ---- Auth ----
@@ -2541,6 +2543,75 @@ function generateSpec() {
       },
       '/integrations/connections/{id}/logs': {
         get: { tags: ['Integration Connections'], summary: 'List sync logs for a connection', operationId: 'listIntegrationSyncLogs', security: [{ bearerAuth: [] }], parameters: [idParam(), pageParam(), limitParam()], responses: r200('IntegrationSyncLog[]') },
+      },
+
+      // ---- §21 AI Customer Support ----
+      '/support/metrics': {
+        get: { tags: ['AI Support'], summary: 'Get AI support KPI metrics', operationId: 'getAiSupportMetrics', security: [{ bearerAuth: [] }], parameters: [{ name: 'date_from', in: 'query', schema: { type: 'string', format: 'date' } }, { name: 'date_to', in: 'query', schema: { type: 'string', format: 'date' } }], responses: r200('AiSupportMetrics') },
+      },
+      '/support/channels': {
+        get: { tags: ['AI Support'], summary: 'List support channel configurations', operationId: 'listSupportChannels', security: [{ bearerAuth: [] }], responses: r200('SupportChannelConfig[]') },
+      },
+      '/support/channels/{channel}': {
+        put: { tags: ['AI Support'], summary: 'Upsert support channel configuration', operationId: 'updateSupportChannel', security: [{ bearerAuth: [] }], parameters: [{ name: 'channel', in: 'path', required: true, schema: { type: 'string' } }], requestBody: jsonBody('supportConversations_updateChannelConfig'), responses: r200('SupportChannelConfig') },
+      },
+      '/support/kb': {
+        get:  { tags: ['AI Support'], summary: 'List KB articles', operationId: 'listKbArticles', security: [{ bearerAuth: [] }], parameters: [{ name: 'category', in: 'query', schema: { type: 'string' } }, { name: 'locale', in: 'query', schema: { type: 'string' } }, pageParam(), limitParam()], responses: r200('KbArticle[]') },
+        post: { tags: ['AI Support'], summary: 'Create KB article', operationId: 'createKbArticle', security: [{ bearerAuth: [] }], requestBody: jsonBody('supportConversations_createKbArticle'), responses: r201('KbArticle') },
+      },
+      '/support/kb/search': {
+        get: { tags: ['AI Support'], summary: 'Search KB articles by keyword', operationId: 'searchKbArticles', security: [{ bearerAuth: [] }], parameters: [{ name: 'q', in: 'query', required: true, schema: { type: 'string' } }, { name: 'locale', in: 'query', schema: { type: 'string' } }, { name: 'limit', in: 'query', schema: { type: 'integer', default: 20 } }], responses: r200('KbArticle[]') },
+      },
+      '/support/kb/{id}': {
+        get:    { tags: ['AI Support'], summary: 'Get a KB article', operationId: 'getKbArticle', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('KbArticle') },
+        put:    { tags: ['AI Support'], summary: 'Update a KB article', operationId: 'updateKbArticle', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('supportConversations_updateKbArticle'), responses: r200('KbArticle') },
+        delete: { tags: ['AI Support'], summary: 'Delete a KB article', operationId: 'deleteKbArticle', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/support/kb/{id}/embed': {
+        post: { tags: ['AI Support'], summary: 'Trigger embedding for a KB article', operationId: 'embedKbArticle', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('EmbedResult') },
+      },
+      '/support/kb/{id}/feedback': {
+        post: { tags: ['AI Support'], summary: 'Submit feedback on a KB article', operationId: 'submitKbFeedback', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('supportConversations_kbFeedback'), responses: r200('KbFeedback') },
+      },
+      '/support/conversations': {
+        get:  { tags: ['AI Support'], summary: 'List support conversations', operationId: 'listSupportConversations', security: [{ bearerAuth: [] }], parameters: [{ name: 'status', in: 'query', schema: { type: 'string', enum: ['open', 'escalated', 'closed'] } }, { name: 'client_id', in: 'query', schema: { type: 'integer' } }, pageParam(), limitParam()], responses: r200('SupportConversation[]') },
+        post: { tags: ['AI Support'], summary: 'Start a new AI support conversation', operationId: 'startSupportConversation', security: [{ bearerAuth: [] }], requestBody: jsonBody('supportConversations_startConversation'), responses: r201('SupportConversation') },
+      },
+      '/support/conversations/{id}': {
+        get:    { tags: ['AI Support'], summary: 'Get conversation with messages', operationId: 'getSupportConversation', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SupportConversation') },
+        delete: { tags: ['AI Support'], summary: 'Close/delete a conversation', operationId: 'deleteSupportConversation', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/support/conversations/{id}/messages': {
+        post: { tags: ['AI Support'], summary: 'Send a message in a conversation', operationId: 'sendSupportMessage', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('supportConversations_sendMessage'), responses: r201('SupportConversation') },
+      },
+      '/support/conversations/{id}/escalate': {
+        post: { tags: ['AI Support'], summary: 'Manually escalate a conversation to a human agent', operationId: 'escalateSupportConversation', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('supportConversations_escalateConversation'), responses: r200('SupportConversation') },
+      },
+      '/support/conversations/{id}/diagnose': {
+        post: { tags: ['AI Support'], summary: 'Run a connectivity diagnostic for a conversation', operationId: 'diagnoseSupportConversation', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('symptom + accessType'), responses: r200('DiagnosticResult') },
+      },
+
+      // ---- §21.11 NOC AI ----
+      '/noc-ai/insights': {
+        get: { tags: ['NOC AI'], summary: 'List recent NOC AI insights', operationId: 'listNocAiInsights', security: [{ bearerAuth: [] }], parameters: [{ name: 'type', in: 'query', schema: { type: 'string' } }, { name: 'limit', in: 'query', schema: { type: 'integer', default: 20 } }], responses: r200('NocAiInsight[]') },
+      },
+      '/noc-ai/insights/alert-explain': {
+        post: { tags: ['NOC AI'], summary: 'Explain an alert with AI', operationId: 'nocAiAlertExplain', security: [{ bearerAuth: [] }], requestBody: jsonBody('nocAi_explainAlert'), responses: r200('NocAiInsight') },
+      },
+      '/noc-ai/insights/capacity-warning': {
+        post: { tags: ['NOC AI'], summary: 'Run capacity warning analysis', operationId: 'nocAiCapacityWarning', security: [{ bearerAuth: [] }], requestBody: jsonBody('providerId (optional)'), responses: r200('NocAiInsight') },
+      },
+      '/noc-ai/insights/interference': {
+        post: { tags: ['NOC AI'], summary: 'Run RF interference detection', operationId: 'nocAiInterference', security: [{ bearerAuth: [] }], requestBody: jsonBody('providerId (optional)'), responses: r200('NocAiInsight') },
+      },
+      '/noc-ai/insights/alignment-drift': {
+        post: { tags: ['NOC AI'], summary: 'Run antenna alignment drift detection', operationId: 'nocAiAlignmentDrift', security: [{ bearerAuth: [] }], requestBody: jsonBody('providerId (optional)'), responses: r200('NocAiInsight') },
+      },
+      '/noc-ai/insights/shift-summary': {
+        post: { tags: ['NOC AI'], summary: 'Generate NOC shift summary', operationId: 'nocAiShiftSummary', security: [{ bearerAuth: [] }], requestBody: jsonBody('providerId (optional)'), responses: r200('NocAiInsight') },
+      },
+      '/noc-ai/insights/runbook': {
+        post: { tags: ['NOC AI'], summary: 'Get runbook suggestion for an alert type', operationId: 'nocAiRunbook', security: [{ bearerAuth: [] }], requestBody: jsonBody('nocAi_runbookSuggestion'), responses: r200('NocAiInsight') },
       },
     },
     components: {
