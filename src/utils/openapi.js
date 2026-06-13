@@ -196,6 +196,8 @@ function generateSpec() {
       { name: 'Analytics', description: '§18.4 heuristic analytics — z-score anomaly detection, predictive failure, alert correlation, bandwidth forecast, churn scoring' },
       { name: 'Resellers', description: '§19 Multi-Tenancy / Reseller Support — hierarchy, pricing, commissions, resource allocation, and reseller portal' },
       { name: 'Reseller Portal', description: '§19.3 Reseller portal endpoints — dashboard, customer management, invoices, inventory' },
+      { name: 'Integration Providers', description: '§20.2 Third-party integration provider catalog — read-only list of supported providers seeded at migration 348' },
+      { name: 'Integration Connections', description: '§20.2 Per-org configured integration connections — credentials encrypted at rest, never returned in responses' },
     ],
     paths: {
       // ---- Auth ----
@@ -2511,6 +2513,34 @@ function generateSpec() {
       },
       '/reseller-portal/{id}/inventory': {
         get: { tags: ['Reseller Portal'], summary: 'List reseller assigned inventory', operationId: 'listResellerPortalInventory', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('AssetAssignment[]') },
+      },
+
+      // ---- §20.2 Integration Providers ----
+      '/integrations/providers': {
+        get: { tags: ['Integration Providers'], summary: 'List available integration providers', operationId: 'listIntegrationProviders', security: [{ bearerAuth: [] }], parameters: [{ name: 'category', in: 'query', schema: { type: 'string', enum: ['accounting', 'payment_gateway', 'communication', 'maps', 'monitoring', 'helpdesk', 'tax_sat', 'lorawan'] } }], responses: r200('IntegrationProvider[]') },
+      },
+      '/integrations/providers/{id}': {
+        get: { tags: ['Integration Providers'], summary: 'Get a single integration provider', operationId: 'getIntegrationProvider', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('IntegrationProvider') },
+      },
+
+      // ---- §20.2 Integration Connections ----
+      '/integrations/connections': {
+        get: { tags: ['Integration Connections'], summary: 'List org integration connections (no credentials returned)', operationId: 'listIntegrationConnections', security: [{ bearerAuth: [] }], parameters: [{ name: 'provider_id', in: 'query', schema: { type: 'integer' } }, { name: 'status', in: 'query', schema: { type: 'string' } }, pageParam(), limitParam()], responses: r200('IntegrationConnection[]') },
+        post: { tags: ['Integration Connections'], summary: 'Create integration connection (credentials encrypted at rest)', operationId: 'createIntegrationConnection', security: [{ bearerAuth: [] }], requestBody: jsonBody('IntegrationConnection'), responses: r201('IntegrationConnection') },
+      },
+      '/integrations/connections/{id}': {
+        get: { tags: ['Integration Connections'], summary: 'Get integration connection (no credentials)', operationId: 'getIntegrationConnection', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('IntegrationConnection') },
+        put: { tags: ['Integration Connections'], summary: 'Update integration connection', operationId: 'updateIntegrationConnection', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('IntegrationConnection'), responses: r200('IntegrationConnection') },
+        delete: { tags: ['Integration Connections'], summary: 'Delete integration connection (destroys credentials)', operationId: 'deleteIntegrationConnection', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/integrations/connections/{id}/test': {
+        post: { tags: ['Integration Connections'], summary: 'Test integration connection (stubbed for most providers)', operationId: 'testIntegrationConnection', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('TestResult') },
+      },
+      '/integrations/connections/{id}/sync': {
+        post: { tags: ['Integration Connections'], summary: 'Trigger integration sync (stubbed)', operationId: 'syncIntegrationConnection', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('direction'), responses: r200('SyncResult') },
+      },
+      '/integrations/connections/{id}/logs': {
+        get: { tags: ['Integration Connections'], summary: 'List sync logs for a connection', operationId: 'listIntegrationSyncLogs', security: [{ bearerAuth: [] }], parameters: [idParam(), pageParam(), limitParam()], responses: r200('IntegrationSyncLog[]') },
       },
     },
     components: {

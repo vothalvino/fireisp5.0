@@ -639,6 +639,14 @@
     {
       "name": "Reseller Portal",
       "description": "§19.3 Reseller portal endpoints — dashboard, customer management, invoices, inventory"
+    },
+    {
+      "name": "Integration Providers",
+      "description": "§20.2 Third-party integration provider catalog — read-only list of supported providers seeded at migration 348"
+    },
+    {
+      "name": "Integration Connections",
+      "description": "§20.2 Per-org configured integration connections — credentials encrypted at rest, never returned in responses"
     }
   ],
   "paths": {
@@ -46847,6 +46855,420 @@
           }
         }
       }
+    },
+    "/integrations/providers": {
+      "get": {
+        "tags": [
+          "Integration Providers"
+        ],
+        "summary": "List available integration providers",
+        "operationId": "listIntegrationProviders",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "category",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "accounting",
+                "payment_gateway",
+                "communication",
+                "maps",
+                "monitoring",
+                "helpdesk",
+                "tax_sat",
+                "lorawan"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "IntegrationProvider[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/providers/{id}": {
+      "get": {
+        "tags": [
+          "Integration Providers"
+        ],
+        "summary": "Get a single integration provider",
+        "operationId": "getIntegrationProvider",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "IntegrationProvider",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/connections": {
+      "get": {
+        "tags": [
+          "Integration Connections"
+        ],
+        "summary": "List org integration connections (no credentials returned)",
+        "operationId": "listIntegrationConnections",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "IntegrationConnection[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Integration Connections"
+        ],
+        "summary": "Create integration connection (credentials encrypted at rest)",
+        "operationId": "createIntegrationConnection",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "IntegrationConnection",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "IntegrationConnection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/connections/{id}": {
+      "get": {
+        "tags": [
+          "Integration Connections"
+        ],
+        "summary": "Get integration connection (no credentials)",
+        "operationId": "getIntegrationConnection",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "IntegrationConnection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Integration Connections"
+        ],
+        "summary": "Update integration connection",
+        "operationId": "updateIntegrationConnection",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "IntegrationConnection",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "IntegrationConnection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Integration Connections"
+        ],
+        "summary": "Delete integration connection (destroys credentials)",
+        "operationId": "deleteIntegrationConnection",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/integrations/connections/{id}/test": {
+      "post": {
+        "tags": [
+          "Integration Connections"
+        ],
+        "summary": "Test integration connection (stubbed for most providers)",
+        "operationId": "testIntegrationConnection",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TestResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/connections/{id}/sync": {
+      "post": {
+        "tags": [
+          "Integration Connections"
+        ],
+        "summary": "Trigger integration sync (stubbed)",
+        "operationId": "syncIntegrationConnection",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "direction",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SyncResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/connections/{id}/logs": {
+      "get": {
+        "tags": [
+          "Integration Connections"
+        ],
+        "summary": "List sync logs for a connection",
+        "operationId": "listIntegrationSyncLogs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "IntegrationSyncLog[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -52612,6 +53034,60 @@
         "required": [
           "csv"
         ]
+      },
+      "integrations_createConnectionSchema": {
+        "type": "object",
+        "properties": {
+          "provider_id": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "credentials": {
+            "type": "string"
+          },
+          "config_json": {
+            "type": "string"
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "provider_id",
+          "name"
+        ]
+      },
+      "integrations_updateConnectionSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "credentials": {
+            "type": "string"
+          },
+          "config_json": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "error",
+              "disabled",
+              "pending"
+            ]
+          },
+          "is_enabled": {
+            "type": "boolean"
+          }
+        }
       },
       "interactions_createInteraction": {
         "type": "object",

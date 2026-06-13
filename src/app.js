@@ -191,6 +191,7 @@ const routerDriversRoutes = require('./routes/routerDrivers');
 const analyticsAIRoutes = require('./routes/analyticsAI');
 const resellerRoutes = require('./routes/resellers');
 const resellerPortalRoutes = require('./routes/resellerPortal');
+const integrationRoutes = require('./routes/integrations');
 const acsService = require('./services/acsService');
 const graphqlMiddleware = require('./graphql');
 
@@ -612,6 +613,9 @@ v1.use('/analytics', analyticsAIRoutes);
 // §19 Multi-Tenancy / Reseller Support
 v1.use('/resellers', resellerRoutes);
 v1.use('/reseller-portal', resellerPortalRoutes);
+
+// §20 APIs & Integrations
+v1.use('/integrations', integrationRoutes);
 
 v1.use('/graphql', authenticate, orgScope, graphqlMiddleware);
 
