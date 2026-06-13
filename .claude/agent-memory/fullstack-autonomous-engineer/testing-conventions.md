@@ -79,6 +79,14 @@ and add a guard like `&& !sql.includes(entity-specific-filter)` to distinguish q
 `pnpm test run` is WRONG — vitest interprets "run" as a file filter, finds nothing, exits 1.
 Use `pnpm test` (the script is `vitest run` without argument).
 
+## jest.resetAllMocks() vs clearAllMocks() in beforeEach
+
+When tests use BOTH `mockImplementation()` and `mockResolvedValueOnce()` in the same describe block, use `jest.resetAllMocks()` in `beforeEach` (not `clearAllMocks()`). `clearAllMocks()` only clears call history but does NOT clear the `mockResolvedValueOnce` queue — unconsumed `Once` calls from previous tests bleed into the next test and override the freshly-installed `mockImplementation`.
+
+**Why:** Discovered in §20 tests where `mockResolvedValueOnce([[]])` from test A was being consumed by test B's first db.query call, causing getConnection to return null unexpectedly.
+
+**How to apply:** In test files that mix `mockImplementation` (in beforeEach) with `mockResolvedValueOnce` (in individual tests), always use `jest.resetAllMocks()` at the top of `beforeEach`, then reinstall the `mockImplementation` after.
+
 ## react-leaflet components require mocking in vitest
 
 `react-leaflet`'s `MapContainer` and other components try to access DOM canvas/SVG which jsdom doesn't support. Any test for a page that imports from `react-leaflet` must mock the module:

@@ -762,21 +762,21 @@
 ## 20. APIs & Integrations
 
 ### 20.1 Core REST API
-- [ ] Full CRUD for: customers, plans, invoices, tickets, devices, OLTs, ONUs, sessions
-- [ ] Pagination, filtering, sorting on all endpoints
-- [ ] Webhooks for event notification (payment received, outage, new subscriber)
-- [ ] OpenAPI/Swagger documentation
-- [ ] Rate limiting and throttling
+- [x] Full CRUD for: customers, plans, invoices, tickets, devices, OLTs, ONUs, sessions
+- [x] Pagination, filtering, sorting on all endpoints
+- [x] Webhooks for event notification (payment received, outage, new subscriber)
+- [x] OpenAPI/Swagger documentation
+- [x] Rate limiting and throttling
 
 ### 20.2 Third-Party Integrations
-- [ ] **Accounting**: QuickBooks, ContPAQi (Mexico), SAP, ERPNext
-- [ ] **Payment Gateways**: Stripe, PayPal, Conekta (Mexico), Openpay, MercadoPago, OXXO Pay
-- [ ] **Communication**: Twilio, Vonage (SMS), WhatsApp Business API, SendGrid (email)
-- [ ] **Maps**: Google Maps, OpenStreetMap, MapBox
-- [ ] **Monitoring**: Zabbix, Prometheus, Grafana, PRTG (bidirectional sync)
-- [ ] **Helpdesk**: Zendesk, Freshdesk, osTicket (import/export)
-- [ ] **Tax/SAT**: CFDI 4.0 PAC (Proveedor Autorizado de Certificacion) integration
-- [ ] **LoRaWAN**: ChirpStack API integration for IoT farm sensors
+- [x] **Accounting**: QuickBooks, ContPAQi (Mexico), SAP, ERPNext
+- [x] **Payment Gateways**: Stripe, PayPal, Conekta (Mexico), Openpay, MercadoPago, OXXO Pay
+- [x] **Communication**: Twilio, Vonage (SMS), WhatsApp Business API, SendGrid (email)
+- [x] **Maps**: Google Maps, OpenStreetMap, MapBox
+- [x] **Monitoring**: Zabbix, Prometheus, Grafana, PRTG (bidirectional sync)
+- [x] **Helpdesk**: Zendesk, Freshdesk, osTicket (import/export)
+- [x] **Tax/SAT**: CFDI 4.0 PAC (Proveedor Autorizado de Certificacion) integration
+- [x] **LoRaWAN**: ChirpStack API integration for IoT farm sensors
 
 ## 21. AI-Powered Customer Support System
 

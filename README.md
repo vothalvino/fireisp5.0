@@ -109,8 +109,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 310 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–347)
+│   ├── schema.sql           # Combined schema (all 313 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–350)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -472,12 +472,17 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 308 | `reseller_bandwidth_quotas` | §19.2 Per-reseller bandwidth cap — download/upload Mbps, burst limits, is_enforced flag; upsert-safe ON DUPLICATE KEY |
 | 309 | `reseller_olt_port_assignments` | §19.2 OLT port grants per reseller — FK to olt_ports (§7), INSERT IGNORE, notes |
 | 310 | `reseller_billing_entities` | §19.2 White-label billing entity per reseller — legal_name, tax_id, address, bank details (bank_name, bank_account, bank_clabe), invoice_prefix, invoice_footer, currency, is_active; upsert-safe |
+| 311 | `integration_providers` | §20.2 Read-only catalog of 27 supported integration providers; seeded in migration 348; keyed by provider_key (UNIQUE) |
+| 312 | `integration_connections` | §20.2 Per-org configured integration instances; credentials_enc (AES-256-GCM encrypted, never returned in API responses), config_json, status, last_synced_at |
+| 313 | `integration_sync_logs` | §20.2 Sync execution records per connection — direction, status (queued/running/success/error/stubbed), records_in/out/error, error_message |
 
 > **Migration 323–335 — Security & Access Control (§17):** webauthn_credentials, admin_ip_allowlist, password_policies, api_key_rate_limits, firewall_rules, ddos_protection_rules, blackhole_routes, dns_blocklists, cpe_security_scans, encryption_key_metadata, data_masking_rules, secure_deletion_log; plus 4 new roles (super_admin, noc_operator, reseller_admin, auditor) and 36 security module permissions.
 
 > **Migration 336–343 — Automation & Scripting (§18):** automation_rules, automation_rule_executions, batch_jobs, batch_job_items, provisioning_pipelines, provisioning_pipeline_stages, remediation_rules, remediation_executions, automation_scripts, script_executions, router_driver_configs, device_command_executions, analytics_anomalies, churn_scores; plus 30 automation/analytics permissions and 3 scheduled tasks (anomaly_detection, churn_score_computation, remediation_evaluation). Script execution is STUB — no child_process dispatch; sandboxed executor required for live runs.
 
 > **Migration 344–347 — Multi-Tenancy / Reseller Support (§19):** resellers (self-referencing hierarchy up to 2 levels deep, white-label branding, commission_rate), reseller_plan_prices (custom pricing overrides per reseller+plan), reseller_commissions (per-invoice earnings with approve/pay workflow), reseller_ip_pool_allocations, reseller_bandwidth_quotas, reseller_olt_port_assignments, reseller_billing_entities; plus `reseller_id` FK on clients table for reseller scoping. Includes 22 permissions across resellers, reseller_plan_prices, reseller_commissions, reseller_*_allocations/quotas/assignments, reseller_billing_entities, and reseller_portal modules, granted to admin, reseller_admin, and super_admin roles.
+
+> **Migration 348–350 — APIs & Integrations (§20):** integration_providers (27-provider catalog seeded idempotently), integration_connections (per-org instances with AES-256-GCM encrypted credentials), integration_sync_logs (execution records). 8 permissions (integration_providers.view, integration_connections.view/create/update/delete/test/sync, integration_sync_logs.view) granted to admin and super_admin. Routes at /api/v1/integrations (10 endpoints). testConnection() and sync() are STUB — no live HTTP; credentials encrypted at rest and never returned in API responses.
 
 > **Migration 165–173 table count note:** See migrations 241–246 below for the §5 Dual Stack tables. See migrations 249–263 for §6.1–6.6 SNMP & NMS tables.
 
