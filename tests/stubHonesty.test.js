@@ -307,40 +307,55 @@ describe('automationService', () => {
   });
 
   describe('provisioning pipeline configure_device stage', () => {
-    // DB call sequence for runProvisioningPipeline when configure_device throws:
-    //   1. INSERT provisioning_pipelines
-    //   2. UPDATE current_stage (assign_ip)
-    //   3. INSERT pipeline_stage (assign_ip, running)
-    //   assign_ip executes — no DB calls (logger only)
-    //   4. UPDATE pipeline_stage (assign_ip completed)
-    //   5. UPDATE current_stage (configure_device)
-    //   6. INSERT pipeline_stage (configure_device, running)
-    //   configure_device throws — no DB calls
-    //   7. UPDATE pipeline_stage (configure_device failed)
-    //   8. UPDATE provisioning_pipelines (final, status=failed)
-    //   9. SELECT provisioning_pipelines (return value)
-    test('configure_device stage produces failed pipeline status', async () => {
-      const finalRow = {
-        id: 1, status: 'failed',
-        error_message: "Stage 'configure_device' failed: configure_device stage is not implemented",
-      };
+    // configure_device is not implemented. Rather than silently claiming success OR
+    // hard-failing every pipeline forever (which would leave the implemented stages —
+    // activate_contract, send_notification — permanently unreachable), it records an
+    // explicit not-implemented marker in its stage output and the pipeline continues.
+    // This test asserts there is NO fake success: the recorded stage output for
+    // configure_device must carry { implemented: false }.
+    //
+    // DB call sequence (contract_id present → activate_contract runs its UPDATE):
+    //   1 INSERT pipeline; then per stage: UPDATE current_stage, INSERT stage, [stage work], UPDATE stage;
+    //   activate_contract adds one UPDATE contracts; finally UPDATE pipeline + SELECT.
+    test('configure_device is recorded as not-implemented, never fake success', async () => {
       db.query
-        .mockResolvedValueOnce(insertResult(1))    // 1. INSERT pipeline
-        .mockResolvedValueOnce(updateResult())      // 2. UPDATE current_stage assign_ip
-        .mockResolvedValueOnce(insertResult(1))     // 3. INSERT pipeline_stage assign_ip
-        .mockResolvedValueOnce(updateResult())      // 4. UPDATE pipeline_stage assign_ip completed
-        .mockResolvedValueOnce(updateResult())      // 5. UPDATE current_stage configure_device
-        .mockResolvedValueOnce(insertResult(2))     // 6. INSERT pipeline_stage configure_device
-        .mockResolvedValueOnce(updateResult())      // 7. UPDATE pipeline_stage configure_device failed
-        .mockResolvedValueOnce(updateResult())      // 8. UPDATE provisioning_pipelines final
-        .mockResolvedValueOnce(qResult([finalRow])); // 9. SELECT
+        .mockResolvedValueOnce(insertResult(1))     // INSERT pipeline
+        // assign_ip
+        .mockResolvedValueOnce(updateResult())      // UPDATE current_stage
+        .mockResolvedValueOnce(insertResult(10))    // INSERT stage
+        .mockResolvedValueOnce(updateResult())      // UPDATE stage completed
+        // configure_device (returns marker, no internal query)
+        .mockResolvedValueOnce(updateResult())      // UPDATE current_stage
+        .mockResolvedValueOnce(insertResult(11))    // INSERT stage
+        .mockResolvedValueOnce(updateResult())      // UPDATE stage completed
+        // activate_contract (contract_id=1 → UPDATE contracts)
+        .mockResolvedValueOnce(updateResult())      // UPDATE current_stage
+        .mockResolvedValueOnce(insertResult(12))    // INSERT stage
+        .mockResolvedValueOnce(updateResult())      // UPDATE contracts
+        .mockResolvedValueOnce(updateResult())      // UPDATE stage completed
+        // send_notification
+        .mockResolvedValueOnce(updateResult())      // UPDATE current_stage
+        .mockResolvedValueOnce(insertResult(13))    // INSERT stage
+        .mockResolvedValueOnce(updateResult())      // UPDATE stage completed
+        // final
+        .mockResolvedValueOnce(updateResult())      // UPDATE provisioning_pipelines final
+        .mockResolvedValueOnce(qResult([{ id: 1, status: 'completed' }])); // SELECT
 
-      const pipeline = await automationService.runProvisioningPipeline(1, {
+      await automationService.runProvisioningPipeline(1, {
         name: 'test', contract_id: 1, client_id: 1, triggered_by: 1,
       });
 
-      expect(pipeline.status).toBe('failed');
-      expect(pipeline.error_message).toMatch(/configure_device/i);
+      // The final UPDATE persists stages_results JSON — configure_device must be honest.
+      const finalUpdate = db.query.mock.calls.find(c =>
+        typeof c[0] === 'string'
+        && c[0].includes('UPDATE provisioning_pipelines')
+        && c[0].includes('stages_results'),
+      );
+      expect(finalUpdate).toBeTruthy();
+      const stageResults = JSON.parse(finalUpdate[1][1]);
+      expect(stageResults.configure_device.output).toMatchObject({ implemented: false });
+      // And it must NOT have masqueraded as a configured device.
+      expect(stageResults.configure_device.output).not.toHaveProperty('configured', true);
     });
   });
 

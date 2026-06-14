@@ -255,6 +255,7 @@ describe('scriptingService', () => {
     });
 
     it('creates queued execution record and returns it', async () => {
+      process.env.SCRIPT_EXECUTION_ENABLED = 'true';
       const script    = { id: 1, name: 'test.sh', language: 'bash' };
       const execution = { id: 10, script_id: 1, status: 'queued', organization_id: 1 };
       db.query
@@ -264,9 +265,11 @@ describe('scriptingService', () => {
       const result = await svc.executeScript(1, 1, { input_params: { env: 'prod' }, triggered_by: 42 });
       expect(result.status).toBe('queued');
       expect(db.query.mock.calls[1][0]).toContain('queued');
+      delete process.env.SCRIPT_EXECUTION_ENABLED;
     });
 
     it('creates execution without input_params', async () => {
+      process.env.SCRIPT_EXECUTION_ENABLED = 'true';
       const script    = { id: 2, name: 'simple.sh', language: 'bash' };
       const execution = { id: 11, status: 'queued' };
       db.query
@@ -275,6 +278,7 @@ describe('scriptingService', () => {
         .mockResolvedValueOnce(mockRows([execution]));
       const result = await svc.executeScript(1, 1, {});
       expect(result.status).toBe('queued');
+      delete process.env.SCRIPT_EXECUTION_ENABLED;
     });
   });
 
@@ -319,14 +323,10 @@ describe('automationService — additional branch coverage', () => {
 
   describe('createBatchJob — item failure path', () => {
     it('records failure status when applyBatchOperation throws', async () => {
-      // applyBatchOperation calls logger.info once (line 223). That's the first
-      // logger.info call in the createBatchJob flow — making it throw covers
-      // the catch block at lines 168-170.
-      const logger = require('../src/utils/logger');
-      logger.info
-        .mockImplementationOnce(() => { throw new Error('logger failure'); }); // applyBatchOperation throws
-
-      const job = { id: 1, name: 'FailBatch', operation: 'suspend', status: 'completed' };
+      // An unimplemented operation throws at applyBatchOperation's default case
+      // (BATCH_OPERATION_NOT_IMPLEMENTED), which createBatchJob catches and records
+      // as a 'failure' item — covering the catch block.
+      const job = { id: 1, name: 'FailBatch', operation: 'rate_limit', status: 'completed' };
       db.query
         .mockResolvedValueOnce([[{ entity_id: 10, entity_type: 'contract' }], []])  // targets
         .mockResolvedValueOnce([{ insertId: 1, affectedRows: 1 }])  // INSERT batch_jobs
@@ -334,9 +334,9 @@ describe('automationService — additional branch coverage', () => {
         .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE processed_items
         .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE completed
         .mockResolvedValueOnce([[job], []]);
-      // Even if applyBatchOperation logs failure, createBatchJob continues
+      // Even though applyBatchOperation throws, createBatchJob continues
       const result = await automationService.createBatchJob(1, {
-        name: 'FailBatch', operation: 'suspend',
+        name: 'FailBatch', operation: 'rate_limit',
         filter_criteria: { status: 'active' },
       });
       // Result should still return a job row

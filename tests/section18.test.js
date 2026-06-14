@@ -344,7 +344,8 @@ describe('POST /api/automation-scripts', () => {
 });
 
 describe('POST /api/automation-scripts/:id/execute', () => {
-  it('creates a queued execution (stub)', async () => {
+  it('creates a queued execution when the execution engine is enabled', async () => {
+    process.env.SCRIPT_EXECUTION_ENABLED = 'true';
     const script = { id: 1, name: 'test.sh', language: 'bash' };
     const execution = { id: 10, script_id: 1, status: 'queued', organization_id: 1 };
     db.query
@@ -355,7 +356,15 @@ describe('POST /api/automation-scripts/:id/execute', () => {
     const res = await request(app).post('/api/automation-scripts/1/execute').send({});
     expect(res.status).toBe(202);
     expect(res.body.data.status).toBe('queued');
-    expect(res.body.note).toMatch(/stub/i);
+    delete process.env.SCRIPT_EXECUTION_ENABLED;
+  });
+
+  it('returns 501 when the execution engine is not enabled', async () => {
+    delete process.env.SCRIPT_EXECUTION_ENABLED;
+    const script = { id: 1, name: 'test.sh', language: 'bash' };
+    db.query.mockResolvedValueOnce(mockRows([script]));
+    const res = await request(app).post('/api/automation-scripts/1/execute').send({});
+    expect(res.status).toBe(501);
   });
 
   it('returns 404 for unknown script', async () => {
@@ -433,15 +442,15 @@ describe('DELETE /api/router-drivers/:id', () => {
 });
 
 describe('POST /api/router-drivers/:id/dispatch', () => {
-  it('dispatches a command (stub for non-mikrotik)', async () => {
+  it('returns 501 not_dispatched for non-mikrotik vendor (no fake success)', async () => {
     const config = { id: 1, vendor: 'cisco_ios', protocol: 'ssh', host: '10.0.0.1', device_id: null, encrypted_password: null };
     db.query
       .mockResolvedValueOnce(mockRows([config]))
       .mockResolvedValueOnce(mockInsert(20));
 
     const res = await request(app).post('/api/router-drivers/1/dispatch').send({ command: 'show_version' });
-    expect(res.status).toBe(200);
-    expect(res.body.data.status).toBe('stubbed');
+    expect(res.status).toBe(501);
+    expect(res.body.data.status).toBe('not_dispatched');
   });
 
   it('returns 404 when config not found', async () => {

@@ -15,7 +15,7 @@ const {
   updatePasswordPolicy,
   createAdminIpAllowlist,
 } = require('../middleware/schemas/security');
-const { NotFoundError } = require('../utils/errors');
+const { ValidationError, NotFoundError } = require('../utils/errors');
 
 const router = Router();
 
@@ -100,6 +100,9 @@ router.post('/admin-ip-allowlist', requirePermission('admin_ip_allowlist.create'
   try {
     const { cidr, ip_address, description, is_active } = req.body;
     const cidrValue = cidr ?? ip_address;
+    if (!cidrValue) {
+      throw new ValidationError('Validation failed', [{ field: 'cidr', message: 'cidr (or ip_address) is required' }]);
+    }
     const [result] = await db.query(
       `INSERT INTO admin_ip_allowlist (organization_id, cidr, description, is_active, created_by)
        VALUES (?, ?, ?, ?, ?)`,

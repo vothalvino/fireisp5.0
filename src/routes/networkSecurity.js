@@ -252,6 +252,9 @@ router.post('/blackhole-routes', requirePermission('blackhole_routes.create'), v
   try {
     const { prefix, target_prefix, reason, notes } = req.body;
     const prefixValue = prefix ?? target_prefix;
+    if (!prefixValue) {
+      throw new ValidationError('Validation failed', [{ field: 'prefix', message: 'prefix (or target_prefix) is required' }]);
+    }
     const [result] = await db.query(
       `INSERT INTO blackhole_routes
         (organization_id, prefix, reason, is_active, triggered_by, triggered_by_user, activated_at, notes)

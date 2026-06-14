@@ -382,17 +382,18 @@ async function executeProvisioningStage(stageName, ctx) {
       // Reuse pool assignment service in production; stub here
       logger.info(ctx, 'Provisioning: assign_ip (stub)');
       return { assigned_ip: '0.0.0.0', note: 'STUB — poolAssignmentService integration pending' };
-    case 'configure_device': {
-      // Not implemented: routerDriverService integration pending.
-      // Throw so the pipeline records this stage as 'failed' instead of silently succeeding.
-      logger.warn(ctx, 'Provisioning: configure_device stage not implemented — failing pipeline stage honestly');
-      const devErr = new Error(
-        'configure_device stage is not implemented — no device I/O was performed. ' +
-        'Wire routerDriverService here to enable live device provisioning.',
-      );
-      devErr.code = 'PROVISIONING_STAGE_NOT_IMPLEMENTED';
-      throw devErr;
-    }
+    case 'configure_device':
+      // Not implemented: live device configuration (routerDriverService integration) is
+      // not wired. Do NOT claim success and do NOT abort the whole pipeline — record an
+      // explicit not-implemented marker so the stage output truthfully shows that no
+      // device I/O happened, while the remaining implemented stages (activate_contract,
+      // send_notification) still run. This avoids both false "device configured" success
+      // and a pipeline that can never complete.
+      logger.warn(ctx, 'Provisioning: configure_device not implemented — recording stage as not-implemented (no device I/O performed)');
+      return {
+        implemented: false,
+        note: 'configure_device not implemented — no device I/O performed. Configure the device manually or wire routerDriverService to enable automated provisioning.',
+      };
     case 'activate_contract':
       if (ctx.contract_id) {
         await db.query("UPDATE contracts SET status = 'active' WHERE id = ? AND status = 'pending'", [ctx.contract_id]);
