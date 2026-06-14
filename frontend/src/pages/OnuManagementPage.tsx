@@ -30,7 +30,7 @@ interface OnuDetail {
   olt_port_id: number | null;
   port_name?: string;
   onu_profile_id: number | null;
-  onu_profile_name?: string;
+  profile_name?: string;
   serial_number: string | null;
   loid: string | null;
   onu_state: string;
@@ -356,7 +356,7 @@ function OnuDetailsTab() {
                     <td style={styles.td}><OnuStateBadge state={onu.onu_state} /></td>
                     <td style={styles.td}>{onu.olt_name ?? `#${onu.olt_device_id}`}</td>
                     <td style={styles.td}>{onu.port_name ?? '—'}</td>
-                    <td style={styles.td}>{onu.onu_profile_name ?? '—'}</td>
+                    <td style={styles.td}>{onu.profile_name ?? '—'}</td>
                     <td style={styles.tdNum}>{onu.onu_id ?? '—'}</td>
                     <td style={styles.td}>
                       <button

@@ -6,9 +6,9 @@ const createPayment = {
   client_id: { type: 'number', required: true, min: 1 },
   amount: { type: 'number', required: true, min: 0 },
   currency: { type: 'string', max: 3 },
-  payment_method: { type: 'string', enum: ['cash', 'card', 'transfer', 'check', 'online', 'other'] },
+  payment_method: { type: 'string', enum: ['cash', 'check', 'credit_card', 'debit_card', 'bank_transfer', 'other'] },
   payment_date: { type: 'string', format: 'date' },
-  reference: { type: 'string', max: 200 },
+  reference_number: { type: 'string', max: 200 },
   sat_forma_pago: { type: 'string', max: 2 },
   clabe: { type: 'string', max: 18 },
   bank_name: { type: 'string', max: 100 },
@@ -18,8 +18,8 @@ const createPayment = {
 const updatePayment = {
   amount: { type: 'number', min: 0 },
   currency: { type: 'string', max: 3 },
-  payment_method: { type: 'string', enum: ['cash', 'card', 'transfer', 'check', 'online', 'other'] },
-  reference: { type: 'string', max: 200 },
+  payment_method: { type: 'string', enum: ['cash', 'check', 'credit_card', 'debit_card', 'bank_transfer', 'other'] },
+  reference_number: { type: 'string', max: 200 },
   status: { type: 'string', enum: ['pending', 'completed', 'failed', 'refunded', 'cancelled'] },
 };
 

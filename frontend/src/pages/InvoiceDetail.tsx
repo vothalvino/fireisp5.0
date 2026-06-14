@@ -204,7 +204,7 @@ function StatusBadge({ status }: { status: string }) {
 // Record Payment Modal
 // ---------------------------------------------------------------------------
 
-const PAYMENT_METHODS = ['cash', 'bank_transfer', 'credit_card', 'debit_card', 'check', 'stripe', 'conekta', 'paypal', 'other'];
+const PAYMENT_METHODS = ['cash', 'check', 'credit_card', 'debit_card', 'bank_transfer', 'other'];
 const TODAY = new Date().toISOString().split('T')[0];
 
 interface RecordPaymentModalProps {

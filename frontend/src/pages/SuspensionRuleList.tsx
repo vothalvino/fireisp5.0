@@ -36,7 +36,7 @@ interface SuspensionRule {
   days_past_due: number;
   grace_period_days: number;
   action: string;
-  notify_before_days: number | null;
+  notify_days_before: number | null;
   is_active: number | boolean;
 }
 
@@ -50,7 +50,7 @@ interface RuleFormBody {
   days_past_due: number;
   grace_period_days: number;
   action: string;
-  notify_before_days?: number;
+  notify_days_before?: number;
   is_enabled?: boolean;
   soft_suspend_download_kbps?: number;
   soft_suspend_upload_kbps?: number;
@@ -118,7 +118,7 @@ function RuleFormModal({
     days_past_due: initial?.days_past_due ?? 15,
     grace_period_days: initial?.grace_period_days ?? 0,
     action: initial?.action ?? 'auto_suspend',
-    notify_before_days: initial?.notify_before_days ?? undefined,
+    notify_days_before: initial?.notify_days_before ?? undefined,
     is_enabled: initial !== undefined ? Boolean(initial.is_active) : true,
     soft_suspend_download_kbps: 128,
     soft_suspend_upload_kbps: 128,
@@ -153,8 +153,8 @@ function RuleFormModal({
       action: form.action,
       is_enabled: form.is_enabled,
     };
-    const n = Number(form.notify_before_days);
-    if (form.notify_before_days !== undefined && !Number.isNaN(n)) body.notify_before_days = n;
+    const n = Number(form.notify_days_before);
+    if (form.notify_days_before !== undefined && !Number.isNaN(n)) body.notify_days_before = n;
     if (form.action === 'soft_suspend') {
       body.soft_suspend_download_kbps = Number(form.soft_suspend_download_kbps) || 128;
       body.soft_suspend_upload_kbps = Number(form.soft_suspend_upload_kbps) || 128;
@@ -208,8 +208,8 @@ function RuleFormModal({
           )}
 
           <label style={labelStyle}>Advance notice (days before suspension to notify, blank = none)</label>
-          <input style={inputStyle} type="number" min={0} value={form.notify_before_days ?? ''}
-            onChange={e => setForm(p => ({ ...p, notify_before_days: e.target.value ? Number(e.target.value) : undefined }))} />
+          <input style={inputStyle} type="number" min={0} value={form.notify_days_before ?? ''}
+            onChange={e => setForm(p => ({ ...p, notify_days_before: e.target.value ? Number(e.target.value) : undefined }))} />
 
           <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
             <input type="checkbox" checked={!!form.is_enabled}
@@ -325,7 +325,7 @@ export function SuspensionRuleList() {
                       <td style={{ ...styles.td, fontWeight: r.grace_period_days > 0 ? 600 : undefined }}>
                         {r.grace_period_days} days
                       </td>
-                      <td style={styles.td}>{r.notify_before_days != null ? `${r.notify_before_days} days` : '—'}</td>
+                      <td style={styles.td}>{r.notify_days_before != null ? `${r.notify_days_before} days` : '—'}</td>
                       <td style={styles.td}><ActionBadge action={r.action} /></td>
                       <td style={styles.td}><EnabledBadge enabled={Boolean(r.is_active)} /></td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>

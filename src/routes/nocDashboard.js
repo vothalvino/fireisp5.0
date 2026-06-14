@@ -73,20 +73,17 @@ router.get('/outages', requirePermission('noc.view'), async (req, res, next) => 
   } catch (err) { next(err); }
 });
 
-// GET /noc/ticket-queue — open tickets by priority with SLA info
+// GET /noc/ticket-queue — open tickets by status with counts
 router.get('/ticket-queue', requirePermission('noc.view'), async (req, res, next) => {
   try {
     const [rows] = await db.query(
-      `SELECT
-         t.id, t.subject, t.priority, t.status, t.created_at,
-         u.first_name AS assigned_first, u.last_name AS assigned_last
+      `SELECT t.status, COUNT(*) AS count
        FROM tickets t
-       LEFT JOIN users u ON u.id = t.assigned_to
        WHERE t.organization_id = ?
          AND t.status IN ('open','in_progress','waiting')
          AND t.deleted_at IS NULL
-       ORDER BY FIELD(t.priority,'critical','high','medium','low'), t.created_at ASC
-       LIMIT 100`,
+       GROUP BY t.status
+       ORDER BY FIELD(t.status,'open','in_progress','waiting')`,
       [req.orgId],
     );
     res.json({ data: rows });

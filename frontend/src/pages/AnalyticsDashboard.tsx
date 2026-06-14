@@ -49,7 +49,7 @@ interface CapacityForecastPoint {
 }
 
 interface CapacityForecastData {
-  capacity_forecast: CapacityForecastPoint[];
+  forecast: CapacityForecastPoint[];
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +173,7 @@ function CapacityForecastWidget({ title }: { title: string }) {
     staleTime: 60_000,
   });
 
-  const points = data?.data?.capacity_forecast ?? [];
+  const points = data?.data?.forecast ?? [];
 
   return (
     <div style={widgetStyles.card}>

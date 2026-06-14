@@ -309,7 +309,7 @@ async function recordPaymentCredit(payment, orgId) {
   await db.query(
     `INSERT INTO client_balance_ledger (client_id, organization_id, entry_type, amount, currency, reference_type, reference_id, description)
      VALUES (?, ?, 'credit', ?, ?, 'payment', ?, ?)`,
-    [payment.client_id, orgId, payment.amount, payment.currency || 'USD', payment.id, 'Payment ' + (payment.reference || payment.id)],
+    [payment.client_id, orgId, payment.amount, payment.currency || 'USD', payment.id, 'Payment ' + (payment.reference_number || payment.id)],
   );
 }
 

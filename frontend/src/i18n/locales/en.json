@@ -1332,7 +1332,11 @@
     "br_address": "BR Address",
     "plat_prefix": "PLAT Prefix",
     "clat_prefix": "CLAT Prefix",
-    "dns64_prefix": "DNS64 Prefix"
+    "dns64_prefix": "DNS64 Prefix",
+    "edit_6rd": "Edit 6rd Config",
+    "edit_dslite": "Edit DS-Lite Config",
+    "edit_map": "Edit MAP Rule",
+    "edit_464xlat": "Edit 464XLAT Config"
   },
   "device_groups": {
     "title": "Device Groups",
@@ -2474,6 +2478,8 @@
     "slaCompliance": "SLA Compliance",
     "devicesUp": "Devices Up",
     "devicesDown": "Devices Down",
+    "devicesWarning": "Devices Warning",
+    "devicesTotal": "Total Devices",
     "noOutages": "No ongoing outages",
     "compliancePct": "Compliance"
   },

@@ -386,7 +386,7 @@ describe('Inventory validation schemas', () => {
   });
 
   test('createInventoryItem accepts valid categories', () => {
-    for (const category of ['router', 'olt', 'onu', 'cable', 'sfp', 'other']) {
+    for (const category of ['router', 'olt', 'onu', 'cable', 'cpe', 'other']) {
       const next = run(createInventoryItem, { name: 'Item', category });
       expectPass(next);
     }

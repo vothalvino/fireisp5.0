@@ -163,7 +163,7 @@ function SixRdForm({ initial, onSave, onClose, saving, editMode }: SixRdFormProp
     <div style={modalStyles.backdrop} onClick={onClose}>
       <div style={{ ...modalStyles.panel, maxWidth: 560 }} onClick={e => e.stopPropagation()}>
         <div style={modalStyles.header}>
-          <h3 style={modalStyles.title}>{editMode ? t('transition_mechanisms.name', 'Edit 6rd Config') : t('transition_mechanisms.new_6rd', 'New 6rd Config')}</h3>
+          <h3 style={modalStyles.title}>{editMode ? t('transition_mechanisms.edit_6rd', 'Edit 6rd Config') : t('transition_mechanisms.new_6rd', 'New 6rd Config')}</h3>
           <button style={modalStyles.closeBtn} onClick={onClose} aria-label="Close">x</button>
         </div>
         <form onSubmit={handleSubmit}>
@@ -369,7 +369,7 @@ function DsLiteForm({ initial, onSave, onClose, saving, editMode }: DsLiteFormPr
     <div style={modalStyles.backdrop} onClick={onClose}>
       <div style={{ ...modalStyles.panel, maxWidth: 560 }} onClick={e => e.stopPropagation()}>
         <div style={modalStyles.header}>
-          <h3 style={modalStyles.title}>{editMode ? 'Edit DS-Lite Config' : t('transition_mechanisms.new_dslite', 'New DS-Lite Config')}</h3>
+          <h3 style={modalStyles.title}>{editMode ? t('transition_mechanisms.edit_dslite', 'Edit DS-Lite Config') : t('transition_mechanisms.new_dslite', 'New DS-Lite Config')}</h3>
           <button style={modalStyles.closeBtn} onClick={onClose} aria-label="Close">x</button>
         </div>
         <form onSubmit={handleSubmit}>
@@ -573,7 +573,7 @@ function MapRuleForm({ initial, onSave, onClose, saving, editMode }: MapRuleForm
     <div style={modalStyles.backdrop} onClick={onClose}>
       <div style={{ ...modalStyles.panel, maxWidth: 580 }} onClick={e => e.stopPropagation()}>
         <div style={modalStyles.header}>
-          <h3 style={modalStyles.title}>{editMode ? 'Edit MAP Rule' : t('transition_mechanisms.new_map', 'New MAP Rule')}</h3>
+          <h3 style={modalStyles.title}>{editMode ? t('transition_mechanisms.edit_map', 'Edit MAP Rule') : t('transition_mechanisms.new_map', 'New MAP Rule')}</h3>
           <button style={modalStyles.closeBtn} onClick={onClose} aria-label="Close">x</button>
         </div>
         <form onSubmit={handleSubmit}>
@@ -791,7 +791,7 @@ function XlatForm({ initial, onSave, onClose, saving, editMode }: XlatFormProps)
     <div style={modalStyles.backdrop} onClick={onClose}>
       <div style={{ ...modalStyles.panel, maxWidth: 560 }} onClick={e => e.stopPropagation()}>
         <div style={modalStyles.header}>
-          <h3 style={modalStyles.title}>{editMode ? 'Edit 464XLAT Config' : t('transition_mechanisms.new_464xlat', 'New 464XLAT Config')}</h3>
+          <h3 style={modalStyles.title}>{editMode ? t('transition_mechanisms.edit_464xlat', 'Edit 464XLAT Config') : t('transition_mechanisms.new_464xlat', 'New 464XLAT Config')}</h3>
           <button style={modalStyles.closeBtn} onClick={onClose} aria-label="Close">x</button>
         </div>
         <form onSubmit={handleSubmit}>

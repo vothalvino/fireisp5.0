@@ -52,7 +52,7 @@ router.get('/tax-reports',
   async (req, res, next) => {
     try {
       const { from, to, type = 'invoices', format = 'json' } = req.query;
-      const orgId = req.organizationId;
+      const orgId = req.orgId;
 
       let rows;
 

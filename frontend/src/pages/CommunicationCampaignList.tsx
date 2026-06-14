@@ -113,9 +113,11 @@ async function fetchTemplates(): Promise<MessageTemplate[]> {
   return d.data ?? [];
 }
 
-async function fetchMessages(campaignId: number, page: number): Promise<MessagesResponse> {
+async function fetchMessages(campaignId: number, page: number, status?: string): Promise<MessagesResponse> {
+  const query: Record<string, unknown> = { page, limit: 50 };
+  if (status) query.status = status;
   const res = await api.GET('/communication-campaigns/{id}/messages' as never, {
-    params: { path: { id: campaignId } as never, query: { page, limit: 50 } as never },
+    params: { path: { id: campaignId } as never, query: query as never },
   } as never);
   if (res.error) throw new Error('Failed to load messages');
   return res.data as unknown as MessagesResponse;
@@ -232,7 +234,7 @@ function CampaignFormModal({
     mutation.mutate(body);
   }
 
-  const channelTemplates = templates.filter(t => t.channel === form.channel || t.channel === form.channel);
+  const channelTemplates = templates.filter(t => t.channel === form.channel);
   const title = mode === 'create'
     ? t('communicationCampaigns.modal.createTitle')
     : `${t('communicationCampaigns.modal.editTitle')}: ${initial?.name ?? ''}`;
@@ -398,7 +400,7 @@ function MessagesPanel({
 
   const msgsQ = useQuery({
     queryKey: ['campaign-messages', campaign.id, page, filterStatus],
-    queryFn: () => fetchMessages(campaign.id, page),
+    queryFn: () => fetchMessages(campaign.id, page, filterStatus || undefined),
   });
   const msgs = msgsQ.data?.data ?? [];
   const meta = msgsQ.data?.meta;

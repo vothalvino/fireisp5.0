@@ -24,7 +24,7 @@ vi.mock('@/auth/AuthContext', () => ({
 
 const rule1 = {
   id: 1, name: 'Suspensión 30 días', days_past_due: 30, grace_period_days: 3,
-  action: 'auto_suspend', notify_before_days: 5, is_active: 1,
+  action: 'auto_suspend', notify_days_before: 5, is_active: 1,
 };
 
 function renderList() {
@@ -70,6 +70,11 @@ describe('SuspensionRuleList page', () => {
       expect(screen.getByText('Edit')).toBeInTheDocument();
       expect(screen.getByText('Delete')).toBeInTheDocument();
     });
+  });
+
+  it('renders notify_days_before from backend field (not notify_before_days)', async () => {
+    renderList();
+    await waitFor(() => expect(screen.getByText('5 days')).toBeInTheDocument());
   });
 
   it('shows empty message when no rules', async () => {

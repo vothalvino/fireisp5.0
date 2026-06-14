@@ -33,7 +33,7 @@ router.get(
   requirePermission('noc_ai.read'),
   async (req, res, next) => {
     try {
-      const insights = await nocAiService.listInsights(req.organizationId, req.query);
+      const insights = await nocAiService.listInsights(req.orgId, req.query);
       res.json({ data: insights, total: insights.length });
     } catch (err) {
       next(err);
@@ -48,7 +48,7 @@ router.post(
   validate(explainAlertSchema),
   async (req, res, next) => {
     try {
-      const result = await nocAiService.explainAlert(req.organizationId, req.body.alertId, req.body.providerId);
+      const result = await nocAiService.explainAlert(req.orgId, req.body.alertId, req.body.providerId);
       res.json({ data: result });
     } catch (err) {
       if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
@@ -63,7 +63,7 @@ router.post(
   requirePermission('noc_ai.analyze'),
   async (req, res, next) => {
     try {
-      const result = await nocAiService.capacityWarning(req.organizationId, req.body?.providerId);
+      const result = await nocAiService.capacityWarning(req.orgId, req.body?.providerId);
       res.json({ data: result });
     } catch (err) {
       next(err);
@@ -77,7 +77,7 @@ router.post(
   requirePermission('noc_ai.analyze'),
   async (req, res, next) => {
     try {
-      const result = await nocAiService.detectInterference(req.organizationId, req.body?.providerId);
+      const result = await nocAiService.detectInterference(req.orgId, req.body?.providerId);
       res.json({ data: result });
     } catch (err) {
       next(err);
@@ -91,7 +91,7 @@ router.post(
   requirePermission('noc_ai.analyze'),
   async (req, res, next) => {
     try {
-      const result = await nocAiService.alignmentDrift(req.organizationId, req.body?.providerId);
+      const result = await nocAiService.alignmentDrift(req.orgId, req.body?.providerId);
       res.json({ data: result });
     } catch (err) {
       next(err);
@@ -105,7 +105,7 @@ router.post(
   requirePermission('noc_ai.analyze'),
   async (req, res, next) => {
     try {
-      const result = await nocAiService.shiftSummary(req.organizationId, req.body?.providerId);
+      const result = await nocAiService.shiftSummary(req.orgId, req.body?.providerId);
       res.json({ data: result });
     } catch (err) {
       next(err);
@@ -120,7 +120,7 @@ router.post(
   validate(runbookSchema),
   async (req, res, next) => {
     try {
-      const result = await nocAiService.runbookSuggestion(req.organizationId, req.body.alertType, req.body.providerId);
+      const result = await nocAiService.runbookSuggestion(req.orgId, req.body.alertType, req.body.providerId);
       res.json({ data: result });
     } catch (err) {
       next(err);

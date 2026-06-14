@@ -63,7 +63,7 @@ router.get(
   async (req, res, next) => {
     try {
       const { date_from, date_to } = req.query;
-      const data = await aiSupportMetricsService.getMetrics(req.organizationId, date_from, date_to);
+      const data = await aiSupportMetricsService.getMetrics(req.orgId, date_from, date_to);
       res.json({ data });
     } catch (err) {
       next(err);
@@ -83,7 +83,7 @@ router.get(
     try {
       const [rows] = await db.query(
         'SELECT * FROM support_channel_configs WHERE organization_id = ? ORDER BY channel',
-        [req.organizationId],
+        [req.orgId],
       );
       res.json({ data: rows, total: rows.length });
     } catch (err) {
@@ -114,7 +114,7 @@ router.put(
            config_json = COALESCE(VALUES(config_json), config_json),
            updated_at = NOW()`,
         [
-          req.organizationId,
+          req.orgId,
           channel,
           isEnabled !== undefined ? isEnabled : null,
           availabilityHours !== undefined ? JSON.stringify(availabilityHours) : null,
@@ -126,7 +126,7 @@ router.put(
 
       const [[row]] = await db.query(
         'SELECT * FROM support_channel_configs WHERE organization_id = ? AND channel = ?',
-        [req.organizationId, channel],
+        [req.orgId, channel],
       );
       res.json({ data: row });
     } catch (err) {
@@ -147,7 +147,7 @@ router.get(
   async (req, res, next) => {
     try {
       const { q, locale, limit = 20 } = req.query;
-      const results = await kbService.searchArticles(req.organizationId, q, { locale, limit: Number(limit) });
+      const results = await kbService.searchArticles(req.orgId, q, { locale, limit: Number(limit) });
       res.json({ data: results, total: results.length });
     } catch (err) {
       next(err);
@@ -162,7 +162,7 @@ router.get(
   async (req, res, next) => {
     try {
       const { category, locale, limit = 50, offset = 0 } = req.query;
-      const articles = await kbService.listArticles(req.organizationId, { category, locale, limit: Number(limit), offset: Number(offset) });
+      const articles = await kbService.listArticles(req.orgId, { category, locale, limit: Number(limit), offset: Number(offset) });
       res.json({ data: articles, total: articles.length });
     } catch (err) {
       next(err);
@@ -179,7 +179,7 @@ router.post(
     try {
       const { title, body, category, locale = 'es', tags, isPublished = false } = req.body;
       const article = await kbService.createArticle({
-        orgId: req.organizationId,
+        orgId: req.orgId,
         title,
         body,
         category: category || null,
@@ -201,7 +201,7 @@ router.post(
   requirePermission('support.kb.manage'),
   async (req, res, next) => {
     try {
-      const result = await kbService.embedArticle(req.params.id, req.organizationId);
+      const result = await kbService.embedArticle(req.params.id, req.orgId);
       res.json({ data: result });
     } catch (err) {
       if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
@@ -220,7 +220,7 @@ router.post(
       const { feedback, notes } = req.body;
       const result = await kbService.recordFeedback({
         articleId: req.params.id,
-        orgId: req.organizationId,
+        orgId: req.orgId,
         feedback,
         notes: notes || null,
         userId: req.user?.id || null,
@@ -239,7 +239,7 @@ router.get(
   requirePermission('support.kb.view'),
   async (req, res, next) => {
     try {
-      const article = await kbService.getArticle(req.params.id, req.organizationId);
+      const article = await kbService.getArticle(req.params.id, req.orgId);
       if (!article) return res.status(404).json({ error: 'KB article not found' });
       res.json({ data: article });
     } catch (err) {
@@ -255,7 +255,7 @@ router.put(
   validate(updateKbSchema),
   async (req, res, next) => {
     try {
-      const article = await kbService.updateArticle(req.params.id, req.organizationId, req.body);
+      const article = await kbService.updateArticle(req.params.id, req.orgId, req.body);
       if (!article) return res.status(404).json({ error: 'KB article not found' });
       res.json({ data: article });
     } catch (err) {
@@ -270,7 +270,7 @@ router.delete(
   requirePermission('support.kb.manage'),
   async (req, res, next) => {
     try {
-      await kbService.deleteArticle(req.params.id, req.organizationId);
+      await kbService.deleteArticle(req.params.id, req.orgId);
       res.status(204).send();
     } catch (err) {
       if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
@@ -292,7 +292,7 @@ router.post(
     try {
       const { clientId, channel = 'web', message } = req.body;
       const conversation = await supportConversationService.startConversation({
-        orgId: req.organizationId,
+        orgId: req.orgId,
         clientId,
         channel,
         message,
@@ -312,7 +312,7 @@ router.get(
     try {
       const { status, client_id, limit = 50, offset = 0 } = req.query;
       const conversations = await supportConversationService.listConversations(
-        req.organizationId,
+        req.orgId,
         { status, clientId: client_id, limit: Number(limit), offset: Number(offset) },
       );
       res.json({ data: conversations, total: conversations.length });
@@ -329,12 +329,12 @@ router.post(
   validate(sendMsgSchema),
   async (req, res, next) => {
     try {
-      const conv = await supportConversationService.getConversation(req.params.id, req.organizationId);
+      const conv = await supportConversationService.getConversation(req.params.id, req.orgId);
       if (!conv) return res.status(404).json({ error: 'Conversation not found' });
 
       const updated = await supportConversationService.sendMessage({
         conversationId: req.params.id,
-        orgId: req.organizationId,
+        orgId: req.orgId,
         content: req.body.content,
         clientId: conv.client_id,
       });
@@ -352,13 +352,13 @@ router.post(
   validate(escalateSchema),
   async (req, res, next) => {
     try {
-      const conv = await supportConversationService.getConversation(req.params.id, req.organizationId);
+      const conv = await supportConversationService.getConversation(req.params.id, req.orgId);
       if (!conv) return res.status(404).json({ error: 'Conversation not found' });
 
       const updated = await supportConversationService.escalate({
         conversationId: req.params.id,
         reason: req.body.reason || 'Manual escalation by agent',
-        orgId: req.organizationId,
+        orgId: req.orgId,
       });
       res.json({ data: updated });
     } catch (err) {
@@ -373,12 +373,12 @@ router.post(
   requirePermission('support.diagnostics.run'),
   async (req, res, next) => {
     try {
-      const conv = await supportConversationService.getConversation(req.params.id, req.organizationId);
+      const conv = await supportConversationService.getConversation(req.params.id, req.orgId);
       if (!conv) return res.status(404).json({ error: 'Conversation not found' });
 
       const { symptom, accessType } = req.body;
       const result = await diagnosticEngineService.runDiagnostic({
-        orgId: req.organizationId,
+        orgId: req.orgId,
         clientId: conv.client_id,
         conversationId: Number(req.params.id),
         symptom: symptom || null,
@@ -397,7 +397,7 @@ router.get(
   requirePermission('support.conversations.view'),
   async (req, res, next) => {
     try {
-      const conversation = await supportConversationService.getConversation(req.params.id, req.organizationId);
+      const conversation = await supportConversationService.getConversation(req.params.id, req.orgId);
       if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
       res.json({ data: conversation });
     } catch (err) {
@@ -412,10 +412,10 @@ router.delete(
   requirePermission('support.conversations.delete'),
   async (req, res, next) => {
     try {
-      const conv = await supportConversationService.getConversation(req.params.id, req.organizationId);
+      const conv = await supportConversationService.getConversation(req.params.id, req.orgId);
       if (!conv) return res.status(404).json({ error: 'Conversation not found' });
 
-      await supportConversationService.closeConversation(req.params.id, req.organizationId);
+      await supportConversationService.closeConversation(req.params.id, req.orgId);
       res.status(204).send();
     } catch (err) {
       next(err);
