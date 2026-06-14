@@ -8,7 +8,7 @@ class AdminIpAllowlist extends BaseModel {
   static get tableName() { return 'admin_ip_allowlist'; }
   static get hasOrgScope() { return true; }
   static get fillable() {
-    return ['organization_id', 'ip_address', 'description', 'is_active', 'expires_at'];
+    return ['organization_id', 'cidr', 'description', 'is_active', 'created_by'];
   }
 }
 

@@ -13,6 +13,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
 import { extractApiError } from '@/components/ClientFormModal';
 
@@ -912,6 +913,7 @@ function PaymentRow({ payment, idx, onSendReceipt, sendingReceipt, onEdit, onAll
 const STATUS_OPTIONS = ['', 'pending', 'completed', 'failed', 'refunded', 'cancelled'];
 
 export function PaymentList() {
+  const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [showRecord, setShowRecord] = useState(false);
@@ -977,9 +979,9 @@ export function PaymentList() {
     <div style={{ padding: '1.5rem' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '1rem' }}>
-        <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700 }}>💳 Payments</h1>
+        <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700 }}>💳 {t('paymentList.title')}</h1>
         <button onClick={() => setShowRecord(true)} style={submitBtn}>
-          + Record Payment
+          {t('paymentList.recordPayment')}
         </button>
       </div>
 
@@ -996,21 +998,29 @@ export function PaymentList() {
               cursor: 'pointer', fontSize: '0.8rem', fontWeight: 500,
             }}
           >
-            {s ? s.charAt(0).toUpperCase() + s.slice(1) : 'All'}
+            {s ? s.charAt(0).toUpperCase() + s.slice(1) : t('ticketList.all')}
           </button>
         ))}
       </div>
 
       {/* Table */}
-      {isLoading && <p style={{ color: '#888' }}>Loading…</p>}
-      {isError && <p style={{ color: 'var(--accent)' }}>Failed to load payments.</p>}
+      {isLoading && <p style={{ color: '#888' }}>{t('paymentList.loading')}</p>}
+      {isError && <p style={{ color: 'var(--accent)' }}>{t('paymentList.error')}</p>}
       {data && (
         <>
           <div style={{ background: '#fff', borderRadius: 8, boxShadow: '0 0 0 1px var(--border)', overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
               <thead>
                 <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                  {['Client', 'Amount', 'Method', 'Status', 'Date', 'Reference', 'Actions'].map(h => (
+                  {[
+                    t('paymentList.table.client'),
+                    t('paymentList.table.amount'),
+                    t('paymentList.table.method'),
+                    t('paymentList.table.status'),
+                    t('paymentList.table.date'),
+                    t('paymentList.table.reference'),
+                    t('paymentList.table.actions'),
+                  ].map(h => (
                     <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -1019,7 +1029,7 @@ export function PaymentList() {
                 {data.data.length === 0 && (
                   <tr>
                     <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
-                      No payments found.
+                      {t('paymentList.noPayments')}
                     </td>
                   </tr>
                 )}

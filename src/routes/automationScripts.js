@@ -94,7 +94,9 @@ router.delete('/:id', requirePermission('automation_scripts.delete'), async (req
   } catch (err) { next(err); }
 });
 
-// POST /automation-scripts/:id/execute — STUB: queues execution, no child_process
+// POST /automation-scripts/:id/execute
+// Script execution requires a sandboxed executor (SCRIPT_EXECUTION_ENABLED=true).
+// Returns 501 when the execution engine is not enabled.
 router.post('/:id/execute', requirePermission('automation_scripts.execute'), validate(executeScriptSchema), async (req, res, next) => {
   try {
     const execution = await scriptingService.executeScript(req.params.id, req.orgId, {
@@ -102,11 +104,13 @@ router.post('/:id/execute', requirePermission('automation_scripts.execute'), val
       triggered_by: req.user.id,
     });
     if (!execution) return res.status(404).json({ error: { message: 'Script not found' } });
-    res.status(202).json({
-      data: execution,
-      note: 'STUB: execution queued but not dispatched to live sandboxed executor — status will remain queued until a worker picks it up',
-    });
-  } catch (err) { next(err); }
+    res.status(202).json({ data: execution });
+  } catch (err) {
+    if (err.statusCode === 501 || err.code === 'SCRIPT_EXECUTION_NOT_ENABLED') {
+      return res.status(501).json({ error: { message: err.message, code: err.code } });
+    }
+    next(err);
+  }
 });
 
 // GET /automation-scripts/executions — list executions for org

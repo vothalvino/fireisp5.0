@@ -533,7 +533,7 @@ describe('POST /api/v1/network-security/blackhole-routes/:id/release', () => {
       if (typeof sql === 'string' && sql.includes('WHERE id = ?') && !sql.includes('blackhole')) {
         return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 1 }]]);
       }
-      if (typeof sql === 'string' && sql.includes('blackhole_routes') && sql.includes('released_at')) {
+      if (typeof sql === 'string' && sql.includes('blackhole_routes') && sql.includes('deactivated_at')) {
         return Promise.resolve([{ affectedRows: 1 }]);
       }
       return Promise.resolve([{ affectedRows: 0 }]);
@@ -548,7 +548,7 @@ describe('POST /api/v1/network-security/blackhole-routes/:id/release', () => {
       .set('X-Org-Id', '1');
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('success', true);
-    expect(res.body).toHaveProperty('released_at');
+    expect(res.body).toHaveProperty('deactivated_at');
   });
 });
 
@@ -656,7 +656,7 @@ describe('POST /api/v1/network-security/dns-blocklists', () => {
       .post('/api/v1/network-security/dns-blocklists')
       .set('Authorization', `Bearer ${adminToken()}`)
       .set('X-Org-Id', '1')
-      .send({ domain: 'bad.example.com', category: 'spam' });
+      .send({ domain: 'bad.example.com', category: 'not_a_valid_category' });
     expect(res.status).toBe(422);
   });
 });

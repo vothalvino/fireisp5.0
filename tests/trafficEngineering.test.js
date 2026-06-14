@@ -97,3 +97,85 @@ describe('GET /api/v1/bandwidth-test-servers', () => {
     expect(res.status).toBe(200);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Mass-assignment protection tests
+// ---------------------------------------------------------------------------
+
+describe('POST /api/v1/interface-qos-policies — mass-assignment guard', () => {
+  it('strips id / organization_id / deleted_at / created_at / updated_at from INSERT', async () => {
+    let capturedSql = '';
+    let capturedParams = [];
+    db.query.mockImplementation((sql, params) => {
+      if (sql && sql.includes('INSERT')) {
+        capturedSql = sql;
+        capturedParams = params || [];
+        return Promise.resolve([{ insertId: 99 }]);
+      }
+      // SELECT after insert
+      return Promise.resolve([[{ id: 99, name: 'Good Policy', policy_type: 'htb', organization_id: 1 }]]);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/interface-qos-policies')
+      .set('X-Org-Id', '1')
+      .set('Authorization', 'Bearer test')
+      .send({
+        name: 'Good Policy',
+        policy_type: 'htb',
+        // mass-assignment attempt
+        id: 9999,
+        organization_id: 42,
+        deleted_at: '2000-01-01',
+        created_at: '2000-01-01',
+        updated_at: '2000-01-01',
+      });
+
+    expect(res.status).toBe(201);
+    // The INSERT SQL must not contain any protected column names as writable columns
+    expect(capturedSql).not.toMatch(/\bid\b\s*,/);
+    expect(capturedSql).not.toContain('deleted_at');
+    expect(capturedSql).not.toContain('created_at');
+    expect(capturedSql).not.toContain('updated_at');
+    // organization_id is set server-side — confirm the injected value 42 is NOT in params
+    const hasInjectedOrgId = capturedParams.includes(42);
+    expect(hasInjectedOrgId).toBe(false);
+  });
+});
+
+describe('PUT /api/v1/interface-qos-policies/:id — mass-assignment guard', () => {
+  it('strips protected columns from UPDATE SET clause', async () => {
+    let capturedSql = '';
+    db.query.mockImplementation((sql) => {
+      if (sql && sql.includes('UPDATE interface_qos_policies SET')) {
+        capturedSql = sql;
+        return Promise.resolve([{ affectedRows: 1 }]);
+      }
+      if (sql && sql.includes('SELECT *') && sql.includes('WHERE id = ? AND organization_id')) {
+        return Promise.resolve([[{ id: 1, name: 'Existing', policy_type: 'htb', organization_id: 1 }]]);
+      }
+      // Final SELECT
+      return Promise.resolve([[{ id: 1, name: 'Updated', policy_type: 'htb', organization_id: 1 }]]);
+    });
+
+    const res = await request(app)
+      .put('/api/v1/interface-qos-policies/1')
+      .set('X-Org-Id', '1')
+      .set('Authorization', 'Bearer test')
+      .send({
+        name: 'Updated',
+        // mass-assignment attempt
+        organization_id: 42,
+        deleted_at: '2000-01-01',
+        id: 9999,
+      });
+
+    expect(res.status).toBe(200);
+    // Protected columns must not appear in the SET clause (mass-assignment guard).
+    // They legitimately remain in the WHERE clause (org-scoping + soft-delete filter).
+    const setClause = capturedSql.split('WHERE')[0];
+    expect(setClause).not.toContain('organization_id');
+    expect(setClause).not.toContain('deleted_at');
+    expect(setClause).not.toMatch(/\bid\s*=/);
+  });
+});

@@ -54,8 +54,8 @@ const CHANNEL_LABELS: Record<Channel, string> = {
 // ---------------------------------------------------------------------------
 
 async function fetchDnd(clientId: number): Promise<DndPref[]> {
-  const res = await api.GET('/clients/{id}/dnd' as never, {
-    params: { path: { id: clientId } as never },
+  const res = await api.GET('/clients/{clientId}/dnd' as never, {
+    params: { path: { clientId } as never },
   } as never);
   if (res.error) throw new Error('Failed to load DND preferences');
   return ((res.data as DndResponse).data ?? []);

@@ -396,7 +396,7 @@ describe('DELETE /api/v1/integrations/connections/:id', () => {
 // ===========================================================================
 
 describe('POST /api/v1/integrations/connections/:id/test', () => {
-  test('test connection — 200 with status=stubbed', async () => {
+  test('test connection — 501 not_implemented for stubbed provider', async () => {
     db.query
       .mockResolvedValueOnce([[mockConnection]]) // getConnection
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE status
@@ -406,10 +406,10 @@ describe('POST /api/v1/integrations/connections/:id/test', () => {
     const res = await request(app)
       .post('/api/v1/integrations/connections/1/test')
       .set('X-Org-Id', '1');
-    expect(res.status).toBe(200);
+    // Connectors are stubbed (no live HTTP) — surfaced honestly as 501, never fake success
+    expect(res.status).toBe(501);
     expect(res.body.data).toHaveProperty('status');
-    // All providers are stubbed in test env
-    expect(['stubbed', 'active', 'error']).toContain(res.body.data.status);
+    expect(['stubbed', 'not_implemented']).toContain(res.body.data.status);
   });
 
   test('returns 404 for unknown connection', async () => {
@@ -430,7 +430,7 @@ describe('POST /api/v1/integrations/connections/:id/test', () => {
 });
 
 describe('POST /api/v1/integrations/connections/:id/sync', () => {
-  test('sync connection — 200 with status=stubbed', async () => {
+  test('sync connection — 501 not_implemented for stubbed provider', async () => {
     db.query
       .mockResolvedValueOnce([[mockConnection]]) // getConnection
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE status
@@ -441,7 +441,8 @@ describe('POST /api/v1/integrations/connections/:id/sync', () => {
       .post('/api/v1/integrations/connections/1/sync')
       .set('X-Org-Id', '1')
       .send({ direction: 'bidirectional' });
-    expect(res.status).toBe(200);
+    // Sync connectors are stubbed (no live HTTP) — surfaced honestly as 501
+    expect(res.status).toBe(501);
     expect(res.body.data).toHaveProperty('status');
   });
 

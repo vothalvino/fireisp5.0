@@ -13,6 +13,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
@@ -69,7 +70,7 @@ async function fetchClients(
 
   if (!search) {
     const res = await api.GET('/clients', { params: { query: baseQuery as never } });
-    if (res.error) throw new Error('Failed to load clients');
+    if (res.error) throw new Error('clientList.error');
     return res.data as unknown as ClientsResponse;
   }
   // Fetch a large page then filter client-side by name/email/city.
@@ -80,7 +81,7 @@ async function fetchClients(
   const largeQuery: Record<string, string | number> = { page: 1, limit: 500 };
   if (includeDeleted) largeQuery.include_deleted = 'true';
   const res = await api.GET('/clients', { params: { query: largeQuery as never } });
-  if (res.error) throw new Error('Failed to load clients');
+  if (res.error) throw new Error('clientList.error');
   const all = res.data as unknown as ClientsResponse;
   const term = search.toLowerCase();
   const filtered = all.data.filter(
@@ -106,12 +107,12 @@ async function fetchClients(
 
 async function deleteClient(id: number): Promise<void> {
   const { error } = await api.DELETE('/clients/{id}', { params: { path: { id } } });
-  if (error) throw new Error(extractApiError(error, 'Failed to delete client'));
+  if (error) throw new Error(extractApiError(error, 'clientList.error'));
 }
 
 async function restoreClient(id: number): Promise<void> {
   const { error } = await api.POST('/clients/{id}/restore', { params: { path: { id } } });
-  if (error) throw new Error(extractApiError(error, 'Failed to restore client'));
+  if (error) throw new Error(extractApiError(error, 'clientList.error'));
 }
 
 // ---------------------------------------------------------------------------
@@ -154,26 +155,27 @@ interface DeleteModalProps {
 }
 
 function DeleteClientModal({ client, onClose, onDeleted }: DeleteModalProps) {
+  const { t } = useTranslation();
   const [error, setError] = useState('');
   const mutation = useMutation({
     mutationFn: () => deleteClient(client.id),
     onSuccess: () => { onDeleted(); onClose(); },
-    onError: (err: unknown) => setError(err instanceof Error ? err.message : 'Failed to delete client'),
+    onError: (err: unknown) => setError(err instanceof Error ? err.message : t('clientList.error')),
   });
 
   return (
     <div style={overlay} role="dialog" aria-modal="true" aria-label="Delete Client">
       <div style={modalBox}>
-        <h3 style={{ margin: '0 0 0.75rem' }}>Archive client?</h3>
+        <h3 style={{ margin: '0 0 0.75rem' }}>{t('clientList.archive')}?</h3>
         {error && <div style={errorBox}>{error}</div>}
         <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginTop: 0 }}>
           <strong>{client.name}</strong> will be archived (soft-deleted). You can restore it
-          later from the “Show archived” view.
+          later from the "Show archived" view.
         </p>
         <div style={{ display: 'flex', gap: 8, marginTop: '1rem', justifyContent: 'flex-end' }}>
-          <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>
+          <button type="button" onClick={onClose} style={cancelBtn}>{t('common.cancel')}</button>
           <button type="button" onClick={() => mutation.mutate()} style={dangerBtn} disabled={mutation.isPending}>
-            {mutation.isPending ? 'Archiving…' : 'Archive'}
+            {mutation.isPending ? t('clientList.archiving') : t('clientList.archive')}
           </button>
         </div>
       </div>
@@ -186,6 +188,7 @@ function DeleteClientModal({ client, onClose, onDeleted }: DeleteModalProps) {
 // ---------------------------------------------------------------------------
 
 export function ClientList() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
@@ -231,12 +234,12 @@ export function ClientList() {
     <div style={styles.page}>
       {/* Header */}
       <div style={styles.header}>
-        <h1 style={styles.pageTitle}>👥 Clients</h1>
+        <h1 style={styles.pageTitle}>👥 {t('clientList.title')}</h1>
         {meta && <span style={styles.countBadge}>{meta.total} total</span>}
         <div style={{ flex: 1 }} />
         {canCreate && (
           <button type="button" style={styles.btnPrimary} onClick={() => setShowCreate(true)}>
-            + New Client
+            {t('clientList.newClient')}
           </button>
         )}
       </div>
@@ -246,14 +249,14 @@ export function ClientList() {
         <input
           style={styles.searchInput}
           type="text"
-          placeholder="Search by name, email or city…"
+          placeholder={t('clientList.searchPlaceholder')}
           value={searchInput}
           onChange={e => setSearchInput(e.target.value)}
         />
-        <button type="submit" style={styles.btnPrimary}>Search</button>
+        <button type="submit" style={styles.btnPrimary}>{t('clientList.searchBtn')}</button>
         {search && (
           <button type="button" onClick={handleClear} style={styles.btnSecondary}>
-            Clear
+            {t('clientList.clearBtn')}
           </button>
         )}
         <label style={styles.archivedToggle}>
@@ -262,25 +265,33 @@ export function ClientList() {
             checked={showArchived}
             onChange={e => { setShowArchived(e.target.checked); setPage(1); }}
           />
-          Show archived
+          {t('clientList.showArchived')}
         </label>
       </form>
 
       {/* Table */}
       <div style={styles.tableCard}>
         {isLoading ? (
-          <p style={styles.msg}>Loading…</p>
+          <p style={styles.msg}>{t('clientList.loading')}</p>
         ) : error ? (
-          <p style={styles.msgError}>Failed to load clients.</p>
+          <p style={styles.msgError}>{t('clientList.error')}</p>
         ) : clients.length === 0 ? (
-          <p style={styles.msg}>No clients found.</p>
+          <p style={styles.msg}>{t('clientList.noClients')}</p>
         ) : (
           <>
             <div style={{ overflowX: 'auto' }}>
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    {['Name', 'Email', 'Phone', 'Type', 'Location', 'Status', ''].map(h => (
+                    {[
+                      t('clientList.table.name'),
+                      t('clientList.table.email'),
+                      t('clientList.table.phone'),
+                      t('clientList.table.type'),
+                      t('clientList.table.location'),
+                      t('clientList.table.status'),
+                      '',
+                    ].map(h => (
                       <th key={h} style={styles.th}>{h}</th>
                     ))}
                   </tr>
@@ -314,14 +325,14 @@ export function ClientList() {
                                 disabled={restoreMutation.isPending}
                                 onClick={() => restoreMutation.mutate(c.id)}
                               >
-                                Restore
+                                {t('clientList.restore')}
                               </button>
                             )
                           ) : (
                             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                               {canUpdate && (
                                 <button type="button" style={styles.actionBtn} onClick={() => setEditClient(c)}>
-                                  Edit
+                                  {t('common.edit')}
                                 </button>
                               )}
                               {canDelete && (
@@ -330,11 +341,11 @@ export function ClientList() {
                                   style={{ ...styles.actionBtn, ...styles.actionBtnDanger }}
                                   onClick={() => setDeleteTarget(c)}
                                 >
-                                  Archive
+                                  {t('clientList.archive')}
                                 </button>
                               )}
                               <Link to={`/clients/${c.id}`} style={styles.viewLink}>
-                                View →
+                                {t('clientList.view')}
                               </Link>
                             </div>
                           )}
@@ -354,17 +365,17 @@ export function ClientList() {
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   disabled={page === 1}
                 >
-                  ← Prev
+                  {t('clientList.prevPage')}
                 </button>
                 <span style={styles.pageInfo}>
-                  Page {page} of {meta.totalPages}
+                  {t('clientList.pageInfo', { page, total: meta.totalPages })}
                 </span>
                 <button
                   style={styles.pageBtn}
                   onClick={() => setPage(p => Math.min(meta.totalPages, p + 1))}
                   disabled={page === meta.totalPages}
                 >
-                  Next →
+                  {t('clientList.nextPage')}
                 </button>
               </div>
             )}

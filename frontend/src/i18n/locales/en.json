@@ -115,6 +115,7 @@
     "settings": "⚙️ Settings",
     "profecoComplaints": "🏛️ PROFECO",
     "aiAssistant": "🤖 AI Assistant",
+    "subscriberCertificates": "🔐 Subscriber Certificates",
     "csdCertificates": "📜 CSD Certificates",
     "pacProviders": "🧾 PAC Providers",
     "satCatalogs": "📚 SAT Catalogs",
@@ -245,15 +246,26 @@
   },
   "clientList": {
     "title": "Clients",
+    "newClient": "+ New Client",
     "searchPlaceholder": "Search by name, email or city…",
+    "searchBtn": "Search",
+    "clearBtn": "Clear",
+    "showArchived": "Show archived",
     "table": {
       "name": "Name",
       "email": "Email",
+      "phone": "Phone",
       "type": "Type",
+      "location": "Location",
       "status": "Status",
       "city": "City",
-      "created": "Created"
+      "created": "Created",
+      "actions": "Actions"
     },
+    "restore": "Restore",
+    "archive": "Archive",
+    "archiving": "Archiving…",
+    "view": "View →",
     "noClients": "No clients found.",
     "loading": "Loading…",
     "error": "Failed to load clients.",
@@ -263,11 +275,22 @@
   },
   "contractList": {
     "title": "Contracts",
+    "newContract": "+ New Contract",
+    "filterStatus": "Status:",
+    "filterAll": "All",
+    "clearFilter": "Clear filter",
+    "actionFailed": "Action failed. Please try again.",
     "table": {
       "id": "ID",
       "client": "Client",
       "plan": "Plan",
+      "type": "Type",
+      "start": "Start",
+      "end": "End",
+      "billingDay": "Billing Day",
+      "ip": "IP",
       "status": "Status",
+      "actions": "Actions",
       "startDate": "Start Date",
       "endDate": "End Date"
     },
@@ -277,12 +300,15 @@
   },
   "invoiceList": {
     "title": "Invoices",
+    "generateInvoice": "+ Generate Invoice",
     "table": {
       "invoiceNumber": "Invoice #",
+      "clientId": "Client ID",
       "total": "Total",
       "status": "Status",
       "dueDate": "Due Date",
-      "paidAt": "Paid At"
+      "paidAt": "Paid At",
+      "created": "Created"
     },
     "noInvoices": "No invoices found.",
     "loading": "Loading…",
@@ -290,11 +316,15 @@
   },
   "paymentList": {
     "title": "Payments",
+    "recordPayment": "+ Record Payment",
     "table": {
+      "client": "Client",
       "amount": "Amount",
       "method": "Method",
+      "status": "Status",
+      "date": "Date",
       "reference": "Reference",
-      "date": "Date"
+      "actions": "Actions"
     },
     "noPayments": "No payments found.",
     "loading": "Loading…",
@@ -302,35 +332,50 @@
   },
   "ticketList": {
     "title": "Tickets",
+    "newTicket": "+ New Ticket",
     "filterStatus": "Filter by status",
     "filterPriority": "Filter by priority",
+    "allStatuses": "All statuses",
+    "allPriorities": "All priorities",
+    "clearFilters": "Clear filters",
     "all": "All",
     "table": {
+      "id": "#",
       "subject": "Subject",
       "client": "Client",
       "status": "Status",
       "priority": "Priority",
+      "assignedTo": "Assigned To",
       "category": "Category",
       "created": "Created"
     },
     "noTickets": "No tickets found.",
-    "loading": "Loading…",
+    "loading": "Loading tickets…",
     "error": "Failed to load tickets."
   },
   "userList": {
     "title": "Users",
+    "newUser": "+ New User",
+    "enableMyTwoFA": "Enable My 2FA",
+    "disableMyTwoFA": "Disable My 2FA",
     "filterRole": "Filter by role",
     "filterStatus": "Filter by status",
+    "allRoles": "All roles",
+    "allStatuses": "All statuses",
+    "clearFilters": "Clear filters",
     "all": "All",
     "table": {
       "name": "Name",
       "email": "Email",
       "role": "Role",
       "status": "Status",
-      "lastLogin": "Last Login"
+      "twofa": "2FA",
+      "lastLogin": "Last Login",
+      "created": "Created",
+      "actions": "Actions"
     },
     "noUsers": "No users found.",
-    "loading": "Loading…",
+    "loading": "Loading users…",
     "error": "Failed to load users."
   },
   "darkMode": {
@@ -2707,6 +2752,8 @@
       "maxLength": "Maximum Length",
       "rotationDays": "Password Rotation (days)",
       "lockoutAttempts": "Lockout After (attempts)",
+      "requireSpecialChars": "Require Special Characters",
+      "maxRepeatedChars": "Max Repeated Characters",
       "adminIpAllowlist": "Admin IP Allowlist",
       "noIpEntries": "No IP allowlist entries configured",
       "ipAddress": "IP Address / CIDR",
@@ -2734,6 +2781,8 @@
       "blackholeRoutes": "Blackhole Routes",
       "noBlackholeRoutes": "No blackhole routes active",
       "reason": "Reason",
+      "entryType": "Entry Type",
+      "deactivatedAt": "Deactivated At",
       "releasedAt": "Released At",
       "released": "Released",
       "dnsBlocklists": "DNS Blocklists",

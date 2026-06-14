@@ -35,22 +35,28 @@ router.get('/encryption-keys', requirePermission('encryption_keys.view'), async 
 });
 
 // POST /encryption-keys — register key metadata
+// Accepts key_id (new schema name) or legacy key_alias for backward compat;
+// accepts key_length_bits (new) or legacy key_size for backward compat.
 router.post('/encryption-keys', requirePermission('encryption_keys.update'), async (req, res, next) => {
   try {
-    const { key_alias, algorithm, key_size, purpose, status, expires_at, notes } = req.body;
+    const { key_id, key_alias, algorithm, key_length_bits, key_size, key_reference, purpose, status, version, expires_at, next_rotation_at, notes } = req.body;
+    const keyIdValue = key_id ?? key_alias;
+    const keyLenValue = key_length_bits ?? key_size ?? null;
     const [result] = await db.query(
       `INSERT INTO encryption_key_metadata
-        (organization_id, key_alias, algorithm, key_size, purpose, status, created_by, expires_at, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (organization_id, key_id, purpose, algorithm, key_length_bits, key_reference, status, version, expires_at, next_rotation_at, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         req.orgId,
-        key_alias || null,
-        algorithm || null,
-        key_size || null,
+        keyIdValue || null,
         purpose || null,
+        algorithm || null,
+        keyLenValue,
+        key_reference || null,
         status || 'active',
-        req.user.id,
+        version || 1,
         expires_at || null,
+        next_rotation_at || null,
         notes || null,
       ],
     );
@@ -61,19 +67,27 @@ router.post('/encryption-keys', requirePermission('encryption_keys.update'), asy
 });
 
 // PUT /encryption-keys/:id — update key metadata, supports rotate action
+// Accepts key_id/key_alias and key_length_bits/key_size for backward compat.
 router.put('/encryption-keys/:id', requirePermission('encryption_keys.update'), async (req, res, next) => {
   try {
-    const { key_alias, algorithm, key_size, purpose, status, expires_at, notes, action } = req.body;
+    const { key_id, key_alias, algorithm, key_length_bits, key_size, key_reference, purpose, status, version, expires_at, next_rotation_at, notes, action } = req.body;
 
     const updates = [];
     const params = [];
 
-    if (key_alias !== undefined) { updates.push('key_alias = ?'); params.push(key_alias); }
+    // Accept key_id (new) or key_alias (old) for backward compat
+    const keyIdValue = key_id !== undefined ? key_id : key_alias;
+    if (keyIdValue !== undefined) { updates.push('key_id = ?'); params.push(keyIdValue); }
     if (algorithm !== undefined) { updates.push('algorithm = ?'); params.push(algorithm); }
-    if (key_size !== undefined) { updates.push('key_size = ?'); params.push(key_size); }
+    // Accept key_length_bits (new) or key_size (old) for backward compat
+    const keyLenValue = key_length_bits !== undefined ? key_length_bits : key_size;
+    if (keyLenValue !== undefined) { updates.push('key_length_bits = ?'); params.push(keyLenValue); }
+    if (key_reference !== undefined) { updates.push('key_reference = ?'); params.push(key_reference); }
     if (purpose !== undefined) { updates.push('purpose = ?'); params.push(purpose); }
     if (status !== undefined) { updates.push('status = ?'); params.push(status); }
+    if (version !== undefined) { updates.push('version = ?'); params.push(version); }
     if (expires_at !== undefined) { updates.push('expires_at = ?'); params.push(expires_at); }
+    if (next_rotation_at !== undefined) { updates.push('next_rotation_at = ?'); params.push(next_rotation_at); }
     if (notes !== undefined) { updates.push('notes = ?'); params.push(notes); }
 
     // Support rotate action: set rotated_at = NOW() and status = active
@@ -124,18 +138,23 @@ router.get('/data-masking', requirePermission('data_masking.view'), async (req, 
 });
 
 // PUT /data-masking — upsert masking rule
+// Accepts mask_type (new) or legacy masking_type; min_role_to_view_plain (new) or legacy roles_exempt.
 router.put('/data-masking', requirePermission('data_masking.update'), async (req, res, next) => {
   try {
-    const { table_name, column_name, masking_type, mask_pattern, roles_exempt, is_active, notes } = req.body;
+    const { table_name, column_name, mask_type, masking_type, mask_pattern, min_role_to_view_plain, roles_exempt, is_active, notes } = req.body;
+
+    const maskTypeValue = mask_type ?? masking_type ?? null;
+    // roles_exempt was a JSON array; min_role_to_view_plain is a single VARCHAR role name
+    const minRoleValue = min_role_to_view_plain ?? (Array.isArray(roles_exempt) ? (roles_exempt[0] ?? 'admin') : roles_exempt) ?? 'admin';
 
     await db.query(
       `INSERT INTO data_masking_rules
-        (organization_id, table_name, column_name, masking_type, mask_pattern, roles_exempt, is_active, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (organization_id, table_name, column_name, mask_type, mask_pattern, min_role_to_view_plain, is_active, notes, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
-         masking_type = VALUES(masking_type),
+         mask_type = VALUES(mask_type),
          mask_pattern = VALUES(mask_pattern),
-         roles_exempt = VALUES(roles_exempt),
+         min_role_to_view_plain = VALUES(min_role_to_view_plain),
          is_active = VALUES(is_active),
          notes = VALUES(notes),
          updated_at = NOW()`,
@@ -143,11 +162,12 @@ router.put('/data-masking', requirePermission('data_masking.update'), async (req
         req.orgId,
         table_name || null,
         column_name || null,
-        masking_type || null,
+        maskTypeValue,
         mask_pattern || null,
-        roles_exempt ? JSON.stringify(roles_exempt) : null,
+        minRoleValue,
         is_active !== false ? 1 : 0,
         notes || null,
+        req.user.id,
       ],
     );
 

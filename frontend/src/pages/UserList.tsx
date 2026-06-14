@@ -11,6 +11,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { tokenStore } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 
@@ -633,6 +634,7 @@ function TwoFADisableModal({ onClose, onDisabled }: TwoFADisableModalProps) {
 // ---------------------------------------------------------------------------
 
 export function UserList() {
+  const { t } = useTranslation();
   const { user: currentUser } = useAuth();
   const [page, setPage] = useState(1);
   const [roleFilter, setRoleFilter] = useState('');
@@ -668,18 +670,18 @@ export function UserList() {
     <div style={{ padding: '1.5rem', maxWidth: 1100 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-        <h1 style={{ margin: 0, fontSize: '1.4rem' }}>🔑 Users</h1>
+        <h1 style={{ margin: 0, fontSize: '1.4rem' }}>🔑 {t('userList.title')}</h1>
         <div style={{ display: 'flex', gap: 8 }}>
           {myTotpEnabled ? (
             <button style={{ ...btnSecondary, borderColor: '#dc2626', color: '#dc2626' }} onClick={() => setShow2FADisable(true)}>
-              🔐 Disable My 2FA
+              🔐 {t('userList.disableMyTwoFA')}
             </button>
           ) : (
             <button style={{ ...btnSecondary, borderColor: '#059669', color: '#059669' }} onClick={() => setShow2FASetup(true)}>
-              🔐 Enable My 2FA
+              🔐 {t('userList.enableMyTwoFA')}
             </button>
           )}
-          <button style={btnPrimary} onClick={() => setShowNew(true)}>+ New User</button>
+          <button style={btnPrimary} onClick={() => setShowNew(true)}>{t('userList.newUser')}</button>
         </div>
       </div>
 
@@ -695,45 +697,45 @@ export function UserList() {
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', flexWrap: 'wrap' }}>
-        <select aria-label="Filter by role" style={filterSelect} value={roleFilter} onChange={handleFilterChange(setRoleFilter)}>
-          <option value="">All roles</option>
+        <select aria-label={t('userList.filterRole')} style={filterSelect} value={roleFilter} onChange={handleFilterChange(setRoleFilter)}>
+          <option value="">{t('userList.allRoles')}</option>
           {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
-        <select aria-label="Filter by status" style={filterSelect} value={statusFilter} onChange={handleFilterChange(setStatusFilter)}>
-          <option value="">All statuses</option>
+        <select aria-label={t('userList.filterStatus')} style={filterSelect} value={statusFilter} onChange={handleFilterChange(setStatusFilter)}>
+          <option value="">{t('userList.allStatuses')}</option>
           {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
         {(roleFilter || statusFilter) && (
           <button style={btnSecondary} onClick={() => { setRoleFilter(''); setStatusFilter(''); setPage(1); }}>
-            Clear filters
+            {t('userList.clearFilters')}
           </button>
         )}
       </div>
 
       {/* Table */}
-      {isLoading && <p style={{ color: '#888' }}>Loading users…</p>}
-      {error && <p style={{ color: '#e00' }}>Failed to load users.</p>}
+      {isLoading && <p style={{ color: '#888' }}>{t('userList.loading')}</p>}
+      {error && <p style={{ color: '#e00' }}>{t('userList.error')}</p>}
       {!isLoading && !error && (
         <>
           <div style={{ overflowX: 'auto' }}>
             <table style={tableStyle}>
               <thead>
                 <tr>
-                  <th style={th}>Name</th>
-                  <th style={th}>Email</th>
-                  <th style={th}>Role</th>
-                  <th style={th}>Status</th>
-                  <th style={th}>2FA</th>
-                  <th style={th}>Last Login</th>
-                  <th style={th}>Created</th>
-                  <th style={th}>Actions</th>
+                  <th style={th}>{t('userList.table.name')}</th>
+                  <th style={th}>{t('userList.table.email')}</th>
+                  <th style={th}>{t('userList.table.role')}</th>
+                  <th style={th}>{t('userList.table.status')}</th>
+                  <th style={th}>{t('userList.table.twofa')}</th>
+                  <th style={th}>{t('userList.table.lastLogin')}</th>
+                  <th style={th}>{t('userList.table.created')}</th>
+                  <th style={th}>{t('userList.table.actions')}</th>
                 </tr>
               </thead>
               <tbody>
                 {users.length === 0 && (
                   <tr>
                     <td colSpan={8} style={{ ...td, textAlign: 'center', color: '#888', padding: '2rem' }}>
-                      No users found
+                      {t('userList.noUsers')}
                     </td>
                   </tr>
                 )}
@@ -770,7 +772,7 @@ export function UserList() {
                         style={{ ...btnSecondary, fontSize: '0.78rem', padding: '4px 10px' }}
                         onClick={() => setEditUser(u)}
                       >
-                        Edit
+                        {t('common.edit')}
                       </button>
                     </td>
                   </tr>
@@ -782,11 +784,11 @@ export function UserList() {
           {/* Pagination */}
           {totalPages > 1 && (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: '1rem' }}>
-              <button style={btnSecondary} disabled={page <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
+              <button style={btnSecondary} disabled={page <= 1} onClick={() => setPage(p => p - 1)}>{t('clientList.prevPage')}</button>
               <span style={{ fontSize: '0.85rem', color: '#555' }}>
-                Page {page} of {totalPages} ({meta?.total} users)
+                {t('clientList.pageInfo', { page, total: totalPages })} ({meta?.total} users)
               </span>
-              <button style={btnSecondary} disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next →</button>
+              <button style={btnSecondary} disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>{t('clientList.nextPage')}</button>
             </div>
           )}
         </>

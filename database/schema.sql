@@ -722,7 +722,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_invoices_number (invoice_number),
+    UNIQUE KEY uq_invoices_org_number (organization_id, invoice_number),
     KEY idx_invoices_organization_id (organization_id),
     KEY idx_invoices_org_status (organization_id, status),
     KEY idx_invoices_client_id (client_id),
@@ -948,7 +948,7 @@ CREATE TABLE IF NOT EXISTS quotes (
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_quotes_number (quote_number),
+    UNIQUE KEY uq_quotes_org_number (organization_id, quote_number),
     KEY idx_quotes_organization_id (organization_id),
     KEY idx_quotes_client_id (client_id),
     KEY idx_quotes_contract_id (contract_id),
@@ -3109,7 +3109,7 @@ CREATE TABLE IF NOT EXISTS credit_notes (
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_credit_notes_number (credit_note_number),
+    UNIQUE KEY uq_credit_notes_org_number (organization_id, credit_note_number),
     KEY idx_credit_notes_organization_id (organization_id),
     KEY idx_credit_notes_client_id (client_id),
     KEY idx_credit_notes_contract_id (contract_id),

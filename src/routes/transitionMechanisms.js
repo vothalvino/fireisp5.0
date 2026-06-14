@@ -22,13 +22,55 @@ router.use(authenticate);
 router.use(orgScope);
 
 // ---------------------------------------------------------------------------
+// Server-side table-name whitelist.
+// Table names are currently hardcoded at route registration sites below, not
+// derived from user input.  This explicit Set ensures that if a future
+// refactor ever passes a user-supplied value here the handler will throw
+// rather than executing an arbitrary table name.
+// ---------------------------------------------------------------------------
+
+const ALLOWED_TABLES = new Set([
+  'tunnel_6rd_configs',
+  'ds_lite_configs',
+  'map_rules',
+  'xlat464_configs',
+]);
+
+function assertTableAllowed(tableName) {
+  if (!ALLOWED_TABLES.has(tableName)) {
+    throw new Error(`Table "${tableName}" is not in the transition-mechanism whitelist`);
+  }
+}
+
+// Protected columns — never writable by the client regardless of what req.body contains.
+// organization_id is always sourced from req.orgId (server-side).
+// id / created_at / updated_at / deleted_at are managed by MySQL or soft-delete logic.
+const PROTECTED_COLS = new Set(['id', 'organization_id', 'created_at', 'updated_at', 'deleted_at']);
+
+/**
+ * Return a copy of obj with all PROTECTED_COLS keys removed.
+ */
+function stripProtected(obj) {
+  const out = {};
+  for (const key of Object.keys(obj)) {
+    if (!PROTECTED_COLS.has(key)) {
+      out[key] = obj[key];
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Helper: inline CRUD for a single transition mechanism table
 // ---------------------------------------------------------------------------
 
 function listHandler(tableName) {
+  assertTableAllowed(tableName);
   return async (req, res, next) => {
     try {
       const { page = 1, limit = 25, status } = req.query;
+      // Integer-coerce and clamp LIMIT / OFFSET so they can never carry
+      // arbitrary SQL even though they are interpolated as literals.
       const pageNum = Math.max(1, parseInt(page, 10) || 1);
       const limitNum = Math.min(Math.max(1, parseInt(limit, 10) || 25), 100);
       const offset = (pageNum - 1) * limitNum;
@@ -49,6 +91,7 @@ function listHandler(tableName) {
 }
 
 function getOneHandler(tableName) {
+  assertTableAllowed(tableName);
   return async (req, res, next) => {
     try {
       const [rows] = await db.query(
@@ -62,9 +105,10 @@ function getOneHandler(tableName) {
 }
 
 function createHandler(tableName) {
+  assertTableAllowed(tableName);
   return async (req, res, next) => {
     try {
-      const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...fields } = req.body;
+      const fields = stripProtected(req.body);
       const [result] = await db.query(
         `INSERT INTO ${tableName} SET ?`,
         [{ organization_id: req.orgId, ...fields }],
@@ -76,6 +120,7 @@ function createHandler(tableName) {
 }
 
 function updateHandler(tableName) {
+  assertTableAllowed(tableName);
   return async (req, res, next) => {
     try {
       const [check] = await db.query(
@@ -83,7 +128,7 @@ function updateHandler(tableName) {
         [req.params.id, req.orgId],
       );
       if (!check.length) return res.status(404).json({ error: 'Not found' });
-      const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...updateData } = req.body;
+      const updateData = stripProtected(req.body);
       await db.query(
         `UPDATE ${tableName} SET ?, updated_at = NOW() WHERE id = ? AND organization_id = ?`,
         [updateData, req.params.id, req.orgId],
@@ -95,6 +140,7 @@ function updateHandler(tableName) {
 }
 
 function deleteHandler(tableName) {
+  assertTableAllowed(tableName);
   return async (req, res, next) => {
     try {
       const [check] = await db.query(

@@ -619,7 +619,9 @@ describe('automationService — createBatchJob', () => {
   });
 
   it('processes targets and inserts batch_job_items', async () => {
-    const job = { id: 3, name: 'WithItems', operation: 'suspend', status: 'completed' };
+    // Use an unimplemented operation so applyBatchOperation throws at the default case
+    // (no extra contract-lookup query) — the item is recorded as a failure.
+    const job = { id: 3, name: 'WithItems', operation: 'rate_limit', status: 'completed' };
     db.query
       .mockResolvedValueOnce([[{ entity_id: 100, entity_type: 'contract' }], []])  // targets
       .mockResolvedValueOnce([{ insertId: 3, affectedRows: 1 }])  // INSERT batch_jobs
@@ -628,7 +630,7 @@ describe('automationService — createBatchJob', () => {
       .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE completed
       .mockResolvedValueOnce([[job], []]);
     const result = await automationService.createBatchJob(1, {
-      name: 'WithItems', operation: 'suspend', filter_criteria: { status: 'active' },
+      name: 'WithItems', operation: 'rate_limit', filter_criteria: { status: 'active' },
     });
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO batch_job_items'),
@@ -775,14 +777,14 @@ describe('routerDriverService', () => {
       expect(result).toBeNull();
     });
 
-    it('stubs non-mikrotik vendors and returns ok', async () => {
+    it('returns not_implemented for non-mikrotik vendors (no fake success)', async () => {
       const config = { id: 1, vendor: 'cisco_ios', host: '10.0.0.1', encrypted_password: null };
       db.query
         .mockResolvedValueOnce([[config], []])
         .mockResolvedValueOnce([{ affectedRows: 1 }]);
       const result = await svc.testDriverConnection(1, 1);
-      expect(result.status).toBe('ok');
-      expect(result.message).toContain('STUBBED');
+      expect(result.status).toBe('not_implemented');
+      expect(result.message).toMatch(/not implemented/i);
     });
 
     it('tests mikrotik via routerosService and returns ok on success', async () => {
@@ -814,13 +816,13 @@ describe('routerDriverService', () => {
       expect(result).toBeNull();
     });
 
-    it('dispatches stub for non-mikrotik vendor', async () => {
+    it('returns not_dispatched for non-mikrotik vendor (no fake success)', async () => {
       const config = { id: 1, vendor: 'cisco_ios', protocol: 'ssh', host: '10.0.0.1', device_id: null, encrypted_password: null };
       db.query
         .mockResolvedValueOnce([[config], []])
         .mockResolvedValueOnce([{ insertId: 5, affectedRows: 1 }]);
       const result = await svc.dispatchCommand(1, 1, 'show_version', {}, 1);
-      expect(result.status).toBe('stubbed');
+      expect(result.status).toBe('not_dispatched');
       expect(result.vendor).toBe('cisco_ios');
     });
 
@@ -1220,14 +1222,14 @@ describe('routerDrivers routes — extended coverage', () => {
     expect(res.status).toBe(404);
   });
 
-  it('POST /api/router-drivers/:id/test returns stub result for non-mikrotik', async () => {
+  it('POST /api/router-drivers/:id/test returns 501 not_implemented for non-mikrotik', async () => {
     const config = { id: 1, vendor: 'cisco_ios', host: '10.0.0.1', encrypted_password: null };
     db.query
       .mockResolvedValueOnce(mockRows([config]))
       .mockResolvedValueOnce(mockUpdate());  // UPDATE last_tested_at
     const res = await request(app).post('/api/router-drivers/1/test');
-    expect(res.status).toBe(200);
-    expect(res.body.data.status).toBe('ok');
+    expect(res.status).toBe(501);
+    expect(res.body.data.status).toBe('not_implemented');
   });
 
   it('GET /api/router-drivers/command-executions/list returns list', async () => {

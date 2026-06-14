@@ -6,6 +6,7 @@
 // =============================================================================
 
 const db = require('../config/database');
+const logger = require('../utils/logger').child({ service: 'taskRunner' });
 const automationService = require('./automationService');
 const analyticsService = require('./analyticsService');
 const billingService = require('./billingService');
@@ -61,10 +62,18 @@ async function runTask(taskName, organizationId = null) {
       return runBillingCycle(organizationId);
     case 'snmp_poll':
       return snmpPoller.poll();
+    // §6.1: task_name seeded by migration 254 — maps to the same handler as snmp_poll
+    case 'snmp_discovery_poll':
+      return snmpPoller.poll();
     case 'snmp_trap_receiver_restart':
       snmpTrapReceiver.stop();
       snmpTrapReceiver.start();
       return { message: 'SNMP trap receiver restarted' };
+    // §6.1: task_name seeded by migration 254 — (re)starts the UDP trap listener
+    case 'snmp_trap_receiver':
+      snmpTrapReceiver.stop();
+      snmpTrapReceiver.start();
+      return { message: 'SNMP trap receiver started' };
     case 'email_send':
       return emailTransport.processQueue();
     case 'sms_send':
@@ -153,6 +162,46 @@ async function runTask(taskName, organizationId = null) {
       const aiSupportMetricsService = require('./aiSupportMetricsService');
       return aiSupportMetricsService.rollupMetrics(organizationId);
     }
+    // §7.1/§7.2 FTTH OLT/ONU tasks (seeded by migration 269)
+    //
+    // ftth_olt_chassis_poll: OLT devices are SNMP-enabled; the generic snmpPoller.poll()
+    // already polls all devices with snmp_enabled=1 and stores chassis metrics
+    // (cpu_usage, memory_usage, temperature_c, fan_speed_rpm, etc.) into snmp_metrics.
+    // Delegating to snmpPoller.poll() is the correct real behavior here.
+    case 'ftth_olt_chassis_poll':
+      return snmpPoller.poll();
+    // ftth_olt_port_metrics_poll: intended to poll SNMP per-port metrics and update
+    // olt_ports records. The generic snmpPoller stores to snmp_metrics (not olt_ports),
+    // so this requires a dedicated handler that maps port-index OIDs to olt_ports rows.
+    // DEFERRED: needs src/services/ftth/oltPortMetricsPollHandler.js.
+    case 'ftth_olt_port_metrics_poll':
+      logger.warn({ taskName }, 'ftth_olt_port_metrics_poll is not yet implemented; dedicated oltPortMetricsPollHandler needed to map per-port SNMP OIDs to olt_ports rows');
+      return { message: 'ftth_olt_port_metrics_poll: handler not yet implemented', deferred: true };
+    // ftth_onu_discovery: scans OLT for newly connected ONUs via TL1/NETCONF/CLI.
+    // Live device I/O is intentionally stubbed in ftthService (see ftthService.js header).
+    // DEFERRED: needs vendor driver + OLT CLI integration.
+    case 'ftth_onu_discovery':
+      logger.warn({ taskName }, 'ftth_onu_discovery is not yet implemented; requires vendor OLT CLI/TL1/NETCONF driver integration');
+      return { message: 'ftth_onu_discovery: handler not yet implemented', deferred: true };
+    // ftth_onu_optical_poll: polls per-ONU optical diagnostics (Tx/Rx power, temp,
+    // voltage, bias current) and inserts into onu_optical_metrics. The generic
+    // snmpPoller writes to snmp_metrics, not onu_optical_metrics, so a dedicated
+    // handler is needed to map SNMP varbinds to the onu_optical_metrics schema.
+    // DEFERRED: needs src/services/ftth/onuOpticalPollHandler.js.
+    case 'ftth_onu_optical_poll':
+      logger.warn({ taskName }, 'ftth_onu_optical_poll is not yet implemented; dedicated onuOpticalPollHandler needed to write to onu_optical_metrics table');
+      return { message: 'ftth_onu_optical_poll: handler not yet implemented', deferred: true };
+    // ftth_onu_firmware_job_processor: picks up pending onu_firmware_jobs and executes
+    // via OLT vendor CLI (explicitly stubbed in ftthService.js). A real implementation
+    // requires src/services/ftth/drivers/<vendor>Driver.js.
+    // DEFERRED: needs vendor driver implementation.
+    case 'ftth_onu_firmware_job_processor':
+      logger.warn({ taskName }, 'ftth_onu_firmware_job_processor is not yet implemented; requires vendor OLT CLI driver to dispatch pending onu_firmware_jobs');
+      return { message: 'ftth_onu_firmware_job_processor: handler not yet implemented', deferred: true };
+    // ftth_onu_optical_metrics_cleanup: deletes onu_optical_metrics rows older than
+    // 90 days in batches. Pure DB operation — safe to implement directly.
+    case 'ftth_onu_optical_metrics_cleanup':
+      return runFtthOpticalMetricsCleanup();
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }
@@ -484,6 +533,30 @@ async function handleInventoryLowStockCheck(organizationId) {
 }
 
 /**
+ * Delete onu_optical_metrics rows older than 90 days in batches of 10,000.
+ * Keeps the table bounded without a single long-running DELETE.
+ * Mirrors the pattern used by retentionService.
+ */
+async function runFtthOpticalMetricsCleanup() {
+  const BATCH_SIZE = 10000;
+  let totalDeleted = 0;
+  let batchDeleted;
+
+  do {
+    const [result] = await db.query(
+      `DELETE FROM onu_optical_metrics
+       WHERE polled_at < DATE_SUB(NOW(), INTERVAL 90 DAY)
+       LIMIT ?`,
+      [BATCH_SIZE],
+    );
+    batchDeleted = result.affectedRows || 0;
+    totalDeleted += batchDeleted;
+  } while (batchDeleted === BATCH_SIZE);
+
+  return { deleted: totalDeleted };
+}
+
+/**
  * Check for overdue DSAR requests and stale government data requests.
  * Surfaces them as a compliance report for operators to action.
  */
@@ -517,4 +590,4 @@ async function handleDataRetentionComplianceCheck(organizationId) {
   };
 }
 
-module.exports = { listTasks, runTask, markTaskRun, runAutoInvoice, runAutoSuspend, runSuspensionWarnings, runBillingCycle, runCsdExpiryCheck, handleSlaBreachCheck, handleInventoryLowStockCheck, handleDataRetentionComplianceCheck };
+module.exports = { listTasks, runTask, markTaskRun, runAutoInvoice, runAutoSuspend, runSuspensionWarnings, runBillingCycle, runCsdExpiryCheck, handleSlaBreachCheck, handleInventoryLowStockCheck, handleDataRetentionComplianceCheck, runFtthOpticalMetricsCleanup };

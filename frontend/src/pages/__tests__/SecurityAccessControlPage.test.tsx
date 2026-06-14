@@ -52,7 +52,7 @@ const samplePolicy = {
 
 const sampleIpEntry = {
   id: 1,
-  ip_address: '192.168.1.10',
+  cidr: '192.168.1.10',
   description: 'Dev office',
   is_active: 1,
   expires_at: null,
@@ -60,7 +60,7 @@ const sampleIpEntry = {
 
 const sampleRateLimit = {
   id: 1,
-  token_id: 42,
+  api_token_id: 42,
   requests_per_minute: 60,
   requests_per_hour: 1000,
   requests_per_day: null,
@@ -79,9 +79,9 @@ const sampleFirewallRule = {
 
 const sampleEncryptionKey = {
   id: 1,
-  key_alias: 'primary-aes-key',
+  key_id: 'primary-aes-key',
   algorithm: 'AES-256-GCM',
-  key_size: 256,
+  key_length_bits: 256,
   status: 'active',
   rotated_at: null,
   expires_at: null,

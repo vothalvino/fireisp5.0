@@ -318,8 +318,9 @@ async function testConnection(connectionId, organizationId) {
 
   const completed_at = new Date();
 
-  // Update connection status
-  const newStatus = status === 'error' ? 'error' : 'active';
+  // testConnection() is STUBBED — never mark connection 'active' when no live HTTP call was made.
+  // Status stays 'pending' (unchanged) unless a real error occurred.
+  const newStatus = status === 'error' ? 'error' : 'not_implemented';
   await db.query(
     `UPDATE integration_connections
      SET status = ?, last_synced_at = ?, last_error = ?, updated_at = NOW()
@@ -380,9 +381,11 @@ async function sync(connectionId, organizationId, direction = 'bidirectional') {
 
   const completed_at = new Date();
 
+  // sync() is STUBBED — never mark connection 'active' when no live sync was performed.
+  // Keep status as 'not_implemented' to reflect that sync did not run.
   await db.query(
     `UPDATE integration_connections
-     SET last_synced_at = ?, status = 'active', last_error = NULL, updated_at = NOW()
+     SET last_synced_at = ?, status = 'not_implemented', last_error = NULL, updated_at = NOW()
      WHERE id = ? AND organization_id = ?`,
     [completed_at, connectionId, organizationId],
   );

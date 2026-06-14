@@ -45,7 +45,7 @@ describe('§17 Models — schema properties', () => {
     expect(AdminIpAllowlist.tableName).toBe('admin_ip_allowlist');
     expect(AdminIpAllowlist.hasOrgScope).toBe(true);
     expect(Array.isArray(AdminIpAllowlist.fillable)).toBe(true);
-    expect(AdminIpAllowlist.fillable).toContain('ip_address');
+    expect(AdminIpAllowlist.fillable).toContain('cidr');
     expect(AdminIpAllowlist.fillable).toContain('organization_id');
   });
 
@@ -61,7 +61,7 @@ describe('§17 Models — schema properties', () => {
     expect(ApiKeyRateLimit.tableName).toBe('api_key_rate_limits');
     expect(ApiKeyRateLimit.hasOrgScope).toBe(true);
     expect(Array.isArray(ApiKeyRateLimit.fillable)).toBe(true);
-    expect(ApiKeyRateLimit.fillable).toContain('token_id');
+    expect(ApiKeyRateLimit.fillable).toContain('api_token_id');
     expect(ApiKeyRateLimit.fillable).toContain('requests_per_minute');
   });
 
@@ -86,7 +86,7 @@ describe('§17 Models — schema properties', () => {
     expect(BlackholeRoute.tableName).toBe('blackhole_routes');
     expect(BlackholeRoute.hasOrgScope).toBe(true);
     expect(Array.isArray(BlackholeRoute.fillable)).toBe(true);
-    expect(BlackholeRoute.fillable).toContain('target_prefix');
+    expect(BlackholeRoute.fillable).toContain('prefix');
     expect(BlackholeRoute.fillable).toContain('reason');
   });
 
@@ -110,7 +110,7 @@ describe('§17 Models — schema properties', () => {
     expect(EncryptionKeyMetadata.tableName).toBe('encryption_key_metadata');
     expect(EncryptionKeyMetadata.hasOrgScope).toBe(true);
     expect(Array.isArray(EncryptionKeyMetadata.fillable)).toBe(true);
-    expect(EncryptionKeyMetadata.fillable).toContain('key_alias');
+    expect(EncryptionKeyMetadata.fillable).toContain('key_id');
     expect(EncryptionKeyMetadata.fillable).toContain('algorithm');
   });
 

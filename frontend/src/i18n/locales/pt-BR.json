@@ -115,6 +115,7 @@
                 "settings":  "⚙️ Configurações",
                 "profecoComplaints":  "🏛️ PROFECO",
                 "aiAssistant":  "🤖 Assistente IA",
+                "subscriberCertificates":  "🔐 Certificados de Assinante",
                 "csdCertificates":  "📜 Certificados CSD",
                 "pacProviders":  "🧾 Provedores PAC",
                 "satCatalogs":  "📚 Catálogos SAT",
@@ -245,15 +246,26 @@
                       },
     "clientList":  {
                        "title":  "Clientes",
+                       "newClient":  "+ Novo cliente",
                        "searchPlaceholder":  "Buscar por nome, e-mail ou cidade…",
+                       "searchBtn":  "Buscar",
+                       "clearBtn":  "Limpar",
+                       "showArchived":  "Mostrar arquivados",
                        "table":  {
                                      "name":  "Nome",
                                      "email":  "E-mail",
+                                     "phone":  "Telefone",
                                      "type":  "Tipo",
+                                     "location":  "Localização",
                                      "status":  "Status",
                                      "city":  "Cidade",
-                                     "created":  "Criado em"
+                                     "created":  "Criado em",
+                                     "actions":  "Ações"
                                  },
+                       "restore":  "Restaurar",
+                       "archive":  "Arquivar",
+                       "archiving":  "Arquivando…",
+                       "view":  "Ver →",
                        "noClients":  "Nenhum cliente encontrado.",
                        "loading":  "Carregando…",
                        "error":  "Falha ao carregar clientes.",
@@ -263,11 +275,22 @@
                    },
     "contractList":  {
                          "title":  "Contratos",
+                         "newContract":  "+ Novo contrato",
+                         "filterStatus":  "Status:",
+                         "filterAll":  "Todos",
+                         "clearFilter":  "Limpar filtro",
+                         "actionFailed":  "A ação falhou. Tente novamente.",
                          "table":  {
                                        "id":  "ID",
                                        "client":  "Cliente",
                                        "plan":  "Plano",
+                                       "type":  "Tipo",
+                                       "start":  "Início",
+                                       "end":  "Fim",
+                                       "billingDay":  "Dia de cobrança",
+                                       "ip":  "IP",
                                        "status":  "Status",
+                                       "actions":  "Ações",
                                        "startDate":  "Data de início",
                                        "endDate":  "Data de encerramento"
                                    },
@@ -277,12 +300,15 @@
                      },
     "invoiceList":  {
                         "title":  "Faturas",
+                        "generateInvoice":  "+ Gerar fatura",
                         "table":  {
                                       "invoiceNumber":  "Fatura #",
+                                      "clientId":  "ID do cliente",
                                       "total":  "Total",
                                       "status":  "Status",
                                       "dueDate":  "Data de vencimento",
-                                      "paidAt":  "Data de pagamento"
+                                      "paidAt":  "Data de pagamento",
+                                      "created":  "Criado em"
                                   },
                         "noInvoices":  "Nenhuma fatura encontrada.",
                         "loading":  "Carregando…",
@@ -290,11 +316,15 @@
                     },
     "paymentList":  {
                         "title":  "Pagamentos",
+                        "recordPayment":  "+ Registrar pagamento",
                         "table":  {
+                                      "client":  "Cliente",
                                       "amount":  "Valor",
                                       "method":  "Método",
+                                      "status":  "Status",
+                                      "date":  "Data",
                                       "reference":  "Referência",
-                                      "date":  "Data"
+                                      "actions":  "Ações"
                                   },
                         "noPayments":  "Nenhum pagamento encontrado.",
                         "loading":  "Carregando…",
@@ -302,35 +332,50 @@
                     },
     "ticketList":  {
                        "title":  "Tickets",
+                       "newTicket":  "+ Novo ticket",
                        "filterStatus":  "Filtrar por status",
                        "filterPriority":  "Filtrar por prioridade",
+                       "allStatuses":  "Todos os status",
+                       "allPriorities":  "Todas as prioridades",
+                       "clearFilters":  "Limpar filtros",
                        "all":  "Todos",
                        "table":  {
+                                     "id":  "#",
                                      "subject":  "Assunto",
                                      "client":  "Cliente",
                                      "status":  "Status",
                                      "priority":  "Prioridade",
+                                     "assignedTo":  "Atribuído a",
                                      "category":  "Categoria",
                                      "created":  "Criado em"
                                  },
                        "noTickets":  "Nenhum ticket encontrado.",
-                       "loading":  "Carregando…",
+                       "loading":  "Carregando tickets…",
                        "error":  "Falha ao carregar tickets."
                    },
     "userList":  {
                      "title":  "Usuários",
+                     "newUser":  "+ Novo usuário",
+                     "enableMyTwoFA":  "Ativar meu 2FA",
+                     "disableMyTwoFA":  "Desativar meu 2FA",
                      "filterRole":  "Filtrar por função",
                      "filterStatus":  "Filtrar por status",
+                     "allRoles":  "Todas as funções",
+                     "allStatuses":  "Todos os status",
+                     "clearFilters":  "Limpar filtros",
                      "all":  "Todos",
                      "table":  {
                                    "name":  "Nome",
                                    "email":  "E-mail",
                                    "role":  "Função",
                                    "status":  "Status",
-                                   "lastLogin":  "Último acesso"
+                                   "twofa":  "2FA",
+                                   "lastLogin":  "Último acesso",
+                                   "created":  "Criado em",
+                                   "actions":  "Ações"
                                },
                      "noUsers":  "Nenhum usuário encontrado.",
-                     "loading":  "Carregando…",
+                     "loading":  "Carregando usuários…",
                      "error":  "Falha ao carregar usuários."
                  },
     "darkMode":  {
@@ -2707,6 +2752,8 @@
       "maxLength": "Comprimento Maximo",
       "rotationDays": "Rotacao de Senha (dias)",
       "lockoutAttempts": "Bloqueio Apos (tentativas)",
+      "requireSpecialChars": "Exigir Caracteres Especiais",
+      "maxRepeatedChars": "Max. Caracteres Repetidos",
       "adminIpAllowlist": "Lista de IPs Permitidos para Admin",
       "noIpEntries": "Nenhuma entrada de IP permitido configurada",
       "ipAddress": "Endereco IP / CIDR",
@@ -2734,6 +2781,8 @@
       "blackholeRoutes": "Rotas Blackhole",
       "noBlackholeRoutes": "Nenhuma rota blackhole ativa",
       "reason": "Motivo",
+      "entryType": "Tipo de Entrada",
+      "deactivatedAt": "Desativado Em",
       "releasedAt": "Liberado Em",
       "released": "Liberado",
       "dnsBlocklists": "Listas de Bloqueio DNS",

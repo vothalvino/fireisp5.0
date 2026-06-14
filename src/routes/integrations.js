@@ -170,6 +170,16 @@ router.post(
         req.params.id,
         req.organizationId,
       );
+      // testConnection is STUBBED — surface not_implemented honestly as 501
+      if (result.status === 'stubbed' || result.status === 'not_implemented') {
+        return res.status(501).json({
+          error: {
+            message: `Integration provider '${result.provider_key}' test is not implemented — no live HTTP call was made`,
+            status: result.status,
+          },
+          data: result,
+        });
+      }
       res.json({ data: result });
     } catch (err) {
       if (err.statusCode === 404) return res.status(404).json({ error: err.message });
@@ -191,6 +201,16 @@ router.post(
         req.organizationId,
         direction || 'bidirectional',
       );
+      // sync() is STUBBED — surface not_implemented honestly as 501
+      if (result.status === 'stubbed' || result.status === 'not_implemented') {
+        return res.status(501).json({
+          error: {
+            message: `Integration provider '${result.provider_key}' sync is not implemented — no data was transferred`,
+            status: result.status,
+          },
+          data: result,
+        });
+      }
       res.json({ data: result });
     } catch (err) {
       if (err.statusCode === 404) return res.status(404).json({ error: err.message });

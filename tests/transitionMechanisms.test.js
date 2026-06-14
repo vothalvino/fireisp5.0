@@ -177,3 +177,108 @@ describe('Transition Mechanism routes — 6rd', () => {
     expect(res.status).toBe(401);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Mass-assignment protection tests
+// ---------------------------------------------------------------------------
+
+describe('Transition Mechanism routes — mass-assignment guard', () => {
+  const token = adminToken();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockDbDefault();
+  });
+
+  test('POST /6rd strips protected columns (id, organization_id, deleted_at, updated_at)', async () => {
+    let capturedParams = null;
+    db.query.mockImplementation((sql, params) => {
+      if (sql && sql.includes('INSERT INTO tunnel_6rd_configs')) {
+        capturedParams = params;
+        return Promise.resolve([{ insertId: 1 }]);
+      }
+      if (sql && sql.includes('WHERE id = ?') && !sql.includes('tunnel_6rd') && !sql.includes('ds_lite') && !sql.includes('map_rules') && !sql.includes('xlat464')) {
+        return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 10 }]]);
+      }
+      if (sql && sql.includes('permissions')) {
+        return Promise.resolve([[{ id: 1, name: 'transition_mechanisms.create' }]]);
+      }
+      if (sql && sql.includes('INSERT INTO audit_logs')) {
+        return Promise.resolve([{ insertId: 99 }]);
+      }
+      return Promise.resolve([[sample6rd]]);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/transition-mechanisms/6rd')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Org-Id', '10')
+      .send({
+        name: '6rd Config 1',
+        border_relay_ip: '203.0.113.1',
+        ipv6_prefix: '2001:db8::/32',
+        // mass-assignment attempt
+        id: 9999,
+        organization_id: 42,
+        deleted_at: '2000-01-01',
+        updated_at: '2000-01-01',
+        created_at: '2000-01-01',
+      });
+
+    expect(res.status).toBe(201);
+    // The object passed to SET ? must not contain any protected key
+    expect(capturedParams).not.toBeNull();
+    const insertObj = capturedParams[0];
+    expect(insertObj).not.toHaveProperty('id');
+    expect(insertObj).not.toHaveProperty('deleted_at');
+    expect(insertObj).not.toHaveProperty('updated_at');
+    expect(insertObj).not.toHaveProperty('created_at');
+    // organization_id must be 10 (from req.orgId), not the injected 42
+    expect(insertObj.organization_id).toBe(10);
+  });
+
+  test('PUT /6rd/:id strips protected columns (organization_id, deleted_at, updated_at)', async () => {
+    let capturedUpdateParams = null;
+    db.query.mockImplementation((sql, params) => {
+      if (sql && sql.includes('UPDATE tunnel_6rd_configs')) {
+        capturedUpdateParams = params;
+        return Promise.resolve([{ affectedRows: 1 }]);
+      }
+      if (sql && sql.includes('SELECT id FROM tunnel_6rd_configs')) {
+        return Promise.resolve([[{ id: 1 }]]);
+      }
+      if (sql && sql.includes('WHERE id = ?') && !sql.includes('tunnel_6rd') && !sql.includes('ds_lite') && !sql.includes('map_rules') && !sql.includes('xlat464')) {
+        return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 10 }]]);
+      }
+      if (sql && sql.includes('permissions')) {
+        return Promise.resolve([[{ id: 1, name: 'transition_mechanisms.update' }]]);
+      }
+      if (sql && sql.includes('INSERT INTO audit_logs')) {
+        return Promise.resolve([{ insertId: 99 }]);
+      }
+      return Promise.resolve([[sample6rd]]);
+    });
+
+    const res = await request(app)
+      .put('/api/v1/transition-mechanisms/6rd/1')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Org-Id', '10')
+      .send({
+        mtu: 1460,
+        // mass-assignment attempt
+        organization_id: 42,
+        deleted_at: '2000-01-01',
+        updated_at: '2000-01-01',
+        id: 9999,
+      });
+
+    expect(res.status).toBe(200);
+    expect(capturedUpdateParams).not.toBeNull();
+    const updateObj = capturedUpdateParams[0];
+    expect(updateObj).not.toHaveProperty('id');
+    expect(updateObj).not.toHaveProperty('organization_id');
+    expect(updateObj).not.toHaveProperty('deleted_at');
+    expect(updateObj).not.toHaveProperty('updated_at');
+    expect(updateObj).not.toHaveProperty('created_at');
+  });
+});
