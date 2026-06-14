@@ -54,7 +54,7 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
 
     const [rows] = await db.query(
       `SELECT t.id, t.organization_id, t.device_id, d.name AS device_name,
-              t.source_ip, t.trap_type, t.trap_oid, t.community,
+              t.source_ip, t.trap_type, t.trap_oid, t.varbinds, t.community,
               t.snmp_version, t.is_acknowledged, t.acknowledged_by,
               TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) AS acknowledged_by_name,
               t.acknowledged_at, t.received_at
@@ -66,6 +66,13 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
        LIMIT ${limitNum} OFFSET ${offset}`,
       params,
     );
+
+    // Parse varbinds JSON for each row if stored as a string
+    for (const row of rows) {
+      if (typeof row.varbinds === 'string') {
+        try { row.varbinds = JSON.parse(row.varbinds); } catch (_) { /* leave as-is */ }
+      }
+    }
 
     const [[{ total }]] = await db.query(
       `SELECT COUNT(*) AS total FROM snmp_traps t WHERE ${where}`,

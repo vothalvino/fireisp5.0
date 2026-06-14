@@ -36,8 +36,9 @@ const widgetList = {
     { id: 1, widget_type: 'revenue_chart', title: 'Revenue', position_x: 0, position_y: 0, width: 2, height: 2 },
     { id: 2, widget_type: 'subscriber_growth', title: 'Growth', position_x: 2, position_y: 0, width: 2, height: 2 },
     { id: 3, widget_type: 'custom', title: 'My Widget', position_x: 0, position_y: 2, width: 2, height: 2 },
+    { id: 4, widget_type: 'capacity_forecast', title: 'Capacity Forecast', position_x: 2, position_y: 2, width: 2, height: 2 },
   ],
-  meta: { total: 3, page: 1, limit: 25 },
+  meta: { total: 4, page: 1, limit: 25 },
 };
 
 function makeOkResponse(body: unknown): Response {
@@ -79,6 +80,20 @@ describe('AnalyticsDashboard page', () => {
       if (url.includes('/reports/aging')) {
         return Promise.resolve(makeOkResponse({ data: { total_outstanding: 12000, invoice_count: 5 } }));
       }
+      // Capacity forecast widget — backend returns data.forecast (not data.capacity_forecast)
+      if (url.includes('/reports/capacity-forecast')) {
+        return Promise.resolve(makeOkResponse({
+          data: {
+            generated_at: '2026-06-13T00:00:00.000Z',
+            organization_id: 1,
+            historical: [],
+            forecast: [
+              { month: '2026-07', predicted_subscribers: 150 },
+              { month: '2026-08', predicted_subscribers: 160 },
+            ],
+          },
+        }));
+      }
       return Promise.resolve(makeOkResponse({ data: {} }));
     });
   });
@@ -102,6 +117,13 @@ describe('AnalyticsDashboard page', () => {
     await waitFor(() => expect(screen.getByText('My Widget')).toBeInTheDocument());
     // The 'custom' type falls through to DefaultWidget which renders the widget_type as a badge
     expect(screen.getByText('custom')).toBeInTheDocument();
+  });
+
+  it('renders capacity forecast rows from data.forecast (not data.capacity_forecast)', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Capacity Forecast')).toBeInTheDocument());
+    // The month value from the forecast array should appear in the table
+    await waitFor(() => expect(screen.getByText('2026-07')).toBeInTheDocument());
   });
 
   it('shows empty state when no widgets are returned', async () => {

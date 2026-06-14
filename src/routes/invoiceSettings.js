@@ -19,7 +19,7 @@ router.get('/',
   requirePermission('invoice_settings.view'),
   async (req, res, next) => {
     try {
-      const settings = await invoiceSettingsService.getInvoiceSettings(req.organizationId);
+      const settings = await invoiceSettingsService.getInvoiceSettings(req.orgId);
       res.json(settings || {});
     } catch (err) {
       next(err);
@@ -32,7 +32,7 @@ router.put('/',
   async (req, res, next) => {
     try {
       const settings = await invoiceSettingsService.upsertInvoiceSettings(
-        req.organizationId,
+        req.orgId,
         req.body,
       );
       res.json(settings);

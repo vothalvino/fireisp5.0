@@ -54900,30 +54900,51 @@
           "category": {
             "type": "string",
             "enum": [
-              "router",
-              "olt",
-              "onu",
-              "switch",
+              "antenna",
               "cable",
+              "router",
+              "switch",
+              "onu",
+              "olt",
+              "cpe",
               "connector",
-              "sfp",
               "power_supply",
               "enclosure",
               "tool",
               "other"
             ]
           },
+          "manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "model": {
+            "type": "string",
+            "maximum": 100
+          },
           "description": {
             "type": "string",
             "maximum": 5000
           },
-          "unit_price": {
+          "unit": {
+            "type": "string",
+            "maximum": 30
+          },
+          "unit_cost": {
+            "type": "number",
+            "minimum": 0
+          },
+          "sale_price": {
             "type": "number",
             "minimum": 0
           },
           "reorder_level": {
             "type": "number",
             "minimum": 0
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
           },
           "status": {
             "type": "string",
@@ -54952,30 +54973,51 @@
           "category": {
             "type": "string",
             "enum": [
-              "router",
-              "olt",
-              "onu",
-              "switch",
+              "antenna",
               "cable",
+              "router",
+              "switch",
+              "onu",
+              "olt",
+              "cpe",
               "connector",
-              "sfp",
               "power_supply",
               "enclosure",
               "tool",
               "other"
             ]
           },
+          "manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "model": {
+            "type": "string",
+            "maximum": 100
+          },
           "description": {
             "type": "string",
             "maximum": 5000
           },
-          "unit_price": {
+          "unit": {
+            "type": "string",
+            "maximum": 30
+          },
+          "unit_cost": {
+            "type": "number",
+            "minimum": 0
+          },
+          "sale_price": {
             "type": "number",
             "minimum": 0
           },
           "reorder_level": {
             "type": "number",
             "minimum": 0
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
           },
           "status": {
             "type": "string",
@@ -59301,10 +59343,10 @@
             "type": "string",
             "enum": [
               "cash",
-              "card",
-              "transfer",
               "check",
-              "online",
+              "credit_card",
+              "debit_card",
+              "bank_transfer",
               "other"
             ]
           },
@@ -59312,7 +59354,7 @@
             "type": "string",
             "format": "date"
           },
-          "reference": {
+          "reference_number": {
             "type": "string",
             "maximum": 200
           },
@@ -59359,14 +59401,14 @@
             "type": "string",
             "enum": [
               "cash",
-              "card",
-              "transfer",
               "check",
-              "online",
+              "credit_card",
+              "debit_card",
+              "bank_transfer",
               "other"
             ]
           },
-          "reference": {
+          "reference_number": {
             "type": "string",
             "maximum": 200
           },
@@ -59397,14 +59439,14 @@
             "type": "string",
             "enum": [
               "cash",
-              "card",
-              "transfer",
               "check",
-              "online",
+              "credit_card",
+              "debit_card",
+              "bank_transfer",
               "other"
             ]
           },
-          "reference": {
+          "reference_number": {
             "type": "string",
             "maximum": 200
           },

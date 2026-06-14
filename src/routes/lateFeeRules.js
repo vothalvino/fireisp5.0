@@ -23,7 +23,7 @@ router.get('/',
   requirePermission('late_fees.view'),
   async (req, res, next) => {
     try {
-      const rules = await lateFeeService.getLateFeeRules(req.organizationId);
+      const rules = await lateFeeService.getLateFeeRules(req.orgId);
       res.json({ data: rules });
     } catch (err) {
       next(err);
@@ -35,7 +35,7 @@ router.post('/',
   requirePermission('late_fees.manage'),
   async (req, res, next) => {
     try {
-      const rule = await lateFeeService.createLateFeeRule(req.organizationId, req.body);
+      const rule = await lateFeeService.createLateFeeRule(req.orgId, req.body);
       res.status(201).json(rule);
     } catch (err) {
       next(err);
@@ -47,7 +47,7 @@ router.get('/:id',
   requirePermission('late_fees.view'),
   async (req, res, next) => {
     try {
-      const rule = await lateFeeService.getLateFeeRuleById(req.organizationId, req.params.id);
+      const rule = await lateFeeService.getLateFeeRuleById(req.orgId, req.params.id);
       if (!rule) return next(new AppError('Late fee rule not found', 404));
       res.json(rule);
     } catch (err) {
@@ -60,7 +60,7 @@ router.put('/:id',
   requirePermission('late_fees.manage'),
   async (req, res, next) => {
     try {
-      const rule = await lateFeeService.updateLateFeeRule(req.organizationId, req.params.id, req.body);
+      const rule = await lateFeeService.updateLateFeeRule(req.orgId, req.params.id, req.body);
       if (!rule) return next(new AppError('Late fee rule not found', 404));
       res.json(rule);
     } catch (err) {
@@ -73,7 +73,7 @@ router.delete('/:id',
   requirePermission('late_fees.manage'),
   async (req, res, next) => {
     try {
-      const deleted = await lateFeeService.deleteLateFeeRule(req.organizationId, req.params.id);
+      const deleted = await lateFeeService.deleteLateFeeRule(req.orgId, req.params.id);
       if (!deleted) return next(new AppError('Late fee rule not found', 404));
       res.status(204).send();
     } catch (err) {

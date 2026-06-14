@@ -45,7 +45,7 @@ interface MessageTemplateBody {
 
 const DEFAULT_PAGE_SIZE = 25;
 // Channels accepted by both the API validation schema and the database enum.
-const CHANNELS = ['email', 'sms', 'whatsapp'];
+const CHANNELS = ['email', 'sms', 'whatsapp', 'push'];
 const CHANNEL_FILTER_OPTIONS = ['', ...CHANNELS];
 
 // ---------------------------------------------------------------------------
@@ -84,6 +84,7 @@ function ChannelBadge({ channel }: { channel: string }) {
     email: { bg: '#dbeafe', color: '#1e40af' },
     sms: { bg: '#d1fae5', color: '#065f46' },
     whatsapp: { bg: '#dcfce7', color: '#166534' },
+    push: { bg: '#f3e8ff', color: '#6b21a8' },
   };
   const s = map[channel] ?? { bg: '#f3f4f6', color: '#374151' };
   return (

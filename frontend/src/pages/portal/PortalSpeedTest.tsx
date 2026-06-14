@@ -44,6 +44,7 @@ async function portalFetch<T>(path: string, opts: RequestInit = {}): Promise<T> 
 export function PortalSpeedTest() {
   const qc = useQueryClient();
   const [queued, setQueued] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['portal-speed-test-results'],
@@ -54,11 +55,15 @@ export function PortalSpeedTest() {
   const queueMutation = useMutation({
     mutationFn: () => portalFetch('/speed-test', { method: 'POST' }),
     onSuccess: () => {
+      setErrorMsg(null);
       setQueued(true);
       setTimeout(() => {
         setQueued(false);
         qc.invalidateQueries({ queryKey: ['portal-speed-test-results'] });
       }, 5000);
+    },
+    onError: (e: Error) => {
+      setErrorMsg(e.message || 'Failed to queue speed test. Please try again.');
     },
   });
 
@@ -71,6 +76,9 @@ export function PortalSpeedTest() {
       <p style={styles.sub}>Test your connection speed and view history</p>
 
       <section style={styles.card}>
+        {errorMsg && (
+          <div style={styles.errorMsg}>{errorMsg}</div>
+        )}
         {queued ? (
           <div style={styles.queuedMsg}>
             Speed test queued! Results will appear below once complete (usually within 30 seconds).
@@ -172,6 +180,7 @@ const styles: Record<string, React.CSSProperties> = {
   sectionTitle: { margin: 0, fontSize: '1rem', color: 'var(--text-secondary)', fontWeight: 600 },
   runBtn: { padding: '0.6rem 1.5rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '1rem', fontWeight: 600 },
   queuedMsg: { padding: '0.75rem 1rem', background: '#d1fae5', color: '#065f46', borderRadius: 4, fontSize: '0.9rem' },
+  errorMsg: { padding: '0.75rem 1rem', background: '#fee2e2', color: '#991b1b', borderRadius: 4, fontSize: '0.9rem', marginBottom: '0.75rem' },
   latestResult: { marginTop: '1.25rem' },
   latestTitle: { margin: '0 0 0.75rem', fontSize: '0.95rem', color: 'var(--text-muted)' },
   speedGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', maxWidth: 360 },

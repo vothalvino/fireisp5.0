@@ -75,7 +75,7 @@ router.get(
     try {
       const { provider_id, status, limit = 50, offset = 0 } = req.query;
       const connections = await integrationService.listConnections(
-        req.organizationId,
+        req.orgId,
         { providerId: provider_id, status },
       );
       // Apply simple pagination
@@ -96,7 +96,7 @@ router.post(
   async (req, res, next) => {
     try {
       const connection = await integrationService.createConnection(
-        req.organizationId,
+        req.orgId,
         req.user.id,
         req.body,
       );
@@ -115,7 +115,7 @@ router.get(
     try {
       const connection = await integrationService.getConnection(
         req.params.id,
-        req.organizationId,
+        req.orgId,
       );
       if (!connection) return res.status(404).json({ error: 'Connection not found' });
       res.json({ data: connection });
@@ -134,7 +134,7 @@ router.put(
     try {
       const connection = await integrationService.updateConnection(
         req.params.id,
-        req.organizationId,
+        req.orgId,
         req.body,
       );
       res.json({ data: connection });
@@ -151,7 +151,7 @@ router.delete(
   requirePermission('integration_connections.delete'),
   async (req, res, next) => {
     try {
-      await integrationService.deleteConnection(req.params.id, req.organizationId);
+      await integrationService.deleteConnection(req.params.id, req.orgId);
       res.status(204).send();
     } catch (err) {
       if (err.statusCode === 404) return res.status(404).json({ error: err.message });
@@ -168,7 +168,7 @@ router.post(
     try {
       const result = await integrationService.testConnection(
         req.params.id,
-        req.organizationId,
+        req.orgId,
       );
       // testConnection is STUBBED — surface not_implemented honestly as 501
       if (result.status === 'stubbed' || result.status === 'not_implemented') {
@@ -198,7 +198,7 @@ router.post(
       const { direction } = req.body || {};
       const result = await integrationService.sync(
         req.params.id,
-        req.organizationId,
+        req.orgId,
         direction || 'bidirectional',
       );
       // sync() is STUBBED — surface not_implemented honestly as 501
@@ -229,7 +229,7 @@ router.get(
       const { limit = 50, offset = 0 } = req.query;
       const result = await integrationService.listSyncLogs(
         req.params.id,
-        req.organizationId,
+        req.orgId,
         { limit: Number(limit), offset: Number(offset) },
       );
       res.json({ data: result.rows, total: result.total, limit: Number(limit), offset: Number(offset) });

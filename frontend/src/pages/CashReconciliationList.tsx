@@ -35,7 +35,7 @@ import {
 
 interface ReconciliationSession {
   id: number;
-  user_id: number;
+  agent_user_id: number;
   status: string;
   opened_at: string;
   closed_at: string | null;
@@ -55,7 +55,7 @@ interface CashPayment {
   client_id: number;
   amount: string;
   payment_date: string | null;
-  reference: string | null;
+  reference_number: string | null;
 }
 
 interface SessionDetail {
@@ -248,7 +248,7 @@ function CashPaymentsRow({ sessionId, colSpan }: { sessionId: number; colSpan: n
                     <td style={{ padding: '4px 8px' }}>{p.client_id}</td>
                     <td style={{ padding: '4px 8px', fontVariantNumeric: 'tabular-nums' }}>{fmtAmount(p.amount)}</td>
                     <td style={{ padding: '4px 8px', color: '#9ca3af' }}>{fmt(p.payment_date)}</td>
-                    <td style={{ padding: '4px 8px', color: '#9ca3af' }}>{p.reference || '—'}</td>
+                    <td style={{ padding: '4px 8px', color: '#9ca3af' }}>{p.reference_number || '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -356,7 +356,7 @@ export function CashReconciliationList() {
                           onClick={() => setExpandedId(expandedId === session.id ? null : session.id)}
                         >
                           <td style={styles.td}>#{session.id}</td>
-                          <td style={styles.td}>{session.user_id}</td>
+                          <td style={styles.td}>{session.agent_user_id}</td>
                           <td style={styles.td}><SessionStatusBadge status={session.status} /></td>
                           <td style={{ ...styles.td, color: '#6b7280' }}>{fmt(session.opened_at)}</td>
                           <td style={{ ...styles.td, color: '#6b7280' }}>{fmt(session.closed_at)}</td>

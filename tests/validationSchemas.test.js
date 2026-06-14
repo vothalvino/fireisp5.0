@@ -162,7 +162,7 @@ describe('Payment validation schemas', () => {
   });
 
   test('createPayment accepts valid payment', () => {
-    const next = run(createPayment, { client_id: 1, amount: 500, payment_method: 'card' });
+    const next = run(createPayment, { client_id: 1, amount: 500, payment_method: 'cash' });
     expect(next).toHaveBeenCalledWith();
   });
 

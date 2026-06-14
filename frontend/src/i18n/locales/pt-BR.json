@@ -1332,7 +1332,11 @@
                                   "br_address":  "Endereço BR",
                                   "plat_prefix":  "Prefixo PLAT",
                                   "clat_prefix":  "Prefixo CLAT",
-                                  "dns64_prefix":  "Prefixo DNS64"
+                                  "dns64_prefix":  "Prefixo DNS64",
+                                  "edit_6rd":  "Editar Config 6rd",
+                                  "edit_dslite":  "Editar Config DS-Lite",
+                                  "edit_map":  "Editar Regra MAP",
+                                  "edit_464xlat":  "Editar Config 464XLAT"
                               },
     "device_groups":  {
                           "title":  "Grupos de Dispositivos",
@@ -2474,6 +2478,8 @@
                 "slaCompliance":  "Conformidade de SLA",
                 "devicesUp":  "Dispositivos Ativos",
                 "devicesDown":  "Dispositivos Inativos",
+                "devicesWarning":  "Dispositivos em Alerta",
+                "devicesTotal":  "Total de Dispositivos",
                 "noOutages":  "Sem quedas em andamento",
                 "compliancePct":  "Conformidade"
             },

@@ -59,9 +59,8 @@ async function closeSession(sessionId, orgId, countedTotal) {
      FROM payments
      WHERE organization_id = ?
        AND payment_method = 'cash'
-       AND created_by = ?
-       AND payment_date BETWEEN ? AND NOW()
-       AND deleted_at IS NULL`,
+       AND recorded_by = ?
+       AND payment_date BETWEEN ? AND NOW()`,
     [orgId, session.agent_user_id, session.opened_at],
   );
   const expectedTotal = parseFloat(sumRows[0].expected_total);
@@ -139,9 +138,8 @@ async function getSessionDetail(sessionId, orgId) {
     `SELECT * FROM payments
      WHERE organization_id = ?
        AND payment_method = 'cash'
-       AND created_by = ?
+       AND recorded_by = ?
        AND payment_date BETWEEN ? AND ?
-       AND deleted_at IS NULL
      ORDER BY payment_date ASC`,
     [orgId, session.agent_user_id, session.opened_at, windowEnd],
   );

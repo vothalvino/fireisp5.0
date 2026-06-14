@@ -24,7 +24,7 @@ vi.mock('@/api/client', () => ({
 const onu1 = {
   id: 1, device_id: 20, device_name: 'ONU-001', olt_device_id: 10,
   olt_name: 'OLT-Central', olt_port_id: 5, port_name: 'GPON 0/1/0',
-  onu_profile_id: 2, onu_profile_name: 'Residencial-GPON',
+  onu_profile_id: 2, profile_name: 'Residencial-GPON',
   serial_number: 'ALCL12345678', loid: null, onu_state: 'online',
   onu_id: 1, ranging_distance_m: 3200, wan_mode: 'IPoE',
   line_profile_name: 'line-res-100', service_profile_name: 'svc-res-100',

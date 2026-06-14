@@ -19,7 +19,7 @@ router.get('/',
   requirePermission('payment_reminders.view'),
   async (req, res, next) => {
     try {
-      const settings = await paymentReminderService.getReminderSettings(req.organizationId);
+      const settings = await paymentReminderService.getReminderSettings(req.orgId);
       res.json(settings || {});
     } catch (err) {
       next(err);
@@ -32,7 +32,7 @@ router.put('/',
   async (req, res, next) => {
     try {
       const settings = await paymentReminderService.upsertReminderSettings(
-        req.organizationId,
+        req.orgId,
         req.body,
       );
       res.json(settings);
