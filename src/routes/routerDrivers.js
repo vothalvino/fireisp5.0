@@ -74,8 +74,8 @@ router.get('/', requirePermission('router_driver_configs.view'), async (req, res
          SELECT *, (encrypted_password IS NOT NULL) AS has_password,
                    (api_token IS NOT NULL) AS has_api_token
          FROM router_driver_configs WHERE ${where}
-       ) t ORDER BY vendor ASC, host ASC LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset],
+       ) t ORDER BY vendor ASC, host ASC LIMIT ${limitNum} OFFSET ${offset}`,
+      params,
     );
     const sanitized = rows.map(r => routerDriverService.sanitizeConfig(r));
     const [countResult] = await db.query(`SELECT COUNT(*) AS total FROM router_driver_configs WHERE ${where}`, params);
@@ -171,8 +171,8 @@ router.get('/command-executions/list', requirePermission('device_command_executi
 
     const where = conditions.join(' AND ');
     const [rows] = await db.query(
-      `SELECT * FROM device_command_executions WHERE ${where} ORDER BY executed_at DESC LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset],
+      `SELECT * FROM device_command_executions WHERE ${where} ORDER BY executed_at DESC LIMIT ${limitNum} OFFSET ${offset}`,
+      params,
     );
     const [countResult] = await db.query(`SELECT COUNT(*) AS total FROM device_command_executions WHERE ${where}`, params);
     res.json({ data: rows, meta: { total: countResult[0].total, page: pageNum, limit: limitNum } });

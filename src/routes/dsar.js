@@ -66,19 +66,19 @@ router.get('/clients/:id', requirePermission('clients.view'), async (req, res, n
 
     // ---- contacts ---------------------------------------------------------
     const [contacts] = await db.query(
-      'SELECT id, name, email, phone, role, created_at FROM contacts WHERE client_id = ? AND deleted_at IS NULL ORDER BY id',
+      'SELECT id, first_name, last_name, email, phone, role, is_primary, created_at FROM contacts WHERE client_id = ? AND deleted_at IS NULL ORDER BY id',
       [id],
     );
 
     // ---- MX profile (optional) -------------------------------------------
     const [[mxProfile = null]] = await db.query(
-      'SELECT id, rfc, curp, regimen_fiscal, uso_cfdi, zip_code, created_at FROM client_mx_profiles WHERE client_id = ? AND deleted_at IS NULL LIMIT 1',
+      'SELECT id, rfc, curp, regimen_fiscal, uso_cfdi_default AS uso_cfdi, codigo_postal_fiscal AS zip_code, created_at FROM client_mx_profiles WHERE client_id = ? AND deleted_at IS NULL LIMIT 1',
       [id],
     );
 
     // ---- contracts --------------------------------------------------------
     const [contracts] = await db.query(
-      'SELECT id, plan_id, status, start_date, end_date, monthly_price, created_at FROM contracts WHERE client_id = ? AND organization_id = ? ORDER BY id',
+      'SELECT id, plan_id, status, start_date, end_date, price_override AS monthly_price, created_at FROM contracts WHERE client_id = ? AND organization_id = ? ORDER BY id',
       [id, orgId],
     );
 
@@ -90,7 +90,7 @@ router.get('/clients/:id', requirePermission('clients.view'), async (req, res, n
 
     // ---- payments ---------------------------------------------------------
     const [payments] = await db.query(
-      'SELECT id, amount, payment_method, status, paid_at, created_at FROM payments WHERE client_id = ? AND organization_id = ? ORDER BY id',
+      'SELECT id, amount, payment_method, status, payment_date AS paid_at, created_at FROM payments WHERE client_id = ? AND organization_id = ? ORDER BY id',
       [id, orgId],
     );
 
@@ -102,13 +102,13 @@ router.get('/clients/:id', requirePermission('clients.view'), async (req, res, n
 
     // ---- connection logs (most-recent 500 rows) ---------------------------
     const [connectionLogs] = await db.query(
-      'SELECT id, username, ip_address, mac_address, nas_id, session_start, session_stop, bytes_in, bytes_out FROM connection_logs WHERE client_id = ? ORDER BY session_start DESC LIMIT 500',
+      'SELECT id, username, ip_address, calling_station_id AS mac_address, nas_id, event_type, event_at, bytes_in, bytes_out FROM connection_logs WHERE client_id = ? ORDER BY event_at DESC LIMIT 500',
       [id],
     );
 
     // ---- IP assignments ---------------------------------------------------
     const [ipAssignments] = await db.query(
-      'SELECT id, ip_address, type, status, assigned_at, released_at FROM ip_assignments WHERE client_id = ? ORDER BY id',
+      'SELECT id, ip_address, type, status, assigned_at, expires_at AS released_at FROM ip_assignments WHERE client_id = ? ORDER BY id',
       [id],
     );
 
@@ -164,11 +164,12 @@ router.get('/clients/:id', requirePermission('clients.view'), async (req, res, n
 router.get('/requests', requirePermission('dsar_requests.view'), async (req, res, next) => {
   try {
     const { page = 1, limit = 50 } = req.query;
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const safeLimit = Math.max(1, parseInt(limit, 10) || 50);
+    const safeOffset = Math.max(0, (parseInt(page, 10) - 1) * safeLimit);
 
     const [rows] = await db.query(
-      'SELECT * FROM dsar_requests WHERE organization_id = ? ORDER BY requested_at DESC LIMIT ? OFFSET ?',
-      [req.orgId, parseInt(limit, 10), offset],
+      `SELECT * FROM dsar_requests WHERE organization_id = ? ORDER BY requested_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      [req.orgId],
     );
     const [countResult] = await db.query(
       'SELECT COUNT(*) AS total FROM dsar_requests WHERE organization_id = ?',

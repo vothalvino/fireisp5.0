@@ -9,14 +9,17 @@ class SnmpProfile extends BaseModel {
 
   static get fillable() {
     return [
-      'organization_id', 'name', 'manufacturer', 'model_pattern',
+      'name', 'manufacturer', 'model_pattern',
       'device_type', 'snmp_version', 'poll_interval_sec', 'description',
       'is_default', 'status',
     ];
   }
 
-  static get hasOrgScope() { return true; }
+  // snmp_profiles has no organization_id column (single-tenant per ISP), so
+  // org scoping is disabled to avoid "Unknown column 'organization_id'" errors.
+  static get hasOrgScope() { return false; }
 
+  // snmp_profiles has a deleted_at column, so soft-delete stays enabled.
   static get softDelete() { return true; }
 
   static async getOids(profileId) {

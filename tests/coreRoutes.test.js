@@ -414,8 +414,8 @@ describe('Payment Routes — /api/payments', () => {
     client_id: 10,
     amount: 578.84,
     currency: 'MXN',
-    payment_method: 'transfer',
-    reference: 'REF-001',
+    payment_method: 'bank_transfer',
+    reference_number: 'REF-001',
     status: 'completed',
   };
 
@@ -482,7 +482,7 @@ describe('Payment Routes — /api/payments', () => {
       const res = await request(app)
         .post('/api/payments')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ client_id: 10, amount: 578.84, payment_method: 'transfer' });
+        .send({ client_id: 10, amount: 578.84, payment_method: 'bank_transfer' });
 
       expect(res.status).toBe(201);
       expect(res.body.data.id).toBe(2);

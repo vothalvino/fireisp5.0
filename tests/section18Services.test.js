@@ -137,8 +137,12 @@ describe('scriptingService', () => {
         .mockResolvedValueOnce(mockCount(100));
       await svc.listScripts(1, { page: 3, limit: 10 });
       // offset = (3-1) * 10 = 20
+      // LIMIT/OFFSET are interpolated as validated integer literals, not bound params.
+      const sql = db.query.mock.calls[0][0];
+      expect(sql).toContain('LIMIT 10 OFFSET 20');
       const params = db.query.mock.calls[0][1];
-      expect(params).toContain(10);  // limit
+      expect(params).not.toContain(10);  // limit no longer a bound param
+      expect(params).not.toContain(20);  // offset no longer a bound param
     });
   });
 
@@ -306,8 +310,12 @@ describe('scriptingService', () => {
         .mockResolvedValueOnce(mockRows([]))
         .mockResolvedValueOnce(mockCount(0));
       await svc.listExecutions(1, { page: 2, limit: 25 });
+      // offset = (2-1) * 25 = 25
+      // LIMIT/OFFSET are interpolated as validated integer literals, not bound params.
+      const sql = db.query.mock.calls[0][0];
+      expect(sql).toContain('LIMIT 25 OFFSET 25');
       const params = db.query.mock.calls[0][1];
-      expect(params).toContain(25);  // limit
+      expect(params).not.toContain(25);  // limit no longer a bound param
     });
   });
 });

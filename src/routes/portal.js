@@ -221,8 +221,8 @@ router.get('/invoices', apiLimiter, async (req, res, next) => {
               currency, period_start, period_end, due_date, paid_at, status, created_at
        FROM invoices ${whereClause}
        ORDER BY created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, limit, offset],
+       LIMIT ${limit} OFFSET ${offset}`,
+      params,
     );
 
     const [[{ total: count }]] = await db.query(
@@ -317,8 +317,8 @@ router.get('/tickets', apiLimiter, async (req, res, next) => {
       `SELECT id, subject, priority, category, status, created_at, updated_at
        FROM tickets ${whereClause}
        ORDER BY created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, limit, offset],
+       LIMIT ${limit} OFFSET ${offset}`,
+      params,
     );
 
     const [[{ total: count }]] = await db.query(
@@ -721,8 +721,8 @@ router.get('/payments', apiLimiter, async (req, res, next) => {
        FROM payments p
        WHERE p.client_id = ? AND p.deleted_at IS NULL
        ORDER BY p.payment_date DESC, p.created_at DESC
-       LIMIT ? OFFSET ?`,
-      [req.client.id, limit, offset],
+       LIMIT ${limit} OFFSET ${offset}`,
+      [req.client.id],
     );
 
     const [[{ total }]] = await db.query(
@@ -908,8 +908,8 @@ router.get('/speed-test/results', apiLimiter, async (req, res, next) => {
        FROM subscriber_speed_test_jobs
        WHERE contract_id = ?
        ORDER BY created_at DESC
-       LIMIT ? OFFSET ?`,
-      [contracts[0].id, limit, offset],
+       LIMIT ${limit} OFFSET ${offset}`,
+      [contracts[0].id],
     );
 
     const [[{ total }]] = await db.query(

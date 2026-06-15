@@ -54,8 +54,8 @@ router.get('/', requirePermission('remediation_rules.view'), async (req, res, ne
 
     const where = conditions.join(' AND ');
     const [rows] = await db.query(
-      `SELECT * FROM remediation_rules WHERE ${where} ORDER BY name ASC LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset],
+      `SELECT * FROM remediation_rules WHERE ${where} ORDER BY name ASC LIMIT ${limitNum} OFFSET ${offset}`,
+      params,
     );
     const [countResult] = await db.query(`SELECT COUNT(*) AS total FROM remediation_rules WHERE ${where}`, params);
     res.json({ data: rows, meta: { total: countResult[0].total, page: pageNum, limit: limitNum } });

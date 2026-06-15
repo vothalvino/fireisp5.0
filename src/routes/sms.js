@@ -33,7 +33,7 @@ router.get('/logs', requirePermission('read'), async (req, res) => {
   const offset = (Math.max(parseInt(page, 10) || 1, 1) - 1) * limit;
 
   let where  = 'WHERE sl.organization_id = ?';
-  const params = [req.organizationId];
+  const params = [req.orgId];
 
   if (status)   { where += ' AND sl.status = ?';       params.push(status); }
   if (channel)  { where += ' AND sl.channel = ?';      params.push(channel); }
@@ -48,10 +48,10 @@ router.get('/logs', requirePermission('read'), async (req, res) => {
       LEFT JOIN clients c ON c.id = sl.client_id
      ${where}
      ORDER BY sl.created_at DESC
-     LIMIT ? OFFSET ?`;
+     LIMIT ${limit} OFFSET ${offset}`;
 
   const [[{ total }]] = await db.query(countSql, params);
-  const [rows]        = await db.query(dataSql, [...params, limit, offset]);
+  const [rows]        = await db.query(dataSql, params);
 
   res.json({
     data:  rows,
@@ -76,7 +76,7 @@ router.post('/send', requirePermission('write'), validate(sendSchema), async (re
   const { to, body, channel = 'sms', clientId = null, templateId = null } = req.body;
 
   const result = await smsTransport.sendSms({
-    organizationId: req.organizationId,
+    organizationId: req.orgId,
     clientId,
     to,
     body,
@@ -99,7 +99,7 @@ router.post('/logs/:id/retry', requirePermission('write'), async (req, res) => {
   // Verify the log belongs to this org
   const [rows] = await db.query(
     'SELECT id FROM sms_logs WHERE id = ? AND organization_id = ?',
-    [logId, req.organizationId],
+    [logId, req.orgId],
   );
   if (!rows[0]) return res.status(404).json({ error: 'SMS log not found' });
 

@@ -342,8 +342,8 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       client_id: 10,
       amount: 694.84,
       currency: 'MXN',
-      payment_method: 'transfer',
-      reference: 'SPEI-20260301-001',
+      payment_method: 'bank_transfer',
+      reference_number: 'SPEI-20260301-001',
       status: 'completed',
     };
 
@@ -637,7 +637,7 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
         .mockResolvedValueOnce([[{
           id: 300, organization_id: 1, client_id: clientId,
           amount: 694.84, currency: 'MXN',
-          payment_method: 'transfer', reference: 'SPEI-001',
+          payment_method: 'bank_transfer', reference_number: 'SPEI-001',
           status: 'completed',
         }]])
         .mockResolvedValueOnce([{ insertId: 1 }]);
@@ -647,7 +647,7 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           client_id: clientId, amount: 694.84, currency: 'MXN',
-          payment_method: 'transfer', reference: 'SPEI-001',
+          payment_method: 'bank_transfer', reference_number: 'SPEI-001',
           status: 'completed',
         });
 

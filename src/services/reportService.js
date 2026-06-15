@@ -661,6 +661,7 @@ async function bandwidthUtilization(organizationId, { days = 30 } = {}) {
  * Top Consumers — devices with highest total data transfer over a period.
  */
 async function topConsumers(organizationId, { days = 30, limit = 10 } = {}) {
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 10);
   const [rows] = await db.queryReplica(`
     SELECT
       m.device_id,
@@ -674,8 +675,8 @@ async function topConsumers(organizationId, { days = 30, limit = 10 } = {}) {
       AND m.period_start >= DATE_SUB(NOW(), INTERVAL ? DAY)
     GROUP BY m.device_id, d.name
     ORDER BY total_gb DESC
-    LIMIT ?
-  `, [organizationId, days, limit]);
+    LIMIT ${safeLimit}
+  `, [organizationId, days]);
 
   return {
     generated_at: new Date().toISOString(),

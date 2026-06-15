@@ -10,7 +10,7 @@ class Payment extends BaseModel {
   static get fillable() {
     return [
       'organization_id', 'client_id', 'amount', 'currency',
-      'payment_method', 'payment_date', 'reference', 'sat_forma_pago',
+      'payment_method', 'payment_date', 'reference_number', 'sat_forma_pago',
       'clabe', 'bank_name', 'status', 'notes',
     ];
   }

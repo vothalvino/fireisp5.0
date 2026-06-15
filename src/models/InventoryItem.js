@@ -9,8 +9,8 @@ class InventoryItem extends BaseModel {
 
   static get fillable() {
     return [
-      'organization_id', 'name', 'sku', 'category', 'description',
-      'unit_price', 'reorder_level', 'status',
+      'organization_id', 'name', 'sku', 'category', 'manufacturer', 'model',
+      'description', 'unit', 'unit_cost', 'sale_price', 'reorder_level', 'notes', 'status',
     ];
   }
 

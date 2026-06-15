@@ -174,7 +174,7 @@ describe('billingService', () => {
   // =========================================================================
   describe('recordPaymentCredit', () => {
     test('inserts credit entry into client_balance_ledger', async () => {
-      const payment = { id: 77, client_id: 100, amount: '500.00', currency: 'MXN', reference: 'PAY-001' };
+      const payment = { id: 77, client_id: 100, amount: '500.00', currency: 'MXN', reference_number: 'PAY-001' };
       db.query.mockResolvedValueOnce([{ insertId: 1 }]);
 
       await billingService.recordPaymentCredit(payment, 42);
@@ -186,7 +186,7 @@ describe('billingService', () => {
     });
 
     test('uses default currency when payment has no currency', async () => {
-      const payment = { id: 78, client_id: 101, amount: '100.00', reference: null };
+      const payment = { id: 78, client_id: 101, amount: '100.00', reference_number: null };
       db.query.mockResolvedValueOnce([{ insertId: 2 }]);
 
       await billingService.recordPaymentCredit(payment, 42);

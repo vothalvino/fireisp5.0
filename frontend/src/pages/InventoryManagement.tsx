@@ -24,7 +24,10 @@ interface InventoryItem {
   name: string;
   sku: string | null;
   category: string | null;
-  quantity_on_hand: number;
+  // quantity_on_hand lives in inventory_stock (separate table); the /inventory/items
+  // endpoint (SELECT * on inventory_items) does not include it. Typed as optional
+  // so renders show '—' rather than undefined when absent.
+  quantity_on_hand?: number | null;
   reorder_level: number | null;
   unit_cost: number | null;
   status: string;
@@ -73,7 +76,7 @@ interface RmaRequest {
 
 interface ListResponse<T> {
   data: T[];
-  meta: { total: number; page: number; limit: number };
+  meta: { total: number; page: number; limit: number; totalPages?: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -166,7 +169,7 @@ export function InventoryManagement() {
     queryFn: () => fetchAssets(assetsPage),
     enabled: tab === 'assets',
   });
-  const assetsTotalPages = Math.ceil((assetsQ.data?.meta.total ?? 0) / PAGE_SIZE) || 1;
+  const assetsTotalPages = assetsQ.data?.meta.totalPages ?? (Math.ceil((assetsQ.data?.meta.total ?? 0) / PAGE_SIZE) || 1);
 
   // Vendors tab
   const [vendorsPage, setVendorsPage] = useState(1);
@@ -207,8 +210,8 @@ export function InventoryManagement() {
     );
   }
 
-  function lowStockColor(qty: number, reorder: number | null) {
-    if (reorder !== null && qty <= reorder) return '#dc2626';
+  function lowStockColor(qty: number | null | undefined, reorder: number | null) {
+    if (qty != null && reorder !== null && qty <= reorder) return '#dc2626';
     return 'inherit';
   }
 
@@ -269,7 +272,7 @@ export function InventoryManagement() {
           {/* Low-stock alert banner */}
           {stockQ.data && (() => {
             const lowItems = stockQ.data.data.filter(
-              i => i.reorder_level !== null && i.quantity_on_hand <= i.reorder_level,
+              i => i.reorder_level !== null && i.quantity_on_hand != null && i.quantity_on_hand <= i.reorder_level,
             );
             return lowItems.length > 0 ? (
               <div style={{ background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: 6, padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.875rem', color: '#92400e' }}>
@@ -306,7 +309,7 @@ export function InventoryManagement() {
                         <td style={styles.td}>{item.category ?? '—'}</td>
                         <td style={styles.tdNum}>
                           <span style={{ color: lowStockColor(item.quantity_on_hand, item.reorder_level), fontWeight: 700 }}>
-                            {item.quantity_on_hand}
+                            {item.quantity_on_hand != null ? item.quantity_on_hand : '—'}
                           </span>
                         </td>
                         <td style={styles.tdNum}>{item.reorder_level ?? '—'}</td>

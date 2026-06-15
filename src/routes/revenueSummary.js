@@ -28,10 +28,12 @@ router.get('/', requirePermission('revenue_summary.view'), async (req, res, next
 
     const where = conditions.join(' AND ');
     const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const safeLimit = Math.max(1, parseInt(limit, 10) || 50);
+    const safeOffset = Math.max(0, offset || 0);
 
     const [rows] = await db.query(
-      `SELECT * FROM revenue_summary WHERE ${where} ORDER BY period_date DESC LIMIT ? OFFSET ?`,
-      [...params, parseInt(limit, 10), offset],
+      `SELECT * FROM revenue_summary WHERE ${where} ORDER BY period_date DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      params,
     );
     const [countResult] = await db.query(
       `SELECT COUNT(*) AS total FROM revenue_summary WHERE ${where}`,

@@ -31,11 +31,12 @@ router.get('/', requirePermission('audit_logs.view'), async (req, res, next) => 
     if (date_to) { conditions.push('created_at <= ?'); params.push(date_to); }
 
     const where = conditions.join(' AND ');
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const safeLimit = Math.max(1, parseInt(limit, 10) || 50);
+    const safeOffset = Math.max(0, (Math.max(1, parseInt(page, 10) || 1) - 1) * safeLimit);
 
     const [rows] = await db.query(
-      `SELECT * FROM audit_logs WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-      [...params, parseInt(limit, 10), offset],
+      `SELECT * FROM audit_logs WHERE ${where} ORDER BY created_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      params,
     );
     const [countResult] = await db.query(
       `SELECT COUNT(*) AS total FROM audit_logs WHERE ${where}`,
@@ -92,11 +93,12 @@ router.get('/export', requirePermission('audit_export.view'), async (req, res, n
 router.get('/report-access-logs', requirePermission('report_access_logs.view'), async (req, res, next) => {
   try {
     const { page = 1, limit = 50 } = req.query;
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const safeLimit = Math.max(1, parseInt(limit, 10) || 50);
+    const safeOffset = Math.max(0, (Math.max(1, parseInt(page, 10) || 1) - 1) * safeLimit);
 
     const [rows] = await db.query(
-      'SELECT * FROM report_access_logs WHERE organization_id = ? ORDER BY accessed_at DESC LIMIT ? OFFSET ?',
-      [req.orgId, parseInt(limit, 10), offset],
+      `SELECT * FROM report_access_logs WHERE organization_id = ? ORDER BY accessed_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      [req.orgId],
     );
     const [countResult] = await db.query(
       'SELECT COUNT(*) AS total FROM report_access_logs WHERE organization_id = ?',

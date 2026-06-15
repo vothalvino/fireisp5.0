@@ -247,9 +247,9 @@ async function summarize(contractId) {
   if (deviceIds.length > 0) {
     const placeholders = deviceIds.map(() => '?').join(', ');
     const [outageRows] = await db.query(
-      `SELECT id, title, severity, start_time, device_id, site_id
+      `SELECT id, title, severity, started_at AS start_time, device_id, site_id
        FROM outages
-       WHERE status = 'active'
+       WHERE status = 'ongoing'
          AND deleted_at IS NULL
          AND device_id IN (${placeholders})`,
       deviceIds,

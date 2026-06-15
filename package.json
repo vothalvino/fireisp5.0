@@ -58,7 +58,9 @@
     ],
     "auditConfig": {
       "ignoreGhsas": [
-        "GHSA-gv7w-rqvm-qjhr"
+        "GHSA-gv7w-rqvm-qjhr",
+        "GHSA-hmw2-7cc7-3qxx",
+        "GHSA-fx2h-pf6j-xcff"
       ]
     }
   },
@@ -89,7 +91,7 @@
     "pdfkit": "^0.18.0",
     "pino": "^10.3.1",
     "web-push": "^3.6.7",
-    "ws": "^8.20.1"
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

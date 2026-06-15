@@ -40,6 +40,7 @@ export function PortalKb() {
   const [category, setCategory] = useState('');
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [rated, setRated] = useState<Set<string>>(new Set());
+  const [rateError, setRateError] = useState<string | null>(null);
   const qc = useQueryClient();
 
   const { data: listData, isLoading } = useQuery({
@@ -67,8 +68,12 @@ export function PortalKb() {
         body: JSON.stringify({ helpful }),
       }),
     onSuccess: (_, { slug }) => {
+      setRateError(null);
       setRated(r => new Set(r).add(slug));
       qc.invalidateQueries({ queryKey: ['portal-kb-article', slug] });
+    },
+    onError: (e: Error) => {
+      setRateError(e.message || 'Failed to submit feedback. Please try again.');
     },
   });
 
@@ -97,16 +102,21 @@ export function PortalKb() {
                 <button
                   style={styles.helpBtn}
                   onClick={() => rateMutation.mutate({ slug: article.slug, helpful: true })}
+                  disabled={rateMutation.isPending}
                 >
                   Yes ({article.helpful_yes})
                 </button>
                 <button
                   style={styles.helpBtn}
                   onClick={() => rateMutation.mutate({ slug: article.slug, helpful: false })}
+                  disabled={rateMutation.isPending}
                 >
                   No ({article.helpful_no})
                 </button>
               </>
+            )}
+            {rateError && (
+              <span style={styles.rateError}>{rateError}</span>
             )}
           </div>
         </article>
@@ -189,4 +199,5 @@ const styles: Record<string, React.CSSProperties> = {
   helpful: { marginTop: '2rem', paddingTop: '1rem', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '0.75rem' },
   helpfulLabel: { fontSize: '0.875rem', color: 'var(--text-muted)' },
   helpBtn: { padding: '0.3rem 0.75rem', border: '1px solid var(--border-strong)', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem', background: 'var(--bg-card)', color: 'var(--text-secondary)' },
+  rateError: { color: '#991b1b', fontSize: '0.8rem' },
 };

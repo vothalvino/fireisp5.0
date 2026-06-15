@@ -421,9 +421,13 @@ describe('radiusAccountingService', () => {
       await listMacMoveEvents(1, { page: 2, limit: 10 });
 
       const [sql, params] = db.query.mock.calls[1];
-      expect(sql).toContain('LIMIT ? OFFSET ?');
-      expect(params[1]).toBe(10);   // limit
-      expect(params[2]).toBe(10);   // offset = (2-1) * 10
+      // LIMIT/OFFSET are now interpolated as validated integer literals
+      // (MySQL8 pool.execute() rejects bound '?' placeholders for LIMIT/OFFSET).
+      expect(sql).toContain('LIMIT 10 OFFSET 10');   // limit=10, offset=(2-1)*10
+      expect(sql).not.toContain('LIMIT ? OFFSET ?');
+      // params now carries only the organizationId — no limit/offset placeholders.
+      expect(params).toEqual([1]);
+      expect(params).toHaveLength(1);
     });
   });
 });

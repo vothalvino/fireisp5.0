@@ -39,14 +39,14 @@ async function getNetworkGraph(orgId, layer = null) {
 
   let edgeSql = `
     SELECT nl.id, nl.device_a_id, nl.device_b_id, nl.medium, nl.role,
-           nl.status, nl.bandwidth_mbps,
-           sm.ifInOctets, sm.ifOutOctets
+           nl.status, nl.capacity_mbps AS bandwidth_mbps,
+           sm.if_in_octets, sm.if_out_octets
      FROM network_links nl
      LEFT JOIN (
        SELECT device_id,
               MAX(id) AS max_id,
-              SUM(ifInOctets)  AS ifInOctets,
-              SUM(ifOutOctets) AS ifOutOctets
+              SUM(if_in_octets)  AS if_in_octets,
+              SUM(if_out_octets) AS if_out_octets
        FROM snmp_metrics
        WHERE polled_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
        GROUP BY device_id
@@ -70,8 +70,8 @@ async function getNetworkGraph(orgId, layer = null) {
   // Compute utilization percentage per edge (0-100, null if no metrics)
   const enrichedEdges = edges.map(e => {
     let utilization = null;
-    if (e.bandwidth_mbps && (e.ifInOctets || e.ifOutOctets)) {
-      const maxOctets = Math.max(e.ifInOctets || 0, e.ifOutOctets || 0);
+    if (e.bandwidth_mbps && (e.if_in_octets || e.if_out_octets)) {
+      const maxOctets = Math.max(e.if_in_octets || 0, e.if_out_octets || 0);
       // Rough 5-minute byte-to-bps conversion → utilization %
       const bps = (maxOctets * 8) / 300;
       const capacityBps = e.bandwidth_mbps * 1_000_000;
@@ -146,7 +146,7 @@ async function getCoverageData(orgId) {
  */
 async function getFiberRoutes(orgId) {
   const [routes] = await db.query(
-    `SELECT fr.id, fr.name, fr.status, fr.total_length_m, fr.notes,
+    `SELECT fr.id, fr.name, fr.status, fr.cable_length_m AS total_length_m, fr.notes,
             fr.gis_path
      FROM fiber_routes fr
      WHERE fr.organization_id = ? AND fr.deleted_at IS NULL`,

@@ -546,8 +546,7 @@ async function runFtthOpticalMetricsCleanup() {
     const [result] = await db.query(
       `DELETE FROM onu_optical_metrics
        WHERE polled_at < DATE_SUB(NOW(), INTERVAL 90 DAY)
-       LIMIT ?`,
-      [BATCH_SIZE],
+       LIMIT ${BATCH_SIZE}`,
     );
     batchDeleted = result.affectedRows || 0;
     totalDeleted += batchDeleted;

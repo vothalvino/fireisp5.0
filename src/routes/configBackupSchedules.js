@@ -17,7 +17,7 @@ router.use(orgScope);
 
 router.get('/', requirePermission('config_backup_schedules.view'), async (req, res, next) => {
   try {
-    const orgId = req.organizationId;
+    const orgId = req.orgId;
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, parseInt(req.query.limit) || 25);
     const offset = (page - 1) * limit;
@@ -26,8 +26,8 @@ router.get('/', requirePermission('config_backup_schedules.view'), async (req, r
       [orgId],
     );
     const [rows] = await db.query(
-      'SELECT * FROM config_backup_schedules WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?',
-      [orgId, limit, offset],
+      `SELECT * FROM config_backup_schedules WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      [orgId],
     );
     res.json({ data: rows, meta: { total, page, limit } });
   } catch (err) { next(err); }
@@ -35,7 +35,7 @@ router.get('/', requirePermission('config_backup_schedules.view'), async (req, r
 
 router.post('/', requirePermission('config_backup_schedules.create'), validate(createSchedule), async (req, res, next) => {
   try {
-    const orgId = req.organizationId;
+    const orgId = req.orgId;
     const { schedule_name, device_id, cron_expression, is_enabled } = req.body;
     const [result] = await db.query(
       `INSERT INTO config_backup_schedules (organization_id, device_id, schedule_name, cron_expression, is_enabled)
@@ -49,7 +49,7 @@ router.post('/', requirePermission('config_backup_schedules.create'), validate(c
 
 router.put('/:id', requirePermission('config_backup_schedules.update'), validate(updateSchedule), async (req, res, next) => {
   try {
-    const orgId = req.organizationId;
+    const orgId = req.orgId;
     const { id } = req.params;
     const [[existing]] = await db.query(
       'SELECT id FROM config_backup_schedules WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
@@ -78,7 +78,7 @@ router.put('/:id', requirePermission('config_backup_schedules.update'), validate
 
 router.delete('/:id', requirePermission('config_backup_schedules.delete'), async (req, res, next) => {
   try {
-    const orgId = req.organizationId;
+    const orgId = req.orgId;
     const { id } = req.params;
     const [result] = await db.query(
       'UPDATE config_backup_schedules SET deleted_at = NOW() WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',

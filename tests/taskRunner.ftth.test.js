@@ -155,10 +155,16 @@ describe('taskRunner — ftth_onu_optical_metrics_cleanup (migration 269)', () =
     const result = await runTask('ftth_onu_optical_metrics_cleanup');
 
     expect(result).toEqual({ deleted: 42 });
+    // BATCH_SIZE is now interpolated as a validated integer LITERAL into the SQL
+    // ('LIMIT 10000') instead of being passed as a bound '?' placeholder, because
+    // MySQL8 pool.execute() rejects bound LIMIT values. db.query is therefore
+    // called with a SINGLE argument (the SQL string) and no params array.
     expect(mockQuery).toHaveBeenCalledWith(
       expect.stringContaining('DELETE FROM onu_optical_metrics'),
-      [10000],
     );
+    const [sql, ...rest] = mockQuery.mock.calls[0];
+    expect(sql).toContain('LIMIT 10000');
+    expect(rest).toHaveLength(0);
   });
 
   it('loops until batch returns fewer than BATCH_SIZE rows', async () => {

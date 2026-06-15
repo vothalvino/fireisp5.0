@@ -69,8 +69,8 @@ interface NasSummaryResponse {
 }
 
 interface BatchDisconnectResponse {
-  succeeded: number;
-  failed: number;
+  data: Array<{ username: string; success: boolean; error?: string }>;
+  meta: { total: number; succeeded: number; failed: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -361,7 +361,7 @@ export function RadiusSessions() {
       qc.invalidateQueries({ queryKey: ['radius-active-sessions'] });
       setSelectedIds(new Set());
     } catch {
-      setBatchResult({ succeeded: 0, failed: selectedIds.size });
+      setBatchResult({ data: [], meta: { total: selectedIds.size, succeeded: 0, failed: selectedIds.size } });
     } finally {
       setBatchDisconnecting(false);
     }
@@ -492,8 +492,8 @@ export function RadiusSessions() {
           {batchResult && (
             <span style={s.batchResult}>
               {t('radius_sessions.batch_success', {
-                succeeded: batchResult.succeeded,
-                failed: batchResult.failed,
+                succeeded: batchResult.meta.succeeded,
+                failed: batchResult.meta.failed,
               })}
             </span>
           )}
@@ -504,8 +504,8 @@ export function RadiusSessions() {
       {batchResult && selectedIds.size === 0 && (
         <div style={s.batchResultBar}>
           {t('radius_sessions.batch_success', {
-            succeeded: batchResult.succeeded,
-            failed: batchResult.failed,
+            succeeded: batchResult.meta.succeeded,
+            failed: batchResult.meta.failed,
           })}
           <button style={s.batchDismissBtn} onClick={() => setBatchResult(null)}>✕</button>
         </div>

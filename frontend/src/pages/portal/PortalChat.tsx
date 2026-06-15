@@ -54,11 +54,13 @@ export function PortalChat() {
   const [escalated, setEscalated] = useState(false);
   const [ticketId, setTicketId] = useState<number | null>(null);
   const [status, setStatus] = useState<string>('idle');
+  const [startError, setStartError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const startMutation = useMutation({
     mutationFn: () => portalPost<{ data: ChatSession }>('/chat/start'),
     onSuccess: ({ data }) => {
+      setStartError(null);
       setSession(data);
       setStatus('active');
       setMessages([{
@@ -66,6 +68,9 @@ export function PortalChat() {
         content: 'Hello! I\'m your virtual assistant. How can I help you today?',
         ts: new Date().toISOString(),
       }]);
+    },
+    onError: (e: Error) => {
+      setStartError(e.message || 'Failed to start chat. Please try again.');
     },
   });
 
@@ -117,6 +122,9 @@ export function PortalChat() {
             Our AI assistant can help with billing questions, plan information, connectivity issues, and more.
             If it cannot resolve your issue, it will automatically create a support ticket.
           </p>
+          {startError && (
+            <div style={styles.startError}>{startError}</div>
+          )}
           <button
             style={styles.startBtn}
             onClick={() => startMutation.mutate()}
@@ -194,6 +202,7 @@ const styles: Record<string, React.CSSProperties> = {
   muted: { color: 'var(--text-muted)', fontSize: '0.875rem', marginTop: '0.75rem' },
   startCard: { background: 'var(--bg-card)', borderRadius: 8, padding: '1.5rem', boxShadow: '0 0 0 1px var(--border)', maxWidth: 500 },
   startBtn: { padding: '0.6rem 1.5rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.95rem', fontWeight: 600 },
+  startError: { padding: '0.6rem 0.75rem', background: '#fee2e2', color: '#991b1b', borderRadius: 4, fontSize: '0.875rem', marginBottom: '0.75rem' },
   escalatedBanner: { background: '#dbeafe', color: '#1e40af', borderRadius: 6, padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.875rem' },
   chatBox: { background: 'var(--bg-card)', borderRadius: 8, boxShadow: '0 0 0 1px var(--border)', display: 'flex', flexDirection: 'column', height: 480 },
   messages: { flex: 1, overflowY: 'auto' as const, padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' },

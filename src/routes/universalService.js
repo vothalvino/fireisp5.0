@@ -28,11 +28,12 @@ router.get('/uso-obligations', requirePermission('uso_obligations.view'), async 
     if (obligation_type) { conditions.push('obligation_type = ?'); params.push(obligation_type); }
 
     const where = conditions.join(' AND ');
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const safeLimit = Math.max(1, parseInt(limit, 10) || 50);
+    const safeOffset = Math.max(0, (parseInt(page, 10) - 1) * safeLimit);
 
     const [rows] = await db.query(
-      `SELECT * FROM uso_obligations WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-      [...params, parseInt(limit, 10), offset],
+      `SELECT * FROM uso_obligations WHERE ${where} ORDER BY created_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      params,
     );
     const [countResult] = await db.query(
       `SELECT COUNT(*) AS total FROM uso_obligations WHERE ${where}`,
@@ -141,11 +142,12 @@ router.get('/rural-coverage', requirePermission('rural_coverage.view'), async (r
     if (is_underserved !== undefined) { conditions.push('is_underserved = ?'); params.push(is_underserved); }
 
     const where = conditions.join(' AND ');
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const safeLimit = Math.max(1, parseInt(limit, 10) || 50);
+    const safeOffset = Math.max(0, (parseInt(page, 10) - 1) * safeLimit);
 
     const [rows] = await db.query(
-      `SELECT * FROM rural_coverage_reports WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-      [...params, parseInt(limit, 10), offset],
+      `SELECT * FROM rural_coverage_reports WHERE ${where} ORDER BY created_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      params,
     );
     const [countResult] = await db.query(
       `SELECT COUNT(*) AS total FROM rural_coverage_reports WHERE ${where}`,

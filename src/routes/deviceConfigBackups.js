@@ -50,7 +50,7 @@ router.post('/compliance-run', requirePermission('config_compliance.run'), async
   try {
     const { backup_id } = req.body;
     if (!backup_id) return res.status(400).json({ error: 'backup_id is required' });
-    const orgId = req.organizationId;
+    const orgId = req.orgId;
     const stats = await configBackupService.runComplianceAudit(Number(backup_id), orgId);
     res.json({ data: stats });
   } catch (err) { next(err); }
@@ -61,7 +61,7 @@ router.post('/compliance-run', requirePermission('config_compliance.run'), async
 // ---------------------------------------------------------------------------
 router.get('/compliance-results', requirePermission('config_compliance.view'), async (req, res, next) => {
   try {
-    const orgId = req.organizationId;
+    const orgId = req.orgId;
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, parseInt(req.query.limit) || 25);
     const offset = (page - 1) * limit;
@@ -75,8 +75,8 @@ router.get('/compliance-results', requirePermission('config_compliance.view'), a
       params,
     );
     const [rows] = await db.query(
-      `SELECT cr.* FROM config_compliance_results cr JOIN config_compliance_rules ccr ON ccr.id = cr.rule_id ${where} ORDER BY cr.evaluated_at DESC LIMIT ? OFFSET ?`,
-      [...params, limit, offset],
+      `SELECT cr.* FROM config_compliance_results cr JOIN config_compliance_rules ccr ON ccr.id = cr.rule_id ${where} ORDER BY cr.evaluated_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      params,
     );
     res.json({ data: rows, meta: { total, page, limit } });
   } catch (err) { next(err); }

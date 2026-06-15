@@ -19,7 +19,7 @@ router.use(orgScope);
 // GET /results — list compliance results (before /:id to avoid route collision)
 router.get('/results', requirePermission('config_compliance.view'), async (req, res, next) => {
   try {
-    const orgId = req.organizationId;
+    const orgId = req.orgId;
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, parseInt(req.query.limit) || 25);
     const offset = (page - 1) * limit;
@@ -33,8 +33,8 @@ router.get('/results', requirePermission('config_compliance.view'), async (req, 
       params,
     );
     const [rows] = await db.query(
-      `SELECT cr.* FROM config_compliance_results cr JOIN config_compliance_rules ccr ON ccr.id = cr.rule_id ${where} ORDER BY cr.evaluated_at DESC LIMIT ? OFFSET ?`,
-      [...params, limit, offset],
+      `SELECT cr.* FROM config_compliance_results cr JOIN config_compliance_rules ccr ON ccr.id = cr.rule_id ${where} ORDER BY cr.evaluated_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      params,
     );
     res.json({ data: rows, meta: { total, page, limit } });
   } catch (err) { next(err); }
@@ -43,7 +43,7 @@ router.get('/results', requirePermission('config_compliance.view'), async (req, 
 // POST /run — run compliance audit
 router.post('/run', requirePermission('config_compliance.run'), async (req, res, next) => {
   try {
-    const orgId = req.organizationId;
+    const orgId = req.orgId;
     const { backup_id } = req.body;
     if (!backup_id) return res.status(400).json({ error: 'backup_id is required' });
     const stats = await runComplianceAudit(Number(backup_id), orgId);
@@ -54,7 +54,7 @@ router.post('/run', requirePermission('config_compliance.run'), async (req, res,
 // GET / — list rules
 router.get('/', requirePermission('config_compliance.view'), async (req, res, next) => {
   try {
-    const orgId = req.organizationId;
+    const orgId = req.orgId;
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, parseInt(req.query.limit) || 25);
     const offset = (page - 1) * limit;
@@ -63,8 +63,8 @@ router.get('/', requirePermission('config_compliance.view'), async (req, res, ne
       [orgId],
     );
     const [rows] = await db.query(
-      'SELECT * FROM config_compliance_rules WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?',
-      [orgId, limit, offset],
+      `SELECT * FROM config_compliance_rules WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      [orgId],
     );
     res.json({ data: rows, meta: { total, page, limit } });
   } catch (err) { next(err); }
@@ -73,7 +73,7 @@ router.get('/', requirePermission('config_compliance.view'), async (req, res, ne
 // POST / — create rule
 router.post('/', requirePermission('config_compliance.create'), validate(createRule), async (req, res, next) => {
   try {
-    const orgId = req.organizationId;
+    const orgId = req.orgId;
     const { name, description, rule_type, pattern, severity, applies_to_device_type, is_enabled } = req.body;
     const [result] = await db.query(
       `INSERT INTO config_compliance_rules (organization_id, name, description, rule_type, pattern, severity, applies_to_device_type, is_enabled)
@@ -89,7 +89,7 @@ router.post('/', requirePermission('config_compliance.create'), validate(createR
 // PUT /:id — update
 router.put('/:id', requirePermission('config_compliance.update'), validate(updateRule), async (req, res, next) => {
   try {
-    const orgId = req.organizationId;
+    const orgId = req.orgId;
     const { id } = req.params;
     const [[existing]] = await db.query(
       'SELECT id FROM config_compliance_rules WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
@@ -119,7 +119,7 @@ router.put('/:id', requirePermission('config_compliance.update'), validate(updat
 // DELETE /:id — soft delete
 router.delete('/:id', requirePermission('config_compliance.delete'), async (req, res, next) => {
   try {
-    const orgId = req.organizationId;
+    const orgId = req.orgId;
     const { id } = req.params;
     const [result] = await db.query(
       'UPDATE config_compliance_rules SET deleted_at = NOW() WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',

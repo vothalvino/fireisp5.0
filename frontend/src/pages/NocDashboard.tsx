@@ -14,11 +14,16 @@ import { styles } from './crudStyles';
 // Types
 // ---------------------------------------------------------------------------
 
+interface NetworkHealthDevices {
+  total_devices: number;
+  up: number;
+  down: number;
+  warning: number;
+}
+
 interface NetworkHealth {
-  devices_up: number;
-  devices_down: number;
-  devices_total: number;
-  uptime_pct: number | null;
+  devices: NetworkHealthDevices;
+  active_alerts: Array<{ severity: string; count: number }>;
 }
 
 interface AlarmSummary {
@@ -49,8 +54,8 @@ interface TicketQueueResponse {
 interface NocEvent {
   id: number;
   event_type: string;
-  description: string | null;
-  created_at: string;
+  detail: string | null;
+  occurred_at: string;
 }
 
 interface EventsResponse {
@@ -58,9 +63,10 @@ interface EventsResponse {
 }
 
 interface SlaCompliance {
-  total_tickets: number;
-  breached_tickets: number;
-  compliance_pct: number | null;
+  total: number;
+  compliant: number;
+  non_compliant: number;
+  compliance_pct: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -202,24 +208,30 @@ export function NocDashboard() {
             <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
               <div>
                 <div style={{ fontSize: '2rem', fontWeight: 700, color: '#059669' }}>
-                  {healthQ.data.devices_up}
+                  {healthQ.data.devices.up}
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t('noc.devicesUp')}</div>
               </div>
               <div>
                 <div style={{ fontSize: '2rem', fontWeight: 700, color: '#dc2626' }}>
-                  {healthQ.data.devices_down}
+                  {healthQ.data.devices.down}
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t('noc.devicesDown')}</div>
               </div>
-              {healthQ.data.uptime_pct !== null && (
+              {healthQ.data.devices.warning > 0 && (
                 <div>
-                  <div style={{ fontSize: '2rem', fontWeight: 700 }}>
-                    {healthQ.data.uptime_pct?.toFixed(1)}%
+                  <div style={{ fontSize: '2rem', fontWeight: 700, color: '#d97706' }}>
+                    {healthQ.data.devices.warning}
                   </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Uptime</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t('noc.devicesWarning')}</div>
                 </div>
               )}
+              <div>
+                <div style={{ fontSize: '2rem', fontWeight: 700 }}>
+                  {healthQ.data.devices.total_devices}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t('noc.devicesTotal')}</div>
+              </div>
             </div>
           )}
         </Panel>
@@ -302,11 +314,11 @@ export function NocDashboard() {
                 <span style={{ color: 'var(--text-secondary)' }}>{t('common.noResults')}</span>
               ) : (
                 eventsQ.data.data.slice(0, 5).map(ev => (
-                  <div key={ev.id} style={{ fontSize: '0.82rem', borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>
+                  <div key={`${ev.event_type}-${ev.id}`} style={{ fontSize: '0.82rem', borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>
                     <div style={{ fontWeight: 600 }}>{ev.event_type}</div>
-                    {ev.description && (
+                    {ev.detail && (
                       <div style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {ev.description}
+                        {ev.detail}
                       </div>
                     )}
                   </div>
@@ -325,18 +337,18 @@ export function NocDashboard() {
           {slaQ.data && (
             <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
               <div>
-                <div style={{ fontSize: '2rem', fontWeight: 700, color: slaQ.data.compliance_pct !== null && slaQ.data.compliance_pct >= 90 ? '#059669' : '#dc2626' }}>
-                  {slaQ.data.compliance_pct !== null ? `${slaQ.data.compliance_pct.toFixed(1)}%` : t('common.na')}
+                <div style={{ fontSize: '2rem', fontWeight: 700, color: slaQ.data.compliance_pct >= 90 ? '#059669' : '#dc2626' }}>
+                  {`${slaQ.data.compliance_pct.toFixed(1)}%`}
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t('noc.compliancePct')}</div>
               </div>
               <div>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{slaQ.data.total_tickets}</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{slaQ.data.total}</div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Total</div>
               </div>
-              {slaQ.data.breached_tickets > 0 && (
+              {slaQ.data.non_compliant > 0 && (
                 <div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#dc2626' }}>{slaQ.data.breached_tickets}</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#dc2626' }}>{slaQ.data.non_compliant}</div>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Breached</div>
                 </div>
               )}

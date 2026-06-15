@@ -32,11 +32,12 @@ router.get('/service-modifications', requirePermission('service_modification_not
     if (client_id) { conditions.push('client_id = ?'); params.push(client_id); }
 
     const where = conditions.join(' AND ');
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const safeLimit = Math.max(1, parseInt(limit, 10) || 50);
+    const safeOffset = Math.max(0, (parseInt(page, 10) - 1) * safeLimit);
 
     const [rows] = await db.query(
-      `SELECT * FROM service_modification_notices WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-      [...params, parseInt(limit, 10), offset],
+      `SELECT * FROM service_modification_notices WHERE ${where} ORDER BY created_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      params,
     );
     const [countResult] = await db.query(
       `SELECT COUNT(*) AS total FROM service_modification_notices WHERE ${where}`,

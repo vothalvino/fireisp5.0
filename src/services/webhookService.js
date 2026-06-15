@@ -397,13 +397,14 @@ async function processRetries() {
  * List dead-letter deliveries for an organization.
  */
 async function listDeadLetters(organizationId, limit = 50) {
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 50);
   const [rows] = await db.query(
     `SELECT wd.*, w.url, w.name
      FROM webhook_deliveries wd
      JOIN webhooks w ON w.id = wd.webhook_id
      WHERE w.organization_id = ? AND wd.status = 'dead_letter'
-     ORDER BY wd.created_at DESC LIMIT ?`,
-    [organizationId, limit],
+     ORDER BY wd.created_at DESC LIMIT ${safeLimit}`,
+    [organizationId],
   );
   return rows;
 }

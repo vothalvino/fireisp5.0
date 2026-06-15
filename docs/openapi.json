@@ -54900,30 +54900,51 @@
           "category": {
             "type": "string",
             "enum": [
-              "router",
-              "olt",
-              "onu",
-              "switch",
+              "antenna",
               "cable",
+              "router",
+              "switch",
+              "onu",
+              "olt",
+              "cpe",
               "connector",
-              "sfp",
               "power_supply",
               "enclosure",
               "tool",
               "other"
             ]
           },
+          "manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "model": {
+            "type": "string",
+            "maximum": 100
+          },
           "description": {
             "type": "string",
             "maximum": 5000
           },
-          "unit_price": {
+          "unit": {
+            "type": "string",
+            "maximum": 30
+          },
+          "unit_cost": {
+            "type": "number",
+            "minimum": 0
+          },
+          "sale_price": {
             "type": "number",
             "minimum": 0
           },
           "reorder_level": {
             "type": "number",
             "minimum": 0
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
           },
           "status": {
             "type": "string",
@@ -54952,30 +54973,51 @@
           "category": {
             "type": "string",
             "enum": [
-              "router",
-              "olt",
-              "onu",
-              "switch",
+              "antenna",
               "cable",
+              "router",
+              "switch",
+              "onu",
+              "olt",
+              "cpe",
               "connector",
-              "sfp",
               "power_supply",
               "enclosure",
               "tool",
               "other"
             ]
           },
+          "manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "model": {
+            "type": "string",
+            "maximum": 100
+          },
           "description": {
             "type": "string",
             "maximum": 5000
           },
-          "unit_price": {
+          "unit": {
+            "type": "string",
+            "maximum": 30
+          },
+          "unit_cost": {
+            "type": "number",
+            "minimum": 0
+          },
+          "sale_price": {
             "type": "number",
             "minimum": 0
           },
           "reorder_level": {
             "type": "number",
             "minimum": 0
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
           },
           "status": {
             "type": "string",
@@ -55620,10 +55662,10 @@
               "cancelled"
             ]
           },
-          "scheduled_at": {
+          "scheduled_date": {
             "type": "string"
           },
-          "completed_at": {
+          "completed_date": {
             "type": "string"
           }
         },
@@ -55690,10 +55732,10 @@
               "cancelled"
             ]
           },
-          "scheduled_at": {
+          "scheduled_date": {
             "type": "string"
           },
-          "completed_at": {
+          "completed_date": {
             "type": "string"
           }
         }
@@ -58855,6 +58897,12 @@
       "outages_createOutage": {
         "type": "object",
         "properties": {
+          "site_id": {
+            "type": "number"
+          },
+          "device_id": {
+            "type": "number"
+          },
           "title": {
             "type": "string",
             "minimum": 1,
@@ -58879,15 +58927,19 @@
               "critical"
             ]
           },
-          "affected_area": {
+          "started_at": {
+            "type": "string"
+          },
+          "resolved_at": {
+            "type": "string"
+          },
+          "affected_clients_count": {
+            "type": "number",
+            "minimum": 0
+          },
+          "root_cause": {
             "type": "string",
-            "maximum": 500
-          },
-          "start_time": {
-            "type": "string"
-          },
-          "end_time": {
-            "type": "string"
+            "maximum": 5000
           },
           "status": {
             "type": "string",
@@ -58896,19 +58948,22 @@
               "resolved",
               "post_mortem"
             ]
-          },
-          "notes": {
-            "type": "string",
-            "maximum": 5000
           }
         },
         "required": [
-          "title"
+          "title",
+          "started_at"
         ]
       },
       "outages_updateOutage": {
         "type": "object",
         "properties": {
+          "site_id": {
+            "type": "number"
+          },
+          "device_id": {
+            "type": "number"
+          },
           "title": {
             "type": "string",
             "minimum": 1,
@@ -58933,15 +58988,19 @@
               "critical"
             ]
           },
-          "affected_area": {
+          "started_at": {
+            "type": "string"
+          },
+          "resolved_at": {
+            "type": "string"
+          },
+          "affected_clients_count": {
+            "type": "number",
+            "minimum": 0
+          },
+          "root_cause": {
             "type": "string",
-            "maximum": 500
-          },
-          "start_time": {
-            "type": "string"
-          },
-          "end_time": {
-            "type": "string"
+            "maximum": 5000
           },
           "status": {
             "type": "string",
@@ -58950,10 +59009,6 @@
               "resolved",
               "post_mortem"
             ]
-          },
-          "notes": {
-            "type": "string",
-            "maximum": 5000
           }
         }
       },
@@ -59301,10 +59356,10 @@
             "type": "string",
             "enum": [
               "cash",
-              "card",
-              "transfer",
               "check",
-              "online",
+              "credit_card",
+              "debit_card",
+              "bank_transfer",
               "other"
             ]
           },
@@ -59312,7 +59367,7 @@
             "type": "string",
             "format": "date"
           },
-          "reference": {
+          "reference_number": {
             "type": "string",
             "maximum": 200
           },
@@ -59359,14 +59414,14 @@
             "type": "string",
             "enum": [
               "cash",
-              "card",
-              "transfer",
               "check",
-              "online",
+              "credit_card",
+              "debit_card",
+              "bank_transfer",
               "other"
             ]
           },
-          "reference": {
+          "reference_number": {
             "type": "string",
             "maximum": 200
           },
@@ -59397,14 +59452,14 @@
             "type": "string",
             "enum": [
               "cash",
-              "card",
-              "transfer",
               "check",
-              "online",
+              "credit_card",
+              "debit_card",
+              "bank_transfer",
               "other"
             ]
           },
-          "reference": {
+          "reference_number": {
             "type": "string",
             "maximum": 200
           },
@@ -61763,21 +61818,17 @@
             "type": "number",
             "minimum": 1
           },
-          "gateway_id": {
+          "payment_gateway_id": {
             "type": "number",
             "minimum": 1
           },
-          "gateway_customer_id": {
-            "type": "string",
-            "maximum": 255
-          },
-          "gateway_card_token": {
+          "token_reference": {
             "type": "string",
             "maximum": 500
           },
           "card_brand": {
             "type": "string",
-            "maximum": 50
+            "maximum": 20
           },
           "card_last_four": {
             "type": "string",
@@ -61792,6 +61843,9 @@
             "type": "number",
             "minimum": 2024,
             "maximum": 2099
+          },
+          "is_default": {
+            "type": "boolean"
           },
           "status": {
             "type": "string",
@@ -61804,23 +61858,20 @@
         },
         "required": [
           "client_id",
-          "gateway_id"
+          "payment_gateway_id",
+          "token_reference"
         ]
       },
       "recurringPaymentProfiles_updateRecurringPaymentProfile": {
         "type": "object",
         "properties": {
-          "gateway_customer_id": {
-            "type": "string",
-            "maximum": 255
-          },
-          "gateway_card_token": {
+          "token_reference": {
             "type": "string",
             "maximum": 500
           },
           "card_brand": {
             "type": "string",
-            "maximum": 50
+            "maximum": 20
           },
           "card_last_four": {
             "type": "string",
@@ -61835,6 +61886,9 @@
             "type": "number",
             "minimum": 2024,
             "maximum": 2099
+          },
+          "is_default": {
+            "type": "boolean"
           },
           "status": {
             "type": "string",

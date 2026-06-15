@@ -19,7 +19,7 @@ router.use(orgScope);
 // GET / — list templates
 router.get('/', requirePermission('config_templates.view'), async (req, res, next) => {
   try {
-    const orgId = req.organizationId;
+    const orgId = req.orgId;
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, parseInt(req.query.limit) || 25);
     const offset = (page - 1) * limit;
@@ -28,8 +28,8 @@ router.get('/', requirePermission('config_templates.view'), async (req, res, nex
       [orgId],
     );
     const [rows] = await db.query(
-      'SELECT * FROM config_templates WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?',
-      [orgId, limit, offset],
+      `SELECT * FROM config_templates WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      [orgId],
     );
     res.json({ data: rows, meta: { total, page, limit } });
   } catch (err) { next(err); }
@@ -38,7 +38,7 @@ router.get('/', requirePermission('config_templates.view'), async (req, res, nex
 // POST / — create
 router.post('/', requirePermission('config_templates.create'), validate(createTemplate), async (req, res, next) => {
   try {
-    const orgId = req.organizationId;
+    const orgId = req.orgId;
     const { name, description, device_type, manufacturer, template_content, variables_schema, status } = req.body;
     const [result] = await db.query(
       `INSERT INTO config_templates (organization_id, name, description, device_type, manufacturer, template_content, variables_schema, status)
@@ -66,7 +66,7 @@ router.post('/:id/deploy', requirePermission('config_deployments.create'), async
 // PUT /:id — update
 router.put('/:id', requirePermission('config_templates.update'), validate(updateTemplate), async (req, res, next) => {
   try {
-    const orgId = req.organizationId;
+    const orgId = req.orgId;
     const { id } = req.params;
     const [[existing]] = await db.query(
       'SELECT id FROM config_templates WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
@@ -96,7 +96,7 @@ router.put('/:id', requirePermission('config_templates.update'), validate(update
 // DELETE /:id — soft delete
 router.delete('/:id', requirePermission('config_templates.delete'), async (req, res, next) => {
   try {
-    const orgId = req.organizationId;
+    const orgId = req.orgId;
     const { id } = req.params;
     const [result] = await db.query(
       'UPDATE config_templates SET deleted_at = NOW() WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',

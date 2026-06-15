@@ -99,10 +99,10 @@ function parseRouterOsLogLine(line) {
 /**
  * Classify auth failures from radpostauth for a given organization and time window.
  *
- * Org scoping: radpostauth has no organization_id. We scope by joining usernames
- * against the `radius` table (which does have organization_id). When orgId is
- * provided, only records for usernames present in the radius table for that org
- * are included.
+ * Subscriber scoping: radpostauth has no organization_id, and neither does the
+ * `radius` subscriber table (single-tenant deployment per ISP). When orgId is
+ * provided, we restrict to records whose username belongs to a live (non-deleted)
+ * subscriber in the `radius` table, filtering out noise from stale/unknown logins.
  *
  * Failure reasons:
  *   bad_password   — username exists in radcheck (known user, wrong cred)
@@ -139,13 +139,13 @@ async function classifyAuthFailures(orgId, since, until, username) {
     params.push(username);
   }
 
-  // Org scoping: join to radius table to restrict to org's usernames
+  // Subscriber scoping: the radius table has no organization_id (single-tenant
+  // per ISP), so restrict to usernames that exist as live subscribers there.
   if (orgId) {
     sql += ` AND rpa.username IN (
       SELECT r2.username FROM radius r2
-      WHERE r2.organization_id = ? AND r2.deleted_at IS NULL
+      WHERE r2.deleted_at IS NULL
     )`;
-    params.push(orgId);
   }
 
   sql += ' ORDER BY rpa.authdate DESC LIMIT 1000';
@@ -370,19 +370,10 @@ async function scanAuthFailures(orgId) {
     // Emit events for usernames exceeding threshold
     for (const [username, entry] of byUsername) {
       if (entry.count >= threshold) {
-        // Resolve organizationId for this username if not provided
-        let resolvedOrgId = orgId;
-        if (!resolvedOrgId) {
-          try {
-            const [orgRows] = await db.query(
-              'SELECT organization_id FROM radius WHERE username = ? AND deleted_at IS NULL LIMIT 1',
-              [username],
-            );
-            if (orgRows.length > 0) resolvedOrgId = orgRows[0].organization_id;
-          } catch (_err) {
-            // emit with null orgId
-          }
-        }
+        // The radius subscriber table has no organization_id column
+        // (single-tenant per ISP), so there is no per-username org to resolve;
+        // emit with the caller-supplied orgId (may be null for global scans).
+        const resolvedOrgId = orgId;
 
         eventBus.emit('pppoe.auth_failures', {
           organizationId: resolvedOrgId,

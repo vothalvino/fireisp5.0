@@ -83,10 +83,39 @@ export function PortalAccount() {
     mutationFn: (id: number) =>
       portalFetch(`/service-requests/${id}/cancel`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portal-service-requests'] }),
+    onError: (e: Error) => {
+      setErrMsg(e.message || 'Failed to cancel request. Please try again.');
+      setMsg('');
+    },
   });
 
   function handleSubmit() {
     setMsg(''); setErrMsg('');
+
+    // Client-side required-field validation per request type
+    if (reqType === 'plan_upgrade' && !payload.new_plan_id?.trim()) {
+      setErrMsg('Please enter a plan ID to upgrade to.');
+      return;
+    }
+    if ((reqType === 'wifi_password_change' || reqType === 'pppoe_password_change') && !payload.new_password?.trim()) {
+      setErrMsg('Please enter a new password.');
+      return;
+    }
+    if (reqType === 'cancellation' && !payload.reason?.trim()) {
+      setErrMsg('Please provide a cancellation reason.');
+      return;
+    }
+    if (reqType === 'visit_schedule') {
+      if (!payload.preferred_date?.trim()) {
+        setErrMsg('Please select a preferred date.');
+        return;
+      }
+      if (!payload.preferred_slot?.trim()) {
+        setErrMsg('Please select a preferred time slot.');
+        return;
+      }
+    }
+
     createMutation.mutate({ request_type: reqType, payload: { ...payload } });
   }
 
