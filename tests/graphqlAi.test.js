@@ -303,9 +303,13 @@ describe('Query.aiPhrases resolver', () => {
 
   it('uses default limit when not specified', async () => {
     await resolvers.Query.aiPhrases(null, {}, CTX);
-    const params = mockQuery.mock.calls[0][1];
-    // second-to-last param is limit (50 default)
-    expect(params[params.length - 2]).toBe(50);
+    const [sql, params] = mockQuery.mock.calls[0];
+    // LIMIT/OFFSET are interpolated as validated integer literals in the SQL
+    // string (MySQL8 rejects bound LIMIT/OFFSET placeholders), so the default
+    // limit of 50 appears directly in the query text.
+    expect(sql).toMatch(/LIMIT 50/);
+    // ...and limit/offset are no longer present in the bound params array.
+    expect(params).not.toContain(50);
   });
 });
 

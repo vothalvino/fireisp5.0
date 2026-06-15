@@ -231,12 +231,14 @@ async function listSyncLogs(connectionId, organizationId, { limit = 50, offset =
     throw err;
   }
 
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 50);
+  const safeOffset = Math.max(0, parseInt(offset, 10) || 0);
   const [rows] = await db.query(
     `SELECT * FROM integration_sync_logs
      WHERE connection_id = ? AND organization_id = ?
      ORDER BY created_at DESC
-     LIMIT ? OFFSET ?`,
-    [connectionId, organizationId, Number(limit), Number(offset)],
+     LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+    [connectionId, organizationId],
   );
   const [[{ total }]] = await db.query(
     'SELECT COUNT(*) AS total FROM integration_sync_logs WHERE connection_id = ? AND organization_id = ?',

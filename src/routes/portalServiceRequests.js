@@ -158,8 +158,8 @@ router.get('/push-subscriptions', requirePermission('portal_push.view'), async (
        LEFT JOIN clients cl ON cl.id = pps.client_id
        ${where}
        ORDER BY pps.created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, limit, offset],
+       LIMIT ${limit} OFFSET ${offset}`,
+      params,
     );
     const [[{ total }]] = await db.query(
       `SELECT COUNT(*) AS total FROM portal_push_subscriptions pps ${where}`,

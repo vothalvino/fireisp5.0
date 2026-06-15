@@ -302,8 +302,9 @@ async function listWirelessClientSessions(orgId, { deviceId, since, limit = 100,
     sql += ' AND wcs.last_seen_at >= ?';
     params.push(since);
   }
-  sql += ' ORDER BY wcs.last_seen_at DESC LIMIT ? OFFSET ?';
-  params.push(Number(limit), Number(offset));
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 100);
+  const safeOffset = Math.max(0, parseInt(offset, 10) || 0);
+  sql += ` ORDER BY wcs.last_seen_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`;
 
   const [rows] = await db.query(sql, params);
   return rows;
@@ -376,8 +377,9 @@ async function listChannelInterference(orgId, { siteId, level, since, limit = 10
     sql += ' AND wci.detected_at >= ?';
     params.push(since);
   }
-  sql += ' ORDER BY wci.detected_at DESC LIMIT ? OFFSET ?';
-  params.push(Number(limit), Number(offset));
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 100);
+  const safeOffset = Math.max(0, parseInt(offset, 10) || 0);
+  sql += ` ORDER BY wci.detected_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`;
 
   const [rows] = await db.query(sql, params);
   return rows;
@@ -454,8 +456,9 @@ async function listApCommandJobs(orgId, { deviceId, status, limit = 100, offset 
     sql += ' AND acj.status = ?';
     params.push(status);
   }
-  sql += ' ORDER BY acj.created_at DESC LIMIT ? OFFSET ?';
-  params.push(Number(limit), Number(offset));
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 100);
+  const safeOffset = Math.max(0, parseInt(offset, 10) || 0);
+  sql += ` ORDER BY acj.created_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`;
 
   const [rows] = await db.query(sql, params);
   return rows;
@@ -689,7 +692,9 @@ async function saveCalc(body, orgId) {
  * List saved link planning calcs for an org (paginated).
  */
 async function listCalcs(orgId, page = 1, limit = 20) {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 20);
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const offset = (safePage - 1) * safeLimit;
   const [rows] = await db.query(
     `SELECT lpc.*,
             sa.name AS site_a_name, sb.name AS site_b_name
@@ -699,8 +704,8 @@ async function listCalcs(orgId, page = 1, limit = 20) {
      WHERE (lpc.organization_id = ? OR lpc.organization_id IS NULL)
        AND lpc.deleted_at IS NULL
      ORDER BY lpc.created_at DESC
-     LIMIT ? OFFSET ?`,
-    [orgId, Number(limit), Number(offset)],
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    [orgId],
   );
   const [[{ total }]] = await db.query(
     'SELECT COUNT(*) AS total FROM link_planning_calcs WHERE (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
@@ -897,7 +902,9 @@ async function getSignalDistribution(deviceId, orgId, hours = 24) {
  * List spectrum scan results for an org.
  */
 async function listSpectrumScans(orgId, { deviceId, status, page = 1, limit = 20 } = {}) {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 20);
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const offset = (safePage - 1) * safeLimit;
   let sql = `
     SELECT ssr.*, d.hostname AS device_hostname, d.ip_address AS device_ip
     FROM spectrum_scan_results ssr
@@ -915,8 +922,7 @@ async function listSpectrumScans(orgId, { deviceId, status, page = 1, limit = 20
     sql += ' AND ssr.status = ?';
     params.push(status);
   }
-  sql += ' ORDER BY ssr.created_at DESC LIMIT ? OFFSET ?';
-  params.push(Number(limit), Number(offset));
+  sql += ` ORDER BY ssr.created_at DESC LIMIT ${safeLimit} OFFSET ${offset}`;
 
   const [rows] = await db.query(sql, params);
 

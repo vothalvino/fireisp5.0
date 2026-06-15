@@ -33,8 +33,8 @@ router.get('/results', requirePermission('config_compliance.view'), async (req, 
       params,
     );
     const [rows] = await db.query(
-      `SELECT cr.* FROM config_compliance_results cr JOIN config_compliance_rules ccr ON ccr.id = cr.rule_id ${where} ORDER BY cr.evaluated_at DESC LIMIT ? OFFSET ?`,
-      [...params, limit, offset],
+      `SELECT cr.* FROM config_compliance_results cr JOIN config_compliance_rules ccr ON ccr.id = cr.rule_id ${where} ORDER BY cr.evaluated_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      params,
     );
     res.json({ data: rows, meta: { total, page, limit } });
   } catch (err) { next(err); }
@@ -63,8 +63,8 @@ router.get('/', requirePermission('config_compliance.view'), async (req, res, ne
       [orgId],
     );
     const [rows] = await db.query(
-      'SELECT * FROM config_compliance_rules WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?',
-      [orgId, limit, offset],
+      `SELECT * FROM config_compliance_rules WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      [orgId],
     );
     res.json({ data: rows, meta: { total, page, limit } });
   } catch (err) { next(err); }

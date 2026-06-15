@@ -95,10 +95,12 @@ async function httpWithRetry(baseUrl, opts, maxRetries) {
  * List registered nodes with pagination (for API use).
  */
 async function listNodes({ page = 1, limit = 50 } = {}) {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 50);
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const offset = (safePage - 1) * safeLimit;
   const [rows] = await db.query(
-    'SELECT * FROM firerelay_nodes ORDER BY created_at ASC LIMIT ? OFFSET ?',
-    [limit, offset],
+    `SELECT * FROM firerelay_nodes ORDER BY created_at ASC LIMIT ${safeLimit} OFFSET ${offset}`,
+    [],
   );
   const [countResult] = await db.query('SELECT COUNT(*) AS total FROM firerelay_nodes');
   const total = countResult[0].total;

@@ -41,7 +41,9 @@ async function getUsage(orgId) {
       [orgId],
     ),
     db.query(
-      'SELECT COUNT(*) AS cnt FROM scheduled_tasks WHERE organization_id = ? AND deleted_at IS NULL',
+      // scheduled_tasks has no soft-delete column (uses is_enabled instead),
+      // so do not filter on deleted_at here — that column does not exist.
+      'SELECT COUNT(*) AS cnt FROM scheduled_tasks WHERE organization_id = ?',
       [orgId],
     ),
     db.query(

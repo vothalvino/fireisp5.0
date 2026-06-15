@@ -17,6 +17,10 @@ const { bustCache } = require('../middleware/httpCache');
  */
 function crudController(Model, _options = {}) {
   const { cacheResource } = _options;
+  // Optional response serializer — lets a resource strip sensitive columns
+  // (e.g. User.sanitize) from every record before it is returned.  Defaults to
+  // identity so existing resources are unaffected.
+  const serialize = typeof _options.serialize === 'function' ? _options.serialize : (x) => x;
 
   return {
     /**
@@ -42,7 +46,7 @@ function crudController(Model, _options = {}) {
         ]);
 
         res.json({
-          data: rows,
+          data: Array.isArray(rows) ? rows.map(serialize) : rows,
           meta: {
             total,
             page: parseInt(page),
@@ -61,7 +65,7 @@ function crudController(Model, _options = {}) {
     async get(req, res, next) {
       try {
         const record = await Model.findByIdOrFail(req.params.id, req.orgId);
-        res.json({ data: record });
+        res.json({ data: serialize(record) });
       } catch (err) {
         next(err);
       }
@@ -89,7 +93,7 @@ function crudController(Model, _options = {}) {
         });
 
         if (cacheResource) await bustCache(req.orgId, cacheResource);
-        res.status(201).json({ data: record });
+        res.status(201).json({ data: serialize(record) });
       } catch (err) {
         next(err);
       }
@@ -114,7 +118,7 @@ function crudController(Model, _options = {}) {
         });
 
         if (cacheResource) await bustCache(req.orgId, cacheResource);
-        res.json({ data: record });
+        res.json({ data: serialize(record) });
       } catch (err) {
         next(err);
       }
@@ -139,7 +143,7 @@ function crudController(Model, _options = {}) {
         });
 
         if (cacheResource) await bustCache(req.orgId, cacheResource);
-        res.json({ data: record });
+        res.json({ data: serialize(record) });
       } catch (err) {
         next(err);
       }
@@ -185,7 +189,7 @@ function crudController(Model, _options = {}) {
         });
 
         if (cacheResource) await bustCache(req.orgId, cacheResource);
-        res.json({ data: record });
+        res.json({ data: serialize(record) });
       } catch (err) {
         next(err);
       }

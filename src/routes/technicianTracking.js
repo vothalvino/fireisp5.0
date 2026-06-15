@@ -99,13 +99,13 @@ router.post('/route-optimize', requirePermission('technician_tracking.view'), as
 // GET /technician-tracking/:userId/history
 router.get('/:userId/history', requirePermission('technician_tracking.view'), async (req, res, next) => {
   try {
-    const limit = Math.min(1000, parseInt(req.query.limit) || 200);
+    const limit = Math.max(1, Math.min(1000, parseInt(req.query.limit) || 200));
     const [rows] = await db.query(
       `SELECT id, user_id, latitude, longitude, accuracy_m, recorded_at
        FROM technician_gps_breadcrumbs
        WHERE user_id = ?
-       ORDER BY recorded_at DESC LIMIT ?`,
-      [req.params.userId, limit],
+       ORDER BY recorded_at DESC LIMIT ${limit}`,
+      [req.params.userId],
     );
     res.json({ data: rows });
   } catch (err) { next(err); }

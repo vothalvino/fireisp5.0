@@ -36,8 +36,8 @@ router.get('/anomalies', requirePermission('analytics_anomalies.view'), async (r
 
     const where = conditions.join(' AND ');
     const [rows] = await db.query(
-      `SELECT * FROM analytics_anomalies WHERE ${where} ORDER BY detected_at DESC LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset],
+      `SELECT * FROM analytics_anomalies WHERE ${where} ORDER BY detected_at DESC LIMIT ${limitNum} OFFSET ${offset}`,
+      params,
     );
     const [countResult] = await db.query(`SELECT COUNT(*) AS total FROM analytics_anomalies WHERE ${where}`, params);
     res.json({ data: rows, meta: { total: countResult[0].total, page: pageNum, limit: limitNum } });

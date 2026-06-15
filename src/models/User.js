@@ -18,6 +18,15 @@ class User extends BaseModel {
 
   static get softDelete() { return true; }
 
+  /**
+   * Strip sensitive / internal columns from a user row before returning it in
+   * any API response.  Delegates to src/utils/userSanitize so the logic still
+   * works when test suites auto-mock the User model.
+   */
+  static sanitize(user) {
+    return require('../utils/userSanitize').sanitizeUser(user);
+  }
+
   static async findByEmail(email) {
     const db = require('../config/database');
     const [rows] = await db.query(
@@ -33,7 +42,7 @@ class User extends BaseModel {
   static async getPermissions(userId, organizationId) {
     const db = require('../config/database');
     const [rows] = await db.query(`
-      SELECT DISTINCT p.slug
+      SELECT DISTINCT p.name AS slug
       FROM organization_users ou
       JOIN roles r ON r.id = (
         SELECT r2.id FROM roles r2 WHERE r2.name = ou.role AND r2.deleted_at IS NULL LIMIT 1

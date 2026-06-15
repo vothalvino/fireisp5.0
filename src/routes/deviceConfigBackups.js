@@ -75,8 +75,8 @@ router.get('/compliance-results', requirePermission('config_compliance.view'), a
       params,
     );
     const [rows] = await db.query(
-      `SELECT cr.* FROM config_compliance_results cr JOIN config_compliance_rules ccr ON ccr.id = cr.rule_id ${where} ORDER BY cr.evaluated_at DESC LIMIT ? OFFSET ?`,
-      [...params, limit, offset],
+      `SELECT cr.* FROM config_compliance_results cr JOIN config_compliance_rules ccr ON ccr.id = cr.rule_id ${where} ORDER BY cr.evaluated_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      params,
     );
     res.json({ data: rows, meta: { total, page, limit } });
   } catch (err) { next(err); }

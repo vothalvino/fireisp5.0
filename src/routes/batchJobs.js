@@ -39,8 +39,8 @@ router.get('/', requirePermission('batch_jobs.view'), async (req, res, next) => 
 
     const where = conditions.join(' AND ');
     const [rows] = await db.query(
-      `SELECT * FROM batch_jobs WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset],
+      `SELECT * FROM batch_jobs WHERE ${where} ORDER BY created_at DESC LIMIT ${limitNum} OFFSET ${offset}`,
+      params,
     );
     const [countResult] = await db.query(`SELECT COUNT(*) AS total FROM batch_jobs WHERE ${where}`, params);
     res.json({ data: rows, meta: { total: countResult[0].total, page: pageNum, limit: limitNum } });
@@ -72,8 +72,8 @@ router.get('/:id/items', requirePermission('batch_jobs.view'), async (req, res, 
     if (status) { conditions.push('status = ?'); params.push(status); }
 
     const [rows] = await db.query(
-      `SELECT * FROM batch_job_items WHERE ${conditions.join(' AND ')} ORDER BY id ASC LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset],
+      `SELECT * FROM batch_job_items WHERE ${conditions.join(' AND ')} ORDER BY id ASC LIMIT ${limitNum} OFFSET ${offset}`,
+      params,
     );
     const [countResult] = await db.query(`SELECT COUNT(*) AS total FROM batch_job_items WHERE ${conditions.join(' AND ')}`, params);
     res.json({ data: rows, meta: { total: countResult[0].total } });

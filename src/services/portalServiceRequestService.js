@@ -133,7 +133,9 @@ async function createRequest({ clientId, organizationId, requestType, payload = 
 // ---------------------------------------------------------------------------
 
 async function listRequests(clientId, { page = 1, limit = 20, requestType } = {}) {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 20);
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const safeOffset = (safePage - 1) * safeLimit;
   let where = 'WHERE client_id = ? AND deleted_at IS NULL';
   const params = [clientId];
 
@@ -148,8 +150,8 @@ async function listRequests(clientId, { page = 1, limit = 20, requestType } = {}
             approved_at, completed_at, cancelled_at, created_at, updated_at
      FROM portal_service_requests ${where}
      ORDER BY created_at DESC
-     LIMIT ? OFFSET ?`,
-    [...params, limit, offset],
+     LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+    params,
   );
   const [[{ total }]] = await db.query(
     `SELECT COUNT(*) AS total FROM portal_service_requests ${where}`,
@@ -221,7 +223,9 @@ async function applyPppoePasswordChange(requestId) {
  * @param {{ page?, limit?, status?, requestType?, clientId? }} opts
  */
 async function adminListRequests(organizationId, { page = 1, limit = 25, status, requestType, clientId } = {}) {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 25);
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const safeOffset = (safePage - 1) * safeLimit;
   let where = 'WHERE psr.organization_id = ? AND psr.deleted_at IS NULL';
   const params = [organizationId];
 
@@ -250,8 +254,8 @@ async function adminListRequests(organizationId, { page = 1, limit = 25, status,
      LEFT JOIN clients cl ON cl.id = psr.client_id
      ${where}
      ORDER BY psr.created_at DESC
-     LIMIT ? OFFSET ?`,
-    [...params, limit, offset],
+     LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+    params,
   );
   const [[{ total }]] = await db.query(
     `SELECT COUNT(*) AS total FROM portal_service_requests psr ${where}`,
@@ -508,7 +512,9 @@ function generateChatToken() {
 // ---------------------------------------------------------------------------
 
 async function listKbArticles(organizationId, { category, search, page = 1, limit = 20 } = {}) {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 20);
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const safeOffset = (safePage - 1) * safeLimit;
   let where = 'WHERE (organization_id = ? OR organization_id IS NULL) AND is_published = 1 AND deleted_at IS NULL';
   const params = [organizationId];
 
@@ -525,8 +531,8 @@ async function listKbArticles(organizationId, { category, search, page = 1, limi
     `SELECT id, category, title, slug, view_count, helpful_yes, helpful_no, created_at, updated_at
      FROM portal_kb_articles ${where}
      ORDER BY view_count DESC, updated_at DESC
-     LIMIT ? OFFSET ?`,
-    [...params, limit, offset],
+     LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+    params,
   );
   const [[{ total }]] = await db.query(
     `SELECT COUNT(*) AS total FROM portal_kb_articles ${where}`,

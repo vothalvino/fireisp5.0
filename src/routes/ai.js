@@ -164,8 +164,8 @@ router.get('/providers', requirePermission('ai.providers.read'), async (req, res
        FROM ai_providers
        WHERE organization_id = ? AND deleted_at IS NULL
        ORDER BY priority ASC, id ASC
-       LIMIT ? OFFSET ?`,
-      [req.orgId, limitNum, offset],
+       LIMIT ${limitNum} OFFSET ${offset}`,
+      [req.orgId],
     );
     const [[{ total }]] = await db.query(
       'SELECT COUNT(*) AS total FROM ai_providers WHERE organization_id = ? AND deleted_at IS NULL',
@@ -462,8 +462,8 @@ router.get('/logs', requirePermission('ai.policy.read'), async (req, res, next) 
        FROM ai_reply_logs
        WHERE ${where}
        ORDER BY created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset],
+       LIMIT ${limitNum} OFFSET ${offset}`,
+      params,
     );
 
     const [[{ total }]] = await db.query(

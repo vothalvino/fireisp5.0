@@ -8,6 +8,7 @@ const { authenticate } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const authSchemas = require('../middleware/schemas/auth');
 const User = require('../models/User');
+const { sanitizeUser } = require('../utils/userSanitize');
 const config = require('../config');
 const { setCsrfCookie, clearCsrfCookie } = require('../middleware/csrf');
 
@@ -112,7 +113,7 @@ router.post('/logout', authenticate, async (req, res, next) => {
 router.get('/me', authenticate, async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id);
-    const { password_hash: _passwordHash, ...safeUser } = user;
+    const safeUser = sanitizeUser(user);
     const organizations = await User.getOrganizations(req.user.id);
     res.json({ data: { ...safeUser, organizations } });
   } catch (err) {

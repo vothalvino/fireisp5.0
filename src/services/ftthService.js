@@ -117,6 +117,7 @@ async function getOnusForOlt(oltDeviceId, orgId, filters = {}) {
  * @returns {Promise<Array>}
  */
 async function getOnuOpticalHistory(onuDeviceId, orgId, limit = 100) {
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 100);
   const [rows] = await db.query(
     `SELECT id, tx_power_dbm, rx_power_dbm, temperature_c, voltage_v,
             bias_current_ma, olt_rx_power_dbm, polled_at
@@ -124,8 +125,8 @@ async function getOnuOpticalHistory(onuDeviceId, orgId, limit = 100) {
      WHERE device_id = ?
        AND (organization_id = ? OR organization_id IS NULL)
      ORDER BY polled_at DESC
-     LIMIT ?`,
-    [onuDeviceId, orgId, limit],
+     LIMIT ${safeLimit}`,
+    [onuDeviceId, orgId],
   );
   return rows;
 }

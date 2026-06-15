@@ -27,12 +27,26 @@ const ctrl = crudController(Radius);
 router.use(authenticate);
 router.use(orgScope);
 
-router.get('/', requirePermission('devices.view'), ctrl.list);
-router.get('/:id', requirePermission('devices.view'), ctrl.get);
-router.post('/', requirePermission('devices.create'), validate(createRadius), ctrl.create);
-router.put('/:id', requirePermission('devices.update'), validate(updateRadius), ctrl.update);
-router.delete('/:id', requirePermission('devices.delete'), ctrl.destroy);
-router.post('/:id/restore', requirePermission('devices.update'), ctrl.restore);
+// -----------------------------------------------------------------------------
+// MAC Move Events (item 21)
+// -----------------------------------------------------------------------------
+// NOTE: this literal-path route MUST be registered before the generic `/:id`
+// CRUD route below, otherwise Express matches `/mac-move-events` as `/:id`
+// (id = "mac-move-events"), findByIdOrFail fails, and the request 404s.
+router.get('/mac-move-events', requirePermission('radius.mac_move_events.view'), async (req, res, next) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
+
+    const result = await listMacMoveEvents(req.orgId, { page, limit });
+    res.json({
+      data: result.rows,
+      meta: { total: result.total, page: result.page, limit: result.limit },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Get RADIUS accounts for a specific contract
 router.get('/contract/:contractId', requirePermission('devices.view'), async (req, res, next) => {
@@ -277,25 +291,6 @@ router.post('/coa', requirePermission('radius.coa'), async (req, res, next) => {
 });
 
 // =============================================================================
-// MAC Move Events (item 21)
-// =============================================================================
-
-router.get('/mac-move-events', requirePermission('radius.mac_move_events.view'), async (req, res, next) => {
-  try {
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
-
-    const result = await listMacMoveEvents(req.orgId, { page, limit });
-    res.json({
-      data: result.rows,
-      meta: { total: result.total, page: result.page, limit: result.limit },
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// =============================================================================
 // Batch force-disconnect (PPPoE Management Phase A)
 // =============================================================================
 
@@ -389,5 +384,19 @@ router.post('/sessions/disconnect-batch', requirePermission('radius.batch_discon
     next(err);
   }
 });
+
+// -----------------------------------------------------------------------------
+// Generic CRUD — registered LAST so every literal-path route above
+// (/mac-move-events, /walled-garden, /cdr, /contract/:id, /:id/routes, …) is
+// matched before the bare `/:id` param route. Otherwise Express would treat
+// e.g. GET /walled-garden as `/:id` (id = "walled-garden"), findByIdOrFail
+// would fail, and the request would 404.
+// -----------------------------------------------------------------------------
+router.get('/', requirePermission('devices.view'), ctrl.list);
+router.get('/:id', requirePermission('devices.view'), ctrl.get);
+router.post('/', requirePermission('devices.create'), validate(createRadius), ctrl.create);
+router.put('/:id', requirePermission('devices.update'), validate(updateRadius), ctrl.update);
+router.delete('/:id', requirePermission('devices.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('devices.update'), ctrl.restore);
 
 module.exports = router;

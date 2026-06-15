@@ -90,8 +90,8 @@ const resolvers = {
 
       const [rows] = await db.query(
         `SELECT * FROM ai_phrase_library WHERE ${conditions.join(' AND ')}
-         ORDER BY id ASC LIMIT ? OFFSET ?`,
-        [...params, safeLimit, safeOffset],
+         ORDER BY id ASC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+        params,
       );
       return rows;
     },
@@ -108,8 +108,8 @@ const resolvers = {
          FROM ai_reply_logs
          WHERE organization_id = ? AND ticket_id = ?
          ORDER BY created_at DESC
-         LIMIT ? OFFSET ?`,
-        [ctx.orgId, ticketId, safeLimit, safeOffset],
+         LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+        [ctx.orgId, ticketId],
       );
       return rows;
     },

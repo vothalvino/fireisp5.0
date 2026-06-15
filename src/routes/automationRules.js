@@ -51,8 +51,8 @@ router.get('/', requirePermission('automation_rules.view'), async (req, res, nex
 
     const where = conditions.join(' AND ');
     const [rows] = await db.query(
-      `SELECT * FROM automation_rules WHERE ${where} ORDER BY priority DESC, name ASC LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset],
+      `SELECT * FROM automation_rules WHERE ${where} ORDER BY priority DESC, name ASC LIMIT ${limitNum} OFFSET ${offset}`,
+      params,
     );
     const [countResult] = await db.query(`SELECT COUNT(*) AS total FROM automation_rules WHERE ${where}`, params);
     res.json({ data: rows, meta: { total: countResult[0].total, page: pageNum, limit: limitNum } });

@@ -95,7 +95,6 @@ router.get('/', requirePermission('poller_performance.view'), async (req, res, n
       countParams,
     );
 
-    params.push(limit, offset);
     const [rows] = await db.query(
       `SELECT pps.id, pps.poller_node_id, pn.name AS node_name,
               pps.snapshot_at, pps.devices_polled, pps.devices_failed,
@@ -105,7 +104,7 @@ router.get('/', requirePermission('poller_performance.view'), async (req, res, n
        LEFT JOIN poller_nodes pn ON pn.id = pps.poller_node_id
        WHERE ${where}
        ORDER BY pps.snapshot_at DESC
-       LIMIT ? OFFSET ?`,
+       LIMIT ${limit} OFFSET ${offset}`,
       params,
     );
 

@@ -86,6 +86,7 @@ async function getDailyUsage(contractId, { from, to } = {}) {
  * Get top users by bandwidth in an organization.
  */
 async function getTopUsers(organizationId, { from, to, limit = 20 } = {}) {
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 20);
   let sql = `
     SELECT
       cl.contract_id,
@@ -103,8 +104,7 @@ async function getTopUsers(organizationId, { from, to, limit = 20 } = {}) {
   if (from) { sql += ' AND cl.event_at >= ?'; params.push(from); }
   if (to) { sql += ' AND cl.event_at <= ?'; params.push(to); }
 
-  sql += ' GROUP BY cl.contract_id, cl.client_id ORDER BY bytes_total DESC LIMIT ?';
-  params.push(limit);
+  sql += ` GROUP BY cl.contract_id, cl.client_id ORDER BY bytes_total DESC LIMIT ${safeLimit}`;
 
   const [rows] = await db.query(sql, params);
   return rows.map(r => ({

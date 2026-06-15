@@ -49,8 +49,8 @@ interface TicketQueueResponse {
 interface NocEvent {
   id: number;
   event_type: string;
-  description: string | null;
-  created_at: string;
+  detail: string | null;
+  occurred_at: string;
 }
 
 interface EventsResponse {
@@ -302,11 +302,11 @@ export function NocDashboard() {
                 <span style={{ color: 'var(--text-secondary)' }}>{t('common.noResults')}</span>
               ) : (
                 eventsQ.data.data.slice(0, 5).map(ev => (
-                  <div key={ev.id} style={{ fontSize: '0.82rem', borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>
+                  <div key={`${ev.event_type}-${ev.id}`} style={{ fontSize: '0.82rem', borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>
                     <div style={{ fontWeight: 600 }}>{ev.event_type}</div>
-                    {ev.description && (
+                    {ev.detail && (
                       <div style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {ev.description}
+                        {ev.detail}
                       </div>
                     )}
                   </div>
