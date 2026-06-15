@@ -48,10 +48,10 @@ router.get('/logs', requirePermission('read'), async (req, res) => {
       LEFT JOIN clients c ON c.id = sl.client_id
      ${where}
      ORDER BY sl.created_at DESC
-     LIMIT ? OFFSET ?`;
+     LIMIT ${limit} OFFSET ${offset}`;
 
   const [[{ total }]] = await db.query(countSql, params);
-  const [rows]        = await db.query(dataSql, [...params, limit, offset]);
+  const [rows]        = await db.query(dataSql, params);
 
   res.json({
     data:  rows,

@@ -33,8 +33,8 @@ router.get('/', requirePermission('provisioning_pipelines.view'), async (req, re
     if (status) { conditions.push('status = ?'); params.push(status); }
 
     const [rows] = await db.query(
-      `SELECT * FROM provisioning_pipelines WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset],
+      `SELECT * FROM provisioning_pipelines WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC LIMIT ${limitNum} OFFSET ${offset}`,
+      params,
     );
     const [countResult] = await db.query(`SELECT COUNT(*) AS total FROM provisioning_pipelines WHERE ${conditions.join(' AND ')}`, params);
     res.json({ data: rows, meta: { total: countResult[0].total, page: pageNum, limit: limitNum } });

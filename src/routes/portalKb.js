@@ -45,8 +45,8 @@ router.get('/', requirePermission('portal_kb.view'), async (req, res, next) => {
        FROM portal_kb_articles
        WHERE (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL
        ORDER BY updated_at DESC
-       LIMIT ? OFFSET ?`,
-      [orgId, limit, offset],
+       LIMIT ${limit} OFFSET ${offset}`,
+      [orgId],
     );
     const [[{ total }]] = await db.query(
       'SELECT COUNT(*) AS total FROM portal_kb_articles WHERE (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',

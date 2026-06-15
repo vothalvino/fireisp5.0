@@ -67,8 +67,8 @@ router.get('/', requirePermission('work_orders.view'), async (req, res, next) =>
        FROM work_orders wo
        LEFT JOIN users u ON u.id = wo.assigned_to
        WHERE wo.organization_id = ? AND wo.deleted_at IS NULL
-       ORDER BY wo.created_at DESC LIMIT ? OFFSET ?`,
-      [req.orgId, limit, offset],
+       ORDER BY wo.created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      [req.orgId],
     );
     const [[{ total }]] = await db.query(
       'SELECT COUNT(*) AS total FROM work_orders WHERE organization_id = ? AND deleted_at IS NULL',

@@ -374,12 +374,18 @@ function SubnetPlannerTab() {
   const [spLoading, setSpLoading] = useState(false);
 
   async function runSubnetPlan() {
-    if (!spNetwork || !spPrefixLen || !spSubPrefixLen) return;
+    // Only `network` is required. The parent prefix can be read from the CIDR
+    // suffix (e.g. 2001:db8::/32) and the subnet prefix has a server-side
+    // default, so those two fields are optional — send them only when filled.
+    if (!spNetwork) return;
     setSpLoading(true);
     setSpError(null);
     try {
+      const query: Record<string, string | number> = { network: spNetwork };
+      if (spPrefixLen) query.prefix_len = Number(spPrefixLen);
+      if (spSubPrefixLen) query.sub_prefix_len = Number(spSubPrefixLen);
       const res = await api.GET('/ipv6/subnet-plan' as never, {
-        params: { query: { network: spNetwork, prefix_len: Number(spPrefixLen), sub_prefix_len: Number(spSubPrefixLen) } as never },
+        params: { query: query as never },
       } as never);
       if (res.error) throw new Error('Failed to plan subnets');
       const data = res.data as unknown as { data: string[] };
@@ -410,7 +416,7 @@ function SubnetPlannerTab() {
           <input style={inp} type="number" min={0} max={128} value={spSubPrefixLen} onChange={e => setSpSubPrefixLen(e.target.value)} placeholder="48" />
         </div>
         <div>
-          <button style={{ ...styles.btnPrimary, whiteSpace: 'nowrap' as const }} onClick={runSubnetPlan} disabled={spLoading || !spNetwork || !spPrefixLen || !spSubPrefixLen}>
+          <button style={{ ...styles.btnPrimary, whiteSpace: 'nowrap' as const }} onClick={runSubnetPlan} disabled={spLoading || !spNetwork}>
             {spLoading ? 'Planning...' : t('ipv6_management.subnet_plan_run', 'Plan Subnets')}
           </button>
         </div>

@@ -314,7 +314,7 @@ export function NocDashboard() {
                 <span style={{ color: 'var(--text-secondary)' }}>{t('common.noResults')}</span>
               ) : (
                 eventsQ.data.data.slice(0, 5).map(ev => (
-                  <div key={ev.id} style={{ fontSize: '0.82rem', borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>
+                  <div key={`${ev.event_type}-${ev.id}`} style={{ fontSize: '0.82rem', borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>
                     <div style={{ fontWeight: 600 }}>{ev.event_type}</div>
                     {ev.detail && (
                       <div style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

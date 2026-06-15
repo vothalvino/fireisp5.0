@@ -41,6 +41,7 @@ const CHURN_WEIGHTS = {
  * @param {{ window?: number }} opts  window = samples to use for baseline (default 48)
  */
 async function detectAnomalies(organizationId, { window: windowSize = 48 } = {}) {
+  const safeWindow = Math.max(1, parseInt(windowSize, 10) || 48);
   // Get distinct metric + device combinations
   const [combos] = await db.query(
     `SELECT DISTINCT m.metric, m.device_id
@@ -57,8 +58,8 @@ async function detectAnomalies(organizationId, { window: windowSize = 48 } = {})
     const [samples] = await db.query(
       `SELECT value FROM snmp_metrics
        WHERE device_id = ? AND metric = ?
-       ORDER BY recorded_at DESC LIMIT ?`,
-      [device_id, metric, windowSize],
+       ORDER BY recorded_at DESC LIMIT ${safeWindow}`,
+      [device_id, metric],
     );
 
     if (samples.length < MIN_SAMPLES) continue;
@@ -291,7 +292,8 @@ async function getChurnScores(organizationId, { risk_band, page = 1, limit = 50 
 
   if (risk_band) { conditions.push('cs.risk_band = ?'); params.push(risk_band); }
 
-  const offset = (Math.max(1, parseInt(page, 10)) - 1) * Math.min(parseInt(limit, 10), 100);
+  const safeLimit  = Math.min(Math.max(1, parseInt(limit, 10) || 50), 100);
+  const safeOffset = Math.max(0, (Math.max(1, parseInt(page, 10) || 1) - 1) * safeLimit);
   // Latest score per client (subquery for most recent)
   const [rows] = await db.query(
     `SELECT cs.*, cl.first_name, cl.last_name, cl.email
@@ -303,8 +305,8 @@ async function getChurnScores(organizationId, { risk_band, page = 1, limit = 50 
        GROUP BY client_id
      ) lcs ON lcs.client_id = cs.client_id AND lcs.latest = cs.scored_at
      WHERE ${conditions.join(' AND ')}
-     ORDER BY cs.score DESC LIMIT ? OFFSET ?`,
-    [organizationId, ...params, parseInt(limit, 10), offset],
+     ORDER BY cs.score DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+    [organizationId, ...params],
   );
   const [countResult] = await db.query(
     `SELECT COUNT(DISTINCT cs.client_id) AS total

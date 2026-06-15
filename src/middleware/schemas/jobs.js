@@ -13,8 +13,8 @@ const createJob = {
   type: { type: 'string', enum: ['installation', 'maintenance', 'repair', 'survey', 'other'] },
   priority: { type: 'string', enum: ['low', 'medium', 'high'] },
   status: { type: 'string', enum: ['scheduled', 'in_progress', 'completed', 'cancelled'] },
-  scheduled_at: { type: 'string' },
-  completed_at: { type: 'string' },
+  scheduled_date: { type: 'string' },
+  completed_date: { type: 'string' },
 };
 
 const updateJob = {
@@ -28,8 +28,8 @@ const updateJob = {
   type: { type: 'string', enum: ['installation', 'maintenance', 'repair', 'survey', 'other'] },
   priority: { type: 'string', enum: ['low', 'medium', 'high'] },
   status: { type: 'string', enum: ['scheduled', 'in_progress', 'completed', 'cancelled'] },
-  scheduled_at: { type: 'string' },
-  completed_at: { type: 'string' },
+  scheduled_date: { type: 'string' },
+  completed_date: { type: 'string' },
 };
 
 module.exports = { createJob, updateJob };

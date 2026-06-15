@@ -9,13 +9,15 @@ class Job extends BaseModel {
 
   static get fillable() {
     return [
-      'organization_id', 'ticket_id', 'contract_id', 'assigned_to',
-      'job_type', 'description', 'scheduled_at', 'completed_at',
-      'priority', 'status', 'notes',
+      'client_id', 'site_id', 'contract_id', 'ticket_id', 'assigned_to',
+      'title', 'description', 'type', 'scheduled_date', 'completed_date',
+      'priority', 'status', 'notes', 'created_by',
     ];
   }
 
-  static get hasOrgScope() { return true; }
+  // The jobs table has no organization_id column (single-tenant per ISP),
+  // so org scoping is disabled to avoid querying a non-existent column.
+  static get hasOrgScope() { return false; }
 }
 
 module.exports = Job;

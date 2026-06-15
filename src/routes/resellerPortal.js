@@ -74,8 +74,8 @@ router.get('/:id/clients', requirePermission('reseller_portal.manage_customers')
 
     const where = conditions.join(' AND ');
     const [rows] = await db.query(
-      `SELECT * FROM clients WHERE ${where} ORDER BY name ASC LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset],
+      `SELECT * FROM clients WHERE ${where} ORDER BY name ASC LIMIT ${limitNum} OFFSET ${offset}`,
+      params,
     );
     const [[{ total }]] = await db.query(
       `SELECT COUNT(*) AS total FROM clients WHERE ${where}`, params,
@@ -173,8 +173,8 @@ router.get('/:id/invoices', requirePermission('reseller_portal.invoices'), async
       `SELECT i.*, c.name AS client_name
        FROM invoices i
        LEFT JOIN clients c ON i.client_id = c.id
-       WHERE ${where} ORDER BY i.issue_date DESC LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset],
+       WHERE ${where} ORDER BY i.issue_date DESC LIMIT ${limitNum} OFFSET ${offset}`,
+      params,
     );
     const [[{ total }]] = await db.query(
       `SELECT COUNT(*) AS total FROM invoices i WHERE ${where}`, params,
@@ -212,8 +212,8 @@ router.get('/:id/inventory', requirePermission('reseller_portal.inventory'), asy
        JOIN assets a ON aa.asset_id = a.id
        LEFT JOIN clients c ON aa.client_id = c.id
        WHERE aa.client_id IN (?) AND aa.returned_at IS NULL
-       ORDER BY aa.assigned_at DESC LIMIT ? OFFSET ?`,
-      [clientIds, limitNum, offset],
+       ORDER BY aa.assigned_at DESC LIMIT ${limitNum} OFFSET ${offset}`,
+      [clientIds],
     );
     const [[{ total }]] = await db.query(
       'SELECT COUNT(*) AS total FROM asset_assignments aa WHERE aa.client_id IN (?) AND aa.returned_at IS NULL',

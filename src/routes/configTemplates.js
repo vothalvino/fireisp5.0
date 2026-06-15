@@ -28,8 +28,8 @@ router.get('/', requirePermission('config_templates.view'), async (req, res, nex
       [orgId],
     );
     const [rows] = await db.query(
-      'SELECT * FROM config_templates WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?',
-      [orgId, limit, offset],
+      `SELECT * FROM config_templates WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      [orgId],
     );
     res.json({ data: rows, meta: { total, page, limit } });
   } catch (err) { next(err); }

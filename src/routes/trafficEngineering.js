@@ -92,8 +92,8 @@ function teController(tableName) {
           `SELECT * FROM ${tableName}
            WHERE (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL
            ORDER BY id ASC
-           LIMIT ? OFFSET ?`,
-          [req.orgId, limit, offset],
+           LIMIT ${limit} OFFSET ${offset}`,
+          [req.orgId],
         );
         res.json({ data: rows, meta: { total, page, limit } });
       } catch (err) {

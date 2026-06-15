@@ -56,14 +56,15 @@ async function listArticles(orgId, filters = {}) {
     params.push(`%${search}%`, `%${search}%`);
   }
 
-  params.push(Number(limit), Number(offset));
+  const safeLimit  = Math.max(1, parseInt(limit, 10) || 50);
+  const safeOffset = Math.max(0, parseInt(offset, 10) || 0);
 
   const [rows] = await db.query(
     `SELECT id, title, category, locale, tags, is_published, created_at, updated_at
        FROM kb_articles ka
       WHERE ${conditions.join(' AND ')}
       ORDER BY updated_at DESC
-      LIMIT ? OFFSET ?`,
+      LIMIT ${safeLimit} OFFSET ${safeOffset}`,
     params,
   );
   return rows;
@@ -257,14 +258,14 @@ async function _keywordSearch(orgId, query, locale, limit) {
     params.push(locale);
   }
 
-  params.push(Number(limit));
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 10);
 
   const [rows] = await db.query(
     `SELECT id, title, body, category, locale, tags, updated_at
        FROM kb_articles
       WHERE ${conditions.join(' AND ')}
       ORDER BY updated_at DESC
-      LIMIT ?`,
+      LIMIT ${safeLimit}`,
     params,
   );
   return rows;

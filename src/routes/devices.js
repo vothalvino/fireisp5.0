@@ -73,10 +73,10 @@ router.post('/:id/restore', requirePermission('devices.update'), async (req, res
 // Device SNMP metrics
 router.get('/:id/snmp-metrics', requirePermission('devices.view'), async (req, res, next) => {
   try {
-    const limit = parseInt(req.query.limit, 10) || 100;
+    const limit = Math.max(1, parseInt(req.query.limit, 10) || 100);
     const [rows] = await db.query(
-      'SELECT * FROM snmp_metrics WHERE device_id = ? ORDER BY polled_at DESC LIMIT ?',
-      [req.params.id, limit],
+      `SELECT * FROM snmp_metrics WHERE device_id = ? ORDER BY polled_at DESC LIMIT ${limit}`,
+      [req.params.id],
     );
     res.json({ data: rows });
   } catch (err) { next(err); }

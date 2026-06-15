@@ -109,10 +109,24 @@ router.get('/subnet-plan', requirePermission('ipv6.management'), async (req, res
     if (!network) {
       return res.status(422).json({ error: 'network is required' });
     }
-    const prefixLen = parseInt(prefix_len, 10);
-    const subPrefixLen = parseInt(sub_prefix_len, 10);
-    if (isNaN(prefixLen) || isNaN(subPrefixLen)) {
-      return res.status(422).json({ error: 'prefix_len and sub_prefix_len must be numbers' });
+
+    // prefix_len is optional: when omitted, derive it from the network CIDR
+    // (e.g. "2001:db8::/32" -> 32). The /subnet-plan form supplies it as a
+    // separate field, but a bare CIDR already encodes the parent prefix.
+    let prefixLen = parseInt(prefix_len, 10);
+    if (isNaN(prefixLen) && typeof network === 'string' && network.includes('/')) {
+      prefixLen = parseInt(network.split('/')[1], 10);
+    }
+    if (isNaN(prefixLen)) {
+      return res.status(422).json({ error: 'prefix_len is required when network has no CIDR suffix' });
+    }
+
+    // sub_prefix_len is optional: default to one nibble (16 bits) deeper than
+    // the parent prefix, capped at 128, so a minimal request still returns a
+    // sensible plan instead of a 422.
+    let subPrefixLen = parseInt(sub_prefix_len, 10);
+    if (isNaN(subPrefixLen)) {
+      subPrefixLen = Math.min(prefixLen + 16, 128);
     }
 
     const subnets = subnetPlannerService.planSubnets(network, prefixLen, subPrefixLen);

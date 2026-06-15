@@ -87,8 +87,10 @@ describe('usageService', () => {
     test('respects limit parameter', async () => {
       db.query.mockResolvedValueOnce([[]]);
       await usageService.getTopUsers(1, { limit: 5 });
-      const params = db.query.mock.calls[0][1];
-      expect(params).toContain(5);
+      const [sql, params] = db.query.mock.calls[0];
+      // limit is inlined as a validated integer literal (MySQL8 rejects bound LIMIT)
+      expect(sql).toContain('LIMIT 5');
+      expect(params).not.toContain(5);
     });
   });
 

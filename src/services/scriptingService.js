@@ -26,11 +26,12 @@ async function listScripts(organizationId, { page = 1, limit = 50, language, is_
   if (language) { conditions.push('language = ?'); params.push(language); }
   if (is_shared !== undefined) { conditions.push('is_shared = ?'); params.push(is_shared ? 1 : 0); }
 
-  const offset = (Math.max(1, parseInt(page, 10)) - 1) * Math.min(parseInt(limit, 10), 100);
+  const safeLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 100));
+  const safeOffset = Math.max(0, (Math.max(1, parseInt(page, 10)) - 1) * safeLimit);
   const [rows] = await db.query(
     `SELECT * FROM automation_scripts WHERE ${conditions.join(' AND ')}
-     ORDER BY is_shared DESC, name ASC LIMIT ? OFFSET ?`,
-    [...params, parseInt(limit, 10), offset],
+     ORDER BY is_shared DESC, name ASC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+    params,
   );
   const [countResult] = await db.query(
     `SELECT COUNT(*) AS total FROM automation_scripts WHERE ${conditions.join(' AND ')}`,
@@ -154,14 +155,15 @@ async function listExecutions(organizationId, { script_id, status, page = 1, lim
   if (script_id) { conditions.push('se.script_id = ?'); params.push(script_id); }
   if (status)    { conditions.push('se.status = ?');    params.push(status); }
 
-  const offset = (Math.max(1, parseInt(page, 10)) - 1) * Math.min(parseInt(limit, 10), 100);
+  const safeLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 100));
+  const safeOffset = Math.max(0, (Math.max(1, parseInt(page, 10)) - 1) * safeLimit);
   const [rows] = await db.query(
     `SELECT se.*, s.name AS script_name, s.language
      FROM script_executions se
      JOIN automation_scripts s ON s.id = se.script_id
      WHERE ${conditions.join(' AND ')}
-     ORDER BY se.created_at DESC LIMIT ? OFFSET ?`,
-    [...params, parseInt(limit, 10), offset],
+     ORDER BY se.created_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+    params,
   );
   const [countResult] = await db.query(
     `SELECT COUNT(*) AS total FROM script_executions se WHERE ${conditions.join(' AND ')}`,

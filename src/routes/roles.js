@@ -24,8 +24,7 @@ router.get('/', requirePermission('roles.view'), async (req, res, next) => {
     const offset = (pageNum - 1) * limitNum;
 
     const [rows] = await db.query(
-      'SELECT * FROM roles WHERE deleted_at IS NULL ORDER BY name LIMIT ? OFFSET ?',
-      [limitNum, offset],
+      `SELECT * FROM roles WHERE deleted_at IS NULL ORDER BY name LIMIT ${limitNum} OFFSET ${offset}`,
     );
     const [countResult] = await db.query('SELECT COUNT(*) AS total FROM roles WHERE deleted_at IS NULL');
     const total = countResult[0].total;
@@ -65,7 +64,7 @@ router.get('/:id', requirePermission('roles.view'), async (req, res, next) => {
        FROM role_permissions rp
        JOIN permissions p ON p.id = rp.permission_id
        WHERE rp.role_id = ?
-       ORDER BY p.slug`,
+       ORDER BY p.name`,
       [req.params.id],
     );
 
@@ -135,7 +134,7 @@ router.post('/:id/permissions', requirePermission('roles.manage'), validate(assi
        FROM role_permissions rp
        JOIN permissions p ON p.id = rp.permission_id
        WHERE rp.role_id = ?
-       ORDER BY p.slug`,
+       ORDER BY p.name`,
       [req.params.id],
     );
     res.status(201).json({ data: rows });

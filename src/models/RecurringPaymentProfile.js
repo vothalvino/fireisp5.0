@@ -9,15 +9,18 @@ class RecurringPaymentProfile extends BaseModel {
 
   static get fillable() {
     return [
-      'organization_id', 'client_id', 'payment_gateway_id',
-      'gateway_customer_id', 'gateway_card_token', 'card_brand',
-      'card_last_four', 'card_expiry_month', 'card_expiry_year',
+      'client_id', 'payment_gateway_id', 'token_reference',
+      'card_brand', 'card_last_four', 'card_exp_month', 'card_exp_year',
       'is_default', 'status',
     ];
   }
 
-  static get hasOrgScope() { return true; }
+  // Table recurring_payment_profiles has no organization_id column
+  // (single-tenant deployment) — org scoping disabled to avoid a
+  // WHERE organization_id = ? against a non-existent column.
+  static get hasOrgScope() { return false; }
 
+  // Table has a deleted_at column (added by migration 151) — soft-delete enabled.
   static get softDelete() { return true; }
 }
 

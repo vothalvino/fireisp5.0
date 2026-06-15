@@ -143,8 +143,8 @@ router.get('/subscriber-speed-test-jobs', requirePermission('subscriber_speed_te
        LEFT JOIN bandwidth_test_servers s ON j.test_server_id = s.id
        WHERE ${where}
        ORDER BY j.scheduled_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, limit, offset],
+       LIMIT ${limit} OFFSET ${offset}`,
+      params,
     );
     res.json({ data: rows, meta: { total, page, limit } });
   } catch (err) {

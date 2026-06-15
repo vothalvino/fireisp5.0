@@ -48,11 +48,21 @@ beforeEach(() => {
 describe('GET /api/v1/noc/health', () => {
   it('returns device and alert stats', async () => {
     db.query
-      .mockResolvedValueOnce([[{ total_devices: 10, up: 8, down: 1, warning: 1 }]])
+      .mockResolvedValueOnce([[{ devices_total: 10, devices_up: 8, devices_down: 1, devices_maintenance: 1 }]])
       .mockResolvedValueOnce([[{ severity: 'critical', count: 2 }, { severity: 'medium', count: 5 }]]);
     const res = await request(app).get('/api/v1/noc/health').set('X-Org-Id', '1');
     expect(res.status).toBe(200);
-    expect(res.body.data.devices.total_devices).toBe(10);
+    // Response is now FLAT (matches what the frontend reads), not nested under `devices`.
+    expect(res.body.data.devices_total).toBe(10);
+    expect(res.body.data.devices_up).toBe(8);
+    expect(res.body.data.devices_down).toBe(1);
+    expect(res.body.data.devices_maintenance).toBe(1);
+    // uptime_pct = round(up/total * 1000)/10 = round(8/10 * 1000)/10 = 80
+    expect(res.body.data.uptime_pct).toBe(80);
+    expect(res.body.data.active_alerts).toEqual([
+      { severity: 'critical', count: 2 },
+      { severity: 'medium', count: 5 },
+    ]);
   });
 });
 

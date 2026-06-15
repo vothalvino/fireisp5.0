@@ -52,8 +52,8 @@ describe('firerelayService', () => {
       expect(result.data).toEqual(nodes);
       expect(result.meta).toEqual({ total: 1, page: 1, limit: 50, totalPages: 1 });
       expect(db.query).toHaveBeenCalledWith(
-        'SELECT * FROM firerelay_nodes ORDER BY created_at ASC LIMIT ? OFFSET ?',
-        [50, 0],
+        'SELECT * FROM firerelay_nodes ORDER BY created_at ASC LIMIT 50 OFFSET 0',
+        [],
       );
     });
 
@@ -66,8 +66,8 @@ describe('firerelayService', () => {
       expect(result.meta.page).toBe(2);
       expect(result.meta.limit).toBe(10);
       expect(db.query).toHaveBeenCalledWith(
-        'SELECT * FROM firerelay_nodes ORDER BY created_at ASC LIMIT ? OFFSET ?',
-        [10, 10],
+        'SELECT * FROM firerelay_nodes ORDER BY created_at ASC LIMIT 10 OFFSET 10',
+        [],
       );
     });
   });

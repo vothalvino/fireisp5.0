@@ -49,7 +49,7 @@ async function purgeTable(table, retentionDays, dateColumn = 'created_at') {
     throw new Error(`Table "${table}" is not in the retention policy whitelist`);
   }
 
-  const batchSize = 1000;
+  const batchSize = Math.max(1, parseInt(1000, 10) || 1000);
   let totalDeleted = 0;
 
   logger.info({ table, retentionDays, dateColumn }, 'Starting retention purge');
@@ -57,8 +57,8 @@ async function purgeTable(table, retentionDays, dateColumn = 'created_at') {
   // Delete in batches to avoid locking the table for too long
   while (true) {
     const [result] = await db.query(
-      `DELETE FROM \`${table}\` WHERE \`${dateColumn}\` < DATE_SUB(NOW(), INTERVAL ? DAY) LIMIT ?`,
-      [retentionDays, batchSize],
+      `DELETE FROM \`${table}\` WHERE \`${dateColumn}\` < DATE_SUB(NOW(), INTERVAL ? DAY) LIMIT ${batchSize}`,
+      [retentionDays],
     );
 
     totalDeleted += result.affectedRows;

@@ -4,6 +4,7 @@
 
 const { Router } = require('express');
 const User = require('../models/User');
+const { sanitizeUser } = require('../utils/userSanitize');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
@@ -12,7 +13,8 @@ const { validate } = require('../middleware/validate');
 const { createUser, updateUser, patchUser } = require('../middleware/schemas/users');
 
 const router = Router();
-const ctrl = crudController(User);
+// Strip password hash + 2FA secrets from every user record in responses.
+const ctrl = crudController(User, { serialize: sanitizeUser });
 
 router.use(authenticate);
 router.use(orgScope);

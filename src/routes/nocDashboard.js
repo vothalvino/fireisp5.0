@@ -14,28 +14,37 @@ router.use(authenticate);
 router.use(orgScope);
 
 // GET /noc/health — network health rollup
+// devices.status ENUM is ('online','offline','maintenance'); alert severity
+// lives on alert_rules (alert_events has no severity column).
 router.get('/health', requirePermission('noc.view'), async (req, res, next) => {
   try {
     const [[deviceStats]] = await db.query(
       `SELECT
-         COUNT(*) AS total_devices,
-         SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) AS up,
-         SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END) AS down,
-         SUM(CASE WHEN status = 'warning' THEN 1 ELSE 0 END) AS warning
+         COUNT(*) AS devices_total,
+         SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) AS devices_up,
+         SUM(CASE WHEN status = 'offline' THEN 1 ELSE 0 END) AS devices_down,
+         SUM(CASE WHEN status = 'maintenance' THEN 1 ELSE 0 END) AS devices_maintenance
        FROM devices
        WHERE organization_id = ? AND deleted_at IS NULL`,
       [req.orgId],
     );
     const [alertStats] = await db.query(
-      `SELECT severity, COUNT(*) AS count
-       FROM alert_events
-       WHERE organization_id = ? AND resolved_at IS NULL
-       GROUP BY severity`,
+      `SELECT ar.severity, COUNT(*) AS count
+       FROM alert_events ae
+       JOIN alert_rules ar ON ar.id = ae.alert_rule_id
+       WHERE ae.organization_id = ? AND ae.resolved_at IS NULL
+       GROUP BY ar.severity`,
       [req.orgId],
     );
+    const total = Number(deviceStats.devices_total) || 0;
+    const up = Number(deviceStats.devices_up) || 0;
     res.json({
       data: {
-        devices: deviceStats,
+        devices_total: total,
+        devices_up: up,
+        devices_down: Number(deviceStats.devices_down) || 0,
+        devices_maintenance: Number(deviceStats.devices_maintenance) || 0,
+        uptime_pct: total > 0 ? Math.round((up / total) * 1000) / 10 : null,
         active_alerts: alertStats,
       },
     });
@@ -43,14 +52,16 @@ router.get('/health', requirePermission('noc.view'), async (req, res, next) => {
 });
 
 // GET /noc/alarms — active alarm counts by severity
+// severity lives on alert_rules; ENUM is ('info','warning','major','critical').
 router.get('/alarms', requirePermission('noc.view'), async (req, res, next) => {
   try {
     const [rows] = await db.query(
-      `SELECT severity, COUNT(*) AS count
-       FROM alert_events
-       WHERE organization_id = ? AND resolved_at IS NULL
-       GROUP BY severity
-       ORDER BY FIELD(severity, 'critical','high','medium','low','info')`,
+      `SELECT ar.severity, COUNT(*) AS count
+       FROM alert_events ae
+       JOIN alert_rules ar ON ar.id = ae.alert_rule_id
+       WHERE ae.organization_id = ? AND ae.resolved_at IS NULL
+       GROUP BY ar.severity
+       ORDER BY FIELD(ar.severity, 'critical','major','warning','info')`,
       [req.orgId],
     );
     res.json({ data: rows });
@@ -94,10 +105,11 @@ router.get('/ticket-queue', requirePermission('noc.view'), async (req, res, next
 router.get('/events', requirePermission('noc.view'), async (req, res, next) => {
   try {
     const [alertEvents] = await db.query(
-      `SELECT 'alert' AS event_type, id, metric AS detail, severity, created_at AS occurred_at
-       FROM alert_events
-       WHERE organization_id = ?
-       ORDER BY created_at DESC LIMIT 20`,
+      `SELECT 'alert' AS event_type, ae.id, ae.metric AS detail, ar.severity, ae.created_at AS occurred_at
+       FROM alert_events ae
+       JOIN alert_rules ar ON ar.id = ae.alert_rule_id
+       WHERE ae.organization_id = ?
+       ORDER BY ae.created_at DESC LIMIT 20`,
       [req.orgId],
     );
     const [outageEvents] = await db.query(

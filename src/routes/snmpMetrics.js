@@ -90,8 +90,8 @@ router.get('/top-talkers', requirePermission('snmp_metrics.top_talkers'), async 
          AND m.interface_id != ''
        GROUP BY m.device_id, d.name, d.ip_address, m.interface_id
        ORDER BY total_bytes DESC
-       LIMIT ?`,
-      [lookbackHours, req.orgId, limit],
+       LIMIT ${limit}`,
+      [lookbackHours, req.orgId],
     );
 
     res.json({

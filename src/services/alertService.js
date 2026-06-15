@@ -254,14 +254,16 @@ async function autoCreateTicket(organizationId, rule, breach) {
  * Get alert history for an organization.
  */
 async function getAlertHistory(organizationId, { page = 1, limit = 50 } = {}) {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 50);
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const offset = (safePage - 1) * safeLimit;
   const [rows] = await db.query(
     `SELECT ae.*, ar.name AS rule_name
      FROM alert_events ae
      JOIN alert_rules ar ON ar.id = ae.alert_rule_id
      WHERE ae.organization_id = ?
-     ORDER BY ae.created_at DESC LIMIT ? OFFSET ?`,
-    [organizationId, limit, offset],
+     ORDER BY ae.created_at DESC LIMIT ${safeLimit} OFFSET ${offset}`,
+    [organizationId],
   );
   const [countResult] = await db.query(
     'SELECT COUNT(*) AS total FROM alert_events WHERE organization_id = ?',

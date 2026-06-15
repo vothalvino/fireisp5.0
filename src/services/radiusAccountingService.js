@@ -454,8 +454,8 @@ async function purgeRadiusAccounting() {
     const [result] = await db.query(
       `DELETE FROM connection_logs
        WHERE event_at < DATE_SUB(NOW(), INTERVAL ? MONTH)
-       LIMIT ?`,
-      [retentionMonths, batchSize],
+       LIMIT ${batchSize}`,
+      [retentionMonths],
     );
 
     totalDeleted += result.affectedRows;
@@ -483,7 +483,9 @@ async function purgeRadiusAccounting() {
  * @returns {Promise<{rows: object[], total: number, page: number, limit: number}>}
  */
 async function listMacMoveEvents(organizationId, { page = 1, limit = 25 } = {}) {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.max(1, parseInt(limit, 10) || 25);
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const offset = (safePage - 1) * safeLimit;
 
   const [[{ total }]] = await db.query(
     'SELECT COUNT(*) AS total FROM mac_move_events WHERE organization_id = ?',
@@ -498,8 +500,8 @@ async function listMacMoveEvents(organizationId, { page = 1, limit = 25 } = {}) 
      FROM mac_move_events
      WHERE organization_id = ?
      ORDER BY detected_at DESC
-     LIMIT ? OFFSET ?`,
-    [organizationId, limit, offset],
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    [organizationId],
   );
 
   return { rows, total, page, limit };

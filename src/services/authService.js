@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const config = require('../config');
 const User = require('../models/User');
+const { sanitizeUser } = require('../utils/userSanitize');
 const db = require('../config/database');
 const { UnauthorizedError, ConflictError, ValidationError, NotFoundError } = require('../utils/errors');
 
@@ -77,8 +78,7 @@ async function register({ firstName, lastName, email, password, organizationId, 
     );
   }
 
-  const { password_hash: _passwordHash, ...safeUser } = user;
-  return safeUser;
+  return sanitizeUser(user);
 }
 
 /**
@@ -155,12 +155,11 @@ async function login({ email, password }) {
     [user.id, refreshHash, family, null, null, REFRESH_SECONDS],
   );
 
-  const { password_hash: _hash, ...safeUser } = user;
   return {
     accessToken,
     refreshToken: refreshTokenValue,
     expiresIn: ACCESS_SECONDS,
-    user: safeUser,
+    user: sanitizeUser(user),
     organizations: orgs,
   };
 }

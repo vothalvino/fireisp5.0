@@ -33,8 +33,8 @@ router.get('/', requirePermission('facturas_publicas.view'), async (req, res, ne
     const offset = (pageNum - 1) * limitNum;
 
     const [rows] = await db.query(
-      'SELECT * FROM factura_publica_invoices WHERE organization_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
-      [req.orgId, limitNum, offset],
+      `SELECT * FROM factura_publica_invoices WHERE organization_id = ? ORDER BY created_at DESC LIMIT ${limitNum} OFFSET ${offset}`,
+      [req.orgId],
     );
     const [countResult] = await db.query(
       'SELECT COUNT(*) AS total FROM factura_publica_invoices WHERE organization_id = ?',
@@ -120,8 +120,8 @@ router.get('/:id/items', requirePermission('facturas_publicas.view'), async (req
     const offset = (pageNum - 1) * limitNum;
 
     const [rows] = await db.query(
-      'SELECT * FROM factura_publica_invoice_items WHERE factura_publica_invoice_id = ? ORDER BY id LIMIT ? OFFSET ?',
-      [req.params.id, limitNum, offset],
+      `SELECT * FROM factura_publica_invoice_items WHERE factura_publica_invoice_id = ? ORDER BY id LIMIT ${limitNum} OFFSET ${offset}`,
+      [req.params.id],
     );
     const [countResult] = await db.query(
       'SELECT COUNT(*) AS total FROM factura_publica_invoice_items WHERE factura_publica_invoice_id = ?',

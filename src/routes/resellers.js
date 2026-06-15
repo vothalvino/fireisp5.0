@@ -150,8 +150,8 @@ router.get('/', requirePermission('resellers.view'), async (req, res, next) => {
       `SELECT r.*, p.name AS parent_name
        FROM resellers r
        LEFT JOIN resellers p ON r.parent_id = p.id
-       WHERE ${where} ORDER BY r.level ASC, r.name ASC LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset],
+       WHERE ${where} ORDER BY r.level ASC, r.name ASC LIMIT ${limitNum} OFFSET ${offset}`,
+      params,
     );
     const [[{ total }]] = await db.query(
       `SELECT COUNT(*) AS total FROM resellers r WHERE ${where}`, params,
@@ -329,8 +329,8 @@ router.get('/:id/commissions', requirePermission('reseller_commissions.view'), a
        FROM reseller_commissions rc
        LEFT JOIN clients c ON rc.client_id = c.id
        LEFT JOIN invoices i ON rc.invoice_id = i.id
-       WHERE ${where} ORDER BY rc.created_at DESC LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset],
+       WHERE ${where} ORDER BY rc.created_at DESC LIMIT ${limitNum} OFFSET ${offset}`,
+      params,
     );
     const [[{ total }]] = await db.query(
       `SELECT COUNT(*) AS total FROM reseller_commissions rc WHERE ${where}`, params,

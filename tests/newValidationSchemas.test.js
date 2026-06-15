@@ -498,7 +498,7 @@ describe('Outage validation schemas', () => {
 
   test('createOutage accepts all severities', () => {
     for (const severity of ['minor', 'major', 'critical']) {
-      const next = run(createOutage, { title: 'Outage', severity });
+      const next = run(createOutage, { title: 'Outage', started_at: '2026-01-01T00:00:00Z', severity });
       expectPass(next);
     }
   });
@@ -1029,32 +1029,43 @@ describe('PaymentGateway validation schemas', () => {
 describe('RecurringPaymentProfile validation schemas', () => {
   const { createRecurringPaymentProfile, updateRecurringPaymentProfile } = require('../src/middleware/schemas/recurringPaymentProfiles');
 
-  test('createRecurringPaymentProfile requires client_id and gateway_id', () => {
+  test('createRecurringPaymentProfile requires client_id, payment_gateway_id, token_reference', () => {
     const next = run(createRecurringPaymentProfile, {});
     const fields = errorFields(next);
     expect(fields).toContain('client_id');
-    expect(fields).toContain('gateway_id');
+    expect(fields).toContain('payment_gateway_id');
+    expect(fields).toContain('token_reference');
   });
 
   test('createRecurringPaymentProfile rejects card_exp_month > 12', () => {
-    const next = run(createRecurringPaymentProfile, { client_id: 1, gateway_id: 1, card_exp_month: 13 });
+    const next = run(createRecurringPaymentProfile, {
+      client_id: 1, payment_gateway_id: 1, token_reference: 'tok_abc123', card_exp_month: 13,
+    });
     expectReject(next);
+    expect(errorFields(next)).toContain('card_exp_month');
   });
 
   test('createRecurringPaymentProfile rejects card_exp_month < 1', () => {
-    const next = run(createRecurringPaymentProfile, { client_id: 1, gateway_id: 1, card_exp_month: 0 });
+    const next = run(createRecurringPaymentProfile, {
+      client_id: 1, payment_gateway_id: 1, token_reference: 'tok_abc123', card_exp_month: 0,
+    });
     expectReject(next);
+    expect(errorFields(next)).toContain('card_exp_month');
   });
 
   test('createRecurringPaymentProfile rejects card_exp_year > 2099', () => {
-    const next = run(createRecurringPaymentProfile, { client_id: 1, gateway_id: 1, card_exp_year: 2100 });
+    const next = run(createRecurringPaymentProfile, {
+      client_id: 1, payment_gateway_id: 1, token_reference: 'tok_abc123', card_exp_year: 2100,
+    });
     expectReject(next);
+    expect(errorFields(next)).toContain('card_exp_year');
   });
 
   test('createRecurringPaymentProfile accepts valid data', () => {
     const next = run(createRecurringPaymentProfile, {
-      client_id: 1, gateway_id: 1, card_brand: 'visa', card_last_four: '4242',
-      card_exp_month: 12, card_exp_year: 2028, status: 'active',
+      client_id: 1, payment_gateway_id: 1, token_reference: 'tok_abc123',
+      card_brand: 'visa', card_last_four: '4242',
+      card_exp_month: 12, card_exp_year: 2028, is_default: true, status: 'active',
     });
     expectPass(next);
   });
