@@ -61468,6 +61468,23 @@
             "type": "string",
             "maximum": 45
           },
+          "ipv4_pool_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "ipv6_pool_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "ipv6_delegated_prefix": {
+            "type": "string",
+            "maximum": 45
+          },
+          "ipv6_prefix_len": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 128
+          },
           "mac_address": {
             "type": "string",
             "maximum": 17
@@ -61547,6 +61564,23 @@
           "ipv6_address": {
             "type": "string",
             "maximum": 45
+          },
+          "ipv4_pool_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "ipv6_pool_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "ipv6_delegated_prefix": {
+            "type": "string",
+            "maximum": 45
+          },
+          "ipv6_prefix_len": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 128
           },
           "mac_address": {
             "type": "string",
