@@ -13,6 +13,8 @@ class Nas extends BaseModel {
       'secret', 'type', 'ports', 'coa_port', 'location', 'site_id',
       'secondary_nas_id', 'health_status', 'last_health_check_at',
       'description', 'status',
+      // RouterOS direct-provisioning API connection (migration 360)
+      'api_port', 'api_username', 'api_password_encrypted', 'api_use_tls',
     ];
   }
 

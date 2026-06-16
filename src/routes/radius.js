@@ -4,6 +4,9 @@
 
 const { Router } = require('express');
 const Radius = require('../models/Radius');
+const Nas = require('../models/Nas');
+const routerProvisioningService = require('../services/routerProvisioningService');
+const { ValidationError } = require('../utils/errors');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
@@ -80,6 +83,40 @@ router.post('/:id/disconnect', requirePermission('devices.update'), async (req, 
     }
     const result = await disconnectSession(rows[0].contract_id);
     res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =============================================================================
+// Direct RouterOS provisioning — push a subscriber (PPPoE secret) to its NAS
+// =============================================================================
+// Placed with the other `/:id/...` item routes (above the generic `/:id` CRUD
+// block) so it stays tidy alongside `/:id/disconnect` and `/:id/routes`.
+router.post('/:id/push', requirePermission('radius.sync'), async (req, res, next) => {
+  try {
+    const radius = await Radius.findByIdOrFail(req.params.id, req.orgId);
+
+    if (!radius.nas_id) {
+      return res.status(422).json({ error: { code: 'NO_NAS', message: 'Subscriber has no NAS assigned' } });
+    }
+
+    const nas = await Nas.findByIdOrFail(radius.nas_id, req.orgId);
+
+    const sub = {
+      username: radius.username,
+      password: radius.password,
+      profile: radius.profile,
+      comment: 'FireISP radius#' + radius.id + ' client#' + radius.client_id + ' contract#' + radius.contract_id,
+    };
+
+    try {
+      res.json({ data: await routerProvisioningService.pushSubscriber(nas, sub) });
+    } catch (e) {
+      // Misconfiguration (e.g. NAS missing API username) is a 422, not "unreachable".
+      if (e instanceof ValidationError || e.statusCode === 422) return next(e);
+      res.status(502).json({ error: { code: 'ROUTER_UNREACHABLE', message: e.message } });
+    }
   } catch (err) {
     next(err);
   }

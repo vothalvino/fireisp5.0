@@ -8685,6 +8685,42 @@
         }
       }
     },
+    "/nas/{id}/test-connection": {
+      "post": {
+        "tags": [
+          "NAS"
+        ],
+        "summary": "Test the direct RouterOS API connection to a NAS (uses its configured api_port/credentials)",
+        "operationId": "testNasConnection",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connection result (version, board, identity)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/radius": {
       "get": {
         "tags": [
@@ -8939,6 +8975,42 @@
         "responses": {
           "200": {
             "description": "Sync result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/radius/{id}/push": {
+      "post": {
+        "tags": [
+          "RADIUS"
+        ],
+        "summary": "Push a RADIUS subscriber (PPPoE secret) directly to its NAS RouterOS device over the API",
+        "operationId": "pushRadiusToRouter",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Push result (router secret id, created/updated)",
             "content": {
               "application/json": {
                 "schema": {
@@ -56340,6 +56412,22 @@
               "active",
               "inactive"
             ]
+          },
+          "api_port": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "api_username": {
+            "type": "string",
+            "maximum": 128
+          },
+          "api_password": {
+            "type": "string",
+            "maximum": 255
+          },
+          "api_use_tls": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -56412,6 +56500,22 @@
               "active",
               "inactive"
             ]
+          },
+          "api_port": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "api_username": {
+            "type": "string",
+            "maximum": 128
+          },
+          "api_password": {
+            "type": "string",
+            "maximum": 255
+          },
+          "api_use_tls": {
+            "type": "boolean"
           }
         }
       },
