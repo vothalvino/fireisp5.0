@@ -29,10 +29,16 @@ fallback. Requests from an unknown source IP with no secret are silently dropped
 ## Point a MikroTik at FireISP
 
 ```
-/radius add service=ppp,accounting address=<FIREISP_IP> secret=<nas.secret> \
+/radius add service=ppp address=<FIREISP_IP> secret=<nas.secret> \
         authentication-port=1812 accounting-port=1813
 /ppp aaa set use-radius=yes accounting=yes interim-update=5m
 ```
+
+> `service=ppp` (RouterOS only accepts the subsystem tokens
+> `hotspot,login,ppp,dhcp,wireless,ipsec,dot1x` here — there is no `accounting`
+> token). PPP **accounting** is turned on by `/ppp aaa accounting=yes` above and
+> sent to this same server on its `accounting-port`. The **Seed** button in
+> *NAS Devices* applies exactly this configuration over the RouterOS API.
 
 ## What FireISP returns
 

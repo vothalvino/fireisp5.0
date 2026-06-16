@@ -26,6 +26,7 @@ const {
   nasToConn,
   testConnection,
   pushSubscriber,
+  seedDevice,
 } = require('../src/services/routerProvisioningService');
 
 // The real DEFAULT_PORT constant the service falls back to.
@@ -235,5 +236,174 @@ describe('pushSubscriber', () => {
       pushSubscriber({ ...BASE_NAS, api_username: undefined }, { username: 'x', password: 'y' }),
     ).rejects.toThrow('NAS has no RouterOS API username configured');
     expect(ros.pppoeUpsert).not.toHaveBeenCalled();
+  });
+});
+
+// =============================================================================
+// seedDevice
+// =============================================================================
+
+describe('seedDevice', () => {
+  const SEED_NAS = { ...BASE_NAS, secret: 'radsecret', coa_port: 3799 };
+
+  // Real parseAttrs so findManagedId can pull `.id` out of !re sentences.
+  function realParseAttrs(words) {
+    const obj = {};
+    for (const w of words) {
+      if (typeof w !== 'string') continue;
+      const eq = w.indexOf('=', 1);
+      if (w.startsWith('=') && eq !== -1) obj[w.slice(1, eq)] = w.slice(eq + 1);
+    }
+    return obj;
+  }
+
+  // Fake client recording every command. `handler` decides each command's reply;
+  // anything it doesn't answer defaults to a bare !done (printed → "not found").
+  function makeSeedClient(handler = () => null) {
+    const calls = [];
+    const client = {
+      run: jest.fn(async (words) => {
+        calls.push(words);
+        const reply = handler(words);
+        return reply || [['!done']];
+      }),
+      close: jest.fn().mockResolvedValue(undefined),
+    };
+    return { client, calls };
+  }
+
+  const callTo = (calls, path) => calls.find((c) => c[0] === path);
+  const stepStatus = (steps, name) => (steps.find((s) => s.step === name) || {}).status;
+
+  beforeEach(() => {
+    ros.parseAttrs.mockImplementation(realParseAttrs);
+  });
+
+  test('throws ValidationError (no router connection) when radiusAddress is missing', async () => {
+    await expect(seedDevice(SEED_NAS, {})).rejects.toThrow('radiusAddress is required');
+    expect(ros.createClient).not.toHaveBeenCalled();
+  });
+
+  test('throws ValidationError when the NAS has no RADIUS secret', async () => {
+    await expect(
+      seedDevice({ ...SEED_NAS, secret: undefined }, { radiusAddress: '203.0.113.10' }),
+    ).rejects.toThrow('no RADIUS shared secret');
+    expect(ros.createClient).not.toHaveBeenCalled();
+  });
+
+  test('creates the RADIUS client, CoA listener and PPP AAA on a fresh router', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10' });
+
+    expect(result.ok).toBe(true);
+    expect(stepStatus(result.steps, 'radius-client')).toBe('created');
+    expect(stepStatus(result.steps, 'radius-incoming')).toBe('updated');
+    expect(stepStatus(result.steps, 'ppp-aaa')).toBe('updated');
+
+    // RADIUS client added with the NAS secret + service=ppp pointing at FireISP.
+    const add = callTo(calls, '/radius/add');
+    expect(add).toContain('=service=ppp');
+    expect(add).toContain('=address=203.0.113.10');
+    expect(add).toContain('=secret=radsecret');
+    expect(add).toContain('=comment=fireisp-radius');
+
+    // CoA listener + AAA toggled on.
+    expect(callTo(calls, '/radius/incoming/set')).toEqual(
+      expect.arrayContaining(['=accept=yes', '=port=3799']),
+    );
+    expect(callTo(calls, '/ppp/aaa/set')).toEqual(
+      expect.arrayContaining(['=use-radius=yes', '=accounting=yes', '=interim-update=5m']),
+    );
+    expect(client.close).toHaveBeenCalledTimes(1);
+  });
+
+  test('is idempotent — updates the existing tagged RADIUS entry instead of adding', async () => {
+    const { client, calls } = makeSeedClient((words) => {
+      if (words[0] === '/radius/print') return [['!re', '=.id=*5', '=comment=fireisp-radius'], ['!done']];
+      return null;
+    });
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10' });
+
+    expect(stepStatus(result.steps, 'radius-client')).toBe('updated');
+    const set = callTo(calls, '/radius/set');
+    expect(set).toContain('=.id=*5');
+    expect(set).toContain('=address=203.0.113.10');
+    expect(callTo(calls, '/radius/add')).toBeUndefined();
+  });
+
+  test('seeds a queue-tree skeleton when requested (Mbps → RouterOS rate string)', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, {
+      radiusAddress: '203.0.113.10',
+      seedQueueTree: true,
+      queueParent: 'global',
+      totalDownloadMbps: 500,
+      totalUploadMbps: 200,
+    });
+
+    expect(stepStatus(result.steps, 'queue-tree:download')).toBe('created');
+    expect(stepStatus(result.steps, 'queue-tree:upload')).toBe('created');
+    const adds = calls.filter((c) => c[0] === '/queue/tree/add');
+    expect(adds).toHaveLength(2);
+    expect(adds[0]).toEqual(expect.arrayContaining(['=name=fireisp-total-download', '=parent=global', '=max-limit=500M']));
+    expect(adds[1]).toEqual(expect.arrayContaining(['=name=fireisp-total-upload', '=max-limit=200M']));
+  });
+
+  test('skips the queue tree when enabled but no bandwidth is supplied', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10', seedQueueTree: true });
+
+    expect(stepStatus(result.steps, 'queue-tree')).toBe('skipped');
+    expect(calls.find((c) => c[0] === '/queue/tree/add')).toBeUndefined();
+  });
+
+  test('seeds a walled-garden firewall hook and a DISABLED portal redirect', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, {
+      radiusAddress: '203.0.113.10',
+      seedWalledGarden: true,
+      suspendedListName: 'fireisp-suspended',
+      portalAddress: '203.0.113.10',
+    });
+
+    expect(stepStatus(result.steps, 'walled-garden:block')).toBe('created');
+    const filter = callTo(calls, '/ip/firewall/filter/add');
+    expect(filter).toEqual(expect.arrayContaining([
+      '=chain=forward', '=src-address-list=fireisp-suspended', '=action=reject',
+    ]));
+    // Portal redirect is laid down but disabled (admin must order it correctly).
+    const nat = callTo(calls, '/ip/firewall/nat/add');
+    expect(nat).toEqual(expect.arrayContaining(['=action=dst-nat', '=to-addresses=203.0.113.10', '=disabled=yes']));
+  });
+
+  test('captures a per-step RouterOS error without aborting the rest', async () => {
+    const { client } = makeSeedClient((words) => {
+      if (words[0] === '/ppp/aaa/set') throw new Error('no permission (9)');
+      return null;
+    });
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10' });
+
+    expect(result.ok).toBe(false);
+    expect(stepStatus(result.steps, 'radius-client')).toBe('created'); // still ran
+    expect(stepStatus(result.steps, 'ppp-aaa')).toBe('error');
+    expect(result.steps.find((s) => s.step === 'ppp-aaa').detail).toMatch(/no permission/);
+    expect(client.close).toHaveBeenCalledTimes(1);
+  });
+
+  test('propagates connection errors from createClient (router unreachable)', async () => {
+    ros.createClient.mockRejectedValue(new Error('connect ECONNREFUSED'));
+    await expect(seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10' })).rejects.toThrow('ECONNREFUSED');
   });
 });

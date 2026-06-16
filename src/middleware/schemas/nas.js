@@ -48,4 +48,22 @@ const updateNas = {
   api_use_tls: { type: 'boolean' },
 };
 
-module.exports = { createNas, updateNas };
+// Seed (one-click bootstrap) parameters for POST /nas/:id/seed. Flat scalars so
+// the field-level validate() middleware can check them; the route reads the NAS
+// `secret` server-side (never sent by the client). See routerProvisioningService.seedDevice.
+const seedNas = {
+  radiusAddress: { type: 'string', required: true, min: 1, max: 255 },
+  authPort: { type: 'number', min: 1, max: 65535 },
+  acctPort: { type: 'number', min: 1, max: 65535 },
+  coaPort: { type: 'number', min: 1, max: 65535 },
+  interimUpdate: { type: 'string', max: 16 },
+  seedQueueTree: { type: 'boolean' },
+  queueParent: { type: 'string', max: 64 },
+  totalDownloadMbps: { type: 'number', min: 0, max: 1000000 },
+  totalUploadMbps: { type: 'number', min: 0, max: 1000000 },
+  seedWalledGarden: { type: 'boolean' },
+  suspendedListName: { type: 'string', max: 64 },
+  portalAddress: { type: 'string', max: 255 },
+};
+
+module.exports = { createNas, updateNas, seedNas };

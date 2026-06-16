@@ -8721,6 +8721,52 @@
         }
       }
     },
+    "/nas/{id}/seed": {
+      "post": {
+        "tags": [
+          "NAS"
+        ],
+        "summary": "Seed a MikroTik NAS: configure FireISP RADIUS client, PPP AAA, CoA incoming, and optional queue-tree skeleton + suspended walled garden (idempotent, non-destructive)",
+        "operationId": "seedNasDevice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "nas_seedNas",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Seed result — per-step report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/radius": {
       "get": {
         "tags": [
@@ -56544,6 +56590,66 @@
             "type": "boolean"
           }
         }
+      },
+      "nas_seedNas": {
+        "type": "object",
+        "properties": {
+          "radiusAddress": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "authPort": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "acctPort": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "coaPort": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "interimUpdate": {
+            "type": "string",
+            "maximum": 16
+          },
+          "seedQueueTree": {
+            "type": "boolean"
+          },
+          "queueParent": {
+            "type": "string",
+            "maximum": 64
+          },
+          "totalDownloadMbps": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "totalUploadMbps": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "seedWalledGarden": {
+            "type": "boolean"
+          },
+          "suspendedListName": {
+            "type": "string",
+            "maximum": 64
+          },
+          "portalAddress": {
+            "type": "string",
+            "maximum": 255
+          }
+        },
+        "required": [
+          "radiusAddress"
+        ]
       },
       "natPools_createNatPool": {
         "type": "object",

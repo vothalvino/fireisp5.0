@@ -94,6 +94,49 @@ async function deleteNas(id: number): Promise<void> {
   if (res.error) throw new Error('Failed to delete NAS');
 }
 
+interface SeedBody {
+  radiusAddress: string;
+  authPort?: number;
+  acctPort?: number;
+  coaPort?: number;
+  interimUpdate?: string;
+  seedQueueTree?: boolean;
+  queueParent?: string;
+  totalDownloadMbps?: number;
+  totalUploadMbps?: number;
+  seedWalledGarden?: boolean;
+  suspendedListName?: string;
+  portalAddress?: string;
+}
+
+interface SeedStep {
+  step: string;
+  status: string;
+  detail: string;
+}
+
+interface SeedResult {
+  ok: boolean;
+  host: string;
+  port: number;
+  tls: boolean;
+  steps: SeedStep[];
+}
+
+async function seedNasDevice(id: number, body: SeedBody): Promise<SeedResult> {
+  const res = (await api.POST('/nas/{id}/seed', {
+    params: { path: { id } },
+    body: body as never,
+  })) as {
+    data?: { data?: SeedResult };
+    error?: { error?: { message?: string } };
+  };
+  if (res.error) {
+    throw new Error(res.error?.error?.message ?? 'Router unreachable');
+  }
+  return res.data?.data as SeedResult;
+}
+
 // ---------------------------------------------------------------------------
 // Status badge
 // ---------------------------------------------------------------------------
@@ -472,6 +515,248 @@ function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Seed modal — one-click RouterOS bootstrap (RADIUS + PPP AAA + CoA, optional
+// queue tree + walled garden). Idempotent on the device, so safe to re-run.
+// ---------------------------------------------------------------------------
+
+const SEED_STEP_COLORS: Record<string, { bg: string; color: string }> = {
+  created: { bg: '#d1fae5', color: '#065f46' },
+  updated: { bg: '#dbeafe', color: '#1e40af' },
+  skipped: { bg: '#f3f4f6', color: '#374151' },
+  error: { bg: '#fee2e2', color: '#991b1b' },
+};
+
+interface SeedModalProps {
+  nas: Nas;
+  onClose: () => void;
+}
+
+function SeedModal({ nas, onClose }: SeedModalProps) {
+  const [form, setForm] = useState({
+    // The router must reach FireISP's RADIUS at a routable address. Default to the
+    // host the admin is browsing — usually correct; editable for split DNS / NAT.
+    radiusAddress: window.location.hostname,
+    authPort: '1812',
+    acctPort: '1813',
+    coaPort: nas.coa_port != null ? String(nas.coa_port) : '3799',
+    interimUpdate: '5m',
+    seedQueueTree: false,
+    queueParent: 'global',
+    totalDownloadMbps: '',
+    totalUploadMbps: '',
+    seedWalledGarden: false,
+    suspendedListName: 'fireisp-suspended',
+    portalAddress: '',
+  });
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<SeedResult | null>(null);
+
+  function setField(name: string, value: unknown) {
+    setForm(prev => ({ ...prev, [name]: value }));
+  }
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const body: SeedBody = { radiusAddress: form.radiusAddress.trim() };
+      if (form.authPort) body.authPort = Number(form.authPort);
+      if (form.acctPort) body.acctPort = Number(form.acctPort);
+      if (form.coaPort) body.coaPort = Number(form.coaPort);
+      if (form.interimUpdate) body.interimUpdate = form.interimUpdate.trim();
+      body.seedQueueTree = form.seedQueueTree;
+      if (form.seedQueueTree) {
+        if (form.queueParent) body.queueParent = form.queueParent.trim();
+        if (form.totalDownloadMbps) body.totalDownloadMbps = Number(form.totalDownloadMbps);
+        if (form.totalUploadMbps) body.totalUploadMbps = Number(form.totalUploadMbps);
+      }
+      body.seedWalledGarden = form.seedWalledGarden;
+      if (form.seedWalledGarden) {
+        if (form.suspendedListName) body.suspendedListName = form.suspendedListName.trim();
+        if (form.portalAddress) body.portalAddress = form.portalAddress.trim();
+      }
+      return seedNasDevice(nas.id, body);
+    },
+    onSuccess: (res) => {
+      setResult(res);
+      setError('');
+    },
+    onError: (e: unknown) => {
+      setResult(null);
+      setError(e instanceof Error ? e.message : 'Seeding failed. Check the API connection and try again.');
+    },
+  });
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.radiusAddress.trim()) {
+      setError('FireISP RADIUS address is required.');
+      return;
+    }
+    setError('');
+    mutation.mutate();
+  }
+
+  return (
+    <div style={modalStyles.backdrop} onClick={onClose}>
+      <div
+        style={modalStyles.panel}
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Seed NAS ${nas.name}`}
+      >
+        <div style={modalStyles.header}>
+          <h2 style={modalStyles.title}>Seed NAS #{nas.id} — {nas.name}</h2>
+          <button style={modalStyles.closeBtn} onClick={onClose} aria-label="Close">✕</button>
+        </div>
+
+        {result ? (
+          <div style={modalStyles.form}>
+            <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 600, color: result.ok ? '#065f46' : '#991b1b' }}>
+              {result.ok ? '✓ Seed completed' : '⚠ Seed completed with errors'} — {result.host}:{result.port}{result.tls ? ' (TLS)' : ''}
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+              {result.steps.map((s, i) => {
+                const c = SEED_STEP_COLORS[s.status] ?? SEED_STEP_COLORS.skipped;
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.82rem' }}>
+                    <span
+                      style={{
+                        background: c.bg, color: c.color, padding: '2px 8px', borderRadius: 12,
+                        fontWeight: 600, fontSize: '0.7rem', textTransform: 'capitalize', whiteSpace: 'nowrap',
+                        minWidth: 64, textAlign: 'center',
+                      }}
+                    >
+                      {s.status}
+                    </span>
+                    <span style={{ color: 'var(--text-primary)' }}>
+                      <strong>{s.step}</strong> — {s.detail}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={modalStyles.actions}>
+              <button type="button" onClick={() => setResult(null)} style={styles.btnSecondary}>
+                Run again
+              </button>
+              <button type="button" onClick={onClose} style={styles.btnPrimary}>Done</button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} style={modalStyles.form}>
+            <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+              Pushes the FireISP RADIUS client, PPP AAA and CoA listener to this MikroTik over its
+              RouterOS API. Idempotent — safe to re-run. The NAS shared secret is used automatically.
+            </p>
+
+            <label style={modalStyles.label}>
+              FireISP RADIUS Address <RequiredMark />
+              <input
+                style={modalStyles.input}
+                type="text"
+                maxLength={255}
+                value={form.radiusAddress}
+                onChange={e => setField('radiusAddress', e.target.value)}
+                placeholder="e.g. radius.myisp.net or 203.0.113.10"
+                required
+              />
+            </label>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <label style={{ ...modalStyles.label, flex: 1 }}>
+                Auth Port
+                <input style={modalStyles.input} type="number" min={1} max={65535}
+                  value={form.authPort} onChange={e => setField('authPort', e.target.value)} aria-label="Auth Port" />
+              </label>
+              <label style={{ ...modalStyles.label, flex: 1 }}>
+                Acct Port
+                <input style={modalStyles.input} type="number" min={1} max={65535}
+                  value={form.acctPort} onChange={e => setField('acctPort', e.target.value)} aria-label="Accounting Port" />
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <label style={{ ...modalStyles.label, flex: 1 }}>
+                CoA Port
+                <input style={modalStyles.input} type="number" min={1} max={65535}
+                  value={form.coaPort} onChange={e => setField('coaPort', e.target.value)} aria-label="CoA Port" />
+              </label>
+              <label style={{ ...modalStyles.label, flex: 1 }}>
+                Interim-Update
+                <input style={modalStyles.input} type="text" maxLength={16}
+                  value={form.interimUpdate} onChange={e => setField('interimUpdate', e.target.value)}
+                  placeholder="5m" aria-label="Interim Update" />
+              </label>
+            </div>
+
+            <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={form.seedQueueTree}
+                onChange={e => setField('seedQueueTree', e.target.checked)} aria-label="Seed queue tree" />
+              Seed global queue-tree skeleton
+            </label>
+            {form.seedQueueTree && (
+              <div style={{ display: 'flex', gap: 10 }}>
+                <label style={{ ...modalStyles.label, flex: 1 }}>
+                  Parent
+                  <input style={modalStyles.input} type="text" maxLength={64}
+                    value={form.queueParent} onChange={e => setField('queueParent', e.target.value)}
+                    placeholder="global" aria-label="Queue parent" />
+                </label>
+                <label style={{ ...modalStyles.label, flex: 1 }}>
+                  Total Down (Mbps)
+                  <input style={modalStyles.input} type="number" min={0}
+                    value={form.totalDownloadMbps} onChange={e => setField('totalDownloadMbps', e.target.value)}
+                    aria-label="Total download Mbps" />
+                </label>
+                <label style={{ ...modalStyles.label, flex: 1 }}>
+                  Total Up (Mbps)
+                  <input style={modalStyles.input} type="number" min={0}
+                    value={form.totalUploadMbps} onChange={e => setField('totalUploadMbps', e.target.value)}
+                    aria-label="Total upload Mbps" />
+                </label>
+              </div>
+            )}
+
+            <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={form.seedWalledGarden}
+                onChange={e => setField('seedWalledGarden', e.target.checked)} aria-label="Seed walled garden" />
+              Seed suspended-user walled garden
+            </label>
+            {form.seedWalledGarden && (
+              <div style={{ display: 'flex', gap: 10 }}>
+                <label style={{ ...modalStyles.label, flex: 1 }}>
+                  Suspended Address-List
+                  <input style={modalStyles.input} type="text" maxLength={64}
+                    value={form.suspendedListName} onChange={e => setField('suspendedListName', e.target.value)}
+                    placeholder="fireisp-suspended" aria-label="Suspended address list" />
+                </label>
+                <label style={{ ...modalStyles.label, flex: 1 }}>
+                  Portal Address (optional)
+                  <input style={modalStyles.input} type="text" maxLength={255}
+                    value={form.portalAddress} onChange={e => setField('portalAddress', e.target.value)}
+                    placeholder="redirect target (disabled rule)" aria-label="Portal address" />
+                </label>
+              </div>
+            )}
+
+            {error && <p style={modalStyles.error}>{error}</p>}
+
+            <div style={modalStyles.actions}>
+              <button type="button" onClick={onClose} style={styles.btnSecondary} disabled={mutation.isPending}>
+                Cancel
+              </button>
+              <button type="submit" style={styles.btnPrimary} disabled={mutation.isPending}>
+                {mutation.isPending ? 'Seeding...' : 'Seed Device'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // NasList component
 // ---------------------------------------------------------------------------
 
@@ -483,6 +768,7 @@ export function NasList() {
   const [editNas, setEditNas] = useState<Nas | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [testingId, setTestingId] = useState<number | null>(null);
+  const [seedNasTarget, setSeedNasTarget] = useState<Nas | null>(null);
 
   const nasQ = useQuery({
     queryKey: ['nas', page, statusFilter],
@@ -606,6 +892,13 @@ export function NasList() {
                         >
                           {testingId === n.id ? 'Testing...' : 'Test'}
                         </button>
+                        <button
+                          style={styles.actionBtn}
+                          onClick={() => setSeedNasTarget(n)}
+                          title="Seed RADIUS, PPP AAA, CoA + optional QoS/walled-garden onto this MikroTik"
+                        >
+                          Seed
+                        </button>
                         <button style={styles.actionBtn} onClick={() => setEditNas(n)} title="Edit this NAS">
                           Edit
                         </button>
@@ -644,6 +937,7 @@ export function NasList() {
 
       {showNew && <NasModal nas={null} onClose={() => setShowNew(false)} onSaved={invalidate} />}
       {editNas && <NasModal nas={editNas} onClose={() => setEditNas(null)} onSaved={invalidate} />}
+      {seedNasTarget && <SeedModal nas={seedNasTarget} onClose={() => setSeedNasTarget(null)} />}
 
       {deleteId !== null && (
         <ConfirmDialog

@@ -9,7 +9,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createNas, updateNas } = require('../middleware/schemas/nas');
+const { createNas, updateNas, seedNas } = require('../middleware/schemas/nas');
 const { httpCache } = require('../middleware/httpCache');
 const { encrypt } = require('../utils/encryption');
 const { ValidationError } = require('../utils/errors');
@@ -68,6 +68,28 @@ router.post('/:id/test-connection', requirePermission('devices.update'), async (
       res.json({ data: await routerProvisioningService.testConnection(nas) });
     } catch (e) {
       // Misconfiguration (e.g. no API username) is a 422, not "router unreachable".
+      if (e instanceof ValidationError || e.statusCode === 422) return next(e);
+      res.status(502).json({ error: { code: 'ROUTER_UNREACHABLE', message: e.message } });
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =============================================================================
+// RouterOS direct-provisioning — one-click "Seed": configure RADIUS client,
+// PPP AAA, CoA incoming, and (optionally) a global queue-tree skeleton +
+// suspended-subscriber walled garden. Idempotent and non-destructive.
+// =============================================================================
+
+router.post('/:id/seed', requirePermission('devices.update'), validate(seedNas), async (req, res, next) => {
+  try {
+    const nas = await Nas.findByIdOrFail(req.params.id, req.orgId);
+    try {
+      res.json({ data: await routerProvisioningService.seedDevice(nas, req.body) });
+    } catch (e) {
+      // Misconfiguration (no API username / no RADIUS secret / bad input) is a 422;
+      // a failure to reach the router is a 502.
       if (e instanceof ValidationError || e.statusCode === 422) return next(e);
       res.status(502).json({ error: { code: 'ROUTER_UNREACHABLE', message: e.message } });
     }
