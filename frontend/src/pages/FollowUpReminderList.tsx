@@ -20,10 +20,12 @@ import {
   submitBtn,
   cancelBtn,
 } from '@/components/ClientFormModal';
+import { ClientPicker } from '@/components/ClientPicker';
 
 interface FollowUpReminder {
   id: number;
   client_id: number;
+  client_name?: string | null;
   ticket_id: number | null;
   assigned_to: number | null;
   title: string;
@@ -107,7 +109,7 @@ function ReminderFormModal({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.client_id || !form.title.trim() || !form.due_at) {
-      setError('Client ID, title, and due date are required.');
+      setError('Client, title, and due date are required.');
       return;
     }
     const body: ReminderFormBody = {
@@ -129,9 +131,11 @@ function ReminderFormModal({
         <h3 style={{ margin: '0 0 1rem' }}>{title}</h3>
         {error && <div style={errorBox}>{error}</div>}
         <form onSubmit={handleSubmit}>
-          <label style={labelStyle}>Client ID *</label>
-          <input style={inputStyle} type="number" min={1} value={form.client_id} autoFocus
-            onChange={e => setForm(p => ({ ...p, client_id: e.target.value }))} required />
+          <ClientPicker
+            value={form.client_id ? Number(form.client_id) : ''}
+            initialName={initial?.client_name ?? undefined}
+            onChange={(id) => setForm(p => ({ ...p, client_id: id ? String(id) : '' }))}
+          />
 
           <label style={labelStyle}>Title *</label>
           <input style={inputStyle} type="text" value={form.title}
@@ -240,7 +244,7 @@ export function FollowUpReminderList() {
               return (
                 <tr key={r.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: '8px', fontWeight: 600 }}>{r.title}</td>
-                  <td style={{ padding: '8px' }}>#{r.client_id}</td>
+                  <td style={{ padding: '8px' }}>{r.client_name || `#${r.client_id}`}</td>
                   <td style={{ padding: '8px', textTransform: 'capitalize' }}>{r.priority}</td>
                   <td style={{ padding: '8px', textTransform: 'capitalize' }}>{r.status}</td>
                   <td style={{ padding: '8px', color: overdue ? 'var(--danger, #dc2626)' : undefined }}>

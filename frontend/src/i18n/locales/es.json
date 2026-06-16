@@ -22,6 +22,13 @@
                    "none":  "(ninguno)",
                    "id":  "ID"
                },
+    "clientPicker":  {
+                   "label":  "Cliente",
+                   "placeholder":  "Buscar clientes por nombre, correo o teléfono…",
+                   "searching":  "Buscando…",
+                   "noMatches":  "No se encontraron clientes.",
+                   "change":  "Cambiar"
+               },
     "login":  {
                   "title":  "🔥 FireISP 5.0",
                   "subtitle":  "Inicia sesión para continuar",
@@ -247,16 +254,22 @@
     "clientList":  {
                        "title":  "Clientes",
                        "newClient":  "+ Nuevo cliente",
-                       "searchPlaceholder":  "Buscar por nombre, correo o ciudad…",
+                       "searchPlaceholder":  "Buscar por nombre, correo, teléfono o ID de cliente…",
                        "searchBtn":  "Buscar",
                        "clearBtn":  "Limpiar",
                        "showArchived":  "Mostrar archivados",
+                       "groupFilter":  "Grupo de cuenta",
+                       "allGroups":  "Todos los grupos",
+                       "accountGroup":  "Grupo de cuenta",
+                       "members":  "Miembros",
+                       "noMembers":  "No hay miembros en este grupo.",
                        "table":  {
                                      "name":  "Nombre",
                                      "email":  "Correo electrónico",
                                      "phone":  "Teléfono",
                                      "type":  "Tipo",
                                      "location":  "Ubicación",
+                                     "group":  "Grupo",
                                      "status":  "Estado",
                                      "city":  "Ciudad",
                                      "created":  "Creado",
@@ -296,7 +309,19 @@
                                    },
                          "noContracts":  "No se encontraron contratos.",
                          "loading":  "Cargando…",
-                         "error":  "Error al cargar contratos."
+                         "error":  "Error al cargar contratos.",
+                         "view":  "Ver credenciales",
+                         "credentials":  "Credenciales",
+                         "username":  "Usuario",
+                         "password":  "Contraseña",
+                         "assignedIp":  "IP asignada",
+                         "authMethod":  "Método de autenticación",
+                         "noRadius":  "No hay cuenta PPPoE/RADIUS aprovisionada para este contrato.",
+                         "copy":  "Copiar",
+                         "showPassword":  "Mostrar",
+                         "hidePassword":  "Ocultar",
+                         "credentialsError":  "Error al cargar las credenciales.",
+                         "credentialsForbidden":  "No tienes permiso para ver las credenciales PPPoE (requiere el permiso devices.view)."
                      },
     "invoiceList":  {
                         "title":  "Facturas",

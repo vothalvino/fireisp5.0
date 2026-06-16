@@ -4,8 +4,10 @@
 // CRUD for account groups used for shared billing / family plans.
 // =============================================================================
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
@@ -42,12 +44,75 @@ interface GroupFormBody {
   notes?: string;
 }
 
+interface GroupMember {
+  id: number;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  client_type: string;
+  status: string;
+}
+
 const BILLING_MODES = ['separate', 'shared'];
 
 async function fetchGroups(): Promise<GroupsResponse> {
   const res = await api.GET('/client-groups', { params: { query: { limit: 200 } as never } });
   if (res.error) throw new Error('Failed to load account groups');
   return res.data as unknown as GroupsResponse;
+}
+
+// ---------------------------------------------------------------------------
+// Expandable members sub-row (lazy-loaded when the row is toggled open)
+// ---------------------------------------------------------------------------
+
+function GroupMembersRow({ groupId, colSpan }: { groupId: number; colSpan: number }) {
+  const { t } = useTranslation();
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['client-group-members', groupId],
+    queryFn: async () => {
+      const res = await api.GET('/client-groups/{id}/members', { params: { path: { id: groupId } } });
+      if (res.error) throw new Error('Failed to load members');
+      return (res.data as unknown as { data: GroupMember[] }).data;
+    },
+  });
+
+  return (
+    <tr>
+      <td colSpan={colSpan} style={{ padding: '0 8px 12px 24px', background: 'var(--bg-subtle, transparent)' }}>
+        {isLoading && <p style={{ margin: '8px 0', color: 'var(--text-secondary)' }}>{t('clientList.loading')}</p>}
+        {error && <div style={errorBox}>{(error as Error).message}</div>}
+        {data && data.length === 0 && (
+          <p style={{ margin: '8px 0', color: 'var(--text-secondary)' }}>{t('clientList.noMembers')}</p>
+        )}
+        {data && data.length > 0 && (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', marginTop: 4 }}>
+            <thead>
+              <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                <th style={{ padding: '6px 8px' }}>{t('clientList.table.name')}</th>
+                <th style={{ padding: '6px 8px' }}>{t('clientList.table.email')}</th>
+                <th style={{ padding: '6px 8px' }}>{t('clientList.table.phone')}</th>
+                <th style={{ padding: '6px 8px' }}>{t('clientList.table.type')}</th>
+                <th style={{ padding: '6px 8px' }}>{t('clientList.table.status')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map(m => (
+                <tr key={m.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <td style={{ padding: '6px 8px', fontWeight: 600 }}>
+                    <Link to={`/clients/${m.id}`} style={{ color: 'var(--link)', textDecoration: 'none' }}>{m.name}</Link>
+                  </td>
+                  <td style={{ padding: '6px 8px' }}>{m.email || '—'}</td>
+                  <td style={{ padding: '6px 8px' }}>{m.phone || '—'}</td>
+                  <td style={{ padding: '6px 8px', textTransform: 'capitalize' }}>{m.client_type || '—'}</td>
+                  <td style={{ padding: '6px 8px', textTransform: 'capitalize' }}>{m.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </td>
+    </tr>
+  );
 }
 
 function GroupFormModal({
@@ -134,11 +199,13 @@ function GroupFormModal({
 }
 
 export function ClientGroupList() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [editGroup, setEditGroup] = useState<ClientGroup | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ClientGroup | null>(null);
+  const [expanded, setExpanded] = useState<number | null>(null);
 
   const canCreate = can(user?.role, 'clients.create');
   const canUpdate = can(user?.role, 'clients.update');
@@ -188,22 +255,30 @@ export function ClientGroupList() {
               <tr><td colSpan={5} style={{ padding: '1rem', color: 'var(--text-secondary)' }}>No account groups yet.</td></tr>
             )}
             {data.data.map(g => (
-              <tr key={g.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                <td style={{ padding: '8px', fontWeight: 600 }}>{g.name}</td>
-                <td style={{ padding: '8px', textTransform: 'capitalize' }}>{g.billing_mode}</td>
-                <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'monospace' }}>{g.primary_client_id ?? '—'}</td>
-                <td style={{ padding: '8px', color: 'var(--text-secondary)' }}>{g.notes ?? '—'}</td>
-                <td style={{ padding: '8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  {canUpdate && (
+              <Fragment key={g.id}>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ padding: '8px', fontWeight: 600 }}>{g.name}</td>
+                  <td style={{ padding: '8px', textTransform: 'capitalize' }}>{g.billing_mode}</td>
+                  <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'monospace' }}>{g.primary_client_id ?? '—'}</td>
+                  <td style={{ padding: '8px', color: 'var(--text-secondary)' }}>{g.notes ?? '—'}</td>
+                  <td style={{ padding: '8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <button type="button" style={{ ...cancelBtn, padding: '4px 10px', marginRight: 6 }}
-                      onClick={() => setEditGroup(g)}>Edit</button>
-                  )}
-                  {canDelete && (
-                    <button type="button" style={{ ...dangerBtn, padding: '4px 10px' }}
-                      onClick={() => setDeleteTarget(g)}>Delete</button>
-                  )}
-                </td>
-              </tr>
+                      aria-expanded={expanded === g.id}
+                      onClick={() => setExpanded(prev => (prev === g.id ? null : g.id))}>
+                      {expanded === g.id ? `▾ ${t('clientList.members')}` : `▸ ${t('clientList.members')}`}
+                    </button>
+                    {canUpdate && (
+                      <button type="button" style={{ ...cancelBtn, padding: '4px 10px', marginRight: 6 }}
+                        onClick={() => setEditGroup(g)}>Edit</button>
+                    )}
+                    {canDelete && (
+                      <button type="button" style={{ ...dangerBtn, padding: '4px 10px' }}
+                        onClick={() => setDeleteTarget(g)}>Delete</button>
+                    )}
+                  </td>
+                </tr>
+                {expanded === g.id && <GroupMembersRow groupId={g.id} colSpan={5} />}
+              </Fragment>
             ))}
           </tbody>
         </table>

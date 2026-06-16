@@ -33,6 +33,23 @@ interface Contract {
   notes: string | null;
 }
 
+// A provisioned PPPoE / RADIUS account belonging to a contract.  The backend
+// returns the password in plaintext by design (operators need it to configure
+// CPE).  A contract may have 0 or several accounts.
+interface RadiusAccount {
+  id: number;
+  username: string;
+  password: string | null;
+  ip_address: string | null;
+  ipv6_address: string | null;
+  status: string | null;
+  auth_method: string | null;
+  mac_address: string | null;
+  vlan_id: number | string | null;
+  profile: string | null;
+  nas_id: number | null;
+}
+
 interface ContractsResponse {
   data: Contract[];
   meta: { total: number; page: number; limit: number; totalPages: number };
@@ -79,6 +96,31 @@ async function fetchContracts(
   });
   if (res.error) throw new Error('Failed to load contracts');
   return res.data as unknown as ContractsResponse;
+}
+
+// Sentinel thrown by fetchRadiusByContract so the UI can show a tailored
+// "insufficient permission" message.  This endpoint requires `devices.view`
+// (NOT `contracts.view`), so a viewer who can see contracts may still get 403.
+const RADIUS_FORBIDDEN = 'radius_forbidden';
+
+async function fetchRadiusByContract(id: number): Promise<RadiusAccount[]> {
+  const res = await api.GET('/radius/contract/{contractId}', {
+    params: { path: { contractId: id } as never },
+  });
+  // These endpoints are typed loosely, so the success/error union collapses to
+  // `never` on the error branch — read `response.status` through an explicit
+  // cast rather than relying on narrowing.
+  const { error, response } = res as unknown as {
+    error: unknown;
+    response: { status: number };
+  };
+  if (error) {
+    if (response?.status === 401 || response?.status === 403) {
+      throw new Error(RADIUS_FORBIDDEN);
+    }
+    throw new Error('Failed to load RADIUS accounts');
+  }
+  return (res.data as unknown as { data: RadiusAccount[] }).data;
 }
 
 async function fetchPlans(): Promise<Plan[]> {
@@ -179,6 +221,35 @@ function fmt(dateStr: string | null | undefined): string {
 
 function capitalizeStatus(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// Copy `text` to the clipboard, guarding for non-secure contexts (http / older
+// browsers) where navigator.clipboard is undefined.  Falls back to a hidden
+// textarea + execCommand and resolves false if even that is unavailable so the
+// caller never throws.
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* fall through to legacy path */
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -669,6 +740,162 @@ function EditContractModal({ contract, plans, onClose, onSaved }: EditContractMo
 }
 
 // ---------------------------------------------------------------------------
+// Contract Detail Modal — summary + PPPoE / RADIUS credentials
+// ---------------------------------------------------------------------------
+
+interface ContractDetailModalProps {
+  contract: Contract;
+  plans: Plan[];
+  onClose: () => void;
+}
+
+/** One labelled value row with an optional Copy button. */
+function CredentialRow({
+  label,
+  value,
+  copyable,
+  mono,
+}: {
+  label: string;
+  value: React.ReactNode;
+  copyable?: string | null;
+  mono?: boolean;
+}) {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    if (!copyable) return;
+    const ok = await copyToClipboard(copyable);
+    if (ok) {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    }
+  }
+
+  return (
+    <div style={detailStyles.credRow}>
+      <span style={detailStyles.credLabel}>{label}</span>
+      <span style={{ ...detailStyles.credValue, ...(mono ? detailStyles.mono : {}) }}>
+        {value}
+      </span>
+      {copyable != null && copyable !== '' && (
+        <button type="button" style={detailStyles.copyBtn} onClick={handleCopy} title={t('contractList.copy')}>
+          {copied ? '✓' : `⧉ ${t('contractList.copy')}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** A single PPPoE/RADIUS account block with a password reveal toggle. */
+function RadiusAccountCard({ account }: { account: RadiusAccount }) {
+  const { t } = useTranslation();
+  const [showPw, setShowPw] = useState(false);
+
+  const assignedIp = [account.ip_address, account.ipv6_address].filter(Boolean).join(' / ') || '—';
+  const macVlan = [
+    account.mac_address ? `MAC ${account.mac_address}` : null,
+    account.vlan_id != null && account.vlan_id !== '' ? `VLAN ${account.vlan_id}` : null,
+  ].filter(Boolean).join(' · ') || '—';
+
+  return (
+    <div style={detailStyles.accountCard}>
+      <CredentialRow label={t('contractList.username')} value={account.username || '—'} copyable={account.username} mono />
+      <CredentialRow
+        label={t('contractList.password')}
+        value={
+          <span style={detailStyles.mono}>
+            {account.password == null
+              ? '—'
+              : showPw
+                ? account.password
+                : '•'.repeat(Math.min(12, Math.max(6, account.password.length)))}
+            {account.password != null && (
+              <button
+                type="button"
+                style={detailStyles.toggleBtn}
+                onClick={() => setShowPw(s => !s)}
+              >
+                {showPw ? t('contractList.hidePassword') : t('contractList.showPassword')}
+              </button>
+            )}
+          </span>
+        }
+        copyable={account.password}
+      />
+      <CredentialRow label={t('contractList.assignedIp')} value={assignedIp} copyable={assignedIp !== '—' ? assignedIp : null} mono />
+      <CredentialRow label={t('contractList.table.status')} value={account.status ? <StatusBadge status={account.status} /> : '—'} />
+      <CredentialRow label={t('contractList.authMethod')} value={account.auth_method || '—'} />
+      <CredentialRow label="MAC / VLAN" value={macVlan} mono />
+      <CredentialRow label={t('contractList.table.plan')} value={account.profile || '—'} />
+    </div>
+  );
+}
+
+function ContractDetailModal({ contract, plans, onClose }: ContractDetailModalProps) {
+  const { t } = useTranslation();
+  const plan = plans.find(p => p.id === contract.plan_id);
+
+  const radiusQ = useQuery({
+    queryKey: ['radius-contract', contract.id],
+    queryFn: () => fetchRadiusByContract(contract.id),
+  });
+
+  const accounts = radiusQ.data ?? [];
+  const forbidden = radiusQ.error instanceof Error && radiusQ.error.message === RADIUS_FORBIDDEN;
+
+  return (
+    <div style={modalStyles.backdrop} onClick={onClose}>
+      <div
+        style={modalStyles.panel}
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="contract-detail-title"
+      >
+        <div style={modalStyles.header}>
+          <h2 id="contract-detail-title" style={modalStyles.title}>
+            🔑 {t('contractList.credentials')} — #{contract.id}
+          </h2>
+          <button style={modalStyles.closeBtn} onClick={onClose} aria-label="Close">✕</button>
+        </div>
+
+        {/* Contract summary */}
+        <div style={detailStyles.summary}>
+          <CredentialRow label={t('contractList.table.plan')} value={plan ? plan.name : `Plan #${contract.plan_id}`} />
+          <CredentialRow label={t('contractList.table.type')} value={contract.connection_type || '—'} />
+          <CredentialRow label={t('contractList.table.status')} value={<StatusBadge status={contract.status} />} />
+          <CredentialRow label={t('contractList.table.start')} value={fmt(contract.start_date)} />
+          <CredentialRow label={t('contractList.table.end')} value={fmt(contract.end_date)} />
+          <CredentialRow label={t('contractList.table.billingDay')} value={contract.billing_day ?? '—'} />
+        </div>
+
+        <h3 style={detailStyles.sectionTitle}>{t('contractList.credentials')}</h3>
+
+        {radiusQ.isLoading ? (
+          <p style={styles.msg}>{t('contractList.loading')}</p>
+        ) : forbidden ? (
+          <p style={modalStyles.error}>{t('contractList.credentialsForbidden')}</p>
+        ) : radiusQ.error ? (
+          <p style={modalStyles.error}>{t('contractList.credentialsError')}</p>
+        ) : accounts.length === 0 ? (
+          <p style={styles.msg}>{t('contractList.noRadius')}</p>
+        ) : (
+          accounts.map(acc => <RadiusAccountCard key={acc.id} account={acc} />)
+        )}
+
+        <div style={modalStyles.actions}>
+          <button type="button" onClick={onClose} style={styles.btnSecondary}>
+            {t('common.cancel')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ContractList component
 // ---------------------------------------------------------------------------
 
@@ -688,6 +915,7 @@ export function ContractList() {
   const [showNew, setShowNew] = useState(false);
   const [renewId, setRenewId] = useState<number | null>(null);
   const [editContract, setEditContract] = useState<Contract | null>(null);
+  const [detailContract, setDetailContract] = useState<Contract | null>(null);
   const [confirm, setConfirm] = useState<ConfirmAction | null>(null);
 
   // Mutation for terminate (uses dedicated endpoint)
@@ -852,6 +1080,7 @@ export function ContractList() {
                       onRenew={() => setRenewId(c.id)}
                       onEdit={() => setEditContract(c)}
                       onDelete={() => setConfirm({ type: 'delete', contractId: c.id })}
+                      onCredentials={() => setDetailContract(c)}
                     />
                   ))}
                 </tbody>
@@ -909,6 +1138,14 @@ export function ContractList() {
         />
       )}
 
+      {detailContract && (
+        <ContractDetailModal
+          contract={detailContract}
+          plans={plansQ.data ?? []}
+          onClose={() => setDetailContract(null)}
+        />
+      )}
+
       {confirm && (
         <ConfirmDialog
           message={
@@ -941,9 +1178,11 @@ interface ContractRowProps {
   onRenew: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onCredentials: () => void;
 }
 
-function ContractRow({ contract: c, plans, onSuspend, onTerminate, onCancel, onRenew, onEdit, onDelete }: ContractRowProps) {
+function ContractRow({ contract: c, plans, onSuspend, onTerminate, onCancel, onRenew, onEdit, onDelete, onCredentials }: ContractRowProps) {
+  const { t } = useTranslation();
   const plan = plans.find(p => p.id === c.plan_id);
 
   const canSuspend = c.status === 'active' || c.status === 'pending';
@@ -953,7 +1192,16 @@ function ContractRow({ contract: c, plans, onSuspend, onTerminate, onCancel, onR
 
   return (
     <tr style={styles.tr}>
-      <td style={styles.td}>#{c.id}</td>
+      <td style={styles.td}>
+        <button
+          type="button"
+          style={styles.idLinkBtn}
+          onClick={onCredentials}
+          title={t('contractList.view')}
+        >
+          #{c.id}
+        </button>
+      </td>
       <td style={styles.td}>
         <Link
           to={`/clients/${c.client_id}`}
@@ -970,6 +1218,13 @@ function ContractRow({ contract: c, plans, onSuspend, onTerminate, onCancel, onR
       <td style={{ ...styles.td, fontFamily: 'monospace', fontSize: '0.78rem' }}>{c.ip_address || '—'}</td>
       <td style={styles.td}><StatusBadge status={c.status} /></td>
       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
+        <button
+          style={styles.actionBtn}
+          onClick={onCredentials}
+          title={t('contractList.credentials')}
+        >
+          🔑 {t('contractList.credentials')}
+        </button>
         <button
           style={styles.actionBtn}
           onClick={onEdit}
@@ -1126,6 +1381,17 @@ const styles = {
     marginRight: 4,
     borderRadius: 3,
   },
+  idLinkBtn: {
+    background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
+    color: 'var(--link)',
+    fontWeight: 600,
+    fontSize: '0.85rem',
+    padding: 0,
+    textDecoration: 'underline',
+    fontFamily: 'inherit',
+  },
   msg: { padding: '2rem 1.5rem', color: 'var(--text-muted)', fontStyle: 'italic' as const, margin: 0 },
   msgError: { padding: '2rem 1.5rem', color: '#ef4444', margin: 0 },
   pagination: {
@@ -1239,5 +1505,73 @@ const modalStyles = {
     fontWeight: 600,
     color: 'var(--text-secondary)',
     cursor: 'pointer',
+  },
+};
+
+// Styles specific to the Contract Detail / credentials modal.
+const detailStyles = {
+  summary: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.35rem',
+    paddingBottom: '0.75rem',
+    borderBottom: '1px solid var(--border-subtle)',
+    marginBottom: '0.75rem',
+  },
+  sectionTitle: {
+    margin: '0 0 0.75rem',
+    fontSize: '0.9rem',
+    fontWeight: 700,
+    color: 'var(--text-primary)',
+  },
+  accountCard: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.35rem',
+    padding: '0.75rem',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 8,
+    marginBottom: '0.75rem',
+    background: 'var(--input-bg)',
+  },
+  credRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    flexWrap: 'wrap' as const,
+    fontSize: '0.82rem',
+  },
+  credLabel: {
+    minWidth: 110,
+    color: 'var(--text-muted)',
+    fontWeight: 600,
+  },
+  credValue: {
+    color: 'var(--text-primary)',
+    wordBreak: 'break-all' as const,
+  },
+  mono: {
+    fontFamily: 'monospace',
+    fontSize: '0.8rem',
+  },
+  copyBtn: {
+    background: 'transparent',
+    border: '1px solid var(--border-strong)',
+    borderRadius: 5,
+    cursor: 'pointer',
+    fontSize: '0.72rem',
+    fontWeight: 600,
+    color: 'var(--text-secondary)',
+    padding: '1px 8px',
+    marginLeft: 'auto',
+  },
+  toggleBtn: {
+    background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '0.72rem',
+    fontWeight: 600,
+    color: 'var(--link)',
+    padding: '0 0 0 8px',
   },
 };

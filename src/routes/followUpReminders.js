@@ -18,7 +18,44 @@ const ctrl = crudController(FollowUpReminder, { cacheResource: 'follow-up-remind
 router.use(authenticate);
 router.use(orgScope);
 
-router.get('/', requirePermission('follow_ups.view'), ctrl.list);
+// List reminders with the client NAME joined in (so the UI never shows a bare
+// client_id) plus pagination/status/order — mirrors the /due join.
+router.get('/', requirePermission('follow_ups.view'), async (req, res, next) => {
+  try {
+    const { status, page = 1, limit = 50, order_by, order, include_deleted } = req.query;
+    const conditions = [];
+    const params = [];
+    if (include_deleted !== 'true') conditions.push('r.deleted_at IS NULL');
+    if (req.orgId) { conditions.push('r.organization_id = ?'); params.push(req.orgId); }
+    if (status) { conditions.push('r.status = ?'); params.push(status); }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // Whitelist order_by to avoid SQL injection on the column name.
+    const ORDER_COLS = { id: 'r.id', due_at: 'r.due_at', created_at: 'r.created_at', status: 'r.status', client_name: 'client_name' };
+    const orderCol = ORDER_COLS[order_by] || 'r.due_at';
+    const orderDir = String(order).toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+    const safeLimit = Math.min(Math.max(1, parseInt(limit, 10) || 50), 200);
+    const safePage = Math.max(1, parseInt(page, 10) || 1);
+    const safeOffset = (safePage - 1) * safeLimit;
+
+    const [rows] = await db.query(
+      `SELECT r.*, cl.name AS client_name,
+              u.first_name AS assignee_first_name, u.last_name AS assignee_last_name
+       FROM follow_up_reminders r
+       JOIN clients cl ON cl.id = r.client_id
+       LEFT JOIN users u ON u.id = r.assigned_to
+       ${where}
+       ORDER BY ${orderCol} ${orderDir}
+       LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      params,
+    );
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM follow_up_reminders r JOIN clients cl ON cl.id = r.client_id ${where}`,
+      params,
+    );
+    res.json({ data: rows, meta: { total, page: safePage, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) } });
+  } catch (err) { next(err); }
+});
 
 // Pending reminders that are due — must precede '/:id'
 router.get('/due', requirePermission('follow_ups.view'), async (req, res, next) => {

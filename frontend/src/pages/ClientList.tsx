@@ -45,6 +45,8 @@ interface Client {
   zip_code: string | null;
   country: string | null;
   locale: string | null;
+  client_group_id: number | null;
+  client_group_name: string | null;
   deleted_at: string | null;
   created_at: string;
 }
@@ -54,51 +56,44 @@ interface ClientsResponse {
   meta: { total: number; page: number; limit: number; totalPages: number };
 }
 
+interface ClientGroupOption {
+  id: number;
+  name: string;
+}
+
 // ---------------------------------------------------------------------------
 // Fetch
 // ---------------------------------------------------------------------------
 
 const PAGE_SIZE = 20;
 
+// Single server-side call. The backend supports free-text ?search= (partial
+// name/email/phone, exact numeric id) and a ?client_group_id= filter, returning
+// { data, meta }, so no client-side filtering / large-fetch is needed.
 async function fetchClients(
   page: number,
   search: string,
   includeDeleted: boolean,
+  groupId: number | null,
 ): Promise<ClientsResponse> {
-  const baseQuery: Record<string, string | number> = { page, limit: PAGE_SIZE };
-  if (includeDeleted) baseQuery.include_deleted = 'true';
-
-  if (!search) {
-    const res = await api.GET('/clients', { params: { query: baseQuery as never } });
-    if (res.error) throw new Error('clientList.error');
-    return res.data as unknown as ClientsResponse;
-  }
-  // Fetch a large page then filter client-side by name/email/city.
-  // The backend list endpoint supports only exact-match column filters, not
-  // LIKE/full-text search, so client-side filtering is necessary here.
-  // The limit of 500 covers typical single-ISP deployments; if the client
-  // base grows larger, server-side search should be added to the API.
-  const largeQuery: Record<string, string | number> = { page: 1, limit: 500 };
-  if (includeDeleted) largeQuery.include_deleted = 'true';
-  const res = await api.GET('/clients', { params: { query: largeQuery as never } });
-  if (res.error) throw new Error('clientList.error');
-  const all = res.data as unknown as ClientsResponse;
-  const term = search.toLowerCase();
-  const filtered = all.data.filter(
-    c =>
-      c.name.toLowerCase().includes(term) ||
-      (c.email || '').toLowerCase().includes(term) ||
-      (c.city || '').toLowerCase().includes(term),
-  );
-  return {
-    data: filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    meta: {
-      total: filtered.length,
-      page,
-      limit: PAGE_SIZE,
-      totalPages: Math.ceil(filtered.length / PAGE_SIZE),
-    },
+  const query = {
+    page,
+    limit: PAGE_SIZE,
+    ...(search ? { search } : {}),
+    ...(groupId ? { client_group_id: groupId } : {}),
+    ...(includeDeleted ? { include_deleted: 'true' } : {}),
   };
+  const res = await api.GET('/clients', { params: { query: query as never } });
+  if (res.error) throw new Error('clientList.error');
+  return res.data as unknown as ClientsResponse;
+}
+
+// Account-group options for the filter dropdown + per-row group name resolution.
+// Reuses the ['client-groups-options'] cache shared with ClientProfileTabs.
+async function fetchClientGroupOptions(): Promise<ClientGroupOption[]> {
+  const res = await api.GET('/client-groups', { params: { query: { limit: 200 } as never } });
+  if (res.error) throw new Error('clientList.error');
+  return (res.data as unknown as { data: ClientGroupOption[] }).data;
 }
 
 // ---------------------------------------------------------------------------
@@ -194,6 +189,7 @@ export function ClientList() {
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+  const [groupId, setGroupId] = useState<number | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [editClient, setEditClient] = useState<Client | null>(null);
@@ -203,10 +199,18 @@ export function ClientList() {
   const canUpdate = can(user?.role, 'clients.update');
   const canDelete = can(user?.role, 'clients.delete');
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['clients', page, search, showArchived],
-    queryFn: () => fetchClients(page, search, showArchived),
+  const { data: groupOptions } = useQuery({
+    queryKey: ['client-groups-options'],
+    queryFn: fetchClientGroupOptions,
   });
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['clients', page, search, showArchived, groupId],
+    queryFn: () => fetchClients(page, search, showArchived, groupId),
+  });
+
+  const groupName = (id: number | null) =>
+    id == null ? '—' : (groupOptions ?? []).find(g => g.id === id)?.name ?? '—';
 
   const restoreMutation = useMutation({
     mutationFn: (id: number) => restoreClient(id),
@@ -259,6 +263,17 @@ export function ClientList() {
             {t('clientList.clearBtn')}
           </button>
         )}
+        <select
+          style={styles.groupSelect}
+          value={groupId ?? ''}
+          onChange={e => { setGroupId(e.target.value ? Number(e.target.value) : null); setPage(1); }}
+          aria-label={t('clientList.groupFilter')}
+        >
+          <option value="">{t('clientList.allGroups')}</option>
+          {(groupOptions ?? []).map(g => (
+            <option key={g.id} value={g.id}>{g.name}</option>
+          ))}
+        </select>
         <label style={styles.archivedToggle}>
           <input
             type="checkbox"
@@ -289,6 +304,7 @@ export function ClientList() {
                       t('clientList.table.phone'),
                       t('clientList.table.type'),
                       t('clientList.table.location'),
+                      t('clientList.table.group'),
                       t('clientList.table.status'),
                       '',
                     ].map(h => (
@@ -315,6 +331,7 @@ export function ClientList() {
                         <td style={styles.td}>
                           {[c.city, c.state].filter(Boolean).join(', ') || '—'}
                         </td>
+                        <td style={styles.td}>{c.client_group_name || groupName(c.client_group_id)}</td>
                         <td style={styles.td}>{statusBadge(c.status)}</td>
                         <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
                           {archived ? (
@@ -446,6 +463,16 @@ const styles = {
     borderRadius: 6,
     fontSize: '0.9rem',
     outline: 'none',
+  },
+  groupSelect: {
+    padding: '0.5rem 0.6rem',
+    border: '1px solid var(--input-border)',
+    borderRadius: 6,
+    fontSize: '0.85rem',
+    background: 'var(--bg-card)',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    maxWidth: 220,
   },
   archivedToggle: {
     display: 'flex',

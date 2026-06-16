@@ -40,9 +40,17 @@ function renderClientList() {
 describe('ClientList page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockApiGet.mockResolvedValue({
-      data: { data: [client1], meta: { total: 1, page: 1, limit: 20, totalPages: 1 } },
-      error: undefined,
+    // Path-aware: the page also fetches /client-groups for the group filter — keep
+    // that empty so client names don't also appear as <option>s (getByText needs
+    // a single match).
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/client-groups') {
+        return Promise.resolve({ data: { data: [] }, error: undefined });
+      }
+      return Promise.resolve({
+        data: { data: [client1], meta: { total: 1, page: 1, limit: 20, totalPages: 1 } },
+        error: undefined,
+      });
     });
   });
 

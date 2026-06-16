@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { gql } from '@/api/graphql';
 import { api } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
@@ -494,7 +495,8 @@ function ContactsTab({
 // Client Info Card
 // ---------------------------------------------------------------------------
 
-function ClientInfoCard({ client }: { client: Client }) {
+function ClientInfoCard({ client, accountGroup }: { client: Client; accountGroup: string }) {
+  const { t } = useTranslation();
   const location = [client.address, client.city, client.state, client.zipCode, client.country]
     .filter(Boolean)
     .join(', ');
@@ -507,6 +509,7 @@ function ClientInfoCard({ client }: { client: Client }) {
         <InfoRow label="Type"     value={client.clientType}  capitalize />
         <InfoRow label="Tax ID"   value={client.taxId}       mono />
         <InfoRow label="Location" value={location || null}   />
+        <InfoRow label={t('clientList.accountGroup')} value={accountGroup} />
         <InfoRow label="Since"    value={fmt(client.createdAt)} />
       </div>
       {client.notes && (
@@ -811,6 +814,17 @@ export function ClientDetail() {
     enabled: Boolean(id),
   });
 
+  // Account-group options — shared cache with ClientList / ClientProfileTabs so
+  // we can resolve the client's client_group_id to a human-readable name.
+  const { data: clientGroups } = useQuery({
+    queryKey: ['client-groups-options'],
+    queryFn: async () => {
+      const res = await api.GET('/client-groups', { params: { query: { limit: 200 } as never } });
+      if (res.error) throw new Error('Failed to load groups');
+      return (res.data as unknown as { data: { id: number; name: string }[] }).data;
+    },
+  });
+
   const refetchClient = () => queryClient.invalidateQueries({ queryKey: ['client-detail-gql', id] });
 
   if (isLoading) {
@@ -851,6 +865,12 @@ export function ClientDetail() {
     longitude: (clientRaw?.longitude as number | string | null) ?? null,
   };
 
+  const clientGroupId = (clientRaw?.client_group_id as number | null) ?? null;
+  const accountGroupName =
+    clientGroupId == null
+      ? '—'
+      : (clientGroups ?? []).find(g => g.id === clientGroupId)?.name ?? '—';
+
   return (
     <div style={styles.page}>
       {/* Breadcrumb */}
@@ -879,7 +899,7 @@ export function ClientDetail() {
       </div>
 
       {/* Info card */}
-      <ClientInfoCard client={client} />
+      <ClientInfoCard client={client} accountGroup={accountGroupName} />
 
       {/* Tabs */}
       <div style={styles.tabBar}>

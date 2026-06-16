@@ -272,7 +272,16 @@ const resolvers = {
     entryType: (e) => e.entry_type,
     referenceType: (e) => e.reference_type,
     referenceId: (e) => e.reference_id,
-    balanceAfter: (e) => e.balance_after,
+    // Column is running_balance (migration 045), not balance_after. The wrong
+    // mapping returned undefined for a non-null GraphQL field, which errored the
+    // whole client query and broke the ClientDetail page.
+    balanceAfter: (e) => e.running_balance,
+    // Ledger note column is `description`, not `notes`.
+    notes: (e) => e.description,
+    // currency is a non-null GraphQL field but the column is nullable (some legacy
+    // inserts, e.g. credit-balance refunds, leave it NULL). Fall back so a NULL
+    // never errors the whole client query and blanks ClientDetail.
+    currency: (e) => e.currency || 'MXN',
     createdAt: (e) => e.created_at,
   },
 
