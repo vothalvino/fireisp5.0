@@ -26,6 +26,9 @@ const logger = require('../utils/logger').child({ service: 'configBackupService'
  * @returns {Promise<number>}
  */
 async function getLatestVersion(deviceId) {
+  // NOTE: intentionally does NOT filter deleted_at — version numbers must stay
+  // monotonic across soft-deleted backups so the (device_id, version) unique key
+  // (now deleted_at-aware, migration 361) never collides on a recycled version.
   const [rows] = await db.query(
     'SELECT version FROM device_config_backups WHERE device_id = ? ORDER BY version DESC LIMIT 1',
     [deviceId],

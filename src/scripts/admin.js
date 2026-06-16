@@ -62,7 +62,7 @@ async function createUser(args) {
   }
 
   // Check for existing user
-  const [existing] = await db.query('SELECT id FROM users WHERE email = ?', [args.email]);
+  const [existing] = await db.query('SELECT id FROM users WHERE email = ? AND deleted_at IS NULL', [args.email]);
   if (existing.length > 0) {
     logger.error({ email: args.email, existingId: existing[0].id }, 'User already exists');
     process.exit(1);
@@ -89,7 +89,7 @@ async function resetPassword(args) {
     process.exit(1);
   }
 
-  const [users] = await db.query('SELECT id FROM users WHERE email = ?', [args.email]);
+  const [users] = await db.query('SELECT id FROM users WHERE email = ? AND deleted_at IS NULL', [args.email]);
   if (users.length === 0) {
     logger.error({ email: args.email }, 'No user found with email');
     process.exit(1);

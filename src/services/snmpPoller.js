@@ -117,7 +117,7 @@ async function pollDevice(device) {
   const [oids] = await db.query(
     `SELECT id, oid, metric_column, label, oid_type, is_per_interface
      FROM snmp_profile_oids
-     WHERE profile_id = ? AND status = 'active'
+     WHERE profile_id = ? AND status = 'active' AND deleted_at IS NULL
      ORDER BY sort_order`,
     [device.snmp_profile_id],
   );

@@ -92,7 +92,7 @@ async function createRequest({ clientId, organizationId, requestType, payload = 
   if (requestType === 'pppoe_password_change') {
     if (!contract) throw new ValidationError('No active contract found for this client');
     const [radRows] = await db.query(
-      'SELECT id FROM radius WHERE contract_id = ? LIMIT 1',
+      'SELECT id FROM radius WHERE contract_id = ? AND deleted_at IS NULL LIMIT 1',
       [contract.id],
     );
     if (!radRows[0]) {

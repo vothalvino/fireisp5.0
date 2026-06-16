@@ -39,7 +39,13 @@ function encryptApiPassword(req, _res, next) {
   next();
 }
 
-const ctrl = crudController(Nas, { cacheResource: 'nas', serialize: redactNas });
+const ctrl = crudController(Nas, {
+  cacheResource: 'nas',
+  serialize: redactNas,
+  // Re-adding a NAS on an IP that was soft-deleted restores the archived row
+  // (keeps id/history) instead of orphaning it — see Nas.createOrRestore.
+  createImpl: (data) => Nas.createOrRestore(data),
+});
 
 router.use(authenticate);
 router.use(orgScope);

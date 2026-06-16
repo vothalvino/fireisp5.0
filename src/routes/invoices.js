@@ -230,7 +230,7 @@ router.get('/:id/payments', requirePermission('payments.view'), async (req, res,
       `SELECT pa.*, p.amount AS payment_amount, p.payment_method, p.payment_date
        FROM payment_allocations pa
        JOIN payments p ON p.id = pa.payment_id
-       WHERE pa.invoice_id = ?`,
+       WHERE pa.invoice_id = ? AND pa.deleted_at IS NULL`,
       [req.params.id],
     );
     res.json({ data: rows });

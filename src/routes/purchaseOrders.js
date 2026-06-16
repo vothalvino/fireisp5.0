@@ -121,7 +121,7 @@ router.post('/:id/receive', requirePermission('purchase_orders.receive'), valida
       const warehouseId = po.warehouse_id;
       if (warehouseId) {
         const [existing] = await db.query(
-          'SELECT id, quantity FROM inventory_stock WHERE item_id = ? AND warehouse_id = ? AND organization_id = ?',
+          'SELECT id, quantity FROM inventory_stock WHERE item_id = ? AND warehouse_id = ? AND organization_id = ? AND deleted_at IS NULL',
           [item.inventory_item_id, warehouseId, req.orgId],
         );
         if (existing.length > 0) {

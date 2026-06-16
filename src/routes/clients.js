@@ -75,7 +75,7 @@ router.put('/:id/mx-profile', requirePermission('clients.update'), validate(upda
     if (existing) {
       await db.query(
         `UPDATE client_mx_profiles SET rfc = ?, curp = ?, razon_social = ?,
-         regimen_fiscal = ?, codigo_postal_fiscal = ? WHERE client_id = ?`,
+         regimen_fiscal = ?, codigo_postal_fiscal = ? WHERE client_id = ? AND deleted_at IS NULL`,
         [rfc, curp, razon_social, regimen_fiscal, codigo_postal_fiscal, req.params.id],
       );
     } else {
