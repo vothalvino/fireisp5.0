@@ -62,6 +62,17 @@ const config = {
   // Request timeout in milliseconds (0 = disabled)
   requestTimeoutMs: parseIntEnv('REQUEST_TIMEOUT_MS', 30000),
 
+  // Embedded RADIUS server (auth + accounting). Opt-in: enable to make FireISP
+  // itself the RADIUS server for NAS devices (no external FreeRADIUS needed).
+  radiusServer: {
+    enabled: parseBoolEnv('RADIUS_SERVER_ENABLED', false),
+    authPort: parseIntEnv('RADIUS_AUTH_PORT', 1812),
+    acctPort: parseIntEnv('RADIUS_ACCT_PORT', 1813),
+    // Fallback shared secret for NAS clients that have no per-NAS secret set
+    // (per-NAS nas.secret is preferred). Empty = require a per-NAS secret.
+    secret: process.env.RADIUS_SERVER_SECRET || '',
+  },
+
   // Feature flags — set FEATURE_*=true to enable
   features: {
     cfdi: parseBoolEnv('FEATURE_CFDI', true),
