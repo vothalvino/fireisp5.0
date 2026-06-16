@@ -65,6 +65,9 @@ services:
     restart: unless-stopped
     ports:
       - '3000:3000'
+      # Embedded RADIUS server (off by default in dev — set RADIUS_SERVER_ENABLED=true)
+      - '${RADIUS_AUTH_PORT:-1812}:1812/udp'
+      - '${RADIUS_ACCT_PORT:-1813}:1813/udp'
     depends_on:
       db:
         condition: service_healthy
@@ -78,6 +81,9 @@ services:
       REDIS_URL: redis://redis:6379
       VECTOR_RETRIEVAL_ENABLED: ${VECTOR_RETRIEVAL_ENABLED:-false}
       CHROMA_URL: ${CHROMA_URL:-http://chromadb:8000}
+      RADIUS_SERVER_ENABLED: ${RADIUS_SERVER_ENABLED:-false}
+      RADIUS_AUTH_PORT: ${RADIUS_AUTH_PORT:-1812}
+      RADIUS_ACCT_PORT: ${RADIUS_ACCT_PORT:-1813}
     volumes:
       - ./src:/app/src
       - ./storage:/app/storage

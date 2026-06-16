@@ -46,6 +46,8 @@ RUN chown -R fireisp:fireisp /app
 USER fireisp
 
 EXPOSE 3000
+# Embedded RADIUS server (auth + accounting) — only used when RADIUS_SERVER_ENABLED=true
+EXPOSE 1812/udp 1813/udp
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/health',(r)=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"
