@@ -276,13 +276,15 @@ async function syncFreeradiusTables(organizationId) {
 
   // 2. Load active subscribers (with cleartext password, auth_method, mac, plan, org,
   //    and service profile IDs for PPPoE Phase B attribute injection)
-  const orgFilter = organizationId ? 'AND r.organization_id = ?' : '';
+  // Scope by the contract's organization — the radius table has neither an
+  // organization_id column (Radius.hasOrgScope === false) nor a password_hash
+  // column (migration 189 renamed password_hash → password).
+  const orgFilter = organizationId ? 'AND c.organization_id = ?' : '';
   const orgParams = organizationId ? [organizationId] : [];
 
-  // radius table stores cleartext password in password_hash column (historical naming)
   const [subscribers] = await db.query(
-    `SELECT r.id, r.username, r.password_hash AS cleartext_password,
-            r.mac_address, r.auth_method, r.organization_id,
+    `SELECT r.id, r.username, r.password AS cleartext_password,
+            r.mac_address, r.auth_method,
             r.simultaneous_use AS account_sim_use,
             r.vlan_id, r.inner_vlan_id,
             r.service_profile_id AS account_profile_id,
@@ -708,7 +710,8 @@ async function syncFreeradiusTables(organizationId) {
 async function kickDuplicateSessions(organizationId) {
   logger.info({ organizationId }, 'Checking for duplicate sessions to kick');
 
-  const orgFilter = organizationId ? 'AND r.organization_id = ?' : '';
+  // Scope by the contract's organization — radius has no organization_id column.
+  const orgFilter = organizationId ? 'AND c.organization_id = ?' : '';
   const orgParams = organizationId ? [organizationId] : [];
 
   // Load all active subscribers with their effective simultaneous_use limit
@@ -819,13 +822,15 @@ async function walledGardenSuspendContract(contractId, ruleId, userId, invoiceId
     [contractId, ruleId, userId, invoiceId, coaSent, coaResponse],
   );
 
-  // Trigger a FreeRADIUS sync so re-auth picks up the walled attribute immediately
-  const [radiusRows] = await db.query(
-    'SELECT organization_id FROM radius WHERE contract_id = ? LIMIT 1',
+  // Trigger a FreeRADIUS sync so re-auth picks up the walled attribute
+  // immediately. Resolve the org from the contract (radius has no
+  // organization_id column).
+  const [orgRows] = await db.query(
+    'SELECT organization_id FROM contracts WHERE id = ? LIMIT 1',
     [contractId],
   );
-  if (radiusRows.length > 0) {
-    await syncFreeradiusTables(radiusRows[0].organization_id).catch(() => {});
+  if (orgRows.length > 0) {
+    await syncFreeradiusTables(orgRows[0].organization_id).catch(() => {});
   }
 }
 
@@ -852,13 +857,14 @@ async function walledGardenReconnect(contractId, _userId) {
     // CoA failure non-fatal — sync will remove the attribute on next run
   }
 
-  // Trigger immediate sync so re-auth no longer gets walled attribute
-  const [radiusRows] = await db.query(
-    'SELECT organization_id FROM radius WHERE contract_id = ? LIMIT 1',
+  // Trigger immediate sync so re-auth no longer gets walled attribute.
+  // Resolve the org from the contract (radius has no organization_id column).
+  const [orgRows] = await db.query(
+    'SELECT organization_id FROM contracts WHERE id = ? LIMIT 1',
     [contractId],
   );
-  if (radiusRows.length > 0) {
-    await syncFreeradiusTables(radiusRows[0].organization_id).catch(() => {});
+  if (orgRows.length > 0) {
+    await syncFreeradiusTables(orgRows[0].organization_id).catch(() => {});
   }
 }
 

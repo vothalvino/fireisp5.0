@@ -298,10 +298,12 @@ router.post('/coa', requirePermission('radius.coa'), async (req, res, next) => {
     }
 
     const [rows] = await db.query(
+      // Scope by the NAS's organization — the radius table has no
+      // organization_id column (Radius.hasOrgScope === false).
       `SELECT r.username, r.nas_id, n.ip_address AS nas_ip, n.coa_port, n.secret, n.secondary_nas_id
        FROM radius r
        JOIN nas n ON n.id = r.nas_id
-       WHERE r.username = ? AND r.organization_id = ?
+       WHERE r.username = ? AND n.organization_id = ?
        LIMIT 1`,
       [username, req.orgId],
     );
