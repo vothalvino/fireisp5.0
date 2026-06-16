@@ -363,14 +363,19 @@ async function exportCdr(opts) {
     organizationId,
   } = opts;
 
-  // organizationId filters via the nas_id→nas→organization_id join since
-  // connection_logs itself does not have an organization_id column.
+  // connection_logs has no organization_id column, and neither does the radius
+  // table (Radius.hasOrgScope === false). Scope through the linked client,
+  // falling back to the NAS for sessions with no client_id — the same pattern
+  // the working /connection-logs/binding-report export uses.
   // Fall back to username-only filter when organizationId is null (single-tenant).
   const conditions = ['cl.event_at >= ?', 'cl.event_at < DATE_ADD(?, INTERVAL 1 DAY)'];
   const params = [from, to];
 
   if (organizationId) {
-    conditions.push('(r.organization_id = ? OR n.organization_id = ?)');
+    conditions.push(`(c.organization_id = ?
+        OR (cl.client_id IS NULL AND EXISTS (
+          SELECT 1 FROM nas n WHERE n.id = cl.nas_id AND n.organization_id = ?
+        )))`);
     params.push(organizationId, organizationId);
   }
 
@@ -386,8 +391,7 @@ async function exportCdr(opts) {
             cl.framed_ip, cl.framed_ipv6_prefix, cl.terminate_cause,
             cl.acct_input_octets_v6, cl.acct_output_octets_v6, cl.stack_type
      FROM connection_logs cl
-     LEFT JOIN radius r ON r.username = cl.username
-     LEFT JOIN nas n ON n.ip_address = cl.nas_ip_address
+     LEFT JOIN clients c ON c.id = cl.client_id
      WHERE ${conditions.join(' AND ')}
      ORDER BY cl.event_at ASC
      LIMIT 50000`,

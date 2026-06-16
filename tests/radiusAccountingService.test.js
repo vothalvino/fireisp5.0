@@ -390,6 +390,11 @@ describe('radiusAccountingService', () => {
       const [sql, params] = db.query.mock.calls[0];
       expect(sql).toContain('cl.username = ?');
       expect(params).toContain('alice');
+      // Regression guard: the radius table has no organization_id column
+      // (Radius.hasOrgScope === false). CDR must scope via the linked client,
+      // not radius — otherwise the query throws "Unknown column r.organization_id".
+      expect(sql).toContain('c.organization_id');
+      expect(sql).not.toContain('r.organization_id');
     });
   });
 
