@@ -77,6 +77,11 @@ function encodeFramedIPAddress(ipStr) {
  */
 function encodeVSA(vendorId, vendorType, vendorValue) {
   const valueLen = vendorValue.length;
+  // The single-byte outer Length (8 + valueLen) and Vendor-Length (2 + valueLen)
+  // must each fit in a byte — reject overflow rather than silently wrapping mod 256.
+  if (valueLen > 247) {
+    throw new Error(`VSA value too long: ${valueLen} bytes (max 247)`);
+  }
   // outer length field = 4 (vendor-id) + 1 (v-type) + 1 (v-len) + valueLen
   const outerLength = 6 + valueLen;
   const buf = Buffer.alloc(2 + outerLength);
@@ -132,6 +137,18 @@ function encodeCiscoAvPair(avPairStr) {
   return encodeVSA(9, 1, Buffer.from(avPairStr, 'utf8'));
 }
 
+/**
+ * Encode a WISPr bandwidth attribute (vendor 14122). 32-bit integer, bits/sec.
+ * Down = attr 7, Up = attr 8.
+ */
+function encodeWisprBandwidth(vendorType, bps) {
+  const v = Buffer.alloc(4);
+  v.writeUInt32BE(Number(bps) >>> 0, 0);
+  return encodeVSA(14122, vendorType, v);
+}
+function encodeWisprBandwidthMaxDown(bps) { return encodeWisprBandwidth(7, bps); }
+function encodeWisprBandwidthMaxUp(bps) { return encodeWisprBandwidth(8, bps); }
+
 // ---------------------------------------------------------------------------
 // Aggregate encoders
 // ---------------------------------------------------------------------------
@@ -150,6 +167,9 @@ function encodeAttributes(attrList) {
     const valueBytes = Buffer.isBuffer(item.value)
       ? item.value
       : Buffer.from(String(item.value), 'utf8');
+    if (valueBytes.length > 253) {
+      throw new Error(`RADIUS attribute value too long: ${valueBytes.length} bytes (max 253)`);
+    }
     const buf = Buffer.alloc(2 + valueBytes.length);
     buf[0] = item.type;
     buf[1] = 2 + valueBytes.length;
@@ -169,6 +189,8 @@ const NAMED_ENCODERS = {
   'Mikrotik-Rate-Limit': encodeMikrotikRateLimit,
   'Mikrotik-Address-List': encodeMikrotikAddressList,
   'Cisco-AVPair': encodeCiscoAvPair,
+  'WISPr-Bandwidth-Max-Down': encodeWisprBandwidthMaxDown,
+  'WISPr-Bandwidth-Max-Up': encodeWisprBandwidthMaxUp,
 };
 
 /**
@@ -244,6 +266,8 @@ module.exports = {
   encodeMikrotikRateLimit,
   encodeMikrotikAddressList,
   encodeCiscoAvPair,
+  encodeWisprBandwidthMaxDown,
+  encodeWisprBandwidthMaxUp,
   encodeAttributes,
   encodeNamedAttributes,
   buildRadiusPacket,

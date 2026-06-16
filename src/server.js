@@ -12,6 +12,7 @@ const workers = require('./workers');
 const { tunnelServer } = require('./services/firerelayTunnel');
 const { wsHub } = require('./services/wsHub');
 const snmpTrapReceiver = require('./services/snmpTrapReceiver');
+const radiusServer = require('./services/radiusServerService');
 const logger = require('./utils/logger');
 
 async function start() {
@@ -94,6 +95,13 @@ async function start() {
     logger.warn({ err }, 'SNMP trap receiver failed to start');
   }
 
+  // Start the embedded RADIUS server (no-op unless RADIUS_SERVER_ENABLED=true)
+  try {
+    radiusServer.start();
+  } catch (err) {
+    logger.warn({ err }, 'Embedded RADIUS server failed to start');
+  }
+
   // ---------------------------------------------------------------------------
   // Graceful shutdown — drain HTTP connections before exiting
   // ---------------------------------------------------------------------------
@@ -108,6 +116,7 @@ async function start() {
       await tunnelServer.close();
       await wsHub.close().catch(() => {});
       snmpTrapReceiver.stop();
+      radiusServer.stop();
       scheduler.stop();
       await jobQueue.close().catch(() => {});
       await db.close();

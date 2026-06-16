@@ -9022,6 +9022,32 @@
         }
       }
     },
+    "/radius/server-status": {
+      "get": {
+        "tags": [
+          "RADIUS"
+        ],
+        "summary": "Status of the embedded RADIUS server (enabled, running, ports, request counters)",
+        "operationId": "getRadiusServerStatus",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Embedded RADIUS server status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/radius/{id}/routes": {
       "get": {
         "tags": [

@@ -22,6 +22,7 @@ const { createRoute, updateWalledGarden } = require('../middleware/schemas/radiu
 const db = require('../config/database');
 const { exportCdr, listMacMoveEvents } = require('../services/radiusAccountingService');
 const { sendRadiusPacket } = require('../services/suspensionService');
+const radiusServerService = require('../services/radiusServerService');
 const auditLog = require('../services/auditLog');
 
 const router = Router();
@@ -29,6 +30,14 @@ const ctrl = crudController(Radius);
 
 router.use(authenticate);
 router.use(orgScope);
+
+// -----------------------------------------------------------------------------
+// Embedded RADIUS server status (auth/accounting counters, ports, running state).
+// Literal path — registered before the generic `/:id` CRUD route.
+// -----------------------------------------------------------------------------
+router.get('/server-status', requirePermission('devices.view'), (_req, res) => {
+  res.json({ data: radiusServerService.getStatus() });
+});
 
 // -----------------------------------------------------------------------------
 // MAC Move Events (item 21)
