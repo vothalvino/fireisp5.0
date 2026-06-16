@@ -354,12 +354,14 @@ async function scanAuthFailures(orgId) {
     let threshold = DEFAULT_AUTH_FAILURE_THRESHOLD;
     if (orgId) {
       try {
+        // settings is a global key/value table (columns setting_key/setting_value;
+        // no organization_id column).
         const [settingRows] = await db.query(
-          "SELECT value FROM settings WHERE organization_id = ? AND `key` = 'pppoe_auth_failure_threshold'",
-          [orgId],
+          "SELECT setting_value FROM settings WHERE setting_key = 'pppoe_auth_failure_threshold' LIMIT 1",
+          [],
         );
         if (settingRows.length > 0) {
-          const parsed = parseInt(settingRows[0].value, 10);
+          const parsed = parseInt(settingRows[0].setting_value, 10);
           if (!isNaN(parsed) && parsed > 0) threshold = parsed;
         }
       } catch (_err) {

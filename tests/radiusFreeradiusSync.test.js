@@ -27,8 +27,8 @@ const { syncFreeradiusTables } = require('../src/services/radiusService');
 // ---------------------------------------------------------------------------
 
 function settingQueryReply(mode) {
-  // Called for mab_password_mode setting
-  return [[{ value: mode }]];
+  // Called for mab_password_mode setting (global settings table: setting_key/setting_value)
+  return [[{ setting_value: mode }]];
 }
 
 function noSettingReply() {
