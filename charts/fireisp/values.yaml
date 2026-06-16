@@ -154,6 +154,14 @@ config:
   FEATURE_SNMP: "true"
   FEATURE_SSO: "false"
 
+  ## Embedded RADIUS server (FireISP answers RADIUS auth/accounting itself —
+  ## docs/radius-server.md). Off by default here; to expose it externally on
+  ## Kubernetes you must also add UDP 1812/1813 to the Service + container ports
+  ## (follow-up — the chart Service is HTTP/TCP only today).
+  RADIUS_SERVER_ENABLED: "false"
+  RADIUS_AUTH_PORT: "1812"
+  RADIUS_ACCT_PORT: "1813"
+
   FIRERELAY_MODE: "standalone"
 
 ## Secret values (rendered into a Kubernetes Secret).

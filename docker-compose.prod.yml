@@ -179,11 +179,23 @@ services:
       DB_HOST:    db-primary
       DB_PORT:    3306
       REDIS_URL:  redis://:${REDIS_PASSWORD}@redis:6379
+      # Embedded RADIUS server (FireISP is the RADIUS server — docs/radius-server.md).
+      # Defaults ON in production; set RADIUS_SERVER_ENABLED=false in .env.prod to disable.
+      RADIUS_SERVER_ENABLED: ${RADIUS_SERVER_ENABLED:-true}
+      RADIUS_AUTH_PORT:      ${RADIUS_AUTH_PORT:-1812}
+      RADIUS_ACCT_PORT:      ${RADIUS_ACCT_PORT:-1813}
+      RADIUS_SERVER_SECRET:  ${RADIUS_SERVER_SECRET:-}
     volumes:
       - ./storage:/app/storage
-    # Do NOT publish port 3000 to the host — only Nginx reaches the app.
+    # HTTP (3000) stays internal behind Nginx. The RADIUS auth/accounting
+    # listeners are UDP and must be published directly (Nginx proxies HTTP only).
+    # NOTE: these are fixed host ports — keep the app at replicas:1, or front
+    # RADIUS with a UDP load balancer, if you scale the app tier (--scale app=N).
     expose:
       - '3000'
+    ports:
+      - '${RADIUS_AUTH_PORT:-1812}:1812/udp'
+      - '${RADIUS_ACCT_PORT:-1813}:1813/udp'
     deploy:
       replicas: 1          # increase with --scale app=N as traffic grows
       resources:
