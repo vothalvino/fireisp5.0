@@ -501,9 +501,10 @@ CREATE TABLE IF NOT EXISTS nas (
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    ip_address_active VARCHAR(45) GENERATED ALWAYS AS (IF(deleted_at IS NULL, ip_address, NULL)) STORED COMMENT 'ip_address for live rows, NULL when soft-deleted; backs the soft-delete-aware unique key (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_nas_ip_address (ip_address),
+    UNIQUE KEY uq_nas_ip_address_active (ip_address_active),
     KEY idx_nas_organization_id (organization_id),
     KEY idx_nas_status (status),
     KEY idx_nas_deleted_at (deleted_at),
