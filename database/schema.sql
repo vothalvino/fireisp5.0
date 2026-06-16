@@ -33,9 +33,10 @@ CREATE TABLE IF NOT EXISTS users (
     created_at             TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_users_email (email),
+    UNIQUE KEY uq_users_email (email, active_flag),
     KEY idx_users_organization_id (organization_id),
     KEY idx_users_deleted_at (deleted_at),
     CONSTRAINT fk_users_organization FOREIGN KEY (organization_id)
@@ -142,9 +143,10 @@ CREATE TABLE IF NOT EXISTS client_custom_fields (
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at  DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_client_custom_fields_client_key (client_id, field_key),
+    UNIQUE KEY uq_client_custom_fields_client_key (client_id, field_key, active_flag),
     KEY idx_client_custom_fields_client_id (client_id),
     KEY idx_client_custom_fields_deleted_at (deleted_at),
     CONSTRAINT fk_client_custom_fields_client FOREIGN KEY (client_id)
@@ -226,9 +228,10 @@ CREATE TABLE IF NOT EXISTS service_orders (
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_service_orders_org_number (organization_id, order_number),
+    UNIQUE KEY uq_service_orders_org_number (organization_id, order_number, active_flag),
     KEY idx_service_orders_organization_id (organization_id),
     KEY idx_service_orders_client_id (client_id),
     KEY idx_service_orders_lead_id (lead_id),
@@ -501,9 +504,10 @@ CREATE TABLE IF NOT EXISTS nas (
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_nas_ip_address (ip_address),
+    UNIQUE KEY uq_nas_ip_address (ip_address, active_flag),
     KEY idx_nas_organization_id (organization_id),
     KEY idx_nas_status (status),
     KEY idx_nas_deleted_at (deleted_at),
@@ -546,9 +550,10 @@ CREATE TABLE IF NOT EXISTS radius (
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_radius_username (username),
+    UNIQUE KEY uq_radius_username (username, active_flag),
     KEY idx_radius_client_id (client_id),
     KEY idx_radius_contract_id (contract_id),
     KEY idx_radius_nas_id (nas_id),
@@ -626,13 +631,14 @@ CREATE TABLE IF NOT EXISTS devices (
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
     -- Added by migration 302 (S13): topology map placement and dependency graph
     latitude        DECIMAL(10,7)   NULL COMMENT 'Device GPS latitude for topology map pin',
     longitude       DECIMAL(10,7)   NULL COMMENT 'Device GPS longitude for topology map pin',
     parent_device_id BIGINT UNSIGNED NULL COMMENT 'Direct upstream/parent device for dependency graph',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_devices_serial_number (serial_number),
+    UNIQUE KEY uq_devices_serial_number (serial_number, active_flag),
     KEY idx_devices_organization_id (organization_id),
     KEY idx_devices_site_id (site_id),
     KEY idx_devices_client_id (client_id),
@@ -724,9 +730,10 @@ CREATE TABLE IF NOT EXISTS invoices (
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_invoices_org_number (organization_id, invoice_number),
+    UNIQUE KEY uq_invoices_org_number (organization_id, invoice_number, active_flag),
     KEY idx_invoices_organization_id (organization_id),
     KEY idx_invoices_org_status (organization_id, status),
     KEY idx_invoices_client_id (client_id),
@@ -814,9 +821,10 @@ CREATE TABLE IF NOT EXISTS payment_allocations (
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_payment_allocations_payment_invoice (payment_id, invoice_id),
+    UNIQUE KEY uq_payment_allocations_payment_invoice (payment_id, invoice_id, active_flag),
     KEY idx_payment_allocations_invoice_id (invoice_id),
     KEY idx_payment_allocations_deleted_at (deleted_at),
     CONSTRAINT fk_payment_allocations_payment FOREIGN KEY (payment_id)
@@ -950,9 +958,10 @@ CREATE TABLE IF NOT EXISTS quotes (
     created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_quotes_org_number (organization_id, quote_number),
+    UNIQUE KEY uq_quotes_org_number (organization_id, quote_number, active_flag),
     KEY idx_quotes_organization_id (organization_id),
     KEY idx_quotes_client_id (client_id),
     KEY idx_quotes_contract_id (contract_id),
@@ -1127,9 +1136,10 @@ CREATE TABLE IF NOT EXISTS ip_pools (
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_ip_pools_network_mask_ver (network, subnet_mask, ip_version),
+    UNIQUE KEY uq_ip_pools_network_mask_ver (network, subnet_mask, ip_version, active_flag),
     KEY idx_ip_pools_organization_id (organization_id),
     KEY idx_ip_pools_ip_version (ip_version),
     KEY idx_ip_pools_site_id (site_id),
@@ -1169,9 +1179,10 @@ CREATE TABLE IF NOT EXISTS ip_assignments (
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_ip_assignments_ip (ip_address),
+    UNIQUE KEY uq_ip_assignments_ip (ip_address, active_flag),
     KEY idx_ip_assignments_organization_id (organization_id),
     KEY idx_ip_assignments_pool_id (pool_id),
     KEY idx_ip_assignments_contract_id (contract_id),
@@ -1802,9 +1813,10 @@ CREATE TABLE IF NOT EXISTS snmp_profiles (
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_snmp_profiles_name (name),
+    UNIQUE KEY uq_snmp_profiles_name (name, active_flag),
     KEY idx_snmp_profiles_manufacturer (manufacturer),
     KEY idx_snmp_profiles_status (status),
     KEY idx_snmp_profiles_deleted_at (deleted_at)
@@ -1832,9 +1844,10 @@ CREATE TABLE IF NOT EXISTS snmp_profile_oids (
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_profile_oid (profile_id, oid),
+    UNIQUE KEY uq_profile_oid (profile_id, oid, active_flag),
     KEY idx_snmp_profile_oids_metric (metric_column),
     KEY idx_snmp_profile_oids_status (status),
     KEY idx_snmp_profile_oids_deleted_at (deleted_at),
@@ -1890,9 +1903,10 @@ CREATE TABLE IF NOT EXISTS device_groups (
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_device_groups_org_name (organization_id, name),
+    UNIQUE KEY uq_device_groups_org_name (organization_id, name, active_flag),
     KEY idx_device_groups_organization_id (organization_id),
     KEY idx_device_groups_status (status),
     KEY idx_device_groups_deleted_at (deleted_at),
@@ -2977,9 +2991,10 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_inventory_items_sku (sku),
+    UNIQUE KEY uq_inventory_items_sku (sku, active_flag),
     KEY idx_inventory_items_organization_id (organization_id),
     KEY idx_inventory_items_category (category),
     KEY idx_inventory_items_status (status),
@@ -3005,9 +3020,10 @@ CREATE TABLE IF NOT EXISTS inventory_stock (
     created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_inventory_stock_location (item_id, warehouse_id, aisle, col, shelf),
+    UNIQUE KEY uq_inventory_stock_location (item_id, warehouse_id, aisle, col, shelf, active_flag),
     KEY idx_inventory_stock_warehouse_id (warehouse_id),
     KEY idx_inventory_stock_item_id (item_id),
     KEY idx_inventory_stock_deleted_at (deleted_at),
@@ -3111,9 +3127,10 @@ CREATE TABLE IF NOT EXISTS credit_notes (
     created_at         TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at         TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_credit_notes_org_number (organization_id, credit_note_number),
+    UNIQUE KEY uq_credit_notes_org_number (organization_id, credit_note_number, active_flag),
     KEY idx_credit_notes_organization_id (organization_id),
     KEY idx_credit_notes_client_id (client_id),
     KEY idx_credit_notes_contract_id (contract_id),
@@ -3752,9 +3769,10 @@ CREATE TABLE IF NOT EXISTS roles (
     created_at  TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_roles_name (name),
+    UNIQUE KEY uq_roles_name (name, active_flag),
     KEY idx_roles_deleted_at (deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -3841,9 +3859,10 @@ CREATE TABLE IF NOT EXISTS vlans (
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_vlans_site_vlan (site_id, vlan_id) COMMENT 'A VLAN ID must be unique within a site',
+    UNIQUE KEY uq_vlans_site_vlan (site_id, vlan_id, active_flag) COMMENT 'A VLAN ID must be unique within a site',
     KEY idx_vlans_organization_id (organization_id),
     KEY idx_vlans_site_id (site_id),
     KEY idx_vlans_status (status),
@@ -3903,9 +3922,10 @@ CREATE TABLE IF NOT EXISTS message_templates (
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_message_templates_org_name_channel (organization_id, name, channel),
+    UNIQUE KEY uq_message_templates_org_name_channel (organization_id, name, channel, active_flag),
     KEY idx_message_templates_channel (channel),
     KEY idx_message_templates_is_active (is_active),
     KEY idx_message_templates_deleted_at (deleted_at),
@@ -3997,9 +4017,10 @@ CREATE TABLE IF NOT EXISTS promotions (
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_promotions_org_code (organization_id, code),
+    UNIQUE KEY uq_promotions_org_code (organization_id, code, active_flag),
     KEY idx_promotions_organization_id (organization_id),
     KEY idx_promotions_promotion_type (promotion_type),
     KEY idx_promotions_is_active (is_active),
@@ -4156,9 +4177,10 @@ CREATE TABLE IF NOT EXISTS device_config_backups (
     diff_from_previous LONGTEXT      NULL     COMMENT 'Unified diff vs previous version (migration 262; NULL for first backup)',
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_device_config_backups_device_version (device_id, version),
+    UNIQUE KEY uq_device_config_backups_device_version (device_id, version, active_flag),
     KEY idx_device_config_backups_device_id (device_id),
     KEY idx_device_config_backups_config_type (config_type),
     KEY idx_device_config_backups_capture_method (capture_method),
@@ -4211,10 +4233,11 @@ CREATE TABLE IF NOT EXISTS client_mx_profiles (
     created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_client_mx_profiles_client_id (client_id),
-    UNIQUE KEY uq_client_mx_profiles_rfc (rfc_unique_check),
+    UNIQUE KEY uq_client_mx_profiles_client_id (client_id, active_flag),
+    UNIQUE KEY uq_client_mx_profiles_rfc (rfc_unique_check, active_flag),
     KEY idx_client_mx_profiles_rfc (rfc),
     KEY idx_client_mx_profiles_regimen_fiscal (regimen_fiscal),
     KEY idx_client_mx_profiles_deleted_at (deleted_at),
@@ -4289,10 +4312,11 @@ CREATE TABLE IF NOT EXISTS organization_mx_profiles (
     created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_organization_mx_profiles_org_id (organization_id),
-    UNIQUE KEY uq_organization_mx_profiles_rfc (rfc),
+    UNIQUE KEY uq_organization_mx_profiles_org_id (organization_id, active_flag),
+    UNIQUE KEY uq_organization_mx_profiles_rfc (rfc, active_flag),
     KEY idx_organization_mx_profiles_pac_environment (pac_environment),
     KEY idx_organization_mx_profiles_deleted_at (deleted_at),
     CONSTRAINT fk_organization_mx_profiles_org FOREIGN KEY (organization_id)
@@ -4978,7 +5002,7 @@ CREATE TABLE IF NOT EXISTS concession_titles (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NOT NULL
                             COMMENT 'Organization that holds this concession title',
-    title_number        VARCHAR(100)    NOT NULL UNIQUE
+    title_number        VARCHAR(100)    NOT NULL
                             COMMENT 'Official concession title number as issued by IFT/CRT',
     concession_type     ENUM('commercial', 'public', 'social', 'community', 'indigenous', 'private')
                             NOT NULL DEFAULT 'commercial'
@@ -5006,9 +5030,10 @@ CREATE TABLE IF NOT EXISTS concession_titles (
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_concession_titles_title_number (title_number),
+    UNIQUE KEY uq_concession_titles_title_number (title_number, active_flag),
     KEY idx_concession_titles_organization_id (organization_id),
     KEY idx_concession_titles_status (status),
     KEY idx_concession_titles_regulatory_body (regulatory_body),
@@ -5187,9 +5212,10 @@ CREATE TABLE IF NOT EXISTS ift_statistical_reports (
     created_at                  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_ift_statistical_reports_org_period (organization_id, report_period),
+    UNIQUE KEY uq_ift_statistical_reports_org_period (organization_id, report_period, active_flag),
     KEY idx_ift_statistical_reports_organization_id (organization_id),
     KEY idx_ift_statistical_reports_status (status),
     KEY idx_ift_statistical_reports_period_start (period_start),
@@ -6108,9 +6134,10 @@ CREATE TABLE IF NOT EXISTS pac_providers (
     created_at            TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at            TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_pac_providers_org_provider_env (organization_id, provider_name, environment),
+    UNIQUE KEY uq_pac_providers_org_provider_env (organization_id, provider_name, environment, active_flag),
     KEY idx_pac_providers_organization_id (organization_id),
     KEY idx_pac_providers_status (status),
     KEY idx_pac_providers_deleted_at (deleted_at),
@@ -6198,9 +6225,10 @@ CREATE TABLE IF NOT EXISTS firerelay_nodes (
     created_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY idx_firerelay_nodes_api_url (api_url),
+    UNIQUE KEY idx_firerelay_nodes_api_url (api_url, active_flag),
     KEY idx_firerelay_nodes_status (status),
     KEY idx_firerelay_nodes_deleted_at (deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -6362,9 +6390,10 @@ CREATE TABLE IF NOT EXISTS organization_users (
     created_at       TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at       TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_organization_users_org_user (organization_id, user_id),
+    UNIQUE KEY uq_organization_users_org_user (organization_id, user_id, active_flag),
     KEY idx_organization_users_user_id (user_id),
     KEY idx_organization_users_role (role),
     KEY idx_organization_users_deleted_at (deleted_at),
@@ -9504,9 +9533,10 @@ CREATE TABLE IF NOT EXISTS olt_ports (
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
                             ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_olt_ports_device_port (olt_device_id, port_index),
+    UNIQUE KEY uq_olt_ports_device_port (olt_device_id, port_index, active_flag),
     KEY idx_olt_ports_organization_id (organization_id),
     KEY idx_olt_ports_olt_device_id (olt_device_id),
     KEY idx_olt_ports_port_type (port_type),
@@ -9557,9 +9587,10 @@ CREATE TABLE IF NOT EXISTS onu_profiles (
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
                             ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_onu_profiles_org_name (organization_id, name),
+    UNIQUE KEY uq_onu_profiles_org_name (organization_id, name, active_flag),
     KEY idx_onu_profiles_organization_id (organization_id),
     KEY idx_onu_profiles_technology (technology),
     KEY idx_onu_profiles_plan_id (plan_id),
@@ -9622,9 +9653,10 @@ CREATE TABLE IF NOT EXISTS onu_details (
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
                             ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_onu_details_device_id (device_id),
+    UNIQUE KEY uq_onu_details_device_id (device_id, active_flag),
     KEY idx_onu_details_organization_id (organization_id),
     KEY idx_onu_details_olt_device_id (olt_device_id),
     KEY idx_onu_details_olt_port_id (olt_port_id),
@@ -9703,9 +9735,10 @@ CREATE TABLE IF NOT EXISTS onu_whitelist (
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
                             ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_onu_whitelist_olt_entry (olt_device_id, entry_type, entry_value),
+    UNIQUE KEY uq_onu_whitelist_olt_entry (olt_device_id, entry_type, entry_value, active_flag),
     KEY idx_onu_whitelist_organization_id (organization_id),
     KEY idx_onu_whitelist_olt_device_id (olt_device_id),
     KEY idx_onu_whitelist_list_type (list_type),
@@ -10137,9 +10170,10 @@ CREATE TABLE IF NOT EXISTS odf_ports (
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
                             ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_odf_ports_frame_port (odf_frame_id, port_number),
+    UNIQUE KEY uq_odf_ports_frame_port (odf_frame_id, port_number, active_flag),
     KEY idx_odf_ports_organization_id (organization_id),
     KEY idx_odf_ports_odf_frame_id (odf_frame_id),
     KEY idx_odf_ports_port_status (port_status),
@@ -10370,8 +10404,9 @@ CREATE TABLE IF NOT EXISTS cpe_devices (
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
     PRIMARY KEY (id),
-    UNIQUE KEY uq_cpe_devices_serial_oui (serial_number, oui),
+    UNIQUE KEY uq_cpe_devices_serial_oui (serial_number, oui, active_flag),
     KEY idx_cpe_devices_organization_id (organization_id),
     KEY idx_cpe_devices_status (status),
     KEY idx_cpe_devices_device_id (device_id),
@@ -10493,8 +10528,9 @@ CREATE TABLE IF NOT EXISTS cpe_firmware_versions (
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
     PRIMARY KEY (id),
-    UNIQUE KEY uq_cpe_fw_ver (manufacturer, model_name, version),
+    UNIQUE KEY uq_cpe_fw_ver (manufacturer, model_name, version, active_flag),
     KEY idx_cpe_fw_org (organization_id),
     KEY idx_cpe_fw_deleted_at (deleted_at),
     CONSTRAINT fk_cpe_fw_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE
@@ -11070,8 +11106,9 @@ CREATE TABLE IF NOT EXISTS portal_kb_articles (
   created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted_at      DATETIME NULL,
+  active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
   PRIMARY KEY (id),
-  UNIQUE KEY uq_kb_org_slug (organization_id, slug),
+  UNIQUE KEY uq_kb_org_slug (organization_id, slug, active_flag),
   KEY idx_kb_org (organization_id),
   KEY idx_kb_category (category),
   KEY idx_kb_published (is_published),
@@ -12417,9 +12454,10 @@ CREATE TABLE IF NOT EXISTS dns_blocklists (
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at          DATETIME        NULL,
+    active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_dns_blocklists_org_domain (organization_id, domain),
+    UNIQUE KEY uq_dns_blocklists_org_domain (organization_id, domain, active_flag),
     KEY idx_dns_blocklists_org (organization_id),
     KEY idx_dns_blocklists_domain (domain),
     KEY idx_dns_blocklists_category (category),

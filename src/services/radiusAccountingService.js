@@ -109,7 +109,7 @@ async function ingestAccounting(attrs) {
             n.id AS resolved_nas_id
      FROM radius r
      LEFT JOIN nas n ON n.ip_address = ?
-     WHERE r.username = ?
+     WHERE r.username = ? AND r.deleted_at IS NULL
      LIMIT 1`,
     [nasIpAddress, userName],
   );

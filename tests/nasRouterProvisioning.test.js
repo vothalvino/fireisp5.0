@@ -137,8 +137,10 @@ describe('POST /api/nas/:id/test-connection', () => {
 describe('NAS create/update responses redact api_password_encrypted', () => {
   test('POST /api/nas does not include api_password_encrypted', async () => {
     mockAuthUser();
-    // Nas.create: INSERT -> findByIdIncludingDeleted, then auditLog.log
+    // Nas.createOrRestore: soft-deleted lookup -> (none) -> INSERT ->
+    // findByIdIncludingDeleted, then auditLog.log
     db.query
+      .mockResolvedValueOnce([[]])                                // createOrRestore: no soft-deleted row for this IP
       .mockResolvedValueOnce([{ insertId: 7, affectedRows: 1 }]) // INSERT
       .mockResolvedValueOnce([[mockNas]])                         // findByIdIncludingDeleted
       .mockResolvedValueOnce([{ affectedRows: 1 }]);             // auditLog
@@ -161,6 +163,29 @@ describe('NAS create/update responses redact api_password_encrypted', () => {
     expect(res.body.data).not.toHaveProperty('api_password_encrypted');
     expect(res.body.data).not.toHaveProperty('api_password');
     expect(res.body.data.api_username).toBe('fireisp');
+  });
+
+  test('POST /api/nas restores a soft-deleted row for the same IP (createOrRestore)', async () => {
+    mockAuthUser();
+    // createOrRestore finds a soft-deleted row -> UPDATE (restore) -> findById -> auditLog.
+    // No INSERT: the archived row id (9) is reused, preserving history.
+    db.query
+      .mockResolvedValueOnce([[{ id: 9 }]])                            // soft-deleted row found for this IP
+      .mockResolvedValueOnce([{ affectedRows: 1 }])                    // UPDATE (apply values + clear deleted_at)
+      .mockResolvedValueOnce([[{ ...mockNas, id: 9 }]])               // findById (now live)
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);                   // auditLog
+
+    const res = await request(app)
+      .post('/api/nas')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ name: 'Core-RB', ip_address: '10.10.0.1', secret: 'radsecret', type: 'mikrotik' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.id).toBe(9); // restored archived row, not a fresh insert
+    expect(res.body.data).not.toHaveProperty('api_password_encrypted');
+    // The restore path must NOT run an INSERT — verify the second query was the UPDATE.
+    expect(db.query.mock.calls[1][0]).toMatch(/UPDATE `nas` SET/);
+    expect(db.query.mock.calls[1][0]).toMatch(/deleted_at = NULL/);
   });
 
   test('PUT /api/nas/:id does not include api_password_encrypted', async () => {

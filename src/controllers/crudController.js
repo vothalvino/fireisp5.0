@@ -21,6 +21,12 @@ function crudController(Model, _options = {}) {
   // (e.g. User.sanitize) from every record before it is returned.  Defaults to
   // identity so existing resources are unaffected.
   const serialize = typeof _options.serialize === 'function' ? _options.serialize : (x) => x;
+  // Optional create override — lets a resource customise the insert (e.g. Nas
+  // restore-on-create by IP) while keeping org-injection, audit-log, cache-bust
+  // and serialize behaviour identical. Defaults to a plain Model.create.
+  const createFn = typeof _options.createImpl === 'function'
+    ? _options.createImpl
+    : (data) => Model.create(data);
 
   return {
     /**
@@ -81,7 +87,7 @@ function crudController(Model, _options = {}) {
           req.body.organization_id = req.orgId;
         }
 
-        const record = await Model.create(req.body);
+        const record = await createFn(req.body);
 
         await auditLog.log({
           userId: req.user?.id,

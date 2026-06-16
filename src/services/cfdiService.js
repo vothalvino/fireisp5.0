@@ -149,7 +149,7 @@ async function stamp(cfdiDocumentId) {
 
   // Get PAC provider for the organization
   const [pacs] = await db.query(
-    'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' LIMIT 1',
+    'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1',
     [doc.organization_id],
   );
 
@@ -358,7 +358,7 @@ async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
 
   // Get PAC provider
   const [pacs] = await db.query(
-    'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' LIMIT 1',
+    'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1',
     [doc.organization_id],
   );
   if (pacs.length === 0) {

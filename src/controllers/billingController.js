@@ -94,7 +94,7 @@ async function allocatePayment(req, res, next) {
 
         // Check if invoice is fully paid and update status
         const [totals] = await conn.execute(
-          'SELECT COALESCE(SUM(amount), 0) AS paid FROM payment_allocations WHERE invoice_id = ?',
+          'SELECT COALESCE(SUM(amount), 0) AS paid FROM payment_allocations WHERE invoice_id = ? AND deleted_at IS NULL',
           [alloc.invoice_id],
         );
         const [inv] = await conn.execute(

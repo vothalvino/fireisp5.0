@@ -303,7 +303,7 @@ router.post('/coa', requirePermission('radius.coa'), async (req, res, next) => {
       `SELECT r.username, r.nas_id, n.ip_address AS nas_ip, n.coa_port, n.secret, n.secondary_nas_id
        FROM radius r
        JOIN nas n ON n.id = r.nas_id
-       WHERE r.username = ? AND n.organization_id = ?
+       WHERE r.username = ? AND r.deleted_at IS NULL AND n.organization_id = ?
        LIMIT 1`,
       [username, req.orgId],
     );
@@ -400,7 +400,7 @@ router.post('/sessions/disconnect-batch', requirePermission('radius.batch_discon
     // Disconnect by usernames
     for (const username of names) {
       const [rows] = await db.query(
-        'SELECT contract_id FROM radius WHERE username = ? LIMIT 1',
+        'SELECT contract_id FROM radius WHERE username = ? AND deleted_at IS NULL LIMIT 1',
         [username],
       );
       if (!rows.length) {

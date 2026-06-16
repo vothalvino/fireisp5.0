@@ -222,7 +222,7 @@ const resolvers = {
         `SELECT pa.*, p.amount AS payment_amount, p.payment_method, p.payment_date
          FROM payment_allocations pa
          JOIN payments p ON p.id = pa.payment_id
-         WHERE pa.invoice_id = ?`,
+         WHERE pa.invoice_id = ? AND pa.deleted_at IS NULL`,
         [inv.id],
       );
       return rows;

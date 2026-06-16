@@ -594,6 +594,7 @@ describe('NAS Routes — /api/nas', () => {
     test('creates a NAS device and returns 201', async () => {
       mockAuthUser();
       db.query
+        .mockResolvedValueOnce([[]])                                 // createOrRestore: no soft-deleted row for this IP
         .mockResolvedValueOnce([{ insertId: 2, affectedRows: 1 }])  // INSERT
         .mockResolvedValueOnce([[{ ...mockNas, id: 2 }]])            // findById
         .mockResolvedValueOnce([{ affectedRows: 1 }]);               // auditLog
