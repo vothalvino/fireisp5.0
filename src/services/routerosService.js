@@ -21,10 +21,13 @@
 // =============================================================================
 
 const net = require('net');
+const tls = require('tls');
 const logger = require('../utils/logger').child({ service: 'routerosService' });
 
-// Default RouterOS API port
+// Default RouterOS API port (plain)
 const DEFAULT_PORT = 8728;
+// Default RouterOS API-SSL port (TLS)
+const DEFAULT_TLS_PORT = 8729;
 // Default connection + command timeout (ms)
 const DEFAULT_TIMEOUT_MS = 10000;
 
@@ -182,13 +185,20 @@ class RouterOSClient {
    * @param {string} opts.user
    * @param {string} opts.password
    * @param {number} [opts.timeoutMs]
+   * @param {boolean} [opts.secure]           - Use TLS (API-SSL) instead of plain TCP
+   * @param {boolean} [opts.rejectUnauthorized] - Validate server certificate (default false)
    */
-  constructor({ host, port, user, password, timeoutMs } = {}) {
+  constructor({ host, port, user, password, timeoutMs, secure, rejectUnauthorized } = {}) {
     this.host = host;
-    this.port = port || DEFAULT_PORT;
+    this.secure = !!secure;
+    // Plain default 8728; TLS default 8729 when no explicit port is supplied.
+    this.port = port || (this.secure ? DEFAULT_TLS_PORT : DEFAULT_PORT);
     this.user = user;
     this.password = password;
     this.timeoutMs = timeoutMs || DEFAULT_TIMEOUT_MS;
+    // RouterOS devices commonly use self-signed certificates, so default to not
+    // rejecting unauthorized certs unless the caller explicitly opts in.
+    this.rejectUnauthorized = rejectUnauthorized === true;
 
     /** @type {net.Socket|null} */
     this._socket = null;
@@ -212,7 +222,21 @@ class RouterOSClient {
         reject(new Error(`RouterOS connect timeout to ${this.host}:${this.port}`));
       }, this.timeoutMs);
 
-      const socket = net.createConnection({ host: this.host, port: this.port });
+      // 'secureConnect' for TLS, 'connect' for plain TCP — the event that
+      // signals the transport is established and ready for I/O.
+      let socket;
+      let readyEvent;
+      if (this.secure) {
+        socket = tls.connect({
+          host: this.host,
+          port: this.port,
+          rejectUnauthorized: this.rejectUnauthorized,
+        });
+        readyEvent = 'secureConnect';
+      } else {
+        socket = net.createConnection({ host: this.host, port: this.port });
+        readyEvent = 'connect';
+      }
       this._socket = socket;
 
       socket.on('error', (err) => {
@@ -220,7 +244,7 @@ class RouterOSClient {
         reject(err);
       });
 
-      socket.on('connect', () => {
+      socket.on(readyEvent, () => {
         clearTimeout(timer);
         socket.removeAllListeners('error');
 
@@ -528,6 +552,71 @@ async function pppoeCreate(conn, params) {
 }
 
 /**
+ * Create-or-update a PPPoE secret by name (idempotent provisioning).
+ *
+ * Looks up an existing secret by name; if found it issues /ppp/secret/set against
+ * the existing .id, otherwise /ppp/secret/add. Optional attributes (profile,
+ * local-address, remote-address, comment) are only sent when provided.
+ *
+ * @param {{ host: string, port?: number, user: string, password: string,
+ *            secure?: boolean, rejectUnauthorized?: boolean, timeoutMs?: number }} conn
+ * @param {{ name: string, secretPassword: string, profile?: string, service?: string,
+ *            localAddress?: string, remoteAddress?: string, comment?: string }} params
+ * @returns {Promise<{ id: string, created: boolean, updated: boolean }>}
+ */
+async function pppoeUpsert(conn, params) {
+  const { name, secretPassword, profile, service, localAddress, remoteAddress, comment } = params;
+
+  if (!name) throw new Error('pppoeUpsert: name is required');
+  if (!secretPassword) throw new Error('pppoeUpsert: secretPassword is required');
+
+  const client = await createClient(conn);
+  try {
+    // Shared optional attribute words for both create and update paths.
+    const attrWords = [
+      `=password=${secretPassword}`,
+      `=service=${service || 'pppoe'}`,
+    ];
+    if (profile) attrWords.push(`=profile=${profile}`);
+    if (localAddress) attrWords.push(`=local-address=${localAddress}`);
+    if (remoteAddress) attrWords.push(`=remote-address=${remoteAddress}`);
+    if (comment) attrWords.push(`=comment=${comment}`);
+
+    const existingId = await findPppoeSecretId(client, name);
+
+    if (existingId) {
+      // Update existing secret in place.
+      await client.run([
+        '/ppp/secret/set',
+        `=.id=${existingId}`,
+        `=name=${name}`,
+        ...attrWords,
+      ]);
+      logger.info({ name, id: existingId }, 'RouterOS: PPPoE secret updated');
+      return { id: existingId, created: false, updated: true };
+    }
+
+    // Create a new secret and read the assigned .id from the !done =ret= word.
+    const sentences = await client.run([
+      '/ppp/secret/add',
+      `=name=${name}`,
+      ...attrWords,
+    ]);
+    let newId = '';
+    for (const sentence of sentences) {
+      if (sentence[0] === '!done') {
+        newId = parseAttrs(sentence.slice(1)).ret || '';
+        break;
+      }
+    }
+    logger.info({ name, id: newId }, 'RouterOS: PPPoE secret created');
+    return { id: newId, created: true, updated: false };
+  } finally {
+    await client.close();
+  }
+}
+
+/**
  * Delete a PPPoE secret by name.
  *
  * @param {{ host: string, port?: number, user: string, password: string }} conn
@@ -771,6 +860,7 @@ module.exports = {
   parseAttrs,
   createClient,
   pppoeCreate,
+  pppoeUpsert,
   pppoeDelete,
   queueSet,
   addressListAdd,
@@ -779,4 +869,5 @@ module.exports = {
   handlers,
   connFromParams,
   DEFAULT_PORT,
+  DEFAULT_TLS_PORT,
 };

@@ -31,6 +31,9 @@ interface Nas {
   last_health_check_at: string | null;
   description: string | null;
   status: string;
+  api_port?: number | null;
+  api_username?: string | null;
+  api_use_tls?: boolean | null;
 }
 
 interface NasResponse {
@@ -50,6 +53,10 @@ interface NasBody {
   secondary_nas_id?: number;
   description?: string;
   status?: string;
+  api_port?: number;
+  api_username?: string;
+  api_password?: string;
+  api_use_tls?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +173,10 @@ function NasModal({ nas, onClose, onSaved }: NasModalProps) {
     secondary_nas_id: nas?.secondary_nas_id != null ? String(nas.secondary_nas_id) : '',
     description: nas?.description ?? '',
     status: nas?.status ?? 'active',
+    api_port: nas?.api_port != null ? String(nas.api_port) : '8728',
+    api_username: nas?.api_username ?? '',
+    api_password: '',
+    api_use_tls: nas?.api_use_tls ?? false,
   });
   const [error, setError] = useState('');
 
@@ -188,6 +199,10 @@ function NasModal({ nas, onClose, onSaved }: NasModalProps) {
       if (form.location) body.location = form.location.trim();
       if (form.secondary_nas_id) body.secondary_nas_id = Number(form.secondary_nas_id);
       if (form.description) body.description = form.description;
+      if (form.api_port) body.api_port = Number(form.api_port);
+      if (form.api_username) body.api_username = form.api_username.trim();
+      if (form.api_password) body.api_password = form.api_password;
+      body.api_use_tls = form.api_use_tls;
       return isEdit ? updateNas(nas.id, body) : createNas(body);
     },
     onSuccess: () => {
@@ -356,6 +371,61 @@ function NasModal({ nas, onClose, onSaved }: NasModalProps) {
             </select>
           </label>
 
+          <label style={modalStyles.label}>
+            RouterOS API Port
+            <input
+              style={modalStyles.input}
+              type="number"
+              min={1}
+              max={65535}
+              value={form.api_port}
+              onChange={e => setField('api_port', e.target.value)}
+              placeholder="8728"
+              aria-label="RouterOS API Port"
+            />
+          </label>
+
+          <label style={modalStyles.label}>
+            RouterOS API Username
+            <input
+              style={modalStyles.input}
+              type="text"
+              maxLength={128}
+              value={form.api_username}
+              onChange={e => setField('api_username', e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+
+          <label style={modalStyles.label}>
+            RouterOS API Password
+            <input
+              style={modalStyles.input}
+              type="password"
+              maxLength={255}
+              value={form.api_password}
+              onChange={e => setField('api_password', e.target.value)}
+              placeholder="Leave blank to keep current"
+              autoComplete="new-password"
+            />
+          </label>
+
+          <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={form.api_use_tls}
+              onChange={e => {
+                const on = e.target.checked;
+                setField('api_use_tls', on);
+                // Nudge the port to the api-ssl default (8729) when enabling TLS
+                // if it's still on the plain-API default (8728).
+                if (on && form.api_port === '8728') setField('api_port', '8729');
+              }}
+              aria-label="Use TLS for RouterOS API"
+            />
+            Use TLS for RouterOS API
+          </label>
+
           {error && <p style={modalStyles.error}>{error}</p>}
 
           <div style={modalStyles.actions}>
@@ -412,6 +482,7 @@ export function NasList() {
   const [showNew, setShowNew] = useState(false);
   const [editNas, setEditNas] = useState<Nas | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [testingId, setTestingId] = useState<number | null>(null);
 
   const nasQ = useQuery({
     queryKey: ['nas', page, statusFilter],
@@ -430,6 +501,29 @@ export function NasList() {
   function handleFilterChange(value: string) {
     setStatusFilter(value);
     setPage(1);
+  }
+
+  async function handleTestConnection(id: number) {
+    setTestingId(id);
+    try {
+      const res = (await api.POST('/nas/{id}/test-connection', { params: { path: { id } } })) as {
+        data?: { data?: Record<string, unknown> };
+        error?: { error?: { message?: string } };
+      };
+      if (res.error) {
+        alert(`Connection failed: ${res.error?.error?.message ?? 'Router unreachable'}`);
+        return;
+      }
+      const data = res.data?.data ?? {};
+      const version = data.version ?? '—';
+      const board = data.boardName ?? '—';
+      const identity = data.identity ?? '—';
+      alert(`Connection OK\nVersion: ${version}\nBoard: ${board}\nIdentity: ${identity}`);
+    } catch {
+      alert('Connection failed: request error.');
+    } finally {
+      setTestingId(null);
+    }
   }
 
   const devices = nasQ.data?.data ?? [];
@@ -504,6 +598,14 @@ export function NasList() {
                       </td>
                       <td style={styles.td}><StatusBadge status={n.status} /></td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
+                        <button
+                          style={styles.actionBtn}
+                          onClick={() => handleTestConnection(n.id)}
+                          disabled={testingId === n.id}
+                          title="Test RouterOS API connection"
+                        >
+                          {testingId === n.id ? 'Testing...' : 'Test'}
+                        </button>
                         <button style={styles.actionBtn} onClick={() => setEditNas(n)} title="Edit this NAS">
                           Edit
                         </button>

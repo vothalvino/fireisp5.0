@@ -21,6 +21,7 @@ const {
   parseAttrs,
   RouterOSClient,
   pppoeCreate,
+  pppoeUpsert,
   pppoeDelete,
   queueSet,
   addressListAdd,
@@ -431,6 +432,52 @@ describe('pppoeCreate', () => {
   test('throws when secretPassword is missing', async () => {
     await expect(
       pppoeCreate(CONN, { name: 'user1' }),
+    ).rejects.toThrow('secretPassword is required');
+  });
+});
+
+describe('pppoeUpsert', () => {
+  test('updates an existing secret (found by name) and returns updated=true', async () => {
+    const handler = sequenceServer([
+      [['!done']],                                          // login
+      [['!re', '=.id=*3', '=name=client1'], ['!done']],    // /ppp/secret/print — found
+      [['!done']],                                          // /ppp/secret/set
+    ]);
+
+    await withMockServer(handler, async (port) => {
+      const result = await pppoeUpsert(
+        { ...CONN, port },
+        { name: 'client1', secretPassword: 'pass123', profile: 'default', comment: 'c' },
+      );
+      expect(result).toEqual({ id: '*3', created: false, updated: true });
+    });
+  });
+
+  test('creates a new secret (not found) and returns the new id with created=true', async () => {
+    const handler = sequenceServer([
+      [['!done']],                 // login
+      [['!done']],                 // /ppp/secret/print — no !re, not found
+      [['!done', '=ret=*8']],     // /ppp/secret/add
+    ]);
+
+    await withMockServer(handler, async (port) => {
+      const result = await pppoeUpsert(
+        { ...CONN, port },
+        { name: 'newclient', secretPassword: 'pw' },
+      );
+      expect(result).toEqual({ id: '*8', created: true, updated: false });
+    });
+  });
+
+  test('throws when name is missing', async () => {
+    await expect(
+      pppoeUpsert(CONN, { secretPassword: 'pass' }),
+    ).rejects.toThrow('name is required');
+  });
+
+  test('throws when secretPassword is missing', async () => {
+    await expect(
+      pppoeUpsert(CONN, { name: 'user1' }),
     ).rejects.toThrow('secretPassword is required');
   });
 });
