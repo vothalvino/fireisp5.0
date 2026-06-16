@@ -461,7 +461,7 @@ jobs:
           image-ref: fireisp/fireisp:ci-${{ github.sha }}
           format: sarif
           output: trivy-results.sarif
-          version: v0.70.0
+          version: v0.71.1
           severity: HIGH,CRITICAL
           exit-code: 0
           vuln-type: os,library
@@ -475,7 +475,7 @@ jobs:
           image-ref: fireisp/fireisp:ci-${{ github.sha }}
           format: sarif
           output: trivy-results.sarif
-          version: v0.70.0
+          version: v0.71.1
           severity: HIGH,CRITICAL
           exit-code: 1
           vuln-type: os,library
