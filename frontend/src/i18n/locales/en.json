@@ -22,6 +22,13 @@
     "none": "(none)",
     "id": "ID"
   },
+  "clientPicker": {
+    "label": "Client",
+    "placeholder": "Search clients by name, email or phone…",
+    "searching": "Searching…",
+    "noMatches": "No matching clients.",
+    "change": "Change"
+  },
   "login": {
     "title": "🔥 FireISP 5.0",
     "subtitle": "Sign in to continue",
@@ -247,16 +254,22 @@
   "clientList": {
     "title": "Clients",
     "newClient": "+ New Client",
-    "searchPlaceholder": "Search by name, email or city…",
+    "searchPlaceholder": "Search by name, email, phone or client ID…",
     "searchBtn": "Search",
     "clearBtn": "Clear",
     "showArchived": "Show archived",
+    "groupFilter": "Account group",
+    "allGroups": "All groups",
+    "accountGroup": "Account group",
+    "members": "Members",
+    "noMembers": "No members in this group.",
     "table": {
       "name": "Name",
       "email": "Email",
       "phone": "Phone",
       "type": "Type",
       "location": "Location",
+      "group": "Group",
       "status": "Status",
       "city": "City",
       "created": "Created",
@@ -296,7 +309,19 @@
     },
     "noContracts": "No contracts found.",
     "loading": "Loading…",
-    "error": "Failed to load contracts."
+    "error": "Failed to load contracts.",
+    "view": "View credentials",
+    "credentials": "Credentials",
+    "username": "Username",
+    "password": "Password",
+    "assignedIp": "Assigned IP",
+    "authMethod": "Auth method",
+    "noRadius": "No PPPoE/RADIUS account provisioned for this contract.",
+    "copy": "Copy",
+    "showPassword": "Show",
+    "hidePassword": "Hide",
+    "credentialsError": "Failed to load credentials.",
+    "credentialsForbidden": "You don't have permission to view PPPoE credentials (requires the devices.view permission)."
   },
   "invoiceList": {
     "title": "Invoices",

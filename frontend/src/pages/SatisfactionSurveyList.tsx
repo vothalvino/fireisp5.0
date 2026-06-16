@@ -22,10 +22,12 @@ import {
   submitBtn,
   cancelBtn,
 } from '@/components/ClientFormModal';
+import { ClientPicker } from '@/components/ClientPicker';
 
 interface Survey {
   id: number;
   client_id: number;
+  client_name?: string | null;
   ticket_id: number | null;
   survey_type: string;
   channel: string;
@@ -106,9 +108,10 @@ function NewSurveyModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
         <h3 style={{ margin: '0 0 1rem' }}>New Survey</h3>
         {error && <div style={errorBox}>{error}</div>}
         <form onSubmit={handleSubmit}>
-          <label style={labelStyle}>Client ID *</label>
-          <input style={inputStyle} type="number" min={1} value={form.client_id} autoFocus
-            onChange={e => setForm(p => ({ ...p, client_id: e.target.value }))} required />
+          <ClientPicker
+            value={form.client_id ? Number(form.client_id) : ''}
+            onChange={(id) => setForm(p => ({ ...p, client_id: id ? String(id) : '' }))}
+          />
 
           <label style={labelStyle}>Ticket ID</label>
           <input style={inputStyle} type="number" min={1} value={form.ticket_id}
@@ -262,7 +265,7 @@ export function SatisfactionSurveyList() {
             {data.data.map(s => (
               <tr key={s.id} style={{ borderBottom: '1px solid var(--border)' }}>
                 <td style={{ padding: '8px' }}>#{s.id}</td>
-                <td style={{ padding: '8px' }}>#{s.client_id}</td>
+                <td style={{ padding: '8px' }}>{s.client_name || `#${s.client_id}`}</td>
                 <td style={{ padding: '8px' }}>{s.ticket_id ? `#${s.ticket_id}` : '—'}</td>
                 <td style={{ padding: '8px', textTransform: 'uppercase' }}>{s.survey_type}</td>
                 <td style={{ padding: '8px' }}>{s.channel.replace('_', ' ')}</td>

@@ -25,7 +25,60 @@ const ctrl = crudController(Client, { cacheResource: 'clients' });
 router.use(authenticate);
 router.use(orgScope);
 
-router.get('/', requirePermission('clients.view'), httpCache('clients', 60), ctrl.list);
+// List clients with optional free-text search (partial name/email/phone, exact
+// numeric id) and a client_group_id filter. Falls back to identical behaviour to
+// the generic list when neither is supplied.
+router.get('/', requirePermission('clients.view'), httpCache('clients', 60), async (req, res, next) => {
+  try {
+    const { search, client_group_id, page = 1, limit = 50, include_deleted } = req.query;
+    const conditions = [];
+    const params = [];
+    if (Client.hasOrgScope && req.orgId) {
+      conditions.push('c.organization_id = ?');
+      params.push(req.orgId);
+    }
+    if (include_deleted !== 'true') conditions.push('c.deleted_at IS NULL');
+
+    const term = typeof search === 'string' ? search.trim() : '';
+    if (term) {
+      // Partial match on name/email/phone; exact match on the numeric id.
+      conditions.push('(c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR CAST(c.id AS CHAR) = ?)');
+      params.push(`%${term}%`, `%${term}%`, `%${term}%`, term);
+    }
+    if (client_group_id) {
+      conditions.push('c.client_group_id = ?');
+      params.push(client_group_id);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const safeLimit = Math.min(Math.max(1, parseInt(limit, 10) || 50), 100);
+    const safePage = Math.max(1, parseInt(page, 10) || 1);
+    const safeOffset = (safePage - 1) * safeLimit;
+
+    // Resolve the account-group name server-side (LEFT JOIN) so the UI doesn't
+    // depend on a capped client-side group list. LIMIT/OFFSET inlined as validated
+    // ints (never bound — mysqld_stmt_execute rejects placeholder LIMIT); all
+    // filter VALUES stay bound.
+    const [rows] = await db.query(
+      `SELECT c.*, cg.name AS client_group_name
+         FROM clients c
+         LEFT JOIN client_groups cg ON cg.id = c.client_group_id AND cg.deleted_at IS NULL
+         ${where} ORDER BY c.id ASC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      params,
+    );
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM clients c ${where}`,
+      params,
+    );
+
+    res.json({
+      data: rows,
+      meta: { total, page: safePage, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 router.get('/:id', requirePermission('clients.view'), ctrl.get);
 router.post('/', requirePermission('clients.create'), quotaCheck('clients'), validate(createClient), ctrl.create);
 router.put('/:id', requirePermission('clients.update'), validate(updateClient), ctrl.update);
