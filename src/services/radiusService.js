@@ -267,11 +267,13 @@ async function syncFreeradiusTables(organizationId) {
   // 1. Read org MAB password mode setting
   let mabPasswordMode = 'auth_type_accept';
   if (organizationId) {
+    // settings is a global key/value table (columns setting_key/setting_value;
+    // no organization_id column).
     const [settingRows] = await db.query(
-      "SELECT value FROM settings WHERE organization_id = ? AND `key` = 'mab_password_mode'",
-      [organizationId],
+      "SELECT setting_value FROM settings WHERE setting_key = 'mab_password_mode' LIMIT 1",
+      [],
     );
-    if (settingRows.length > 0) mabPasswordMode = settingRows[0].value;
+    if (settingRows.length > 0) mabPasswordMode = settingRows[0].setting_value;
   }
 
   // 2. Load active subscribers (with cleartext password, auth_method, mac, plan, org,
