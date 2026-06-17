@@ -241,6 +241,11 @@ class RouterOSClient {
 
       socket.on('error', (err) => {
         clearTimeout(timer);
+        // Destroy the half-open socket before rejecting so a failed connect
+        // (refused / TLS handshake error) never leaks a file descriptor — the
+        // caller awaits createClient() outside its try/finally, so it has no
+        // client handle to close on this path.
+        socket.destroy();
         reject(err);
       });
 

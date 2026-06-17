@@ -132,6 +132,88 @@ describe('POST /api/nas/:id/test-connection', () => {
 });
 
 // =============================================================================
+// POST /api/nas/:id/seed
+// =============================================================================
+describe('POST /api/nas/:id/seed', () => {
+  test('returns 200 with the per-step seed report on success', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[mockNas]]); // Nas.findByIdOrFail
+    routerProvisioningService.seedDevice.mockResolvedValue({
+      ok: true,
+      host: '10.10.0.1',
+      port: 8728,
+      tls: false,
+      steps: [
+        { step: 'radius-client', status: 'created', detail: 'RADIUS client → 203.0.113.10' },
+        { step: 'radius-incoming', status: 'updated', detail: 'CoA accept=yes port=3799' },
+        { step: 'ppp-aaa', status: 'updated', detail: 'use-radius=yes' },
+      ],
+    });
+
+    const res = await request(app)
+      .post('/api/nas/7/seed')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ radiusAddress: '203.0.113.10' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.ok).toBe(true);
+    expect(res.body.data.steps).toHaveLength(3);
+    // The full NAS row (incl. secret) is loaded and passed to the service.
+    expect(routerProvisioningService.seedDevice).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 7, secret: 'radsecret' }),
+      expect.objectContaining({ radiusAddress: '203.0.113.10' }),
+    );
+  });
+
+  test('returns 422 when radiusAddress is missing (validation)', async () => {
+    mockAuthUser();
+
+    const res = await request(app)
+      .post('/api/nas/7/seed')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({});
+
+    expect(res.status).toBe(422);
+    // Validation runs before the NAS is loaded or the service is called.
+    expect(routerProvisioningService.seedDevice).not.toHaveBeenCalled();
+  });
+
+  test('returns 502 ROUTER_UNREACHABLE when the router errors', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[mockNas]]); // Nas.findByIdOrFail
+    routerProvisioningService.seedDevice.mockRejectedValue(
+      new Error('connect ETIMEDOUT 10.10.0.1:8728'),
+    );
+
+    const res = await request(app)
+      .post('/api/nas/7/seed')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ radiusAddress: '203.0.113.10' });
+
+    expect(res.status).toBe(502);
+    expect(res.body.error.code).toBe('ROUTER_UNREACHABLE');
+  });
+
+  test('returns 404 when the NAS does not exist', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[]]); // Nas.findByIdOrFail -> NotFound
+
+    const res = await request(app)
+      .post('/api/nas/999/seed')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ radiusAddress: '203.0.113.10' });
+
+    expect(res.status).toBe(404);
+    expect(routerProvisioningService.seedDevice).not.toHaveBeenCalled();
+  });
+
+  test('returns 401 without auth header', async () => {
+    const res = await request(app).post('/api/nas/7/seed').send({ radiusAddress: '203.0.113.10' });
+    expect(res.status).toBe(401);
+  });
+});
+
+// =============================================================================
 // POST/PUT /api/nas — api_password_encrypted must never be returned
 // =============================================================================
 describe('NAS create/update responses redact api_password_encrypted', () => {
