@@ -26,6 +26,18 @@ function redactNas(row) {
   return rest;
 }
 
+// Map a RouterOS provisioning error to an HTTP response. Misconfiguration the
+// operator must fix — input validation or rejected credentials — is a 422; an
+// unreachable / mid-operation-dropped router is a 502. Shared by the
+// test-connection and seed routes so the classification can't drift between them.
+function sendRouterError(res, next, e) {
+  if (e instanceof ValidationError || e.statusCode === 422) return next(e);
+  if (e.routerAuthFailed) {
+    return res.status(422).json({ error: { code: 'ROUTER_AUTH_FAILED', message: e.message } });
+  }
+  return res.status(502).json({ error: { code: 'ROUTER_UNREACHABLE', message: e.message } });
+}
+
 // After validation, fold a plaintext `api_password` into the encrypted column
 // and drop the plaintext so it is never persisted/returned verbatim.
 function encryptApiPassword(req, _res, next) {
@@ -67,9 +79,9 @@ router.post('/:id/test-connection', requirePermission('devices.update'), async (
     try {
       res.json({ data: await routerProvisioningService.testConnection(nas) });
     } catch (e) {
-      // Misconfiguration (e.g. no API username) is a 422, not "router unreachable".
-      if (e instanceof ValidationError || e.statusCode === 422) return next(e);
-      res.status(502).json({ error: { code: 'ROUTER_UNREACHABLE', message: e.message } });
+      // Misconfiguration (no API username) → 422; bad credentials → 422;
+      // unreachable router → 502 (see sendRouterError).
+      return sendRouterError(res, next, e);
     }
   } catch (err) {
     next(err);
@@ -86,12 +98,23 @@ router.post('/:id/seed', requirePermission('devices.update'), validate(seedNas),
   try {
     const nas = await Nas.findByIdOrFail(req.params.id, req.orgId);
     try {
-      res.json({ data: await routerProvisioningService.seedDevice(nas, req.body) });
+      const result = await routerProvisioningService.seedDevice(nas, req.body);
+      // If EVERY step failed (e.g. the API user can authenticate but lacks the
+      // write/policy permission to configure anything), the bootstrap did not
+      // happen — surface a 502 so callers keying on HTTP status don't read a
+      // green 200, while still returning the per-step report for diagnosis. A
+      // partial success (some steps applied) stays 200 (multi-status).
+      if (result.steps.length && result.steps.every((s) => s.status === 'error')) {
+        return res.status(502).json({
+          error: { code: 'ROUTER_SEED_FAILED', message: 'All seed steps failed', steps: result.steps },
+        });
+      }
+      res.json({ data: result });
     } catch (e) {
-      // Misconfiguration (no API username / no RADIUS secret / bad input) is a 422;
-      // a failure to reach the router is a 502.
-      if (e instanceof ValidationError || e.statusCode === 422) return next(e);
-      res.status(502).json({ error: { code: 'ROUTER_UNREACHABLE', message: e.message } });
+      // Bad request bodies are already rejected by validate(seedNas) above. Here:
+      // missing API username / RADIUS secret → 422; rejected credentials → 422;
+      // unreachable router → 502 (see sendRouterError).
+      return sendRouterError(res, next, e);
     }
   } catch (err) {
     next(err);

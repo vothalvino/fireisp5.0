@@ -395,6 +395,69 @@ describe('RouterOSClient', () => {
       const rejection = await runPromise.catch((e) => e);
       // Either ECONNRESET, connection closed, or similar
       expect(rejection).toBeInstanceOf(Error);
+      // Transport-level loss is tagged so provisioning maps it to a 502.
+      expect(rejection.routerUnreachable).toBe(true);
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
+
+  test('close() does NOT hang after the peer dropped the connection (regression for the seed-request hang)', async () => {
+    let serverSideSocket;
+    const { server, port } = await createMockServer((sentence, socket) => {
+      if (sentence[0] === '/login') {
+        socket.write(buildSentence(['!done']));
+        serverSideSocket = socket;
+      }
+      return null; // never reply to the command
+    });
+    try {
+      const client = new RouterOSClient({ host: '127.0.0.1', port, user: 'admin', password: '' });
+      await client.connect();
+      const runPromise = client.run(['/ppp/secret/print']);
+      // Register before dropping so we can wait until the client socket's 'close'
+      // has ALREADY fired — this is the state in which the old close() hung
+      // (destroy() on an already-closed socket never re-emits 'close').
+      const closed = new Promise((resolve) => client._socket.once('close', resolve));
+      serverSideSocket.destroy();
+      await runPromise.catch(() => {});
+      await closed;
+      let timer;
+      const outcome = await Promise.race([
+        client.close().then(() => 'resolved'),
+        new Promise((r) => { timer = setTimeout(() => r('hung'), 1000); }),
+      ]);
+      clearTimeout(timer);
+      expect(outcome).toBe('resolved');
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
+
+  test('login trap error is tagged routerAuthFailed (→ 422 mapping)', async () => {
+    const handler = sequenceServer([
+      [['!trap', '=message=invalid user name or password (6)']],
+    ]);
+    await withMockServer(handler, async (port) => {
+      const client = new RouterOSClient({ host: '127.0.0.1', port, user: 'admin', password: 'wrong' });
+      const err = await client.connect().catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.routerAuthFailed).toBe(true);
+    });
+  });
+
+  test('a /login that never gets a reply times out as routerUnreachable, NOT routerAuthFailed (→ 502)', async () => {
+    // Device completes the TCP handshake (so the connect-phase timer is cleared)
+    // but never answers /login (firewalled API, wrong port, TLS/plaintext mismatch).
+    const { server, port } = await createMockServer(() => null); // accept, never reply
+    try {
+      const client = new RouterOSClient({ host: '127.0.0.1', port, user: 'admin', password: 'x', timeoutMs: 150 });
+      const err = await client.connect().catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).toMatch(/timed out/);
+      expect(err.routerUnreachable).toBe(true);
+      // Must NOT be mislabeled as a credential rejection.
+      expect(err.routerAuthFailed).toBeUndefined();
     } finally {
       await new Promise((r) => server.close(r));
     }

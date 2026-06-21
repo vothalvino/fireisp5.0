@@ -129,10 +129,17 @@ async function seedNasDevice(id: number, body: SeedBody): Promise<SeedResult> {
     body: body as never,
   })) as {
     data?: { data?: SeedResult };
-    error?: { error?: { message?: string } };
+    error?: { error?: { message?: string; details?: Array<{ field?: string; message?: string }> } };
   };
   if (res.error) {
-    throw new Error(res.error?.error?.message ?? 'Router unreachable');
+    const err = res.error?.error;
+    // Surface field-level validation feedback (422) instead of a bare
+    // "Validation failed" so the admin knows which input the server rejected.
+    const fieldMsgs = (err?.details ?? []).map((d) => d.message ?? d.field).filter(Boolean);
+    const message = fieldMsgs.length
+      ? `${err?.message ?? 'Validation failed'}: ${fieldMsgs.join('; ')}`
+      : (err?.message ?? 'Router unreachable');
+    throw new Error(message);
   }
   return res.data?.data as SeedResult;
 }
@@ -522,6 +529,7 @@ function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
 const SEED_STEP_COLORS: Record<string, { bg: string; color: string }> = {
   created: { bg: '#d1fae5', color: '#065f46' },
   updated: { bg: '#dbeafe', color: '#1e40af' },
+  unchanged: { bg: '#f3f4f6', color: '#374151' },
   skipped: { bg: '#f3f4f6', color: '#374151' },
   error: { bg: '#fee2e2', color: '#991b1b' },
 };
@@ -801,9 +809,11 @@ export function NasList() {
         return;
       }
       const data = res.data?.data ?? {};
-      const version = data.version ?? '—';
-      const board = data.boardName ?? '—';
-      const identity = data.identity ?? '—';
+      // Use `||` not `??`: the service returns '' (empty string, not null) for an
+      // attribute it couldn't parse, and we want the dash for those too.
+      const version = data.version || '—';
+      const board = data.boardName || '—';
+      const identity = data.identity || '—';
       alert(`Connection OK\nVersion: ${version}\nBoard: ${board}\nIdentity: ${identity}`);
     } catch {
       alert('Connection failed: request error.');

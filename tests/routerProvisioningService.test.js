@@ -93,15 +93,15 @@ describe('nasToConn', () => {
   });
 
   test('throws ValidationError when nas is null', () => {
-    expect(() => nasToConn(null)).toThrow('NAS has no RouterOS API username configured');
+    expect(() => nasToConn(null)).toThrow('NAS has no IP address configured');
   });
 
-  test('throws ValidationError when ip_address is missing', () => {
+  test('throws ValidationError naming the IP address when ip_address is missing', () => {
     expect(() => nasToConn({ ...BASE_NAS, ip_address: undefined }))
-      .toThrow('NAS has no RouterOS API username configured');
+      .toThrow('NAS has no IP address configured');
   });
 
-  test('throws ValidationError when api_username is missing', () => {
+  test('throws ValidationError naming the API username when api_username is missing', () => {
     expect(() => nasToConn({ ...BASE_NAS, api_username: undefined }))
       .toThrow('NAS has no RouterOS API username configured');
   });
@@ -246,7 +246,7 @@ describe('pushSubscriber', () => {
 describe('seedDevice', () => {
   const SEED_NAS = { ...BASE_NAS, secret: 'radsecret', coa_port: 3799 };
 
-  // Real parseAttrs so findManagedId can pull `.id` out of !re sentences.
+  // Real parseAttrs so the findId mock can pull `.id` out of !re sentences.
   function realParseAttrs(words) {
     const obj = {};
     for (const w of words) {
@@ -277,6 +277,19 @@ describe('seedDevice', () => {
 
   beforeEach(() => {
     ros.parseAttrs.mockImplementation(realParseAttrs);
+    // upsertByComment now delegates the .id lookup to ros.findId (deduped into
+    // routerosService). routerosService is mocked here, so supply the real scan
+    // behaviour against the mock client's replies.
+    ros.findId.mockImplementation(async (client, basePath, queries = []) => {
+      const sentences = await client.run([`${basePath}/print`, ...queries]);
+      for (const s of sentences) {
+        if (s[0] === '!re') {
+          const a = realParseAttrs(s.slice(1));
+          if (a['.id']) return a['.id'];
+        }
+      }
+      return null;
+    });
   });
 
   test('throws ValidationError (no router connection) when radiusAddress is missing', async () => {
@@ -405,5 +418,143 @@ describe('seedDevice', () => {
   test('propagates connection errors from createClient (router unreachable)', async () => {
     ros.createClient.mockRejectedValue(new Error('connect ECONNREFUSED'));
     await expect(seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10' })).rejects.toThrow('ECONNREFUSED');
+  });
+
+  test('skips a queue node whose Mbps is 0 (never emits max-limit=0 = unlimited)', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, {
+      radiusAddress: '203.0.113.10',
+      seedQueueTree: true,
+      totalDownloadMbps: 0,   // operator typed 0 — must be skipped, not max-limit=0M
+      totalUploadMbps: 200,
+    });
+
+    expect(result.steps.find((s) => s.step === 'queue-tree:download')).toBeUndefined();
+    expect(stepStatus(result.steps, 'queue-tree:upload')).toBe('created');
+    const adds = calls.filter((c) => c[0] === '/queue/tree/add');
+    expect(adds).toHaveLength(1);
+    expect(adds[0]).toEqual(expect.arrayContaining(['=name=fireisp-total-upload', '=max-limit=200M']));
+    expect(calls.some((c) => c.includes('=max-limit=0M'))).toBe(false);
+  });
+
+  test('records queue-tree skipped when both totals are 0', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, {
+      radiusAddress: '203.0.113.10', seedQueueTree: true, totalDownloadMbps: 0, totalUploadMbps: 0,
+    });
+
+    expect(stepStatus(result.steps, 'queue-tree')).toBe('skipped');
+    expect(calls.find((c) => c[0] === '/queue/tree/add')).toBeUndefined();
+  });
+
+  test('inserts the walled-garden block at the TOP of the forward chain (place-before)', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+
+    await seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10', seedWalledGarden: true });
+
+    const filterAdd = callTo(calls, '/ip/firewall/filter/add');
+    expect(filterAdd).toContain('=place-before=0');
+  });
+
+  test('lays the portal redirect down disabled on create, but never re-disables it on a re-run', async () => {
+    // First run — rule absent → /add carries disabled=yes.
+    const fresh = makeSeedClient();
+    ros.createClient.mockResolvedValue(fresh.client);
+    await seedDevice(SEED_NAS, {
+      radiusAddress: '203.0.113.10', seedWalledGarden: true, portalAddress: '203.0.113.10',
+    });
+    expect(callTo(fresh.calls, '/ip/firewall/nat/add')).toContain('=disabled=yes');
+
+    // Re-run — rule exists (matched by comment) → /set must NOT carry disabled,
+    // or it would silently turn off a redirect the admin has since enabled.
+    const rerun = makeSeedClient((words) => {
+      if (words[0] === '/ip/firewall/nat/print') {
+        return [['!re', '=.id=*7', '=comment=fireisp-suspended-redirect'], ['!done']];
+      }
+      return null;
+    });
+    ros.createClient.mockResolvedValue(rerun.client);
+    await seedDevice(SEED_NAS, {
+      radiusAddress: '203.0.113.10', seedWalledGarden: true, portalAddress: '203.0.113.10',
+    });
+    const natSet = callTo(rerun.calls, '/ip/firewall/nat/set');
+    expect(natSet).toBeDefined();
+    expect(natSet).not.toContain('=disabled=yes');
+    expect(callTo(rerun.calls, '/ip/firewall/nat/add')).toBeUndefined();
+  });
+
+  test('reports radius-incoming and ppp-aaa as unchanged when already configured', async () => {
+    const { client } = makeSeedClient((words) => {
+      if (words[0] === '/radius/incoming/print') {
+        return [['!re', '=accept=yes', '=port=3799'], ['!done']];
+      }
+      if (words[0] === '/ppp/aaa/print') {
+        return [['!re', '=use-radius=yes', '=accounting=yes', '=interim-update=5m'], ['!done']];
+      }
+      return null;
+    });
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10' });
+
+    expect(stepStatus(result.steps, 'radius-incoming')).toBe('unchanged');
+    expect(stepStatus(result.steps, 'ppp-aaa')).toBe('unchanged');
+  });
+
+  test('flags when ppp-aaa overrides a deliberate accounting=no', async () => {
+    const { client } = makeSeedClient((words) => {
+      if (words[0] === '/ppp/aaa/print') {
+        return [['!re', '=use-radius=no', '=accounting=no', '=interim-update=0s'], ['!done']];
+      }
+      return null;
+    });
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10' });
+
+    const ppp = result.steps.find((s) => s.step === 'ppp-aaa');
+    expect(ppp.status).toBe('updated');
+    expect(ppp.detail).toMatch(/overrode accounting=no/);
+  });
+
+  test('trims radiusAddress before pushing it to the RADIUS client =address=', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+
+    await seedDevice(SEED_NAS, { radiusAddress: '  203.0.113.10  ' });
+
+    const add = callTo(calls, '/radius/add');
+    expect(add).toContain('=address=203.0.113.10');
+    expect(add).not.toContain('=address=  203.0.113.10  ');
+  });
+
+  test('trims portalAddress before pushing it to the redirect =to-addresses=', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+
+    await seedDevice(SEED_NAS, {
+      radiusAddress: '203.0.113.10', seedWalledGarden: true, portalAddress: '  10.0.0.1  ',
+    });
+
+    const nat = callTo(calls, '/ip/firewall/nat/add');
+    expect(nat).toContain('=to-addresses=10.0.0.1');
+  });
+
+  test('aborts (rejects) when a step hits a lost connection, so the route can map it to 502', async () => {
+    const dropped = Object.assign(new Error('RouterOS connection closed'), { routerUnreachable: true });
+    const { client } = makeSeedClient((words) => {
+      if (words[0] === '/radius/print') throw dropped; // first managed op loses the link
+      return null;
+    });
+    ros.createClient.mockResolvedValue(client);
+
+    await expect(seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10' }))
+      .rejects.toThrow('RouterOS connection closed');
+    expect(client.close).toHaveBeenCalledTimes(1); // finally still closed the client
   });
 });

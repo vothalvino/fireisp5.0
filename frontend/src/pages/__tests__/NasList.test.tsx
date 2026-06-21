@@ -250,6 +250,26 @@ describe('NasList page', () => {
     await waitFor(() => expect(screen.getByText(/RouterOS login failed/i)).toBeInTheDocument());
   });
 
+  it('surfaces field-level validation details from a 422 instead of a bare message', async () => {
+    const user = userEvent.setup();
+    mockApiPost.mockResolvedValue({
+      error: {
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Validation failed',
+          details: [{ field: 'interimUpdate', message: 'interimUpdate must be at most 16 characters' }],
+        },
+      },
+    });
+
+    renderNasList();
+    await waitFor(() => expect(screen.getByText('Core-Router')).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'Seed' }));
+    await user.click(screen.getByRole('button', { name: /Seed Device/i }));
+
+    await waitFor(() => expect(screen.getByText(/interimUpdate must be at most 16 characters/i)).toBeInTheDocument());
+  });
+
   it('reveals queue-tree fields only when the toggle is enabled', async () => {
     const user = userEvent.setup();
     renderNasList();

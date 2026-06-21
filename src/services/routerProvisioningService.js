@@ -36,7 +36,11 @@ const logger = require('../utils/logger').child({ service: 'routerProvisioningSe
  *            secure: boolean, timeoutMs: number }}
  */
 function nasToConn(nas) {
-  if (!nas || !nas.ip_address || !nas.api_username) {
+  // Report the specific missing field so the operator fixes the right one.
+  if (!nas || !nas.ip_address) {
+    throw new ValidationError('NAS has no IP address configured');
+  }
+  if (!nas.api_username) {
     throw new ValidationError('NAS has no RouterOS API username configured');
   }
 
@@ -154,16 +158,16 @@ async function pushSubscriber(nas, { username, password, profile, comment }) {
 // Comment tag prefix marking every FireISP-managed object on the router.
 const SEED_TAG = 'fireisp';
 
-/** Find the `.id` of the first matching row under `basePath`, or null. */
-async function findManagedId(client, basePath, queries) {
-  const sentences = await client.run([`${basePath}/print`, ...queries]);
+/**
+ * Read the first `!re` row under a device-global singleton path (e.g. /ppp/aaa,
+ * /radius/incoming) and return its attributes, or `{}` when there is no row.
+ */
+async function readFirst(client, basePath) {
+  const sentences = await client.run([`${basePath}/print`]);
   for (const sentence of sentences) {
-    if (sentence[0] === '!re') {
-      const attrs = ros.parseAttrs(sentence.slice(1));
-      if (attrs['.id']) return attrs['.id'];
-    }
+    if (sentence[0] === '!re') return ros.parseAttrs(sentence.slice(1));
   }
-  return null;
+  return {};
 }
 
 /**
@@ -173,19 +177,29 @@ async function findManagedId(client, basePath, queries) {
  */
 function normalizeRate(value) {
   if (value === undefined || value === null || value === '') return null;
-  if (typeof value === 'number') return `${value}M`;
+  // A zero cap means "no limit intended" → skip. We must NOT emit max-limit=0,
+  // which RouterOS interprets as UNLIMITED (the opposite of the operator's intent).
+  if (typeof value === 'number') return value === 0 ? null : `${value}M`;
   const str = String(value).trim();
+  if (str === '' || /^0+$/.test(str)) return null;
   return /^\d+$/.test(str) ? `${str}M` : str;
 }
 
-/** Upsert (set-if-tagged, else add) a single object identified by a comment tag. */
-async function upsertByComment(client, basePath, comment, attrWords) {
-  const id = await findManagedId(client, basePath, [`?comment=${comment}`]);
+/**
+ * Upsert (set-if-tagged, else add) a single object identified by a comment tag.
+ *
+ * `addOnlyWords` are applied ONLY on the create (`/add`) path. Use them for
+ * arguments that are invalid on `/set` (e.g. `place-before`) or that must not be
+ * re-applied on a re-run (e.g. `disabled=yes`, which would otherwise re-disable a
+ * rule the admin has since enabled).
+ */
+async function upsertByComment(client, basePath, comment, attrWords, addOnlyWords = []) {
+  const id = await ros.findId(client, basePath, [`?comment=${comment}`]);
   if (id) {
     await client.run([`${basePath}/set`, `=.id=${id}`, ...attrWords]);
     return 'updated';
   }
-  await client.run([`${basePath}/add`, ...attrWords]);
+  await client.run([`${basePath}/add`, ...attrWords, ...addOnlyWords]);
   return 'created';
 }
 
@@ -230,9 +244,14 @@ async function seedDevice(nas, opts = {}) {
   } = opts;
 
   // Pre-flight validation — these become a 422 (misconfiguration), not "unreachable".
-  if (!radiusAddress || !String(radiusAddress).trim()) {
+  // Trim once and use the trimmed value everywhere it's pushed to the device, so a
+  // stray space (from a direct API caller that skips the frontend) can't end up in
+  // the RADIUS server address.
+  const radiusAddr = String(radiusAddress ?? '').trim();
+  if (!radiusAddr) {
     throw new ValidationError('radiusAddress is required to seed the RADIUS client');
   }
+  const portalAddr = portalAddress ? String(portalAddress).trim() : '';
   if (!nas.secret) {
     throw new ValidationError('NAS has no RADIUS shared secret to push — set the secret on the NAS first');
   }
@@ -246,19 +265,29 @@ async function seedDevice(nas, opts = {}) {
   // single failed command never aborts the rest of the bootstrap.
   const step = async (name, detail, fn) => {
     try {
-      const status = await fn();
-      record(name, status, detail);
+      const out = await fn();
+      // fn may return a bare status string, or `{ status, detail }` to refine the
+      // recorded detail (e.g. note what a singleton's previous value was).
+      if (out && typeof out === 'object') {
+        record(name, out.status, out.detail !== undefined && out.detail !== null ? out.detail : detail);
+      } else {
+        record(name, out, detail);
+      }
     } catch (err) {
+      // A lost/unreachable connection is NOT a per-command failure — abort the
+      // whole bootstrap and let it propagate so the route maps it to a 502
+      // ROUTER_UNREACHABLE instead of a misleading "success with errors".
+      if (err && err.routerUnreachable) throw err;
       record(name, 'error', err.message);
     }
   };
 
   try {
     // ── 1. RADIUS client → FireISP embedded RADIUS (service=ppp) ──────────────
-    await step('radius-client', `RADIUS client → ${radiusAddress} (service=ppp, auth ${authPort}/acct ${acctPort})`, () =>
+    await step('radius-client', `RADIUS client → ${radiusAddr} (service=ppp, auth ${authPort}/acct ${acctPort})`, () =>
       upsertByComment(client, '/radius', `${SEED_TAG}-radius`, [
         '=service=ppp',
-        `=address=${radiusAddress}`,
+        `=address=${radiusAddr}`,
         `=secret=${nas.secret}`,
         `=authentication-port=${authPort}`,
         `=accounting-port=${acctPort}`,
@@ -266,15 +295,34 @@ async function seedDevice(nas, opts = {}) {
       ]));
 
     // ── 2. RADIUS incoming (CoA / Disconnect-Message listener) ────────────────
+    // /radius/incoming is a device-global singleton with no comment tag, so read
+    // it first: skip the write when it already matches, and surface the prior
+    // value when we overwrite it (e.g. another CoA controller's port).
     await step('radius-incoming', `CoA/Disconnect listener accept=yes port=${coaPort}`, async () => {
+      const prev = await readFirst(client, '/radius/incoming');
+      if (prev.accept === 'yes' && String(prev.port) === String(coaPort)) {
+        return { status: 'unchanged', detail: `CoA listener already accept=yes port=${coaPort}` };
+      }
       await client.run(['/radius/incoming/set', '=accept=yes', `=port=${coaPort}`]);
-      return 'updated';
+      const had = prev.accept !== undefined || prev.port !== undefined;
+      const was = had ? ` (was accept=${prev.accept || 'no'} port=${prev.port || '-'})` : '';
+      return { status: 'updated', detail: `CoA/Disconnect listener accept=yes port=${coaPort}${was}` };
     });
 
     // ── 3. PPP AAA — authenticate + account PPPoE via RADIUS ──────────────────
+    // /ppp/aaa is also a device-global singleton — read before write so a re-run
+    // reports 'unchanged', and flag when we override a deliberate accounting=no.
     await step('ppp-aaa', `PPP AAA use-radius=yes accounting=yes interim-update=${interimUpdate}`, async () => {
+      const prev = await readFirst(client, '/ppp/aaa');
+      const already = prev['use-radius'] === 'yes'
+        && prev.accounting === 'yes'
+        && String(prev['interim-update']) === String(interimUpdate);
+      if (already) {
+        return { status: 'unchanged', detail: `PPP AAA already use-radius=yes accounting=yes interim-update=${interimUpdate}` };
+      }
       await client.run(['/ppp/aaa/set', '=use-radius=yes', '=accounting=yes', `=interim-update=${interimUpdate}`]);
-      return 'updated';
+      const note = prev.accounting === 'no' ? ' (overrode accounting=no)' : '';
+      return { status: 'updated', detail: `PPP AAA use-radius=yes accounting=yes interim-update=${interimUpdate}${note}` };
     });
 
     // ── 4. Global queue-tree skeleton (optional) ──────────────────────────────
@@ -309,29 +357,35 @@ async function seedDevice(nas, opts = {}) {
     if (seedWalledGarden) {
       // Forward reject for any source in the suspended address-list. This is the
       // hook the suspension flow targets by adding the subscriber IP to the list.
-      await step('walled-garden:block', `forward reject src-address-list=${suspendedListName}`, () =>
+      await step('walled-garden:block', `forward reject src-address-list=${suspendedListName} (placed first)`, () =>
         upsertByComment(client, '/ip/firewall/filter', `${SEED_TAG}-suspended-block`, [
           '=chain=forward',
           `=src-address-list=${suspendedListName}`,
           '=action=reject',
           '=reject-with=icmp-network-unreachable',
           `=comment=${SEED_TAG}-suspended-block`,
-        ]));
+        // Insert at the TOP of the forward chain on create so a pre-existing
+        // accept/established rule can't shadow the reject (suspended traffic
+        // would otherwise keep flowing). Only the new src-address-list is matched,
+        // so this can't affect non-suspended subscribers.
+        ], ['=place-before=0']));
 
       // Optional captive-portal redirect, laid down DISABLED — enabling + correct
       // rule ordering (allow the portal before the reject) is left to the admin.
-      if (portalAddress && String(portalAddress).trim()) {
-        await step('walled-garden:redirect', `dst-nat tcp/80 → ${portalAddress} (disabled — review ordering)`, () =>
+      if (portalAddr) {
+        await step('walled-garden:redirect', `dst-nat tcp/80 → ${portalAddr} (disabled on create — review ordering)`, () =>
           upsertByComment(client, '/ip/firewall/nat', `${SEED_TAG}-suspended-redirect`, [
             '=chain=dstnat',
             `=src-address-list=${suspendedListName}`,
             '=protocol=tcp',
             '=dst-port=80',
             '=action=dst-nat',
-            `=to-addresses=${portalAddress}`,
-            '=disabled=yes',
+            `=to-addresses=${portalAddr}`,
             `=comment=${SEED_TAG}-suspended-redirect`,
-          ]));
+          // Lay the rule down DISABLED on first create only. On a re-run we must
+          // NOT re-send disabled=yes, or we'd silently turn off a redirect the
+          // admin has since enabled (correct ordering is left to the admin).
+          ], ['=disabled=yes']));
       }
     }
   } finally {

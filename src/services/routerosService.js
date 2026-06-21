@@ -269,13 +269,19 @@ class RouterOSClient {
    */
   close() {
     return new Promise((resolve) => {
-      if (!this._socket) {
+      const socket = this._socket;
+      this._socket = null;
+      // If the socket is gone or already destroyed (e.g. the peer dropped the
+      // connection mid-operation and it has already emitted 'close'), destroy()
+      // would be a no-op and would NOT re-emit 'close' — awaiting that event
+      // would hang the caller's `finally { await client.close() }` forever. So
+      // resolve immediately on that path instead.
+      if (!socket || socket.destroyed) {
         resolve();
         return;
       }
-      this._socket.once('close', resolve);
-      this._socket.destroy();
-      this._socket = null;
+      socket.once('close', resolve);
+      socket.destroy();
     });
   }
 
@@ -293,6 +299,12 @@ class RouterOSClient {
     } catch (err) {
       if (this._socket) this._socket.destroy();
       this._socket = null;
+      // A !trap/!fatal reply to /login surfaces here as a rejection (see
+      // _onSentence) and means the device is reachable but rejected our
+      // credentials — a misconfiguration the operator must fix (422). A transport
+      // failure OR a no-reply timeout mid-login is already tagged routerUnreachable
+      // (→ 502), so only the credential-rejection case falls through to here.
+      if (!err.routerUnreachable) err.routerAuthFailed = true;
       throw err;
     }
 
@@ -304,7 +316,9 @@ class RouterOSClient {
 
     if (first[0] === '!trap') {
       const msg = first.find((w) => w.startsWith('=message='));
-      throw new Error(`RouterOS login failed: ${msg ? msg.slice(9) : 'unknown error'}`);
+      const err = new Error(`RouterOS login failed: ${msg ? msg.slice(9) : 'unknown error'}`);
+      err.routerAuthFailed = true;
+      throw err;
     }
 
     throw new Error(`RouterOS login unexpected response: ${JSON.stringify(first)}`);
@@ -330,7 +344,12 @@ class RouterOSClient {
       const timer = setTimeout(() => {
         // Remove this pending entry and reject
         this._pending = this._pending.filter((p) => p.reject !== reject);
-        reject(new Error(`RouterOS command timed out: ${words[0]}`));
+        const err = new Error(`RouterOS command timed out: ${words[0]}`);
+        // No reply within the timeout = the device isn't responding. Treat it as
+        // a transport failure (so the seed aborts to 502 and a login that hangs
+        // isn't misreported as a credential rejection), not a per-command error.
+        err.routerUnreachable = true;
+        reject(err);
       }, this.timeoutMs);
 
       this._pending.push({
@@ -401,6 +420,9 @@ class RouterOSClient {
 
   _onSocketError(err) {
     logger.warn({ host: this.host, err: err.message }, 'RouterOS socket error');
+    // Transport-level failure — let provisioning callers surface a 502 (router
+    // unreachable) instead of swallowing it as a per-command error.
+    err.routerUnreachable = true;
     while (this._pending.length) {
       const p = this._pending.shift();
       clearTimeout(p.timer);
@@ -412,7 +434,9 @@ class RouterOSClient {
     while (this._pending.length) {
       const p = this._pending.shift();
       clearTimeout(p.timer);
-      p.reject(new Error('RouterOS connection closed'));
+      const err = new Error('RouterOS connection closed');
+      err.routerUnreachable = true;
+      p.reject(err);
     }
   }
 }
@@ -451,14 +475,18 @@ function parseAttrs(words) {
 }
 
 /**
- * Find the `.id` of a PPPoE secret by name.
- * Returns null if not found.
+ * Find the `.id` of the first row under `basePath` matching the given query words
+ * (e.g. `?name=foo`, `?comment=bar`). Returns null when nothing matches. This is
+ * the single implementation of the "run /print, scan !re sentences, return .id"
+ * pattern shared by the name/comment/list lookups below and by callers.
+ *
  * @param {RouterOSClient} client
- * @param {string} name
+ * @param {string} basePath  e.g. '/ppp/secret', '/queue/simple', '/radius'
+ * @param {string[]} [queries]
  * @returns {Promise<string|null>}
  */
-async function findPppoeSecretId(client, name) {
-  const sentences = await client.run(['/ppp/secret/print', `?name=${name}`]);
+async function findId(client, basePath, queries = []) {
+  const sentences = await client.run([`${basePath}/print`, ...queries]);
   for (const sentence of sentences) {
     if (sentence[0] === '!re') {
       const attrs = parseAttrs(sentence.slice(1));
@@ -469,6 +497,17 @@ async function findPppoeSecretId(client, name) {
 }
 
 /**
+ * Find the `.id` of a PPPoE secret by name.
+ * Returns null if not found.
+ * @param {RouterOSClient} client
+ * @param {string} name
+ * @returns {Promise<string|null>}
+ */
+async function findPppoeSecretId(client, name) {
+  return findId(client, '/ppp/secret', [`?name=${name}`]);
+}
+
+/**
  * Find the `.id` of a simple queue by name.
  * Returns null if not found.
  * @param {RouterOSClient} client
@@ -476,14 +515,7 @@ async function findPppoeSecretId(client, name) {
  * @returns {Promise<string|null>}
  */
 async function findQueueId(client, name) {
-  const sentences = await client.run(['/queue/simple/print', `?name=${name}`]);
-  for (const sentence of sentences) {
-    if (sentence[0] === '!re') {
-      const attrs = parseAttrs(sentence.slice(1));
-      if (attrs['.id']) return attrs['.id'];
-    }
-  }
-  return null;
+  return findId(client, '/queue/simple', [`?name=${name}`]);
 }
 
 /**
@@ -495,18 +527,7 @@ async function findQueueId(client, name) {
  * @returns {Promise<string|null>}
  */
 async function findAddressListEntryId(client, list, address) {
-  const sentences = await client.run([
-    '/ip/firewall/address-list/print',
-    `?list=${list}`,
-    `?address=${address}`,
-  ]);
-  for (const sentence of sentences) {
-    if (sentence[0] === '!re') {
-      const attrs = parseAttrs(sentence.slice(1));
-      if (attrs['.id']) return attrs['.id'];
-    }
-  }
-  return null;
+  return findId(client, '/ip/firewall/address-list', [`?list=${list}`, `?address=${address}`]);
 }
 
 // =============================================================================
@@ -864,6 +885,7 @@ module.exports = {
   parseSentences,
   parseAttrs,
   createClient,
+  findId,
   pppoeCreate,
   pppoeUpsert,
   pppoeDelete,
