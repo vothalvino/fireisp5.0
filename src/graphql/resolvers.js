@@ -186,6 +186,23 @@ const resolvers = {
   },
 
   // ---------------------------------------------------------------------------
+  // Contact field resolvers
+  // ---------------------------------------------------------------------------
+  // The contacts table stores first_name/last_name, but GraphQL Contact.name is
+  // a single NON-NULL field. Without this mapping `name` resolved to undefined →
+  // null, which (via the non-null chain Contact.name! → [Contact!]! →
+  // Client.contacts!) errored the whole `client` query and showed
+  // "Client not found" for any client that HAS contacts. Same bug class as the
+  // LedgerEntry column mismatch fixed earlier — see tests/contactResolver.test.js.
+  Contact: {
+    name: (c) => {
+      const full = [c.first_name, c.last_name].filter(Boolean).join(' ').trim();
+      // Guarantee a non-null value so a contact can never blank ClientDetail.
+      return full || c.name || '(unnamed contact)';
+    },
+  },
+
+  // ---------------------------------------------------------------------------
   // Contract field resolvers (snake_case → camelCase mapping)
   // ---------------------------------------------------------------------------
   Contract: {
