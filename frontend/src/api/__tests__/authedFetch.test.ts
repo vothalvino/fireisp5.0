@@ -55,9 +55,8 @@ describe('authedFetch', () => {
   });
 
   it('returns the 401 (does not loop) when refresh fails', async () => {
-    const fetchMock = vi.fn(async (url: RequestInfo | URL) =>
-      new Response('{}', { status: 401 }), // both the target and /auth/refresh fail
-    );
+    // Both the target request and /auth/refresh return 401.
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 401 }));
     vi.stubGlobal('fetch', fetchMock);
 
     const res = await authedFetch('/api/v1/graphql', { method: 'POST' });
