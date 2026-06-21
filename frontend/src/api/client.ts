@@ -105,3 +105,29 @@ const refreshMiddleware: Middleware = {
 export const api = createClient<paths>({ baseUrl: '/api/v1' });
 api.use(authMiddleware);
 api.use(refreshMiddleware);
+
+// Authenticated fetch with the SAME attach-token + silent-refresh-on-401 + retry
+// behaviour as the REST middleware above, for callers that don't go through
+// openapi-fetch (e.g. the GraphQL client). The access token lives in memory only
+// and is wiped on every page reload, so without this a GraphQL request after a
+// reload (or after the 15-min token expiry) would 401 forever and surface as
+// "Client not found"; here a 401 triggers a single shared refresh (via the
+// httpOnly cookie) and one retry, mirroring refreshMiddleware.
+export async function authedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const build = (): RequestInit => {
+    const headers = new Headers(init?.headers);
+    const token = tokenStore.getAccess();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    return { ...init, headers, credentials: 'include' };
+  };
+
+  let res = await fetch(input, build());
+  if (res.status === 401) {
+    if (!_refreshPromise) {
+      _refreshPromise = doRefresh().finally(() => { _refreshPromise = null; });
+    }
+    const ok = await _refreshPromise;
+    if (ok) res = await fetch(input, build());
+  }
+  return res;
+}

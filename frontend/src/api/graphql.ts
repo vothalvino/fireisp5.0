@@ -10,15 +10,19 @@
 // =============================================================================
 
 import { GraphQLClient } from 'graphql-request';
-import { tokenStore } from './client';
+import { authedFetch } from './client';
 
 const GQL_ENDPOINT = '/api/v1/graphql';
 
 function getClient(): GraphQLClient {
-  const token = tokenStore.getAccess();
+  // Route through authedFetch so GraphQL shares the REST client's token-attach +
+  // silent-refresh-on-401 + retry. Reading the token per-request (inside
+  // authedFetch) rather than at client-construction time is what lets a request
+  // made right after a page reload (empty in-memory token) recover instead of
+  // failing with "Client not found".
   return new GraphQLClient(GQL_ENDPOINT, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
     credentials: 'include',
+    fetch: authedFetch,
   });
 }
 
