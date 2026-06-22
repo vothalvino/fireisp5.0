@@ -118,6 +118,14 @@ export async function authedFetch(input: RequestInfo | URL, init?: RequestInit):
     const headers = new Headers(init?.headers);
     const token = tokenStore.getAccess();
     if (token) headers.set('Authorization', `Bearer ${token}`);
+    // When the in-memory Bearer token is absent (e.g. right after a page reload),
+    // the request authenticates via the httpOnly `fireisp_access` cookie instead —
+    // which makes this a cookie-authenticated POST that the server's CSRF guard
+    // rejects (403) unless we echo the `fireisp_csrf` cookie as a header. Bearer-
+    // authenticated requests are CSRF-exempt and ignore it, so sending it always
+    // is safe. Without this, GraphQL detail pages 403'd as "Client not found".
+    const csrf = readCsrfCookie();
+    if (csrf) headers.set('X-CSRF-Token', csrf);
     return { ...init, headers, credentials: 'include' };
   };
 
