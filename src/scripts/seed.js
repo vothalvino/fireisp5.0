@@ -9,6 +9,7 @@
 // =============================================================================
 
 require('dotenv').config();
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const mysql = require('mysql2/promise');
 const db = require('../config/database');
@@ -34,10 +35,15 @@ async function seed() {
     `);
 
     // 2. Admin user — password is read from the ADMIN_PASSWORD env var (set by
-    //    install.sh for production). Falls back to 'admin123!' for local dev/testing.
-    //    The plaintext is never stored; only the bcrypt hash is written to the DB.
+    //    install.sh for production). When unset, a strong random password is
+    //    generated and logged once — there is no well-known default. The
+    //    plaintext is never stored; only the bcrypt hash is written to the DB.
     logger.info('Seeding admin user...');
-    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123!';
+    let adminPassword = process.env.ADMIN_PASSWORD;
+    if (!adminPassword) {
+      adminPassword = crypto.randomBytes(15).toString('base64') + 'A9!';
+      logger.warn(`ADMIN_PASSWORD not set — generated a random admin password: ${adminPassword}`);
+    }
     const passwordHash = await bcrypt.hash(adminPassword, 12);
     await conn.execute(`
       INSERT IGNORE INTO users (id, first_name, last_name, email, password_hash, role, organization_id, status)

@@ -9,6 +9,8 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createRole, updateRole, assignPermission } = require('../middleware/schemas/roles');
 const db = require('../config/database');
+const User = require('../models/User');
+const { ForbiddenError } = require('../utils/errors');
 
 const router = Router();
 
@@ -125,6 +127,21 @@ router.delete('/:id', requirePermission('roles.manage'), async (req, res, next) 
 router.post('/:id/permissions', requirePermission('roles.manage'), validate(assignPermission), async (req, res, next) => {
   try {
     const { permission_id } = req.body;
+    // SECURITY: prevent privilege amplification. A non-admin holder of
+    // roles.manage may only grant a permission they themselves hold — otherwise
+    // they could attach users.update / api_tokens.create to their own role and
+    // escalate. Admins (legacy global role) may grant anything.
+    if (!req.user || req.user.role !== 'admin') {
+      const [permRows] = await db.query('SELECT name FROM permissions WHERE id = ?', [permission_id]);
+      const slug = permRows[0] && permRows[0].name;
+      if (!slug) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Permission not found' } });
+      }
+      const held = await User.getPermissions(req.user.id, req.orgId);
+      if (!held.includes(slug)) {
+        return next(new ForbiddenError('You cannot grant a permission you do not hold'));
+      }
+    }
     await db.query(
       'INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)',
       [req.params.id, permission_id],

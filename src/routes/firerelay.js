@@ -14,6 +14,7 @@
 
 const { Router } = require('express');
 const { authenticate } = require('../middleware/auth');
+const { orgScope } = require('../middleware/orgScope');
 const { requireRole } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { firerelayNode, firerelayNodeUpdate, firerelayTunnelCommand } = require('../middleware/schemas/firerelay');
@@ -67,9 +68,12 @@ router.get('/health', async (_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// All node-management endpoints below require admin auth
+// All node-management endpoints below require admin auth + org context.
+// orgScope also applies the per-tenant API rate limit, which the
+// authenticate-only mount previously skipped (a defense-in-depth gap).
 // ---------------------------------------------------------------------------
 router.use(authenticate);
+router.use(orgScope);
 
 // ---------------------------------------------------------------------------
 // GET /api/firerelay/nodes — list all registered nodes

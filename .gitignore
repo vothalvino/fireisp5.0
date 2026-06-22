@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# graphify knowledge-graph output (local dev tool, not a repo artifact)
+graphify-out/
+
 # npm lockfiles superseded by pnpm-lock.yaml
 package-lock.json
 
