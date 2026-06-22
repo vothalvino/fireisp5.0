@@ -1,33 +1,44 @@
 // =============================================================================
 // FireISP 5.0 — GraphQL Subscription Tests (P3.9)
 // =============================================================================
+// Subscriptions are RBAC-gated (parity with the query/mutation guard): the
+// subscribe() resolvers require the same permission/scope as the REST layer and
+// scope strictly to the caller's organisation. See src/graphql/authz.js.
+// =============================================================================
+
+const mockQuery = jest.fn();
+jest.mock('../src/config/database', () => ({
+  query:         (...a) => mockQuery(...a),
+  execute:       jest.fn(),
+  getConnection: jest.fn(),
+  close:         jest.fn(),
+  pool:          { end: jest.fn() },
+}));
 
 const typeDefs = require('../src/graphql/typeDefs');
 const resolvers = require('../src/graphql/resolvers');
 const { pubsub } = require('../src/services/pubsub');
 
-// ---------------------------------------------------------------------------
-// Schema validation helpers
-// ---------------------------------------------------------------------------
+// Admin ctx — assertGraphqlPermission short-circuits at the legacy-admin bypass,
+// so no getPermissions lookup is needed for the happy-path delivery tests.
+const ADMIN = { user: { id: 1, role: 'admin', organizationId: 1 }, orgId: 1 };
+// Let an async-generator run through its pre-subscribe awaits (permission + the
+// ticket org-check) and reach pubsub.subscribe() before we publish.
+const tick = () => new Promise((r) => setTimeout(r, 0));
 
+// ---------------------------------------------------------------------------
+// Schema validation
+// ---------------------------------------------------------------------------
 describe('GraphQL Subscription — schema', () => {
+  const { createSchema } = require('graphql-yoga');
+
   it('Subscription type exists in the schema', () => {
-    const { createSchema } = require('graphql-yoga');
-    const schema = createSchema({ typeDefs, resolvers });
-    expect(schema.getSubscriptionType()).not.toBeNull();
+    expect(createSchema({ typeDefs, resolvers }).getSubscriptionType()).not.toBeNull();
   });
 
-  it('ticketCommentAdded field exists on Subscription', () => {
-    const { createSchema } = require('graphql-yoga');
-    const schema = createSchema({ typeDefs, resolvers });
-    const fields = schema.getSubscriptionType().getFields();
+  it('ticketCommentAdded + deviceStatusChanged fields exist', () => {
+    const fields = createSchema({ typeDefs, resolvers }).getSubscriptionType().getFields();
     expect(fields).toHaveProperty('ticketCommentAdded');
-  });
-
-  it('deviceStatusChanged field exists on Subscription', () => {
-    const { createSchema } = require('graphql-yoga');
-    const schema = createSchema({ typeDefs, resolvers });
-    const fields = schema.getSubscriptionType().getFields();
     expect(fields).toHaveProperty('deviceStatusChanged');
   });
 
@@ -41,103 +52,85 @@ describe('GraphQL Subscription — schema', () => {
 });
 
 // ---------------------------------------------------------------------------
-// pubsub round-trip tests (subscribe-first, then publish)
+// pubsub round-trip (transport only — no resolver gating involved)
 // ---------------------------------------------------------------------------
-
-describe('pubsub — TICKET_COMMENT_ADDED round-trip', () => {
-  it('subscriber receives a published TICKET_COMMENT_ADDED event', async () => {
-    const comment = { id: 1, ticket_id: '42', user_id: 1, body: 'Hello', is_internal: false, created_at: '2025-01-01' };
+describe('pubsub round-trip', () => {
+  it('delivers a published TICKET_COMMENT_ADDED event', async () => {
+    const comment = { id: 1, ticket_id: '42', body: 'Hello', is_internal: false };
     const iter = pubsub.subscribe('TICKET_COMMENT_ADDED')[Symbol.asyncIterator]();
-    const resultPromise = iter.next();
+    const p = iter.next();
     pubsub.publish('TICKET_COMMENT_ADDED', { ticketCommentAdded: comment, ticketId: '42' });
-    const { value } = await resultPromise;
+    const { value } = await p;
     expect(value.ticketCommentAdded).toEqual(comment);
     expect(value.ticketId).toBe('42');
   });
-});
 
-describe('pubsub — DEVICE_STATUS_CHANGED round-trip', () => {
-  it('subscriber receives a published DEVICE_STATUS_CHANGED event', async () => {
+  it('delivers a published DEVICE_STATUS_CHANGED event', async () => {
     const device = { id: 5, name: 'Router-1', status: 'online' };
     const iter = pubsub.subscribe('DEVICE_STATUS_CHANGED')[Symbol.asyncIterator]();
-    const resultPromise = iter.next();
+    const p = iter.next();
     pubsub.publish('DEVICE_STATUS_CHANGED', { deviceStatusChanged: device, orgId: '10' });
-    const { value } = await resultPromise;
+    const { value } = await p;
     expect(value.deviceStatusChanged).toEqual(device);
-    expect(value.orgId).toBe('10');
   });
 });
 
 // ---------------------------------------------------------------------------
-// Filtering tests
+// RBAC-gated subscribe() resolvers
 // ---------------------------------------------------------------------------
+describe('subscription gating + delivery', () => {
+  beforeEach(() => mockQuery.mockReset());
 
-describe('subscription resolver filtering', () => {
-  it('ticketCommentAdded delivers event matching ticketId', async () => {
+  it('admin receives ticketCommentAdded for an in-org ticket', async () => {
+    mockQuery.mockResolvedValue([[{ id: 99 }]]); // ticket org-check passes
     const comment = { id: 2, ticket_id: '99', body: 'test' };
-    const subscribeFn = resolvers.Subscription.ticketCommentAdded.subscribe;
-
-    const iter = subscribeFn(null, { ticketId: '99' })[Symbol.asyncIterator]();
-    const resultPromise = iter.next();
+    const iter = resolvers.Subscription.ticketCommentAdded
+      .subscribe(null, { ticketId: '99' }, ADMIN)[Symbol.asyncIterator]();
+    const p = iter.next();
+    await tick();
     pubsub.publish('TICKET_COMMENT_ADDED', { ticketCommentAdded: comment, ticketId: '99' });
-
-    const { value } = await resultPromise;
+    const { value } = await p;
     expect(value.ticketCommentAdded.ticket_id).toBe('99');
   });
 
-  it('deviceStatusChanged delivers event matching orgId', async () => {
-    const device = { id: 7, name: 'Switch-2', status: 'offline' };
-    const subscribeFn = resolvers.Subscription.deviceStatusChanged.subscribe;
-
-    const iter = subscribeFn(null, { orgId: '20' })[Symbol.asyncIterator]();
-    const resultPromise = iter.next();
-    pubsub.publish('DEVICE_STATUS_CHANGED', { deviceStatusChanged: device, orgId: '20' });
-
-    const { value } = await resultPromise;
+  it('deviceStatusChanged scopes to ctx.orgId and ignores the client-supplied orgId arg', async () => {
+    const device = { id: 7, status: 'offline' };
+    const iter = resolvers.Subscription.deviceStatusChanged
+      .subscribe(null, { orgId: '999' }, ADMIN)[Symbol.asyncIterator](); // arg says 999, ctx.orgId is 1
+    const p = iter.next();
+    await tick();
+    pubsub.publish('DEVICE_STATUS_CHANGED', { deviceStatusChanged: { id: 1 }, orgId: '999' }); // skipped
+    pubsub.publish('DEVICE_STATUS_CHANGED', { deviceStatusChanged: device, orgId: '1' });       // delivered
+    const { value } = await p;
+    expect(String(value.orgId)).toBe('1');
     expect(value.deviceStatusChanged.id).toBe(7);
-    expect(value.orgId).toBe('20');
-  });
-
-  it('resolve function returns the ticketCommentAdded payload field', () => {
-    const resolveFn = resolvers.Subscription.ticketCommentAdded.resolve;
-    const comment = { id: 1, body: 'hi' };
-    expect(resolveFn({ ticketCommentAdded: comment })).toEqual(comment);
-  });
-
-  it('resolve function returns the deviceStatusChanged payload field', () => {
-    const resolveFn = resolvers.Subscription.deviceStatusChanged.resolve;
-    const device = { id: 5, status: 'online' };
-    expect(resolveFn({ deviceStatusChanged: device })).toEqual(device);
-  });
-
-  it('ticketCommentAdded skips events with non-matching ticketId', async () => {
-    const matchingComment = { id: 10, ticket_id: '77', body: 'match' };
-    const subscribeFn = resolvers.Subscription.ticketCommentAdded.subscribe;
-
-    const iter = subscribeFn(null, { ticketId: '77' })[Symbol.asyncIterator]();
-    const resultPromise = iter.next();
-    pubsub.publish('TICKET_COMMENT_ADDED', { ticketCommentAdded: matchingComment, ticketId: '77' });
-
-    const { value } = await resultPromise;
-    expect(String(value.ticketId)).toBe('77');
-  });
-
-  // Extended timeout (10 s): the async iterator must skip the non-matching
-  // event before yielding the matching one; in slow CI environments the
-  // iterator's internal queue flush can take longer than the default 5 s.
-  it('deviceStatusChanged skips non-matching orgId and delivers matching', async () => {
-    const device = { id: 99, name: 'Device-99', status: 'online' };
-    const subscribeFn = resolvers.Subscription.deviceStatusChanged.subscribe;
-
-    const iter = subscribeFn(null, { orgId: '50' })[Symbol.asyncIterator]();
-    const resultPromise = iter.next();
-
-    // First publish non-matching event, then matching
-    pubsub.publish('DEVICE_STATUS_CHANGED', { deviceStatusChanged: { id: 1 }, orgId: '999' });
-    pubsub.publish('DEVICE_STATUS_CHANGED', { deviceStatusChanged: device, orgId: '50' });
-
-    const { value } = await resultPromise;
-    expect(String(value.orgId)).toBe('50');
-    expect(value.deviceStatusChanged.id).toBe(99);
   }, 10000);
+
+  it('denies ticketCommentAdded without authentication', async () => {
+    const gen = resolvers.Subscription.ticketCommentAdded.subscribe(null, { ticketId: '1' }, {});
+    await expect(gen.next()).rejects.toThrow(/Not authorized/);
+  });
+
+  it('denies ticketCommentAdded for a non-admin lacking tickets.view', async () => {
+    mockQuery.mockResolvedValue([[]]); // User.getPermissions -> []
+    const ctx = { user: { id: 2, role: 'support', organizationId: 1 }, orgId: 1 };
+    const gen = resolvers.Subscription.ticketCommentAdded.subscribe(null, { ticketId: '1' }, ctx);
+    await expect(gen.next()).rejects.toThrow(/Forbidden|tickets\.view/);
+  });
+
+  it('denies ticketCommentAdded when the ticket is not in the caller org', async () => {
+    mockQuery.mockResolvedValue([[]]); // ticket lookup -> no row
+    const gen = resolvers.Subscription.ticketCommentAdded.subscribe(null, { ticketId: '999' }, ADMIN);
+    await expect(gen.next()).rejects.toThrow(/Ticket not found/);
+  });
+
+  it('denies deviceStatusChanged without authentication', async () => {
+    const gen = resolvers.Subscription.deviceStatusChanged.subscribe(null, { orgId: '1' }, {});
+    await expect(gen.next()).rejects.toThrow(/Not authorized/);
+  });
+
+  it('resolve() functions return the payload field', () => {
+    expect(resolvers.Subscription.ticketCommentAdded.resolve({ ticketCommentAdded: { id: 1 } })).toEqual({ id: 1 });
+    expect(resolvers.Subscription.deviceStatusChanged.resolve({ deviceStatusChanged: { id: 5 } })).toEqual({ id: 5 });
+  });
 });
