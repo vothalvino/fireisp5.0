@@ -45,7 +45,10 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      // Set PW_CHANNEL=msedge (or chrome) to drive a system browser instead of
+      // Playwright's bundled chromium — useful on machines where the bundled
+      // download won't persist. Unset in CI, so CI keeps using bundled chromium.
+      use: { ...devices['Desktop Chrome'], ...(process.env.PW_CHANNEL ? { channel: process.env.PW_CHANNEL } : {}) },
     },
   ],
 });
