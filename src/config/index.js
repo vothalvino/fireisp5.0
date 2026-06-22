@@ -100,20 +100,26 @@ function validateEnv(logger) {
   const errors = [];
   const warnings = [];
   const isProduction = config.env === 'production';
+  // The insecure default JWT secret, a non-HS256 algorithm, or a wrong-length
+  // secret are only tolerable in a local dev/test sandbox. Treat them as FATAL
+  // in every other environment (production, staging, or any custom NODE_ENV) so
+  // an internet-exposed non-prod instance can never run with a forgeable
+  // token-signing secret.
+  const allowInsecureSecret = config.env === 'development' || config.env === 'test';
 
-  // JWT secret: must be the generated local 64-character HS256 secret in production.
+  // JWT secret: must be the generated local 64-character HS256 secret outside dev/test.
   const secretLen = config.jwt.secret.length;
   if (config.jwt.algorithm !== REQUIRED_JWT_ALGORITHM) {
     const msg = `JWT_ALGORITHM must be ${REQUIRED_JWT_ALGORITHM}`;
-    if (isProduction) errors.push(msg); else warnings.push(msg);
+    if (!allowInsecureSecret) errors.push(msg); else warnings.push(msg);
   }
   if (config.jwt.secret === DEFAULT_JWT_SECRET) {
     const msg = 'JWT_SECRET is set to the insecure default — set a unique random 64-character HS256 secret';
-    if (isProduction) errors.push(msg); else warnings.push(msg);
+    if (!allowInsecureSecret) errors.push(msg); else warnings.push(msg);
   }
   if (secretLen !== 64 && config.jwt.secret !== DEFAULT_JWT_SECRET) {
     const msg = 'JWT_SECRET must be exactly 64 characters for HS256';
-    if (isProduction) errors.push(msg); else warnings.push(msg);
+    if (!allowInsecureSecret) errors.push(msg); else warnings.push(msg);
   }
 
   // Encryption key: required in production for at-rest encryption of secrets
@@ -139,8 +145,10 @@ function validateEnv(logger) {
     if (logger) logger.warn(w);
   }
 
-  // In production, abort on errors
-  if (isProduction && errors.length > 0) {
+  // Abort on fatal errors. In production every collected error is fatal; outside
+  // a dev/test sandbox the JWT-secret errors above are ALSO fatal (a non-prod
+  // internet-exposed instance must not run with the forgeable default secret).
+  if (errors.length > 0 && !allowInsecureSecret) {
     const message = 'Fatal configuration errors:\n  • ' + errors.join('\n  • ');
     throw new Error(message);
   }

@@ -109,4 +109,4 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { requirePermission, requireRole };
+module.exports = { requirePermission, requireRole, enforceTokenScopes };

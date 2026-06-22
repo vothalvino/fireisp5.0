@@ -29,7 +29,7 @@ router.get('/', requirePermission('api_tokens.view'), ctrl.list);
 router.get('/:id', requirePermission('api_tokens.view'), ctrl.get);
 
 // Create token — generate plaintext, store SHA-256 hash, validate scopes
-router.post('/', requirePermission('api_tokens.create'), validate(createApiToken), async (req, res, next) => {
+router.post('/', requirePermission('api_tokens.create'), validate(createApiToken, { strip: true }), async (req, res, next) => {
   try {
     // Validate scopes if provided
     if (req.body.scopes !== undefined && req.body.scopes !== null) {
@@ -45,6 +45,11 @@ router.post('/', requirePermission('api_tokens.create'), validate(createApiToken
     const tokenHash = crypto.createHash('sha256').update(plaintext).digest('hex');
 
     req.body.organization_id = req.orgId;
+    // SECURITY: bind the token to the authenticated creator. user_id is fillable
+    // and was previously mass-assignable from the body, letting an
+    // api_tokens.create holder mint a token impersonating another user (e.g. the
+    // admin user_id=1) and inherit that user's role on every request.
+    req.body.user_id = req.user.id;
     req.body.token_hash = tokenHash;
 
     const token = await ApiToken.create(req.body);
@@ -55,7 +60,7 @@ router.post('/', requirePermission('api_tokens.create'), validate(createApiToken
 });
 
 // Update token — validate scopes if changing
-router.put('/:id', requirePermission('api_tokens.update'), validate(updateApiToken), async (req, res, next) => {
+router.put('/:id', requirePermission('api_tokens.update'), validate(updateApiToken, { strip: true }), async (req, res, next) => {
   try {
     if (req.body.scopes !== undefined && req.body.scopes !== null) {
       const { valid, errors } = validateScopes(req.body.scopes);

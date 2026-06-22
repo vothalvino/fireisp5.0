@@ -9,8 +9,17 @@ const { ValidationError } = require('../utils/errors');
  * Simple field-level validation without external dependencies.
  *
  * Schema format: { fieldName: { type, required, min, max, enum, pattern } }
+ *
+ * @param {object} schema   field rules
+ * @param {object} [options]
+ * @param {boolean} [options.strip]  when true, delete any req.body key that is
+ *   not declared in the schema. This is the mass-assignment guard for sensitive
+ *   mutation routes: privileged columns (e.g. role, user_id, organization_id)
+ *   can never reach a fillable-filtered model from an untrusted request body.
+ *   Off by default so routes that intentionally read undeclared optional fields
+ *   are unaffected.
  */
-function validate(schema) {
+function validate(schema, options = {}) {
   return (req, _res, next) => {
     const errors = [];
     const body = req.body || {};
@@ -72,6 +81,15 @@ function validate(schema) {
 
     if (errors.length > 0) {
       return next(new ValidationError('Validation failed', errors));
+    }
+
+    // Mass-assignment guard (opt-in): strip any key not declared in the schema.
+    if (options.strip && body && typeof body === 'object') {
+      for (const key of Object.keys(body)) {
+        if (!Object.prototype.hasOwnProperty.call(schema, key)) {
+          delete body[key];
+        }
+      }
     }
 
     next();

@@ -71,7 +71,12 @@ router.post('/register',
   validate(authSchemas.register),
   async (req, res, next) => {
     try {
-      const user = await authService.register(req.body);
+      // SECURITY: only forward the public-registration fields. Never pass the
+      // raw body through — `role` / `organizationId` are honoured by
+      // authService.register, so an anonymous caller supplying role:'admin'
+      // would otherwise self-register as a platform administrator.
+      const { firstName, lastName, email, password } = req.body;
+      const user = await authService.register({ firstName, lastName, email, password });
       res.status(201).json({ data: user });
     } catch (err) {
       next(err);
