@@ -16,6 +16,7 @@ const Ticket = require('../models/Ticket');
 const AiPolicy = require('../models/AiPolicy');
 const aiReplyService = require('../services/aiReplyService');
 const { pubsub } = require('../services/pubsub');
+const { assertGraphqlPermission, gqlForbidden } = require('./authz');
 
 /** Clamp pagination params to safe bounds. */
 function clamp(val, defaultVal, max) {
@@ -398,8 +399,21 @@ const resolvers = {
   // Subscription resolvers (P3.9)
   // ---------------------------------------------------------------------------
   Subscription: {
+    // Real-time event streams are mounted under authenticate + orgScope, but the
+    // GraphQL permission/scope layer and org ownership must be enforced HERE too —
+    // otherwise any authenticated org user, or a scope-limited API token, could
+    // tap ticket comments (including internal notes) or device-status events they
+    // have no RBAC permission to see (parity with the query/mutation guard).
     ticketCommentAdded: {
-      subscribe: async function* (_parent, { ticketId }) {
+      subscribe: async function* (_parent, { ticketId }, ctx) {
+        await assertGraphqlPermission(ctx, ['tickets.view']);
+        // Authorise the ticket against the caller's org — never trust the
+        // client-supplied ticketId to belong to them.
+        const [rows] = await db.query(
+          'SELECT id FROM tickets WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+          [ticketId, ctx.orgId],
+        );
+        if (!rows[0]) throw gqlForbidden('Ticket not found in your organization');
         for await (const event of pubsub.subscribe('TICKET_COMMENT_ADDED')) {
           if (String(event.ticketId) === String(ticketId)) {
             yield event;
@@ -410,9 +424,13 @@ const resolvers = {
     },
 
     deviceStatusChanged: {
-      subscribe: async function* (_parent, { orgId }) {
+      subscribe: async function* (_parent, _args, ctx) {
+        await assertGraphqlPermission(ctx, ['devices.view']);
+        // Scope strictly to the caller's org (ctx.orgId), ignoring any
+        // client-supplied orgId argument (which would otherwise let a user tap
+        // another organisation's device events under a multi-tenant deployment).
         for await (const event of pubsub.subscribe('DEVICE_STATUS_CHANGED')) {
-          if (String(event.orgId) === String(orgId)) {
+          if (String(event.orgId) === String(ctx.orgId)) {
             yield event;
           }
         }

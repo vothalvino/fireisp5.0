@@ -18,12 +18,10 @@
 // =============================================================================
 
 const { createYoga, createSchema } = require('graphql-yoga');
-const { GraphQLError } = require('graphql');
 const typeDefs = require('./typeDefs');
 const resolvers = require('./resolvers');
 const { pubsub } = require('../services/pubsub');
-const { enforceTokenScopes } = require('../middleware/rbac');
-const User = require('../models/User');
+const { assertGraphqlPermission } = require('./authz');
 
 // ---------------------------------------------------------------------------
 // RBAC enforcement for GraphQL (parity with the REST requirePermission layer).
@@ -47,32 +45,6 @@ const FIELD_PERMISSIONS = {
     aiDraftReply: ['ai.reply.draft'],
   },
 };
-
-function gqlForbidden(message) {
-  return new GraphQLError(message, { extensions: { code: 'FORBIDDEN' } });
-}
-
-async function assertGraphqlPermission(ctx, perms) {
-  const user = ctx && ctx.user;
-  if (!user || !user.organizationId) {
-    throw gqlForbidden('Not authorized');
-  }
-  // API-token scope enforcement runs first (no-op for JWT users / unrestricted
-  // tokens), exactly like the REST layer where it precedes the admin bypass.
-  if (typeof enforceTokenScopes === 'function') {
-    try {
-      enforceTokenScopes(user, perms);
-    } catch (err) {
-      throw gqlForbidden(err.message || 'API token scope insufficient');
-    }
-  }
-  // Legacy global admin bypasses the per-permission check, exactly like REST.
-  if (user.role === 'admin') return;
-  const granted = await User.getPermissions(user.id, user.organizationId);
-  if (!perms.some(p => granted.includes(p))) {
-    throw gqlForbidden('Forbidden: requires ' + perms.join(' or '));
-  }
-}
 
 function guardResolvers(resolverMap) {
   const guarded = { ...resolverMap };
