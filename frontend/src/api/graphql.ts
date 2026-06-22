@@ -12,15 +12,17 @@
 import { GraphQLClient } from 'graphql-request';
 import { authedFetch } from './client';
 
-const GQL_ENDPOINT = '/api/v1/graphql';
-
 function getClient(): GraphQLClient {
+  // IMPORTANT: when a custom `fetch` is supplied, graphql-request constructs a
+  // `new URL(endpoint)`, which throws on a RELATIVE path ("Invalid URL:
+  // /api/v1/graphql") BEFORE any request is sent — so the query silently failed
+  // and the page showed "Client not found". Use an absolute, same-origin URL.
+  const endpoint = `${window.location.origin}/api/v1/graphql`;
   // Route through authedFetch so GraphQL shares the REST client's token-attach +
-  // silent-refresh-on-401 + retry. Reading the token per-request (inside
-  // authedFetch) rather than at client-construction time is what lets a request
-  // made right after a page reload (empty in-memory token) recover instead of
-  // failing with "Client not found".
-  return new GraphQLClient(GQL_ENDPOINT, {
+  // CSRF header + silent-refresh-on-401 + retry. Reading the token per-request
+  // (inside authedFetch) lets a request made right after a page reload (empty
+  // in-memory token) recover instead of failing.
+  return new GraphQLClient(endpoint, {
     credentials: 'include',
     fetch: authedFetch,
   });
