@@ -251,7 +251,11 @@ function InvoicesTab({ invoices }: { invoices: Invoice[] }) {
         <tbody>
           {invoices.map(inv => (
             <tr key={inv.id} style={styles.tr}>
-              <td style={{ ...styles.td, fontWeight: 600 }}>{inv.invoiceNumber}</td>
+              <td style={styles.td}>
+                <Link to={`/invoices/${inv.id}`} style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
+                  {inv.invoiceNumber}
+                </Link>
+              </td>
               <td style={{ ...styles.td, fontVariantNumeric: 'tabular-nums' }}>
                 {fmtMoney(inv.total, inv.currency)}
               </td>
