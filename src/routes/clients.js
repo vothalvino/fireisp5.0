@@ -100,9 +100,17 @@ router.get('/:id/contacts', requirePermission('clients.view'), async (req, res, 
 router.post('/:id/contacts', requirePermission('clients.update'), validate(createContact), async (req, res, next) => {
   try {
     const { name, email, phone, role } = req.body;
+    // The contacts table stores first_name + last_name (both NOT NULL), but the
+    // UI sends a single `name`. Insert into `name` failed with "Unknown column".
+    // Split on the first space ("Ada Lovelace" -> 'Ada','Lovelace'); a single-word
+    // name keeps last_name = '' (the GraphQL Contact.name resolver recombines them).
+    const fullName = String(name || '').trim();
+    const sep = fullName.indexOf(' ');
+    const firstName = sep === -1 ? fullName : fullName.slice(0, sep);
+    const lastName = sep === -1 ? '' : fullName.slice(sep + 1).trim();
     const [result] = await db.query(
-      'INSERT INTO contacts (client_id, name, email, phone, role) VALUES (?, ?, ?, ?, ?)',
-      [req.params.id, name, email, phone, role],
+      'INSERT INTO contacts (client_id, first_name, last_name, email, phone, role) VALUES (?, ?, ?, ?, ?, ?)',
+      [req.params.id, firstName, lastName, email || null, phone || null, role || null],
     );
     const [rows] = await db.query('SELECT * FROM contacts WHERE id = ?', [result.insertId]);
     res.status(201).json({ data: rows[0] });
