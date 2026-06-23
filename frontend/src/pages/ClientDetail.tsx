@@ -13,7 +13,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { gql } from '@/api/graphql';
-import { api } from '@/api/client';
+import { api, authedFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
 import {
@@ -476,10 +476,12 @@ function ContactsTab({
   contacts,
   canEdit,
   onAdd,
+  onDelete,
 }: {
   contacts: Contact[];
   canEdit: boolean;
   onAdd: () => void;
+  onDelete: (contactId: string) => void;
 }) {
   return (
     <div>
@@ -494,9 +496,12 @@ function ContactsTab({
         <div style={{ overflowX: 'auto' }}>
           <table style={styles.table}>
             <thead>
-              <tr>{['Name', 'Role', 'Email', 'Phone'].map(h => (
-                <th key={h} style={styles.th}>{h}</th>
-              ))}</tr>
+              <tr>
+                {['Name', 'Role', 'Email', 'Phone'].map(h => (
+                  <th key={h} style={styles.th}>{h}</th>
+                ))}
+                {canEdit && <th style={styles.th} aria-label="Actions" />}
+              </tr>
             </thead>
             <tbody>
               {contacts.map(c => (
@@ -505,6 +510,18 @@ function ContactsTab({
                   <td style={{ ...styles.td, textTransform: 'capitalize' }}>{c.role || '—'}</td>
                   <td style={styles.td}>{c.email || '—'}</td>
                   <td style={styles.td}>{c.phone || '—'}</td>
+                  {canEdit && (
+                    <td style={{ ...styles.td, textAlign: 'right' }}>
+                      <button
+                        type="button"
+                        onClick={() => onDelete(c.id)}
+                        style={{ background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer', fontSize: '0.82rem' }}
+                        title="Delete contact"
+                      >
+                        🗑 Delete
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -851,6 +868,12 @@ export function ClientDetail() {
 
   const refetchClient = () => queryClient.invalidateQueries({ queryKey: ['client-detail-gql', id] });
 
+  async function handleDeleteContact(contactId: string) {
+    if (!window.confirm('Delete this contact?')) return;
+    const res = await authedFetch(`/api/v1/clients/${id}/contacts/${contactId}`, { method: 'DELETE' });
+    if (res.ok) refetchClient();
+  }
+
   if (isLoading) {
     return (
       <div style={styles.page}>
@@ -982,6 +1005,7 @@ export function ClientDetail() {
             contacts={client.contacts}
             canEdit={canEdit}
             onAdd={() => setShowAddContact(true)}
+            onDelete={handleDeleteContact}
           />
         )}
         {activeTab === 'profile'      && <ProfileExtrasTab clientId={Number(client.id)} canEdit={canEdit} />}
