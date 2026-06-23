@@ -13,6 +13,7 @@ const db = require('../config/database');
 const Client = require('../models/Client');
 const Contract = require('../models/Contract');
 const Invoice = require('../models/Invoice');
+const Payment = require('../models/Payment');
 const Ticket = require('../models/Ticket');
 const AiPolicy = require('../models/AiPolicy');
 const ClientBalanceLedger = require('../models/ClientBalanceLedger');
@@ -54,6 +55,8 @@ const resolvers = {
         limit: clamp(limit, 50, MAX_LIMIT),
         offset: clamp(offset, 0, 1e6),
       }),
+
+    payment: (_parent, { id }, ctx) => Payment.findById(id, ctx.orgId),
 
     ticket: (_parent, { id }, ctx) => Ticket.findById(id, ctx.orgId),
 
@@ -333,8 +336,38 @@ const resolvers = {
   // Payment field resolvers
   // ---------------------------------------------------------------------------
   Payment: {
+    clientId: (p) => p.client_id,
     paymentMethod: (p) => p.payment_method,
+    // DB column is reference_number; the GraphQL field is `reference`.
+    reference: (p) => p.reference_number || p.reference || null,
+    paymentDate: (p) => p.payment_date || null,
     createdAt: (p) => p.created_at,
+
+    client: (payment, _args, ctx) =>
+      payment.client_id ? Client.findById(payment.client_id, ctx.orgId) : null,
+
+    allocations: async (payment, _args, ctx) => {
+      const [rows] = await db.query(
+        `SELECT pa.id, pa.payment_id, pa.invoice_id, pa.amount, pa.deleted_at
+         FROM payment_allocations pa
+         JOIN invoices i ON i.id = pa.invoice_id
+         WHERE pa.payment_id = ? AND pa.deleted_at IS NULL AND i.organization_id = ?`,
+        [payment.id, ctx.orgId],
+      );
+      return rows;
+    },
+  },
+
+  // ---------------------------------------------------------------------------
+  // PaymentAllocation field resolvers
+  // ---------------------------------------------------------------------------
+  PaymentAllocation: {
+    paymentId: (a) => a.payment_id,
+    invoiceId: (a) => a.invoice_id,
+    amount: (a) => String(a.amount),
+
+    invoice: (alloc, _args, ctx) =>
+      alloc.invoice_id ? Invoice.findById(alloc.invoice_id, ctx.orgId) : null,
   },
 
   // ---------------------------------------------------------------------------

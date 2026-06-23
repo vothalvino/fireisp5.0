@@ -370,7 +370,11 @@ function PaymentsTab({ payments }: { payments: Payment[] }) {
         <tbody>
           {payments.map(p => (
             <tr key={p.id} style={styles.tr}>
-              <td style={styles.td}>#{p.id}</td>
+              <td style={styles.td}>
+                <Link to={`/payments/${p.id}`} style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
+                  #{p.id}
+                </Link>
+              </td>
               <td style={{ ...styles.td, fontVariantNumeric: 'tabular-nums' }}>
                 {fmtMoney(p.amount, p.currency)}
               </td>

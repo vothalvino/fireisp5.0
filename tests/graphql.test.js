@@ -503,6 +503,121 @@ describe('GraphQL endpoint — /api/v1/graphql', () => {
   });
 
   // -----------------------------------------------------------------------
+  // payment query
+  // -----------------------------------------------------------------------
+
+  const PAYMENT_ROW = {
+    id: 70, client_id: 10, organization_id: 1,
+    amount: '580.00', currency: 'MXN', payment_method: 'transfer',
+    reference_number: 'REF-001', status: 'completed',
+    payment_date: '2024-03-01', deleted_at: null,
+    created_at: '2024-03-01T12:00:00.000Z',
+  };
+
+  const ALLOCATION_ROW = {
+    id: 1, payment_id: 70, invoice_id: 30, amount: '580.00', deleted_at: null,
+  };
+
+  test('payment(id) — returns payment with camelCase fields', async () => {
+    mockQuery.mockResolvedValueOnce([[PAYMENT_ROW]]);  // findById
+
+    const res = await graphql(`
+      query {
+        payment(id: "70") {
+          id clientId amount currency paymentMethod reference status paymentDate createdAt
+        }
+      }
+    `);
+
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toBeUndefined();
+    const { payment } = res.body.data;
+    expect(payment.id).toBe('70');
+    expect(payment.clientId).toBe('10');
+    expect(payment.amount).toBe('580.00');
+    expect(payment.currency).toBe('MXN');
+    expect(payment.paymentMethod).toBe('transfer');
+    expect(payment.reference).toBe('REF-001');
+    expect(payment.status).toBe('completed');
+    expect(payment.paymentDate).toBe('2024-03-01');
+    expect(payment.createdAt).toBe('2024-03-01T12:00:00.000Z');
+  });
+
+  test('payment(id) — returns null for unknown ID', async () => {
+    mockQuery.mockResolvedValueOnce([[]]); // no row
+
+    const res = await graphql(`
+      query { payment(id: "9999") { id amount } }
+    `);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.payment).toBeNull();
+  });
+
+  test('payment — nested client resolves correctly', async () => {
+    mockQuery
+      .mockResolvedValueOnce([[PAYMENT_ROW]])   // payment findById
+      .mockResolvedValueOnce([[CLIENT_ROW]]);   // client findById
+
+    const res = await graphql(`
+      query {
+        payment(id: "70") {
+          id status
+          client { id name status }
+        }
+      }
+    `);
+
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toBeUndefined();
+    const { payment } = res.body.data;
+    expect(payment.client.name).toBe('Acme Corp');
+    expect(payment.client.id).toBe('10');
+  });
+
+  test('payment — nested allocations resolve with invoice links', async () => {
+    mockQuery
+      .mockResolvedValueOnce([[PAYMENT_ROW]])       // payment findById
+      .mockResolvedValueOnce([[ALLOCATION_ROW]])    // allocations query
+      .mockResolvedValueOnce([[INVOICE_ROW]]);      // invoice findById for allocation
+
+    const res = await graphql(`
+      query {
+        payment(id: "70") {
+          allocations {
+            id paymentId invoiceId amount
+            invoice { id invoiceNumber total status }
+          }
+        }
+      }
+    `);
+
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toBeUndefined();
+    const { allocations } = res.body.data.payment;
+    expect(allocations).toHaveLength(1);
+    expect(allocations[0].paymentId).toBe('70');
+    expect(allocations[0].invoiceId).toBe('30');
+    expect(allocations[0].amount).toBe('580.00');
+    expect(allocations[0].invoice.invoiceNumber).toBe('INV-0001');
+    expect(allocations[0].invoice.status).toBe('pending');
+  });
+
+  test('payment — allocations returns empty array when none', async () => {
+    mockQuery
+      .mockResolvedValueOnce([[PAYMENT_ROW]])  // payment findById
+      .mockResolvedValueOnce([[]]);            // empty allocations
+
+    const res = await graphql(`
+      query { payment(id: "70") { allocations { id } } }
+    `);
+
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toBeUndefined();
+    expect(res.body.data.payment.allocations).toEqual([]);
+  });
+
+  // -----------------------------------------------------------------------
   // Limit clamping (security: prevent unbounded queries)
   // -----------------------------------------------------------------------
 

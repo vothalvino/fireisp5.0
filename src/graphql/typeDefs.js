@@ -24,6 +24,9 @@ module.exports = /* GraphQL */ `
     """List invoices, optionally filtered by clientId."""
     invoices(limit: Int, offset: Int, clientId: ID): [Invoice!]!
 
+    """Fetch a single payment by ID (org-scoped)."""
+    payment(id: ID!): Payment
+
     """Fetch a single ticket by ID (org-scoped)."""
     ticket(id: ID!): Ticket
 
@@ -157,12 +160,30 @@ module.exports = /* GraphQL */ `
 
   type Payment {
     id: ID!
+    clientId: ID!
     amount: String!
     currency: String!
     paymentMethod: String!
     reference: String
     status: String!
+    paymentDate: String
     createdAt: String!
+
+    """The client who made this payment."""
+    client: Client
+
+    """Invoice allocations this payment was applied to."""
+    allocations: [PaymentAllocation!]!
+  }
+
+  type PaymentAllocation {
+    id: ID!
+    paymentId: ID!
+    invoiceId: ID!
+    amount: String!
+
+    """The invoice this allocation was applied to."""
+    invoice: Invoice
   }
 
   type Device {
