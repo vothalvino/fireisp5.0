@@ -9,6 +9,7 @@ import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { usePortalAuth } from '@/auth/PortalAuthContext';
 import { useDarkMode } from '@/auth/DarkModeContext';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 
 export function PortalLayout() {
   const { client, logout } = usePortalAuth();
@@ -59,6 +60,7 @@ export function PortalLayout() {
         </nav>
         <div className="portal-user-area">
           {client && <span style={styles.userName}>{client.name}</span>}
+          <LanguageSwitcher variant="bar" />
           <button
             onClick={toggleTheme}
             style={styles.themeBtn}

@@ -299,6 +299,7 @@ export function ClientList() {
                 <thead>
                   <tr>
                     {[
+                      t('clientList.table.id'),
                       t('clientList.table.name'),
                       t('clientList.table.email'),
                       t('clientList.table.phone'),
@@ -317,6 +318,9 @@ export function ClientList() {
                     const archived = Boolean(c.deleted_at);
                     return (
                       <tr key={c.id} style={styles.tr}>
+                        <td style={{ ...styles.td, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                          {c.id}
+                        </td>
                         <td style={{ ...styles.td, fontWeight: 600 }}>
                           <Link to={`/clients/${c.id}`} style={styles.nameLink}>
                             {c.name}

@@ -6,6 +6,7 @@ import { type FormEvent, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/auth/AuthContext';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 
 export function Login() {
   const { login } = useAuth();
@@ -45,6 +46,9 @@ export function Login() {
 
   return (
     <div style={styles.container}>
+      <div style={styles.langBar}>
+        <LanguageSwitcher variant="bar" />
+      </div>
       <form style={styles.card} onSubmit={handleSubmit}>
         <h1 style={styles.title}>{t('login.title')}</h1>
         <p style={styles.subtitle}>{t('login.subtitle')}</p>
@@ -102,12 +106,18 @@ export function Login() {
 
 const styles = {
   container: {
+    position: 'relative' as const,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: '100vh',
     background: 'var(--bg-body)',
     fontFamily: 'var(--font-sans)',
+  },
+  langBar: {
+    position: 'absolute' as const,
+    top: 16,
+    right: 16,
   },
   card: {
     background: 'var(--bg-card)',
