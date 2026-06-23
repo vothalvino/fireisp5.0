@@ -10,6 +10,7 @@ import { hasRole } from '@/auth/PrivateRoute';
 import { DrDrillBanner } from '@/components/DrDrillBanner';
 import { useDarkMode } from '@/auth/DarkModeContext';
 import { ChangelogPanel } from '@/components/ChangelogPanel';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 
 interface NavItem {
   to: string;
@@ -261,6 +262,7 @@ export function Layout() {
               )}
             </>
           )}
+          <LanguageSwitcher variant="sidebar" style={styles.langSelect} />
           <button
             onClick={toggleTheme}
             style={styles.themeBtn}
@@ -368,6 +370,13 @@ const styles = {
     borderRadius: 4,
     padding: '4px 6px',
     fontSize: '0.8rem',
+    // Sidebar is always dark; keep the native dropdown popup dark so the white
+    // option text stays legible (light theme / Chrome-Windows).
+    colorScheme: 'dark' as const,
+  },
+  langSelect: {
+    marginTop: 6,
+    alignSelf: 'flex-start' as const,
   },
   logoutBtn: {
     marginTop: 6,

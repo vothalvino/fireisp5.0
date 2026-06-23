@@ -264,6 +264,7 @@
     "members": "Members",
     "noMembers": "No members in this group.",
     "table": {
+      "id": "ID",
       "name": "Name",
       "email": "Email",
       "phone": "Phone",
@@ -406,6 +407,9 @@
   "darkMode": {
     "switchToDark": "Switch to dark mode",
     "switchToLight": "Switch to light mode"
+  },
+  "languageSwitcher": {
+    "label": "Language"
   },
   "changelog": {
     "title": "What's New",

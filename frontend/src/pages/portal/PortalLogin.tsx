@@ -6,6 +6,7 @@ import { type FormEvent, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { usePortalAuth } from '@/auth/PortalAuthContext';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 
 export function PortalLogin() {
   const { login } = usePortalAuth();
@@ -35,6 +36,9 @@ export function PortalLogin() {
 
   return (
     <div style={styles.container}>
+      <div style={styles.langBar}>
+        <LanguageSwitcher variant="bar" />
+      </div>
       <form style={styles.card} onSubmit={handleSubmit}>
         <h1 style={styles.title}>🔥 FireISP</h1>
         <p style={styles.subtitle}>{t('portalLogin.subtitle')}</p>
@@ -79,12 +83,18 @@ export function PortalLogin() {
 
 const styles = {
   container: {
+    position: 'relative' as const,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: '100vh',
     background: 'var(--bg-body)',
     fontFamily: 'var(--font-sans)',
+  },
+  langBar: {
+    position: 'absolute' as const,
+    top: 16,
+    right: 16,
   },
   card: {
     background: 'var(--bg-card)',

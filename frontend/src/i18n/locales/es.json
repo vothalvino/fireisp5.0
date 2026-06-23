@@ -264,6 +264,7 @@
                        "members":  "Miembros",
                        "noMembers":  "No hay miembros en este grupo.",
                        "table":  {
+                                     "id":  "ID",
                                      "name":  "Nombre",
                                      "email":  "Correo electrónico",
                                      "phone":  "Teléfono",
@@ -406,6 +407,9 @@
     "darkMode":  {
                      "switchToDark":  "Cambiar a modo oscuro",
                      "switchToLight":  "Cambiar a modo claro"
+                 },
+    "languageSwitcher":  {
+                     "label":  "Idioma"
                  },
     "changelog":  {
                       "title":  "Novedades",
