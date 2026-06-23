@@ -17,6 +17,8 @@ jest.mock('../src/services/suspensionService', () => ({
 
 jest.mock('../src/services/eventBus', () => ({ emit: jest.fn(), on: jest.fn(), removeListener: jest.fn() }));
 
+jest.mock('../src/services/subscriberProvisioningService', () => ({ provisionNewContract: jest.fn() }));
+
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const config = require('../src/config');
@@ -98,6 +100,47 @@ describe('POST /contracts/:id/renew', () => {
       }
     },
   );
+
+  test('renew of a cancelled PPPoE contract with NO radius account re-provisions one', async () => {
+    const provisioningService = require('../src/services/subscriberProvisioningService');
+    provisioningService.provisionNewContract.mockResolvedValueOnce({
+      connection_type: 'pppoe',
+      pppoe: { radius_id: 9, username: 'sub_ada', password: 'p@ss', ipv6_enabled: false },
+    });
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[{ id: 7, status: 'cancelled', connection_type: 'pppoe', client_id: 3, organization_id: 1 }]])
+      .mockResolvedValueOnce([[{ cnt: 0 }]])                       // radius count = 0
+      .mockResolvedValueOnce([{ affectedRows: 1 }])               // Contract.update
+      .mockResolvedValueOnce([[{ id: 7, status: 'active', connection_type: 'pppoe', organization_id: 1 }]]);
+
+    const res = await request(app)
+      .post('/api/v1/contracts/7/renew')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(provisioningService.provisionNewContract).toHaveBeenCalled();
+    expect(res.body.provisioning.pppoe.username).toBe('sub_ada');  // fresh creds surfaced
+  });
+
+  test('renew of a PPPoE contract that still has a radius account does NOT re-provision', async () => {
+    const provisioningService = require('../src/services/subscriberProvisioningService');
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[{ id: 8, status: 'terminated', connection_type: 'pppoe', client_id: 3, organization_id: 1 }]])
+      .mockResolvedValueOnce([[{ cnt: 1 }]])                       // radius account already exists
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([[{ id: 8, status: 'active', organization_id: 1 }]]);
+
+    const res = await request(app)
+      .post('/api/v1/contracts/8/renew')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(provisioningService.provisionNewContract).not.toHaveBeenCalled();
+  });
 
   test('returns 422 for an already active contract', async () => {
     db.query
