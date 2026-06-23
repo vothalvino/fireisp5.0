@@ -9,6 +9,7 @@
 // =============================================================================
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
@@ -909,6 +910,9 @@ export function NasList() {
                         >
                           Seed
                         </button>
+                        <Link to={`/nas/${n.id}`} style={{ ...styles.actionBtn, textDecoration: 'none', display: 'inline-block' }}>
+                          View
+                        </Link>
                         <button style={styles.actionBtn} onClick={() => setEditNas(n)} title="Edit this NAS">
                           Edit
                         </button>

@@ -13,6 +13,7 @@
 // =============================================================================
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, tokenStore } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
@@ -203,7 +204,10 @@ function DeviceChip({ device, actions }: { device: Device; actions?: DeviceChipA
       onMouseLeave={() => setHovered(false)}
     >
       <div style={{ fontWeight: 600, fontSize: '0.82rem', marginBottom: 3 }}>
-        {deviceIcon(device.type)}&nbsp;{device.name}
+        {deviceIcon(device.type)}&nbsp;
+        <Link to={`/devices/${device.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+          {device.name}
+        </Link>
       </div>
       <div style={{ fontSize: '0.72rem', color: '#6b7280', marginBottom: 3 }}>
         {device.manufacturer ? `${device.manufacturer} ` : ''}
@@ -293,7 +297,11 @@ function SiteCard({ site, devices, actions }: SiteCardProps) {
         <div>
           <span style={{ fontWeight: 700, fontSize: '0.9rem', marginRight: 6 }}>
             <SiteStatusDot status={site.status} />
-            {site.name}
+            {site.id > 0 ? (
+              <Link to={`/sites/${site.id}`} style={{ color: 'inherit', textDecoration: 'none', fontWeight: 700 }}>
+                {site.name}
+              </Link>
+            ) : site.name}
           </span>
           {site.site_type && (
             <span style={{ fontSize: '0.73rem', color: '#6b7280' }}>

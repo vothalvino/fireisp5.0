@@ -3056,6 +3056,162 @@
     "errorMessage": "Erro",
     "noLogs": "Sem registros de sincronizacao"
   },
+  "deviceDetail": {
+    "backToList": "Voltar a Dispositivos",
+    "loading": "Carregando dispositivo…",
+    "notFound": "Dispositivo não encontrado.",
+    "overview": {
+      "hint": "Selecione uma aba para ver dados do dispositivo."
+    },
+    "fields": {
+      "category": "Categoria",
+      "type": "Tipo",
+      "manufacturer": "Fabricante",
+      "model": "Modelo",
+      "serialNumber": "Número de Série",
+      "macAddress": "Endereço MAC",
+      "ipAddress": "Endereço IP",
+      "ipv6Address": "Endereço IPv6",
+      "firmwareVersion": "Firmware",
+      "snmpEnabled": "SNMP Habilitado",
+      "snmpVersion": "Versão SNMP",
+      "siteId": "ID do Site",
+      "clientId": "ID do Cliente",
+      "contractId": "ID do Contrato",
+      "lastPolledAt": "Última Sondagem",
+      "lastPollError": "Erro Última Sondagem"
+    },
+    "tabs": {
+      "overview": "Visão Geral",
+      "snmpMetrics": "Métricas SNMP",
+      "configBackups": "Backups de Config.",
+      "workOrders": "Ordens de Serviço",
+      "outages": "Interrupções"
+    },
+    "snmp": {
+      "empty": "Nenhuma métrica SNMP encontrada.",
+      "polledAt": "Data da Sondagem"
+    },
+    "backups": {
+      "empty": "Nenhum backup de configuração encontrado.",
+      "version": "Versão",
+      "configType": "Tipo de Config.",
+      "captureMethod": "Método de Captura",
+      "createdAt": "Criado em"
+    },
+    "workOrders": {
+      "empty": "Nenhuma ordem de serviço encontrada.",
+      "id": "ID",
+      "title": "Título",
+      "workType": "Tipo",
+      "status": "Status",
+      "scheduledAt": "Agendado"
+    },
+    "outages": {
+      "empty": "Nenhuma interrupção encontrada.",
+      "title": "Título",
+      "severity": "Severidade",
+      "status": "Status",
+      "startedAt": "Início",
+      "resolvedAt": "Resolvido"
+    }
+  },
+  "siteDetail": {
+    "backToList": "Voltar a Sites",
+    "loading": "Carregando site…",
+    "notFound": "Site não encontrado.",
+    "overview": {
+      "hint": "Selecione uma aba para ver dados do site."
+    },
+    "fields": {
+      "siteType": "Tipo",
+      "location": "Localização",
+      "latitude": "Latitude",
+      "longitude": "Longitude"
+    },
+    "tabs": {
+      "overview": "Visão Geral",
+      "devices": "Dispositivos",
+      "nas": "NAS",
+      "ipPools": "Pools de IP",
+      "workOrders": "Ordens de Serviço",
+      "outages": "Interrupções"
+    },
+    "devices": {
+      "empty": "Nenhum dispositivo neste site.",
+      "name": "Nome",
+      "type": "Tipo",
+      "status": "Status",
+      "ipAddress": "Endereço IP"
+    },
+    "nas": {
+      "empty": "Nenhum dispositivo NAS neste site.",
+      "name": "Nome",
+      "ipAddress": "Endereço IP",
+      "status": "Status"
+    },
+    "ipPools": {
+      "empty": "Nenhum pool de IP neste site.",
+      "name": "Nome",
+      "network": "Rede/CIDR",
+      "status": "Status"
+    },
+    "workOrders": {
+      "empty": "Nenhuma ordem de serviço para este site.",
+      "id": "ID",
+      "title": "Título",
+      "workType": "Tipo",
+      "status": "Status"
+    },
+    "outages": {
+      "empty": "Nenhuma interrupção para este site.",
+      "title": "Título",
+      "severity": "Severidade",
+      "status": "Status",
+      "startedAt": "Início"
+    }
+  },
+  "nasDetail": {
+    "backToList": "Voltar a NAS",
+    "loading": "Carregando NAS…",
+    "notFound": "NAS não encontrado.",
+    "viewSite": "Ver site",
+    "overview": {
+      "hint": "Selecione uma aba para ver dados do NAS."
+    },
+    "fields": {
+      "ipAddress": "Endereço IP",
+      "ipv6Address": "Endereço IPv6",
+      "type": "Tipo",
+      "ports": "Portas",
+      "coaPort": "Porta CoA",
+      "location": "Localização",
+      "siteId": "ID do Site",
+      "healthStatus": "Status de Saúde",
+      "lastHealthCheckAt": "Última Verificação",
+      "apiPort": "Porta API",
+      "apiUsername": "Usuário API",
+      "apiUseTls": "Usar TLS"
+    },
+    "tabs": {
+      "overview": "Visão Geral",
+      "health": "Saúde",
+      "liveSessions": "Sessões Ativas"
+    },
+    "health": {
+      "lastCheck": "Última verificação",
+      "runHealthCheck": "Executar verificação de saúde",
+      "testConnection": "Testar conexão",
+      "running": "Executando…"
+    },
+    "sessions": {
+      "empty": "Nenhuma sessão ativa.",
+      "username": "Usuário",
+      "ipAddress": "Endereço IP",
+      "macAddress": "Endereço MAC",
+      "nasPortId": "ID Porta NAS"
+    }
+  },
   "aiSupport": {
     "title": "Suporte IA ao Cliente",
     "tabs": { "chat": "Chat", "kb": "Base de Conhecimento", "metrics": "Métricas", "noc": "Perspectivas NOC" },

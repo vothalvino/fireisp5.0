@@ -3056,6 +3056,162 @@
     "errorMessage": "Error",
     "noLogs": "No sync logs yet"
   },
+  "deviceDetail": {
+    "backToList": "Back to Devices",
+    "loading": "Loading device…",
+    "notFound": "Device not found.",
+    "overview": {
+      "hint": "Select a tab to view device data."
+    },
+    "fields": {
+      "category": "Category",
+      "type": "Type",
+      "manufacturer": "Manufacturer",
+      "model": "Model",
+      "serialNumber": "Serial Number",
+      "macAddress": "MAC Address",
+      "ipAddress": "IP Address",
+      "ipv6Address": "IPv6 Address",
+      "firmwareVersion": "Firmware",
+      "snmpEnabled": "SNMP Enabled",
+      "snmpVersion": "SNMP Version",
+      "siteId": "Site ID",
+      "clientId": "Client ID",
+      "contractId": "Contract ID",
+      "lastPolledAt": "Last Polled",
+      "lastPollError": "Last Poll Error"
+    },
+    "tabs": {
+      "overview": "Overview",
+      "snmpMetrics": "SNMP Metrics",
+      "configBackups": "Config Backups",
+      "workOrders": "Work Orders",
+      "outages": "Outages"
+    },
+    "snmp": {
+      "empty": "No SNMP metrics found.",
+      "polledAt": "Polled At"
+    },
+    "backups": {
+      "empty": "No config backups found.",
+      "version": "Version",
+      "configType": "Config Type",
+      "captureMethod": "Capture Method",
+      "createdAt": "Created"
+    },
+    "workOrders": {
+      "empty": "No work orders found.",
+      "id": "ID",
+      "title": "Title",
+      "workType": "Type",
+      "status": "Status",
+      "scheduledAt": "Scheduled"
+    },
+    "outages": {
+      "empty": "No outages found.",
+      "title": "Title",
+      "severity": "Severity",
+      "status": "Status",
+      "startedAt": "Started",
+      "resolvedAt": "Resolved"
+    }
+  },
+  "siteDetail": {
+    "backToList": "Back to Sites",
+    "loading": "Loading site…",
+    "notFound": "Site not found.",
+    "overview": {
+      "hint": "Select a tab to view site data."
+    },
+    "fields": {
+      "siteType": "Type",
+      "location": "Location",
+      "latitude": "Latitude",
+      "longitude": "Longitude"
+    },
+    "tabs": {
+      "overview": "Overview",
+      "devices": "Devices",
+      "nas": "NAS",
+      "ipPools": "IP Pools",
+      "workOrders": "Work Orders",
+      "outages": "Outages"
+    },
+    "devices": {
+      "empty": "No devices at this site.",
+      "name": "Name",
+      "type": "Type",
+      "status": "Status",
+      "ipAddress": "IP Address"
+    },
+    "nas": {
+      "empty": "No NAS devices at this site.",
+      "name": "Name",
+      "ipAddress": "IP Address",
+      "status": "Status"
+    },
+    "ipPools": {
+      "empty": "No IP pools at this site.",
+      "name": "Name",
+      "network": "Network/CIDR",
+      "status": "Status"
+    },
+    "workOrders": {
+      "empty": "No work orders for this site.",
+      "id": "ID",
+      "title": "Title",
+      "workType": "Type",
+      "status": "Status"
+    },
+    "outages": {
+      "empty": "No outages for this site.",
+      "title": "Title",
+      "severity": "Severity",
+      "status": "Status",
+      "startedAt": "Started"
+    }
+  },
+  "nasDetail": {
+    "backToList": "Back to NAS",
+    "loading": "Loading NAS…",
+    "notFound": "NAS not found.",
+    "viewSite": "View site",
+    "overview": {
+      "hint": "Select a tab to view NAS data."
+    },
+    "fields": {
+      "ipAddress": "IP Address",
+      "ipv6Address": "IPv6 Address",
+      "type": "Type",
+      "ports": "Ports",
+      "coaPort": "CoA Port",
+      "location": "Location",
+      "siteId": "Site ID",
+      "healthStatus": "Health Status",
+      "lastHealthCheckAt": "Last Health Check",
+      "apiPort": "API Port",
+      "apiUsername": "API Username",
+      "apiUseTls": "Use TLS"
+    },
+    "tabs": {
+      "overview": "Overview",
+      "health": "Health",
+      "liveSessions": "Live Sessions"
+    },
+    "health": {
+      "lastCheck": "Last check",
+      "runHealthCheck": "Run health check",
+      "testConnection": "Test connection",
+      "running": "Running…"
+    },
+    "sessions": {
+      "empty": "No active sessions.",
+      "username": "Username",
+      "ipAddress": "IP Address",
+      "macAddress": "MAC Address",
+      "nasPortId": "NAS Port ID"
+    }
+  },
   "aiSupport": {
     "title": "AI Customer Support",
     "tabs": { "chat": "Chat", "kb": "Knowledge Base", "metrics": "Metrics", "noc": "NOC Insights" },
