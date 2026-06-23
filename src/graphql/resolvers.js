@@ -11,6 +11,7 @@
 
 const db = require('../config/database');
 const Client = require('../models/Client');
+const Contract = require('../models/Contract');
 const Invoice = require('../models/Invoice');
 const Ticket = require('../models/Ticket');
 const AiPolicy = require('../models/AiPolicy');
@@ -41,6 +42,8 @@ const resolvers = {
         limit: clamp(limit, 50, MAX_LIMIT),
         offset: clamp(offset, 0, 1e6),
       }),
+
+    contract: (_parent, { id }, ctx) => Contract.findById(id, ctx.orgId),
 
     invoice: (_parent, { id }, ctx) => Invoice.findById(id, ctx.orgId),
 
@@ -228,7 +231,7 @@ const resolvers = {
   },
 
   // ---------------------------------------------------------------------------
-  // Contract field resolvers (snake_case → camelCase mapping)
+  // Contract field resolvers (snake_case → camelCase mapping + nested)
   // ---------------------------------------------------------------------------
   Contract: {
     clientId: (c) => c.client_id,
@@ -240,6 +243,42 @@ const resolvers = {
     ipAddress: (c) => c.ip_address,
     priceOverride: (c) => c.price_override,
     createdAt: (c) => c.created_at,
+
+    client: (contract, _args, ctx) =>
+      contract.client_id ? Client.findById(contract.client_id, ctx.orgId) : null,
+
+    invoices: async (contract, _args, ctx) => {
+      const [rows] = await db.query(
+        'SELECT * FROM invoices WHERE contract_id = ? AND organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC',
+        [contract.id, ctx.orgId],
+      );
+      return rows;
+    },
+
+    devices: async (contract, _args, ctx) => {
+      const [rows] = await db.query(
+        'SELECT * FROM devices WHERE contract_id = ? AND organization_id = ? AND deleted_at IS NULL ORDER BY id',
+        [contract.id, ctx.orgId],
+      );
+      return rows;
+    },
+
+    addons: (contract) => Contract.getAddons(contract.id),
+  },
+
+  // ---------------------------------------------------------------------------
+  // ContractAddon field resolvers (snake_case → camelCase mapping)
+  // ---------------------------------------------------------------------------
+  ContractAddon: {
+    contractId: (a) => a.contract_id,
+    planAddonId: (a) => a.plan_addon_id,
+    addonName: (a) => a.addon_name || null,
+    addonType: (a) => a.addon_type || null,
+    quantity: (a) => a.quantity !== null && a.quantity !== undefined ? String(a.quantity) : null,
+    unitPrice: (a) => a.unit_price !== null && a.unit_price !== undefined ? String(a.unit_price) : null,
+    startDate: (a) => a.start_date || null,
+    endDate: (a) => a.end_date || null,
+    status: (a) => a.status || 'active',
   },
 
   // ---------------------------------------------------------------------------

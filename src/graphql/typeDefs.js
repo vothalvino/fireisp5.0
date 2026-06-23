@@ -15,6 +15,9 @@ module.exports = /* GraphQL */ `
     """List clients for the current org."""
     clients(limit: Int, offset: Int): [Client!]!
 
+    """Fetch a single contract by ID (org-scoped)."""
+    contract(id: ID!): Contract
+
     """Fetch a single invoice by ID (org-scoped)."""
     invoice(id: ID!): Invoice
 
@@ -81,6 +84,31 @@ module.exports = /* GraphQL */ `
     priceOverride: String
     notes: String
     createdAt: String!
+
+    """The client who owns this contract."""
+    client: Client
+
+    """Invoices issued against this contract."""
+    invoices: [Invoice!]!
+
+    """Devices assigned to this contract."""
+    devices: [Device!]!
+
+    """Add-ons attached to this contract."""
+    addons: [ContractAddon!]!
+  }
+
+  type ContractAddon {
+    id: ID!
+    contractId: ID!
+    planAddonId: ID!
+    addonName: String
+    addonType: String
+    quantity: String
+    unitPrice: String
+    startDate: String
+    endDate: String
+    status: String!
   }
 
   type Invoice {

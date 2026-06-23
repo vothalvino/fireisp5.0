@@ -36,6 +36,7 @@ const { assertGraphqlPermission } = require('./authz');
 const FIELD_PERMISSIONS = {
   Query: {
     client: ['clients.view'], clients: ['clients.view'],
+    contract: ['contracts.view'],
     invoice: ['invoices.view'], invoices: ['invoices.view'],
     ticket: ['tickets.view'], tickets: ['tickets.view'],
     aiPolicy: ['ai.policy.read'], aiReplyLogs: ['ai.policy.read'],

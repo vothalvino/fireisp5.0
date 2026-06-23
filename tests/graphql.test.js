@@ -255,6 +255,107 @@ describe('GraphQL endpoint — /api/v1/graphql', () => {
   });
 
   // -----------------------------------------------------------------------
+  // contract query
+  // -----------------------------------------------------------------------
+
+  test('contract(id) — returns contract with camelCase fields', async () => {
+    mockQuery.mockResolvedValueOnce([[CONTRACT_ROW]]);  // findById
+
+    const res = await graphql(`
+      query {
+        contract(id: "20") {
+          id clientId planId connectionType startDate billingDay ipAddress status createdAt
+        }
+      }
+    `);
+
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toBeUndefined();
+    const { contract } = res.body.data;
+    expect(contract.id).toBe('20');
+    expect(contract.clientId).toBe('10');
+    expect(contract.planId).toBe('3');
+    expect(contract.connectionType).toBe('fiber');
+    expect(contract.ipAddress).toBe('10.0.0.100');
+    expect(contract.billingDay).toBe(1);
+    expect(contract.status).toBe('active');
+  });
+
+  test('contract(id) — returns null for unknown ID', async () => {
+    mockQuery.mockResolvedValueOnce([[]]); // no row
+
+    const res = await graphql(`
+      query { contract(id: "9999") { id status } }
+    `);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.contract).toBeNull();
+  });
+
+  test('contract — nested client resolves correctly', async () => {
+    mockQuery
+      .mockResolvedValueOnce([[CONTRACT_ROW]])  // contract findById
+      .mockResolvedValueOnce([[CLIENT_ROW]]);   // client findById
+
+    const res = await graphql(`
+      query {
+        contract(id: "20") {
+          id status
+          client { id name status }
+        }
+      }
+    `);
+
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toBeUndefined();
+    const { contract } = res.body.data;
+    expect(contract.client.name).toBe('Acme Corp');
+    expect(contract.client.id).toBe('10');
+  });
+
+  test('contract — nested invoices resolve correctly', async () => {
+    mockQuery
+      .mockResolvedValueOnce([[CONTRACT_ROW]])    // contract findById
+      .mockResolvedValueOnce([[INVOICE_ROW]]);    // invoices sub-query
+
+    const res = await graphql(`
+      query {
+        contract(id: "20") {
+          invoices { id invoiceNumber total status }
+        }
+      }
+    `);
+
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toBeUndefined();
+    const { invoices } = res.body.data.contract;
+    expect(invoices).toHaveLength(1);
+    expect(invoices[0].invoiceNumber).toBe('INV-0001');
+    expect(invoices[0].total).toBe('580.00');
+  });
+
+  test('contract — nested devices and addons return empty arrays when no rows', async () => {
+    mockQuery
+      .mockResolvedValueOnce([[CONTRACT_ROW]])  // contract findById
+      .mockResolvedValueOnce([[]])              // devices sub-query
+      .mockResolvedValueOnce([[]]);             // addons sub-query
+
+    const res = await graphql(`
+      query {
+        contract(id: "20") {
+          devices { id }
+          addons  { id }
+        }
+      }
+    `);
+
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toBeUndefined();
+    expect(res.body.data.contract.devices).toEqual([]);
+    expect(res.body.data.contract.addons).toEqual([]);
+  });
+
+  // -----------------------------------------------------------------------
   // clients list query
   // -----------------------------------------------------------------------
 

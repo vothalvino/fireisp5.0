@@ -37,6 +37,7 @@ import { WinbackCampaignList } from '@/pages/WinbackCampaignList';
 import { CommunicationCampaignList } from '@/pages/CommunicationCampaignList';
 import { ChurnAnalytics } from '@/pages/ChurnAnalytics';
 import { ContractList } from '@/pages/ContractList';
+import { ContractDetail } from '@/pages/ContractDetail';
 import { InvoiceList } from '@/pages/InvoiceList';
 import { InvoiceDetail } from '@/pages/InvoiceDetail';
 import { PaymentList } from '@/pages/PaymentList';
@@ -205,6 +206,7 @@ export function App() {
                 <Route path="leads" element={<LeadList />} />
                 <Route path="service-orders" element={<ServiceOrderList />} />
                 <Route path="contracts" element={<ContractList />} />
+                <Route path="contracts/:id" element={<ContractDetail />} />
                 <Route path="invoices" element={<InvoiceList />} />
                 <Route path="invoices/:id" element={<InvoiceDetail />} />
                 <Route path="payments" element={<PaymentList />} />

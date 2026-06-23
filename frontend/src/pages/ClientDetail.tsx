@@ -303,7 +303,14 @@ function ContractsTab({ contracts }: { contracts: Contract[] }) {
         <tbody>
           {contracts.map(c => (
             <tr key={c.id} style={styles.tr}>
-              <td style={styles.td}>#{c.id}</td>
+              <td style={styles.td}>
+                <Link
+                  to={`/contracts/${c.id}`}
+                  style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}
+                >
+                  #{c.id}
+                </Link>
+              </td>
               <td style={{ ...styles.td, textTransform: 'capitalize' }}>{c.connectionType || '—'}</td>
               <td style={styles.td}>{fmt(c.startDate)}</td>
               <td style={styles.td}>{fmt(c.endDate)}</td>
