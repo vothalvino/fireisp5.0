@@ -98,7 +98,6 @@ function generateSpec() {
       { name: 'Checkout', description: 'Self-service checkout' },
       { name: 'Expenses', description: 'Expense tracking' },
       { name: 'Revenue Summary', description: 'Revenue summaries' },
-      { name: 'Jobs', description: 'Background job management' },
       { name: 'Scheduled Tasks', description: 'Cron task management' },
       { name: 'Warehouses', description: 'Warehouse management' },
       { name: 'Inventory', description: 'Inventory and stock management' },
@@ -774,9 +773,6 @@ function generateSpec() {
 
       // ---- Revenue Summary ----
       '/revenue-summary': { get: { tags: ['Revenue Summary'], summary: 'List revenue summaries', operationId: 'listRevenueSummaries', security: [{ bearerAuth: [] }], responses: r200('RevenueSummary[]') } },
-
-      // ---- Jobs ----
-      ...crudPaths('jobs', 'Jobs', 'Job'),
 
       // ---- Scheduled Tasks ----
       ...crudPaths('scheduled-tasks', 'Scheduled Tasks', 'ScheduledTask'),

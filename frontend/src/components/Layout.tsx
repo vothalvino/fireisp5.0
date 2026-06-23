@@ -136,7 +136,6 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/webhooks', labelKey: 'nav.webhooks', requiredRole: 'admin' },
       { to: '/audit-logs', labelKey: 'nav.auditLogs', requiredRole: 'admin' },
       { to: '/scheduled-tasks', labelKey: 'nav.scheduledTasks', requiredRole: 'admin' },
-      { to: '/jobs', labelKey: 'nav.jobs', requiredRole: 'admin' },
       { to: '/queue-stats', labelKey: 'nav.queueStats', requiredRole: 'admin' },
       { to: '/ai-assistant', labelKey: 'nav.aiAssistant', requiredRole: 'admin' },
       { to: '/settings', labelKey: 'nav.settings', requiredRole: 'admin' },

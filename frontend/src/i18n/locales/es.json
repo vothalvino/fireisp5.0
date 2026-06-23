@@ -132,7 +132,6 @@
                 "facturasPublicas":  "🧾 Facturas Públicas",
                 "communicationCampaigns":  "📣 Campañas",
                 "messageTemplates":  "✉️ Plantillas de Mensajes",
-                "jobs":  "🛠️ Trabajos de Campo",
                 "queueStats":  "📥 Estado de Colas",
                 "analyticsDashboard":  "Panel de Analíticas",
                 "regulatoryCompliance": "Cumplimiento Regulatorio",
@@ -2518,6 +2517,20 @@
                        "noOrders":  "No se encontraron órdenes de trabajo",
                        "materials":  "Materiales",
                        "addMaterial":  "Agregar Material",
+                       "target":  "Destino",
+                       "type":  "Tipo",
+                       "client":  "Cliente",
+                       "site":  "Sitio",
+                       "device":  "Dispositivo",
+                       "none":  "—",
+                       "targetRequired":  "Selecciona al menos un destino: cliente, sitio o dispositivo.",
+                       "workType":  {
+                                      "installation":  "Instalación",
+                                      "maintenance":  "Mantenimiento",
+                                      "repair":  "Reparación",
+                                      "survey":  "Inspección",
+                                      "other":  "Otro"
+                                  },
                        "status":  {
                                       "pending":  "Pendiente",
                                       "assigned":  "Asignado",

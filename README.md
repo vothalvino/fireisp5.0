@@ -109,8 +109,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 322 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–362)
+│   ├── schema.sql           # Combined schema (all 321 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–363)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -175,315 +175,314 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 11 | `invoices` | Billing records issued to clients |
 | 12 | `payments` | Payment records received from clients |
 | 13 | `quotes` | Service estimates and proposals |
-| 14 | `jobs` | Field work orders (installations, maintenance, repairs) |
-| 15 | `expenses` | Operational expenses, optionally linked to jobs |
-| 16 | `organizations` | ISP company / tenant configuration |
-| 17 | `files` | File metadata for entity-scoped storage (devices, clients, tickets, organizations, backups) |
-| 18 | `ip_pools` | IP address pools for subscriber assignment (IPAM) — supports both IPv4 and IPv6 pools |
-| 19 | `ip_assignments` | Individual IP / prefix assignments to clients and devices (IPv4 single-address or IPv6 prefix delegation) |
-| 20 | `audit_logs` | System-wide audit trail (who changed what and when) |
-| 21 | `notifications` | User notifications and alerts (billing, network, tickets) |
-| 22 | `invoice_items` | Individual line items that make up an invoice's subtotal |
-| 23 | `quote_items` | Individual line items that make up a quote's subtotal |
-| 24 | `ticket_comments` | Conversation tracking and internal notes on support tickets |
-| 25 | `snmp_metrics` | Raw SNMP poll data (5-min intervals, 90-day retention) — wide table, one row per device/interface per poll, partitioned by month |
-| 26 | `snmp_metrics_1hr` | Hourly SNMP metric aggregates (avg/min/max per metric column, 1-year retention) |
-| 27 | `snmp_metrics_1day` | Daily SNMP metric aggregates (avg/min/max per metric column, 3+ year retention) |
-| 28 | `snmp_metrics_1month` | Monthly SNMP metric aggregates (avg/min/max per metric column, 3-year retention via high-watermark rollup from snmp_metrics_1day) |
-| 29 | `snmp_rollup_state` | High-watermark table tracking the last successfully rolled-up timestamp per tier |
-| 30 | `snmp_profiles` | SNMP OID polling profiles — named templates that map device brands/models to their OIDs |
-| 31 | `snmp_profile_oids` | Individual OID-to-column mappings belonging to an SNMP profile |
-| 32 | `snmp_traps` | SNMP trap receiver log — stores unsolicited trap messages (coldStart, warmStart, linkDown, linkUp, authenticationFailure, egpNeighborLoss, enterpriseSpecific) from network devices |
-| 33 | `dr_drill_logs` | Audit log for automated quarterly DR-drill runs — records backup verification, referential-integrity checks, financial-consistency queries, and pass/fail status |
-| 34 | `connection_logs` | Subscriber session events (start/stop/interim-update) for regulatory compliance and per-contract data usage — partitioned by month, 2-year retention |
-| 35 | `warehouses` | Physical storage locations for spare equipment and materials (multiple warehouses supported) |
-| 36 | `inventory_items` | Catalog of spare equipment and materials (antennas, cables, routers, ONUs, etc.) |
-| 37 | `inventory_stock` | Current stock levels per item per warehouse location (aisle / column / shelf) |
-| 38 | `inventory_transactions` | Immutable log of every stock movement — receiving, job assignments, client sales, transfers, returns, and adjustments |
-| 39 | `credit_notes` | Credit notes issued to clients — for returns, courtesy, service outages, billing errors, duplicate payments, downgrades, cancellations, etc. |
-| 40 | `credit_note_items` | Individual line items that make up a credit note's subtotal |
-| 41 | `payment_allocations` | Junction table for split payments — records what portion of a payment was applied to each invoice (supports one-payment-many-invoices) |
-| 42 | `billing_periods` | Tracks each contract's billing windows — which periods have been invoiced, which are upcoming, and when the next invoice should be auto-generated |
-| 43 | `network_links` | Device-to-device connections — fiber, wireless, copper, or virtual links with capacity and interface metadata |
-| 44 | `settings` | App settings / key-value configuration store — system-wide settings such as default tax rate, currency, invoice prefix, SMTP config, and SNMP poll interval |
-| 45 | `tax_rules` | Tax rules per region and service type — supports VAT, sales tax, GST, and other regional tax configurations for multi-country ISPs |
-| 46 | `client_balance_ledger` | Running account balance per client (prepaid / postpaid tracking) — records every debit (invoice, usage deduction) and credit (payment, top-up, credit note, adjustment) with a running balance; supports prepaid (credit remaining) and postpaid (amount owed) billing models |
-| 47 | `email_logs` | Email / SMS / WhatsApp send log — records every message sent to clients or internal users with delivery status (queued, sent, delivered, failed, bounced) |
-| 48 | `scheduled_tasks` | App-level task queue — dispatches recurring and one-shot jobs (auto-suspend overdue clients, generate invoices, RADIUS sync, SNMP polls) with cron scheduling, distributed locking, retry logic, priority ordering, and JSON payloads |
-| 49 | `user_sessions` | Active session tracking for security audit — stores hashed session tokens, IP address, user-agent, and expiry; enables "logout all devices" and suspicious-login detection |
-| 50 | `portal_refresh_tokens` | Client self-service portal refresh tokens — stores SHA-256 hashed tokens for long-lived authentication with expiry and revocation tracking |
-| 51 | `roles` | RBAC role definitions — named roles with optional system-role flag (system roles cannot be deleted) |
-| 52 | `permissions` | RBAC permission definitions — granular permission slugs (e.g. `clients.view`, `invoices.create`) grouped by functional module |
-| 53 | `role_permissions` | RBAC junction table — maps roles to their granted permissions (many-to-many) |
-| 54 | `outages` | Planned and unplanned outage log — tracks network-wide events affecting many clients at once, per site and/or device with start/end times, severity, affected client count, root cause, and resolution status |
-| 55 | `schema_migrations` | Migration state tracking — records which migration files have been applied so the deploy script can skip already-run files |
-| 56 | `vlans` | VLAN registry linked to sites — tracks IEEE 802.1Q VLAN IDs per site for network segmentation, service isolation, and capacity planning |
-| 57 | `tax_rates` | Named tax configurations (e.g. "IVA 16%", "Exempt", "GST 5%") — master table of reusable tax rates referenced by invoices, quotes, and credit notes |
-| 58 | `message_templates` | Reusable message templates for email, SMS, and WhatsApp — stores subject, body, and placeholder variables for outbound communications (invoice reminders, welcome messages, outage alerts) |
-| 59 | `api_tokens` | API keys for external integrations — hashed token secrets with optional scopes, expiry, revocation, and last-used tracking for third-party billing, monitoring tools, and custom integrations |
-| 60 | `promotions` | Coupon codes, promotional pricing, and referral discounts — supports percentage and fixed-amount discounts with optional coupon codes, validity windows, per-client usage limits, and minimum order thresholds |
-| 61 | `service_areas` | Geographic service areas (regions / markets) for sales territory assignment and network planning — named boundary polygons (WGS 84) linked to sites, with planned/active/retired status and map colour |
-| 62 | `coverage_zones` | Coverage zones within a service area — finer-grained polygons describing network reach, access technology (fiber, fixed wireless, DSL, cable, satellite, LTE, 5G), maximum speeds, and build-out status |
-| 63 | `sla_definitions` | SLA terms per plan — uptime guarantees (e.g. 99.95%), maximum response and resolution times, compensation rules for SLA breaches, measurement periods, and maintenance-window exclusions |
-| 64 | `device_config_backups` | Versioned configuration snapshots per device — stores MikroTik exports, RouterOS backups, Cisco running-config, and similar captures with SHA-256 checksums for change detection, version tracking, and capture method (manual, scheduled, pre/post change) |
-| 65 | `client_mx_profiles` | Mexico extension for clients (1:1) — required when `clients.locale = 'MX'` and at least one contract has `facturar = TRUE`; stores RFC, CURP, razon_social, regimen_fiscal, codigo_postal_fiscal, and Mexican address fields for CFDI 4.0 compliance |
-| 66 | `organization_mx_profiles` | Mexico extension for organizations (1:1) — required when `organizations.locale = 'MX'`; stores RFC, razon_social, CSD digital-seal certificate, PAC stamping credentials, CFDI series/folio numbering, and Mexican address fields |
-| 67 | `sat_regimen_fiscal` | SAT catalog c_RegimenFiscal — fiscal regime codes (601–626) used on CFDI 4.0 issuer and receptor nodes |
-| 68 | `sat_uso_cfdi` | SAT catalog c_UsoCFDI — permitted use codes for the CFDI receptor (G01, G03, S01, CP01, etc.) |
-| 69 | `sat_forma_pago` | SAT catalog c_FormaPago — payment instrument codes (01=cash, 03=SPEI, 28=debit card, 99=TBD, etc.) |
-| 70 | `sat_metodo_pago` | SAT catalog c_MetodoPago — payment timing: PUE (single payment) or PPD (installments / deferred) |
-| 71 | `sat_tipo_comprobante` | SAT catalog c_TipoDeComprobante — CFDI document type: I=ingreso, E=egreso, P=pago, T=traslado, N=nómina |
-| 72 | `sat_moneda` | SAT catalog c_Moneda (subset) — currencies accepted in CFDI 4.0: MXN, USD, EUR, XXX |
-| 73 | `sat_clave_prod_serv` | SAT catalog c_ClaveProdServ — product and service classification codes (e.g. `81161700` for internet access) required on every CFDI 4.0 line item |
-| 74 | `sat_clave_unidad` | SAT catalog c_ClaveUnidad — unit-of-measure codes (e.g. `E48` for service unit, `H87` for piece) required on every CFDI 4.0 line item |
-| 75 | `cfdi_documents` | Core CFDI 4.0 fiscal document records linked to invoices, credit notes, and payments — stores folio fiscal UUID, XML, PDF URL, PAC stamping metadata, SAT status, and receiver snapshot |
-| 76 | `cfdi_related_documents` | CfdiRelacionados rows per CFDI document — records relationships between CFDIs (e.g. credit note referencing original invoice, substitution of cancelled CFDI) |
-| 77 | `cfdi_payment_complements` | Complemento de Pago 2.0 headers — one per payment event for PPD invoices; records payment date, payment form, amounts, and bank details |
-| 78 | `cfdi_payment_complement_items` | DoctoRelacionado rows per Complemento de Pago — links each payment event to the specific PPD invoices being settled with balance tracking |
-| 79 | `cfdi_payment_complement_item_taxes` | Per-DoctoRelacionado tax breakdown (ImpuestosP) for Complemento de Pago 2.0 — one row per `<Traslado>` or `<Retencion>` inside a payment complement item; stores tax type, SAT tax code, rate type, rate, taxable base, and calculated tax amount |
-| 80 | `cfdi_conceptos` | CFDI 4.0 concept (line item) rows — one per `<Concepto>` node; stores SAT product/service key, unit key, quantity, description, unit price, line total, optional discount, and ObjetoImp indicator |
-| 81 | `cfdi_concepto_impuestos` | Per-line tax breakdown for CFDI 4.0 — one row per `<Traslado>` or `<Retencion>` inside a concept; stores tax type, SAT tax code (ISR/IVA/IEPS), rate type, rate, taxable base, and calculated tax amount |
-| 82 | `concession_titles` | IFT/CRT concession title registry — tracks title number, type, authorized services, spectrum bands, validity dates, and regulatory status for each organization |
-| 83 | `regulatory_filings` | IFT/CRT periodic filing log — annual reports, quarterly stats, tariff registrations, QoS reports, and other LFTR-mandated submissions |
-| 84 | `contract_templates_mx` | IFT/CRT-registered Carta de Adhesión templates — stores the registered standard contract model including registration number, version, body text, and approval status |
-| 85 | `ift_statistical_reports` | Pre-aggregated IFT/CRT reporting snapshots — subscriber counts by speed tier/state/technology, average speeds, coverage municipalities, and revenue per reporting period (see [`docs/ift-statistical-report-schema-review.md`](docs/ift-statistical-report-schema-review.md) for the field-by-field validation against the IFT *Formato Estadístico* — UI/export work is gated on that review) |
-| 86 | `factura_publica_invoices` | Factura pública (venta al público en general) periodic aggregation documents — when MX contracts have `facturar = FALSE`, their invoices are aggregated into a periodic factura pública per SAT InformacionGlobal (Periodicidad, Meses, Año); one row per organization per period |
-| 87 | `factura_publica_invoice_items` | Junction table linking individual invoices from contracts with `facturar = FALSE` to their parent factura pública — each invoice belongs to at most one factura pública document |
-| 88 | `payment_gateways` | Payment gateway provider configuration per organization (Stripe, Conekta, OpenPay, MercadoPago, PayPal, manual) — stores environment, encrypted credentials, webhook secrets, and provider-specific JSON config |
-| 89 | `payment_transactions` | Raw gateway transaction log for every payment attempt — provider reference ID, gateway status, raw request/response payloads, webhook data, and idempotency key for auditing and reconciliation |
-| 90 | `payment_retries` | Failed payment retry scheduler — tracks retry attempts with exponential backoff (4h → 24h → 72h) for failed payment_transactions; max 3 attempts |
-| 91 | `recurring_payment_profiles` | Stored card / token per client for autopay (recurring charges) — gateway customer ID or card token, card brand, last four digits, expiry, and lifecycle status |
-| 92 | `suspension_rules` | Configurable suspension rules per organization — days-past-due threshold, grace period, action (auto_suspend / notify_only / auto_disconnect), optional plan-ID scoping |
-| 93 | `suspension_logs` | History of suspend / unsuspend / disconnect / reconnect events per contract — triggering rule, performer, RADIUS CoA sent/response, and linked invoice |
-| 94 | `csd_certificates` | CSD (Certificado de Sello Digital) storage per organization for SAT CFDI 4.0 stamping — PEM-encoded public certificate, encrypted private key, SHA-256 fingerprint, and expiry monitoring |
-| 95 | `pac_providers` | PAC (Proveedor Autorizado de Certificación) provider credentials and endpoint configuration per organization — supports Finkok, SW Sapien, Digicel, Comercio Digital, FacturAPI with sandbox/production environments |
-| 96 | `webhooks` | Outbound webhook registrations per organization — target URL, HMAC signing secret, JSON event subscriptions, max retries, and timeout configuration |
-| 97 | `webhook_deliveries` | Delivery log for outbound webhooks — HTTP status, response body, response time, attempt number, retry scheduling, and delivery outcome |
-| 98 | `organization_users` | Pivot table linking users to organizations with per-organization roles (owner, admin, manager, technician, billing, readonly) — enables multi-tenant user membership |
-| 99 | `plan_addons` | Catalog of plan add-ons available for sale per organization — static IP, extra IP block, extra bandwidth, equipment rental; price and billing cycle (monthly / one-time / yearly) |
-| 100 | `contract_addons` | Add-ons attached to a specific client contract — references plan_addons catalog, stores contracted quantity, negotiated unit price, validity window, and lifecycle status |
-| 101 | `speed_tests` | Speed test results from client portal, technician tools, automated probes, or external services — download/upload Mbps, latency, jitter, packet loss for SLA correlation |
-| 102 | `ticket_sla_events` | SLA tracking events per support ticket — first-response time, resolution time, escalation, breach warnings, and breaches; pairs with sla_definitions for target comparison |
-| 103 | `sms_logs` | SMS and WhatsApp notification logging per organization — complements email_logs for non-email channels; captures direction, provider, delivery status, cost, and timestamps |
-| 104 | `revenue_summary` | Materialized revenue summary for MRR / churn / ARPU reporting — populated by a scheduled task (not a view); one row per organization per calendar month per currency |
-| 105 | `network_health_snapshots` | Aggregated daily device uptime and link utilization snapshots — uptime %, avg/peak latency, avg/peak throughput in/out, packet loss, total downtime minutes |
-| 106 | `cfdi_cancellations` | SAT CFDI cancellation audit trail — cancellation reason code (motivo 01–04), optional replacement UUID (folio_sustitucion), PAC response status, and raw acuse XML acknowledgement |
-| 107 | `firerelay_nodes` | FireRelay cluster node registry — tracks node ID, API URL, status (active/draining/maintenance/offline), resource metrics (CPU/memory/disk), client and device counts; only used when `FIRERELAY_MODE = master` |
-| 108 | `firerelay_client_routing` | Client-to-node routing map for FireRelay cluster — maps each `client_id` to the node that owns it; only used when `FIRERELAY_MODE = master` |
-| 109 | `webhook_events` | Inbound payment gateway webhook events — stores raw event payloads from Stripe, Conekta, and other providers with deduplication via unique `(provider, provider_event_id)` constraint, processing status, and linked `payment_transactions` record after reconciliation |
-| 110 | `idempotency_keys` | Idempotency key storage for payment charge requests — prevents duplicate charges when the same key is submitted more than once; keys expire after 24 hours; scoped per organization |
-| 111 | `alert_rules` | Configurable monitoring alert rules per organization — defines metric thresholds (CPU, memory, signal, latency, packet loss, uptime), evaluation windows, severity levels, optional auto-outage creation, and notification channel routing (email/SMS/SSE/webhook) |
-| 112 | `alert_events` | Triggered alert event log — records each time an alert rule fires with current vs threshold values, acknowledgement tracking, and resolution timestamps |
-| 113 | `organization_sso_configs` | Per-organization SSO configuration — one row per (organization, provider_type); stores SAML 2.0 IdP metadata (entity ID, SSO URL, SLO URL, X.509 signing certificate, SP private key) and OIDC settings (issuer, client ID/secret, scopes); controls auto-provisioning behaviour and the default role for new SSO users |
-| 114 | `organization_sso_group_mappings` | IdP group-to-role mapping — maps an exact IdP group name to a FireISP role (admin/manager/technician/billing/readonly) for a given SSO config; evaluated at login to assign the highest-ranked matching role |
-| 115 | `sso_auth_states` | Short-lived OIDC authorization state / nonce store — holds the random `state` and `nonce` parameters generated at the start of an OIDC authorization-code flow; rows expire after 10 minutes; prevents CSRF and replay attacks |
-| 116 | `organization_quotas` | Per-tenant resource quota table — stores optional upper bounds for `max_clients`, `max_devices`, `max_storage_mb`, and `max_scheduled_tasks`; a NULL limit means "unlimited"; absence of a row is also treated as unlimited |
-| 117 | `organization_database_configs` | Per-tenant database isolation configuration — stores the `isolation_mode` (`shared` default, `isolated` opt-in) and, for isolated tenants, the target database host/port/name/user, encrypted password, SSL flag, and `last_verified_at` connectivity-check timestamp |
-| 118 | `profeco_complaints` | PROFECO / CONCILIANET complaint register — one row per consumer complaint folio filed with Mexico's Procuraduría Federal del Consumidor; captures folio number, ISP–consumer resolution status, complaint category, service type, intake and resolution dates, staff attribution, and optional links to existing client and support-ticket records; enables quarterly regulatory filing |
-| 119 | `ai_providers` | AI/LLM provider registry per organization — stores provider kind (`openai`, `azure_openai`, `anthropic`, `gemini`, `ollama`, `custom`), API endpoint, encrypted API key, model name, optional `embedding_model` for RAG, temperature, max tokens, active flag, and soft-delete support |
-| 120 | `ai_policies` | Per-organization AI Reply Assistant policy — master on/off switch, dispatch mode (`draft_only`, `auto_send`, `suggest`), tone, PII-redaction flag, per-channel enable flags (email/ticket/portal), max draft length, and confidence threshold; one row per organization |
-| 121 | `ai_phrase_library` | Curated phrase library for AI prompt enrichment — stores phrase text, category (`greeting`, `closing`, `technical`, `billing`, `escalation`, `other`), locale, optional variable placeholders (JSON), optional embedding vector ID in ChromaDB, and soft-delete support |
-| 122 | `ai_forbidden_terms` | Forbidden-term guard list per organization — terms that must not appear in any AI-drafted reply; evaluated by `phraseLibraryService.validateDraft()` before dispatch; supports locale-scoping and soft-delete |
-| 123 | `ai_reply_logs` | Immutable audit log of every AI-drafted reply — stores `ticket_id`, `provider_id`, `dispatch_mode`, `confidence_score`, `draft_text`, `final_text`, `cost_usd`, `tokens_used`, `pii_redacted` flag, `validation_passed` flag, `sent_at`, and `created_by`; internal `context_snapshot` and `prompt_hash` are never returned by the API |
-| 124 | `contract_topology_paths` | Cached network topology paths for AI context — stores the materialized path from a contract's CPE through all intermediate devices to the backbone; used by `topologyContextService` to build the topology breadcrumb injected into AI prompts; invalidated on device/link/contract change |
-| 125 | `client_groups` | Family/account grouping for shared billing or family plans — stores group name, `billing_mode` (`separate` or `shared`), optional `primary_client_id` billing owner, and soft-delete; clients link via `clients.client_group_id` |
-| 126 | `client_custom_fields` | Unlimited per-client key/value custom fields (technician notes, internal tags, etc.) — unique on `(client_id, field_key)`, free-form `field_value`, with soft-delete |
-| 127 | `leads` | Lead capture and prospect pipeline — name/contact, `source`, pipeline `status` (`new`→`won`/`lost`), estimated value, assigned agent, optional geocoded address, and `converted_client_id` linking to the client created on conversion |
-| 128 | `service_orders` | Service order workflow — `order_number`, optional `client_id`/`lead_id`/`plan_id`/`contract_id`, `order_type`, status machine (`requested`→`approved`→`provisioning`→`activated`, or `cancelled`), assignment, and lifecycle timestamps |
-| 129 | `service_order_tasks` | Onboarding checklist items per service order — `task_key`, `label`, `is_done`, completion attribution, and sort order; unique on `(service_order_id, task_key)` |
-| 130 | `winback_campaigns` | Win-back campaigns for cancelled customers — name, status, `target_segment` cohort, offer description, retention `discount_percent`, optional message template, and date range |
-| 131 | `client_interactions` | Manual client interaction log (calls, visits, chats) — `interaction_type`, `direction`, subject/notes, `occurred_at`, optional duration, and logging staff member; feeds the per-client activity timeline together with tickets, payments, and email/SMS logs |
-| 132 | `follow_up_reminders` | Scheduled client follow-ups — title/notes, `priority`, `status` (`pending`/`completed`/`cancelled`), `due_at`, assignee, optional originating interaction or ticket, and `notified_at` stamp so the due notification fires once |
-| 133 | `satisfaction_surveys` | NPS (0–10) / CSAT (1–5) surveys — client, optional ticket/interaction reference, `channel`, `status` (`pending`→`sent`→`responded`), score, respondent comment, and sent/responded timestamps |
-| 134 | `ticket_escalations` | Escalation chain for unresolved tickets — auto-incrementing `level` per ticket, escalated by/to attribution (NULL `escalated_by` = automatic), reason, `status` (`open`→`acknowledged`→`resolved`), and resolution notes |
-| 135 | `communication_campaigns` | Bulk campaign sends (email/SMS/WhatsApp) — `channel`, `status` (`draft`→`scheduled`→`sending`→`sent`/`cancelled`/`failed`), optional template and recipient filters (by client status, plan, or tag), aggregate counters (recipient, sent, delivered, opened, bounced, failed), scheduling timestamps, and `deleted_at` soft-delete |
-| 136 | `campaign_messages` | Per-recipient record for every campaign dispatch — `campaign_id`, optional `client_id`, `recipient` (email or phone), `channel`, `status` (`queued`→`sent`→`delivered`→`opened`/`bounced`/`failed`), `provider_message_id` for webhook correlation, and individual timestamp fields (queued, sent, delivered, opened, bounced) |
-| 137 | `client_dnd_preferences` | Per-customer per-channel Do Not Disturb preferences — `channel` (`email`/`sms`/`whatsapp`/`all`), `opt_out` flag for marketing/bulk sends, optional quiet-hours window (`quiet_hours_start`/`quiet_hours_end`), and free-form `reason`; unique on `(client_id, channel)` |
-| 138 | `plan_throttle_logs` | Audit log for FUP throttle and restore actions per contract — records throttle/restore events, RADIUS CoA sent/response, and reason (fup/overage/manual) |
-| 139 | `plan_speed_windows` | Time-based speed windows for plans — bitmask day-of-week scheduling, start/end time, per-window download/upload speeds, and priority ordering for overlap resolution |
-| 140 | `organization_invoice_settings` | Per-org invoice branding — logo URL, header color, footer legal text, and payment instructions used by the PDF invoice generator |
-| 141 | `late_fee_rules` | Configurable late fee policies per organization — flat or percent fee, grace period, maximum applications, and active flag |
-| 142 | `invoice_late_fees` | Audit trail of late fee applications to overdue invoices — links to the rule, the created line item, and the performer (NULL = system) |
-| 143 | `payment_reminder_settings` | Per-org payment reminder schedule — days before/after due date and on-due-date send flags, with enabled toggle |
-| 144 | `payment_reminder_logs` | Idempotency log for sent payment reminders — unique on `(invoice_id, stage, channel)` to prevent duplicate sends |
-| 145 | `payment_plans` | Payment plan for splitting invoices into installments |
-| 146 | `payment_plan_installments` | Individual installment records for a payment plan |
-| 147 | `cash_reconciliation_sessions` | Field agent cash collection reconciliation sessions |
-| 148 | `refund_requests` | Refund request workflow — create, review (approve/reject), process (credit balance, credit note, or gateway refund) |
-| 149 | `billing_disputes` | Billing dispute tracking with status lifecycle (open → investigating → resolved) |
-| 150 | `dispute_evidence` | File attachments for billing disputes (reuses multer upload infrastructure) |
-| 151 | `chargebacks` | Chargeback management; auto-created from gateway webhook dispute events |
-| 152 | `billing_adjustments` | Immutable billing adjustment log — written by refund processing, chargeback resolution, and manual admin actions; mirrors to audit_logs |
-| 153 | `radcheck` | Standard FreeRADIUS per-user check attributes (Cleartext-Password, Auth-Type, TLS-Cert-Serial) — populated by `radius_sync` task from FireISP state |
-| 154 | `radreply` | Standard FreeRADIUS per-user reply attributes — populated by `radius_sync` task |
-| 155 | `radusergroup` | Standard FreeRADIUS user → group membership — maps each subscriber username to their plan group |
-| 156 | `radgroupcheck` | Standard FreeRADIUS per-group check attributes |
-| 157 | `radgroupreply` | Standard FreeRADIUS per-group reply attributes — contains vendor speed attributes (MikroTik/Cisco/Juniper/WISPr) generated per plan by `radiusAttributeService` |
-| 158 | `subscriber_certificates` | EAP-TLS subscriber certificate metadata registry — CN, serial, SHA-256 fingerprint, validity window, and revocation tracking; FireISP stores metadata only (no CA/key generation) |
-| 159 | `plan_access_windows` | Per-plan time-based access restriction windows (day_mask + start/end time); converted to FreeRADIUS `Login-Time` radgroupcheck attribute by `syncFreeradiusTables()` |
-| 160 | `organization_walled_garden_settings` | Per-org walled garden configuration: enabled flag, captive portal redirect URL, MikroTik address-list name, allowed destinations for NAS ACL reference |
-| 161 | `radius_account_routes` | Per-RADIUS-account static route injection; each non-deleted row becomes one `Framed-Route` radreply attribute (`destination [gateway] [metric]`) during sync |
-| 162 | `mac_move_events` | MAC move event log — written by accounting ingest when the same RADIUS username is seen from a different Calling-Station-Id or NAS between sessions |
-| 163 | `pppoe_service_profiles` | PPPoE AC / BNG service profiles — MTU, MRU, auth-methods, DNS, session/idle timeouts, rate-limit override (MikroTik), address-list, Filter-Id; referenced by `ip_pools.service_profile_id` and `radius.service_profile_id` |
-| 164 | `radpostauth` | FreeRADIUS post-authentication log — written directly by FreeRADIUS via `rlm_sql`; read by FireISP for auth-failure diagnostics (no foreign keys) |
-| 165 | `pppoe_event_logs` | PPPoE stage event log (PADI/PADS/LCP/IPCP/AUTH/PADT); written by a syslog shipper via `POST /pppoe/events`; read for MTU diagnostics and LCP failure detection (no FKs on org/NAS — loose coupling) |
-| 166 | `dhcp_servers` | DHCP server connection registry (ISC Kea, MikroTik); stores host, port, API URL, and encrypted API token for each DHCP server managed by FireISP |
-| 167 | `dhcp_static_reservations` | Static DHCP reservations binding MAC addresses to IP addresses; supports DHCP Option 82 circuit/remote-id binding for subscriber identification |
-| 168 | `nat_pools` | CGNAT, 1:1 NAT, and PAT pool definitions; tracks external IP ranges, port allocation ranges, and max ports per subscriber |
-| 169 | `ptr_records` | Reverse DNS PTR record management; supports both IPv4 and IPv6 PTR records with configurable TTL and DNS zone |
-| 170 | `ra_guard_policies` | RA Guard policy assignments to switch ports; prevents rogue Router Advertisement attacks by restricting RA forwarding to authorized ports |
-| 171 | `tunnel_6rd_configs` | 6rd (IPv6 Rapid Deployment) tunnel configuration; maps IPv4 prefixes to IPv6 prefixes for rapid IPv6 rollout over IPv4 infrastructure |
-| 172 | `ds_lite_configs` | DS-Lite AFTR (Address Family Transition Router) configuration; enables IPv4 connectivity for subscribers on IPv6-only access networks |
-| 173 | `map_rules` | MAP-E and MAP-T rule definitions; provides stateless IPv4/IPv6 address mapping for scalable IPv4 address sharing |
-| 174 | `xlat464_configs` | 464XLAT PLAT/CLAT configuration; enables IPv4 application connectivity in IPv6-only subscriber networks via stateful NAT64 |
-| 175 | `device_groups` | Logical device groupings (§6.1) — organize network devices by type, location, region, or OLT for bulk operations and filtered monitoring views |
-| 176 | `device_group_members` | Junction table linking devices to device groups (§6.1) — many-to-many with cascade deletes |
-| 177 | `discovery_scans` | Network discovery scan jobs (§6.1) — CIDR-range SNMP probes with full SNMPv3 credential support, scan state tracking, and host counters |
-| 178 | `discovery_results` | Per-host results from discovery scans (§6.1) — stores sysDescr/sysOID, auto-matched SNMP profile, and onboarding status (pending_review/onboarded/ignored) |
-| 179 | `snmp_trap_forwarding_rules` | Configurable SNMP trap routing rules (§6.1) — match by trap_type/source_ip/OID prefix and forward to HTTP URL, email, or registered webhook |
-| 180 | `poller_nodes` | Registry of dedicated SNMP poller nodes (§6.4) — each node tracks queue depth, poll duration, heartbeat; may reference a firerelay_nodes entry for distributed polling |
-| 181 | `device_polling_configs` | Per-device or per-device-type polling overrides (§6.4) — poll interval, SNMP GETBULK flags, timeout, retries, failover node, adaptive polling thresholds |
-| 182 | `poller_performance_snapshots` | Time-series poller health metrics (§6.4) — snapshot of devices polled/failed, avg/max duration, queue depth, timeout rate per poller node |
-| 183 | `alert_escalation_chains` | Named L1→L2→L3 escalation chains (§6.5) — top-level chain definition, org-scoped, referenced by alert_rules.escalation_chain_id |
-| 184 | `alert_escalation_steps` | Individual escalation steps within a chain (§6.5) — ordered by step_number with delay_minutes, notification channel (email/sms/whatsapp/telegram/webhook), and recipient config |
-| 185 | `maintenance_windows` | Scheduled maintenance windows for alert suppression (§6.5) — can target a specific device or site; supports one-time and recurring (cron) windows |
-| 186 | `alert_notification_channels` | Multi-channel notification routing configs (§6.5) — channel_type enum, credentials AES-256-GCM encrypted in config_encrypted column |
-| 187 | `alert_suppression_rules` | Upstream→downstream device correlation suppression (§6.5) — when upstream has a triggered alert, suppress downstream alerts for suppress_duration_minutes |
-| 188 | `config_templates` | Device configuration templates with {{variable}} placeholders (§6.6) — optional device_type/manufacturer filter for deployment targeting |
-| 189 | `config_deployment_records` | Config template push records (§6.6) — tracks status, variables used, result output, and deployed_at per device per deployment |
-| 190 | `config_backup_schedules` | Per-device or per-org config backup schedules (§6.6) — extends the global nightly task with custom cron expressions per device |
-| 191 | `config_compliance_rules` | Config compliance audit rules (§6.6) — keyword/regex rules (must_contain, must_not_contain, regex_match, regex_not_match) with severity levels |
-| 192 | `config_compliance_results` | Config compliance audit results (§6.6) — pass/fail/error per rule per backup, indexed by device and evaluation time |
-| 193 | `olt_ports` | PON and uplink port inventory per OLT device (§7.1) — slot/port index, port type (gpon/epon/xgspon/uplink), admin/oper state, ONU count, Tx/Rx optical power, bandwidth utilization, last_polled_at |
-| 194 | `onu_profiles` | PON service profile templates (§7.2) — T-CONT ID, DBA profile name, assured/max bandwidth, GEM port ID, service/client VLAN, VLAN mode (transparent/tag/translate/double_tag/untagged), linked plan |
-| 195 | `onu_details` | GPON/EPON ONU detail extension to devices (§7.2) — serial number, LOID/password (encrypted at app layer), onu_state (online/offline/los/dying_gasp/power_off/loc/unconfigured), OLT-assigned onu_id, ranging distance, line/service profile names, WAN mode, last provision job link |
-| 196 | `onu_optical_metrics` | Per-ONU optical diagnostic time-series (§7.2) — Tx power (dBm), Rx power (dBm), temperature (°C), voltage (V), bias current (mA), OLT-side Rx power; no FKs (metrics write pattern), 90-day retention via nightly cleanup |
-| 197 | `onu_whitelist` | ONU MAC/SN allow-block list per OLT (§7.2) — entry_type (mac/serial_number), entry_value, list_type (allow/block); unique on (olt_device_id, entry_type, entry_value) |
-| 198 | `onu_omci_configs` | OMCI/TR-069 Wi-Fi and WAN config records per ONU (§7.2) — config_type, Wi-Fi SSID/band/channel/security, Wi-Fi password (encrypted at app layer), WAN mode/IP mode/addresses, delivery_method (omci/tr069/ssh_cli/manual/pending), apply_status, raw_config JSON |
-| 199 | `onu_firmware_jobs` | ONU firmware upgrade and reboot job scheduler (§7.2) — job_type (firmware_upgrade/reboot/provision/factory_reset), scope (single_onu/olt_port/olt_device/region), firmware URL and version, scheduled_at, status, per-device result_summary JSON; background job processor dispatches pending jobs |
-| 200 | `olt_vendor_capabilities` | Per-vendor OLT management capability matrix (§7.1) — vendor, model_pattern, protocols JSON array (snmp/tl1/netconf/ssh_cli), snmp_profile_name, CLI template references, NETCONF schema, OMCI support flag, enterprise OID root; global (not org-scoped); seeds for Huawei/ZTE/VSOL/C-Data/WOLCK/Calix |
-| 201 | `olt_splitters` | PON splitter inventory (§7.1) — ratio (1:2 through 1:128), splitter_type (optical/wdm), linked to site and OLT port, installation date, status (active/inactive/damaged/removed) |
-| 202 | `onu_migration_jobs` | ONU port migration job records (§7.3) — transactional ONU reassignment from source to target PON port, status lifecycle (pending/queued/in_progress/completed/failed/cancelled), scheduled_at, result_detail JSON |
-| 203 | `fiber_routes` | Fiber route path records (§7.4) — CO-to-splitter-to-ONU paths, route_type (trunk/distribution/drop/feeder/other), parent_route_id self-FK for hierarchical routes, from/to device/port/ONU/splitter FKs, total_length_m, fiber_count, gis_path JSON |
-| 204 | `odf_frames` | Optical Distribution Frame inventory (§7.4) — ODF frame per site, total_ports, frame_type, manufacturer/model, status (active/inactive/damaged/removed) |
-| 205 | `odf_ports` | ODF port records within an ODF frame (§7.4) — port_number (unique per frame), connector_type (sc/lc/fc/st/mpo/other), fiber_route_id link, status; CASCADE deletes when frame is removed |
-| 206 | `odf_cross_connects` | ODF cross-connect patch cord records (§7.4) — port_a_id and port_b_id FKs (RESTRICT delete), patch_cord_type, patch_cord_length_m, status (active/inactive/removed) |
-| 207 | `otdr_test_results` | OTDR test result records (§7.4) — fault_detected flag, fault_distance_m, fault_type (fiber_break/splice_loss/connector_loss/bend_loss/reflection/other), events JSON, sor_file_path, job_status (pending/running/completed/failed) |
-| 208 | `sfp_inventory` | SFP transceiver lifecycle tracking (§7.4) — form_factor (sfp/sfp_plus/sfp28/qsfp/qsfp_plus/xfp/gbic/other), vendor/part/serial, wavelength_nm, max_distance_km, lifecycle_status (installed/spare/faulty/retired), links to devices and inventory_items; DDM diagnostics via snmp_metrics sfp_* columns |
-| 209 | `cpe_devices` | TR-069/CWMP CPE device registry (§8.1) — serial_number+OUI (unique), acs_username/password_hash for HTTP Basic auth, status ENUM (new/provisioning/active/error/offline), last_inform_at/ip, wan_ip, lan_subnet, wifi_ssid; FKs to organizations, devices, contracts, cpe_profiles |
-| 210 | `cpe_parameters` | TR-069 parameter tree per CPE (§8.1) — parameter_path (up to 512 chars), parameter_value TEXT, is_writable flag, last_fetched_at; UNIQUE on (cpe_device_id, parameter_path(255)); CASCADE on device delete |
-| 211 | `cpe_tasks` | Queued CWMP tasks per CPE device (§8.1) — task_type ENUM (get/set parameter values, download, reboot, factory_reset, etc.), parameters JSON, status (queued/in_progress/done/failed), priority TINYINT (1=highest), result/error JSON |
-| 212 | `cpe_profiles` | CPE provisioning profile templates with inheritance (§8.2) — parent_profile_id self-FK for up to 5-level chain, plan_id for auto-apply, manufacturer/model filters, wifi_ssid_template with {{serial}} substitution, parameters JSON for static push |
-| 213 | `cpe_parameter_mappings` | Automatic parameter mapping rules for CPE profiles (§8.2) — source_type ENUM (static/contract_field/plan_field/device_field), static_value or source_field; CASCADE on profile delete |
-| 214 | `cpe_firmware_versions` | Firmware version inventory per CPE model (§8.1) — manufacturer+model+version (unique), firmware_url, file_size_bytes, checksum/checksum_type (md5/sha1/sha256), is_stable flag |
-| 215 | `cpe_firmware_campaigns` | Batch firmware upgrade campaigns (§8.1) — target by manufacturer/model/profile/ad-hoc device IDs JSON, status (scheduled/running/done/failed/cancelled), progress counters (total/completed/failed_devices), result_summary JSON |
-| 216 | `cpe_diagnostics` | TR-069 diagnostic snapshots (§8.3) — stores ping/traceroute/wifi_snapshot/ethernet_status/wan_diagnostics results keyed by cpe_device_id; result JSON, diag_type ENUM, status (pending/running/completed/failed), target_host for active probes |
-| 217 | `cpe_session_logs` | ACS CWMP session event log (§8.3) — records inform/task_dispatched/task_response/fault/auth_failure/parse_error/session_error events with raw_body (truncated to 2000 chars) for CWMP debugging and compliance audit; cleaned up by scheduled task |
-| 218 | `cpe_lifecycle_history` | Immutable CPE lifecycle state transition audit trail (§8.4) — records every in_stock/assigned/active/returned/rma transition with previous_state, new_state, actor_id, and free-text reason for inventory accountability |
-| 219 | `ap_channel_plans` | Channel assignment registry per site (§9.1) — frequency_mhz, channel_width_mhz, status (active/inactive); FK to sites; used for conflict avoidance across AP sectors |
-| 220 | `ap_sector_configs` | AP/PTP wireless RF configuration per sector device (§9.1) — sector_azimuth_deg, sector_width_deg, frequency_mhz, channel_width_mhz, tx_power_dbm, encryption ENUM, channel_plan_id, antenna_gain_dbi, height_m, polarization ENUM, max_clients; FK to devices + ap_channel_plans |
-| 221 | `wireless_client_sessions` | Append-only CPE client state snapshots per AP poll (§9.1) — mac_address, ip_address, signal_dbm, noise_floor_dbm, snr_db, ccq_pct, tx_rate_mbps, rx_rate_mbps, distance_m, last_seen_at; FKs to devices (AP + CPE, SET NULL on delete) |
-| 222 | `ap_command_jobs` | Remote AP command jobs for power/frequency/reboot adjustments (§9.1) — command_type ENUM (set_tx_power/set_frequency/set_channel_width/reboot/other), target_value, status ENUM (pending/queued/in_progress/completed/failed/cancelled), scheduled_at, result_output, error_message; FK to devices |
-| 223 | `wireless_channel_interference` | Detected RF channel interference records per sector/site (§9.1) — detected_at, frequency_mhz, channel_width_mhz, interference_level ENUM (low/medium/high/critical), conflicting_ap_mac; FKs to ap_sector_configs + sites (SET NULL on delete) |
-| 224 | `link_planning_calcs` | Saved link budget calculator runs (§9.2) — site_a/b FKs or lat/lon overrides, frequency_mhz, tx_power_dbm, antenna gains, cable loss; computed distance_km, fspl_db, fresnel_radius_m, clearance_required_m, link_budget_db stored for history display |
-| 225 | `spectrum_scan_results` | AP spectrum scan results (§9.3) — device_id, scan_type ENUM (scheduled/manual/triggered), frequency_start/end_mhz, channel_width_mhz, scan_data JSON array of {freq_mhz, power_dbm} objects, peak_interference_dbm, recommended_channel_mhz, status ENUM; FK to devices (RESTRICT on delete) |
-| 226 | `quality_classes` | QoS priority class registry (§10.1) — traffic_type ENUM (voip/video/web/download/other), priority 1–8, DSCP mark, MikroTik queue kind, max_limit_pct; linked from plans.priority_class_id |
-| 227 | `queue_tree_nodes` | Hierarchical queue tree node definitions (§10.1/§10.4) — parent_id self-FK for tree structure, queue_type ENUM (tree/simple/cbq/hfsc/pcq), vendor_platform ENUM (mikrotik/cisco/juniper/generic), NAS interface, max/burst/threshold limits, burst_time_seconds, queue_kind, sort_order; exportable as MikroTik RouterOS script |
-| 228 | `rate_limit_templates` | Named rate-limit templates per service type (§10.2) — service_type ENUM (pppoe/dhcp/hotspot/static/other), radius_vendor ENUM (mikrotik/cisco/juniper/generic), CIR + burst + threshold speeds, cached rate_string |
-| 229 | `protocol_shaping_rules` | Per-protocol/port traffic shaping rules (§10.2) — protocol/direction/port-range/L7-pattern match, action ENUM (limit/drop/mark/throttle), rate limits, DSCP mark, enabled flag, preset name; optional FK to plans |
-| 230 | `data_rollover_balances` | Monthly data rollover balance ledger per contract (§10.3) — billing_month, accrued_gb, consumed_rollover_gb, carry_forward ENUM (yes/no); UNIQUE KEY on contract_id + billing_month; FK to contracts (CASCADE) |
-| 231 | `data_packs` | Add-on data packs for purchase by subscribers (§10.3) — data_gb, price, validity_days, status ENUM (active/inactive/deprecated); org-scoped |
-| 232 | `data_pack_purchases` | Subscriber data pack purchase records (§10.3) — contract_id FK (CASCADE), pack_id FK (RESTRICT), purchased_by (admin/client_portal), activated_at, expires_at, status ENUM; links contracts to data_packs |
-| 233 | `fup_usage_notifications` | FUP threshold notification audit log (§10.3) — contract_id, billing_month, threshold_pct (80/90/100), used_gb, cap_gb, notified_at; UNIQUE KEY on contract_id + billing_month + threshold_pct prevents duplicate alerts |
-| 234 | `interface_qos_policies` | Per-interface QoS policy definitions (§10.4) — algorithm ENUM (htb/cbq/hfsc/pcq/prio/sfq/generic), direction ENUM (ingress/egress/both), parent_policy_id self-FK, bandwidth_mbps/ceil_mbps/burst_mbps, vendor_platform ENUM; FK to devices (SET NULL) |
-| 235 | `mpls_vlan_prioritization_rules` | MPLS label and VLAN 802.1p/802.1q traffic prioritization rules (§10.4) — rule_type ENUM (vlan/mpls/qinq/mpls_vlan), vlan_id, mpls_label, inner_vlan_id, traffic_class, priority_bits (0–7), dscp_value, queue_class, enabled flag |
-| 236 | `dscp_marking_policies` | DSCP traffic marking and remarking rules (§10.4) — traffic_class, dscp_value (0–63), dscp_name (EF/AF41/CS3/BE), match_protocol, match_port_range, action ENUM (mark/remark/passthrough), priority, enabled; org-scoped with 4 default seeds |
-| 237 | `bandwidth_test_servers` | Registered iperf3/speedtest bandwidth test server endpoints (§10.4) — host, port, protocol ENUM (tcp/udp/iperf3/speedtest), region, site_id FK (SET NULL); status ENUM (active/inactive/maintenance) |
-| 238 | `subscriber_speed_test_jobs` | Subscriber bandwidth test job queue (§10.4) — contract_id FK (CASCADE), server_id FK (SET NULL), status ENUM (pending/running/completed/failed/cancelled), scheduled_at, started_at, completed_at, download_mbps, upload_mbps, latency_ms, jitter_ms, test_log |
-| 239 | `portal_service_requests` | Client portal self-service requests (§11.3) — request_type ENUM (plan_upgrade/wifi_password_change/pppoe_password_change/static_ip_request/cancellation/visit_schedule), status ENUM (pending/approved/rejected/completed/cancelled), payload JSON, proration fields, approved_by, completed_at |
-| 240 | `portal_kb_articles` | Knowledge-base / FAQ articles surfaced in the client portal (§11.4) — category, title, slug (UNIQUE per org), body LONGTEXT, is_published, view_count, helpful_yes, helpful_no |
-| 241 | `portal_chat_sessions` | AI chatbot sessions started from the client portal (§11.4) — session_token UNIQUE, messages JSON array, status ENUM (active/resolved/escalated), ticket_id FK (created on escalation), turn_count |
-| 242 | `portal_push_subscriptions` | Web Push notification subscriptions for portal clients (§11.5) — endpoint, p256dh, auth, notify_outage/billing/ticket flags |
-| 243 | `ticket_time_logs` | Per-ticket time tracking entries (§12) — user_id FK, minutes (duration), work_date, description; linked to tickets CASCADE |
-| 244 | `ticket_relations` | Typed relationships between tickets (§12) — duplicate/related/blocks/blocked_by; UNIQUE on (ticket_id_a, ticket_id_b, relation_type); both FKs CASCADE |
-| 245 | `ticket_ai_triage` | AI-generated triage results per ticket (§12) — suggested_category, suggested_priority, suggested_resolution, kb_article_ids JSON, context_snapshot JSON; UNIQUE on ticket_id |
-| 246 | `work_orders` | Field work orders linked to tickets or standalone (§12) — org-scoped, assigned_to technician, status ENUM (pending/assigned/in_progress/completed/cancelled), GPS coordinates, soft-delete |
-| 247 | `work_order_materials` | Material usage log per work order (§12) — item_name, quantity DECIMAL, unit, unit_cost; FK to work_orders CASCADE |
-| 248 | `technician_gps_breadcrumbs` | GPS position log for field technicians (§12) — append-only, no FKs (write-hot), user_id, lat/lng DECIMAL(10,7), accuracy_m FLOAT, recorded_at; composite index on (user_id, recorded_at DESC) |
-| 249 | `ticket_attachments` | File attachments for support tickets (§12) — filename, original_filename, mime_type, file_size, storage_path, uploaded_by; FK to tickets CASCADE, org-scoped |
-| 250 | `work_order_attachments` | File attachments for work orders (§12) — filename, original_filename, mime_type, file_size, storage_path, uploaded_by; FK to work_orders CASCADE, org-scoped |
-| 251 | `map_geofences` | Geofence zones (§13.2) — polygon boundary (GeoJSON) or radius-based circle; optional device_id pin; is_active flag; triggers geofence_evaluation task alerts |
-| 252 | `map_infrastructure_points` | Infrastructure map pins (§13.2) — towers, cabinets, ODFs, splice closures, poles, POPs; lat/lng, site_id FK, properties JSON, is_active |
-| 253 | `fiber_route_segments` | Fiber route polyline sub-segments (§13.2) — ordered sequence within a parent fiber_route, GeoJSON LineString coordinates, cable type, burial type, fiber count |
-| 254 | `device_dependency_edges` | Device parent-child dependency graph edges (§13.3) — directed parent-child relationship for cascade visualization and impact analysis; dependency_type ENUM, is_redundant flag |
-| 255 | `vendors` | Vendor/supplier registry (§14.2) — contact info, payment terms, currency, status; org-scoped with soft-delete |
-| 256 | `purchase_orders` | Purchase orders to vendors (§14.2) — po_number, status ENUM draft/sent/partial/received/cancelled, line items, subtotal/tax/total, destination warehouse; org-scoped with soft-delete |
-| 257 | `purchase_order_items` | Line items within a purchase order (§14.2) — inventory_item_id FK, description, quantity_ordered, quantity_received, unit_cost; total_cost GENERATED STORED column |
-| 258 | `assets` | Individual trackable assets with serial numbers (§14.2/§14.3) — asset_tag, barcode, lifecycle_status ENUM, warranty_expires_at, depreciation_method ENUM, purchase_date/cost, disposal fields; FKs to vendors/warehouses/purchase_orders |
-| 259 | `asset_assignments` | Equipment-to-customer and equipment-to-device assignments (§14.3) — client_id/device_id/port_name assignment targets, assigned_at/returned_at lifecycle, assigned_by/returned_by users |
-| 260 | `rma_requests` | Return Merchandise Authorization workflow (§14.2) — rma_number, status ENUM open/shipped/received/replacement_sent/closed/denied, reason ENUM, replacement_asset_id FK; linked to assets and vendors |
-| 261 | `report_definitions` | Report template registry (§15.5) — name (unique per org), description, report_type ENUM (financial/operational/network/compliance/custom), parameters JSON schema, output_formats JSON, is_public, soft-delete |
-| 262 | `scheduled_reports` | Scheduled report delivery (§15.5) — links to report_definitions, format ENUM (csv/xlsx/pdf), cron_expression, recipients JSON array, last_run_at, last_status, next_run_at, soft-delete |
-| 263 | `generated_reports` | Report generation history (§15.5) — immutable log of each generated report with file_path, file_size, status, generation_time_ms; FK to scheduled_reports (nullable) |
-| 264 | `dashboard_widgets` | Analytics dashboard widget layout (§15.5) — widget_type ENUM (revenue_chart/subscriber_growth/aging_summary/capacity_forecast/top_consumers/uptime_summary/bandwidth_utilization/custom_metric), per-user position/size grid, config JSON, is_visible |
-| 265 | `custom_reports` | User-built custom reports (§15.5) — name, query_type ENUM (sql/visual), sql_query TEXT (SELECT-only, validated), visual_config JSON, is_public, last_run_at; public reports visible to all org members |
-| 266 | `subscriber_consents` | §16.2 LFPDPPP consent tracking (Aviso de Privacidad) — consent version, purpose, granted/withdrawn timestamps, IP address, and legal basis per subscriber per org |
-| 267 | `dsar_requests` | §16.2 DSAR/ARCO request workflow with 30-day deadline — request type (access/rectification/cancellation/opposition), status lifecycle, legal hold flag, fulfillment notes, and assigned reviewer |
-| 268 | `identity_verification_records` | §16.2 INE/IFE/CURP identity verification with checksum — document type, document number, CURP, verification method, verification date, verifier user, and outcome status |
-| 269 | `gov_data_requests` | §16.3 Tamper-proof log of government data requests (lawful interception) — authority name, legal basis, request date, data scope, response date, SHA-256 row_hash integrity chain |
-| 270 | `phone_number_inventory` | §16.4 VoIP/DID phone number inventory — E.164 number, number type ENUM (did/toll_free/local/mobile), carrier, status ENUM (available/assigned/porting/reserved), assigned client FK |
-| 271 | `number_portability_records` | §16.4 MNP/FNP portability records — porting direction (in/out), donor/recipient carrier, port-in/port-out dates, status lifecycle, regulatory reference number |
-| 272 | `numbering_blocks` | §16.4 CNMC numbering block management — block prefix, range start/end, block size, assigned carrier, regulatory authority, allocation date, and utilization tracking |
-| 273 | `uso_obligations` | §16.6 Universal service obligation tracking — obligation type, reporting period, contribution amount, payment status, regulatory filing reference, and compliance deadline |
-| 274 | `rural_coverage_reports` | §16.6 Rural deployment and social coverage reporting — municipality code, coverage percentage, technology type, underserved flag, population covered, and reporting period |
-| 275 | `service_modification_notices` | §16.7 Mandatory service modification notice tracking — modification type, effective date, notice sent date, notice period days, regulatory requirement reference, and affected contracts count |
-| 276 | `data_residency_config` | §16.8 Data localization and residency compliance config — storage region, backup region, cross-border transfer allowed flag, transfer legal basis, ATDT/CRT rule reference, and last reviewed date |
-| 277 | `report_access_logs` | §16.9 Who accessed/downloaded what subscriber data — user ID, report type, data scope, access timestamp, IP address, export format, and row count for regulatory audit trail |
-| 278 | `webauthn_credentials` | §17.1 WebAuthn/FIDO2 hardware key credential storage — credential_id (opaque handle), public_key, AAGUID, transports JSON; org + user scoped with soft-delete |
-| 279 | `admin_ip_allowlist` | §17.1 Org-scoped IP/CIDR allowlist for admin portal access — ip_address (IPv4/CIDR), is_active, optional expiry timestamp |
-| 280 | `password_policies` | §17.1 Per-org password policy — min/max length, uppercase/lowercase/digits/symbols flags, rotation_days, history_count, lockout_attempts + duration; unique per org |
-| 281 | `api_key_rate_limits` | §17.2 Per-token rate limits — requests_per_minute/hour/day and burst_size; unique per org+token with ON DUPLICATE KEY UPDATE upsert |
-| 282 | `firewall_rules` | §17.3 Subscriber/org firewall rule management — action ENUM(allow/deny/log), protocol ENUM, src/dst IP + port, direction ENUM, priority, soft-delete |
-| 283 | `ddos_protection_rules` | §17.3 Flowspec/RTBH DDoS mitigation rules — rule_type ENUM(flowspec/rtbh), target_prefix, action ENUM(drop/ratelimit/redirect), threshold PPS/BPS, triggered_at, deactivated_at |
-| 284 | `blackhole_routes` | §17.3 RTBH blackhole routing — target_prefix, reason, next_hop, is_active flag, released_at timestamp; create activates route, release endpoint clears it |
-| 285 | `dns_blocklists` | §17.3 DNS blocklist entries for malware/phishing/botnet/ads blocking — domain, category ENUM, source, is_active; scoped per org |
-| 286 | `cpe_security_scans` | §17.3 CPE security scan records — scan_type ENUM(default_credentials/open_ports/firmware_cve/configuration_audit/full), status ENUM(pending/running/completed/failed), device/cpe references, started_at, completed_at, results JSON |
-| 287 | `encryption_key_metadata` | §17.4 Encryption key lifecycle registry — key_alias, algorithm, key_size, purpose, status ENUM(active/retired/revoked), created_by FK→users, rotated_at, expires_at, notes |
-| 288 | `data_masking_rules` | §17.4 Column-level data masking configuration — table_name, column_name, masking_type ENUM(full/partial/hash/tokenize), mask_pattern, roles_exempt JSON, is_active; unique per org+table+column |
-| 289 | `secure_deletion_log` | §17.4 Audit trail for GDPR/LFPDPPP secure deletion runs — table_name, records_deleted, policy_applied, deletion_method, details JSON, triggered_by FK→users |
-| 290 | `automation_rules` | §18.1 Event-triggered workflow rules — trigger_event, trigger_conditions JSON, action_type, action_config JSON, priority, is_enabled; soft-delete |
-| 291 | `automation_rule_executions` | §18.1 Audit log for automation rule runs — trigger_payload JSON, status ENUM(success/failure/skipped), result_message, duration_ms |
-| 292 | `batch_jobs` | §18.1 Bulk subscriber operation jobs — operation ENUM(suspend/unsuspend/rate_limit/…), filter_criteria JSON, total/processed/success/failed item counts |
-| 293 | `batch_job_items` | §18.1 Per-entity result for each batch job — entity_type ENUM(contract/client/device), entity_id, status, result_message |
-| 294 | `provisioning_pipelines` | §18.1 Ordered provisioning pipeline runs — stages_config JSON, stages_results JSON, current_stage, contract_id/client_id optional FKs |
-| 295 | `provisioning_pipeline_stages` | §18.1 Individual stage records within a pipeline run — stage_order, stage_name, input_data/output_data JSON, started_at/completed_at |
-| 296 | `remediation_rules` | §18.1 Auto-remediation rules — condition_metric, condition_operator ENUM(gt/lt/gte/lte/eq/neq/is_true), condition_threshold, cooldown_minutes, action_type; soft-delete |
-| 297 | `remediation_executions` | §18.1 Auto-remediation execution records — status ENUM(queued/success/failure/stubbed DEFAULT stubbed), error_message |
-| 298 | `automation_scripts` | §18.2 Script storage — language ENUM(bash/python/powershell/javascript), script_body LONGTEXT (NEVER executed via child_process), version, is_shared, tags JSON, api_endpoint |
-| 299 | `script_executions` | §18.2 Script execution log — status ENUM(queued/running/success/failure/cancelled DEFAULT queued), stdout/stderr LONGTEXT, exit_code (populated by real sandboxed executor) |
-| 300 | `router_driver_configs` | §18.3 Vendor router API configs — vendor ENUM(mikrotik/cisco_ios/cisco_iosxe/juniper_junos/zte/huawei/generic_rest), protocol, encrypted_password/api_token (AES-256-GCM); soft-delete |
-| 301 | `device_command_executions` | §18.3 Router command dispatch log — command, params JSON, status ENUM(queued/success/failure/stubbed), response JSON, duration_ms |
-| 302 | `analytics_anomalies` | §18.4 Z-score anomaly detection results — metric, device_id, detected_value, baseline_mean/stddev, z_score, severity ENUM(low/medium/high/critical), is_acknowledged |
-| 303 | `churn_scores` | §18.4 Rule-based churn risk scores — score DECIMAL(5,2), risk_band ENUM(low/medium/high/critical), tenure_months, overdue_invoices, open_tickets, suspensions_30d, payments_late_90d, factors JSON |
-| 304 | `resellers` | §19.1 Reseller hierarchy — self-referencing parent_id, level (1=master, 2=sub), commission_rate, white-label branding (logo, primary/accent color, portal_domain, portal_name), status ENUM(active/suspended/inactive); soft-delete |
-| 305 | `reseller_plan_prices` | §19.1 Custom plan pricing per reseller — reseller_id+plan_id unique pair, custom_price overrides the base plan price, currency, is_active; upsert-safe |
-| 306 | `reseller_commissions` | §19.1 Commission earnings per invoice — invoice_id FK, client_id FK, commission_rate snapshot, invoice_total, commission_amount, status ENUM(pending/approved/paid/cancelled), paid_at; INSERT IGNORE for idempotency |
-| 307 | `reseller_ip_pool_allocations` | §19.2 IP pool access grants per reseller — FK to ip_pools (§5), INSERT IGNORE prevents duplicates, notes |
-| 308 | `reseller_bandwidth_quotas` | §19.2 Per-reseller bandwidth cap — download/upload Mbps, burst limits, is_enforced flag; upsert-safe ON DUPLICATE KEY |
-| 309 | `reseller_olt_port_assignments` | §19.2 OLT port grants per reseller — FK to olt_ports (§7), INSERT IGNORE, notes |
-| 310 | `reseller_billing_entities` | §19.2 White-label billing entity per reseller — legal_name, tax_id, address, bank details (bank_name, bank_account, bank_clabe), invoice_prefix, invoice_footer, currency, is_active; upsert-safe |
-| 311 | `integration_providers` | §20.2 Read-only catalog of 27 supported integration providers; seeded in migration 348; keyed by provider_key (UNIQUE) |
-| 312 | `integration_connections` | §20.2 Per-org configured integration instances; credentials_enc (AES-256-GCM encrypted, never returned in API responses), config_json, status, last_synced_at |
-| 313 | `integration_sync_logs` | §20.2 Sync execution records per connection — direction, status (queued/running/success/error/stubbed), records_in/out/error, error_message |
-| 314 | `support_conversations` | §21.2 AI support conversation thread per customer/channel — channel ENUM (web/whatsapp/sms/email), status ENUM (open/escalated/closed), intent, confidence score, escalation_reason, ticket_id FK on escalation |
-| 315 | `support_messages` | §21.2 Individual messages within a support conversation — role ENUM (customer/assistant/system), content TEXT, intent, confidence, data_sources JSON; FK to support_conversations CASCADE |
-| 316 | `ai_diagnostic_runs` | §21.4 Recorded results from the AI diagnostic engine — symptom, access_type, checks JSON, cause, recommendation, auto_fix_available flag, confidence, escalate flag, escalation_reason; FK to support_conversations (SET NULL) |
-| 317 | `kb_articles` | §21.8 Knowledge base articles for RAG support — title, body LONGTEXT, category, locale, tags, is_published flag, created_by FK; org-scoped with soft-delete |
-| 318 | `kb_article_embeddings` | §21.8 Vector embeddings for semantic KB search — chunk_index, chunk_text TEXT, embedding_json LONGTEXT (serialized float array), embedded_at; FK to kb_articles CASCADE |
-| 319 | `kb_feedback` | §21.8 User feedback on KB articles — feedback ENUM (helpful/not_helpful/inaccurate), notes, conversation_id FK (SET NULL); FK to kb_articles CASCADE |
-| 320 | `support_channel_configs` | §21.6 Per-channel AI support configuration per organization — channel ENUM (web/whatsapp/sms/email), is_enabled flag, provider_id FK (SET NULL), escalation_threshold_confidence DECIMAL, max_turns, greeting_message; UNIQUE on (organization_id, channel) |
-| 321 | `ai_support_metrics` | §21.10 Nightly KPI rollup for AI support — period_date, resolution_rate, fcr_rate (first-contact resolution), avg_handle_time_sec, escalation_rate, csat_avg, false_positive_rate, avg_latency_ms, total_conversations, total_escalations, total_ai_cost_usd; UNIQUE on (organization_id, period_date) |
-| 322 | `noc_ai_insights` | §21.11 AI-generated NOC insights and alerts — insight_type ENUM (shift_summary/alert_explanation/capacity_warning/runbook_suggestion/interference_detection/alignment_drift), alert_id FK (SET NULL), device_id FK (SET NULL), affected_subscribers, summary TEXT, recommendation TEXT, confidence, provider_id FK (SET NULL); org-scoped |
+| 14 | `expenses` | Operational expenses, optionally linked to a work order |
+| 15 | `organizations` | ISP company / tenant configuration |
+| 16 | `files` | File metadata for entity-scoped storage (devices, clients, tickets, organizations, backups) |
+| 17 | `ip_pools` | IP address pools for subscriber assignment (IPAM) — supports both IPv4 and IPv6 pools |
+| 18 | `ip_assignments` | Individual IP / prefix assignments to clients and devices (IPv4 single-address or IPv6 prefix delegation) |
+| 19 | `audit_logs` | System-wide audit trail (who changed what and when) |
+| 20 | `notifications` | User notifications and alerts (billing, network, tickets) |
+| 21 | `invoice_items` | Individual line items that make up an invoice's subtotal |
+| 22 | `quote_items` | Individual line items that make up a quote's subtotal |
+| 23 | `ticket_comments` | Conversation tracking and internal notes on support tickets |
+| 24 | `snmp_metrics` | Raw SNMP poll data (5-min intervals, 90-day retention) — wide table, one row per device/interface per poll, partitioned by month |
+| 25 | `snmp_metrics_1hr` | Hourly SNMP metric aggregates (avg/min/max per metric column, 1-year retention) |
+| 26 | `snmp_metrics_1day` | Daily SNMP metric aggregates (avg/min/max per metric column, 3+ year retention) |
+| 27 | `snmp_metrics_1month` | Monthly SNMP metric aggregates (avg/min/max per metric column, 3-year retention via high-watermark rollup from snmp_metrics_1day) |
+| 28 | `snmp_rollup_state` | High-watermark table tracking the last successfully rolled-up timestamp per tier |
+| 29 | `snmp_profiles` | SNMP OID polling profiles — named templates that map device brands/models to their OIDs |
+| 30 | `snmp_profile_oids` | Individual OID-to-column mappings belonging to an SNMP profile |
+| 31 | `snmp_traps` | SNMP trap receiver log — stores unsolicited trap messages (coldStart, warmStart, linkDown, linkUp, authenticationFailure, egpNeighborLoss, enterpriseSpecific) from network devices |
+| 32 | `dr_drill_logs` | Audit log for automated quarterly DR-drill runs — records backup verification, referential-integrity checks, financial-consistency queries, and pass/fail status |
+| 33 | `connection_logs` | Subscriber session events (start/stop/interim-update) for regulatory compliance and per-contract data usage — partitioned by month, 2-year retention |
+| 34 | `warehouses` | Physical storage locations for spare equipment and materials (multiple warehouses supported) |
+| 35 | `inventory_items` | Catalog of spare equipment and materials (antennas, cables, routers, ONUs, etc.) |
+| 36 | `inventory_stock` | Current stock levels per item per warehouse location (aisle / column / shelf) |
+| 37 | `inventory_transactions` | Immutable log of every stock movement — receiving, job assignments, client sales, transfers, returns, and adjustments |
+| 38 | `credit_notes` | Credit notes issued to clients — for returns, courtesy, service outages, billing errors, duplicate payments, downgrades, cancellations, etc. |
+| 39 | `credit_note_items` | Individual line items that make up a credit note's subtotal |
+| 40 | `payment_allocations` | Junction table for split payments — records what portion of a payment was applied to each invoice (supports one-payment-many-invoices) |
+| 41 | `billing_periods` | Tracks each contract's billing windows — which periods have been invoiced, which are upcoming, and when the next invoice should be auto-generated |
+| 42 | `network_links` | Device-to-device connections — fiber, wireless, copper, or virtual links with capacity and interface metadata |
+| 43 | `settings` | App settings / key-value configuration store — system-wide settings such as default tax rate, currency, invoice prefix, SMTP config, and SNMP poll interval |
+| 44 | `tax_rules` | Tax rules per region and service type — supports VAT, sales tax, GST, and other regional tax configurations for multi-country ISPs |
+| 45 | `client_balance_ledger` | Running account balance per client (prepaid / postpaid tracking) — records every debit (invoice, usage deduction) and credit (payment, top-up, credit note, adjustment) with a running balance; supports prepaid (credit remaining) and postpaid (amount owed) billing models |
+| 46 | `email_logs` | Email / SMS / WhatsApp send log — records every message sent to clients or internal users with delivery status (queued, sent, delivered, failed, bounced) |
+| 47 | `scheduled_tasks` | App-level task queue — dispatches recurring and one-shot jobs (auto-suspend overdue clients, generate invoices, RADIUS sync, SNMP polls) with cron scheduling, distributed locking, retry logic, priority ordering, and JSON payloads |
+| 48 | `user_sessions` | Active session tracking for security audit — stores hashed session tokens, IP address, user-agent, and expiry; enables "logout all devices" and suspicious-login detection |
+| 49 | `portal_refresh_tokens` | Client self-service portal refresh tokens — stores SHA-256 hashed tokens for long-lived authentication with expiry and revocation tracking |
+| 50 | `roles` | RBAC role definitions — named roles with optional system-role flag (system roles cannot be deleted) |
+| 51 | `permissions` | RBAC permission definitions — granular permission slugs (e.g. `clients.view`, `invoices.create`) grouped by functional module |
+| 52 | `role_permissions` | RBAC junction table — maps roles to their granted permissions (many-to-many) |
+| 53 | `outages` | Planned and unplanned outage log — tracks network-wide events affecting many clients at once, per site and/or device with start/end times, severity, affected client count, root cause, and resolution status |
+| 54 | `schema_migrations` | Migration state tracking — records which migration files have been applied so the deploy script can skip already-run files |
+| 55 | `vlans` | VLAN registry linked to sites — tracks IEEE 802.1Q VLAN IDs per site for network segmentation, service isolation, and capacity planning |
+| 56 | `tax_rates` | Named tax configurations (e.g. "IVA 16%", "Exempt", "GST 5%") — master table of reusable tax rates referenced by invoices, quotes, and credit notes |
+| 57 | `message_templates` | Reusable message templates for email, SMS, and WhatsApp — stores subject, body, and placeholder variables for outbound communications (invoice reminders, welcome messages, outage alerts) |
+| 58 | `api_tokens` | API keys for external integrations — hashed token secrets with optional scopes, expiry, revocation, and last-used tracking for third-party billing, monitoring tools, and custom integrations |
+| 59 | `promotions` | Coupon codes, promotional pricing, and referral discounts — supports percentage and fixed-amount discounts with optional coupon codes, validity windows, per-client usage limits, and minimum order thresholds |
+| 60 | `service_areas` | Geographic service areas (regions / markets) for sales territory assignment and network planning — named boundary polygons (WGS 84) linked to sites, with planned/active/retired status and map colour |
+| 61 | `coverage_zones` | Coverage zones within a service area — finer-grained polygons describing network reach, access technology (fiber, fixed wireless, DSL, cable, satellite, LTE, 5G), maximum speeds, and build-out status |
+| 62 | `sla_definitions` | SLA terms per plan — uptime guarantees (e.g. 99.95%), maximum response and resolution times, compensation rules for SLA breaches, measurement periods, and maintenance-window exclusions |
+| 63 | `device_config_backups` | Versioned configuration snapshots per device — stores MikroTik exports, RouterOS backups, Cisco running-config, and similar captures with SHA-256 checksums for change detection, version tracking, and capture method (manual, scheduled, pre/post change) |
+| 64 | `client_mx_profiles` | Mexico extension for clients (1:1) — required when `clients.locale = 'MX'` and at least one contract has `facturar = TRUE`; stores RFC, CURP, razon_social, regimen_fiscal, codigo_postal_fiscal, and Mexican address fields for CFDI 4.0 compliance |
+| 65 | `organization_mx_profiles` | Mexico extension for organizations (1:1) — required when `organizations.locale = 'MX'`; stores RFC, razon_social, CSD digital-seal certificate, PAC stamping credentials, CFDI series/folio numbering, and Mexican address fields |
+| 66 | `sat_regimen_fiscal` | SAT catalog c_RegimenFiscal — fiscal regime codes (601–626) used on CFDI 4.0 issuer and receptor nodes |
+| 67 | `sat_uso_cfdi` | SAT catalog c_UsoCFDI — permitted use codes for the CFDI receptor (G01, G03, S01, CP01, etc.) |
+| 68 | `sat_forma_pago` | SAT catalog c_FormaPago — payment instrument codes (01=cash, 03=SPEI, 28=debit card, 99=TBD, etc.) |
+| 69 | `sat_metodo_pago` | SAT catalog c_MetodoPago — payment timing: PUE (single payment) or PPD (installments / deferred) |
+| 70 | `sat_tipo_comprobante` | SAT catalog c_TipoDeComprobante — CFDI document type: I=ingreso, E=egreso, P=pago, T=traslado, N=nómina |
+| 71 | `sat_moneda` | SAT catalog c_Moneda (subset) — currencies accepted in CFDI 4.0: MXN, USD, EUR, XXX |
+| 72 | `sat_clave_prod_serv` | SAT catalog c_ClaveProdServ — product and service classification codes (e.g. `81161700` for internet access) required on every CFDI 4.0 line item |
+| 73 | `sat_clave_unidad` | SAT catalog c_ClaveUnidad — unit-of-measure codes (e.g. `E48` for service unit, `H87` for piece) required on every CFDI 4.0 line item |
+| 74 | `cfdi_documents` | Core CFDI 4.0 fiscal document records linked to invoices, credit notes, and payments — stores folio fiscal UUID, XML, PDF URL, PAC stamping metadata, SAT status, and receiver snapshot |
+| 75 | `cfdi_related_documents` | CfdiRelacionados rows per CFDI document — records relationships between CFDIs (e.g. credit note referencing original invoice, substitution of cancelled CFDI) |
+| 76 | `cfdi_payment_complements` | Complemento de Pago 2.0 headers — one per payment event for PPD invoices; records payment date, payment form, amounts, and bank details |
+| 77 | `cfdi_payment_complement_items` | DoctoRelacionado rows per Complemento de Pago — links each payment event to the specific PPD invoices being settled with balance tracking |
+| 78 | `cfdi_payment_complement_item_taxes` | Per-DoctoRelacionado tax breakdown (ImpuestosP) for Complemento de Pago 2.0 — one row per `<Traslado>` or `<Retencion>` inside a payment complement item; stores tax type, SAT tax code, rate type, rate, taxable base, and calculated tax amount |
+| 79 | `cfdi_conceptos` | CFDI 4.0 concept (line item) rows — one per `<Concepto>` node; stores SAT product/service key, unit key, quantity, description, unit price, line total, optional discount, and ObjetoImp indicator |
+| 80 | `cfdi_concepto_impuestos` | Per-line tax breakdown for CFDI 4.0 — one row per `<Traslado>` or `<Retencion>` inside a concept; stores tax type, SAT tax code (ISR/IVA/IEPS), rate type, rate, taxable base, and calculated tax amount |
+| 81 | `concession_titles` | IFT/CRT concession title registry — tracks title number, type, authorized services, spectrum bands, validity dates, and regulatory status for each organization |
+| 82 | `regulatory_filings` | IFT/CRT periodic filing log — annual reports, quarterly stats, tariff registrations, QoS reports, and other LFTR-mandated submissions |
+| 83 | `contract_templates_mx` | IFT/CRT-registered Carta de Adhesión templates — stores the registered standard contract model including registration number, version, body text, and approval status |
+| 84 | `ift_statistical_reports` | Pre-aggregated IFT/CRT reporting snapshots — subscriber counts by speed tier/state/technology, average speeds, coverage municipalities, and revenue per reporting period (see [`docs/ift-statistical-report-schema-review.md`](docs/ift-statistical-report-schema-review.md) for the field-by-field validation against the IFT *Formato Estadístico* — UI/export work is gated on that review) |
+| 85 | `factura_publica_invoices` | Factura pública (venta al público en general) periodic aggregation documents — when MX contracts have `facturar = FALSE`, their invoices are aggregated into a periodic factura pública per SAT InformacionGlobal (Periodicidad, Meses, Año); one row per organization per period |
+| 86 | `factura_publica_invoice_items` | Junction table linking individual invoices from contracts with `facturar = FALSE` to their parent factura pública — each invoice belongs to at most one factura pública document |
+| 87 | `payment_gateways` | Payment gateway provider configuration per organization (Stripe, Conekta, OpenPay, MercadoPago, PayPal, manual) — stores environment, encrypted credentials, webhook secrets, and provider-specific JSON config |
+| 88 | `payment_transactions` | Raw gateway transaction log for every payment attempt — provider reference ID, gateway status, raw request/response payloads, webhook data, and idempotency key for auditing and reconciliation |
+| 89 | `payment_retries` | Failed payment retry scheduler — tracks retry attempts with exponential backoff (4h → 24h → 72h) for failed payment_transactions; max 3 attempts |
+| 90 | `recurring_payment_profiles` | Stored card / token per client for autopay (recurring charges) — gateway customer ID or card token, card brand, last four digits, expiry, and lifecycle status |
+| 91 | `suspension_rules` | Configurable suspension rules per organization — days-past-due threshold, grace period, action (auto_suspend / notify_only / auto_disconnect), optional plan-ID scoping |
+| 92 | `suspension_logs` | History of suspend / unsuspend / disconnect / reconnect events per contract — triggering rule, performer, RADIUS CoA sent/response, and linked invoice |
+| 93 | `csd_certificates` | CSD (Certificado de Sello Digital) storage per organization for SAT CFDI 4.0 stamping — PEM-encoded public certificate, encrypted private key, SHA-256 fingerprint, and expiry monitoring |
+| 94 | `pac_providers` | PAC (Proveedor Autorizado de Certificación) provider credentials and endpoint configuration per organization — supports Finkok, SW Sapien, Digicel, Comercio Digital, FacturAPI with sandbox/production environments |
+| 95 | `webhooks` | Outbound webhook registrations per organization — target URL, HMAC signing secret, JSON event subscriptions, max retries, and timeout configuration |
+| 96 | `webhook_deliveries` | Delivery log for outbound webhooks — HTTP status, response body, response time, attempt number, retry scheduling, and delivery outcome |
+| 97 | `organization_users` | Pivot table linking users to organizations with per-organization roles (owner, admin, manager, technician, billing, readonly) — enables multi-tenant user membership |
+| 98 | `plan_addons` | Catalog of plan add-ons available for sale per organization — static IP, extra IP block, extra bandwidth, equipment rental; price and billing cycle (monthly / one-time / yearly) |
+| 99 | `contract_addons` | Add-ons attached to a specific client contract — references plan_addons catalog, stores contracted quantity, negotiated unit price, validity window, and lifecycle status |
+| 100 | `speed_tests` | Speed test results from client portal, technician tools, automated probes, or external services — download/upload Mbps, latency, jitter, packet loss for SLA correlation |
+| 101 | `ticket_sla_events` | SLA tracking events per support ticket — first-response time, resolution time, escalation, breach warnings, and breaches; pairs with sla_definitions for target comparison |
+| 102 | `sms_logs` | SMS and WhatsApp notification logging per organization — complements email_logs for non-email channels; captures direction, provider, delivery status, cost, and timestamps |
+| 103 | `revenue_summary` | Materialized revenue summary for MRR / churn / ARPU reporting — populated by a scheduled task (not a view); one row per organization per calendar month per currency |
+| 104 | `network_health_snapshots` | Aggregated daily device uptime and link utilization snapshots — uptime %, avg/peak latency, avg/peak throughput in/out, packet loss, total downtime minutes |
+| 105 | `cfdi_cancellations` | SAT CFDI cancellation audit trail — cancellation reason code (motivo 01–04), optional replacement UUID (folio_sustitucion), PAC response status, and raw acuse XML acknowledgement |
+| 106 | `firerelay_nodes` | FireRelay cluster node registry — tracks node ID, API URL, status (active/draining/maintenance/offline), resource metrics (CPU/memory/disk), client and device counts; only used when `FIRERELAY_MODE = master` |
+| 107 | `firerelay_client_routing` | Client-to-node routing map for FireRelay cluster — maps each `client_id` to the node that owns it; only used when `FIRERELAY_MODE = master` |
+| 108 | `webhook_events` | Inbound payment gateway webhook events — stores raw event payloads from Stripe, Conekta, and other providers with deduplication via unique `(provider, provider_event_id)` constraint, processing status, and linked `payment_transactions` record after reconciliation |
+| 109 | `idempotency_keys` | Idempotency key storage for payment charge requests — prevents duplicate charges when the same key is submitted more than once; keys expire after 24 hours; scoped per organization |
+| 110 | `alert_rules` | Configurable monitoring alert rules per organization — defines metric thresholds (CPU, memory, signal, latency, packet loss, uptime), evaluation windows, severity levels, optional auto-outage creation, and notification channel routing (email/SMS/SSE/webhook) |
+| 111 | `alert_events` | Triggered alert event log — records each time an alert rule fires with current vs threshold values, acknowledgement tracking, and resolution timestamps |
+| 112 | `organization_sso_configs` | Per-organization SSO configuration — one row per (organization, provider_type); stores SAML 2.0 IdP metadata (entity ID, SSO URL, SLO URL, X.509 signing certificate, SP private key) and OIDC settings (issuer, client ID/secret, scopes); controls auto-provisioning behaviour and the default role for new SSO users |
+| 113 | `organization_sso_group_mappings` | IdP group-to-role mapping — maps an exact IdP group name to a FireISP role (admin/manager/technician/billing/readonly) for a given SSO config; evaluated at login to assign the highest-ranked matching role |
+| 114 | `sso_auth_states` | Short-lived OIDC authorization state / nonce store — holds the random `state` and `nonce` parameters generated at the start of an OIDC authorization-code flow; rows expire after 10 minutes; prevents CSRF and replay attacks |
+| 115 | `organization_quotas` | Per-tenant resource quota table — stores optional upper bounds for `max_clients`, `max_devices`, `max_storage_mb`, and `max_scheduled_tasks`; a NULL limit means "unlimited"; absence of a row is also treated as unlimited |
+| 116 | `organization_database_configs` | Per-tenant database isolation configuration — stores the `isolation_mode` (`shared` default, `isolated` opt-in) and, for isolated tenants, the target database host/port/name/user, encrypted password, SSL flag, and `last_verified_at` connectivity-check timestamp |
+| 117 | `profeco_complaints` | PROFECO / CONCILIANET complaint register — one row per consumer complaint folio filed with Mexico's Procuraduría Federal del Consumidor; captures folio number, ISP–consumer resolution status, complaint category, service type, intake and resolution dates, staff attribution, and optional links to existing client and support-ticket records; enables quarterly regulatory filing |
+| 118 | `ai_providers` | AI/LLM provider registry per organization — stores provider kind (`openai`, `azure_openai`, `anthropic`, `gemini`, `ollama`, `custom`), API endpoint, encrypted API key, model name, optional `embedding_model` for RAG, temperature, max tokens, active flag, and soft-delete support |
+| 119 | `ai_policies` | Per-organization AI Reply Assistant policy — master on/off switch, dispatch mode (`draft_only`, `auto_send`, `suggest`), tone, PII-redaction flag, per-channel enable flags (email/ticket/portal), max draft length, and confidence threshold; one row per organization |
+| 120 | `ai_phrase_library` | Curated phrase library for AI prompt enrichment — stores phrase text, category (`greeting`, `closing`, `technical`, `billing`, `escalation`, `other`), locale, optional variable placeholders (JSON), optional embedding vector ID in ChromaDB, and soft-delete support |
+| 121 | `ai_forbidden_terms` | Forbidden-term guard list per organization — terms that must not appear in any AI-drafted reply; evaluated by `phraseLibraryService.validateDraft()` before dispatch; supports locale-scoping and soft-delete |
+| 122 | `ai_reply_logs` | Immutable audit log of every AI-drafted reply — stores `ticket_id`, `provider_id`, `dispatch_mode`, `confidence_score`, `draft_text`, `final_text`, `cost_usd`, `tokens_used`, `pii_redacted` flag, `validation_passed` flag, `sent_at`, and `created_by`; internal `context_snapshot` and `prompt_hash` are never returned by the API |
+| 123 | `contract_topology_paths` | Cached network topology paths for AI context — stores the materialized path from a contract's CPE through all intermediate devices to the backbone; used by `topologyContextService` to build the topology breadcrumb injected into AI prompts; invalidated on device/link/contract change |
+| 124 | `client_groups` | Family/account grouping for shared billing or family plans — stores group name, `billing_mode` (`separate` or `shared`), optional `primary_client_id` billing owner, and soft-delete; clients link via `clients.client_group_id` |
+| 125 | `client_custom_fields` | Unlimited per-client key/value custom fields (technician notes, internal tags, etc.) — unique on `(client_id, field_key)`, free-form `field_value`, with soft-delete |
+| 126 | `leads` | Lead capture and prospect pipeline — name/contact, `source`, pipeline `status` (`new`→`won`/`lost`), estimated value, assigned agent, optional geocoded address, and `converted_client_id` linking to the client created on conversion |
+| 127 | `service_orders` | Service order workflow — `order_number`, optional `client_id`/`lead_id`/`plan_id`/`contract_id`, `order_type`, status machine (`requested`→`approved`→`provisioning`→`activated`, or `cancelled`), assignment, and lifecycle timestamps |
+| 128 | `service_order_tasks` | Onboarding checklist items per service order — `task_key`, `label`, `is_done`, completion attribution, and sort order; unique on `(service_order_id, task_key)` |
+| 129 | `winback_campaigns` | Win-back campaigns for cancelled customers — name, status, `target_segment` cohort, offer description, retention `discount_percent`, optional message template, and date range |
+| 130 | `client_interactions` | Manual client interaction log (calls, visits, chats) — `interaction_type`, `direction`, subject/notes, `occurred_at`, optional duration, and logging staff member; feeds the per-client activity timeline together with tickets, payments, and email/SMS logs |
+| 131 | `follow_up_reminders` | Scheduled client follow-ups — title/notes, `priority`, `status` (`pending`/`completed`/`cancelled`), `due_at`, assignee, optional originating interaction or ticket, and `notified_at` stamp so the due notification fires once |
+| 132 | `satisfaction_surveys` | NPS (0–10) / CSAT (1–5) surveys — client, optional ticket/interaction reference, `channel`, `status` (`pending`→`sent`→`responded`), score, respondent comment, and sent/responded timestamps |
+| 133 | `ticket_escalations` | Escalation chain for unresolved tickets — auto-incrementing `level` per ticket, escalated by/to attribution (NULL `escalated_by` = automatic), reason, `status` (`open`→`acknowledged`→`resolved`), and resolution notes |
+| 134 | `communication_campaigns` | Bulk campaign sends (email/SMS/WhatsApp) — `channel`, `status` (`draft`→`scheduled`→`sending`→`sent`/`cancelled`/`failed`), optional template and recipient filters (by client status, plan, or tag), aggregate counters (recipient, sent, delivered, opened, bounced, failed), scheduling timestamps, and `deleted_at` soft-delete |
+| 135 | `campaign_messages` | Per-recipient record for every campaign dispatch — `campaign_id`, optional `client_id`, `recipient` (email or phone), `channel`, `status` (`queued`→`sent`→`delivered`→`opened`/`bounced`/`failed`), `provider_message_id` for webhook correlation, and individual timestamp fields (queued, sent, delivered, opened, bounced) |
+| 136 | `client_dnd_preferences` | Per-customer per-channel Do Not Disturb preferences — `channel` (`email`/`sms`/`whatsapp`/`all`), `opt_out` flag for marketing/bulk sends, optional quiet-hours window (`quiet_hours_start`/`quiet_hours_end`), and free-form `reason`; unique on `(client_id, channel)` |
+| 137 | `plan_throttle_logs` | Audit log for FUP throttle and restore actions per contract — records throttle/restore events, RADIUS CoA sent/response, and reason (fup/overage/manual) |
+| 138 | `plan_speed_windows` | Time-based speed windows for plans — bitmask day-of-week scheduling, start/end time, per-window download/upload speeds, and priority ordering for overlap resolution |
+| 139 | `organization_invoice_settings` | Per-org invoice branding — logo URL, header color, footer legal text, and payment instructions used by the PDF invoice generator |
+| 140 | `late_fee_rules` | Configurable late fee policies per organization — flat or percent fee, grace period, maximum applications, and active flag |
+| 141 | `invoice_late_fees` | Audit trail of late fee applications to overdue invoices — links to the rule, the created line item, and the performer (NULL = system) |
+| 142 | `payment_reminder_settings` | Per-org payment reminder schedule — days before/after due date and on-due-date send flags, with enabled toggle |
+| 143 | `payment_reminder_logs` | Idempotency log for sent payment reminders — unique on `(invoice_id, stage, channel)` to prevent duplicate sends |
+| 144 | `payment_plans` | Payment plan for splitting invoices into installments |
+| 145 | `payment_plan_installments` | Individual installment records for a payment plan |
+| 146 | `cash_reconciliation_sessions` | Field agent cash collection reconciliation sessions |
+| 147 | `refund_requests` | Refund request workflow — create, review (approve/reject), process (credit balance, credit note, or gateway refund) |
+| 148 | `billing_disputes` | Billing dispute tracking with status lifecycle (open → investigating → resolved) |
+| 149 | `dispute_evidence` | File attachments for billing disputes (reuses multer upload infrastructure) |
+| 150 | `chargebacks` | Chargeback management; auto-created from gateway webhook dispute events |
+| 151 | `billing_adjustments` | Immutable billing adjustment log — written by refund processing, chargeback resolution, and manual admin actions; mirrors to audit_logs |
+| 152 | `radcheck` | Standard FreeRADIUS per-user check attributes (Cleartext-Password, Auth-Type, TLS-Cert-Serial) — populated by `radius_sync` task from FireISP state |
+| 153 | `radreply` | Standard FreeRADIUS per-user reply attributes — populated by `radius_sync` task |
+| 154 | `radusergroup` | Standard FreeRADIUS user → group membership — maps each subscriber username to their plan group |
+| 155 | `radgroupcheck` | Standard FreeRADIUS per-group check attributes |
+| 156 | `radgroupreply` | Standard FreeRADIUS per-group reply attributes — contains vendor speed attributes (MikroTik/Cisco/Juniper/WISPr) generated per plan by `radiusAttributeService` |
+| 157 | `subscriber_certificates` | EAP-TLS subscriber certificate metadata registry — CN, serial, SHA-256 fingerprint, validity window, and revocation tracking; FireISP stores metadata only (no CA/key generation) |
+| 158 | `plan_access_windows` | Per-plan time-based access restriction windows (day_mask + start/end time); converted to FreeRADIUS `Login-Time` radgroupcheck attribute by `syncFreeradiusTables()` |
+| 159 | `organization_walled_garden_settings` | Per-org walled garden configuration: enabled flag, captive portal redirect URL, MikroTik address-list name, allowed destinations for NAS ACL reference |
+| 160 | `radius_account_routes` | Per-RADIUS-account static route injection; each non-deleted row becomes one `Framed-Route` radreply attribute (`destination [gateway] [metric]`) during sync |
+| 161 | `mac_move_events` | MAC move event log — written by accounting ingest when the same RADIUS username is seen from a different Calling-Station-Id or NAS between sessions |
+| 162 | `pppoe_service_profiles` | PPPoE AC / BNG service profiles — MTU, MRU, auth-methods, DNS, session/idle timeouts, rate-limit override (MikroTik), address-list, Filter-Id; referenced by `ip_pools.service_profile_id` and `radius.service_profile_id` |
+| 163 | `radpostauth` | FreeRADIUS post-authentication log — written directly by FreeRADIUS via `rlm_sql`; read by FireISP for auth-failure diagnostics (no foreign keys) |
+| 164 | `pppoe_event_logs` | PPPoE stage event log (PADI/PADS/LCP/IPCP/AUTH/PADT); written by a syslog shipper via `POST /pppoe/events`; read for MTU diagnostics and LCP failure detection (no FKs on org/NAS — loose coupling) |
+| 165 | `dhcp_servers` | DHCP server connection registry (ISC Kea, MikroTik); stores host, port, API URL, and encrypted API token for each DHCP server managed by FireISP |
+| 166 | `dhcp_static_reservations` | Static DHCP reservations binding MAC addresses to IP addresses; supports DHCP Option 82 circuit/remote-id binding for subscriber identification |
+| 167 | `nat_pools` | CGNAT, 1:1 NAT, and PAT pool definitions; tracks external IP ranges, port allocation ranges, and max ports per subscriber |
+| 168 | `ptr_records` | Reverse DNS PTR record management; supports both IPv4 and IPv6 PTR records with configurable TTL and DNS zone |
+| 169 | `ra_guard_policies` | RA Guard policy assignments to switch ports; prevents rogue Router Advertisement attacks by restricting RA forwarding to authorized ports |
+| 170 | `tunnel_6rd_configs` | 6rd (IPv6 Rapid Deployment) tunnel configuration; maps IPv4 prefixes to IPv6 prefixes for rapid IPv6 rollout over IPv4 infrastructure |
+| 171 | `ds_lite_configs` | DS-Lite AFTR (Address Family Transition Router) configuration; enables IPv4 connectivity for subscribers on IPv6-only access networks |
+| 172 | `map_rules` | MAP-E and MAP-T rule definitions; provides stateless IPv4/IPv6 address mapping for scalable IPv4 address sharing |
+| 173 | `xlat464_configs` | 464XLAT PLAT/CLAT configuration; enables IPv4 application connectivity in IPv6-only subscriber networks via stateful NAT64 |
+| 174 | `device_groups` | Logical device groupings (§6.1) — organize network devices by type, location, region, or OLT for bulk operations and filtered monitoring views |
+| 175 | `device_group_members` | Junction table linking devices to device groups (§6.1) — many-to-many with cascade deletes |
+| 176 | `discovery_scans` | Network discovery scan jobs (§6.1) — CIDR-range SNMP probes with full SNMPv3 credential support, scan state tracking, and host counters |
+| 177 | `discovery_results` | Per-host results from discovery scans (§6.1) — stores sysDescr/sysOID, auto-matched SNMP profile, and onboarding status (pending_review/onboarded/ignored) |
+| 178 | `snmp_trap_forwarding_rules` | Configurable SNMP trap routing rules (§6.1) — match by trap_type/source_ip/OID prefix and forward to HTTP URL, email, or registered webhook |
+| 179 | `poller_nodes` | Registry of dedicated SNMP poller nodes (§6.4) — each node tracks queue depth, poll duration, heartbeat; may reference a firerelay_nodes entry for distributed polling |
+| 180 | `device_polling_configs` | Per-device or per-device-type polling overrides (§6.4) — poll interval, SNMP GETBULK flags, timeout, retries, failover node, adaptive polling thresholds |
+| 181 | `poller_performance_snapshots` | Time-series poller health metrics (§6.4) — snapshot of devices polled/failed, avg/max duration, queue depth, timeout rate per poller node |
+| 182 | `alert_escalation_chains` | Named L1→L2→L3 escalation chains (§6.5) — top-level chain definition, org-scoped, referenced by alert_rules.escalation_chain_id |
+| 183 | `alert_escalation_steps` | Individual escalation steps within a chain (§6.5) — ordered by step_number with delay_minutes, notification channel (email/sms/whatsapp/telegram/webhook), and recipient config |
+| 184 | `maintenance_windows` | Scheduled maintenance windows for alert suppression (§6.5) — can target a specific device or site; supports one-time and recurring (cron) windows |
+| 185 | `alert_notification_channels` | Multi-channel notification routing configs (§6.5) — channel_type enum, credentials AES-256-GCM encrypted in config_encrypted column |
+| 186 | `alert_suppression_rules` | Upstream→downstream device correlation suppression (§6.5) — when upstream has a triggered alert, suppress downstream alerts for suppress_duration_minutes |
+| 187 | `config_templates` | Device configuration templates with {{variable}} placeholders (§6.6) — optional device_type/manufacturer filter for deployment targeting |
+| 188 | `config_deployment_records` | Config template push records (§6.6) — tracks status, variables used, result output, and deployed_at per device per deployment |
+| 189 | `config_backup_schedules` | Per-device or per-org config backup schedules (§6.6) — extends the global nightly task with custom cron expressions per device |
+| 190 | `config_compliance_rules` | Config compliance audit rules (§6.6) — keyword/regex rules (must_contain, must_not_contain, regex_match, regex_not_match) with severity levels |
+| 191 | `config_compliance_results` | Config compliance audit results (§6.6) — pass/fail/error per rule per backup, indexed by device and evaluation time |
+| 192 | `olt_ports` | PON and uplink port inventory per OLT device (§7.1) — slot/port index, port type (gpon/epon/xgspon/uplink), admin/oper state, ONU count, Tx/Rx optical power, bandwidth utilization, last_polled_at |
+| 193 | `onu_profiles` | PON service profile templates (§7.2) — T-CONT ID, DBA profile name, assured/max bandwidth, GEM port ID, service/client VLAN, VLAN mode (transparent/tag/translate/double_tag/untagged), linked plan |
+| 194 | `onu_details` | GPON/EPON ONU detail extension to devices (§7.2) — serial number, LOID/password (encrypted at app layer), onu_state (online/offline/los/dying_gasp/power_off/loc/unconfigured), OLT-assigned onu_id, ranging distance, line/service profile names, WAN mode, last provision job link |
+| 195 | `onu_optical_metrics` | Per-ONU optical diagnostic time-series (§7.2) — Tx power (dBm), Rx power (dBm), temperature (°C), voltage (V), bias current (mA), OLT-side Rx power; no FKs (metrics write pattern), 90-day retention via nightly cleanup |
+| 196 | `onu_whitelist` | ONU MAC/SN allow-block list per OLT (§7.2) — entry_type (mac/serial_number), entry_value, list_type (allow/block); unique on (olt_device_id, entry_type, entry_value) |
+| 197 | `onu_omci_configs` | OMCI/TR-069 Wi-Fi and WAN config records per ONU (§7.2) — config_type, Wi-Fi SSID/band/channel/security, Wi-Fi password (encrypted at app layer), WAN mode/IP mode/addresses, delivery_method (omci/tr069/ssh_cli/manual/pending), apply_status, raw_config JSON |
+| 198 | `onu_firmware_jobs` | ONU firmware upgrade and reboot job scheduler (§7.2) — job_type (firmware_upgrade/reboot/provision/factory_reset), scope (single_onu/olt_port/olt_device/region), firmware URL and version, scheduled_at, status, per-device result_summary JSON; background job processor dispatches pending jobs |
+| 199 | `olt_vendor_capabilities` | Per-vendor OLT management capability matrix (§7.1) — vendor, model_pattern, protocols JSON array (snmp/tl1/netconf/ssh_cli), snmp_profile_name, CLI template references, NETCONF schema, OMCI support flag, enterprise OID root; global (not org-scoped); seeds for Huawei/ZTE/VSOL/C-Data/WOLCK/Calix |
+| 200 | `olt_splitters` | PON splitter inventory (§7.1) — ratio (1:2 through 1:128), splitter_type (optical/wdm), linked to site and OLT port, installation date, status (active/inactive/damaged/removed) |
+| 201 | `onu_migration_jobs` | ONU port migration job records (§7.3) — transactional ONU reassignment from source to target PON port, status lifecycle (pending/queued/in_progress/completed/failed/cancelled), scheduled_at, result_detail JSON |
+| 202 | `fiber_routes` | Fiber route path records (§7.4) — CO-to-splitter-to-ONU paths, route_type (trunk/distribution/drop/feeder/other), parent_route_id self-FK for hierarchical routes, from/to device/port/ONU/splitter FKs, total_length_m, fiber_count, gis_path JSON |
+| 203 | `odf_frames` | Optical Distribution Frame inventory (§7.4) — ODF frame per site, total_ports, frame_type, manufacturer/model, status (active/inactive/damaged/removed) |
+| 204 | `odf_ports` | ODF port records within an ODF frame (§7.4) — port_number (unique per frame), connector_type (sc/lc/fc/st/mpo/other), fiber_route_id link, status; CASCADE deletes when frame is removed |
+| 205 | `odf_cross_connects` | ODF cross-connect patch cord records (§7.4) — port_a_id and port_b_id FKs (RESTRICT delete), patch_cord_type, patch_cord_length_m, status (active/inactive/removed) |
+| 206 | `otdr_test_results` | OTDR test result records (§7.4) — fault_detected flag, fault_distance_m, fault_type (fiber_break/splice_loss/connector_loss/bend_loss/reflection/other), events JSON, sor_file_path, job_status (pending/running/completed/failed) |
+| 207 | `sfp_inventory` | SFP transceiver lifecycle tracking (§7.4) — form_factor (sfp/sfp_plus/sfp28/qsfp/qsfp_plus/xfp/gbic/other), vendor/part/serial, wavelength_nm, max_distance_km, lifecycle_status (installed/spare/faulty/retired), links to devices and inventory_items; DDM diagnostics via snmp_metrics sfp_* columns |
+| 208 | `cpe_devices` | TR-069/CWMP CPE device registry (§8.1) — serial_number+OUI (unique), acs_username/password_hash for HTTP Basic auth, status ENUM (new/provisioning/active/error/offline), last_inform_at/ip, wan_ip, lan_subnet, wifi_ssid; FKs to organizations, devices, contracts, cpe_profiles |
+| 209 | `cpe_parameters` | TR-069 parameter tree per CPE (§8.1) — parameter_path (up to 512 chars), parameter_value TEXT, is_writable flag, last_fetched_at; UNIQUE on (cpe_device_id, parameter_path(255)); CASCADE on device delete |
+| 210 | `cpe_tasks` | Queued CWMP tasks per CPE device (§8.1) — task_type ENUM (get/set parameter values, download, reboot, factory_reset, etc.), parameters JSON, status (queued/in_progress/done/failed), priority TINYINT (1=highest), result/error JSON |
+| 211 | `cpe_profiles` | CPE provisioning profile templates with inheritance (§8.2) — parent_profile_id self-FK for up to 5-level chain, plan_id for auto-apply, manufacturer/model filters, wifi_ssid_template with {{serial}} substitution, parameters JSON for static push |
+| 212 | `cpe_parameter_mappings` | Automatic parameter mapping rules for CPE profiles (§8.2) — source_type ENUM (static/contract_field/plan_field/device_field), static_value or source_field; CASCADE on profile delete |
+| 213 | `cpe_firmware_versions` | Firmware version inventory per CPE model (§8.1) — manufacturer+model+version (unique), firmware_url, file_size_bytes, checksum/checksum_type (md5/sha1/sha256), is_stable flag |
+| 214 | `cpe_firmware_campaigns` | Batch firmware upgrade campaigns (§8.1) — target by manufacturer/model/profile/ad-hoc device IDs JSON, status (scheduled/running/done/failed/cancelled), progress counters (total/completed/failed_devices), result_summary JSON |
+| 215 | `cpe_diagnostics` | TR-069 diagnostic snapshots (§8.3) — stores ping/traceroute/wifi_snapshot/ethernet_status/wan_diagnostics results keyed by cpe_device_id; result JSON, diag_type ENUM, status (pending/running/completed/failed), target_host for active probes |
+| 216 | `cpe_session_logs` | ACS CWMP session event log (§8.3) — records inform/task_dispatched/task_response/fault/auth_failure/parse_error/session_error events with raw_body (truncated to 2000 chars) for CWMP debugging and compliance audit; cleaned up by scheduled task |
+| 217 | `cpe_lifecycle_history` | Immutable CPE lifecycle state transition audit trail (§8.4) — records every in_stock/assigned/active/returned/rma transition with previous_state, new_state, actor_id, and free-text reason for inventory accountability |
+| 218 | `ap_channel_plans` | Channel assignment registry per site (§9.1) — frequency_mhz, channel_width_mhz, status (active/inactive); FK to sites; used for conflict avoidance across AP sectors |
+| 219 | `ap_sector_configs` | AP/PTP wireless RF configuration per sector device (§9.1) — sector_azimuth_deg, sector_width_deg, frequency_mhz, channel_width_mhz, tx_power_dbm, encryption ENUM, channel_plan_id, antenna_gain_dbi, height_m, polarization ENUM, max_clients; FK to devices + ap_channel_plans |
+| 220 | `wireless_client_sessions` | Append-only CPE client state snapshots per AP poll (§9.1) — mac_address, ip_address, signal_dbm, noise_floor_dbm, snr_db, ccq_pct, tx_rate_mbps, rx_rate_mbps, distance_m, last_seen_at; FKs to devices (AP + CPE, SET NULL on delete) |
+| 221 | `ap_command_jobs` | Remote AP command jobs for power/frequency/reboot adjustments (§9.1) — command_type ENUM (set_tx_power/set_frequency/set_channel_width/reboot/other), target_value, status ENUM (pending/queued/in_progress/completed/failed/cancelled), scheduled_at, result_output, error_message; FK to devices |
+| 222 | `wireless_channel_interference` | Detected RF channel interference records per sector/site (§9.1) — detected_at, frequency_mhz, channel_width_mhz, interference_level ENUM (low/medium/high/critical), conflicting_ap_mac; FKs to ap_sector_configs + sites (SET NULL on delete) |
+| 223 | `link_planning_calcs` | Saved link budget calculator runs (§9.2) — site_a/b FKs or lat/lon overrides, frequency_mhz, tx_power_dbm, antenna gains, cable loss; computed distance_km, fspl_db, fresnel_radius_m, clearance_required_m, link_budget_db stored for history display |
+| 224 | `spectrum_scan_results` | AP spectrum scan results (§9.3) — device_id, scan_type ENUM (scheduled/manual/triggered), frequency_start/end_mhz, channel_width_mhz, scan_data JSON array of {freq_mhz, power_dbm} objects, peak_interference_dbm, recommended_channel_mhz, status ENUM; FK to devices (RESTRICT on delete) |
+| 225 | `quality_classes` | QoS priority class registry (§10.1) — traffic_type ENUM (voip/video/web/download/other), priority 1–8, DSCP mark, MikroTik queue kind, max_limit_pct; linked from plans.priority_class_id |
+| 226 | `queue_tree_nodes` | Hierarchical queue tree node definitions (§10.1/§10.4) — parent_id self-FK for tree structure, queue_type ENUM (tree/simple/cbq/hfsc/pcq), vendor_platform ENUM (mikrotik/cisco/juniper/generic), NAS interface, max/burst/threshold limits, burst_time_seconds, queue_kind, sort_order; exportable as MikroTik RouterOS script |
+| 227 | `rate_limit_templates` | Named rate-limit templates per service type (§10.2) — service_type ENUM (pppoe/dhcp/hotspot/static/other), radius_vendor ENUM (mikrotik/cisco/juniper/generic), CIR + burst + threshold speeds, cached rate_string |
+| 228 | `protocol_shaping_rules` | Per-protocol/port traffic shaping rules (§10.2) — protocol/direction/port-range/L7-pattern match, action ENUM (limit/drop/mark/throttle), rate limits, DSCP mark, enabled flag, preset name; optional FK to plans |
+| 229 | `data_rollover_balances` | Monthly data rollover balance ledger per contract (§10.3) — billing_month, accrued_gb, consumed_rollover_gb, carry_forward ENUM (yes/no); UNIQUE KEY on contract_id + billing_month; FK to contracts (CASCADE) |
+| 230 | `data_packs` | Add-on data packs for purchase by subscribers (§10.3) — data_gb, price, validity_days, status ENUM (active/inactive/deprecated); org-scoped |
+| 231 | `data_pack_purchases` | Subscriber data pack purchase records (§10.3) — contract_id FK (CASCADE), pack_id FK (RESTRICT), purchased_by (admin/client_portal), activated_at, expires_at, status ENUM; links contracts to data_packs |
+| 232 | `fup_usage_notifications` | FUP threshold notification audit log (§10.3) — contract_id, billing_month, threshold_pct (80/90/100), used_gb, cap_gb, notified_at; UNIQUE KEY on contract_id + billing_month + threshold_pct prevents duplicate alerts |
+| 233 | `interface_qos_policies` | Per-interface QoS policy definitions (§10.4) — algorithm ENUM (htb/cbq/hfsc/pcq/prio/sfq/generic), direction ENUM (ingress/egress/both), parent_policy_id self-FK, bandwidth_mbps/ceil_mbps/burst_mbps, vendor_platform ENUM; FK to devices (SET NULL) |
+| 234 | `mpls_vlan_prioritization_rules` | MPLS label and VLAN 802.1p/802.1q traffic prioritization rules (§10.4) — rule_type ENUM (vlan/mpls/qinq/mpls_vlan), vlan_id, mpls_label, inner_vlan_id, traffic_class, priority_bits (0–7), dscp_value, queue_class, enabled flag |
+| 235 | `dscp_marking_policies` | DSCP traffic marking and remarking rules (§10.4) — traffic_class, dscp_value (0–63), dscp_name (EF/AF41/CS3/BE), match_protocol, match_port_range, action ENUM (mark/remark/passthrough), priority, enabled; org-scoped with 4 default seeds |
+| 236 | `bandwidth_test_servers` | Registered iperf3/speedtest bandwidth test server endpoints (§10.4) — host, port, protocol ENUM (tcp/udp/iperf3/speedtest), region, site_id FK (SET NULL); status ENUM (active/inactive/maintenance) |
+| 237 | `subscriber_speed_test_jobs` | Subscriber bandwidth test job queue (§10.4) — contract_id FK (CASCADE), server_id FK (SET NULL), status ENUM (pending/running/completed/failed/cancelled), scheduled_at, started_at, completed_at, download_mbps, upload_mbps, latency_ms, jitter_ms, test_log |
+| 238 | `portal_service_requests` | Client portal self-service requests (§11.3) — request_type ENUM (plan_upgrade/wifi_password_change/pppoe_password_change/static_ip_request/cancellation/visit_schedule), status ENUM (pending/approved/rejected/completed/cancelled), payload JSON, proration fields, approved_by, completed_at |
+| 239 | `portal_kb_articles` | Knowledge-base / FAQ articles surfaced in the client portal (§11.4) — category, title, slug (UNIQUE per org), body LONGTEXT, is_published, view_count, helpful_yes, helpful_no |
+| 240 | `portal_chat_sessions` | AI chatbot sessions started from the client portal (§11.4) — session_token UNIQUE, messages JSON array, status ENUM (active/resolved/escalated), ticket_id FK (created on escalation), turn_count |
+| 241 | `portal_push_subscriptions` | Web Push notification subscriptions for portal clients (§11.5) — endpoint, p256dh, auth, notify_outage/billing/ticket flags |
+| 242 | `ticket_time_logs` | Per-ticket time tracking entries (§12) — user_id FK, minutes (duration), work_date, description; linked to tickets CASCADE |
+| 243 | `ticket_relations` | Typed relationships between tickets (§12) — duplicate/related/blocks/blocked_by; UNIQUE on (ticket_id_a, ticket_id_b, relation_type); both FKs CASCADE |
+| 244 | `ticket_ai_triage` | AI-generated triage results per ticket (§12) — suggested_category, suggested_priority, suggested_resolution, kb_article_ids JSON, context_snapshot JSON; UNIQUE on ticket_id |
+| 245 | `work_orders` | Field work orders linked to tickets or standalone (§12) — org-scoped, assigned_to technician, status ENUM (pending/assigned/in_progress/completed/cancelled), GPS coordinates, soft-delete |
+| 246 | `work_order_materials` | Material usage log per work order (§12) — item_name, quantity DECIMAL, unit, unit_cost; FK to work_orders CASCADE |
+| 247 | `technician_gps_breadcrumbs` | GPS position log for field technicians (§12) — append-only, no FKs (write-hot), user_id, lat/lng DECIMAL(10,7), accuracy_m FLOAT, recorded_at; composite index on (user_id, recorded_at DESC) |
+| 248 | `ticket_attachments` | File attachments for support tickets (§12) — filename, original_filename, mime_type, file_size, storage_path, uploaded_by; FK to tickets CASCADE, org-scoped |
+| 249 | `work_order_attachments` | File attachments for work orders (§12) — filename, original_filename, mime_type, file_size, storage_path, uploaded_by; FK to work_orders CASCADE, org-scoped |
+| 250 | `map_geofences` | Geofence zones (§13.2) — polygon boundary (GeoJSON) or radius-based circle; optional device_id pin; is_active flag; triggers geofence_evaluation task alerts |
+| 251 | `map_infrastructure_points` | Infrastructure map pins (§13.2) — towers, cabinets, ODFs, splice closures, poles, POPs; lat/lng, site_id FK, properties JSON, is_active |
+| 252 | `fiber_route_segments` | Fiber route polyline sub-segments (§13.2) — ordered sequence within a parent fiber_route, GeoJSON LineString coordinates, cable type, burial type, fiber count |
+| 253 | `device_dependency_edges` | Device parent-child dependency graph edges (§13.3) — directed parent-child relationship for cascade visualization and impact analysis; dependency_type ENUM, is_redundant flag |
+| 254 | `vendors` | Vendor/supplier registry (§14.2) — contact info, payment terms, currency, status; org-scoped with soft-delete |
+| 255 | `purchase_orders` | Purchase orders to vendors (§14.2) — po_number, status ENUM draft/sent/partial/received/cancelled, line items, subtotal/tax/total, destination warehouse; org-scoped with soft-delete |
+| 256 | `purchase_order_items` | Line items within a purchase order (§14.2) — inventory_item_id FK, description, quantity_ordered, quantity_received, unit_cost; total_cost GENERATED STORED column |
+| 257 | `assets` | Individual trackable assets with serial numbers (§14.2/§14.3) — asset_tag, barcode, lifecycle_status ENUM, warranty_expires_at, depreciation_method ENUM, purchase_date/cost, disposal fields; FKs to vendors/warehouses/purchase_orders |
+| 258 | `asset_assignments` | Equipment-to-customer and equipment-to-device assignments (§14.3) — client_id/device_id/port_name assignment targets, assigned_at/returned_at lifecycle, assigned_by/returned_by users |
+| 259 | `rma_requests` | Return Merchandise Authorization workflow (§14.2) — rma_number, status ENUM open/shipped/received/replacement_sent/closed/denied, reason ENUM, replacement_asset_id FK; linked to assets and vendors |
+| 260 | `report_definitions` | Report template registry (§15.5) — name (unique per org), description, report_type ENUM (financial/operational/network/compliance/custom), parameters JSON schema, output_formats JSON, is_public, soft-delete |
+| 261 | `scheduled_reports` | Scheduled report delivery (§15.5) — links to report_definitions, format ENUM (csv/xlsx/pdf), cron_expression, recipients JSON array, last_run_at, last_status, next_run_at, soft-delete |
+| 262 | `generated_reports` | Report generation history (§15.5) — immutable log of each generated report with file_path, file_size, status, generation_time_ms; FK to scheduled_reports (nullable) |
+| 263 | `dashboard_widgets` | Analytics dashboard widget layout (§15.5) — widget_type ENUM (revenue_chart/subscriber_growth/aging_summary/capacity_forecast/top_consumers/uptime_summary/bandwidth_utilization/custom_metric), per-user position/size grid, config JSON, is_visible |
+| 264 | `custom_reports` | User-built custom reports (§15.5) — name, query_type ENUM (sql/visual), sql_query TEXT (SELECT-only, validated), visual_config JSON, is_public, last_run_at; public reports visible to all org members |
+| 265 | `subscriber_consents` | §16.2 LFPDPPP consent tracking (Aviso de Privacidad) — consent version, purpose, granted/withdrawn timestamps, IP address, and legal basis per subscriber per org |
+| 266 | `dsar_requests` | §16.2 DSAR/ARCO request workflow with 30-day deadline — request type (access/rectification/cancellation/opposition), status lifecycle, legal hold flag, fulfillment notes, and assigned reviewer |
+| 267 | `identity_verification_records` | §16.2 INE/IFE/CURP identity verification with checksum — document type, document number, CURP, verification method, verification date, verifier user, and outcome status |
+| 268 | `gov_data_requests` | §16.3 Tamper-proof log of government data requests (lawful interception) — authority name, legal basis, request date, data scope, response date, SHA-256 row_hash integrity chain |
+| 269 | `phone_number_inventory` | §16.4 VoIP/DID phone number inventory — E.164 number, number type ENUM (did/toll_free/local/mobile), carrier, status ENUM (available/assigned/porting/reserved), assigned client FK |
+| 270 | `number_portability_records` | §16.4 MNP/FNP portability records — porting direction (in/out), donor/recipient carrier, port-in/port-out dates, status lifecycle, regulatory reference number |
+| 271 | `numbering_blocks` | §16.4 CNMC numbering block management — block prefix, range start/end, block size, assigned carrier, regulatory authority, allocation date, and utilization tracking |
+| 272 | `uso_obligations` | §16.6 Universal service obligation tracking — obligation type, reporting period, contribution amount, payment status, regulatory filing reference, and compliance deadline |
+| 273 | `rural_coverage_reports` | §16.6 Rural deployment and social coverage reporting — municipality code, coverage percentage, technology type, underserved flag, population covered, and reporting period |
+| 274 | `service_modification_notices` | §16.7 Mandatory service modification notice tracking — modification type, effective date, notice sent date, notice period days, regulatory requirement reference, and affected contracts count |
+| 275 | `data_residency_config` | §16.8 Data localization and residency compliance config — storage region, backup region, cross-border transfer allowed flag, transfer legal basis, ATDT/CRT rule reference, and last reviewed date |
+| 276 | `report_access_logs` | §16.9 Who accessed/downloaded what subscriber data — user ID, report type, data scope, access timestamp, IP address, export format, and row count for regulatory audit trail |
+| 277 | `webauthn_credentials` | §17.1 WebAuthn/FIDO2 hardware key credential storage — credential_id (opaque handle), public_key, AAGUID, transports JSON; org + user scoped with soft-delete |
+| 278 | `admin_ip_allowlist` | §17.1 Org-scoped IP/CIDR allowlist for admin portal access — ip_address (IPv4/CIDR), is_active, optional expiry timestamp |
+| 279 | `password_policies` | §17.1 Per-org password policy — min/max length, uppercase/lowercase/digits/symbols flags, rotation_days, history_count, lockout_attempts + duration; unique per org |
+| 280 | `api_key_rate_limits` | §17.2 Per-token rate limits — requests_per_minute/hour/day and burst_size; unique per org+token with ON DUPLICATE KEY UPDATE upsert |
+| 281 | `firewall_rules` | §17.3 Subscriber/org firewall rule management — action ENUM(allow/deny/log), protocol ENUM, src/dst IP + port, direction ENUM, priority, soft-delete |
+| 282 | `ddos_protection_rules` | §17.3 Flowspec/RTBH DDoS mitigation rules — rule_type ENUM(flowspec/rtbh), target_prefix, action ENUM(drop/ratelimit/redirect), threshold PPS/BPS, triggered_at, deactivated_at |
+| 283 | `blackhole_routes` | §17.3 RTBH blackhole routing — target_prefix, reason, next_hop, is_active flag, released_at timestamp; create activates route, release endpoint clears it |
+| 284 | `dns_blocklists` | §17.3 DNS blocklist entries for malware/phishing/botnet/ads blocking — domain, category ENUM, source, is_active; scoped per org |
+| 285 | `cpe_security_scans` | §17.3 CPE security scan records — scan_type ENUM(default_credentials/open_ports/firmware_cve/configuration_audit/full), status ENUM(pending/running/completed/failed), device/cpe references, started_at, completed_at, results JSON |
+| 286 | `encryption_key_metadata` | §17.4 Encryption key lifecycle registry — key_alias, algorithm, key_size, purpose, status ENUM(active/retired/revoked), created_by FK→users, rotated_at, expires_at, notes |
+| 287 | `data_masking_rules` | §17.4 Column-level data masking configuration — table_name, column_name, masking_type ENUM(full/partial/hash/tokenize), mask_pattern, roles_exempt JSON, is_active; unique per org+table+column |
+| 288 | `secure_deletion_log` | §17.4 Audit trail for GDPR/LFPDPPP secure deletion runs — table_name, records_deleted, policy_applied, deletion_method, details JSON, triggered_by FK→users |
+| 289 | `automation_rules` | §18.1 Event-triggered workflow rules — trigger_event, trigger_conditions JSON, action_type, action_config JSON, priority, is_enabled; soft-delete |
+| 290 | `automation_rule_executions` | §18.1 Audit log for automation rule runs — trigger_payload JSON, status ENUM(success/failure/skipped), result_message, duration_ms |
+| 291 | `batch_jobs` | §18.1 Bulk subscriber operation jobs — operation ENUM(suspend/unsuspend/rate_limit/…), filter_criteria JSON, total/processed/success/failed item counts |
+| 292 | `batch_job_items` | §18.1 Per-entity result for each batch job — entity_type ENUM(contract/client/device), entity_id, status, result_message |
+| 293 | `provisioning_pipelines` | §18.1 Ordered provisioning pipeline runs — stages_config JSON, stages_results JSON, current_stage, contract_id/client_id optional FKs |
+| 294 | `provisioning_pipeline_stages` | §18.1 Individual stage records within a pipeline run — stage_order, stage_name, input_data/output_data JSON, started_at/completed_at |
+| 295 | `remediation_rules` | §18.1 Auto-remediation rules — condition_metric, condition_operator ENUM(gt/lt/gte/lte/eq/neq/is_true), condition_threshold, cooldown_minutes, action_type; soft-delete |
+| 296 | `remediation_executions` | §18.1 Auto-remediation execution records — status ENUM(queued/success/failure/stubbed DEFAULT stubbed), error_message |
+| 297 | `automation_scripts` | §18.2 Script storage — language ENUM(bash/python/powershell/javascript), script_body LONGTEXT (NEVER executed via child_process), version, is_shared, tags JSON, api_endpoint |
+| 298 | `script_executions` | §18.2 Script execution log — status ENUM(queued/running/success/failure/cancelled DEFAULT queued), stdout/stderr LONGTEXT, exit_code (populated by real sandboxed executor) |
+| 299 | `router_driver_configs` | §18.3 Vendor router API configs — vendor ENUM(mikrotik/cisco_ios/cisco_iosxe/juniper_junos/zte/huawei/generic_rest), protocol, encrypted_password/api_token (AES-256-GCM); soft-delete |
+| 300 | `device_command_executions` | §18.3 Router command dispatch log — command, params JSON, status ENUM(queued/success/failure/stubbed), response JSON, duration_ms |
+| 301 | `analytics_anomalies` | §18.4 Z-score anomaly detection results — metric, device_id, detected_value, baseline_mean/stddev, z_score, severity ENUM(low/medium/high/critical), is_acknowledged |
+| 302 | `churn_scores` | §18.4 Rule-based churn risk scores — score DECIMAL(5,2), risk_band ENUM(low/medium/high/critical), tenure_months, overdue_invoices, open_tickets, suspensions_30d, payments_late_90d, factors JSON |
+| 303 | `resellers` | §19.1 Reseller hierarchy — self-referencing parent_id, level (1=master, 2=sub), commission_rate, white-label branding (logo, primary/accent color, portal_domain, portal_name), status ENUM(active/suspended/inactive); soft-delete |
+| 304 | `reseller_plan_prices` | §19.1 Custom plan pricing per reseller — reseller_id+plan_id unique pair, custom_price overrides the base plan price, currency, is_active; upsert-safe |
+| 305 | `reseller_commissions` | §19.1 Commission earnings per invoice — invoice_id FK, client_id FK, commission_rate snapshot, invoice_total, commission_amount, status ENUM(pending/approved/paid/cancelled), paid_at; INSERT IGNORE for idempotency |
+| 306 | `reseller_ip_pool_allocations` | §19.2 IP pool access grants per reseller — FK to ip_pools (§5), INSERT IGNORE prevents duplicates, notes |
+| 307 | `reseller_bandwidth_quotas` | §19.2 Per-reseller bandwidth cap — download/upload Mbps, burst limits, is_enforced flag; upsert-safe ON DUPLICATE KEY |
+| 308 | `reseller_olt_port_assignments` | §19.2 OLT port grants per reseller — FK to olt_ports (§7), INSERT IGNORE, notes |
+| 309 | `reseller_billing_entities` | §19.2 White-label billing entity per reseller — legal_name, tax_id, address, bank details (bank_name, bank_account, bank_clabe), invoice_prefix, invoice_footer, currency, is_active; upsert-safe |
+| 310 | `integration_providers` | §20.2 Read-only catalog of 27 supported integration providers; seeded in migration 348; keyed by provider_key (UNIQUE) |
+| 311 | `integration_connections` | §20.2 Per-org configured integration instances; credentials_enc (AES-256-GCM encrypted, never returned in API responses), config_json, status, last_synced_at |
+| 312 | `integration_sync_logs` | §20.2 Sync execution records per connection — direction, status (queued/running/success/error/stubbed), records_in/out/error, error_message |
+| 313 | `support_conversations` | §21.2 AI support conversation thread per customer/channel — channel ENUM (web/whatsapp/sms/email), status ENUM (open/escalated/closed), intent, confidence score, escalation_reason, ticket_id FK on escalation |
+| 314 | `support_messages` | §21.2 Individual messages within a support conversation — role ENUM (customer/assistant/system), content TEXT, intent, confidence, data_sources JSON; FK to support_conversations CASCADE |
+| 315 | `ai_diagnostic_runs` | §21.4 Recorded results from the AI diagnostic engine — symptom, access_type, checks JSON, cause, recommendation, auto_fix_available flag, confidence, escalate flag, escalation_reason; FK to support_conversations (SET NULL) |
+| 316 | `kb_articles` | §21.8 Knowledge base articles for RAG support — title, body LONGTEXT, category, locale, tags, is_published flag, created_by FK; org-scoped with soft-delete |
+| 317 | `kb_article_embeddings` | §21.8 Vector embeddings for semantic KB search — chunk_index, chunk_text TEXT, embedding_json LONGTEXT (serialized float array), embedded_at; FK to kb_articles CASCADE |
+| 318 | `kb_feedback` | §21.8 User feedback on KB articles — feedback ENUM (helpful/not_helpful/inaccurate), notes, conversation_id FK (SET NULL); FK to kb_articles CASCADE |
+| 319 | `support_channel_configs` | §21.6 Per-channel AI support configuration per organization — channel ENUM (web/whatsapp/sms/email), is_enabled flag, provider_id FK (SET NULL), escalation_threshold_confidence DECIMAL, max_turns, greeting_message; UNIQUE on (organization_id, channel) |
+| 320 | `ai_support_metrics` | §21.10 Nightly KPI rollup for AI support — period_date, resolution_rate, fcr_rate (first-contact resolution), avg_handle_time_sec, escalation_rate, csat_avg, false_positive_rate, avg_latency_ms, total_conversations, total_escalations, total_ai_cost_usd; UNIQUE on (organization_id, period_date) |
+| 321 | `noc_ai_insights` | §21.11 AI-generated NOC insights and alerts — insight_type ENUM (shift_summary/alert_explanation/capacity_warning/runbook_suggestion/interference_detection/alignment_drift), alert_id FK (SET NULL), device_id FK (SET NULL), affected_subscribers, summary TEXT, recommendation TEXT, confidence, provider_id FK (SET NULL); org-scoped |
 
 > **Migration 323–335 — Security & Access Control (§17):** webauthn_credentials, admin_ip_allowlist, password_policies, api_key_rate_limits, firewall_rules, ddos_protection_rules, blackhole_routes, dns_blocklists, cpe_security_scans, encryption_key_metadata, data_masking_rules, secure_deletion_log; plus 4 new roles (super_admin, noc_operator, reseller_admin, auditor) and 36 security module permissions.
 
@@ -1161,7 +1160,7 @@ The inventory system tracks spare equipment and materials across multiple physic
 | Type | Direction | Description |
 |------|-----------|-------------|
 | `receive` | Inbound (+) | New stock received from a supplier |
-| `assign_to_job` | Outbound (−) | Item used on a field work order (`jobs`) |
+| `assign_to_job` | Outbound (−) | Item used on a field work order (`work_orders`) |
 | `sell_to_client` | Outbound (−) | Item sold directly to a client (optionally linked to an invoice) |
 | `transfer_out` | Outbound (−) | Item sent to another warehouse location |
 | `transfer_in` | Inbound (+) | Item received from another warehouse location |

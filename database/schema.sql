@@ -980,51 +980,9 @@ CREATE TABLE IF NOT EXISTS quotes (
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ---------------------------------------------------------------------------
--- Table: jobs
--- Purpose: Field work orders for installations, maintenance, and repairs
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS jobs (
-    id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    client_id      BIGINT UNSIGNED NOT NULL,
-    site_id        BIGINT UNSIGNED NULL,
-    contract_id    BIGINT UNSIGNED NULL     COMMENT 'Contract this job is related to (installation, repair, maintenance)',
-    ticket_id      BIGINT UNSIGNED NULL     COMMENT 'Originating support ticket, if this job was escalated from a ticket',
-    assigned_to    BIGINT UNSIGNED NULL,
-    title          VARCHAR(255)    NOT NULL,
-    description    TEXT            NULL,
-    type           ENUM('installation', 'maintenance', 'repair', 'survey', 'other')
-                                   NOT NULL DEFAULT 'other',
-    priority       ENUM('low', 'medium', 'high') NOT NULL DEFAULT 'medium',
-    status         ENUM('scheduled', 'in_progress', 'completed', 'cancelled') NOT NULL DEFAULT 'scheduled',
-    scheduled_date DATETIME        NULL,
-    completed_date DATETIME        NULL,
-    notes          TEXT            NULL,
-    created_by     BIGINT UNSIGNED NULL,
-    created_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-    PRIMARY KEY (id),
-    KEY idx_jobs_client_id (client_id),
-    KEY idx_jobs_site_id (site_id),
-    KEY idx_jobs_contract_id (contract_id),
-    KEY idx_jobs_ticket_id (ticket_id),
-    KEY idx_jobs_assigned_to (assigned_to),
-    KEY idx_jobs_status (status),
-    KEY idx_jobs_scheduled_date (scheduled_date),
-    CONSTRAINT fk_jobs_client FOREIGN KEY (client_id)
-        REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT fk_jobs_site FOREIGN KEY (site_id)
-        REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_jobs_contract FOREIGN KEY (contract_id)
-        REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_jobs_ticket FOREIGN KEY (ticket_id)
-        REFERENCES tickets (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_jobs_assigned_to FOREIGN KEY (assigned_to)
-        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_jobs_created_by FOREIGN KEY (created_by)
-        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Note: the legacy `jobs` field-work table was consolidated into `work_orders`
+-- in migration 363 (see work_orders below). expenses.job_id and
+-- inventory_transactions.job_id now reference work_orders(id).
 
 -- ---------------------------------------------------------------------------
 -- Table: expenses
@@ -1033,7 +991,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE TABLE IF NOT EXISTS expenses (
     id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id BIGINT UNSIGNED NULL     COMMENT 'Tenant organization this expense belongs to; NULL = single-tenant deployment',
-    job_id       BIGINT UNSIGNED NULL COMMENT 'Related work order, if applicable',
+    job_id       BIGINT UNSIGNED NULL COMMENT 'Related work order (work_orders.id), if applicable',
     user_id      BIGINT UNSIGNED NOT NULL COMMENT 'Employee who incurred the expense',
     category     VARCHAR(100)    NOT NULL COMMENT 'e.g. fuel, equipment, labor, parts',
     description  TEXT            NULL,
@@ -1058,7 +1016,7 @@ CREATE TABLE IF NOT EXISTS expenses (
     CONSTRAINT fk_expenses_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_expenses_job FOREIGN KEY (job_id)
-        REFERENCES jobs (id) ON DELETE SET NULL ON UPDATE CASCADE,
+        REFERENCES work_orders (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_expenses_user FOREIGN KEY (user_id)
         REFERENCES users (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_expenses_approved_by FOREIGN KEY (approved_by)
@@ -3055,7 +3013,7 @@ CREATE TABLE IF NOT EXISTS inventory_transactions (
     unit_price        DECIMAL(10, 2)  NULL COMMENT 'Price per unit at time of transaction (for sales/receives)',
 
     -- Optional context references
-    job_id            BIGINT UNSIGNED NULL COMMENT 'Related job (assign_to_job / return)',
+    job_id            BIGINT UNSIGNED NULL COMMENT 'Related work order (work_orders.id; assign_to_job / return)',
     client_id         BIGINT UNSIGNED NULL COMMENT 'Related client (sell_to_client)',
     invoice_id        BIGINT UNSIGNED NULL COMMENT 'Invoice tied to a client sale, if any',
     destination_stock_id BIGINT UNSIGNED NULL COMMENT 'Target inventory_stock row for transfers',
@@ -3077,7 +3035,7 @@ CREATE TABLE IF NOT EXISTS inventory_transactions (
     CONSTRAINT fk_inv_txn_stock FOREIGN KEY (stock_id)
         REFERENCES inventory_stock (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_inv_txn_job FOREIGN KEY (job_id)
-        REFERENCES jobs (id) ON DELETE SET NULL ON UPDATE CASCADE,
+        REFERENCES work_orders (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_inv_txn_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_inv_txn_invoice FOREIGN KEY (invoice_id)
@@ -11232,6 +11190,11 @@ CREATE TABLE IF NOT EXISTS ticket_ai_triage (
 CREATE TABLE IF NOT EXISTS work_orders (
   id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   organization_id BIGINT UNSIGNED NOT NULL,
+  client_id       BIGINT UNSIGNED NULL     COMMENT 'Subscriber this work order serves (NULL for internal/NOC work)',
+  site_id         BIGINT UNSIGNED NULL     COMMENT 'POP / site this work order targets',
+  device_id       BIGINT UNSIGNED NULL     COMMENT 'Specific device this work order targets',
+  contract_id     BIGINT UNSIGNED NULL     COMMENT 'Contract this work order relates to',
+  service_order_id BIGINT UNSIGNED NULL    COMMENT 'Originating service order, if spawned from provisioning',
   ticket_id       BIGINT UNSIGNED NULL     COMMENT 'Source ticket (may be NULL for standalone work orders)',
   assigned_to     BIGINT UNSIGNED NULL     COMMENT 'Technician assigned to this work order',
   created_by      BIGINT UNSIGNED NULL     COMMENT 'User who created the work order',
@@ -11239,6 +11202,7 @@ CREATE TABLE IF NOT EXISTS work_orders (
   description     TEXT            NULL,
   status          ENUM('pending','assigned','in_progress','completed','cancelled') NOT NULL DEFAULT 'pending',
   priority        ENUM('low','medium','high','critical') NOT NULL DEFAULT 'medium',
+  work_type       ENUM('installation','maintenance','repair','survey','other') NOT NULL DEFAULT 'other' COMMENT 'Field-work classification (migrated from jobs.type)',
   scheduled_at    DATETIME        NULL     COMMENT 'Planned visit datetime',
   started_at      DATETIME        NULL,
   completed_at    DATETIME        NULL,
@@ -11249,6 +11213,7 @@ CREATE TABLE IF NOT EXISTS work_orders (
   created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted_at      DATETIME        NULL,
+  legacy_job_id   BIGINT UNSIGNED NULL     COMMENT 'Original jobs.id this row was migrated from (migration 363); NULL for natively-created work orders',
   PRIMARY KEY (id),
   KEY idx_wo_organization (organization_id),
   KEY idx_wo_ticket (ticket_id),
@@ -11256,6 +11221,12 @@ CREATE TABLE IF NOT EXISTS work_orders (
   KEY idx_wo_status (status),
   KEY idx_wo_scheduled (scheduled_at),
   KEY idx_wo_deleted (deleted_at),
+  KEY idx_wo_client (client_id),
+  KEY idx_wo_site (site_id),
+  KEY idx_wo_device (device_id),
+  KEY idx_wo_contract (contract_id),
+  KEY idx_wo_service_order (service_order_id),
+  KEY idx_wo_legacy_job (legacy_job_id),
   CONSTRAINT fk_work_orders_organization FOREIGN KEY (organization_id)
     REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT fk_work_orders_ticket FOREIGN KEY (ticket_id)
@@ -11263,7 +11234,17 @@ CREATE TABLE IF NOT EXISTS work_orders (
   CONSTRAINT fk_work_orders_assigned_to FOREIGN KEY (assigned_to)
     REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT fk_work_orders_created_by FOREIGN KEY (created_by)
-    REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+    REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_work_orders_client FOREIGN KEY (client_id)
+    REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_work_orders_site FOREIGN KEY (site_id)
+    REFERENCES sites (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_work_orders_device FOREIGN KEY (device_id)
+    REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_work_orders_contract FOREIGN KEY (contract_id)
+    REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_work_orders_service_order FOREIGN KEY (service_order_id)
+    REFERENCES service_orders (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------

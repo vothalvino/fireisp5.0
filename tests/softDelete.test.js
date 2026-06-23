@@ -372,7 +372,7 @@ describe('Resource models have softDelete = true', () => {
 describe('System models have softDelete = false', () => {
   const modelFiles = [
     'AuditLog', 'ConnectionLog', 'EmailLog', 'SmsLog', 'Permission',
-    'Job', 'ScheduledTask', 'Setting', 'UserSession',
+    'ScheduledTask', 'Setting', 'UserSession',
   ];
 
   modelFiles.forEach((modelName) => {
