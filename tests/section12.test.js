@@ -130,13 +130,29 @@ describe('POST /api/v1/work-orders', () => {
   it('creates a work order', async () => {
     db.query
       .mockResolvedValueOnce([{ insertId: 10 }])
-      .mockResolvedValueOnce([[{ id: 10, organization_id: 1, title: 'Fix antenna', status: 'pending', priority: 'high' }]]);
+      .mockResolvedValueOnce([[{ id: 10, organization_id: 1, title: 'Fix antenna', status: 'pending', priority: 'high', site_id: 3 }]]);
     const res = await request(app)
       .post('/api/v1/work-orders')
       .set('X-Org-Id', '1')
-      .send({ title: 'Fix antenna', priority: 'high' });
+      .send({ title: 'Fix antenna', priority: 'high', site_id: 3 });
     expect(res.status).toBe(201);
     expect(res.body.data.title).toBe('Fix antenna');
+  });
+
+  it('rejects a work order with no target (client/site/device)', async () => {
+    const res = await request(app)
+      .post('/api/v1/work-orders')
+      .set('X-Org-Id', '1')
+      .send({ title: 'Targetless', priority: 'low' });
+    expect(res.status).toBe(422);
+  });
+
+  it('rejects a PUT that leaves no target', async () => {
+    const res = await request(app)
+      .put('/api/v1/work-orders/5')
+      .set('X-Org-Id', '1')
+      .send({ title: 'X', status: 'pending', priority: 'low' });
+    expect(res.status).toBe(422);
   });
 });
 

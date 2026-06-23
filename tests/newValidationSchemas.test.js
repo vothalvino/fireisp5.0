@@ -37,7 +37,6 @@ const schemaModules = {
   nas: { path: '../src/middleware/schemas/nas', expected: ['createNas', 'updateNas'] },
   radius: { path: '../src/middleware/schemas/radius', expected: ['createRadius', 'updateRadius'] },
   creditNotes: { path: '../src/middleware/schemas/creditNotes', expected: ['createCreditNote', 'updateCreditNote', 'createCreditNoteItem'] },
-  jobs: { path: '../src/middleware/schemas/jobs', expected: ['createJob', 'updateJob'] },
   warehouses: { path: '../src/middleware/schemas/warehouses', expected: ['createWarehouse', 'updateWarehouse'] },
   inventory: { path: '../src/middleware/schemas/inventory', expected: ['createInventoryItem', 'updateInventoryItem', 'createInventoryTransaction'] },
   quotes: { path: '../src/middleware/schemas/quotes', expected: ['createQuote', 'updateQuote', 'createQuoteItem'] },
@@ -319,32 +318,6 @@ describe('CreditNote validation schemas', () => {
 
   test('updateCreditNote allows partial updates', () => {
     const next = run(updateCreditNote, { status: 'applied' });
-    expectPass(next);
-  });
-});
-
-// --- Jobs ---
-describe('Job validation schemas', () => {
-  const { createJob, updateJob } = require('../src/middleware/schemas/jobs');
-
-  test('createJob requires title', () => {
-    const next = run(createJob, {});
-    expectReject(next);
-    expect(errorFields(next)).toContain('title');
-  });
-
-  test('createJob rejects invalid type', () => {
-    const next = run(createJob, { title: 'Install', type: 'deployment' });
-    expectReject(next);
-  });
-
-  test('createJob accepts valid data', () => {
-    const next = run(createJob, { title: 'Install FTTH', type: 'installation', priority: 'high' });
-    expectPass(next);
-  });
-
-  test('updateJob allows partial updates', () => {
-    const next = run(updateJob, { status: 'completed' });
     expectPass(next);
   });
 });

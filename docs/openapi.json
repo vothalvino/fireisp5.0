@@ -249,10 +249,6 @@
       "description": "Revenue summaries"
     },
     {
-      "name": "Jobs",
-      "description": "Background job management"
-    },
-    {
       "name": "Scheduled Tasks",
       "description": "Cron task management"
     },
@@ -16585,173 +16581,6 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "/jobs": {
-      "get": {
-        "tags": [
-          "Jobs"
-        ],
-        "summary": "List jobs",
-        "operationId": "listJobs",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Job[]",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "Jobs"
-        ],
-        "summary": "Create a Job",
-        "operationId": "createJob",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "requestBody": {
-          "description": "Job",
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Job",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/jobs/{id}": {
-      "get": {
-        "tags": [
-          "Jobs"
-        ],
-        "summary": "Get a Job",
-        "operationId": "getJob",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Job",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "Jobs"
-        ],
-        "summary": "Update a Job",
-        "operationId": "updateJob",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "requestBody": {
-          "description": "Job",
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Job",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "Jobs"
-        ],
-        "summary": "Delete a Job",
-        "operationId": "deleteJob",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No content"
           }
         }
       }
@@ -55747,143 +55576,6 @@
           }
         }
       },
-      "jobs_createJob": {
-        "type": "object",
-        "properties": {
-          "client_id": {
-            "type": "number",
-            "minimum": 1
-          },
-          "site_id": {
-            "type": "number",
-            "minimum": 1
-          },
-          "contract_id": {
-            "type": "number",
-            "minimum": 1
-          },
-          "ticket_id": {
-            "type": "number",
-            "minimum": 1
-          },
-          "assigned_to": {
-            "type": "number",
-            "minimum": 1
-          },
-          "title": {
-            "type": "string",
-            "minimum": 1,
-            "maximum": 255
-          },
-          "description": {
-            "type": "string",
-            "maximum": 5000
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "installation",
-              "maintenance",
-              "repair",
-              "survey",
-              "other"
-            ]
-          },
-          "priority": {
-            "type": "string",
-            "enum": [
-              "low",
-              "medium",
-              "high"
-            ]
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "scheduled",
-              "in_progress",
-              "completed",
-              "cancelled"
-            ]
-          },
-          "scheduled_date": {
-            "type": "string"
-          },
-          "completed_date": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "title"
-        ]
-      },
-      "jobs_updateJob": {
-        "type": "object",
-        "properties": {
-          "client_id": {
-            "type": "number",
-            "minimum": 1
-          },
-          "site_id": {
-            "type": "number",
-            "minimum": 1
-          },
-          "contract_id": {
-            "type": "number",
-            "minimum": 1
-          },
-          "ticket_id": {
-            "type": "number",
-            "minimum": 1
-          },
-          "assigned_to": {
-            "type": "number",
-            "minimum": 1
-          },
-          "title": {
-            "type": "string",
-            "minimum": 1,
-            "maximum": 255
-          },
-          "description": {
-            "type": "string",
-            "maximum": 5000
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "installation",
-              "maintenance",
-              "repair",
-              "survey",
-              "other"
-            ]
-          },
-          "priority": {
-            "type": "string",
-            "enum": [
-              "low",
-              "medium",
-              "high"
-            ]
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "scheduled",
-              "in_progress",
-              "completed",
-              "cancelled"
-            ]
-          },
-          "scheduled_date": {
-            "type": "string"
-          },
-          "completed_date": {
-            "type": "string"
-          }
-        }
-      },
       "leads_createLead": {
         "type": "object",
         "properties": {
@@ -66364,6 +66056,31 @@
           },
           "notes": {
             "type": "string"
+          },
+          "client_id": {
+            "type": "number"
+          },
+          "site_id": {
+            "type": "number"
+          },
+          "device_id": {
+            "type": "number"
+          },
+          "contract_id": {
+            "type": "number"
+          },
+          "service_order_id": {
+            "type": "number"
+          },
+          "work_type": {
+            "type": "string",
+            "enum": [
+              "installation",
+              "maintenance",
+              "repair",
+              "survey",
+              "other"
+            ]
           }
         },
         "required": [
@@ -66429,6 +66146,31 @@
           },
           "notes": {
             "type": "string"
+          },
+          "client_id": {
+            "type": "number"
+          },
+          "site_id": {
+            "type": "number"
+          },
+          "device_id": {
+            "type": "number"
+          },
+          "contract_id": {
+            "type": "number"
+          },
+          "service_order_id": {
+            "type": "number"
+          },
+          "work_type": {
+            "type": "string",
+            "enum": [
+              "installation",
+              "maintenance",
+              "repair",
+              "survey",
+              "other"
+            ]
           }
         },
         "required": [
@@ -66468,6 +66210,31 @@
           },
           "notes": {
             "type": "string"
+          },
+          "client_id": {
+            "type": "number"
+          },
+          "site_id": {
+            "type": "number"
+          },
+          "device_id": {
+            "type": "number"
+          },
+          "contract_id": {
+            "type": "number"
+          },
+          "service_order_id": {
+            "type": "number"
+          },
+          "work_type": {
+            "type": "string",
+            "enum": [
+              "installation",
+              "maintenance",
+              "repair",
+              "survey",
+              "other"
+            ]
           }
         }
       }

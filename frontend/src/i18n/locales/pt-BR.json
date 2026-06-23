@@ -132,7 +132,6 @@
                 "facturasPublicas":  "🧾 Faturas Públicas",
                 "communicationCampaigns":  "📣 Campanhas",
                 "messageTemplates":  "✉️ Modelos de Mensagem",
-                "jobs":  "🛠️ Ordens de Serviço",
                 "queueStats":  "📥 Status das Filas",
                 "analyticsDashboard":  "Painel de Análises",
                 "regulatoryCompliance": "Conformidade Regulatoria",
@@ -2518,6 +2517,20 @@
                        "noOrders":  "Nenhuma ordem de trabalho encontrada",
                        "materials":  "Materiais",
                        "addMaterial":  "Adicionar Material",
+                       "target":  "Alvo",
+                       "type":  "Tipo",
+                       "client":  "Cliente",
+                       "site":  "Site",
+                       "device":  "Dispositivo",
+                       "none":  "—",
+                       "targetRequired":  "Selecione ao menos um alvo: cliente, site ou dispositivo.",
+                       "workType":  {
+                                      "installation":  "Instalação",
+                                      "maintenance":  "Manutenção",
+                                      "repair":  "Reparo",
+                                      "survey":  "Vistoria",
+                                      "other":  "Outro"
+                                  },
                        "status":  {
                                       "pending":  "Pendente",
                                       "assigned":  "Atribuído",

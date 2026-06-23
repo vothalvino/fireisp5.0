@@ -62,17 +62,30 @@ router.get('/', requirePermission('work_orders.view'), async (req, res, next) =>
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(200, parseInt(req.query.limit) || 50);
     const offset = (page - 1) * limit;
+
+    // Optional filters: by target (client/site/device) or status.
+    const where = ['wo.organization_id = ?', 'wo.deleted_at IS NULL'];
+    const params = [req.orgId];
+    for (const f of ['client_id', 'site_id', 'device_id', 'status']) {
+      if (req.query[f] !== undefined && req.query[f] !== null && req.query[f] !== '') { where.push(`wo.${f} = ?`); params.push(req.query[f]); }
+    }
+    const whereSql = where.join(' AND ');
+
     const [rows] = await db.query(
-      `SELECT wo.*, u.first_name AS assigned_first, u.last_name AS assigned_last
+      `SELECT wo.*, u.first_name AS assigned_first, u.last_name AS assigned_last,
+              c.name AS client_name, s.name AS site_name, d.name AS device_name
        FROM work_orders wo
        LEFT JOIN users u ON u.id = wo.assigned_to
-       WHERE wo.organization_id = ? AND wo.deleted_at IS NULL
+       LEFT JOIN clients c ON c.id = wo.client_id
+       LEFT JOIN sites s ON s.id = wo.site_id
+       LEFT JOIN devices d ON d.id = wo.device_id
+       WHERE ${whereSql}
        ORDER BY wo.created_at DESC LIMIT ${limit} OFFSET ${offset}`,
-      [req.orgId],
+      params,
     );
     const [[{ total }]] = await db.query(
-      'SELECT COUNT(*) AS total FROM work_orders WHERE organization_id = ? AND deleted_at IS NULL',
-      [req.orgId],
+      `SELECT COUNT(*) AS total FROM work_orders wo WHERE ${whereSql}`,
+      params,
     );
     res.json({ data: rows, meta: { total, page, limit } });
   } catch (err) { next(err); }
@@ -82,9 +95,13 @@ router.get('/', requirePermission('work_orders.view'), async (req, res, next) =>
 router.get('/:id', requirePermission('work_orders.view'), async (req, res, next) => {
   try {
     const [[row]] = await db.query(
-      `SELECT wo.*, u.first_name AS assigned_first, u.last_name AS assigned_last
+      `SELECT wo.*, u.first_name AS assigned_first, u.last_name AS assigned_last,
+              c.name AS client_name, s.name AS site_name, d.name AS device_name
        FROM work_orders wo
        LEFT JOIN users u ON u.id = wo.assigned_to
+       LEFT JOIN clients c ON c.id = wo.client_id
+       LEFT JOIN sites s ON s.id = wo.site_id
+       LEFT JOIN devices d ON d.id = wo.device_id
        WHERE wo.id = ? AND wo.organization_id = ? AND wo.deleted_at IS NULL`,
       [req.params.id, req.orgId],
     );
@@ -96,13 +113,19 @@ router.get('/:id', requirePermission('work_orders.view'), async (req, res, next)
 // POST /work-orders
 router.post('/', requirePermission('work_orders.create'), validate(createWorkOrder), async (req, res, next) => {
   try {
-    const { ticket_id, assigned_to, title, description, status, priority, scheduled_at, latitude, longitude, address, notes } = req.body;
+    const { ticket_id, assigned_to, title, description, status, priority, scheduled_at, latitude, longitude, address, notes,
+      client_id, site_id, device_id, contract_id, service_order_id, work_type } = req.body;
+    if (!client_id && !site_id && !device_id) {
+      return res.status(422).json({ error: 'A work order must target at least one of client, site, or device' });
+    }
     const [result] = await db.query(
       `INSERT INTO work_orders
-         (organization_id, ticket_id, assigned_to, created_by, title, description, status, priority, scheduled_at, latitude, longitude, address, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [req.orgId, ticket_id || null, assigned_to || null, req.user.id, title, description || null,
-        status || 'pending', priority || 'medium', scheduled_at || null,
+         (organization_id, client_id, site_id, device_id, contract_id, service_order_id, ticket_id, assigned_to, created_by,
+          title, description, status, priority, work_type, scheduled_at, latitude, longitude, address, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.orgId, client_id || null, site_id || null, device_id || null, contract_id || null, service_order_id || null,
+        ticket_id || null, assigned_to || null, req.user.id, title, description || null,
+        status || 'pending', priority || 'medium', work_type || 'other', scheduled_at || null,
         latitude || null, longitude || null, address || null, notes || null],
     );
     const [[row]] = await db.query('SELECT * FROM work_orders WHERE id = ?', [result.insertId]);
@@ -113,14 +136,20 @@ router.post('/', requirePermission('work_orders.create'), validate(createWorkOrd
 // PUT /work-orders/:id
 router.put('/:id', requirePermission('work_orders.update'), validate(updateWorkOrder), async (req, res, next) => {
   try {
-    const { ticket_id, assigned_to, title, description, status, priority, scheduled_at, started_at, completed_at, latitude, longitude, address, notes } = req.body;
+    const { ticket_id, assigned_to, title, description, status, priority, scheduled_at, started_at, completed_at, latitude, longitude, address, notes,
+      client_id, site_id, device_id, contract_id, service_order_id, work_type } = req.body;
+    if (!client_id && !site_id && !device_id) {
+      return res.status(422).json({ error: 'A work order must target at least one of client, site, or device' });
+    }
     const [result] = await db.query(
       `UPDATE work_orders SET
-         ticket_id=?, assigned_to=?, title=?, description=?, status=?, priority=?,
+         client_id=?, site_id=?, device_id=?, contract_id=?, service_order_id=?,
+         ticket_id=?, assigned_to=?, title=?, description=?, status=?, priority=?, work_type=?,
          scheduled_at=?, started_at=?, completed_at=?, latitude=?, longitude=?, address=?, notes=?
        WHERE id = ? AND organization_id = ? AND deleted_at IS NULL`,
-      [ticket_id || null, assigned_to || null, title, description || null, status || 'pending',
-        priority || 'medium', scheduled_at || null, started_at || null, completed_at || null,
+      [client_id || null, site_id || null, device_id || null, contract_id || null, service_order_id || null,
+        ticket_id || null, assigned_to || null, title, description || null, status || 'pending',
+        priority || 'medium', work_type || 'other', scheduled_at || null, started_at || null, completed_at || null,
         latitude || null, longitude || null, address || null, notes || null,
         req.params.id, req.orgId],
     );
@@ -133,9 +162,23 @@ router.put('/:id', requirePermission('work_orders.update'), validate(updateWorkO
 // PATCH /work-orders/:id
 router.patch('/:id', requirePermission('work_orders.update'), validate(patchWorkOrder), async (req, res, next) => {
   try {
-    const allowed = ['ticket_id','assigned_to','title','description','status','priority','scheduled_at','started_at','completed_at','latitude','longitude','address','notes'];
+    const allowed = ['ticket_id','assigned_to','title','description','status','priority','scheduled_at','started_at','completed_at','latitude','longitude','address','notes','client_id','site_id','device_id','contract_id','service_order_id','work_type'];
     const fields = Object.keys(req.body).filter(k => allowed.includes(k));
     if (fields.length === 0) return res.status(422).json({ error: 'No valid fields to update' });
+    // If the patch touches any target field, ensure the work order still targets
+    // at least one of client/site/device once the change is applied.
+    const targetKeys = ['client_id', 'site_id', 'device_id'];
+    if (targetKeys.some(k => k in req.body)) {
+      const [[cur]] = await db.query(
+        'SELECT client_id, site_id, device_id FROM work_orders WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+        [req.params.id, req.orgId],
+      );
+      if (!cur) return res.status(404).json({ error: 'Work order not found' });
+      const merged = targetKeys.map(k => (k in req.body ? req.body[k] : cur[k]));
+      if (!merged.some(Boolean)) {
+        return res.status(422).json({ error: 'A work order must target at least one of client, site, or device' });
+      }
+    }
     const sets = fields.map(f => `${f} = ?`).join(', ');
     const values = fields.map(f => req.body[f] ?? null);
     const [result] = await db.query(

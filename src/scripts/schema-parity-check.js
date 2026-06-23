@@ -41,6 +41,11 @@ for (const f of files) {
     const t = m[1].toLowerCase();
     if (dbCols.has(t)) { dbCols.get(t).delete(m[2].toLowerCase()); dbCols.get(t).add(m[3].toLowerCase()); }
   }
+  // DROP TABLE (e.g. migration 363 consolidates jobs into work_orders)
+  const reDropTbl = /DROP TABLE\s+(?:IF EXISTS\s+)?`?(\w+)`?/gi;
+  while ((m = reDropTbl.exec(sql))) {
+    dbCols.delete(m[1].toLowerCase());
+  }
 }
 
 const schemaCols = extractSchemaColumns(fs.readFileSync('database/schema.sql', 'utf8'));

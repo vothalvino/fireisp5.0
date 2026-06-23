@@ -132,7 +132,6 @@
     "facturasPublicas": "🧾 Public Invoices",
     "communicationCampaigns": "📣 Campaigns",
     "messageTemplates": "✉️ Message Templates",
-    "jobs": "🛠️ Field Jobs",
     "queueStats": "📥 Queue Status",
     "analyticsDashboard": "Analytics Dashboard",
     "regulatoryCompliance": "Regulatory Compliance",
@@ -2518,6 +2517,20 @@
     "noOrders": "No work orders found",
     "materials": "Materials",
     "addMaterial": "Add Material",
+    "target": "Target",
+    "type": "Type",
+    "client": "Client",
+    "site": "Site",
+    "device": "Device",
+    "none": "—",
+    "targetRequired": "Select at least one target: client, site, or device.",
+    "workType": {
+      "installation": "Installation",
+      "maintenance": "Maintenance",
+      "repair": "Repair",
+      "survey": "Survey",
+      "other": "Other"
+    },
     "status": {
       "pending": "Pending",
       "assigned": "Assigned",

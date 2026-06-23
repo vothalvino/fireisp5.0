@@ -114,7 +114,6 @@ import { ScheduledTaskList } from '@/pages/ScheduledTaskList';
 import { OrganizationList } from '@/pages/OrganizationList';
 import { DsarTool } from '@/pages/DsarTool';
 import { DrDrillStatus } from '@/pages/DrDrillStatus';
-import { JobList } from '@/pages/JobList';
 import { QueueStats } from '@/pages/QueueStats';
 import { CsdCertificateList } from '@/pages/CsdCertificateList';
 import { SubscriberCertificateList } from '@/pages/SubscriberCertificateList';
@@ -339,7 +338,6 @@ export function App() {
                 <Route path="webhooks" element={<WebhookList />} />
                 <Route path="audit-logs" element={<AuditLogList />} />
                 <Route path="scheduled-tasks" element={<ScheduledTaskList />} />
-                <Route path="jobs" element={<JobList />} />
                 <Route path="queue-stats" element={<QueueStats />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="message-templates" element={<MessageTemplateList />} />

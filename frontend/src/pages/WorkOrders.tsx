@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles } from './crudStyles';
 import { tokenStore } from '@/api/client';
+import { ClientPicker } from '@/components/ClientPicker';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,6 +28,16 @@ interface WorkOrder {
   completed_at: string | null;
   organization_id: number;
   created_at: string;
+  // Target links (work_orders is the single field-work table since migration 363)
+  client_id: number | null;
+  site_id: number | null;
+  device_id: number | null;
+  contract_id: number | null;
+  service_order_id: number | null;
+  work_type: string | null;
+  client_name: string | null;
+  site_name: string | null;
+  device_name: string | null;
 }
 
 interface WorkOrderBody {
@@ -36,7 +47,15 @@ interface WorkOrderBody {
   assigned_to?: number;
   status?: string;
   scheduled_at?: string;
+  client_id?: number;
+  site_id?: number;
+  device_id?: number;
+  contract_id?: number;
+  service_order_id?: number;
+  work_type?: string;
 }
+
+interface Option { id: number; name: string }
 
 interface WorkOrderMaterial {
   id: number;
@@ -62,6 +81,7 @@ interface ListResponse<T> {
 
 const PAGE_SIZE = 25;
 const STATUSES = ['pending', 'assigned', 'in_progress', 'completed', 'cancelled'];
+const WORK_TYPES = ['installation', 'maintenance', 'repair', 'survey', 'other'];
 
 // ---------------------------------------------------------------------------
 // Auth header helpers
@@ -98,6 +118,12 @@ async function fetchWorkOrders(page: number, statusFilter: string): Promise<List
   } as never);
   if ((res as { error?: unknown }).error) throw new Error('Failed to load work orders');
   return (res as { data: unknown }).data as unknown as ListResponse<WorkOrder>;
+}
+
+async function fetchOptions(pathname: '/sites' | '/devices'): Promise<Option[]> {
+  const res = await api.GET(pathname as never, { params: { query: { limit: 200 } as never } } as never);
+  if ((res as { error?: unknown }).error) return [];
+  return (((res as { data: unknown }).data as { data: Option[] }).data) ?? [];
 }
 
 async function createWorkOrder(body: WorkOrderBody): Promise<WorkOrder> {
@@ -293,6 +319,9 @@ export function WorkOrders() {
     queryFn: () => fetchWorkOrders(page, statusFilter),
   });
 
+  const sitesQ = useQuery({ queryKey: ['workOrders', 'siteOptions'], queryFn: () => fetchOptions('/sites') });
+  const devicesQ = useQuery({ queryKey: ['workOrders', 'deviceOptions'], queryFn: () => fetchOptions('/devices') });
+
   const createMut = useMutation({
     mutationFn: () => createWorkOrder(form as WorkOrderBody),
     onSuccess: () => {
@@ -320,6 +349,14 @@ export function WorkOrders() {
     };
     return map[s] ?? s;
   };
+
+  const workTypeLabel = (w: string | null): string =>
+    w ? t(`workOrders.workType.${w}`, w) : t('workOrders.none');
+
+  const targetLabel = (wo: WorkOrder): string =>
+    wo.client_name || wo.site_name || wo.device_name || t('workOrders.none');
+
+  const hasTarget = Boolean(form.client_id || form.site_id || form.device_id);
 
   return (
     <div style={styles.page}>
@@ -360,6 +397,8 @@ export function WorkOrders() {
                   <tr>
                     <th style={styles.th}>{t('common.id')}</th>
                     <th style={styles.th}>Title</th>
+                    <th style={styles.th}>{t('workOrders.type')}</th>
+                    <th style={styles.th}>{t('workOrders.target')}</th>
                     <th style={styles.th}>Status</th>
                     <th style={styles.th}>Scheduled</th>
                     <th style={styles.th}>Actions</th>
@@ -371,6 +410,8 @@ export function WorkOrders() {
                       <tr key={wo.id} style={{ cursor: 'pointer' }} onClick={() => setExpandedId(v => v === wo.id ? null : wo.id)}>
                         <td style={styles.td}>{wo.id}</td>
                         <td style={styles.td}>{wo.title}</td>
+                        <td style={{ ...styles.td, textTransform: 'capitalize' }}>{workTypeLabel(wo.work_type)}</td>
+                        <td style={styles.td}>{targetLabel(wo)}</td>
                         <td style={styles.td}><StatusBadge status={wo.status} /></td>
                         <td style={styles.td}>{wo.scheduled_at ? wo.scheduled_at.slice(0, 10) : t('common.na')}</td>
                         <td style={styles.td} onClick={e => e.stopPropagation()}>
@@ -410,7 +451,7 @@ export function WorkOrders() {
                       </tr>
                       {expandedId === wo.id && (
                         <tr key={`${wo.id}-materials`}>
-                          <td colSpan={5} style={{ padding: 0 }}>
+                          <td colSpan={7} style={{ padding: 0 }}>
                             <MaterialsPanel workOrderId={wo.id} />
                           </td>
                         </tr>
@@ -469,12 +510,55 @@ export function WorkOrders() {
                   {STATUSES.map(s => <option key={s} value={s}>{statusLabel(s)}</option>)}
                 </select>
               </label>
+              <label style={modalStyles.label}>
+                {t('workOrders.type')}
+                <select
+                  style={modalStyles.select}
+                  value={form.work_type ?? 'other'}
+                  onChange={e => setForm(f => ({ ...f, work_type: e.target.value }))}
+                >
+                  {WORK_TYPES.map(w => <option key={w} value={w}>{workTypeLabel(w)}</option>)}
+                </select>
+              </label>
+
+              {/* Target: at least one of client / site / device is required. */}
+              <ClientPicker
+                value={form.client_id ?? ''}
+                onChange={(id) => setForm(f => ({ ...f, client_id: id || undefined }))}
+              />
+              <label style={modalStyles.label}>
+                {t('workOrders.site')}
+                <select
+                  style={modalStyles.select}
+                  value={form.site_id ?? ''}
+                  onChange={e => setForm(f => ({ ...f, site_id: e.target.value ? Number(e.target.value) : undefined }))}
+                >
+                  <option value="">{t('workOrders.none')}</option>
+                  {(sitesQ.data ?? []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </label>
+              <label style={modalStyles.label}>
+                {t('workOrders.device')}
+                <select
+                  style={modalStyles.select}
+                  value={form.device_id ?? ''}
+                  onChange={e => setForm(f => ({ ...f, device_id: e.target.value ? Number(e.target.value) : undefined }))}
+                >
+                  <option value="">{t('workOrders.none')}</option>
+                  {(devicesQ.data ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </label>
+              {!hasTarget && (
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
+                  {t('workOrders.targetRequired')}
+                </p>
+              )}
               {formErr && <p style={modalStyles.error}>{formErr}</p>}
               <div style={modalStyles.actions}>
                 <button style={styles.btnSecondary} onClick={() => setShowModal(false)}>{t('common.cancel')}</button>
                 <button
                   style={styles.btnPrimary}
-                  disabled={!form.title || createMut.isPending}
+                  disabled={!form.title || !hasTarget || createMut.isPending}
                   onClick={() => { setFormErr(''); createMut.mutate(); }}
                 >
                   {createMut.isPending ? t('common.saving') : t('common.save')}
