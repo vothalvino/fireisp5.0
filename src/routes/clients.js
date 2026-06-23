@@ -4,6 +4,7 @@
 
 const { Router } = require('express');
 const Client = require('../models/Client');
+const ClientBalanceLedger = require('../models/ClientBalanceLedger');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
@@ -171,11 +172,22 @@ router.get('/:id/invoices', requirePermission('invoices.view'), async (req, res,
 // Client balance ledger
 router.get('/:id/balance-ledger', requirePermission('clients.view'), async (req, res, next) => {
   try {
+    // running_balance is computed on read: the stored column is left at 0.00 by
+    // the amount-based writers (invoice/payment/credit_note/gateway); only the
+    // refund path sets debit/credit. The signed expression reconciles both.
+    const signed = ClientBalanceLedger.signedAmountSql;
     const [rows] = await db.query(
-      'SELECT * FROM client_balance_ledger WHERE client_id = ? AND organization_id = ? ORDER BY created_at DESC',
+      `SELECT id, organization_id, client_id, entry_type, amount, currency,
+              reference_type, reference_id, description, created_at,
+              SUM(${signed}) OVER (ORDER BY created_at, id) AS running_balance
+         FROM client_balance_ledger
+        WHERE client_id = ? AND organization_id = ?
+        ORDER BY created_at DESC, id DESC`,
       [req.params.id, req.orgId],
     );
-    res.json({ data: rows });
+    // Current balance = running_balance of the most-recent entry (rows are DESC).
+    const balance = rows.length ? String(rows[0].running_balance) : '0';
+    res.json({ data: rows, meta: { balance } });
   } catch (err) { next(err); }
 });
 

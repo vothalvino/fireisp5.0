@@ -14,6 +14,7 @@ const Client = require('../models/Client');
 const Invoice = require('../models/Invoice');
 const Ticket = require('../models/Ticket');
 const AiPolicy = require('../models/AiPolicy');
+const ClientBalanceLedger = require('../models/ClientBalanceLedger');
 const aiReplyService = require('../services/aiReplyService');
 const { pubsub } = require('../services/pubsub');
 const { assertGraphqlPermission, gqlForbidden } = require('./authz');
@@ -175,9 +176,32 @@ const resolvers = {
       return rows;
     },
 
-    ledger: async (client, _args, ctx) => {
+    // Current account balance: the signed sum of the ledger (postpaid semantics —
+    // positive = the client owes us). Computed on read because the stored
+    // running_balance column is left at its 0.00 default by the amount-based
+    // writers (invoice/payment/credit_note/gateway); only the refund path sets
+    // debit/credit. The signed expression reconciles BOTH representations — each
+    // entry populates exactly one: an entry_type-signed `amount`, plus debit-credit.
+    balance: async (client, _args, ctx) => {
       const [rows] = await db.query(
-        'SELECT * FROM client_balance_ledger WHERE client_id = ? AND organization_id = ? ORDER BY created_at DESC',
+        `SELECT COALESCE(SUM(${ClientBalanceLedger.signedAmountSql}), 0) AS balance
+           FROM client_balance_ledger
+          WHERE client_id = ? AND organization_id = ?`,
+        [client.id, ctx.orgId],
+      );
+      return String(rows[0].balance);
+    },
+
+    ledger: async (client, _args, ctx) => {
+      // running_balance is computed on read (the stored column is unreliable —
+      // see the balance resolver above) so each entry's "Balance After" is correct.
+      const [rows] = await db.query(
+        `SELECT id, organization_id, client_id, entry_type, amount, currency,
+                reference_type, reference_id, description, created_at,
+                SUM(${ClientBalanceLedger.signedAmountSql}) OVER (ORDER BY created_at, id) AS running_balance
+           FROM client_balance_ledger
+          WHERE client_id = ? AND organization_id = ?
+          ORDER BY created_at DESC, id DESC`,
         [client.id, ctx.orgId],
       );
       return rows;

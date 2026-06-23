@@ -45,6 +45,10 @@ module.exports = /* GraphQL */ `
     notes: String
     createdAt: String!
 
+    """Current account balance — signed sum of the balance ledger. Postpaid
+    semantics: positive = the client owes; negative = the client has credit."""
+    balance: String!
+
     """Active contracts for this client."""
     contracts: [Contract!]!
 

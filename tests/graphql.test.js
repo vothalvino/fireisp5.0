@@ -225,6 +225,35 @@ describe('GraphQL endpoint — /api/v1/graphql', () => {
     expect(res.body.data.client.contacts).toEqual([]);
   });
 
+  test('client.balance returns the computed account balance', async () => {
+    mockQuery
+      .mockResolvedValueOnce([[CLIENT_ROW]])              // client findById
+      .mockResolvedValueOnce([[{ balance: '150.00' }]]);  // balance signed-sum
+
+    const res = await graphql('query { client(id: "10") { id balance } }');
+
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toBeUndefined();
+    expect(res.body.data.client.balance).toBe('150.00');
+  });
+
+  test('client.ledger exposes the computed running_balance as balanceAfter', async () => {
+    mockQuery
+      .mockResolvedValueOnce([[CLIENT_ROW]])  // client findById
+      .mockResolvedValueOnce([[              // ledger query (running_balance computed in SQL)
+        { id: 2, entry_type: 'payment', amount: '40.00', currency: 'MXN', running_balance: '60.00', description: 'Payment Y', created_at: '2024-01-02' },
+        { id: 1, entry_type: 'invoice', amount: '100.00', currency: 'MXN', running_balance: '100.00', description: 'Invoice X', created_at: '2024-01-01' },
+      ]]);
+
+    const res = await graphql('query { client(id: "10") { ledger { entryType amount balanceAfter } } }');
+
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toBeUndefined();
+    const { ledger } = res.body.data.client;
+    expect(ledger[0].balanceAfter).toBe('60.00');   // newest first
+    expect(ledger[1].balanceAfter).toBe('100.00');
+  });
+
   // -----------------------------------------------------------------------
   // clients list query
   // -----------------------------------------------------------------------

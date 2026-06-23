@@ -55,6 +55,7 @@ const CLIENT_DETAIL_QUERY = /* GraphQL */ `
       locale
       notes
       createdAt
+      balance
       contracts {
         id
         connectionType
@@ -132,6 +133,7 @@ interface Client {
   locale: string | null;
   notes: string | null;
   createdAt: string;
+  balance: string;
   contracts: Contract[];
   invoices: Invoice[];
   payments: Payment[];
@@ -871,6 +873,12 @@ export function ClientDetail() {
       ? '—'
       : (clientGroups ?? []).find(g => g.id === clientGroupId)?.name ?? '—';
 
+  // Current account balance (postpaid: positive = owed by client, negative = credit).
+  const balanceAmount = parseFloat(client.balance || '0');
+  const balanceCurrency = client.ledger[0]?.currency || 'MXN';
+  const owes = balanceAmount > 0.005;
+  const inCredit = balanceAmount < -0.005;
+
   return (
     <div style={styles.page}>
       {/* Breadcrumb */}
@@ -896,6 +904,28 @@ export function ClientDetail() {
             <button type="button" style={styles.actionBtn} onClick={() => setShowPortalPassword(true)}>🔑 Portal Password</button>
           </div>
         )}
+      </div>
+
+      {/* Account balance — shown prominently */}
+      <div
+        style={{
+          display: 'flex', alignItems: 'center', gap: '0.75rem',
+          padding: '0.75rem 1rem', margin: '0.75rem 0', borderRadius: 8,
+          border: '1px solid',
+          background: owes ? '#fef2f2' : inCredit ? '#f0fdf4' : '#f9fafb',
+          borderColor: owes ? '#fecaca' : inCredit ? '#bbf7d0' : '#e5e7eb',
+          color: owes ? '#991b1b' : inCredit ? '#166534' : '#374151',
+        }}
+      >
+        <span style={{ fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', opacity: 0.85 }}>
+          Account Balance
+        </span>
+        <span style={{ fontSize: '1.5rem', fontWeight: 800 }}>
+          {fmtMoney(String(Math.abs(balanceAmount)), balanceCurrency)}
+        </span>
+        <span style={{ fontSize: '0.85rem', fontWeight: 600, opacity: 0.9 }}>
+          {owes ? '⚠ Owed by client' : inCredit ? '✓ Client in credit' : '✓ Settled'}
+        </span>
       </div>
 
       {/* Info card */}
