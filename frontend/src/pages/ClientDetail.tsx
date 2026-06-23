@@ -217,7 +217,14 @@ async function fetchClientDetail(id: string): Promise<Client> {
 
 function fmt(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleDateString('es-MX', {
+  // GraphQL serialises DATETIME columns via Date.valueOf() to an epoch-millis
+  // STRING (e.g. "1779165933000"); REST returns ISO. Handle both, then guard an
+  // unparseable value (which previously rendered the literal "Invalid Date").
+  const s = String(dateStr).trim();
+  const n = Number(s);
+  const d = /^\d{10,}$/.test(s) ? new Date(n < 1e12 ? n * 1000 : n) : new Date(s);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('es-MX', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
