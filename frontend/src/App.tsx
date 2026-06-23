@@ -62,7 +62,10 @@ import { SessionAccounting } from '@/pages/SessionAccounting';
 import { SnmpMetrics } from '@/pages/SnmpMetrics';
 import { SnmpTraps } from '@/pages/SnmpTraps';
 import { SiteList } from '@/pages/SiteList';
+import { SiteDetail } from '@/pages/SiteDetail';
 import { NasList } from '@/pages/NasList';
+import { NasDetail } from '@/pages/NasDetail';
+import { DeviceDetail } from '@/pages/DeviceDetail';
 import { MacMoveEvents } from '@/pages/MacMoveEvents';
 import { PppoeServiceProfileList } from '@/pages/PppoeServiceProfileList';
 import { PppoeDiagnostics } from '@/pages/PppoeDiagnostics';
@@ -218,6 +221,7 @@ export function App() {
                 <Route path="satisfaction-surveys" element={<SatisfactionSurveyList />} />
                 <Route path="escalations" element={<EscalationList />} />
                 <Route path="devices" element={<DeviceMap />} />
+                <Route path="devices/:id" element={<DeviceDetail />} />
               </Route>
             </Route>
 
@@ -233,7 +237,9 @@ export function App() {
                 <Route path="snmp-traps" element={<SnmpTraps />} />
                 <Route path="coverage-zones" element={<CoverageZoneMap />} />
                 <Route path="sites" element={<SiteList />} />
+                <Route path="sites/:id" element={<SiteDetail />} />
                 <Route path="nas" element={<NasList />} />
+                <Route path="nas/:id" element={<NasDetail />} />
                 <Route path="mac-move-events" element={<MacMoveEvents />} />
                 <Route path="pppoe-service-profiles" element={<PppoeServiceProfileList />} />
                 <Route path="pppoe-diagnostics" element={<PppoeDiagnostics />} />

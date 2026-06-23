@@ -9,6 +9,7 @@
 // =============================================================================
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
@@ -463,6 +464,9 @@ export function SiteList() {
                       <td style={styles.td}>{s.city ?? '—'}</td>
                       <td style={styles.td}><StatusBadge status={s.status} /></td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
+                        <Link to={`/sites/${s.id}`} style={{ ...styles.actionBtn, textDecoration: 'none', display: 'inline-block' }}>
+                          View
+                        </Link>
                         <button style={styles.actionBtn} onClick={() => setEditSite(s)} title="Edit this site">
                           ✏️ Edit
                         </button>

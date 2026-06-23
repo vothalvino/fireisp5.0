@@ -26,6 +26,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   ],
   technician: [
     'devices.create', 'devices.update', 'devices.delete', 'service_orders.update',
+    'nas.health',
     'interactions.view', 'follow_ups.view', 'follow_ups.update', 'escalations.view',
     'campaigns.view', 'dnd.view',
   ],
@@ -37,8 +38,8 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'campaigns.view', 'campaigns.create', 'campaigns.update', 'campaigns.delete',
     'dnd.view', 'dnd.update',
   ],
-  'read-only': ['winback.view', 'lifecycle.view', 'interactions.view', 'follow_ups.view', 'surveys.view', 'escalations.view', 'campaigns.view', 'dnd.view'],
-  readonly: ['winback.view', 'lifecycle.view', 'interactions.view', 'follow_ups.view', 'surveys.view', 'escalations.view', 'campaigns.view', 'dnd.view'],
+  'read-only': ['winback.view', 'lifecycle.view', 'interactions.view', 'follow_ups.view', 'surveys.view', 'escalations.view', 'campaigns.view', 'dnd.view', 'nas.health'],
+  readonly: ['winback.view', 'lifecycle.view', 'interactions.view', 'follow_ups.view', 'surveys.view', 'escalations.view', 'campaigns.view', 'dnd.view', 'nas.health'],
 };
 
 /**
