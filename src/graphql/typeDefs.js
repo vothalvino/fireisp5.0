@@ -15,11 +15,17 @@ module.exports = /* GraphQL */ `
     """List clients for the current org."""
     clients(limit: Int, offset: Int): [Client!]!
 
+    """Fetch a single contract by ID (org-scoped)."""
+    contract(id: ID!): Contract
+
     """Fetch a single invoice by ID (org-scoped)."""
     invoice(id: ID!): Invoice
 
     """List invoices, optionally filtered by clientId."""
     invoices(limit: Int, offset: Int, clientId: ID): [Invoice!]!
+
+    """Fetch a single payment by ID (org-scoped)."""
+    payment(id: ID!): Payment
 
     """Fetch a single ticket by ID (org-scoped)."""
     ticket(id: ID!): Ticket
@@ -44,6 +50,10 @@ module.exports = /* GraphQL */ `
     locale: String
     notes: String
     createdAt: String!
+
+    """Current account balance — signed sum of the balance ledger. Postpaid
+    semantics: positive = the client owes; negative = the client has credit."""
+    balance: String!
 
     """Active contracts for this client."""
     contracts: [Contract!]!
@@ -77,6 +87,31 @@ module.exports = /* GraphQL */ `
     priceOverride: String
     notes: String
     createdAt: String!
+
+    """The client who owns this contract."""
+    client: Client
+
+    """Invoices issued against this contract."""
+    invoices: [Invoice!]!
+
+    """Devices assigned to this contract."""
+    devices: [Device!]!
+
+    """Add-ons attached to this contract."""
+    addons: [ContractAddon!]!
+  }
+
+  type ContractAddon {
+    id: ID!
+    contractId: ID!
+    planAddonId: ID!
+    addonName: String
+    addonType: String
+    quantity: String
+    unitPrice: String
+    startDate: String
+    endDate: String
+    status: String!
   }
 
   type Invoice {
@@ -125,12 +160,30 @@ module.exports = /* GraphQL */ `
 
   type Payment {
     id: ID!
+    clientId: ID!
     amount: String!
     currency: String!
     paymentMethod: String!
     reference: String
     status: String!
+    paymentDate: String
     createdAt: String!
+
+    """The client who made this payment."""
+    client: Client
+
+    """Invoice allocations this payment was applied to."""
+    allocations: [PaymentAllocation!]!
+  }
+
+  type PaymentAllocation {
+    id: ID!
+    paymentId: ID!
+    invoiceId: ID!
+    amount: String!
+
+    """The invoice this allocation was applied to."""
+    invoice: Invoice
   }
 
   type Device {

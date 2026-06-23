@@ -44,6 +44,7 @@ networks:
 
 # ── Named volumes ─────────────────────────────────────────────────────────────
 volumes:
+  storage:          # client/device/ticket document uploads (/app/storage)
   db_primary_data:
   db_replica_data:
   redis_data:
@@ -186,7 +187,11 @@ services:
       RADIUS_ACCT_PORT:      ${RADIUS_ACCT_PORT:-1813}
       RADIUS_SERVER_SECRET:  ${RADIUS_SERVER_SECRET:-}
     volumes:
-      - ./storage:/app/storage
+      # Named volume, NOT a host bind mount: the previous `./storage` bind mount
+      # was root-owned on the host, so the non-root `fireisp` container user hit
+      # EACCES writing uploads. A named volume inherits the image's fireisp-owned
+      # /app/storage on first init, so it is writable by the app.
+      - storage:/app/storage
     # HTTP (3000) stays internal behind Nginx. The RADIUS auth/accounting
     # listeners are UDP and must be published directly (Nginx proxies HTTP only).
     # NOTE: these are fixed host ports — keep the app at replicas:1, or front

@@ -37,9 +37,11 @@ import { WinbackCampaignList } from '@/pages/WinbackCampaignList';
 import { CommunicationCampaignList } from '@/pages/CommunicationCampaignList';
 import { ChurnAnalytics } from '@/pages/ChurnAnalytics';
 import { ContractList } from '@/pages/ContractList';
+import { ContractDetail } from '@/pages/ContractDetail';
 import { InvoiceList } from '@/pages/InvoiceList';
 import { InvoiceDetail } from '@/pages/InvoiceDetail';
 import { PaymentList } from '@/pages/PaymentList';
+import { PaymentDetail } from '@/pages/PaymentDetail';
 import { TicketList } from '@/pages/TicketList';
 import { TicketDetail } from '@/pages/TicketDetail';
 import { FollowUpReminderList } from '@/pages/FollowUpReminderList';
@@ -205,9 +207,11 @@ export function App() {
                 <Route path="leads" element={<LeadList />} />
                 <Route path="service-orders" element={<ServiceOrderList />} />
                 <Route path="contracts" element={<ContractList />} />
+                <Route path="contracts/:id" element={<ContractDetail />} />
                 <Route path="invoices" element={<InvoiceList />} />
                 <Route path="invoices/:id" element={<InvoiceDetail />} />
                 <Route path="payments" element={<PaymentList />} />
+                <Route path="payments/:id" element={<PaymentDetail />} />
                 <Route path="tickets" element={<TicketList />} />
                 <Route path="tickets/:id" element={<TicketDetail />} />
                 <Route path="communication-campaigns" element={<CommunicationCampaignList />} />

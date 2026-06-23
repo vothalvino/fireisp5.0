@@ -7439,11 +7439,10 @@ END$$
 DELIMITER ;
 
 -- ---------------------------------------------------------------------------
--- Triggers: contract status FSM (migration 149)
--- Purpose: Enforces valid contract status transitions.
---          pending â†’ active | cancelled
---          active  â†’ expired | cancelled
---          expired, cancelled â†’ (terminal)
+-- Triggers: contract status FSM (migrations 149, 195, 362)
+-- Purpose: Enforces valid contract status transitions. Renew/reinstate from a
+--          terminal state (expired/cancelled/terminated -> active) is allowed
+--          as of migration 362.
 -- ---------------------------------------------------------------------------
 
 DELIMITER $$
@@ -7458,6 +7457,7 @@ BEGIN
                (OLD.status = 'pending'    AND NEW.status IN ('active', 'cancelled'))
             OR (OLD.status = 'active'     AND NEW.status IN ('expired', 'cancelled', 'suspended', 'terminated'))
             OR (OLD.status = 'suspended'  AND NEW.status IN ('active', 'cancelled', 'terminated'))
+            OR (OLD.status IN ('expired', 'cancelled', 'terminated') AND NEW.status = 'active')
         ) THEN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'Invalid contract status transition';

@@ -55,6 +55,7 @@ const CLIENT_DETAIL_QUERY = /* GraphQL */ `
       locale
       notes
       createdAt
+      balance
       contracts {
         id
         connectionType
@@ -132,6 +133,7 @@ interface Client {
   locale: string | null;
   notes: string | null;
   createdAt: string;
+  balance: string;
   contracts: Contract[];
   invoices: Invoice[];
   payments: Payment[];
@@ -215,7 +217,14 @@ async function fetchClientDetail(id: string): Promise<Client> {
 
 function fmt(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleDateString('es-MX', {
+  // GraphQL serialises DATETIME columns via Date.valueOf() to an epoch-millis
+  // STRING (e.g. "1779165933000"); REST returns ISO. Handle both, then guard an
+  // unparseable value (which previously rendered the literal "Invalid Date").
+  const s = String(dateStr).trim();
+  const n = Number(s);
+  const d = /^\d{10,}$/.test(s) ? new Date(n < 1e12 ? n * 1000 : n) : new Date(s);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('es-MX', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -301,7 +310,14 @@ function ContractsTab({ contracts }: { contracts: Contract[] }) {
         <tbody>
           {contracts.map(c => (
             <tr key={c.id} style={styles.tr}>
-              <td style={styles.td}>#{c.id}</td>
+              <td style={styles.td}>
+                <Link
+                  to={`/contracts/${c.id}`}
+                  style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}
+                >
+                  #{c.id}
+                </Link>
+              </td>
               <td style={{ ...styles.td, textTransform: 'capitalize' }}>{c.connectionType || '—'}</td>
               <td style={styles.td}>{fmt(c.startDate)}</td>
               <td style={styles.td}>{fmt(c.endDate)}</td>
@@ -329,7 +345,11 @@ function InvoicesTab({ invoices }: { invoices: Invoice[] }) {
         <tbody>
           {invoices.map(inv => (
             <tr key={inv.id} style={styles.tr}>
-              <td style={{ ...styles.td, fontWeight: 600 }}>{inv.invoiceNumber}</td>
+              <td style={styles.td}>
+                <Link to={`/invoices/${inv.id}`} style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
+                  {inv.invoiceNumber}
+                </Link>
+              </td>
               <td style={{ ...styles.td, fontVariantNumeric: 'tabular-nums' }}>
                 {fmtMoney(inv.total, inv.currency)}
               </td>
@@ -357,7 +377,11 @@ function PaymentsTab({ payments }: { payments: Payment[] }) {
         <tbody>
           {payments.map(p => (
             <tr key={p.id} style={styles.tr}>
-              <td style={styles.td}>#{p.id}</td>
+              <td style={styles.td}>
+                <Link to={`/payments/${p.id}`} style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
+                  #{p.id}
+                </Link>
+              </td>
               <td style={{ ...styles.td, fontVariantNumeric: 'tabular-nums' }}>
                 {fmtMoney(p.amount, p.currency)}
               </td>
@@ -871,6 +895,12 @@ export function ClientDetail() {
       ? '—'
       : (clientGroups ?? []).find(g => g.id === clientGroupId)?.name ?? '—';
 
+  // Current account balance (postpaid: positive = owed by client, negative = credit).
+  const balanceAmount = parseFloat(client.balance || '0');
+  const balanceCurrency = client.ledger[0]?.currency || 'MXN';
+  const owes = balanceAmount > 0.005;
+  const inCredit = balanceAmount < -0.005;
+
   return (
     <div style={styles.page}>
       {/* Breadcrumb */}
@@ -896,6 +926,28 @@ export function ClientDetail() {
             <button type="button" style={styles.actionBtn} onClick={() => setShowPortalPassword(true)}>🔑 Portal Password</button>
           </div>
         )}
+      </div>
+
+      {/* Account balance — shown prominently */}
+      <div
+        style={{
+          display: 'flex', alignItems: 'center', gap: '0.75rem',
+          padding: '0.75rem 1rem', margin: '0.75rem 0', borderRadius: 8,
+          border: '1px solid',
+          background: owes ? '#fef2f2' : inCredit ? '#f0fdf4' : '#f9fafb',
+          borderColor: owes ? '#fecaca' : inCredit ? '#bbf7d0' : '#e5e7eb',
+          color: owes ? '#991b1b' : inCredit ? '#166534' : '#374151',
+        }}
+      >
+        <span style={{ fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', opacity: 0.85 }}>
+          Account Balance
+        </span>
+        <span style={{ fontSize: '1.5rem', fontWeight: 800 }}>
+          {fmtMoney(String(Math.abs(balanceAmount)), balanceCurrency)}
+        </span>
+        <span style={{ fontSize: '0.85rem', fontWeight: 600, opacity: 0.9 }}>
+          {owes ? '⚠ Owed by client' : inCredit ? '✓ Client in credit' : '✓ Settled'}
+        </span>
       </div>
 
       {/* Info card */}

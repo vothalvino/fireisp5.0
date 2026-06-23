@@ -11,9 +11,12 @@
 
 const db = require('../config/database');
 const Client = require('../models/Client');
+const Contract = require('../models/Contract');
 const Invoice = require('../models/Invoice');
+const Payment = require('../models/Payment');
 const Ticket = require('../models/Ticket');
 const AiPolicy = require('../models/AiPolicy');
+const ClientBalanceLedger = require('../models/ClientBalanceLedger');
 const aiReplyService = require('../services/aiReplyService');
 const { pubsub } = require('../services/pubsub');
 const { assertGraphqlPermission, gqlForbidden } = require('./authz');
@@ -41,6 +44,8 @@ const resolvers = {
         offset: clamp(offset, 0, 1e6),
       }),
 
+    contract: (_parent, { id }, ctx) => Contract.findById(id, ctx.orgId),
+
     invoice: (_parent, { id }, ctx) => Invoice.findById(id, ctx.orgId),
 
     invoices: (_parent, { limit, offset, clientId }, ctx) =>
@@ -50,6 +55,8 @@ const resolvers = {
         limit: clamp(limit, 50, MAX_LIMIT),
         offset: clamp(offset, 0, 1e6),
       }),
+
+    payment: (_parent, { id }, ctx) => Payment.findById(id, ctx.orgId),
 
     ticket: (_parent, { id }, ctx) => Ticket.findById(id, ctx.orgId),
 
@@ -175,9 +182,32 @@ const resolvers = {
       return rows;
     },
 
-    ledger: async (client, _args, ctx) => {
+    // Current account balance: the signed sum of the ledger (postpaid semantics —
+    // positive = the client owes us). Computed on read because the stored
+    // running_balance column is left at its 0.00 default by the amount-based
+    // writers (invoice/payment/credit_note/gateway); only the refund path sets
+    // debit/credit. The signed expression reconciles BOTH representations — each
+    // entry populates exactly one: an entry_type-signed `amount`, plus debit-credit.
+    balance: async (client, _args, ctx) => {
       const [rows] = await db.query(
-        'SELECT * FROM client_balance_ledger WHERE client_id = ? AND organization_id = ? ORDER BY created_at DESC',
+        `SELECT COALESCE(SUM(${ClientBalanceLedger.signedAmountSql}), 0) AS balance
+           FROM client_balance_ledger
+          WHERE client_id = ? AND organization_id = ?`,
+        [client.id, ctx.orgId],
+      );
+      return String(rows[0].balance);
+    },
+
+    ledger: async (client, _args, ctx) => {
+      // running_balance is computed on read (the stored column is unreliable —
+      // see the balance resolver above) so each entry's "Balance After" is correct.
+      const [rows] = await db.query(
+        `SELECT id, organization_id, client_id, entry_type, amount, currency,
+                reference_type, reference_id, description, created_at,
+                SUM(${ClientBalanceLedger.signedAmountSql}) OVER (ORDER BY created_at, id) AS running_balance
+           FROM client_balance_ledger
+          WHERE client_id = ? AND organization_id = ?
+          ORDER BY created_at DESC, id DESC`,
         [client.id, ctx.orgId],
       );
       return rows;
@@ -204,7 +234,7 @@ const resolvers = {
   },
 
   // ---------------------------------------------------------------------------
-  // Contract field resolvers (snake_case → camelCase mapping)
+  // Contract field resolvers (snake_case → camelCase mapping + nested)
   // ---------------------------------------------------------------------------
   Contract: {
     clientId: (c) => c.client_id,
@@ -216,6 +246,42 @@ const resolvers = {
     ipAddress: (c) => c.ip_address,
     priceOverride: (c) => c.price_override,
     createdAt: (c) => c.created_at,
+
+    client: (contract, _args, ctx) =>
+      contract.client_id ? Client.findById(contract.client_id, ctx.orgId) : null,
+
+    invoices: async (contract, _args, ctx) => {
+      const [rows] = await db.query(
+        'SELECT * FROM invoices WHERE contract_id = ? AND organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC',
+        [contract.id, ctx.orgId],
+      );
+      return rows;
+    },
+
+    devices: async (contract, _args, ctx) => {
+      const [rows] = await db.query(
+        'SELECT * FROM devices WHERE contract_id = ? AND organization_id = ? AND deleted_at IS NULL ORDER BY id',
+        [contract.id, ctx.orgId],
+      );
+      return rows;
+    },
+
+    addons: (contract) => Contract.getAddons(contract.id),
+  },
+
+  // ---------------------------------------------------------------------------
+  // ContractAddon field resolvers (snake_case → camelCase mapping)
+  // ---------------------------------------------------------------------------
+  ContractAddon: {
+    contractId: (a) => a.contract_id,
+    planAddonId: (a) => a.plan_addon_id,
+    addonName: (a) => a.addon_name || null,
+    addonType: (a) => a.addon_type || null,
+    quantity: (a) => a.quantity !== null && a.quantity !== undefined ? String(a.quantity) : null,
+    unitPrice: (a) => a.unit_price !== null && a.unit_price !== undefined ? String(a.unit_price) : null,
+    startDate: (a) => a.start_date || null,
+    endDate: (a) => a.end_date || null,
+    status: (a) => a.status || 'active',
   },
 
   // ---------------------------------------------------------------------------
@@ -270,8 +336,38 @@ const resolvers = {
   // Payment field resolvers
   // ---------------------------------------------------------------------------
   Payment: {
+    clientId: (p) => p.client_id,
     paymentMethod: (p) => p.payment_method,
+    // DB column is reference_number; the GraphQL field is `reference`.
+    reference: (p) => p.reference_number || p.reference || null,
+    paymentDate: (p) => p.payment_date || null,
     createdAt: (p) => p.created_at,
+
+    client: (payment, _args, ctx) =>
+      payment.client_id ? Client.findById(payment.client_id, ctx.orgId) : null,
+
+    allocations: async (payment, _args, ctx) => {
+      const [rows] = await db.query(
+        `SELECT pa.id, pa.payment_id, pa.invoice_id, pa.amount, pa.deleted_at
+         FROM payment_allocations pa
+         JOIN invoices i ON i.id = pa.invoice_id
+         WHERE pa.payment_id = ? AND pa.deleted_at IS NULL AND i.organization_id = ?`,
+        [payment.id, ctx.orgId],
+      );
+      return rows;
+    },
+  },
+
+  // ---------------------------------------------------------------------------
+  // PaymentAllocation field resolvers
+  // ---------------------------------------------------------------------------
+  PaymentAllocation: {
+    paymentId: (a) => a.payment_id,
+    invoiceId: (a) => a.invoice_id,
+    amount: (a) => String(a.amount),
+
+    invoice: (alloc, _args, ctx) =>
+      alloc.invoice_id ? Invoice.findById(alloc.invoice_id, ctx.orgId) : null,
   },
 
   // ---------------------------------------------------------------------------

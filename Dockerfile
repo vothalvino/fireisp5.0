@@ -43,6 +43,11 @@ COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
 RUN chown -R fireisp:fireisp /app
 
+# Uploads land in /app/storage, which production mounts as a named Docker volume.
+# Docker initialises a named volume from the image's mountpoint, so the directory
+# must exist and be owned by the runtime user or the container gets EACCES on write.
+RUN mkdir -p /app/storage && chown -R fireisp:fireisp /app/storage
+
 USER fireisp
 
 EXPOSE 3000

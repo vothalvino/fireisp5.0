@@ -208,9 +208,10 @@ router.post('/:id/unsuspend', requirePermission('contracts.update'), async (req,
   }
 });
 
-// Renew a contract — allowed from suspended, expired, or cancelled states.
-// Bypasses the PATCH endpoint to avoid the FSM trigger rejecting the transition
-// (FSM enforces: suspended → active, which is now allowed in migration 195).
+// Renew (reinstate) a contract — allowed from suspended, expired, cancelled, or
+// terminated states. The contract-status FSM trigger permits the *->active
+// transition for all of these as of migration 362; before that, renewing a
+// cancelled/expired/terminated contract was rejected by the database trigger.
 router.post('/:id/renew', requirePermission('contracts.update'), async (req, res, next) => {
   try {
     const [rows] = await db.query(
@@ -221,7 +222,7 @@ router.post('/:id/renew', requirePermission('contracts.update'), async (req, res
     if (!contract) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Contract not found' } });
     }
-    const renewableStatuses = ['suspended', 'expired', 'cancelled'];
+    const renewableStatuses = ['suspended', 'expired', 'cancelled', 'terminated'];
     if (!renewableStatuses.includes(contract.status)) {
       return res.status(422).json({
         error: { code: 'NOT_RENEWABLE', message: `Cannot renew a contract with status '${contract.status}'` },
@@ -231,6 +232,15 @@ router.post('/:id/renew', requirePermission('contracts.update'), async (req, res
     if (req.body.end_date !== undefined) updates.end_date = req.body.end_date || null;
     if (req.body.plan_id) updates.plan_id = req.body.plan_id;
     const record = await Contract.update(req.params.id, updates, req.orgId);
+    // Restore RADIUS access for states whose service was disconnected: both
+    // suspend and terminate send a RADIUS disconnect, so without this a renewed
+    // (reinstated) contract would be status='active' yet still offline. The CoA
+    // reconnect is best-effort — don't fail the renew if it can't be delivered.
+    if (contract.status === 'suspended' || contract.status === 'terminated') {
+      suspensionService
+        .reconnectContract(parseInt(req.params.id, 10), req.user.id, req.body.invoice_id || null)
+        .catch(() => {});
+    }
     await auditLog.log({
       userId: req.user?.id,
       organizationId: req.orgId,
