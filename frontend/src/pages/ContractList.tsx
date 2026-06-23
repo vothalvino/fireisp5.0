@@ -1188,7 +1188,7 @@ function ContractRow({ contract: c, plans, onSuspend, onTerminate, onCancel, onR
   const canSuspend = c.status === 'active' || c.status === 'pending';
   const canTerminate = c.status === 'active' || c.status === 'suspended';
   const canCancel = c.status !== 'cancelled' && c.status !== 'terminated' && c.status !== 'expired';
-  const canRenew = c.status === 'suspended' || c.status === 'cancelled' || c.status === 'expired';
+  const canRenew = c.status === 'suspended' || c.status === 'cancelled' || c.status === 'expired' || c.status === 'terminated';
 
   return (
     <tr style={styles.tr}>

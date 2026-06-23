@@ -67,7 +67,37 @@ describe('POST /contracts/:id/renew', () => {
       .send({});
 
     expect(res.status).toBe(200);
+    // suspended had a RADIUS disconnect → renew restores access via CoA reconnect
+    expect(suspensionService.reconnectContract).toHaveBeenCalled();
   });
+
+  // Renew must work from EVERY terminal state — the FSM trigger blocked
+  // expired/cancelled/terminated -> active before migration 362.
+  test.each(['cancelled', 'expired', 'terminated'])(
+    'reactivates a %s contract (renew/reinstate from a terminal state)',
+    async (status) => {
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, email: 'admin@example.com', role: 'admin', status: 'active', organization_id: 1 }]])
+        .mockResolvedValueOnce([[{ id: 7, status, organization_id: 1 }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([[{ id: 7, status: 'active', organization_id: 1 }]]);
+
+      const res = await request(app)
+        .post('/api/v1/contracts/7/renew')
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe('active');
+      // terminated had a RADIUS disconnect (from terminate) → renew reconnects;
+      // cancelled/expired never disconnected, so no reconnect is attempted.
+      if (status === 'terminated') {
+        expect(suspensionService.reconnectContract).toHaveBeenCalled();
+      } else {
+        expect(suspensionService.reconnectContract).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   test('returns 422 for an already active contract', async () => {
     db.query
