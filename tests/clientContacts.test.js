@@ -41,6 +41,9 @@ beforeEach(() => {
     if (typeof sql === 'string' && sql.includes('INSERT INTO contacts')) {
       return Promise.resolve([{ insertId: 999 }]);
     }
+    if (typeof sql === 'string' && sql.includes('UPDATE contacts SET deleted_at')) {
+      return Promise.resolve([{ affectedRows: 1 }]);
+    }
     return Promise.resolve([[]]);
   });
 });
@@ -69,5 +72,31 @@ describe('POST /clients/:id/contacts', () => {
     expect(res.status).toBe(201);
     const insert = db.query.mock.calls.find(c => typeof c[0] === 'string' && c[0].includes('INSERT INTO contacts'));
     expect(insert[1]).toEqual(['5', 'Madonna', '', null, null, null]);
+  });
+});
+
+describe('DELETE /clients/:id/contacts/:contactId', () => {
+  test('soft-deletes the contact (sets deleted_at) -> 204', async () => {
+    const res = await request(app)
+      .delete('/api/v1/clients/5/contacts/77')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(204);
+    const upd = db.query.mock.calls.find(c => typeof c[0] === 'string' && c[0].includes('UPDATE contacts SET deleted_at'));
+    expect(upd).toBeDefined();
+    expect(upd[0]).toMatch(/deleted_at IS NULL/);
+    expect(upd[1]).toEqual(['77', '5']);   // [contactId, clientId]
+  });
+
+  test('404 when the contact is not on this client', async () => {
+    db.query.mockImplementation((sql) => {
+      if (typeof sql === 'string' && sql.includes('UPDATE contacts SET deleted_at')) return Promise.resolve([{ affectedRows: 0 }]);
+      if (typeof sql === 'string' && sql.includes('WHERE id = ?')) return Promise.resolve([[{ id: 1, role: 'admin', status: 'active', organization_id: 42 }]]);
+      return Promise.resolve([[]]);
+    });
+    const res = await request(app)
+      .delete('/api/v1/clients/5/contacts/999')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(404);
   });
 });

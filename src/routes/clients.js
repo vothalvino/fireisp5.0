@@ -119,6 +119,23 @@ router.post('/:id/contacts', requirePermission('clients.update'), validate(creat
   }
 });
 
+// Soft-delete a client contact.
+router.delete('/:id/contacts/:contactId', requirePermission('clients.update'), async (req, res, next) => {
+  try {
+    await Client.findByIdOrFail(req.params.id, req.orgId);  // 404s if the client isn't in this org
+    const [result] = await db.query(
+      'UPDATE contacts SET deleted_at = NOW() WHERE id = ? AND client_id = ? AND deleted_at IS NULL',
+      [req.params.contactId, req.params.id],
+    );
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Contact not found' } });
+    }
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+});
+
 // MX Profile sub-routes
 router.get('/:id/mx-profile', requirePermission('clients.view'), async (req, res, next) => {
   try {

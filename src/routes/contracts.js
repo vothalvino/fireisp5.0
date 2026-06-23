@@ -231,6 +231,21 @@ router.post('/:id/renew', requirePermission('contracts.update'), async (req, res
     const updates = { status: 'active' };
     if (req.body.end_date !== undefined) updates.end_date = req.body.end_date || null;
     if (req.body.plan_id) updates.plan_id = req.body.plan_id;
+
+    // PPPoE re-provisioning: a pppoe/pppoe_dual contract cannot be activated
+    // without a RADIUS account (trg_contracts_radius_consistency_bu). When the
+    // account was removed (e.g. when the contract was cancelled), recreate one
+    // with fresh credentials via the canonical provisioner so the renew succeeds
+    // instead of failing the trigger. Runs before the activation UPDATE so the
+    // account exists when the trigger fires.
+    let provisioning = null;
+    if (contract.connection_type === 'pppoe' || contract.connection_type === 'pppoe_dual') {
+      const [radRows] = await db.query('SELECT COUNT(*) AS cnt FROM radius WHERE contract_id = ?', [contract.id]);
+      if (radRows[0].cnt === 0) {
+        provisioning = await provisioningService.provisionNewContract(db, contract);
+      }
+    }
+
     const record = await Contract.update(req.params.id, updates, req.orgId);
     // Restore RADIUS access for states whose service was disconnected: both
     // suspend and terminate send a RADIUS disconnect, so without this a renewed
@@ -248,9 +263,11 @@ router.post('/:id/renew', requirePermission('contracts.update'), async (req, res
       tableName: Contract.tableName,
       recordId: record.id,
       oldValues: { status: contract.status },
-      newValues: updates,
+      newValues: { ...updates, radius_reprovisioned: Boolean(provisioning) },
     }).catch(() => {});
-    res.json({ data: record });
+    // When a RADIUS account was recreated, return its (fresh) credentials so the
+    // operator can reconfigure the subscriber's CPE.
+    res.json({ data: record, ...(provisioning && provisioning.pppoe ? { provisioning } : {}) });
   } catch (err) { next(err); }
 });
 
