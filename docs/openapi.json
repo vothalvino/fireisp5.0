@@ -5356,6 +5356,48 @@
         }
       }
     },
+    "/contracts/{id}/regenerate-pppoe": {
+      "post": {
+        "tags": [
+          "Contracts"
+        ],
+        "summary": "Regenerate (rotate) the PPPoE password for a contract’s RADIUS account; keeps the username and best-effort pushes the new secret to the NAS",
+        "operationId": "regenerateContractPppoe",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "New PPPoE credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Contract not found"
+          },
+          "422": {
+            "description": "Contract is not PPPoE or has no RADIUS account"
+          }
+        }
+      }
+    },
     "/invoices": {
       "get": {
         "tags": [

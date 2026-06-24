@@ -14,7 +14,7 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { gql } from '@/api/graphql';
-import { tokenStore } from '@/api/client';
+import { api, tokenStore } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
 
@@ -169,6 +169,42 @@ async function postContractAction(
 }
 
 // ---------------------------------------------------------------------------
+// PPPoE credential helpers
+// ---------------------------------------------------------------------------
+
+interface RadiusAccount {
+  id: number;
+  username: string;
+  password: string;
+  status: string | null;
+}
+
+async function fetchRadiusAccounts(contractId: string): Promise<RadiusAccount[]> {
+  const res = await api.GET('/radius/contract/{contractId}' as never, {
+    params: { path: { contractId: Number(contractId) } },
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to load PPPoE account');
+  const d = (res as { data: unknown }).data as { data?: RadiusAccount[] } | RadiusAccount[];
+  return Array.isArray(d) ? d : d.data ?? [];
+}
+
+async function regeneratePppoe(id: string): Promise<{ username: string; password: string; pushed: boolean }> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/contracts/${id}/regenerate-pppoe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    let msg = 'Failed to regenerate PPPoE credentials';
+    try { const j = await res.json(); msg = j?.error?.message ?? msg; } catch { /* keep default */ }
+    throw new Error(msg);
+  }
+  const j = await res.json();
+  return { username: j.data.username, password: j.data.password, pushed: Boolean(j.pushed) };
+}
+
+// ---------------------------------------------------------------------------
 // Utility helpers
 // ---------------------------------------------------------------------------
 
@@ -233,9 +269,9 @@ function StatusBadge({ status }: { status: string }) {
 // Tab types
 // ---------------------------------------------------------------------------
 
-type TabId = 'invoices' | 'devices' | 'addons';
+type TabId = 'pppoe' | 'invoices' | 'devices' | 'addons';
 
-const TABS: { id: TabId; label: string }[] = [
+const BASE_TABS: { id: TabId; label: string }[] = [
   { id: 'invoices', label: 'Invoices' },
   { id: 'devices',  label: 'Devices' },
   { id: 'addons',   label: 'Add-ons' },
@@ -337,6 +373,110 @@ function AddonsTab({ addons }: { addons: ContractAddon[] }) {
 }
 
 // ---------------------------------------------------------------------------
+// PPPoE credentials tab
+// ---------------------------------------------------------------------------
+
+function CredField({
+  label,
+  value,
+  secret,
+  reveal,
+  onToggle,
+}: {
+  label: string;
+  value: string;
+  secret?: boolean;
+  reveal?: boolean;
+  onToggle?: () => void;
+}) {
+  const shown = secret && !reveal ? '••••••••••' : value;
+  return (
+    <div style={styles.infoRow}>
+      <span style={styles.infoLabel}>{label}</span>
+      <span style={{ ...styles.infoValue, fontFamily: 'monospace' }}>{shown}</span>
+      {secret && (
+        <button type="button" style={styles.linkBtn} onClick={onToggle}>
+          {reveal ? 'Hide' : 'Show'}
+        </button>
+      )}
+      <button
+        type="button"
+        style={styles.linkBtn}
+        onClick={() => { void navigator.clipboard?.writeText(value); }}
+      >
+        Copy
+      </button>
+    </div>
+  );
+}
+
+function PppoeTab({ contractId, canEdit }: { contractId: string; canEdit: boolean }) {
+  const qc = useQueryClient();
+  const [reveal, setReveal] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenError, setRegenError] = useState<string | null>(null);
+  const [regenerated, setRegenerated] = useState<{ password: string; pushed: boolean } | null>(null);
+
+  const { data: accounts, isLoading, error } = useQuery({
+    queryKey: ['contract-radius', contractId],
+    queryFn: () => fetchRadiusAccounts(contractId),
+  });
+
+  if (isLoading) return <p style={styles.msg}>Loading PPPoE account…</p>;
+  if (error) return <p style={styles.msg}>Unable to load PPPoE credentials (no account, or insufficient permission).</p>;
+
+  const account = accounts?.[0];
+  if (!account) {
+    return <p style={styles.msg}>No PPPoE account for this contract. Use “Renew” to provision one.</p>;
+  }
+
+  const password = regenerated?.password ?? account.password;
+
+  async function handleRegenerate() {
+    setRegenError(null);
+    setRegenerating(true);
+    try {
+      const r = await regeneratePppoe(contractId);
+      setRegenerated({ password: r.password, pushed: r.pushed });
+      setReveal(true);
+      qc.invalidateQueries({ queryKey: ['contract-radius', contractId] });
+    } catch (e) {
+      setRegenError(e instanceof Error ? e.message : 'Failed to regenerate credentials');
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
+  return (
+    <div style={{ padding: '1.25rem' }}>
+      <div style={styles.infoGrid}>
+        <CredField label="Username" value={account.username} />
+        <CredField label="Password" value={password} secret reveal={reveal} onToggle={() => setReveal(v => !v)} />
+      </div>
+
+      {canEdit && (
+        <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="button" style={styles.actionBtn} onClick={handleRegenerate} disabled={regenerating}>
+            {regenerating ? 'Regenerating…' : 'Regenerate password'}
+          </button>
+          {regenerated && (
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              New password generated{regenerated.pushed ? ' and pushed to the NAS' : ' — reconfigure the CPE'}.
+            </span>
+          )}
+        </div>
+      )}
+
+      {regenError && <div style={{ ...styles.errorBanner, marginTop: '1rem' }}>{regenError}</div>}
+
+      <p style={{ fontSize: '0.78rem', color: 'var(--text-dimmed)', marginTop: '1rem' }}>
+        Rotating the password requires reconfiguring the subscriber’s CPE with the new credentials.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Contract Info Card
 // ---------------------------------------------------------------------------
 
@@ -423,12 +563,21 @@ export function ContractDetail() {
   const refetchContract = () =>
     queryClient.invalidateQueries({ queryKey: ['contract-detail-gql', id] });
 
+  const isPppoe =
+    contract?.connectionType === 'pppoe' || contract?.connectionType === 'pppoe_dual';
+  const TABS = isPppoe ? [{ id: 'pppoe' as TabId, label: 'PPPoE' }, ...BASE_TABS] : BASE_TABS;
+
   async function handleAction(action: 'suspend' | 'unsuspend' | 'renew' | 'terminate') {
     if (!id) return;
     setActionError(null);
     try {
       await postContractAction(id, action);
       await refetchContract();
+      // A renew may (re)provision the PPPoE account — surface the credentials.
+      if (action === 'renew' && isPppoe) {
+        queryClient.invalidateQueries({ queryKey: ['contract-radius', id] });
+        setActiveTab('pppoe');
+      }
     } catch (err) {
       setActionError(err instanceof Error ? err.message : `Failed to ${action} contract`);
     }
@@ -557,6 +706,7 @@ export function ContractDetail() {
 
       {/* Tab content */}
       <div style={styles.tabContent}>
+        {activeTab === 'pppoe'    && isPppoe && id && <PppoeTab contractId={id} canEdit={canEdit} />}
         {activeTab === 'invoices' && <InvoicesTab invoices={contract.invoices} />}
         {activeTab === 'devices'  && <DevicesTab  devices={contract.devices}   />}
         {activeTab === 'addons'   && <AddonsTab   addons={contract.addons}     />}
@@ -648,6 +798,7 @@ const styles = {
   infoLabel: { color: 'var(--text-dimmed)', fontSize: '0.75rem', textTransform: 'uppercase' as const, letterSpacing: '0.04em', minWidth: 80 },
   infoValue: { color: 'var(--text-secondary)' },
   infoLink:  { color: 'var(--accent)', textDecoration: 'none', fontWeight: 500, fontSize: '0.85rem' },
+  linkBtn:   { background: 'transparent', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, padding: '0 0.25rem' },
   notesRow:  { marginTop: '0.75rem', fontSize: '0.82rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)', paddingTop: '0.75rem' },
   noteLabel: { fontWeight: 600, color: 'var(--text-secondary)' },
 

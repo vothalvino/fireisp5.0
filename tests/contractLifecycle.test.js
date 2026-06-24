@@ -17,7 +17,7 @@ jest.mock('../src/services/suspensionService', () => ({
 
 jest.mock('../src/services/eventBus', () => ({ emit: jest.fn(), on: jest.fn(), removeListener: jest.fn() }));
 
-jest.mock('../src/services/subscriberProvisioningService', () => ({ provisionNewContract: jest.fn() }));
+jest.mock('../src/services/subscriberProvisioningService', () => ({ provisionNewContract: jest.fn(), generatePassword: jest.fn(() => 'gen-pass') }));
 
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
@@ -178,6 +178,72 @@ describe('POST /contracts/:id/renew', () => {
 // =============================================================================
 // POST /contracts/:id/terminate
 // =============================================================================
+// =============================================================================
+// POST /contracts/:id/regenerate-pppoe
+// =============================================================================
+describe('POST /contracts/:id/regenerate-pppoe', () => {
+  test('rotates the PPPoE password and returns the new credentials', async () => {
+    const provisioningService = require('../src/services/subscriberProvisioningService');
+    provisioningService.generatePassword.mockReturnValueOnce('fresh-secret-123');
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]]) // auth
+      .mockResolvedValueOnce([[{ id: 5, connection_type: 'pppoe', organization_id: 1 }]])        // contract
+      .mockResolvedValueOnce([[{ id: 99, username: 'sub_ada', password: 'old', nas_id: null }]]) // radius account
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);                                             // UPDATE radius
+
+    const res = await request(app)
+      .post('/api/v1/contracts/5/regenerate-pppoe')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.username).toBe('sub_ada');
+    expect(res.body.data.password).toBe('fresh-secret-123');
+  });
+
+  test('returns 422 for a non-PPPoE contract', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[{ id: 5, connection_type: 'ipoe', organization_id: 1 }]]);
+
+    const res = await request(app)
+      .post('/api/v1/contracts/5/regenerate-pppoe')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('NOT_PPPOE');
+  });
+
+  test('returns 422 when the PPPoE contract has no radius account', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[{ id: 5, connection_type: 'pppoe', organization_id: 1 }]])
+      .mockResolvedValueOnce([[]]); // no radius account
+
+    const res = await request(app)
+      .post('/api/v1/contracts/5/regenerate-pppoe')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('NO_PPPOE_ACCOUNT');
+  });
+
+  test('returns 404 when the contract is not found', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[]]);
+
+    const res = await request(app)
+      .post('/api/v1/contracts/999/regenerate-pppoe')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(404);
+  });
+});
+
 describe('POST /contracts/:id/terminate', () => {
   test('terminates an active contract and fires RADIUS disconnect', async () => {
     db.query
