@@ -1314,6 +1314,114 @@ function TimeLogsPanel({ ticketId }: { ticketId: number }) {
 }
 
 // ---------------------------------------------------------------------------
+// Follow-ups panel
+// ---------------------------------------------------------------------------
+
+interface FollowUp {
+  id: number;
+  title: string;
+  status: string;
+  priority: string | null;
+  due_at: string | null;
+}
+
+async function fetchFollowUps(ticketId: number): Promise<FollowUp[]> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/follow-up-reminders?ticket_id=${ticketId}&limit=100`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return [];
+  const body = await res.json() as { data: FollowUp[] };
+  return body.data ?? [];
+}
+
+async function createFollowUp(body: { client_id: number; ticket_id: number; title: string; due_at: string }): Promise<void> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/follow-up-reminders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(err.error || 'Failed to create follow-up');
+  }
+}
+
+function FollowUpsPanel({ ticket }: { ticket: Ticket }) {
+  const { t } = useTranslation();
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState('');
+  const [dueAt, setDueAt] = useState(() => new Date().toISOString().slice(0, 10));
+  const [formErr, setFormErr] = useState('');
+
+  const { data: followUps = [], refetch } = useQuery({
+    queryKey: ['ticket-follow-ups', ticket.id],
+    queryFn: () => fetchFollowUps(ticket.id),
+  });
+
+  const addMut = useMutation({
+    mutationFn: () => {
+      if (ticket.client_id == null) throw new Error('This ticket has no client to attach a follow-up to.');
+      return createFollowUp({ client_id: ticket.client_id, ticket_id: ticket.id, title: title.trim(), due_at: dueAt });
+    },
+    onSuccess: () => { setShowForm(false); setTitle(''); setFormErr(''); void refetch(); },
+    onError: (e: Error) => setFormErr(e.message),
+  });
+
+  return (
+    <div style={{ ...card, marginTop: '1.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+        <h3 style={{ ...cardTitle, margin: 0 }}>{t('ticketDetail.followUps', 'Follow-ups')}</h3>
+        {ticket.client_id != null && (
+          <button style={{ ...btnPrimary, fontSize: '0.78rem', padding: '4px 12px' }} onClick={() => setShowForm(s => !s)}>
+            {t('ticketDetail.followUpsAdd', 'Add follow-up')}
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '0.75rem', marginBottom: '0.75rem' }}>
+          {formErr && <div style={errStyle}>{formErr}</div>}
+          <label style={labelStyle}>{t('ticketDetail.followUpsTitle', 'Title')}</label>
+          <input type="text" style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} />
+          <label style={labelStyle}>{t('ticketDetail.followUpsDue', 'Due date')}</label>
+          <input type="date" style={inputStyle} value={dueAt} onChange={e => setDueAt(e.target.value)} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button style={btnPrimary} disabled={!title.trim() || addMut.isPending} onClick={() => addMut.mutate()}>
+              {addMut.isPending ? '...' : t('ticketDetail.followUpsSave', 'Save')}
+            </button>
+            <button style={btnSecondary} onClick={() => { setShowForm(false); setFormErr(''); }}>
+              {t('common.cancel', 'Cancel')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {followUps.length === 0 ? (
+        <p style={{ color: '#9ca3af', fontSize: '0.85rem', margin: 0 }}>{t('ticketDetail.followUpsNone', 'No follow-ups for this ticket.')}</p>
+      ) : (
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {followUps.map(f => (
+            <li key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.85rem', padding: '6px 0', borderBottom: '1px solid #f3f4f6' }}>
+              <span style={{ fontWeight: 600, color: '#374151' }}>{f.title}</span>
+              <span style={{ color: '#6b7280' }}>{f.due_at ? fmt(f.due_at) : '—'}</span>
+              <span style={{ marginLeft: 'auto', textTransform: 'capitalize', color: '#6b7280' }}>{f.status}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div style={{ marginTop: 10 }}>
+        <Link to="/follow-up-reminders" style={{ fontSize: '0.8rem', color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>
+          {t('ticketDetail.followUpsViewAll', 'View all follow-ups →')}
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Attachments panel
 // ---------------------------------------------------------------------------
 
@@ -1583,6 +1691,9 @@ export function TicketDetail() {
 
           {/* Relations */}
           <RelationsPanel ticketId={ticket.id} />
+
+          {/* Follow-ups */}
+          <FollowUpsPanel ticket={ticket} />
 
           {/* Time Logs */}
           <TimeLogsPanel ticketId={ticket.id} />
