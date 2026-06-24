@@ -1193,14 +1193,13 @@ function ContractRow({ contract: c, plans, onSuspend, onTerminate, onCancel, onR
   return (
     <tr style={styles.tr}>
       <td style={styles.td}>
-        <button
-          type="button"
-          style={styles.idLinkBtn}
-          onClick={onCredentials}
+        <Link
+          to={`/contracts/${c.id}`}
+          style={styles.idLink}
           title={t('contractList.view')}
         >
           #{c.id}
-        </button>
+        </Link>
       </td>
       <td style={styles.td}>
         <Link
@@ -1381,16 +1380,11 @@ const styles = {
     marginRight: 4,
     borderRadius: 3,
   },
-  idLinkBtn: {
-    background: 'transparent',
-    border: 'none',
-    cursor: 'pointer',
+  idLink: {
     color: 'var(--link)',
     fontWeight: 600,
     fontSize: '0.85rem',
-    padding: 0,
     textDecoration: 'underline',
-    fontFamily: 'inherit',
   },
   msg: { padding: '2rem 1.5rem', color: 'var(--text-muted)', fontStyle: 'italic' as const, margin: 0 },
   msgError: { padding: '2rem 1.5rem', color: '#ef4444', margin: 0 },

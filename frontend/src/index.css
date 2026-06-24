@@ -21,6 +21,7 @@
   --bg-card:        #ffffff;
   --bg-subtle:      #f3f4f6;
   --bg-muted:       #f9fafb;
+  --surface-2:      #f1f5f9;
 
   /* -- Text: high-contrast primary, muted secondary -------------------- */
   --text-primary:   #18181b;
@@ -103,6 +104,7 @@
   --bg-card:        #18181b;
   --bg-subtle:      #27272a;
   --bg-muted:       #1c1c1f;
+  --surface-2:      #27272a;
 
   --text-primary:   #fafafa;
   --text-secondary: #d4d4d8;

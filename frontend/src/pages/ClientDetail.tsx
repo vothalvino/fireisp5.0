@@ -276,7 +276,7 @@ function StatusBadge({ status, colorMap }: { status: string; colorMap?: Record<s
 // Tab types
 // ---------------------------------------------------------------------------
 
-type TabId = 'activity' | 'contracts' | 'invoices' | 'payments' | 'devices' | 'ledger' | 'contacts' | 'profile' | 'customFields' | 'documents' | 'duplicates' | 'communication';
+type TabId = 'activity' | 'contracts' | 'invoices' | 'payments' | 'devices' | 'tickets' | 'ledger' | 'contacts' | 'profile' | 'customFields' | 'documents' | 'duplicates' | 'communication';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'activity',  label: '📅 Activity' },
@@ -284,6 +284,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'invoices',  label: '🧾 Invoices' },
   { id: 'payments',  label: '💳 Payments' },
   { id: 'devices',   label: '🖧 Devices' },
+  { id: 'tickets',   label: '🎫 Tickets' },
   { id: 'ledger',    label: '📒 Ledger' },
   { id: 'contacts',  label: '👤 Contacts' },
   { id: 'profile',   label: '🧭 Profile' },
@@ -296,6 +297,56 @@ const TABS: { id: TabId; label: string }[] = [
 // ---------------------------------------------------------------------------
 // Tab panels — receive pre-loaded data as props (no sub-queries needed)
 // ---------------------------------------------------------------------------
+
+interface ClientTicket {
+  id: number;
+  subject: string;
+  priority: string | null;
+  status: string;
+  created_at: string;
+}
+
+function TicketsTab({ clientId }: { clientId: number }) {
+  const { data: tickets = [], isLoading, error } = useQuery({
+    queryKey: ['client-tickets', clientId],
+    queryFn: async () => {
+      const res = await api.GET('/tickets', { params: { query: { client_id: clientId, limit: 100 } as never } });
+      if (res.error) throw new Error('Failed to load tickets');
+      return (res.data as unknown as { data: ClientTicket[] }).data ?? [];
+    },
+  });
+
+  if (isLoading) return <p style={styles.msg}>Loading tickets…</p>;
+  if (error) return <p style={styles.msg}>Failed to load tickets.</p>;
+  if (!tickets.length) return <p style={styles.msg}>No tickets found.</p>;
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={styles.table}>
+        <thead>
+          <tr>{['#', 'Subject', 'Priority', 'Status', 'Created'].map(h => (
+            <th key={h} style={styles.th}>{h}</th>
+          ))}</tr>
+        </thead>
+        <tbody>
+          {tickets.map(tk => (
+            <tr key={tk.id} style={styles.tr}>
+              <td style={styles.td}>
+                <Link to={`/tickets/${tk.id}`} style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>#{tk.id}</Link>
+              </td>
+              <td style={styles.td}>
+                <Link to={`/tickets/${tk.id}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{tk.subject}</Link>
+              </td>
+              <td style={{ ...styles.td, textTransform: 'capitalize' }}>{tk.priority || '—'}</td>
+              <td style={styles.td}><StatusBadge status={tk.status} /></td>
+              <td style={styles.td}>{fmt(tk.created_at)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function ContractsTab({ contracts }: { contracts: Contract[] }) {
   if (!contracts.length) return <p style={styles.msg}>No contracts found.</p>;
@@ -999,6 +1050,7 @@ export function ClientDetail() {
         {activeTab === 'invoices'  && <InvoicesTab  invoices={client.invoices}   />}
         {activeTab === 'payments'  && <PaymentsTab  payments={client.payments}   />}
         {activeTab === 'devices'   && <DevicesTab   devices={client.devices}     />}
+        {activeTab === 'tickets'   && <TicketsTab   clientId={Number(client.id)}  />}
         {activeTab === 'ledger'    && <LedgerTab    ledger={client.ledger}       />}
         {activeTab === 'contacts'  && (
           <ContactsTab

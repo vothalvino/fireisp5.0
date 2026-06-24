@@ -238,7 +238,9 @@ async function atRiskClients(organizationId, { limit = 50 } = {}) {
       cl.email,
       COUNT(DISTINCT CASE WHEN co.status = 'suspended' THEN co.id END) AS suspended_contracts,
       COUNT(DISTINCT CASE WHEN i.status = 'issued' AND i.due_date < NOW() THEN i.id END) AS overdue_invoices,
-      COALESCE(MAX(DATEDIFF(NOW(), i.due_date)), 0) AS max_days_overdue
+      -- Only count days for invoices that are ACTUALLY overdue (issued + past due);
+      -- otherwise old PAID invoices made every long-tenured client look 400+ days overdue.
+      COALESCE(MAX(CASE WHEN i.status = 'issued' AND i.due_date < NOW() THEN DATEDIFF(NOW(), i.due_date) END), 0) AS max_days_overdue
     FROM clients cl
     LEFT JOIN contracts co ON co.client_id = cl.id
     LEFT JOIN invoices i ON i.client_id = cl.id

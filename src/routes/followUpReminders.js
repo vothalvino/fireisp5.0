@@ -22,12 +22,14 @@ router.use(orgScope);
 // client_id) plus pagination/status/order — mirrors the /due join.
 router.get('/', requirePermission('follow_ups.view'), async (req, res, next) => {
   try {
-    const { status, page = 1, limit = 50, order_by, order, include_deleted } = req.query;
+    const { status, ticket_id, client_id, page = 1, limit = 50, order_by, order, include_deleted } = req.query;
     const conditions = [];
     const params = [];
     if (include_deleted !== 'true') conditions.push('r.deleted_at IS NULL');
     if (req.orgId) { conditions.push('r.organization_id = ?'); params.push(req.orgId); }
     if (status) { conditions.push('r.status = ?'); params.push(status); }
+    if (ticket_id) { conditions.push('r.ticket_id = ?'); params.push(ticket_id); }
+    if (client_id) { conditions.push('r.client_id = ?'); params.push(client_id); }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
     // Whitelist order_by to avoid SQL injection on the column name.

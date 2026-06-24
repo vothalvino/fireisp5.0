@@ -228,7 +228,11 @@ async function runAutoInvoice(organizationId) {
   for (const contract of contracts) {
     try {
       const period = await billingService.generateBillingPeriod(contract);
-      if (period.status === 'pending') {
+      // generateBillingPeriod may pre-create the NEXT (future) window. Only invoice
+      // a pending period once its scheduled billing day has actually arrived —
+      // otherwise next cycle's invoice is generated way ahead of time.
+      const periodDue = period.scheduled_at ? new Date(period.scheduled_at) <= new Date() : true;
+      if (period.status === 'pending' && periodDue) {
         const plan = { name: contract.plan_name, price: contract.plan_price, currency: contract.plan_currency };
         const invoice = await billingService.generateInvoice(period, contract, plan, contract.organization_id);
         generated++;

@@ -212,7 +212,8 @@ export function LeadList() {
           {STAGES.map(stage => (
             <span key={stage} style={{
               padding: '4px 10px', borderRadius: 6, fontSize: '0.8rem',
-              background: 'var(--surface-2, #f1f5f9)', border: '1px solid var(--border)',
+              background: 'var(--bg-subtle)', color: 'var(--text-secondary)',
+              border: '1px solid var(--border)',
             }}>
               {stage}: <strong>{pipeline[stage] ?? 0}</strong>
             </span>

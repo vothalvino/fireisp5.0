@@ -37,6 +37,8 @@ export interface ClientPickerProps {
   onChange: (id: number, name: string) => void;
   /** Name to display for the already-selected client (e.g. when editing). */
   initialName?: string;
+  /** Whether the client is mandatory. Shows a "*" on the label. Default true. */
+  required?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -57,7 +59,7 @@ async function searchClients(term: string): Promise<ClientOption[]> {
 // Component
 // ---------------------------------------------------------------------------
 
-export function ClientPicker({ value, onChange, initialName }: ClientPickerProps) {
+export function ClientPicker({ value, onChange, initialName, required = true }: ClientPickerProps) {
   const { t } = useTranslation();
   // The picker is "resolved" once a client is selected. Until then we show the
   // search input; afterwards we show the chosen name + a Change button.
@@ -126,7 +128,7 @@ export function ClientPicker({ value, onChange, initialName }: ClientPickerProps
 
   return (
     <div ref={containerRef} style={{ position: 'relative' }}>
-      <label style={labelStyle}>{t('clientPicker.label')} *</label>
+      <label style={labelStyle}>{t('clientPicker.label')}{required ? ' *' : ''}</label>
 
       {isSelected ? (
         <div style={selectedRow}>
