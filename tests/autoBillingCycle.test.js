@@ -116,6 +116,40 @@ describe('runAutoInvoice — email notification after generation', () => {
     );
   });
 
+  test('does NOT invoice a pending period whose scheduled_at is in the future', async () => {
+    const contract = makeContract();
+    const future = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+    const period = { id: 100, status: 'pending', scheduled_at: future };
+
+    db.query.mockResolvedValueOnce([[contract]]); // fetch contracts (no invoice → no further queries)
+    billingService.generateBillingPeriod.mockResolvedValueOnce(period);
+
+    const result = await taskRunner.runAutoInvoice(42);
+
+    expect(billingService.generateInvoice).not.toHaveBeenCalled();
+    expect(result.invoices_generated).toBe(0);
+    expect(result.contracts_checked).toBe(1);
+  });
+
+  test('invoices a pending period whose scheduled_at has arrived', async () => {
+    const contract = makeContract();
+    const past = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const period = { id: 100, status: 'pending', scheduled_at: past };
+
+    db.query
+      .mockResolvedValueOnce([[contract]])
+      .mockResolvedValueOnce([[makeClient()]])
+      .mockResolvedValueOnce([[]]);
+    billingService.generateBillingPeriod.mockResolvedValueOnce(period);
+    billingService.generateInvoice.mockResolvedValueOnce(makeInvoice());
+    emailTransport.sendEmail.mockResolvedValueOnce({ success: true });
+
+    const result = await taskRunner.runAutoInvoice(42);
+
+    expect(billingService.generateInvoice).toHaveBeenCalled();
+    expect(result.invoices_generated).toBe(1);
+  });
+
   test('counts generated=1, emails_sent=0 when client has no email', async () => {
     const contract = makeContract();
     const period = { id: 100, status: 'pending' };
