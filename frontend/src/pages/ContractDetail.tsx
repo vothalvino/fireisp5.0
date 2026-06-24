@@ -17,6 +17,7 @@ import { gql } from '@/api/graphql';
 import { api, tokenStore } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
+import { overlay, modalBox, cancelBtn, dangerBtn } from '@/components/ClientFormModal';
 
 // ---------------------------------------------------------------------------
 // GraphQL query — fetches the contract + all sub-resources in one request
@@ -416,6 +417,7 @@ function PppoeTab({ contractId, canEdit }: { contractId: string; canEdit: boolea
   const [regenerating, setRegenerating] = useState(false);
   const [regenError, setRegenError] = useState<string | null>(null);
   const [regenerated, setRegenerated] = useState<{ password: string; pushed: boolean } | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const { data: accounts, isLoading, error } = useQuery({
     queryKey: ['contract-radius', contractId],
@@ -433,6 +435,7 @@ function PppoeTab({ contractId, canEdit }: { contractId: string; canEdit: boolea
   const password = regenerated?.password ?? account.password;
 
   async function handleRegenerate() {
+    setConfirmOpen(false);
     setRegenError(null);
     setRegenerating(true);
     try {
@@ -456,7 +459,7 @@ function PppoeTab({ contractId, canEdit }: { contractId: string; canEdit: boolea
 
       {canEdit && (
         <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button type="button" style={styles.actionBtn} onClick={handleRegenerate} disabled={regenerating}>
+          <button type="button" style={styles.actionBtn} onClick={() => setConfirmOpen(true)} disabled={regenerating}>
             {regenerating ? 'Regenerating…' : 'Regenerate password'}
           </button>
           {regenerated && (
@@ -472,6 +475,25 @@ function PppoeTab({ contractId, canEdit }: { contractId: string; canEdit: boolea
       <p style={{ fontSize: '0.78rem', color: 'var(--text-dimmed)', marginTop: '1rem' }}>
         Rotating the password requires reconfiguring the subscriber’s CPE with the new credentials.
       </p>
+
+      {confirmOpen && (
+        <div style={overlay} role="dialog" aria-modal="true" aria-label="Confirm password regeneration">
+          <div style={modalBox}>
+            <h3 style={{ margin: '0 0 0.75rem' }}>Regenerate PPPoE password?</h3>
+            <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginTop: 0 }}>
+              This generates a new password for <strong>{account.username}</strong> and invalidates the
+              current one. The subscriber will be offline until their CPE is reconfigured with the new
+              credentials. This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 8, marginTop: '1rem', justifyContent: 'flex-end' }}>
+              <button type="button" style={cancelBtn} onClick={() => setConfirmOpen(false)}>Cancel</button>
+              <button type="button" style={dangerBtn} onClick={handleRegenerate} disabled={regenerating}>
+                {regenerating ? 'Regenerating…' : 'Regenerate password'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

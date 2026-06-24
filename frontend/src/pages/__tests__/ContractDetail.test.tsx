@@ -2,7 +2,7 @@
 // FireISP 5.0 — ContractDetail PPPoE tab tests
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ContractDetail } from '../ContractDetail';
@@ -72,7 +72,7 @@ describe('ContractDetail — PPPoE credentials', () => {
     expect(screen.getByText('topsecret')).toBeInTheDocument();
   });
 
-  it('regenerates the password and displays the new value', async () => {
+  it('asks for confirmation before regenerating, then displays the new value', async () => {
     (global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
       json: async () => ({ data: { username: 'sub_ada', password: 'rotated-xyz' }, pushed: false }),
@@ -83,13 +83,32 @@ describe('ContractDetail — PPPoE credentials', () => {
     fireEvent.click(screen.getByRole('button', { name: 'PPPoE' }));
     await waitFor(() => expect(screen.getByText('sub_ada')).toBeInTheDocument());
 
+    // Clicking the trigger opens a confirm dialog and does NOT call the API yet.
     fireEvent.click(screen.getByRole('button', { name: 'Regenerate password' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(global.fetch).not.toHaveBeenCalled();
 
+    // Confirm inside the dialog → API called, new password shown.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Regenerate password' }));
     await waitFor(() => expect(screen.getByText('rotated-xyz')).toBeInTheDocument());
     expect(global.fetch).toHaveBeenCalledWith(
       '/api/v1/contracts/5/regenerate-pppoe',
       expect.objectContaining({ method: 'POST' }),
     );
+  });
+
+  it('cancelling the confirm dialog does not regenerate', async () => {
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Contract #5' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'PPPoE' }));
+    await waitFor(() => expect(screen.getByText('sub_ada')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerate password' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it('does not show a PPPoE tab for a non-PPPoE contract', async () => {
