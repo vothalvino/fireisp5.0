@@ -52,11 +52,12 @@ describe('GET /api/v1/noc/health', () => {
       .mockResolvedValueOnce([[{ severity: 'critical', count: 2 }, { severity: 'medium', count: 5 }]]);
     const res = await request(app).get('/api/v1/noc/health').set('X-Org-Id', '1');
     expect(res.status).toBe(200);
-    // Response is now FLAT (matches what the frontend reads), not nested under `devices`.
-    expect(res.body.data.devices_total).toBe(10);
-    expect(res.body.data.devices_up).toBe(8);
-    expect(res.body.data.devices_down).toBe(1);
-    expect(res.body.data.devices_maintenance).toBe(1);
+    // Nested `devices` object — matches what the NOC dashboard actually reads
+    // (data.devices.up / .down / .warning / .total_devices). Maintenance → warning.
+    expect(res.body.data.devices.total_devices).toBe(10);
+    expect(res.body.data.devices.up).toBe(8);
+    expect(res.body.data.devices.down).toBe(1);
+    expect(res.body.data.devices.warning).toBe(1);
     // uptime_pct = round(up/total * 1000)/10 = round(8/10 * 1000)/10 = 80
     expect(res.body.data.uptime_pct).toBe(80);
     expect(res.body.data.active_alerts).toEqual([

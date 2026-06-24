@@ -76,7 +76,8 @@ interface SlaCompliance {
 async function fetchHealth(): Promise<NetworkHealth> {
   const res = await api.GET('/noc/health' as never, {} as never);
   if ((res as { error?: unknown }).error) throw new Error('Failed to load network health');
-  return (res as { data: unknown }).data as unknown as NetworkHealth;
+  // The endpoint replies { data: { devices, active_alerts } }; unwrap to the inner object.
+  return (res as { data: { data: NetworkHealth } }).data.data;
 }
 
 async function fetchAlarms(): Promise<AlarmSummary> {
@@ -106,7 +107,8 @@ async function fetchEvents(): Promise<EventsResponse> {
 async function fetchSlaCompliance(): Promise<SlaCompliance> {
   const res = await api.GET('/noc/sla-compliance' as never, {} as never);
   if ((res as { error?: unknown }).error) throw new Error('Failed to load SLA compliance');
-  return (res as { data: unknown }).data as unknown as SlaCompliance;
+  // The endpoint replies { data: { total, compliant, … } }; unwrap to the inner object.
+  return (res as { data: { data: SlaCompliance } }).data.data;
 }
 
 // ---------------------------------------------------------------------------
