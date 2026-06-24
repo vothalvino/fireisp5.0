@@ -521,8 +521,14 @@ export function WorkOrders() {
                 </select>
               </label>
 
-              {/* Target: at least one of client / site / device is required. */}
+              {/* Target — a work order links to AT LEAST ONE of client / site /
+                  device (none is individually required; client is not mandatory). */}
+              <div style={{ marginTop: '0.25rem' }}>
+                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{t('workOrders.target')}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{t('workOrders.targetRequired')}</div>
+              </div>
               <ClientPicker
+                required={false}
                 value={form.client_id ?? ''}
                 onChange={(id) => setForm(f => ({ ...f, client_id: id || undefined }))}
               />
@@ -548,11 +554,6 @@ export function WorkOrders() {
                   {(devicesQ.data ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </label>
-              {!hasTarget && (
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
-                  {t('workOrders.targetRequired')}
-                </p>
-              )}
               {formErr && <p style={modalStyles.error}>{formErr}</p>}
               <div style={modalStyles.actions}>
                 <button style={styles.btnSecondary} onClick={() => setShowModal(false)}>{t('common.cancel')}</button>
