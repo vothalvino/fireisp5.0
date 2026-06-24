@@ -2,7 +2,7 @@
 // FireISP 5.0 — ClientDetail page tests
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ClientDetail } from '../ClientDetail';
@@ -16,8 +16,10 @@ vi.mock('@/api/graphql', () => ({
   gql: (...a: unknown[]) => mockGql(...a),
 }));
 
+const mockApiGet = vi.fn();
 vi.mock('@/api/client', () => ({
-  api: { GET: vi.fn(), POST: vi.fn(), PUT: vi.fn(), DELETE: vi.fn() },
+  api: { GET: (...a: unknown[]) => mockApiGet(...a), POST: vi.fn(), PUT: vi.fn(), DELETE: vi.fn() },
+  authedFetch: vi.fn(),
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
 }));
 
@@ -39,6 +41,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockRole = 'admin';
   mockGql.mockResolvedValue({ client });
+  mockApiGet.mockResolvedValue({ data: { data: [] }, error: undefined });
 });
 
 function renderDetail() {
@@ -72,5 +75,21 @@ describe('ClientDetail page', () => {
     renderDetail();
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Acme Corp' })).toBeInTheDocument());
     expect(screen.queryByText('✏️ Edit')).not.toBeInTheDocument();
+  });
+
+  it('Tickets tab lists the client tickets and links to each ticket', async () => {
+    mockApiGet.mockImplementation((path: string) =>
+      path === '/tickets'
+        ? Promise.resolve({ data: { data: [{ id: 42, subject: 'No internet', priority: 'high', status: 'open', created_at: '2024-05-01' }] }, error: undefined })
+        : Promise.resolve({ data: { data: [] }, error: undefined }),
+    );
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Acme Corp' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: '🎫 Tickets' }));
+
+    await waitFor(() => expect(screen.getByText('No internet')).toBeInTheDocument());
+    const link = screen.getByRole('link', { name: 'No internet' });
+    expect(link).toHaveAttribute('href', '/tickets/42');
   });
 });
