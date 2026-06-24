@@ -14,6 +14,8 @@ const db = require('../config/database');
 const suspensionService = require('../services/suspensionService');
 const topologyContextService = require('../services/topologyContextService');
 const provisioningService = require('../services/subscriberProvisioningService');
+const routerProvisioningService = require('../services/routerProvisioningService');
+const Nas = require('../models/Nas');
 const auditLog = require('../services/auditLog');
 const logger = require('../utils/logger').child({ service: 'routes/contracts' });
 
@@ -268,6 +270,72 @@ router.post('/:id/renew', requirePermission('contracts.update'), async (req, res
     // When a RADIUS account was recreated, return its (fresh) credentials so the
     // operator can reconfigure the subscriber's CPE.
     res.json({ data: record, ...(provisioning && provisioning.pppoe ? { provisioning } : {}) });
+  } catch (err) { next(err); }
+});
+
+// Regenerate the PPPoE credentials (rotate the password) for a contract's RADIUS
+// account. The username is kept stable; a fresh cleartext password is generated,
+// stored, and — best-effort — pushed to the subscriber's NAS (RouterOS direct-API
+// devices). The new credentials are returned so the operator can reconfigure the
+// subscriber's CPE. Use /renew to (re)provision an account that does not exist yet.
+router.post('/:id/regenerate-pppoe', requirePermission('contracts.update'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT * FROM contracts WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [req.params.id, req.orgId],
+    );
+    const contract = rows[0];
+    if (!contract) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Contract not found' } });
+    }
+    if (contract.connection_type !== 'pppoe' && contract.connection_type !== 'pppoe_dual') {
+      return res.status(422).json({ error: { code: 'NOT_PPPOE', message: 'Contract is not a PPPoE contract' } });
+    }
+
+    const [radRows] = await db.query(
+      'SELECT * FROM radius WHERE contract_id = ? AND deleted_at IS NULL LIMIT 1',
+      [contract.id],
+    );
+    const radius = radRows[0];
+    if (!radius) {
+      return res.status(422).json({
+        error: { code: 'NO_PPPOE_ACCOUNT', message: 'This contract has no PPPoE account. Renew the contract to provision one.' },
+      });
+    }
+
+    const password = provisioningService.generatePassword();
+    await db.query('UPDATE radius SET password = ? WHERE id = ?', [password, radius.id]);
+
+    // Best-effort: push the new secret to the NAS (RouterOS direct-API devices).
+    // FreeRADIUS-SQL deployments pick the new password up on the next sync. The
+    // subscriber's CPE must still be reconfigured with these credentials.
+    let pushed = false;
+    if (radius.nas_id) {
+      try {
+        const nas = await Nas.findByIdOrFail(radius.nas_id, req.orgId);
+        await routerProvisioningService.pushSubscriber(nas, {
+          username: radius.username,
+          password,
+          profile: radius.profile,
+          comment: 'FireISP radius#' + radius.id + ' contract#' + contract.id,
+        });
+        pushed = true;
+      } catch (e) {
+        logger.warn({ err: e, contractId: contract.id }, 'regenerate-pppoe: NAS push failed (best-effort)');
+      }
+    }
+
+    await auditLog.log({
+      userId: req.user?.id,
+      organizationId: req.orgId,
+      action: 'regenerate_pppoe',
+      tableName: 'radius',
+      recordId: radius.id,
+      oldValues: {},
+      newValues: { username: radius.username, pushed }, // never log the password
+    }).catch(() => {});
+
+    res.json({ data: { username: radius.username, password }, pushed });
   } catch (err) { next(err); }
 });
 
