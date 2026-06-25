@@ -121,7 +121,7 @@ router.post('/:id/send-receipt', requirePermission('payments.view'), async (req,
 
     // Fetch payment with client info
     const [rows] = await db.query(
-      `SELECT p.*, cl.first_name, cl.last_name, cl.email AS client_email,
+      `SELECT p.*, cl.name, cl.email AS client_email,
               o.name AS org_name
        FROM payments p
        LEFT JOIN clients cl ON cl.id = p.client_id
@@ -138,7 +138,7 @@ router.post('/:id/send-receipt', requirePermission('payments.view'), async (req,
 
     const templates = require('../views/emailTemplates');
     const template = templates.paymentReceiptEmail({
-      clientName: `${payment.first_name || ''} ${payment.last_name || ''}`.trim(),
+      clientName: payment.name || '',
       orgName: payment.org_name,
       amount: payment.amount,
       currency: payment.currency,

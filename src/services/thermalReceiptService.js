@@ -82,7 +82,7 @@ function fmtDate(date) {
 async function generateInvoiceThermalReceipt(invoiceId, { width = 48 } = {}) {
   const [invoices] = await db.query(
     `SELECT i.*,
-            CONCAT(cl.first_name, ' ', cl.last_name) AS client_name,
+            cl.name AS client_name,
             cl.email AS client_email, cl.phone AS client_phone,
             o.name AS org_name, o.phone AS org_phone, o.email AS org_email
      FROM invoices i
@@ -156,7 +156,7 @@ async function generateInvoiceThermalReceipt(invoiceId, { width = 48 } = {}) {
 async function generatePaymentThermalReceipt(paymentId, { width = 48 } = {}) {
   const [payments] = await db.query(
     `SELECT p.*,
-            CONCAT(cl.first_name, ' ', cl.last_name) AS client_name,
+            cl.name AS client_name,
             cl.email AS client_email, cl.phone AS client_phone,
             o.name AS org_name, o.phone AS org_phone, o.email AS org_email
      FROM payments p
