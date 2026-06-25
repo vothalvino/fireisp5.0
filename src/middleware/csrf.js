@@ -129,7 +129,9 @@ function clearCsrfCookie(res) {
  *
  * Returns next() immediately when:
  *   - Method is GET, HEAD, or OPTIONS (safe methods)
- *   - No auth cookie is present (API-key / Bearer-only clients)
+ *   - No `fireisp_access` cookie is present (API-key / Bearer-only clients, or
+ *     unauthenticated bootstrap requests such as /auth/login that may still carry
+ *     a lingering refresh cookie). The refresh cookie alone does not gate CSRF.
  *
  * When the `fireisp_csrf_secret` cookie is present (new sessions):
  *   - Reads the CSRF token from the `X-CSRF-Token` request header.
@@ -144,9 +146,16 @@ function csrfOriginCheck(req, res, next) {
   const safeMethods = ['GET', 'HEAD', 'OPTIONS'];
   if (safeMethods.includes(method)) return next();
 
-  // Only enforce when the request carries a FireISP auth cookie
-  const hasCookie = !!(req.cookies?.fireisp_access || req.cookies?.fireisp_refresh);
-  if (!hasCookie) return next();
+  // Only enforce when the request carries the FireISP *access* cookie — that is
+  // the ambient authenticator for cookie-based state-changing requests. The
+  // refresh cookie is deliberately NOT counted here: it is a credential consumed
+  // only by /auth/refresh and /auth/switch-organization (both SameSite=Strict,
+  // so neither can be driven cross-site), not an ambient authenticator. Counting
+  // it broke /auth/login for returning users once the refresh cookie's Path was
+  // widened to /api/v1/auth — the browser then sent it to sibling auth endpoints,
+  // tripping this gate on requests that legitimately carry no CSRF token.
+  const hasAuthCookie = !!req.cookies?.fireisp_access;
+  if (!hasAuthCookie) return next();
 
   // Bearer-token requests cannot be forged via CSRF because cross-origin
   // requests cannot set custom `Authorization` headers without a CORS
