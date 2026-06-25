@@ -82,4 +82,21 @@ describe('InvoiceList page', () => {
       expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ status: 'void' }) }),
     ));
   });
+
+  it('offers an "issued" status filter', async () => {
+    renderInvoiceList();
+    await waitFor(() => expect(screen.getByText('INV-2024-001')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'issued' })).toBeInTheDocument();
+  });
+
+  it('disables selection for paid invoices (they cannot be voided)', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/invoices')
+        return Promise.resolve({ data: { data: [{ ...invoice1, id: 2, invoice_number: 'INV-PAID', status: 'paid' }], meta: { total: 1, page: 1, limit: 20, totalPages: 1 } }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    renderInvoiceList();
+    await waitFor(() => expect(screen.getByText('INV-PAID')).toBeInTheDocument());
+    expect(screen.getByLabelText('Select invoice INV-PAID')).toBeDisabled();
+  });
 });

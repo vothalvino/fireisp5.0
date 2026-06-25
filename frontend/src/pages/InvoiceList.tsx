@@ -395,7 +395,13 @@ function GenerateInvoiceModal({ clients, contracts, onClose, onGenerated }: Gene
 // Main Component
 // ---------------------------------------------------------------------------
 
-const STATUS_OPTIONS = ['', 'draft', 'pending', 'sent', 'paid', 'overdue', 'cancelled', 'void'];
+const STATUS_OPTIONS = ['', 'draft', 'issued', 'pending', 'sent', 'paid', 'overdue', 'cancelled', 'void'];
+
+// A paid invoice has been settled and an already-void one is a no-op, so neither
+// can be voided (the backend rejects paid voids with 422).
+function isVoidable(status: string): boolean {
+  return status !== 'paid' && status !== 'void';
+}
 
 export function InvoiceList() {
   const { t } = useTranslation();
@@ -413,8 +419,9 @@ export function InvoiceList() {
     placeholderData: prev => prev,
   });
 
-  const visibleIds = (data?.data ?? []).map(i => i.id);
-  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id));
+  // Only voidable rows participate in selection / select-all.
+  const voidableIds = (data?.data ?? []).filter(i => isVoidable(i.status)).map(i => i.id);
+  const allVisibleSelected = voidableIds.length > 0 && voidableIds.every(id => selected.has(id));
 
   function toggleOne(id: number) {
     setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -422,8 +429,8 @@ export function InvoiceList() {
   function toggleAllVisible() {
     setSelected(s => {
       const n = new Set(s);
-      if (visibleIds.every(id => n.has(id))) visibleIds.forEach(id => n.delete(id));
-      else visibleIds.forEach(id => n.add(id));
+      if (voidableIds.every(id => n.has(id))) voidableIds.forEach(id => n.delete(id));
+      else voidableIds.forEach(id => n.add(id));
       return n;
     });
   }
@@ -547,6 +554,8 @@ export function InvoiceList() {
                         type="checkbox"
                         checked={selected.has(inv.id)}
                         onChange={() => toggleOne(inv.id)}
+                        disabled={!isVoidable(inv.status)}
+                        title={!isVoidable(inv.status) ? `${inv.status} invoices cannot be voided` : undefined}
                         aria-label={`Select invoice ${inv.invoice_number || inv.id}`}
                       />
                     </td>

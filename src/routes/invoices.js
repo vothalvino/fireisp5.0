@@ -11,6 +11,8 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createInvoice, updateInvoice, patchInvoice, addInvoiceItem } = require('../middleware/schemas/invoices');
 const billingService = require('../services/billingService');
+const ClientBalanceLedger = require('../models/ClientBalanceLedger');
+const auditLog = require('../services/auditLog');
 const db = require('../config/database');
 
 const router = Router();
@@ -19,11 +21,68 @@ const ctrl = crudController(Invoice);
 router.use(authenticate);
 router.use(orgScope);
 
+// Void transition handler (shared by PUT and PATCH).
+// Two rules the generic CRUD update can't express:
+//   1. A PAID invoice must NOT be voidable (it's been settled).
+//   2. Voiding must REVERSE the invoice's outstanding balance-ledger debit, or
+//      the client keeps "owing" a cancelled invoice (balance never moves).
+// The reversal is idempotent: it credits back only the invoice's *current* net
+// signed contribution to the ledger, so re-voiding (or voiding an invoice that
+// never had a debit, e.g. one created via plain POST) adds nothing.
+async function voidInvoice(req, res, next) {
+  try {
+    const existing = await Invoice.findByIdOrFail(req.params.id, req.orgId);
+    if (existing.status === 'paid') {
+      return res.status(422).json({
+        error: { code: 'INVOICE_PAID', message: 'Paid invoices cannot be voided.' },
+      });
+    }
+
+    const record = await Invoice.update(req.params.id, req.body, req.orgId);
+
+    if (existing.status !== 'void') {
+      const signed = ClientBalanceLedger.signedAmountSql;
+      const [[{ net }]] = await db.query(
+        `SELECT COALESCE(SUM(${signed}), 0) AS net
+         FROM client_balance_ledger
+         WHERE reference_type = 'invoice' AND reference_id = ? AND client_id = ?`,
+        [existing.id, existing.client_id],
+      );
+      const reverseAmt = Math.round(Number(net) * 100) / 100;
+      if (reverseAmt > 0) {
+        await db.query(
+          `INSERT INTO client_balance_ledger
+             (client_id, organization_id, entry_type, amount, currency, reference_type, reference_id, description)
+           VALUES (?, ?, 'credit', ?, ?, 'invoice', ?, ?)`,
+          [existing.client_id, req.orgId, reverseAmt, existing.currency || 'USD',
+            existing.id, `Void invoice ${existing.invoice_number}`],
+        );
+      }
+    }
+
+    await auditLog.log({
+      userId: req.user?.id,
+      organizationId: req.orgId,
+      action: 'void',
+      tableName: 'invoices',
+      recordId: record.id,
+      oldValues: existing,
+      newValues: { status: 'void' },
+    });
+
+    res.json({ data: record });
+  } catch (err) {
+    next(err);
+  }
+}
+
 router.get('/', requirePermission('invoices.view'), ctrl.list);
 router.get('/:id', requirePermission('invoices.view'), ctrl.get);
 router.post('/', requirePermission('invoices.create'), validate(createInvoice), ctrl.create);
-router.put('/:id', requirePermission('invoices.update'), validate(updateInvoice), ctrl.update);
-router.patch('/:id', requirePermission('invoices.update'), validate(patchInvoice), ctrl.partialUpdate);
+router.put('/:id', requirePermission('invoices.update'), validate(updateInvoice),
+  (req, res, next) => (req.body.status === 'void' ? voidInvoice(req, res, next) : ctrl.update(req, res, next)));
+router.patch('/:id', requirePermission('invoices.update'), validate(patchInvoice),
+  (req, res, next) => (req.body.status === 'void' ? voidInvoice(req, res, next) : ctrl.partialUpdate(req, res, next)));
 router.delete('/:id', requirePermission('invoices.delete'), ctrl.destroy);
 router.post('/:id/restore', requirePermission('invoices.update'), ctrl.restore);
 
