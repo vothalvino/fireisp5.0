@@ -508,7 +508,7 @@ describe('Export Routes — /api/export', () => {
     test('returns CSV content', async () => {
       mockAuthUser();
       db.query.mockResolvedValueOnce([[
-        { id: 1, first_name: 'John', last_name: 'Doe', email: 'john@test.com', phone: '555-1234', status: 'active', locale: 'global', country: 'US', city: 'Austin', state: 'TX', created_at: '2025-01-01' },
+        { id: 1, name: 'John Doe', email: 'john@test.com', phone: '555-1234', status: 'active', locale: 'global', country: 'US', city: 'Austin', state: 'TX', created_at: '2025-01-01' },
       ]]);
 
       const res = await request(app)
@@ -517,8 +517,8 @@ describe('Export Routes — /api/export', () => {
 
       expect(res.status).toBe(200);
       expect(res.headers['content-type']).toMatch(/text\/csv/);
-      expect(res.text).toContain('first_name');
-      expect(res.text).toContain('John');
+      expect(res.text).toContain('name');
+      expect(res.text).toContain('John Doe');
     });
   });
 
@@ -526,7 +526,7 @@ describe('Export Routes — /api/export', () => {
     test('returns CSV content', async () => {
       mockAuthUser();
       db.query.mockResolvedValueOnce([[
-        { id: 1, invoice_number: 'INV-000001', client_id: 1, first_name: 'John', last_name: 'Doe', email: 'john@test.com', subtotal: 499, tax_amount: 79.84, total: 578.84, currency: 'MXN', status: 'issued', due_date: '2025-02-15', created_at: '2025-01-01' },
+        { id: 1, invoice_number: 'INV-000001', client_id: 1, name: 'John Doe', email: 'john@test.com', subtotal: 499, tax_amount: 79.84, total: 578.84, currency: 'MXN', status: 'issued', due_date: '2025-02-15', created_at: '2025-01-01' },
       ]]);
 
       const res = await request(app)
@@ -550,7 +550,7 @@ describe('Import Routes — /api/import', () => {
       mockAuthUser();
       db.query.mockResolvedValue([{ affectedRows: 1 }]);
 
-      const csvData = 'first_name,last_name,email,phone\nAlice,Smith,alice@test.com,555-0001\nBob,Jones,bob@test.com,555-0002';
+      const csvData = 'name,email,phone\nAlice Smith,alice@test.com,555-0001\nBob Jones,bob@test.com,555-0002';
 
       const res = await request(app)
         .post('/api/import/clients')

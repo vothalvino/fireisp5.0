@@ -116,7 +116,7 @@ async function applyLateFees(organizationId) {
     `SELECT i.id, i.invoice_number, i.total, i.subtotal, i.tax_amount, i.tax_rate,
             i.currency, i.due_date, i.client_id, i.contract_id,
             DATEDIFF(NOW(), i.due_date) AS days_overdue,
-            CONCAT(cl.first_name, ' ', cl.last_name) AS client_name,
+            cl.name AS client_name,
             cl.email AS client_email, cl.phone AS client_phone
      FROM invoices i
      LEFT JOIN clients cl ON cl.id = i.client_id

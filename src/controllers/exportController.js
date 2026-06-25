@@ -37,7 +37,7 @@ function toCsv(rows) {
 async function exportInvoices(req, res, next) {
   try {
     const [rows] = await db.query(
-      `SELECT i.id, i.invoice_number, i.client_id, cl.first_name, cl.last_name, cl.email,
+      `SELECT i.id, i.invoice_number, i.client_id, cl.name, cl.email,
               i.subtotal, i.tax_amount, i.total, i.currency, i.status, i.due_date, i.created_at
        FROM invoices i
        LEFT JOIN clients cl ON cl.id = i.client_id
@@ -60,10 +60,10 @@ async function exportInvoices(req, res, next) {
 async function exportClients(req, res, next) {
   try {
     const [rows] = await db.query(
-      `SELECT id, first_name, last_name, email, phone, status, locale, country, city, state, created_at
+      `SELECT id, name, email, phone, status, locale, country, city, state, created_at
        FROM clients
        WHERE organization_id = ?
-       ORDER BY last_name, first_name`,
+       ORDER BY name`,
       [req.orgId],
     );
 
@@ -81,7 +81,7 @@ async function exportClients(req, res, next) {
 async function exportContracts(req, res, next) {
   try {
     const [rows] = await db.query(
-      `SELECT c.id, c.client_id, cl.first_name, cl.last_name, p.name AS plan_name,
+      `SELECT c.id, c.client_id, cl.name, p.name AS plan_name,
               c.status, c.connection_type, c.start_date, c.end_date, c.price_override, p.price AS plan_price, p.currency
        FROM contracts c
        JOIN clients cl ON cl.id = c.client_id
@@ -105,7 +105,7 @@ async function exportContracts(req, res, next) {
 async function exportPayments(req, res, next) {
   try {
     const [rows] = await db.query(
-      `SELECT p.id, p.client_id, cl.first_name, cl.last_name,
+      `SELECT p.id, p.client_id, cl.name,
               p.amount, p.currency, p.payment_method, p.payment_date, p.reference, p.status, p.created_at
        FROM payments p
        LEFT JOIN clients cl ON cl.id = p.client_id

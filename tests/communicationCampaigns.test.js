@@ -325,9 +325,9 @@ describe('processQueue', () => {
       client_id: 7,
     }]]);
     // Template query
-    mockQuery([[{ id: 99, subject: 'Hello {{first_name}}', body_text: 'Hi {{first_name}}!', body_html: null }]]);
+    mockQuery([[{ id: 99, subject: 'Hello {{name}}', body_text: 'Hi {{name}}!', body_html: null }]]);
     // Client data query
-    mockQuery([[{ id: 7, first_name: 'Carlos', last_name: 'Lopez' }]]);
+    mockQuery([[{ id: 7, name: 'Carlos Lopez' }]]);
     // UPDATE sent
     mockQuery([{ affectedRows: 1 }]);
     // UPDATE sent_count
@@ -339,7 +339,7 @@ describe('processQueue', () => {
 
     expect(emailTransport.sendEmail).toHaveBeenCalledWith(
       expect.objectContaining({
-        subject: 'Hello Carlos',
+        subject: 'Hello Carlos Lopez',
       }),
     );
   });

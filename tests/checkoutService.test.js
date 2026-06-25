@@ -65,7 +65,7 @@ describe('checkoutService', () => {
       const invoice = {
         id: 1, invoice_number: 'INV-000001', total: '500.00',
         currency: 'MXN', status: 'issued', client_id: 10,
-        first_name: 'John', last_name: 'Doe', email: 'john@test.com',
+        name: 'John Doe', email: 'john@test.com',
       };
 
       db.query

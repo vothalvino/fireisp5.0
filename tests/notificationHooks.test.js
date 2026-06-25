@@ -62,7 +62,7 @@ describe('notificationHooks', () => {
       await eventBus.emit('invoice.created', {
         organizationId: 1,
         invoice: { id: 10, invoice_number: 'INV-001', client_id: 5, total: 100.50, currency: 'MXN' },
-        client: { first_name: 'Juan', last_name: 'Pérez', email: 'juan@example.com' },
+        client: { name: 'Juan Pérez', email: 'juan@example.com' },
         items: [{ description: 'Internet 50Mbps', amount: 100.50 }],
       });
 
@@ -93,7 +93,7 @@ describe('notificationHooks', () => {
       await eventBus.emit('invoice.created', {
         organizationId: 1,
         invoice: { id: 10, invoice_number: 'INV-001', client_id: 5, total: 50, currency: 'USD' },
-        client: { first_name: 'Jane' },
+        client: { name: 'Jane' },
         items: [],
       });
 
@@ -107,7 +107,7 @@ describe('notificationHooks', () => {
       await eventBus.emit('invoice.created', {
         organizationId: 1,
         invoice: { id: 10, invoice_number: 'INV-001', client_id: 5, total: 50, currency: 'USD', due_date: '2026-05-01T00:00:00Z' },
-        client: { first_name: 'Test', email: 'test@example.com' },
+        client: { name: 'Test', email: 'test@example.com' },
         items: [],
       });
 
@@ -145,7 +145,7 @@ describe('notificationHooks', () => {
       await eventBus.emit('payment.received', {
         organizationId: 2,
         payment: { id: 20, client_id: 5, amount: 250, currency: 'MXN', payment_method: 'card', reference: 'REF-123', created_at: '2026-04-10T10:00:00Z' },
-        client: { first_name: 'Maria', last_name: 'Lopez', email: 'maria@example.com' },
+        client: { name: 'Maria Lopez', email: 'maria@example.com' },
       });
 
       expect(templates.paymentReceiptEmail).toHaveBeenCalledWith(
@@ -160,7 +160,7 @@ describe('notificationHooks', () => {
       await eventBus.emit('payment.received', {
         organizationId: 2,
         payment: { id: 20, client_id: 5, amount: 100, currency: 'USD' },
-        client: { first_name: 'NoEmail' },
+        client: { name: 'NoEmail' },
       });
 
       expect(emailTransport.sendEmail).not.toHaveBeenCalled();
@@ -177,7 +177,7 @@ describe('notificationHooks', () => {
       await eventBus.emit('contract.suspended', {
         organizationId: 3,
         contract: { id: 30, client_id: 7 },
-        client: { first_name: 'Bob', last_name: 'Smith', email: 'bob@example.com' },
+        client: { name: 'Bob Smith', email: 'bob@example.com' },
         invoice: { total: 500, currency: 'MXN' },
       });
 
@@ -219,7 +219,7 @@ describe('notificationHooks', () => {
       await eventBus.emit('suspension.warning', {
         organizationId: 1,
         _contract: { id: 1 },
-        client: { first_name: 'Ana', last_name: 'Garcia', email: 'ana@example.com' },
+        client: { name: 'Ana Garcia', email: 'ana@example.com' },
         invoice: { invoice_number: 'INV-100', total: 300, currency: 'MXN', due_date: '2026-03-01T00:00:00Z' },
         daysOverdue: 15,
       });
@@ -346,7 +346,7 @@ describe('notificationHooks', () => {
       await eventBus.emit('contract.suspended', {
         organizationId: 1,
         contract: { id: 1, client_id: 1 },
-        client: { first_name: 'Test', email: 'test@example.com' },
+        client: { name: 'Test', email: 'test@example.com' },
         invoice: null,
       });
 

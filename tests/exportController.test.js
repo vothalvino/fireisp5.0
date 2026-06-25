@@ -110,12 +110,12 @@ describe('exportController', () => {
   // ---------------------------------------------------------------------------
   describe('exportClients', () => {
     test('sets CSV headers and sends data', async () => {
-      db.query.mockResolvedValueOnce([[{ id: 1, first_name: 'Jane' }]]);
+      db.query.mockResolvedValueOnce([[{ id: 1, name: 'Jane Doe' }]]);
       const { req, res, next } = mockReqRes();
       await exportClients(req, res, next);
       expect(res.set).toHaveBeenCalledWith('Content-Type', 'text/csv');
       expect(res.set).toHaveBeenCalledWith('Content-Disposition', 'attachment; filename="clients.csv"');
-      expect(res.send).toHaveBeenCalledWith(expect.stringContaining('first_name'));
+      expect(res.send).toHaveBeenCalledWith(expect.stringContaining('name'));
     });
 
     test('calls next(err) on db error', async () => {

@@ -58,7 +58,7 @@ async function createCheckoutSession({ organizationId, invoiceId, clientId, retu
  */
 async function generatePaymentLink({ organizationId, invoiceId }) {
   const [invoices] = await db.query(
-    'SELECT i.*, c.first_name, c.last_name, c.email FROM invoices i JOIN clients c ON c.id = i.client_id WHERE i.id = ? AND i.organization_id = ?',
+    'SELECT i.*, c.name, c.email FROM invoices i JOIN clients c ON c.id = i.client_id WHERE i.id = ? AND i.organization_id = ?',
     [invoiceId, organizationId],
   );
   if (invoices.length === 0) throw new Error('Invoice not found');
@@ -75,7 +75,7 @@ async function generatePaymentLink({ organizationId, invoiceId }) {
 
   return {
     ...session,
-    client_name: `${invoice.first_name || ''} ${invoice.last_name || ''}`.trim(),
+    client_name: invoice.name || '',
     client_email: invoice.email,
   };
 }

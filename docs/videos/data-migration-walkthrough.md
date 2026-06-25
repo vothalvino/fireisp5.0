@@ -72,7 +72,7 @@ On-screen response:
   "imported": 150,
   "total": 152,
   "errors": [
-    { "row": 23, "error": "first_name and last_name are required" }
+    { "row": 23, "error": "name is required" }
   ]
 }
 ```

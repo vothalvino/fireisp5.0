@@ -43,7 +43,7 @@ router.get('/logs', requirePermission('read'), async (req, res) => {
   const countSql = `SELECT COUNT(*) AS total FROM sms_logs sl ${where}`;
   const dataSql  = `
     SELECT sl.*,
-           CONCAT(c.first_name, ' ', c.last_name) AS client_name
+           c.name AS client_name
       FROM sms_logs sl
       LEFT JOIN clients c ON c.id = sl.client_id
      ${where}

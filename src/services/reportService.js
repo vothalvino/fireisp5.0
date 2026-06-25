@@ -33,7 +33,7 @@ async function agingReport(organizationId, { currency } = {}) {
   let sql = `
     SELECT
       i.client_id,
-      c.first_name, c.last_name, c.email,
+      c.name, c.email,
       i.id AS invoice_id,
       i.invoice_number,
       i.total,
@@ -555,8 +555,7 @@ async function satExport(organizationId, { from, to } = {}) {
       i.status,
       i.paid_at,
       c.id AS client_id,
-      c.first_name,
-      c.last_name,
+      c.name,
       c.email
     FROM \`invoices\` i
     JOIN \`clients\` c ON c.id = i.client_id
@@ -1098,7 +1097,7 @@ async function ipAssignmentLog(organizationId, { from, to, ip_address } = {}) {
       ia.id,
       ia.ip_address,
       ia.type,
-      CONCAT(c.first_name, ' ', c.last_name) AS client_name,
+      c.name AS client_name,
       c.email AS client_email,
       ia.assigned_at,
       ia.expires_at,
@@ -1129,8 +1128,7 @@ async function subscriberIdentity(organizationId, { from, to } = {}) {
   const [rows] = await db.queryReplica(`
     SELECT
       c.id,
-      c.first_name,
-      c.last_name,
+      c.name,
       c.email,
       c.status,
       COUNT(co.id) AS contract_count,
@@ -1139,7 +1137,7 @@ async function subscriberIdentity(organizationId, { from, to } = {}) {
     LEFT JOIN \`contracts\` co ON co.client_id = c.id AND co.organization_id = c.organization_id
     WHERE c.organization_id = ?
       AND c.created_at >= ? AND c.created_at <= ?
-    GROUP BY c.id, c.first_name, c.last_name, c.email, c.status, c.created_at
+    GROUP BY c.id, c.name, c.email, c.status, c.created_at
     ORDER BY c.created_at DESC
   `, [organizationId, dateFrom, dateTo]);
 
@@ -1200,8 +1198,7 @@ async function regulatoryExport(organizationId, { from, to } = {}) {
   const [rows] = await db.queryReplica(`
     SELECT
       c.id AS client_id,
-      c.first_name,
-      c.last_name,
+      c.name,
       c.email,
       ia.ip_address,
       co.id AS contract_id,
@@ -1215,7 +1212,7 @@ async function regulatoryExport(organizationId, { from, to } = {}) {
       AND co.status = 'active'
       AND ia.status = 'active'
       AND ia.assigned_at >= ? AND ia.assigned_at <= ?
-    ORDER BY c.last_name ASC, c.first_name ASC
+    ORDER BY c.name ASC
   `, [organizationId, dateFrom, dateTo]);
 
   return {

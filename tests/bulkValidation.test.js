@@ -161,7 +161,7 @@ describe('POST /api/bulk/email', () => {
   test('valid data → 200', async () => {
     mockAuthUser();
     db.query.mockResolvedValue([[
-      { id: 1, email: 'client@example.com', first_name: 'John', last_name: 'Doe' },
+      { id: 1, email: 'client@example.com', name: 'John Doe' },
     ]]);
 
     const res = await request(app)

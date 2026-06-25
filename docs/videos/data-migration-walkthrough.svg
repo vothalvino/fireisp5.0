@@ -73,7 +73,7 @@
     <rect x="170" y="324" width="940" height="210" class="panel"/>
     <text x="220" y="382" class="code">{ "imported": 150, "total": 152,</text>
     <text x="220" y="426" class="code">  "errors": [{ "row": 23,</text>
-    <text x="220" y="470" class="code">  "error": "first_name and last_name are required" }] }</text>
+    <text x="220" y="470" class="code">  "error": "name is required" }] }</text>
   </g>
 
   <g id="s5" class="scene">

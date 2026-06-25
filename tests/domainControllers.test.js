@@ -365,11 +365,11 @@ describe('Domain Controllers', () => {
   // =========================================================================
   describe('importController', () => {
     test('parseCsv parses simple CSV correctly', () => {
-      const csv = 'first_name,last_name,email\nAlice,Smith,alice@test.com\nBob,Jones,bob@test.com';
+      const csv = 'name,email\nAlice Smith,alice@test.com\nBob Jones,bob@test.com';
       const rows = importController.parseCsv(csv);
 
       expect(rows).toHaveLength(2);
-      expect(rows[0]).toEqual({ first_name: 'Alice', last_name: 'Smith', email: 'alice@test.com' });
+      expect(rows[0]).toEqual({ name: 'Alice Smith', email: 'alice@test.com' });
     });
 
     test('parseCsv handles quoted fields', () => {
@@ -396,7 +396,7 @@ describe('Domain Controllers', () => {
 
     test('importClients imports valid rows', async () => {
       const req = mockReq({
-        body: { csv: 'first_name,last_name,email\nAlice,Smith,alice@test.com\nBob,Jones,bob@test.com' },
+        body: { csv: 'name,email\nAlice Smith,alice@test.com\nBob Jones,bob@test.com' },
       });
       const res = mockRes();
       const next = jest.fn();
@@ -414,7 +414,7 @@ describe('Domain Controllers', () => {
 
     test('importClients reports errors for invalid rows', async () => {
       const req = mockReq({
-        body: { csv: 'first_name,last_name\n,\nAlice,Smith' },
+        body: { csv: 'name\n\nAlice Smith' },
       });
       const res = mockRes();
       const next = jest.fn();
