@@ -2,7 +2,7 @@
 // FireISP 5.0 — InvoiceList page tests
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { InvoiceList } from '../InvoiceList';
@@ -62,5 +62,24 @@ describe('InvoiceList page', () => {
     mockApiGet.mockResolvedValue({ data: { data: [], meta: { total: 0, page: 1, limit: 20, totalPages: 0 } }, error: undefined });
     renderInvoiceList();
     await waitFor(() => expect(screen.getByText('No invoices found.')).toBeInTheDocument());
+  });
+
+  it('bulk-voids selected invoices after confirmation', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    renderInvoiceList();
+    await waitFor(() => expect(screen.getByText('INV-2024-001')).toBeInTheDocument());
+
+    // Select the invoice → bulk bar appears → click "Void selected"
+    fireEvent.click(screen.getByLabelText('Select invoice INV-2024-001'));
+    fireEvent.click(screen.getByRole('button', { name: 'Void selected' }));
+
+    // Confirm dialog → confirm
+    expect(global.fetch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Void invoices' }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(
+      '/api/v1/invoices/1',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ status: 'void' }) }),
+    ));
   });
 });
