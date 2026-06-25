@@ -126,4 +126,22 @@ describe('Layout — grouped sidebar navigation', () => {
     // Admin-only section stays hidden.
     expect(screen.queryByText('Administration')).not.toBeInTheDocument();
   });
+
+  it('shows an org switcher listing all organizations for an admin', async () => {
+    mockUseAuth(makeUser('admin'));
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/organizations') {
+        return Promise.resolve({ data: { data: [{ id: 1, name: 'Org A' }, { id: 2, name: 'Org B' }] }, error: undefined });
+      }
+      return Promise.resolve({ data: undefined, error: undefined });
+    });
+    renderLayout();
+
+    // The all-orgs query populates the switcher with every organization, even
+    // ones the admin isn't an explicit member of. 'Org B' appears only as a
+    // switcher option; 'Org A' (the active org) shows in both the option list
+    // and the topbar label.
+    expect(await screen.findByText('Org B')).toBeInTheDocument();
+    expect(screen.getAllByText('Org A').length).toBeGreaterThanOrEqual(1);
+  });
 });
