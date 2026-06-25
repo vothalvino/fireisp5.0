@@ -60,7 +60,7 @@ router.get('/tax-reports',
         const [results] = await db.query(
           `SELECT p.id, p.amount, p.currency, p.payment_method,
                   p.payment_date, p.reference_number,
-                  CONCAT(cl.first_name, ' ', cl.last_name) AS client_name,
+                  cl.name AS client_name,
                   cl.tax_id AS client_tax_id
            FROM payments p
            LEFT JOIN clients cl ON cl.id = p.client_id
@@ -76,7 +76,7 @@ router.get('/tax-reports',
         const [results] = await db.query(
           `SELECT cn.id, cn.credit_note_number, cn.total, cn.tax_amount,
                   cn.currency, cn.status, cn.created_at, cn.reason,
-                  CONCAT(cl.first_name, ' ', cl.last_name) AS client_name,
+                  cl.name AS client_name,
                   cl.tax_id AS client_tax_id,
                   cd.uuid AS cfdi_uuid
            FROM credit_notes cn
@@ -95,7 +95,7 @@ router.get('/tax-reports',
         const [results] = await db.query(
           `SELECT i.id, i.invoice_number, i.subtotal, i.tax_amount, i.total,
                   i.currency, i.status, i.created_at, i.due_date, i.paid_at,
-                  CONCAT(cl.first_name, ' ', cl.last_name) AS client_name,
+                  cl.name AS client_name,
                   cl.tax_id AS client_tax_id,
                   cd.uuid AS cfdi_uuid
            FROM invoices i

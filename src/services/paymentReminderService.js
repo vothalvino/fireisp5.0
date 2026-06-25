@@ -152,7 +152,7 @@ async function sendPaymentReminders(organizationId) {
   // Find invoices with pending balances
   const [invoices] = await db.query(
     `SELECT i.id, i.invoice_number, i.total, i.currency, i.due_date, i.client_id,
-            CONCAT(cl.first_name, ' ', cl.last_name) AS client_name,
+            cl.name AS client_name,
             cl.email AS client_email, cl.phone AS client_phone
      FROM invoices i
      LEFT JOIN clients cl ON cl.id = i.client_id

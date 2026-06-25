@@ -574,15 +574,14 @@ describe('exportController — deep', () => {
   describe('exportClients', () => {
     test('CSV escapes commas and quotes in client data', async () => {
       db.query.mockResolvedValueOnce([[
-        { id: 1, first_name: 'O\'Brien, Jr', last_name: 'He said "hi"', email: 'a@b.com' },
+        { id: 1, name: 'O\'Brien, Jr "He said hi"', email: 'a@b.com' },
       ]]);
       const res = mockRes();
 
       await exportController.exportClients(mockReq(), res, mockNext);
 
       const csvOutput = res.send.mock.calls[0][0];
-      expect(csvOutput).toContain('"O\'Brien, Jr"');
-      expect(csvOutput).toContain('"He said ""hi"""');
+      expect(csvOutput).toContain('"O\'Brien, Jr ""He said hi"""');
     });
 
     test('sends empty CSV for empty client list', async () => {
@@ -679,23 +678,23 @@ describe('importController — deep', () => {
     });
 
     test('reports error rows for missing required fields', async () => {
-      const csv = 'first_name,last_name,email\n,Smith,a@b.com\nAlice,,b@c.com\n,\nBob,Jones,c@d.com';
+      const csv = 'name,email\n,a@b.com\nAlice Smith,b@c.com\n\nBob Jones,c@d.com';
       db.query.mockResolvedValue([{ insertId: 1 }]);
       const res = mockRes();
 
       await importController.importClients(mockReq({ csv }), res, mockNext);
 
       const data = res.json.mock.calls[0][0].data;
-      expect(data.imported).toBe(1);
-      expect(data.errors.length).toBeGreaterThanOrEqual(2);
-      // Row 2 missing first_name, row 3 missing last_name, row 4 both missing
+      expect(data.imported).toBe(2);
+      expect(data.errors.length).toBeGreaterThanOrEqual(1);
+      // Rows missing name
       data.errors.forEach(e => {
-        expect(e.error).toContain('first_name and last_name are required');
+        expect(e.error).toContain('name is required');
       });
     });
 
     test('reports DB insert errors per row', async () => {
-      const csv = 'first_name,last_name\nAlice,Smith\nBob,Jones';
+      const csv = 'name\nAlice Smith\nBob Jones';
       db.query
         .mockResolvedValueOnce([{ insertId: 1 }])
         .mockRejectedValueOnce(new Error('duplicate email'));
@@ -710,7 +709,7 @@ describe('importController — deep', () => {
     });
 
     test('returns zero imported for CSV with only headers', async () => {
-      const csv = 'first_name,last_name,email';
+      const csv = 'name,email';
       const res = mockRes();
 
       await importController.importClients(mockReq({ csv }), res, mockNext);

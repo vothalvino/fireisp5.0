@@ -29,7 +29,7 @@ class Asset extends BaseModel {
   static async getAssignments(assetId, orgId) {
     const [rows] = await db.query(
       `SELECT aa.*,
-              c.first_name, c.last_name, c.email AS client_email,
+              c.name AS client_name, c.email AS client_email,
               d.name AS device_name
        FROM asset_assignments aa
        LEFT JOIN clients c ON c.id = aa.client_id

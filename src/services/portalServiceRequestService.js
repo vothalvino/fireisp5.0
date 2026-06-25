@@ -248,7 +248,7 @@ async function adminListRequests(organizationId, { page = 1, limit = 25, status,
             psr.completed_at, psr.cancelled_at,
             psr.proration_credit, psr.proration_charge, psr.proration_net,
             psr.created_at, psr.updated_at,
-            CONCAT(cl.first_name, ' ', cl.last_name) AS client_name,
+            cl.name AS client_name,
             cl.email AS client_email
      FROM portal_service_requests psr
      LEFT JOIN clients cl ON cl.id = psr.client_id
@@ -269,7 +269,7 @@ async function adminListRequests(organizationId, { page = 1, limit = 25, status,
  */
 async function adminGetRequest(requestId, organizationId) {
   const [rows] = await db.query(
-    `SELECT psr.*, CONCAT(cl.first_name, ' ', cl.last_name) AS client_name, cl.email AS client_email
+    `SELECT psr.*, cl.name AS client_name, cl.email AS client_email
      FROM portal_service_requests psr
      LEFT JOIN clients cl ON cl.id = psr.client_id
      WHERE psr.id = ? AND psr.organization_id = ? AND psr.deleted_at IS NULL`,

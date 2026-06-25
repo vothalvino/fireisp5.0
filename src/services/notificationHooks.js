@@ -31,7 +31,7 @@ function registerHooks() {
   eventBus.on('service_order.activated', async ({ organizationId, order, client }) => {
     try {
       const clientName = client
-        ? (`${client.first_name || ''} ${client.last_name || ''}`.trim() || client.name || '')
+        ? (client.name || '')
         : '';
 
       if (client?.email) {
@@ -80,7 +80,7 @@ function registerHooks() {
     try {
       if (client?.email) {
         const template = templates.invoiceEmail({
-          clientName: `${client.first_name || ''} ${client.last_name || ''}`.trim(),
+          clientName: client.name || '',
           invoiceNumber: invoice.invoice_number,
           total: invoice.total,
           currency: invoice.currency,
@@ -98,7 +98,7 @@ function registerHooks() {
 
       // SMS: notify client phone if available
       if (client?.phone) {
-        const clientName = `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.name || '';
+        const clientName = client.name || '';
         const smsBody = `Hola ${clientName}, se generó tu factura ${invoice.invoice_number} por ${invoice.currency} ${invoice.total}. Vence: ${invoice.due_date ? new Date(invoice.due_date).toISOString().slice(0, 10) : 'N/A'}.`;
         await smsTransport.queueSms({
           organizationId,
@@ -148,7 +148,7 @@ function registerHooks() {
     try {
       if (client?.email) {
         const template = templates.paymentReceiptEmail({
-          clientName: `${client.first_name || ''} ${client.last_name || ''}`.trim(),
+          clientName: client.name || '',
           amount: payment.amount,
           currency: payment.currency,
           paymentMethod: payment.payment_method,
@@ -166,7 +166,7 @@ function registerHooks() {
 
       // SMS: payment confirmation to client phone
       if (client?.phone) {
-        const clientName = `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.name || '';
+        const clientName = client.name || '';
         const smsBody = `Hola ${clientName}, recibimos tu pago de ${payment.currency} ${payment.amount}. Gracias!`;
         await smsTransport.queueSms({
           organizationId,
@@ -212,7 +212,7 @@ function registerHooks() {
     try {
       if (client?.email) {
         const template = templates.serviceSuspendedEmail({
-          clientName: `${client.first_name || ''} ${client.last_name || ''}`.trim(),
+          clientName: client.name || '',
           contractId: contract.id,
           total: invoice?.total,
           currency: invoice?.currency,
@@ -228,7 +228,7 @@ function registerHooks() {
 
       // SMS: service suspension notice to client phone
       if (client?.phone) {
-        const clientName = `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.name || '';
+        const clientName = client.name || '';
         const smsBody = `Hola ${clientName}, tu servicio ha sido suspendido por falta de pago. Contáctanos para reactivarlo.`;
         await smsTransport.queueSms({
           organizationId,
@@ -274,7 +274,7 @@ function registerHooks() {
     try {
       if (client?.email) {
         const template = templates.suspensionWarningEmail({
-          clientName: `${client.first_name || ''} ${client.last_name || ''}`.trim(),
+          clientName: client.name || '',
           daysOverdue,
           invoiceNumber: invoice?.invoice_number,
           total: invoice?.total,
@@ -292,7 +292,7 @@ function registerHooks() {
 
       // SMS: suspension warning to client phone
       if (client?.phone) {
-        const clientName = `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.name || '';
+        const clientName = client.name || '';
         const invoiceRef = invoice?.invoice_number ? ` (factura ${invoice.invoice_number})` : '';
         const smsBody = `Hola ${clientName}, tienes ${daysOverdue} día(s) de atraso${invoiceRef}. Realiza tu pago para evitar la suspensión.`;
         await smsTransport.queueSms({
@@ -614,7 +614,7 @@ function registerHooks() {
         const smsBody = `Mantenimiento programado: ${maintenance.title}. Fecha: ${scheduledAt}. Duración aprox.: ${duration}.`;
 
         const [clients] = await db.query(
-          `SELECT c.id, c.email, c.phone, c.first_name, c.last_name
+          `SELECT c.id, c.email, c.phone, c.name
            FROM clients c
            WHERE c.organization_id = ?
              AND c.status = 'active'`,

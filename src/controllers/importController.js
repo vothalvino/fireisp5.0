@@ -78,7 +78,7 @@ function parseCsvLine(line) {
 /**
  * POST /api/import/clients
  * Import clients from CSV.
- * Expected columns: first_name, last_name, email, phone, city, state, country
+ * Expected columns: name, email, phone, city, state, country
  */
 async function importClients(req, res, next) {
   try {
@@ -93,14 +93,14 @@ async function importClients(req, res, next) {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       try {
-        if (!row.first_name || !row.last_name) {
-          errors.push({ row: i + 2, error: 'first_name and last_name are required' });
+        if (!row.name) {
+          errors.push({ row: i + 2, error: 'name is required' });
           continue;
         }
         await db.query(
-          `INSERT INTO clients (organization_id, first_name, last_name, email, phone, city, state, country, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
-          [req.orgId, row.first_name, row.last_name, row.email || null,
+          `INSERT INTO clients (organization_id, name, email, phone, city, state, country, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'active')`,
+          [req.orgId, row.name, row.email || null,
             row.phone || null, row.city || null, row.state || null, row.country || null],
         );
         imported++;
@@ -225,14 +225,14 @@ async function importClientsFile(req, res, next) {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       try {
-        if (!row.first_name || !row.last_name) {
-          errors.push({ row: i + 2, error: 'first_name and last_name are required' });
+        if (!row.name) {
+          errors.push({ row: i + 2, error: 'name is required' });
           continue;
         }
         await db.query(
-          `INSERT INTO clients (organization_id, first_name, last_name, email, phone, city, state, country, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
-          [req.orgId, row.first_name, row.last_name, row.email || null,
+          `INSERT INTO clients (organization_id, name, email, phone, city, state, country, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'active')`,
+          [req.orgId, row.name, row.email || null,
             row.phone || null, row.city || null, row.state || null, row.country || null],
         );
         imported++;

@@ -112,7 +112,7 @@ describe('importController', () => {
 
     test('imports valid rows and returns counts', async () => {
       db.query.mockResolvedValue([{ insertId: 1 }]);
-      const csv = 'first_name,last_name,email\nAlice,Smith,a@b.com\nBob,Jones,b@c.com';
+      const csv = 'name,email\nAlice Smith,a@b.com\nBob Jones,b@c.com';
       const { req, res, next } = mockReqRes({ body: { csv } });
       await importClients(req, res, next);
       expect(res.json).toHaveBeenCalledWith({
@@ -122,7 +122,7 @@ describe('importController', () => {
 
     test('tracks errors for rows missing required fields', async () => {
       db.query.mockResolvedValue([{ insertId: 1 }]);
-      const csv = 'first_name,last_name\n,Smith\nBob,Jones';
+      const csv = 'name\n\nBob Jones';
       const { req, res, next } = mockReqRes({ body: { csv } });
       await importClients(req, res, next);
       const result = res.json.mock.calls[0][0].data;
@@ -136,7 +136,7 @@ describe('importController', () => {
     test('returns imported, total, and errors in response', async () => {
       const dbError = new Error('duplicate');
       db.query.mockRejectedValueOnce(dbError).mockResolvedValueOnce([{ insertId: 2 }]);
-      const csv = 'first_name,last_name\nAlice,Smith\nBob,Jones';
+      const csv = 'name\nAlice Smith\nBob Jones';
       const { req, res, next } = mockReqRes({ body: { csv } });
       await importClients(req, res, next);
       const result = res.json.mock.calls[0][0].data;
@@ -239,7 +239,7 @@ describe('importController', () => {
 
     test('imports clients from a CSV buffer', async () => {
       db.query.mockResolvedValue([{ insertId: 1 }]);
-      const csv = 'first_name,last_name,email\nAlice,Smith,a@b.com';
+      const csv = 'name,email\nAlice Smith,a@b.com';
       const { req, res, next } = mockReqRes({
         file: { buffer: Buffer.from(csv), originalname: 'clients.csv' },
       });
@@ -249,7 +249,7 @@ describe('importController', () => {
 
     test('tracks validation errors for rows missing required fields', async () => {
       db.query.mockResolvedValue([{ insertId: 1 }]);
-      const csv = 'first_name,last_name\n,Smith\nBob,Jones';
+      const csv = 'name\n\nBob Jones';
       const { req, res, next } = mockReqRes({
         file: { buffer: Buffer.from(csv), originalname: 'clients.csv' },
       });

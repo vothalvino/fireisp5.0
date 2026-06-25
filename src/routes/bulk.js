@@ -121,7 +121,7 @@ router.post('/email', requirePermission('clients.view'), validate(bulkSchemas.em
     // Fetch client emails
     const placeholders = client_ids.map(() => '?').join(',');
     const [clients] = await db.query(
-      `SELECT id, email, first_name, last_name FROM clients WHERE id IN (${placeholders}) AND organization_id = ? AND deleted_at IS NULL`,
+      `SELECT id, email, name FROM clients WHERE id IN (${placeholders}) AND organization_id = ? AND deleted_at IS NULL`,
       [...client_ids, orgId],
     );
 

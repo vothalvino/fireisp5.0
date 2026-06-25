@@ -153,7 +153,7 @@ router.get('/push-subscriptions', requirePermission('portal_push.view'), async (
       `SELECT pps.id, pps.client_id, pps.user_agent,
               pps.notify_outage, pps.notify_billing, pps.notify_ticket,
               pps.last_sent_at, pps.created_at, pps.updated_at,
-              CONCAT(cl.first_name, ' ', cl.last_name) AS client_name
+              cl.name AS client_name
        FROM portal_push_subscriptions pps
        LEFT JOIN clients cl ON cl.id = pps.client_id
        ${where}
