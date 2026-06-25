@@ -296,7 +296,7 @@ async function getChurnScores(organizationId, { risk_band, page = 1, limit = 50 
   const safeOffset = Math.max(0, (Math.max(1, parseInt(page, 10) || 1) - 1) * safeLimit);
   // Latest score per client (subquery for most recent)
   const [rows] = await db.query(
-    `SELECT cs.*, cl.name, cl.email
+    `SELECT cs.*, cl.name AS client_name, cl.email
      FROM churn_scores cs
      JOIN clients cl ON cl.id = cs.client_id
      INNER JOIN (

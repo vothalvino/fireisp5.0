@@ -8,12 +8,13 @@
 //   • Click a row to navigate to /invoices/:id for full detail
 // =============================================================================
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
 import { extractApiError } from '@/components/ClientFormModal';
+import { useTableSort, SortableTh } from '@/components/SortableTh';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,8 +80,8 @@ function makeItem(type: ItemType): InvoiceLineItem {
 
 const PAGE_SIZE = 25;
 
-async function fetchInvoices(page: number, statusFilter: string): Promise<InvoicesResponse> {
-  const query: Record<string, string | number> = { page, limit: PAGE_SIZE };
+async function fetchInvoices(page: number, statusFilter: string, orderBy: string, order: string): Promise<InvoicesResponse> {
+  const query: Record<string, string | number> = { page, limit: PAGE_SIZE, order_by: orderBy, order };
   if (statusFilter) query.status = statusFilter;
   const res = await api.GET('/invoices', { params: { query: query as never } });
   if (res.error) throw new Error('Failed to load invoices');
@@ -395,7 +396,13 @@ function GenerateInvoiceModal({ clients, contracts, onClose, onGenerated }: Gene
 // Main Component
 // ---------------------------------------------------------------------------
 
-const STATUS_OPTIONS = ['', 'draft', 'pending', 'sent', 'paid', 'overdue', 'cancelled', 'void'];
+const STATUS_OPTIONS = ['', 'draft', 'issued', 'pending', 'sent', 'paid', 'overdue', 'cancelled', 'void'];
+
+// A paid invoice has been settled and an already-void one is a no-op, so neither
+// can be voided (the backend rejects paid voids with 422).
+function isVoidable(status: string): boolean {
+  return status !== 'paid' && status !== 'void';
+}
 
 export function InvoiceList() {
   const { t } = useTranslation();
@@ -405,16 +412,22 @@ export function InvoiceList() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirmVoid, setConfirmVoid] = useState(false);
   const [voidError, setVoidError] = useState<string | null>(null);
+  const sort = useTableSort('created_at', 'DESC');
   const qc = useQueryClient();
 
+  // Re-sorting from a deeper page would show a confusing slice — reset to page 1
+  // (and clear cross-page selection) whenever the sort changes.
+  useEffect(() => { setPage(1); setSelected(new Set()); }, [sort.sortBy, sort.sortDir]);
+
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['invoices', page, statusFilter],
-    queryFn: () => fetchInvoices(page, statusFilter),
+    queryKey: ['invoices', page, statusFilter, sort.sortBy, sort.sortDir],
+    queryFn: () => fetchInvoices(page, statusFilter, sort.order_by, sort.order),
     placeholderData: prev => prev,
   });
 
-  const visibleIds = (data?.data ?? []).map(i => i.id);
-  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id));
+  // Only voidable rows participate in selection / select-all.
+  const voidableIds = (data?.data ?? []).filter(i => isVoidable(i.status)).map(i => i.id);
+  const allVisibleSelected = voidableIds.length > 0 && voidableIds.every(id => selected.has(id));
 
   function toggleOne(id: number) {
     setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -422,8 +435,8 @@ export function InvoiceList() {
   function toggleAllVisible() {
     setSelected(s => {
       const n = new Set(s);
-      if (visibleIds.every(id => n.has(id))) visibleIds.forEach(id => n.delete(id));
-      else visibleIds.forEach(id => n.add(id));
+      if (voidableIds.every(id => n.has(id))) voidableIds.forEach(id => n.delete(id));
+      else voidableIds.forEach(id => n.add(id));
       return n;
     });
   }
@@ -517,16 +530,12 @@ export function InvoiceList() {
                   <th style={{ padding: '10px 14px', width: 36 }}>
                     <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Select all invoices on this page" />
                   </th>
-                  {[
-                    t('invoiceList.table.invoiceNumber'),
-                    t('invoiceList.table.clientId'),
-                    t('invoiceList.table.total'),
-                    t('invoiceList.table.dueDate'),
-                    t('invoiceList.table.status'),
-                    t('invoiceList.table.created'),
-                  ].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>{h}</th>
-                  ))}
+                  <SortableTh label={t('invoiceList.table.invoiceNumber')} col="invoice_number" sort={sort} />
+                  <SortableTh label={t('invoiceList.table.clientId')} col="client_id" sort={sort} />
+                  <SortableTh label={t('invoiceList.table.total')} col="total" sort={sort} />
+                  <SortableTh label={t('invoiceList.table.dueDate')} col="due_date" sort={sort} />
+                  <SortableTh label={t('invoiceList.table.status')} col="status" sort={sort} />
+                  <SortableTh label={t('invoiceList.table.created')} col="created_at" sort={sort} />
                 </tr>
               </thead>
               <tbody>
@@ -547,6 +556,8 @@ export function InvoiceList() {
                         type="checkbox"
                         checked={selected.has(inv.id)}
                         onChange={() => toggleOne(inv.id)}
+                        disabled={!isVoidable(inv.status)}
+                        title={!isVoidable(inv.status) ? `${inv.status} invoices cannot be voided` : undefined}
                         aria-label={`Select invoice ${inv.invoice_number || inv.id}`}
                       />
                     </td>

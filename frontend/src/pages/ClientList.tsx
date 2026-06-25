@@ -10,7 +10,7 @@
 // Links to /clients/:id for the detail view.
 // =============================================================================
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -26,6 +26,7 @@ import {
   cancelBtn,
   dangerBtn,
 } from '@/components/ClientFormModal';
+import { useTableSort, SortableTh } from '@/components/SortableTh';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,10 +76,14 @@ async function fetchClients(
   search: string,
   includeDeleted: boolean,
   groupId: number | null,
+  orderBy: string,
+  order: string,
 ): Promise<ClientsResponse> {
   const query = {
     page,
     limit: PAGE_SIZE,
+    order_by: orderBy,
+    order,
     ...(search ? { search } : {}),
     ...(groupId ? { client_group_id: groupId } : {}),
     ...(includeDeleted ? { include_deleted: 'true' } : {}),
@@ -194,6 +199,9 @@ export function ClientList() {
   const [showCreate, setShowCreate] = useState(false);
   const [editClient, setEditClient] = useState<Client | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Client | null>(null);
+  const sort = useTableSort('created_at', 'DESC');
+
+  useEffect(() => { setPage(1); }, [sort.sortBy, sort.sortDir]);
 
   const canCreate = can(user?.role, 'clients.create');
   const canUpdate = can(user?.role, 'clients.update');
@@ -205,8 +213,8 @@ export function ClientList() {
   });
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['clients', page, search, showArchived, groupId],
-    queryFn: () => fetchClients(page, search, showArchived, groupId),
+    queryKey: ['clients', page, search, showArchived, groupId, sort.sortBy, sort.sortDir],
+    queryFn: () => fetchClients(page, search, showArchived, groupId, sort.order_by, sort.order),
   });
 
   const groupName = (id: number | null) =>
@@ -298,19 +306,17 @@ export function ClientList() {
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    {[
-                      t('clientList.table.id'),
-                      t('clientList.table.name'),
-                      t('clientList.table.email'),
-                      t('clientList.table.phone'),
-                      t('clientList.table.type'),
-                      t('clientList.table.location'),
-                      t('clientList.table.group'),
-                      t('clientList.table.status'),
-                      '',
-                    ].map(h => (
-                      <th key={h} style={styles.th}>{h}</th>
-                    ))}
+                    <SortableTh label={t('clientList.table.id')} col="id" sort={sort} style={styles.th} />
+                    <SortableTh label={t('clientList.table.name')} col="name" sort={sort} style={styles.th} />
+                    <SortableTh label={t('clientList.table.email')} col="email" sort={sort} style={styles.th} />
+                    <th style={styles.th}>{t('clientList.table.phone')}</th>
+                    <SortableTh label={t('clientList.table.type')} col="client_type" sort={sort} style={styles.th} />
+                    {/* location is a composite of city+state — non-sortable (derived display) */}
+                    <th style={styles.th}>{t('clientList.table.location')}</th>
+                    {/* group name comes from a LEFT JOIN on client_groups — non-sortable by name */}
+                    <th style={styles.th}>{t('clientList.table.group')}</th>
+                    <SortableTh label={t('clientList.table.status')} col="status" sort={sort} style={styles.th} />
+                    <th style={styles.th} />
                   </tr>
                 </thead>
                 <tbody>

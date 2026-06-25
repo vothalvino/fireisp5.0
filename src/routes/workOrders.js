@@ -56,12 +56,20 @@ router.get('/stats', requirePermission('work_orders.view'), async (req, res, nex
   } catch (err) { next(err); }
 });
 
+// Allowlist of own-table (work_orders) columns that are safe to sort by.
+const WORK_ORDER_SORTABLE = ['id', 'title', 'status', 'priority', 'work_type', 'scheduled_at', 'created_at', 'updated_at', 'client_id', 'site_id', 'device_id', 'assigned_to'];
+
 // GET /work-orders
 router.get('/', requirePermission('work_orders.view'), async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(200, parseInt(req.query.limit) || 50);
     const offset = (page - 1) * limit;
+
+    // Validate order_by against the allowlist; joined/derived columns (e.g. assigned_first)
+    // are excluded because they are not columns of work_orders itself.
+    const safeOrderBy = WORK_ORDER_SORTABLE.includes(req.query.order_by) ? req.query.order_by : 'created_at';
+    const safeOrder = req.query.order === 'ASC' ? 'ASC' : 'DESC';
 
     // Optional filters: by target (client/site/device) or status.
     const where = ['wo.organization_id = ?', 'wo.deleted_at IS NULL'];
@@ -80,7 +88,7 @@ router.get('/', requirePermission('work_orders.view'), async (req, res, next) =>
        LEFT JOIN sites s ON s.id = wo.site_id
        LEFT JOIN devices d ON d.id = wo.device_id
        WHERE ${whereSql}
-       ORDER BY wo.created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+       ORDER BY wo.${safeOrderBy} ${safeOrder} LIMIT ${limit} OFFSET ${offset}`,
       params,
     );
     const [[{ total }]] = await db.query(
