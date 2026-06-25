@@ -122,7 +122,7 @@ async function processRequest(orgId, id, { refund_method, gateway_refund_referen
   let client = null;
   try {
     const [clientRows] = await db.query(
-      'SELECT id, email, first_name, last_name FROM clients WHERE id = ? LIMIT 1',
+      'SELECT id, email, name FROM clients WHERE id = ? LIMIT 1',
       [existing.client_id],
     );
     client = clientRows[0] || null;

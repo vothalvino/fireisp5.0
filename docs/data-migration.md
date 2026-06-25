@@ -96,12 +96,12 @@ Clients are the top-level entity. Import them first so that their auto-generated
 ### Prepare the CSV
 
 ```csv
-first_name,last_name,email,phone,city,state,country
-Juan,Pérez,juan@ejemplo.com,5551234567,CDMX,Ciudad de México,MX
-María,López,maria@ejemplo.com,5559876543,Monterrey,Nuevo León,MX
+name,email,phone,city,state,country
+Juan Pérez,juan@ejemplo.com,5551234567,CDMX,Ciudad de México,MX
+María López,maria@ejemplo.com,5559876543,Monterrey,Nuevo León,MX
 ```
 
-Required columns: `first_name`, `last_name`  
+Required columns: `name`  
 Optional columns: `email`, `phone`, `city`, `state`, `country`
 
 ### Import via file upload
@@ -120,7 +120,7 @@ curl -X POST http://localhost:3000/api/import/clients \
   -H "Authorization: Bearer <token>" \
   -H "X-Org-Id: <org_id>" \
   -H "Content-Type: application/json" \
-  -d '{"csv": "first_name,last_name,email\nJuan,Pérez,juan@ejemplo.com"}'
+  -d '{"csv": "name,email\nJuan Pérez,juan@ejemplo.com"}'
 ```
 
 ### Response
@@ -131,7 +131,7 @@ curl -X POST http://localhost:3000/api/import/clients \
     "imported": 150,
     "total": 152,
     "errors": [
-      { "row": 23, "error": "first_name and last_name are required" },
+      { "row": 23, "error": "name is required" },
       { "row": 89, "error": "Duplicate entry 'juan@ejemplo.com' for key 'email'" }
     ]
   }
@@ -384,8 +384,7 @@ SET GLOBAL event_scheduler = ON;
 
 | Column | Required | Type | Notes |
 |---|---|---|---|
-| `first_name` | ✅ | string | |
-| `last_name` | ✅ | string | |
+| `name` | ✅ | string | Full client name (single column) |
 | `email` | — | string | Must be unique if provided |
 | `phone` | — | string | |
 | `city` | — | string | |
@@ -461,9 +460,9 @@ The uploaded file has a disallowed extension or MIME type. Ensure your file is n
 
 The import file exceeds 10 MB. Split it into multiple files of under 10,000 rows each and import them sequentially.
 
-### Row-level error: `first_name and last_name are required`
+### Row-level error: `name is required`
 
-The row in your source file is missing one or both name columns. Check for empty cells or misaligned columns.
+The row in your source file is missing the `name` column. Check for empty cells or misaligned columns.
 
 ### Row-level error: `Duplicate entry '...' for key 'email'`
 

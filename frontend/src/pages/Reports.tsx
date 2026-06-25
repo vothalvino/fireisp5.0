@@ -69,8 +69,7 @@ interface AgingBucket {
 }
 interface AgingInvoice {
   client_id: number;
-  first_name: string;
-  last_name: string;
+  name: string;
   email: string;
   invoice_id: number;
   invoice_number: string;
@@ -440,7 +439,7 @@ function AgingTab() {
   const filtered = (d?.details ?? []).filter(inv => {
     const q = search.toLowerCase();
     return !q
-      || `${inv.first_name} ${inv.last_name}`.toLowerCase().includes(q)
+      || (inv.name ?? '').toLowerCase().includes(q)
       || inv.invoice_number.toLowerCase().includes(q)
       || inv.email.toLowerCase().includes(q);
   });
@@ -485,7 +484,7 @@ function AgingTab() {
                 return (
                   <tr key={inv.invoice_id}>
                     <td style={styles.td}>{inv.invoice_number}</td>
-                    <td style={styles.td}>{inv.first_name} {inv.last_name}</td>
+                    <td style={styles.td}>{inv.name}</td>
                     <td style={styles.td}>{currency(inv.total, inv.currency)}</td>
                     <td style={styles.td}>{inv.due_date?.slice(0, 10)}</td>
                     <td style={{ ...styles.td, color: inv.days_overdue > 60 ? '#e74c3c' : '#555' }}>
