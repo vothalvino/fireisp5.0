@@ -826,10 +826,12 @@ function MxProfileModal({
 
 function PortalPasswordModal({
   clientId,
+  username,
   onClose,
   onSaved,
 }: {
   clientId: string;
+  username: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -858,6 +860,20 @@ function PortalPasswordModal({
       <form style={modalBox} onSubmit={handleSubmit}>
         <h2 style={modalTitle}>Set Portal Password</h2>
         {error && <div style={errorBox}>{error}</div>}
+        <label style={labelStyle}>Portal username</label>
+        {username ? (
+          <>
+            <input style={{ ...inputStyle, background: 'var(--bg-subtle)' }} type="text" value={username} readOnly />
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>
+              The client signs in to the portal with this email and the password below.
+            </p>
+          </>
+        ) : (
+          <div style={errorBox}>
+            This client has no email. The portal login uses the email as the username, so add an email
+            to the client before the portal password can be used.
+          </div>
+        )}
         <label style={labelStyle}>New password *</label>
         <input style={inputStyle} type="password" value={password} onChange={e => setPassword(e.target.value)} autoFocus />
         <label style={labelStyle}>Confirm password *</label>
@@ -1093,6 +1109,7 @@ export function ClientDetail() {
       {showPortalPassword && (
         <PortalPasswordModal
           clientId={client.id}
+          username={client.email}
           onClose={() => setShowPortalPassword(false)}
           onSaved={() => setShowPortalPassword(false)}
         />

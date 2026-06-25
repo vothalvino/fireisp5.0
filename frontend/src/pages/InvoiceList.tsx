@@ -10,9 +10,9 @@
 
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { api } from '@/api/client';
+import { api, tokenStore } from '@/api/client';
 import { extractApiError } from '@/components/ClientFormModal';
 
 // ---------------------------------------------------------------------------
@@ -112,6 +112,22 @@ async function generateFlexibleInvoice(clientId: number, items: FlexItem[]): Pro
     body: { client_id: clientId, items } as never,
   });
   if (error) throw new Error(extractApiError(error, 'Failed to generate invoice'));
+}
+
+// PATCH /invoices/:id isn't in the generated OpenAPI schema, so use raw fetch
+// with the stored token (same pattern as ContractList.patchContractStatus).
+async function voidInvoice(id: number): Promise<void> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`/api/v1/invoices/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ status: 'void' }),
+  });
+  if (!res.ok) {
+    let msg = `Failed to void invoice #${id}`;
+    try { const j = await res.json() as { error?: { message?: string } | string }; msg = (typeof j.error === 'string' ? j.error : j.error?.message) ?? msg; } catch { /* keep default */ }
+    throw new Error(msg);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -386,12 +402,42 @@ export function InvoiceList() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [showGenerate, setShowGenerate] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [confirmVoid, setConfirmVoid] = useState(false);
+  const [voidError, setVoidError] = useState<string | null>(null);
   const qc = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['invoices', page, statusFilter],
     queryFn: () => fetchInvoices(page, statusFilter),
     placeholderData: prev => prev,
+  });
+
+  const visibleIds = (data?.data ?? []).map(i => i.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id));
+
+  function toggleOne(id: number) {
+    setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  function toggleAllVisible() {
+    setSelected(s => {
+      const n = new Set(s);
+      if (visibleIds.every(id => n.has(id))) visibleIds.forEach(id => n.delete(id));
+      else visibleIds.forEach(id => n.add(id));
+      return n;
+    });
+  }
+  function changePage(next: number) { setSelected(new Set()); setPage(next); }
+
+  const voidMut = useMutation({
+    mutationFn: async () => {
+      const ids = Array.from(selected);
+      const results = await Promise.allSettled(ids.map(voidInvoice));
+      const failed = results.filter(r => r.status === 'rejected').length;
+      if (failed) throw new Error(`${failed} of ${ids.length} invoice(s) could not be voided.`);
+    },
+    onSuccess: () => { setSelected(new Set()); setConfirmVoid(false); setVoidError(null); qc.invalidateQueries({ queryKey: ['invoices'] }); },
+    onError: (e: Error) => { setVoidError(e.message); setConfirmVoid(false); qc.invalidateQueries({ queryKey: ['invoices'] }); },
   });
 
   const { data: clients = [] } = useQuery({
@@ -409,6 +455,7 @@ export function InvoiceList() {
   function handleFilterChange(newStatus: string) {
     setStatusFilter(newStatus);
     setPage(1);
+    setSelected(new Set());
   }
 
   const totalPages = data?.meta?.totalPages ?? 1;
@@ -442,6 +489,22 @@ export function InvoiceList() {
         ))}
       </div>
 
+      {/* Bulk actions */}
+      {selected.size > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '0.75rem', padding: '8px 12px', background: 'var(--bg-subtle)', borderRadius: 6 }}>
+          <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{selected.size} selected</span>
+          <button
+            style={{ ...submitBtn, background: '#b91c1c' }}
+            disabled={voidMut.isPending}
+            onClick={() => { setVoidError(null); setConfirmVoid(true); }}
+          >
+            Void selected
+          </button>
+          <button style={cancelBtn} onClick={() => setSelected(new Set())}>Clear</button>
+        </div>
+      )}
+      {voidError && <p style={{ color: '#b91c1c', marginBottom: '0.75rem', fontSize: '0.85rem' }}>{voidError}</p>}
+
       {/* Table */}
       {isLoading && <p style={{ color: '#888' }}>{t('invoiceList.loading')}</p>}
       {isError && <p style={{ color: 'var(--accent)' }}>{t('invoiceList.error')}</p>}
@@ -451,6 +514,9 @@ export function InvoiceList() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
               <thead>
                 <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                  <th style={{ padding: '10px 14px', width: 36 }}>
+                    <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Select all invoices on this page" />
+                  </th>
                   {[
                     t('invoiceList.table.invoiceNumber'),
                     t('invoiceList.table.clientId'),
@@ -466,7 +532,7 @@ export function InvoiceList() {
               <tbody>
                 {data.data.length === 0 && (
                   <tr>
-                    <td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
+                    <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
                       {t('invoiceList.noInvoices')}
                     </td>
                   </tr>
@@ -476,6 +542,14 @@ export function InvoiceList() {
                     key={inv.id}
                     style={{ borderBottom: '1px solid #f3f4f6', background: idx % 2 === 0 ? '#fff' : '#fafafa' }}
                   >
+                    <td style={{ padding: '10px 14px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(inv.id)}
+                        onChange={() => toggleOne(inv.id)}
+                        aria-label={`Select invoice ${inv.invoice_number || inv.id}`}
+                      />
+                    </td>
                     <td style={{ padding: '10px 14px' }}>
                       <Link
                         to={`/invoices/${inv.id}`}
@@ -507,9 +581,9 @@ export function InvoiceList() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.75rem', fontSize: '0.8rem', color: '#6b7280' }}>
             <span>{total} invoice{total !== 1 ? 's' : ''}</span>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button style={pageBtn} disabled={page <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
+              <button style={pageBtn} disabled={page <= 1} onClick={() => changePage(page - 1)}>← Prev</button>
               <span style={{ padding: '4px 8px' }}>Page {page} / {totalPages}</span>
-              <button style={pageBtn} disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next →</button>
+              <button style={pageBtn} disabled={page >= totalPages} onClick={() => changePage(page + 1)}>Next →</button>
             </div>
           </div>
         </>
@@ -523,6 +597,25 @@ export function InvoiceList() {
           onClose={() => setShowGenerate(false)}
           onGenerated={() => qc.invalidateQueries({ queryKey: ['invoices'] })}
         />
+      )}
+
+      {confirmVoid && (
+        <div style={overlay} role="dialog" aria-modal="true" aria-label="Confirm void invoices">
+          <div style={modalBox}>
+            <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>
+              Void {selected.size} invoice{selected.size !== 1 ? 's' : ''}?
+            </h2>
+            <p style={{ fontSize: '0.9rem', color: '#374151' }}>
+              The selected invoice{selected.size !== 1 ? 's' : ''} will be marked as void. This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: '1rem' }}>
+              <button type="button" style={cancelBtn} onClick={() => setConfirmVoid(false)} disabled={voidMut.isPending}>Cancel</button>
+              <button type="button" style={{ ...submitBtn, background: '#b91c1c' }} onClick={() => voidMut.mutate()} disabled={voidMut.isPending}>
+                {voidMut.isPending ? 'Voiding…' : 'Void invoices'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

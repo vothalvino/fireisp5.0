@@ -38,12 +38,18 @@ router.get('/health', requirePermission('noc.view'), async (req, res, next) => {
     );
     const total = Number(deviceStats.devices_total) || 0;
     const up = Number(deviceStats.devices_up) || 0;
+    // Shape mirrors what the NOC dashboard reads: a nested `devices` object with
+    // up/down/warning/total_devices. Maintenance devices map to the "warning"
+    // bucket. (Previously this returned flat fields, so the dashboard's
+    // `data.devices.up` read threw and broke the whole page.)
     res.json({
       data: {
-        devices_total: total,
-        devices_up: up,
-        devices_down: Number(deviceStats.devices_down) || 0,
-        devices_maintenance: Number(deviceStats.devices_maintenance) || 0,
+        devices: {
+          total_devices: total,
+          up,
+          down: Number(deviceStats.devices_down) || 0,
+          warning: Number(deviceStats.devices_maintenance) || 0,
+        },
         uptime_pct: total > 0 ? Math.round((up / total) * 1000) / 10 : null,
         active_alerts: alertStats,
       },

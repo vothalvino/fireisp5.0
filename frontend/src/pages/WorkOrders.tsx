@@ -38,6 +38,8 @@ interface WorkOrder {
   client_name: string | null;
   site_name: string | null;
   device_name: string | null;
+  assigned_first: string | null;
+  assigned_last: string | null;
 }
 
 interface WorkOrderBody {
@@ -56,6 +58,8 @@ interface WorkOrderBody {
 }
 
 interface Option { id: number; name: string }
+
+interface UserOption { id: number; first_name: string; last_name: string }
 
 interface WorkOrderMaterial {
   id: number;
@@ -124,6 +128,12 @@ async function fetchOptions(pathname: '/sites' | '/devices'): Promise<Option[]> 
   const res = await api.GET(pathname as never, { params: { query: { limit: 200 } as never } } as never);
   if ((res as { error?: unknown }).error) return [];
   return (((res as { data: unknown }).data as { data: Option[] }).data) ?? [];
+}
+
+async function fetchUsers(): Promise<UserOption[]> {
+  const res = await api.GET('/users' as never, { params: { query: { limit: 200 } as never } } as never);
+  if ((res as { error?: unknown }).error) return [];
+  return (((res as { data: unknown }).data as { data: UserOption[] }).data) ?? [];
 }
 
 async function createWorkOrder(body: WorkOrderBody): Promise<WorkOrder> {
@@ -321,6 +331,7 @@ export function WorkOrders() {
 
   const sitesQ = useQuery({ queryKey: ['workOrders', 'siteOptions'], queryFn: () => fetchOptions('/sites') });
   const devicesQ = useQuery({ queryKey: ['workOrders', 'deviceOptions'], queryFn: () => fetchOptions('/devices') });
+  const usersQ = useQuery({ queryKey: ['workOrders', 'userOptions'], queryFn: fetchUsers });
 
   const createMut = useMutation({
     mutationFn: () => createWorkOrder(form as WorkOrderBody),
@@ -355,6 +366,11 @@ export function WorkOrders() {
 
   const targetLabel = (wo: WorkOrder): string =>
     wo.client_name || wo.site_name || wo.device_name || t('workOrders.none');
+
+  const assigneeName = (wo: WorkOrder): string => {
+    const name = `${wo.assigned_first ?? ''} ${wo.assigned_last ?? ''}`.trim();
+    return name || t('workOrders.none');
+  };
 
   const hasTarget = Boolean(form.client_id || form.site_id || form.device_id);
 
@@ -399,6 +415,7 @@ export function WorkOrders() {
                     <th style={styles.th}>Title</th>
                     <th style={styles.th}>{t('workOrders.type')}</th>
                     <th style={styles.th}>{t('workOrders.target')}</th>
+                    <th style={styles.th}>Assigned To</th>
                     <th style={styles.th}>Status</th>
                     <th style={styles.th}>Scheduled</th>
                     <th style={styles.th}>Actions</th>
@@ -412,6 +429,7 @@ export function WorkOrders() {
                         <td style={styles.td}>{wo.title}</td>
                         <td style={{ ...styles.td, textTransform: 'capitalize' }}>{workTypeLabel(wo.work_type)}</td>
                         <td style={styles.td}>{targetLabel(wo)}</td>
+                        <td style={styles.td}>{assigneeName(wo)}</td>
                         <td style={styles.td}><StatusBadge status={wo.status} /></td>
                         <td style={styles.td}>{wo.scheduled_at ? wo.scheduled_at.slice(0, 10) : t('common.na')}</td>
                         <td style={styles.td} onClick={e => e.stopPropagation()}>
@@ -451,7 +469,7 @@ export function WorkOrders() {
                       </tr>
                       {expandedId === wo.id && (
                         <tr key={`${wo.id}-materials`}>
-                          <td colSpan={7} style={{ padding: 0 }}>
+                          <td colSpan={8} style={{ padding: 0 }}>
                             <MaterialsPanel workOrderId={wo.id} />
                           </td>
                         </tr>
@@ -552,6 +570,18 @@ export function WorkOrders() {
                 >
                   <option value="">{t('workOrders.none')}</option>
                   {(devicesQ.data ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </label>
+
+              <label style={modalStyles.label}>
+                Assigned To
+                <select
+                  style={modalStyles.select}
+                  value={form.assigned_to ?? ''}
+                  onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value ? Number(e.target.value) : undefined }))}
+                >
+                  <option value="">Unassigned</option>
+                  {(usersQ.data ?? []).map(u => <option key={u.id} value={u.id}>{u.first_name} {u.last_name}</option>)}
                 </select>
               </label>
               {formErr && <p style={modalStyles.error}>{formErr}</p>}

@@ -146,7 +146,7 @@ function drawTableRow(doc, y, columns, opts = {}) {
 async function generateInvoicePdf(invoiceId, { locale = 'en' } = {}) {
   const L = pdfLabels(locale);
   const [invoices] = await db.query(
-    `SELECT i.*, cl.first_name, cl.last_name, cl.email, cl.phone, cl.address, cl.city, cl.state, cl.country,
+    `SELECT i.*, cl.name, cl.email, cl.phone, cl.address, cl.city, cl.state, cl.country,
             o.name AS org_name, o.email AS org_email, o.phone AS org_phone,
             o.address AS org_address, o.city AS org_city, o.state AS org_state, o.country AS org_country
      FROM invoices i
@@ -221,7 +221,7 @@ async function generateInvoicePdf(invoiceId, { locale = 'en' } = {}) {
     doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.muted).text(L.billTo, PAGE_MARGIN, y);
     y += 14;
     doc.fontSize(10).font('Helvetica-Bold').fillColor(COLORS.text)
-      .text(`${invoice.first_name || ''} ${invoice.last_name || ''}`.trim() || 'Client', PAGE_MARGIN, y);
+      .text(invoice.name || 'Client', PAGE_MARGIN, y);
     y += 14;
     doc.fontSize(8).font('Helvetica').fillColor(COLORS.muted);
     if (invoice.email) { doc.text(invoice.email, PAGE_MARGIN, y); y += 11; }
@@ -300,7 +300,7 @@ async function generateInvoicePdf(invoiceId, { locale = 'en' } = {}) {
 async function generateCreditNotePdf(creditNoteId, { locale = 'en' } = {}) {
   const L = pdfLabels(locale);
   const [notes] = await db.query(
-    `SELECT cn.*, cl.first_name, cl.last_name, cl.email,
+    `SELECT cn.*, cl.name, cl.email,
             o.name AS org_name
      FROM credit_notes cn
      LEFT JOIN clients cl ON cl.id = cn.client_id
@@ -337,7 +337,7 @@ async function generateCreditNotePdf(creditNoteId, { locale = 'en' } = {}) {
 
     // Client
     doc.fontSize(10).font('Helvetica-Bold').fillColor(COLORS.text)
-      .text(`${note.first_name || ''} ${note.last_name || ''}`.trim() || 'Client', PAGE_MARGIN, y);
+      .text(note.name || 'Client', PAGE_MARGIN, y);
     if (note.email) { doc.fontSize(8).font('Helvetica').fillColor(COLORS.muted).text(note.email, PAGE_MARGIN, y + 14); }
     y += 35;
 
@@ -382,7 +382,7 @@ async function generateCreditNotePdf(creditNoteId, { locale = 'en' } = {}) {
 async function generateQuotePdf(quoteId, { locale = 'en' } = {}) {
   const L = pdfLabels(locale);
   const [quotes] = await db.query(
-    `SELECT q.*, cl.first_name, cl.last_name, cl.email,
+    `SELECT q.*, cl.name, cl.email,
             o.name AS org_name
      FROM quotes q
      LEFT JOIN clients cl ON cl.id = q.client_id
@@ -417,7 +417,7 @@ async function generateQuotePdf(quoteId, { locale = 'en' } = {}) {
     y = drawHR(doc, y);
 
     doc.fontSize(10).font('Helvetica-Bold').fillColor(COLORS.text)
-      .text(`${quote.first_name || ''} ${quote.last_name || ''}`.trim() || 'Prospect', PAGE_MARGIN, y);
+      .text(quote.name || 'Prospect', PAGE_MARGIN, y);
     y += 14;
     if (quote.email) { doc.fontSize(8).font('Helvetica').fillColor(COLORS.muted).text(quote.email, PAGE_MARGIN, y); y += 11; }
     y += 5;
@@ -617,7 +617,7 @@ async function generatePaymentReceiptPdf(paymentId, { locale = 'en' } = {}) {
   const L = pdfLabels(locale);
 
   const [payments] = await db.query(
-    `SELECT p.*, cl.first_name, cl.last_name, cl.email, cl.phone, cl.address,
+    `SELECT p.*, cl.name, cl.email, cl.phone, cl.address,
             cl.city, cl.state, cl.country,
             o.name AS org_name, o.email AS org_email, o.phone AS org_phone,
             o.address AS org_address, o.city AS org_city, o.state AS org_state,
@@ -683,7 +683,7 @@ async function generatePaymentReceiptPdf(paymentId, { locale = 'en' } = {}) {
     doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.muted).text(L.receivedFrom, PAGE_MARGIN, y);
     y += 14;
     doc.fontSize(10).font('Helvetica-Bold').fillColor(COLORS.text)
-      .text(`${payment.first_name || ''} ${payment.last_name || ''}`.trim() || 'Client', PAGE_MARGIN, y);
+      .text(payment.name || 'Client', PAGE_MARGIN, y);
     y += 14;
     doc.fontSize(8).font('Helvetica').fillColor(COLORS.muted);
     if (payment.email) { doc.text(payment.email, PAGE_MARGIN, y); y += 11; }
