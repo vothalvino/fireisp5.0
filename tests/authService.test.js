@@ -197,7 +197,7 @@ describe('authService', () => {
 
       expect(result.accessToken).toBeDefined();
       expect(result.refreshToken).toBeDefined();
-      expect(result.expiresIn).toBe(900);
+      expect(result.expiresIn).toBe(3600); // 60-minute access token
       expect(result.user.email).toBe('john@example.com');
       expect(result.user.password_hash).toBeUndefined();
     });
@@ -451,7 +451,7 @@ describe('authService', () => {
       expect(result.accessToken).toBeDefined();
       expect(result.refreshToken).toBeDefined();
       expect(result.refreshToken).not.toBe(refreshTokenValue); // new refresh token
-      expect(result.expiresIn).toBe(900);
+      expect(result.expiresIn).toBe(3600); // 60-minute access token
     });
 
     test('preserves a valid requested active org across refresh (admin → non-membership org)', async () => {

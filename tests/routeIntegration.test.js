@@ -130,7 +130,7 @@ describe('Auth Routes — /api/auth', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.accessToken).toBeDefined();
       expect(res.body.data.refreshToken).toBeDefined();
-      expect(res.body.data.expiresIn).toBe(900);
+      expect(res.body.data.expiresIn).toBe(3600); // 60-minute access token
       expect(res.body.data.user.email).toBe('test@example.com');
       expect(res.body.data.organizations).toHaveLength(1);
     });

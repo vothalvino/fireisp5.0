@@ -121,7 +121,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 
 ## Token Refresh
 
-Access tokens expire after 15 minutes by default (configurable via `JWT_ACCESS_EXPIRES_IN`). Refresh tokens last 7 days (configurable via `JWT_REFRESH_EXPIRES_IN`). Use the refresh endpoint to rotate your token pair without re-authenticating:
+Access tokens expire after 60 minutes by default (configurable via `JWT_ACCESS_EXPIRES_IN`). Refresh tokens last 7 days (configurable via `JWT_REFRESH_EXPIRES_IN`). Use the refresh endpoint to rotate your token pair without re-authenticating:
 
 ```http
 POST /api/auth/refresh
@@ -290,7 +290,7 @@ Requests are rate-limited per IP address. Rate limit headers are included in eve
 
 | Tier | Limit | Window | Applied To |
 |------|-------|--------|------------|
-| Auth | 20 req | 15 min | `/api/auth/*` |
+| Auth | 20 req | 15 min | `/api/auth/{login,register,password-reset,change-password,verify-email}` |
 | SSE | 10 req | 15 min | `/api/events/*` |
 | Export | 20 req | 15 min | `/api/export/*`, `/api/pdf/*` |
 | General | 200 req | 15 min | All other `/api/*` |

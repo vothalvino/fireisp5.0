@@ -77,6 +77,15 @@ const authMiddleware: Middleware = {
     if (token) {
       request.headers.set('Authorization', `Bearer ${token}`);
     }
+    // Right after a reload the in-memory token is gone; the request authenticates
+    // via the httpOnly `fireisp_access` cookie instead (createClient sends it with
+    // credentials:'include'). That makes state-changing requests cookie-authenticated,
+    // which the server's CSRF guard requires the `fireisp_csrf` token for. Bearer
+    // requests are CSRF-exempt and ignore it, so sending it always is safe.
+    const csrf = readCsrfCookie();
+    if (csrf) {
+      request.headers.set('X-CSRF-Token', csrf);
+    }
     return request;
   },
 };
@@ -102,7 +111,10 @@ const refreshMiddleware: Middleware = {
   },
 };
 
-export const api = createClient<paths>({ baseUrl: '/api/v1' });
+// credentials:'include' sends the httpOnly auth cookies, so a reload within the
+// access-token lifetime authenticates via the `fireisp_access` cookie alone — no
+// `/refresh` round-trip and no refresh-token rotation on every page load.
+export const api = createClient<paths>({ baseUrl: '/api/v1', credentials: 'include' });
 api.use(authMiddleware);
 api.use(refreshMiddleware);
 
@@ -110,7 +122,7 @@ api.use(refreshMiddleware);
 // behaviour as the REST middleware above, for callers that don't go through
 // openapi-fetch (e.g. the GraphQL client). The access token lives in memory only
 // and is wiped on every page reload, so without this a GraphQL request after a
-// reload (or after the 15-min token expiry) would 401 forever and surface as
+// reload (or after the access-token lifetime) would 401 forever and surface as
 // "Client not found"; here a 401 triggers a single shared refresh (via the
 // httpOnly cookie) and one retry, mirroring refreshMiddleware.
 export async function authedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

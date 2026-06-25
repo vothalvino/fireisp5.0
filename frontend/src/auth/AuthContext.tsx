@@ -121,33 +121,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (booted.current) return;
     booted.current = true;
 
+    // Restore the session on mount WITHOUT bouncing to /login on a transient hiccup.
+    //
+    // Cookie-first: the httpOnly `fireisp_access` cookie authenticates GET /auth/me
+    // directly, so a reload within the access-token lifetime needs no /refresh (no
+    // token rotation, a single request). Only when that cookie is missing/expired
+    // (401) do we fall back to one /refresh and re-hydrate.
+    //
+    // A 429 (rate-limited) or 5xx/network blip means "couldn't verify right now",
+    // NOT "logged out" — we retry briefly instead of clearing the session, so a
+    // rate-limited or flaky reload never dumps the user on the login screen. Only a
+    // definitive 401/403 settles as logged-out.
+    const isTransient = (status: number) => status === 429 || status >= 500;
+    const settleLoggedOut = () => {
+      tokenStore.clear();
+      setState({ user: null, loading: false, initialized: true });
+    };
+
     (async () => {
-      try {
-        const csrfToken = readCsrfCookie();
-        const res = await fetch('/api/v1/auth/refresh', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
-          },
-          credentials: 'include',
-        });
-        if (res.ok) {
-          const json = (await res.json()) as {
-            data: { accessToken: string; refreshToken: string };
-          };
-          tokenStore.setAccess(json.data.accessToken);
-          await hydrateUser();
-        } else {
-          tokenStore.clear();
-          setState({ user: null, loading: false, initialized: true });
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          // 1. Fetch /auth/me — via the Bearer token if we minted one this loop,
+          //    otherwise via the httpOnly access cookie.
+          const bearer = tokenStore.getAccess();
+          const meRes = await fetch('/api/v1/auth/me', {
+            headers: bearer ? { Authorization: `Bearer ${bearer}` } : {},
+            credentials: 'include',
+          });
+          if (meRes.ok) {
+            const json = (await meRes.json()) as { data: AuthUser };
+            setState({ user: json.data, loading: false, initialized: true });
+            return;
+          }
+          if (meRes.status === 401 || meRes.status === 403) {
+            // 2. Access cookie missing/expired → one refresh, then loop to re-/me.
+            const csrfToken = readCsrfCookie();
+            const refreshRes = await fetch('/api/v1/auth/refresh', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+              },
+              credentials: 'include',
+            });
+            if (refreshRes.ok) {
+              const json = (await refreshRes.json()) as { data: { accessToken: string } };
+              tokenStore.setAccess(json.data.accessToken);
+              // Re-run the loop to fetch /me with the fresh token (no backoff), so a
+              // 429/5xx on the post-refresh /me retries instead of logging out.
+              continue;
+            }
+            // Definitive "no session" → logged out; transient → retry the loop.
+            if (!isTransient(refreshRes.status)) {
+              settleLoggedOut();
+              return;
+            }
+          } else if (!isTransient(meRes.status)) {
+            settleLoggedOut();
+            return;
+          }
+          // Transient on /me or /refresh → fall through to back off and retry.
+        } catch {
+          // Network error → transient, retry.
         }
-      } catch {
-        tokenStore.clear();
-        setState({ user: null, loading: false, initialized: true });
+        await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
       }
+      // Exhausted retries against transient errors. We can't render the app without a
+      // user, so settle logged-out as a last resort — but only after retrying, so a
+      // single blip never hard-bounces an active session to login.
+      settleLoggedOut();
     })();
-  }, [hydrateUser]);
+  }, []);
 
   const login = useCallback(
     async (email: string, password: string, totpCode?: string) => {
@@ -179,19 +223,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
+      // ALWAYS hit the server so it revokes the refresh-token family and clears the
+      // httpOnly cookies. After a cookie-first reload there is no in-memory token, so
+      // a token-gated logout would be a no-op — the cookies would stay live and the
+      // next reload would silently re-authenticate. /logout is authenticate-gated
+      // (accepts the fireisp_access cookie) and is a cookie-auth POST, so send the
+      // CSRF token; Bearer is added only when an in-memory token is present.
       const accessToken = tokenStore.getAccess();
-      if (accessToken) {
-        // Send credentials so the httpOnly refresh cookie is included for
-        // server-side session revocation.
-        await fetch('/api/v1/auth/logout', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          credentials: 'include',
-        });
-      }
+      const csrf = readCsrfCookie();
+      await fetch('/api/v1/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
+        },
+        credentials: 'include',
+      });
+    } catch {
+      // Ignore network errors — local state is cleared regardless below.
     } finally {
       tokenStore.clear();
       setState({ user: null, loading: false, initialized: true });
@@ -200,20 +250,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const switchOrganization = useCallback(
     async (organizationId: number) => {
+      // After a cookie-first reload the in-memory token may be empty; the httpOnly
+      // fireisp_access cookie authenticates the request instead (so do NOT hard-gate
+      // on a Bearer token — that regressed the switcher into "Not authenticated").
+      // switch-organization is a cookie-auth state-changing POST, so it needs the
+      // CSRF token (Bearer requests ignore it). The httpOnly fireisp_refresh cookie
+      // (Path=/api/v1/auth) is attached automatically via credentials:'include'.
       const accessToken = tokenStore.getAccess();
-      if (!accessToken) {
-        throw new Error('Not authenticated');
-      }
-
-      // The httpOnly refresh cookie is sent automatically via credentials:'include'.
-      // No need to read it from localStorage or pass it in the request body.
-      // NOTE: this relies on the server scoping `fireisp_refresh` to Path=/api/v1/auth
-      // (not /api/v1/auth/refresh) so the browser attaches it to this endpoint too.
+      const csrf = readCsrfCookie();
       const res = await fetch('/api/v1/auth/switch-organization', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
         },
         credentials: 'include',
         body: JSON.stringify({ organizationId }),
