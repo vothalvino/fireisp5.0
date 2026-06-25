@@ -258,7 +258,7 @@ that time.
 - ✅ `src/services/authService.js` exports `REFRESH_SECONDS` and `ACCESS_SECONDS` constants for cookie `maxAge` calculations
 - ✅ `src/middleware/schemas/auth.js` — `refreshToken` field made optional in the `refreshToken` and `switchOrganization` schemas (browser SPA sends it via cookie; body field preserved for API-client backward compat)
 - ✅ `src/routes/auth.js` rewritten with `setAuthCookies(res, accessToken, refreshToken)` / `clearAuthCookies(res)` helpers:
-  - `POST /login` → sets `fireisp_access` (Path=/api, `ACCESS_SECONDS` maxAge) + `fireisp_refresh` (Path=/api/v1/auth/refresh only, `REFRESH_SECONDS` maxAge); both `HttpOnly; SameSite=Strict; Secure` in production; JSON body unchanged for backward compat
+  - `POST /login` → sets `fireisp_access` (Path=/api, `ACCESS_SECONDS` maxAge) + `fireisp_refresh` (Path=/api/v1/auth, `REFRESH_SECONDS` maxAge — scoped to cover both `/refresh` and `/switch-organization`); both `HttpOnly; SameSite=Strict; Secure` in production; JSON body unchanged for backward compat
   - `POST /refresh` → reads refresh token from `fireisp_refresh` cookie **or** body (cookie wins); rotates both cookies
   - `POST /logout` → revokes session from cookie-or-body refresh token; `clearCookie` on both cookies
   - `POST /switch-organization` → reads refresh token from cookie or body; rotates both cookies on success
