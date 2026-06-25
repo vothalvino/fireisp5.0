@@ -60,11 +60,31 @@ function setAuthCookies(res, accessToken, refreshToken) {
 }
 
 /**
+ * Persist the active organization so it survives a token refresh / page reload.
+ *
+ * The SPA keeps the access token in memory only (wiped on reload), so without this
+ * the active org would revert to the user's primary org on the next /refresh. We
+ * store it in an httpOnly cookie scoped to /api/v1/auth/refresh — the only endpoint
+ * that reads it — and authService.refreshToken RE-VALIDATES the value, so the cookie
+ * being client-visible-as-a-name cannot escalate access. The SPA never needs to read
+ * it (it learns the active org from /auth/me), hence httpOnly.
+ */
+function setActiveOrgCookie(res, orgId) {
+  if (orgId === null || orgId === undefined) return;
+  res.cookie('fireisp_active_org', String(orgId), {
+    ...COOKIE_BASE,
+    path: '/api/v1/auth/refresh',
+    maxAge: authService.REFRESH_SECONDS * 1000,
+  });
+}
+
+/**
  * Clear all auth + CSRF cookies from the response.
  */
 function clearAuthCookies(res) {
   res.clearCookie('fireisp_access', { ...COOKIE_BASE, path: '/api' });
   res.clearCookie('fireisp_refresh', { ...COOKIE_BASE, path: '/api/v1/auth' });
+  res.clearCookie('fireisp_active_org', { ...COOKIE_BASE, path: '/api/v1/auth/refresh' });
   clearCsrfCookie(res);
 }
 
@@ -126,7 +146,15 @@ router.get('/me', authenticate, async (req, res, next) => {
     const user = await User.findById(req.user.id);
     const safeUser = sanitizeUser(user);
     const organizations = await User.getOrganizations(req.user.id);
-    res.json({ data: { ...safeUser, organizations } });
+    // Report the ACTIVE organization (from the access-token `orgId` claim), not the
+    // user's stored home org — otherwise the org switcher snaps back after a switch.
+    res.json({
+      data: {
+        ...safeUser,
+        organization_id: req.user.organizationId ?? safeUser.organization_id,
+        organizations,
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -197,9 +225,13 @@ router.post('/refresh',
       if (!tokenValue) {
         return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Refresh token required' } });
       }
-      const result = await authService.refreshToken(tokenValue);
+      // Pass the active-org cookie so a reload-triggered refresh keeps the
+      // switched org instead of reverting to the user's primary org.
+      const result = await authService.refreshToken(tokenValue, req.cookies?.fireisp_active_org);
       // Rotate cookies for browser SPA
       setAuthCookies(res, result.accessToken, result.refreshToken);
+      // Re-persist the (re-validated) active org so it keeps surviving reloads.
+      setActiveOrgCookie(res, result.activeOrgId);
       res.json({ data: result });
     } catch (err) {
       next(err);
@@ -224,6 +256,8 @@ router.post('/switch-organization', authenticate,
       );
       // Rotate cookies for browser SPA
       setAuthCookies(res, result.accessToken, result.refreshToken);
+      // Persist the new active org so a later /refresh (page reload) keeps it.
+      setActiveOrgCookie(res, result.organization.id);
       res.json({ data: result });
     } catch (err) {
       next(err);
