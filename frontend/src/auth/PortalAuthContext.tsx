@@ -81,27 +81,6 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
     initialized: false,
   });
 
-  const hydrateClient = useCallback(async () => {
-    setState(s => ({ ...s, loading: true }));
-    try {
-      const res = await fetch('/api/v1/portal/auth/me', {
-        headers: portalTokenStore.getAccess()
-          ? { Authorization: `Bearer ${portalTokenStore.getAccess()}` }
-          : {},
-      });
-      if (res.ok) {
-        const json = (await res.json()) as { data: PortalClient };
-        setState({ client: json.data, loading: false, initialized: true });
-      } else {
-        portalTokenStore.clear();
-        setState({ client: null, loading: false, initialized: true });
-      }
-    } catch {
-      portalTokenStore.clear();
-      setState({ client: null, loading: false, initialized: true });
-    }
-  }, []);
-
   const booted = useRef(false);
   useEffect(() => {
     if (booted.current) return;
@@ -113,30 +92,65 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Restore the portal session on mount. The access token lives in memory and is
+    // wiped on reload, so we re-exchange the (localStorage) refresh token, then load
+    // the client profile. A 429 (rate-limited) or 5xx/network blip is transient — we
+    // retry briefly rather than clearing the session, so a flaky or frequently-reloaded
+    // portal session is not bounced to the login screen. Only a definitive 401/403 (or
+    // a missing refresh token, handled above) settles as logged-out.
+    const isTransient = (status: number) => status === 429 || status >= 500;
+    const backoff = (n: number) => new Promise((resolve) => setTimeout(resolve, 400 * (n + 1)));
+    const settleLoggedOut = () => {
+      portalTokenStore.clear();
+      setState({ client: null, loading: false, initialized: true });
+    };
+
     (async () => {
-      try {
-        const res = await fetch('/api/v1/portal/auth/refresh', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken }),
-        });
-        if (res.ok) {
-          const json = (await res.json()) as {
-            data: { accessToken: string; refreshToken: string };
-          };
-          portalTokenStore.setAccess(json.data.accessToken);
-          portalTokenStore.setRefresh(json.data.refreshToken);
-          await hydrateClient();
-        } else {
-          portalTokenStore.clear();
-          setState({ client: null, loading: false, initialized: true });
+      // Phase 1 — exchange the refresh token for a fresh access token.
+      let accessToken: string | null = null;
+      for (let attempt = 0; attempt < 3 && !accessToken; attempt++) {
+        try {
+          const res = await fetch('/api/v1/portal/auth/refresh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken: portalTokenStore.getRefresh() }),
+          });
+          if (res.ok) {
+            const json = (await res.json()) as { data: { accessToken: string; refreshToken: string } };
+            portalTokenStore.setAccess(json.data.accessToken);
+            portalTokenStore.setRefresh(json.data.refreshToken);
+            accessToken = json.data.accessToken;
+            break;
+          }
+          if (!isTransient(res.status)) { settleLoggedOut(); return; }
+        } catch {
+          // network error → transient, retry
         }
-      } catch {
-        portalTokenStore.clear();
-        setState({ client: null, loading: false, initialized: true });
+        await backoff(attempt);
       }
+      if (!accessToken) { settleLoggedOut(); return; } // exhausted transient retries
+
+      // Phase 2 — load the client profile (retry transient /me failures WITHOUT
+      // re-refreshing, since the refresh token was already rotated above).
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const res = await fetch('/api/v1/portal/auth/me', {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          if (res.ok) {
+            const json = (await res.json()) as { data: PortalClient };
+            setState({ client: json.data, loading: false, initialized: true });
+            return;
+          }
+          if (!isTransient(res.status)) { settleLoggedOut(); return; }
+        } catch {
+          // network error → transient, retry
+        }
+        await backoff(attempt);
+      }
+      settleLoggedOut();
     })();
-  }, [hydrateClient]);
+  }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     const res = await fetch('/api/v1/portal/auth/login', {
