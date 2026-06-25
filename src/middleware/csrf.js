@@ -58,6 +58,34 @@ const CSRF_TOKEN_COOKIE  = 'fireisp_csrf';         // NOT httpOnly — SPA reads
 const CSRF_HEADER        = 'x-csrf-token';
 
 // ---------------------------------------------------------------------------
+// CSRF-exempt auth-bootstrap endpoints
+// ---------------------------------------------------------------------------
+// These public endpoints establish or restore a session and MUST work no matter
+// what cookies the browser is still carrying from a prior session. A returning
+// user routinely lands on /login (or the SPA's mount-time /refresh) while a valid
+// httpOnly `fireisp_access` cookie is still live — the browser attaches it
+// automatically, but the request legitimately has no CSRF token, so the cookie-based
+// CSRF gate below would 403 it. They carry no ambient authority a forged request
+// could abuse (login/register/reset read posted credentials; /refresh uses the
+// SameSite=Strict refresh cookie, unreachable cross-site), so exemption is safe.
+// Authenticated endpoints (/logout, /change-password, /switch-organization) are
+// intentionally NOT here: they keep CSRF defense-in-depth (and use Bearer in the SPA).
+// Matched as suffixes so both /api/v1/auth/* and /api/auth/* mounts are covered.
+const CSRF_EXEMPT_SUFFIXES = [
+  '/auth/login',
+  '/auth/register',
+  '/auth/refresh',
+  '/auth/verify-email',
+  '/auth/password-reset',
+  '/auth/password-reset/request',
+];
+
+function isAuthBootstrap(req) {
+  const pathname = (req.originalUrl || req.url || '').split('?')[0];
+  return CSRF_EXEMPT_SUFFIXES.some((suffix) => pathname.endsWith(suffix));
+}
+
+// ---------------------------------------------------------------------------
 // CSRF cookie helpers
 // ---------------------------------------------------------------------------
 
@@ -129,9 +157,11 @@ function clearCsrfCookie(res) {
  *
  * Returns next() immediately when:
  *   - Method is GET, HEAD, or OPTIONS (safe methods)
+ *   - The request targets a public auth-bootstrap endpoint (see
+ *     CSRF_EXEMPT_SUFFIXES — login/register/refresh/verify-email/password-reset),
+ *     which must work regardless of any stale session cookie the browser attaches.
  *   - No `fireisp_access` cookie is present (API-key / Bearer-only clients, or
- *     unauthenticated bootstrap requests such as /auth/login that may still carry
- *     a lingering refresh cookie). The refresh cookie alone does not gate CSRF.
+ *     unauthenticated requests). The refresh cookie alone does not gate CSRF.
  *
  * When the `fireisp_csrf_secret` cookie is present (new sessions):
  *   - Reads the CSRF token from the `X-CSRF-Token` request header.
@@ -145,6 +175,11 @@ function csrfOriginCheck(req, res, next) {
   const method = req.method.toUpperCase();
   const safeMethods = ['GET', 'HEAD', 'OPTIONS'];
   if (safeMethods.includes(method)) return next();
+
+  // Public auth-bootstrap endpoints (login/register/refresh/verify/reset) must
+  // never be blocked by a stale session cookie the browser auto-attaches. See
+  // CSRF_EXEMPT_SUFFIXES above for why this is safe.
+  if (isAuthBootstrap(req)) return next();
 
   // Only enforce when the request carries the FireISP *access* cookie — that is
   // the ambient authenticator for cookie-based state-changing requests. The
