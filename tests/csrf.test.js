@@ -22,8 +22,8 @@ jest.mock('csrf', () => {
 
 const { csrfOriginCheck, setCsrfCookie, clearCsrfCookie } = require('../src/middleware/csrf');
 
-function mockReq({ method = 'POST', cookies = {}, headers = {}, body = {} } = {}) {
-  return { method, cookies, headers, body };
+function mockReq({ method = 'POST', cookies = {}, headers = {}, body = {}, originalUrl = '' } = {}) {
+  return { method, cookies, headers, body, originalUrl, url: originalUrl };
 }
 
 function mockRes() {
@@ -258,8 +258,86 @@ describe('csrfOriginCheck', () => {
   test('POST that carries fireisp_access still enforces CSRF even with a refresh cookie alongside', () => {
     // Genuine cookie-authenticated session: access cookie present → CSRF enforced.
     const req = mockReq({
+      originalUrl: '/api/v1/clients',
       cookies: { fireisp_access: 'jwt', fireisp_refresh: 'opaque-token' },
       headers: { origin: 'https://evil.attacker.com' },
+    });
+    const res = mockRes();
+    const next = jest.fn();
+
+    csrfOriginCheck(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res._status).toBe(403);
+  });
+
+  // =========================================================================
+  // Public auth-bootstrap endpoints are CSRF-exempt (PR #303/#304 follow-up).
+  // A returning user lands on /login (or the SPA's mount-time /refresh) while a
+  // valid httpOnly fireisp_access cookie is still live; the browser attaches it
+  // automatically but the request has no CSRF token. These endpoints must not be
+  // blocked. This is the exact "logged in, then couldn't log in again" repro.
+  // =========================================================================
+  test.each([
+    '/api/v1/auth/login',
+    '/api/v1/auth/register',
+    '/api/v1/auth/refresh',
+    '/api/v1/auth/verify-email',
+    '/api/v1/auth/password-reset',
+    '/api/v1/auth/password-reset/request',
+    '/api/auth/login', // legacy non-v1 mount
+  ])('POST %s is exempt even with a live fireisp_access cookie and NO token', (originalUrl) => {
+    const req = mockReq({
+      originalUrl,
+      cookies: { fireisp_access: 'jwt', fireisp_csrf_secret: 'secret' },
+      headers: { origin: 'https://app.fireisp.example.com' },
+    });
+    const res = mockRes();
+    const next = jest.fn();
+
+    csrfOriginCheck(req, res, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(res._status).toBeNull();
+    expect(mockVerify).not.toHaveBeenCalled();
+  });
+
+  test('exemption survives a query string on the URL', () => {
+    const req = mockReq({
+      originalUrl: '/api/v1/auth/login?redirect=%2Fdashboard',
+      cookies: { fireisp_access: 'jwt', fireisp_csrf_secret: 'secret' },
+      headers: {},
+    });
+    const res = mockRes();
+    const next = jest.fn();
+
+    csrfOriginCheck(req, res, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(res._status).toBeNull();
+  });
+
+  test('authenticated /auth/change-password is NOT exempt — still enforces CSRF', () => {
+    mockVerify.mockReturnValue(false);
+    const req = mockReq({
+      originalUrl: '/api/v1/auth/change-password',
+      cookies: { fireisp_access: 'jwt', fireisp_csrf_secret: 'secret' },
+      headers: { 'x-csrf-token': 'bad' },
+    });
+    const res = mockRes();
+    const next = jest.fn();
+
+    csrfOriginCheck(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res._status).toBe(403);
+  });
+
+  test('authenticated /auth/switch-organization is NOT exempt in cookie mode — still enforces CSRF', () => {
+    const req = mockReq({
+      originalUrl: '/api/v1/auth/switch-organization',
+      cookies: { fireisp_access: 'jwt', fireisp_csrf_secret: 'secret' },
+      headers: {}, // no token, no Bearer
     });
     const res = mockRes();
     const next = jest.fn();
