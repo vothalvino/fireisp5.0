@@ -207,6 +207,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // The httpOnly refresh cookie is sent automatically via credentials:'include'.
       // No need to read it from localStorage or pass it in the request body.
+      // NOTE: this relies on the server scoping `fireisp_refresh` to Path=/api/v1/auth
+      // (not /api/v1/auth/refresh) so the browser attaches it to this endpoint too.
       const res = await fetch('/api/v1/auth/switch-organization', {
         method: 'POST',
         headers: {

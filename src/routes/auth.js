@@ -28,12 +28,15 @@ const COOKIE_BASE = {
 /**
  * Set httpOnly SameSite=Strict auth cookies on the response.
  * - fireisp_access        — short-lived JWT (Path=/api, access token lifetime)
- * - fireisp_refresh       — opaque refresh token (Path=/api/v1/auth/refresh only, refresh token lifetime)
+ * - fireisp_refresh       — opaque refresh token (Path=/api/v1/auth, refresh token lifetime)
  * - fireisp_csrf_secret   — CSRF secret (httpOnly, server-only, Path=/api)
  * - fireisp_csrf          — CSRF token derived from secret (NOT httpOnly, SPA-readable, Path=/api)
  *
- * The narrow Path on the refresh cookie means the browser will only attach it
- * to the refresh endpoint, limiting its exposure surface.
+ * The Path on the refresh cookie limits its exposure surface to the auth
+ * endpoints under /api/v1/auth — notably /refresh and /switch-organization,
+ * both of which require the current refresh token to re-mint tokens. Do NOT
+ * narrow this back to /refresh: /switch-organization would then never receive
+ * the cookie and would fail with "Refresh token required to switch organizations".
  *
  * The SPA reads `fireisp_csrf` and sends it as the `X-CSRF-Token` header on
  * every state-changing request.  The server verifies it against the secret.
@@ -46,7 +49,10 @@ function setAuthCookies(res, accessToken, refreshToken) {
   });
   res.cookie('fireisp_refresh', refreshToken, {
     ...COOKIE_BASE,
-    path: '/api/v1/auth/refresh',
+    // Scoped to /api/v1/auth (not just /refresh) so the browser also attaches it
+    // to /switch-organization, which requires the current refresh token to
+    // re-mint tokens bound to the new org. See clearAuthCookies + the doc above.
+    path: '/api/v1/auth',
     maxAge: authService.REFRESH_SECONDS * 1000,
   });
   // Set the CSRF double-submit token (not httpOnly so the SPA can read it)
@@ -58,7 +64,7 @@ function setAuthCookies(res, accessToken, refreshToken) {
  */
 function clearAuthCookies(res) {
   res.clearCookie('fireisp_access', { ...COOKIE_BASE, path: '/api' });
-  res.clearCookie('fireisp_refresh', { ...COOKIE_BASE, path: '/api/v1/auth/refresh' });
+  res.clearCookie('fireisp_refresh', { ...COOKIE_BASE, path: '/api/v1/auth' });
   clearCsrfCookie(res);
 }
 

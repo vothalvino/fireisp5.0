@@ -7,6 +7,8 @@
 //  3. POST /api/v1/auth/logout clears the cookies
 //  4. POST /api/v1/auth/refresh still works with body-only refresh token
 //     (backward-compat for API clients)
+//  5. POST /api/v1/auth/switch-organization receives the refresh token via the
+//     httpOnly cookie (Path must cover this route) or the request body
 // =============================================================================
 
 jest.mock('../src/services/authService', () => ({
@@ -25,7 +27,11 @@ jest.mock('../src/services/authService', () => ({
 }));
 
 jest.mock('../src/middleware/auth', () => ({
-  authenticate: (_req, _res, next) => next(),
+  authenticate: (req, _res, next) => {
+    // switch-organization reads req.user.id; harmless for the other routes.
+    req.user = { id: 1, email: 'admin@example.com', role: 'admin' };
+    next();
+  },
 }));
 
 jest.mock('../src/models/User', () => ({
@@ -95,7 +101,7 @@ describe('P3.4 — httpOnly cookie auth', () => {
       expect(accessCookie).toMatch(/Path=\/api/);
     });
 
-    test('sets fireisp_refresh httpOnly cookie scoped to /api/v1/auth/refresh', async () => {
+    test('sets fireisp_refresh httpOnly cookie scoped to /api/v1/auth', async () => {
       authService.login.mockResolvedValueOnce(loginResult);
 
       const res = await request(app)
@@ -108,7 +114,10 @@ describe('P3.4 — httpOnly cookie auth', () => {
       expect(refreshCookie).toContain('opaque-refresh-token');
       expect(refreshCookie).toMatch(/HttpOnly/i);
       expect(refreshCookie).toMatch(/SameSite=Strict/i);
-      expect(refreshCookie).toMatch(/Path=\/api\/v1\/auth\/refresh/);
+      // Scoped to /api/v1/auth (exactly) — NOT the narrower /api/v1/auth/refresh,
+      // otherwise the browser would never attach it to /switch-organization.
+      expect(refreshCookie).toMatch(/Path=\/api\/v1\/auth(?:;|$)/);
+      expect(refreshCookie).not.toMatch(/Path=\/api\/v1\/auth\/refresh/);
     });
 
     test('still returns tokens in JSON body for API-client backward compat', async () => {
@@ -240,6 +249,90 @@ describe('P3.4 — httpOnly cookie auth', () => {
         .send({ refreshToken: 'body-token' });
 
       expect(authService.logout).toHaveBeenCalledWith('body-token');
+    });
+  });
+
+  // =========================================================================
+  // POST /auth/switch-organization — requires the refresh token (cookie/body)
+  // =========================================================================
+  describe('POST /api/v1/auth/switch-organization', () => {
+    const switchResult = {
+      accessToken: 'switched-access-jwt',
+      refreshToken: 'switched-refresh-token',
+      expiresIn: 900,
+      organization: { id: 7, name: 'Acme', membership_role: 'admin' },
+    };
+
+    test('forwards the httpOnly refresh cookie to the service', async () => {
+      authService.switchOrganization.mockResolvedValueOnce(switchResult);
+
+      const res = await request(app)
+        .post('/api/v1/auth/switch-organization')
+        .set('Cookie', 'fireisp_refresh=cookie-refresh-token')
+        .send({ organizationId: 7 });
+
+      expect(res.status).toBe(200);
+      // (userId, organizationId, refreshToken) — the cookie must reach the service.
+      expect(authService.switchOrganization).toHaveBeenCalledWith(1, 7, 'cookie-refresh-token');
+      expect(res.body.data.organization.id).toBe(7);
+    });
+
+    test('falls back to the body refresh token for API clients', async () => {
+      authService.switchOrganization.mockResolvedValueOnce(switchResult);
+
+      const res = await request(app)
+        .post('/api/v1/auth/switch-organization')
+        .send({ organizationId: 7, refreshToken: 'body-refresh-token' });
+
+      expect(res.status).toBe(200);
+      expect(authService.switchOrganization).toHaveBeenCalledWith(1, 7, 'body-refresh-token');
+    });
+
+    test('cookie takes precedence over body when both are present', async () => {
+      authService.switchOrganization.mockResolvedValueOnce(switchResult);
+
+      await request(app)
+        .post('/api/v1/auth/switch-organization')
+        .set('Cookie', 'fireisp_refresh=cookie-wins')
+        .send({ organizationId: 7, refreshToken: 'body-loses' });
+
+      expect(authService.switchOrganization).toHaveBeenCalledWith(1, 7, 'cookie-wins');
+    });
+
+    test('rotates both auth cookies on a successful switch', async () => {
+      authService.switchOrganization.mockResolvedValueOnce(switchResult);
+
+      const res = await request(app)
+        .post('/api/v1/auth/switch-organization')
+        .set('Cookie', 'fireisp_refresh=old-token')
+        .send({ organizationId: 7 });
+
+      const cookies = res.headers['set-cookie'];
+      expect(cookies.find(c => c.startsWith('fireisp_access='))).toContain('switched-access-jwt');
+      expect(cookies.find(c => c.startsWith('fireisp_refresh='))).toContain('switched-refresh-token');
+    });
+
+    // Regression guard for the path-mismatch bug: the refresh cookie's Path must
+    // cover /switch-organization, or the browser silently omits it and the
+    // service throws "Refresh token required to switch organizations".
+    test('refresh cookie Path scopes to cover the /switch-organization route', async () => {
+      authService.login.mockResolvedValueOnce({
+        accessToken: 'a', refreshToken: 'r', expiresIn: 900,
+        user: { id: 1, email: 'admin@example.com', role: 'admin' },
+      });
+
+      const res = await request(app)
+        .post('/api/v1/auth/login')
+        .send({ email: 'admin@example.com', password: 'secret1234' });
+
+      const refreshCookie = res.headers['set-cookie'].find(c => c.startsWith('fireisp_refresh='));
+      const cookiePath = /Path=([^;]+)/.exec(refreshCookie)[1];
+
+      // RFC 6265 path-matching: the request path must equal the cookie Path or
+      // sit directly beneath it. Encodes the exact condition the bug violated.
+      const switchPath = '/api/v1/auth/switch-organization';
+      const covered = switchPath === cookiePath || switchPath.startsWith(`${cookiePath}/`);
+      expect(covered).toBe(true);
     });
   });
 });
