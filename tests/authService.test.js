@@ -454,6 +454,45 @@ describe('authService', () => {
       expect(result.expiresIn).toBe(900);
     });
 
+    test('preserves a valid requested active org across refresh (admin → non-membership org)', async () => {
+      const refreshTokenValue = crypto.randomBytes(32).toString('hex');
+      const refreshHash = crypto.createHash('sha256').update(refreshTokenValue).digest('hex');
+      const futureDate = new Date(Date.now() + 86400000).toISOString();
+
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, token_hash: refreshHash, user_id: 1, token_family: 'fam-1', expires_at: futureDate }]]) // session
+        .mockResolvedValueOnce([[{ id: 1, email: 'a@b.com', role: 'admin', status: 'active', organization_id: 1 }]]) // findById
+        .mockResolvedValueOnce([[{ id: 1 }]])               // getOrganizations → primary org 1
+        .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]]) // resolveActiveOrg: org 7 exists
+        .mockResolvedValueOnce([[]])                        // resolveActiveOrg: not a member (admin allowed anyway)
+        .mockResolvedValueOnce([{ affectedRows: 1 }])       // DELETE old
+        .mockResolvedValueOnce([{ insertId: 2 }]);          // INSERT new
+
+      const result = await authService.refreshToken(refreshTokenValue, '7');
+
+      expect(result.activeOrgId).toBe(7);
+    });
+
+    test('falls back to the primary org when the requested active org is not permitted', async () => {
+      const refreshTokenValue = crypto.randomBytes(32).toString('hex');
+      const refreshHash = crypto.createHash('sha256').update(refreshTokenValue).digest('hex');
+      const futureDate = new Date(Date.now() + 86400000).toISOString();
+
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, token_hash: refreshHash, user_id: 1, token_family: 'fam-1', expires_at: futureDate }]]) // session
+        .mockResolvedValueOnce([[{ id: 1, email: 'a@b.com', role: 'support', status: 'active', organization_id: 1 }]]) // findById (non-admin)
+        .mockResolvedValueOnce([[{ id: 1 }]])               // getOrganizations → primary org 1
+        .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]]) // resolveActiveOrg: org 7 exists
+        .mockResolvedValueOnce([[]])                        // resolveActiveOrg: not a member → null (non-admin)
+        .mockResolvedValueOnce([{ affectedRows: 1 }])       // DELETE old
+        .mockResolvedValueOnce([{ insertId: 2 }]);          // INSERT new
+
+      // Not an admin and not a member of org 7 → the switch is rejected on refresh.
+      const result = await authService.refreshToken(refreshTokenValue, '7');
+
+      expect(result.activeOrgId).toBe(1);
+    });
+
     test('throws for invalid refresh token (no session found)', async () => {
       const refreshTokenValue = crypto.randomBytes(32).toString('hex');
 

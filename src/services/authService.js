@@ -165,11 +165,42 @@ async function login({ email, password }) {
 }
 
 /**
+ * Resolve a requested active organization for a user.
+ * Returns { id, name, membership_role } if the user may operate as that org, or
+ * null otherwise. Admins may switch to ANY org (single-tenant / relaxed-isolation
+ * model); everyone else only to orgs they are a member of. Shared by the active-org
+ * re-validation on token refresh so a stale/forged `fireisp_active_org` value can
+ * never escalate access.
+ */
+async function resolveActiveOrg(userId, userRole, requestedOrgId) {
+  if (!requestedOrgId) return null;
+  const [orgRows] = await db.query(
+    'SELECT id, name FROM organizations WHERE id = ? AND deleted_at IS NULL',
+    [requestedOrgId],
+  );
+  if (orgRows.length === 0) return null;
+  const [memberRows] = await db.query(
+    `SELECT role AS membership_role FROM organization_users
+     WHERE user_id = ? AND organization_id = ? AND deleted_at IS NULL`,
+    [userId, requestedOrgId],
+  );
+  if (memberRows.length === 0 && userRole !== 'admin') return null;
+  return {
+    id: orgRows[0].id,
+    name: orgRows[0].name,
+    membership_role: memberRows[0]?.membership_role || (userRole === 'admin' ? 'admin' : null),
+  };
+}
+
+/**
  * Refresh an access token using a valid refresh token.
  * Implements rotation: the old refresh token is consumed and a new pair is issued.
  * Detects token reuse (previously rotated token) and revokes the entire family.
+ *
+ * `requestedActiveOrgId` (from the `fireisp_active_org` cookie) preserves the active
+ * organization across refreshes/reloads; it is re-validated, never trusted blindly.
  */
-async function refreshToken(currentRefreshToken) {
+async function refreshToken(currentRefreshToken, requestedActiveOrgId = null) {
   const oldHash = crypto.createHash('sha256').update(currentRefreshToken).digest('hex');
 
   // Look up the refresh token session
@@ -199,17 +230,28 @@ async function refreshToken(currentRefreshToken) {
     throw new UnauthorizedError('User not found or inactive');
   }
 
-  // Get user's primary organization for the new access token
+  // Get user's primary organization as the fallback for the new access token
   const orgs = await User.getOrganizations(user.id);
   const primaryOrg = orgs[0] || null;
+  const fallbackOrgId = primaryOrg?.id || user.organization_id;
 
-  // Issue new access token
+  // Preserve the active organization across refreshes (e.g. a page reload, where
+  // the SPA's in-memory access token is gone). The caller passes the org from the
+  // `fireisp_active_org` cookie; we RE-VALIDATE it here so a stale or forged value
+  // can never grant access to an org the user may not use — invalid → fall back.
+  let activeOrgId = fallbackOrgId;
+  if (requestedActiveOrgId && Number(requestedActiveOrgId) !== Number(fallbackOrgId)) {
+    const resolved = await resolveActiveOrg(user.id, user.role, requestedActiveOrgId);
+    if (resolved) activeOrgId = resolved.id;
+  }
+
+  // Issue new access token bound to the active organization
   const newAccessToken = jwt.sign(
     {
       sub: user.id,
       email: user.email,
       role: user.role,
-      orgId: primaryOrg?.id || user.organization_id,
+      orgId: activeOrgId,
     },
     config.jwt.secret,
     { expiresIn: config.jwt.accessExpiresIn, algorithm: config.jwt.algorithm },
@@ -232,6 +274,7 @@ async function refreshToken(currentRefreshToken) {
     accessToken: newAccessToken,
     refreshToken: newRefreshValue,
     expiresIn: ACCESS_SECONDS,
+    activeOrgId,
   };
 }
 

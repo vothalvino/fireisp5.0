@@ -28,8 +28,9 @@ jest.mock('../src/services/authService', () => ({
 
 jest.mock('../src/middleware/auth', () => ({
   authenticate: (req, _res, next) => {
-    // switch-organization reads req.user.id; harmless for the other routes.
-    req.user = { id: 1, email: 'admin@example.com', role: 'admin' };
+    // switch-organization reads req.user.id; /me reads req.user.organizationId (the
+    // ACTIVE org from the JWT). Harmless for the other routes.
+    req.user = { id: 1, email: 'admin@example.com', role: 'admin', organizationId: 1 };
     next();
   },
 }));
@@ -49,6 +50,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const authRoutes = require('../src/routes/auth');
 const authService = require('../src/services/authService');
+const User = require('../src/models/User');
 
 function buildApp() {
   const app = express();
@@ -151,7 +153,8 @@ describe('P3.4 — httpOnly cookie auth', () => {
         .send({});
 
       expect(res.status).toBe(200);
-      expect(authService.refreshToken).toHaveBeenCalledWith('cookie-refresh-token');
+      // 2nd arg is the active-org cookie (absent here → undefined).
+      expect(authService.refreshToken).toHaveBeenCalledWith('cookie-refresh-token', undefined);
 
       const cookies = res.headers['set-cookie'];
       expect(cookies.find(c => c.startsWith('fireisp_access='))).toBeDefined();
@@ -166,7 +169,7 @@ describe('P3.4 — httpOnly cookie auth', () => {
         .send({ refreshToken: 'body-refresh-token' });
 
       expect(res.status).toBe(200);
-      expect(authService.refreshToken).toHaveBeenCalledWith('body-refresh-token');
+      expect(authService.refreshToken).toHaveBeenCalledWith('body-refresh-token', undefined);
     });
 
     test('cookie takes precedence over body when both are present', async () => {
@@ -177,8 +180,27 @@ describe('P3.4 — httpOnly cookie auth', () => {
         .set('Cookie', 'fireisp_refresh=cookie-wins')
         .send({ refreshToken: 'body-loses' });
 
-      expect(authService.refreshToken).toHaveBeenCalledWith('cookie-wins');
+      expect(authService.refreshToken).toHaveBeenCalledWith('cookie-wins', undefined);
       expect(res.status).toBe(200);
+    });
+
+    test('forwards the active-org cookie and re-persists it on refresh', async () => {
+      authService.refreshToken.mockResolvedValueOnce({ ...refreshResult, activeOrgId: 7 });
+
+      const res = await request(app)
+        .post('/api/v1/auth/refresh')
+        .set('Cookie', 'fireisp_refresh=old-token; fireisp_active_org=7')
+        .send({});
+
+      expect(res.status).toBe(200);
+      // The active org from the cookie is forwarded for server-side re-validation...
+      expect(authService.refreshToken).toHaveBeenCalledWith('old-token', '7');
+      // ...and re-persisted (scoped to /refresh, httpOnly) so it survives reloads.
+      const activeOrgCookie = res.headers['set-cookie'].find(c => c.startsWith('fireisp_active_org='));
+      expect(activeOrgCookie).toBeDefined();
+      expect(activeOrgCookie).toContain('fireisp_active_org=7');
+      expect(activeOrgCookie).toMatch(/Path=\/api\/v1\/auth\/refresh/);
+      expect(activeOrgCookie).toMatch(/HttpOnly/i);
     });
 
     test('returns 401 when neither cookie nor body refresh token provided', async () => {
@@ -312,6 +334,22 @@ describe('P3.4 — httpOnly cookie auth', () => {
       expect(cookies.find(c => c.startsWith('fireisp_refresh='))).toContain('switched-refresh-token');
     });
 
+    test('persists the new active org as an httpOnly cookie scoped to /refresh', async () => {
+      authService.switchOrganization.mockResolvedValueOnce(switchResult);
+
+      const res = await request(app)
+        .post('/api/v1/auth/switch-organization')
+        .set('Cookie', 'fireisp_refresh=old-token')
+        .send({ organizationId: 7 });
+
+      // So a later /refresh (page reload) re-mints the token bound to org 7
+      // instead of reverting to the user's primary org.
+      const activeOrgCookie = res.headers['set-cookie'].find(c => c.startsWith('fireisp_active_org='));
+      expect(activeOrgCookie).toContain('fireisp_active_org=7');
+      expect(activeOrgCookie).toMatch(/Path=\/api\/v1\/auth\/refresh/);
+      expect(activeOrgCookie).toMatch(/HttpOnly/i);
+    });
+
     // Regression guard for the path-mismatch bug: the refresh cookie's Path must
     // cover /switch-organization, or the browser silently omits it and the
     // service throws "Refresh token required to switch organizations".
@@ -333,6 +371,27 @@ describe('P3.4 — httpOnly cookie auth', () => {
       const switchPath = '/api/v1/auth/switch-organization';
       const covered = switchPath === cookiePath || switchPath.startsWith(`${cookiePath}/`);
       expect(covered).toBe(true);
+    });
+  });
+
+  // =========================================================================
+  // GET /api/v1/auth/me — must report the ACTIVE org, not the stored home org
+  // =========================================================================
+  describe('GET /api/v1/auth/me', () => {
+    test('reports req.user.organizationId (active org), not the stale users.organization_id', async () => {
+      // findById returns the user's stored home org (99); the active org from the
+      // access token (set by the authenticate mock) is 1. The switcher binds to
+      // this value, so it MUST be the active org or the UI snaps back after a switch.
+      User.findById.mockResolvedValueOnce({
+        id: 1, email: 'admin@example.com', role: 'admin', organization_id: 99,
+      });
+      User.getOrganizations.mockResolvedValueOnce([{ id: 1, name: 'Home' }, { id: 7, name: 'Acme' }]);
+
+      const res = await request(app).get('/api/v1/auth/me');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.organization_id).toBe(1);
+      expect(res.body.data.organizations).toHaveLength(2);
     });
   });
 });
