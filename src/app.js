@@ -292,8 +292,18 @@ app.use('/api/', apiLimiter);
 // that carry a FireISP auth cookie (browser SPA).  SameSite=Strict on the cookies
 // already prevents CSRF; this is defense-in-depth.
 app.use('/api/', csrfOriginCheck);
-app.use('/api/auth', authLimiter);
-app.use('/api/v1/auth', authLimiter);
+// The strict auth limiter (RATE_LIMIT_AUTH, default 20/window) guards ONLY
+// credential/identity endpoints that are brute-force or enumeration vectors.
+// Session endpoints under /api/v1/auth — refresh, me, logout, switch-organization —
+// are hit on every page load (the SPA keeps the access token in memory only and
+// re-bootstraps on reload); leaving them under the 20/window limiter made frequent
+// reloads 429 and bounce active users to the login screen. They stay on the general
+// apiLimiter (200/window, applied above). '/password-reset' also covers
+// '/password-reset/request' by prefix.
+for (const sub of ['/login', '/register', '/password-reset', '/change-password', '/verify-email']) {
+  app.use(`/api/auth${sub}`, authLimiter);
+  app.use(`/api/v1/auth${sub}`, authLimiter);
+}
 app.use('/api/export', exportLimiter);
 app.use('/api/v1/export', exportLimiter);
 app.use('/api/pdf', exportLimiter);

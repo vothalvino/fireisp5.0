@@ -46,7 +46,7 @@ describe('authService.switchOrganization', () => {
     expect(result.accessToken).toBeDefined();
     expect(result.refreshToken).toBeDefined();
     expect(result.refreshToken).not.toBe(rt);
-    expect(result.expiresIn).toBe(900);
+    expect(result.expiresIn).toBe(3600); // 60-minute access token
     expect(result.organization).toEqual({ id: 7, name: 'Acme ISP', membership_role: 'support' });
 
     const payload = jwt.verify(result.accessToken, config.jwt.secret);
