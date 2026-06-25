@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { UserList } from '../UserList';
+import { UserList, apiErrorMessage } from '../UserList';
 import * as AuthContextModule from '@/auth/AuthContext';
 import type { AuthUser } from '@/auth/AuthContext';
 
@@ -78,5 +78,25 @@ describe('UserList page', () => {
     } as Response);
     renderUserList();
     await waitFor(() => expect(screen.getByText(/No users found/)).toBeInTheDocument());
+  });
+
+  // Regression: the API returns errors as { error: { message, details } }; the old
+  // code read err.error as a string, so create/update failures rendered "[object Object]".
+  describe('apiErrorMessage', () => {
+    it('returns the error message, not the stringified object', () => {
+      expect(apiErrorMessage({ error: { message: 'Email already exists' } }, 'fallback'))
+        .toBe('Email already exists');
+    });
+
+    it('joins validation details when present', () => {
+      const json = { error: { message: 'Validation failed', details: [{ message: 'first_name is required' }, { message: 'email is invalid' }] } };
+      expect(apiErrorMessage(json, 'fallback')).toBe('first_name is required, email is invalid');
+    });
+
+    it('falls back when there is no usable message (never returns [object Object])', () => {
+      expect(apiErrorMessage({}, 'Failed to create user')).toBe('Failed to create user');
+      expect(apiErrorMessage({ error: {} }, 'Failed to create user')).toBe('Failed to create user');
+      expect(apiErrorMessage(null, 'Failed to create user')).toBe('Failed to create user');
+    });
   });
 });

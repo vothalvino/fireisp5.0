@@ -74,6 +74,15 @@ interface CreateUserBody {
   status?: string;
 }
 
+// The API returns errors as { error: { message, details?: [{ field, message }] } }.
+// Surface the message (or joined validation details) — the old code read `err.error`
+// as a string, so `new Error(err.error)` stringified the object to "[object Object]".
+export function apiErrorMessage(json: unknown, fallback: string): string {
+  const e = (json as { error?: { message?: string; details?: Array<{ message?: string }> } })?.error;
+  const details = e?.details?.map((d) => d.message).filter(Boolean).join(', ');
+  return details || e?.message || fallback;
+}
+
 async function createUser(body: CreateUserBody): Promise<void> {
   const res = await fetch(`${API_BASE}/users`, {
     method: 'POST',
@@ -81,8 +90,7 @@ async function createUser(body: CreateUserBody): Promise<void> {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error || 'Failed to create user');
+    throw new Error(apiErrorMessage(await res.json().catch(() => ({})), 'Failed to create user'));
   }
 }
 
@@ -102,8 +110,7 @@ async function updateUser(id: number, body: UpdateUserBody): Promise<void> {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error || 'Failed to update user');
+    throw new Error(apiErrorMessage(await res.json().catch(() => ({})), 'Failed to update user'));
   }
 }
 
@@ -130,8 +137,7 @@ async function verify2FA(code: string): Promise<{ backup_codes?: string[] }> {
     body: JSON.stringify({ code }),
   });
   if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error || 'Invalid code — please try again');
+    throw new Error(apiErrorMessage(await res.json().catch(() => ({})), 'Invalid code — please try again'));
   }
   const json = (await res.json()) as { data: { backup_codes?: string[] } };
   return json.data;
@@ -144,8 +150,7 @@ async function disable2FA(code: string): Promise<void> {
     body: JSON.stringify({ code }),
   });
   if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error || 'Invalid code — 2FA not disabled');
+    throw new Error(apiErrorMessage(await res.json().catch(() => ({})), 'Invalid code — 2FA not disabled'));
   }
 }
 
