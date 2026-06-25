@@ -1,6 +1,13 @@
 // =============================================================================
 // FireISP 5.0 — Multi-tenant: switchOrganization unit tests (M5.10)
 // =============================================================================
+// Query order in switchOrganization():
+//   1. User.findById            → [[user]]
+//   2. organizations exists      → [[{id,name}]]
+//   3. organization_users member → [[{membership_role}]] or [[]]
+//   4. user_sessions lookup      → [[session]]
+//   5. DELETE old session        → [{}]
+//   6. INSERT new session        → [{}]
 
 jest.mock('../src/config/database', () => ({
   query: jest.fn(),
@@ -20,125 +27,121 @@ const FUTURE = () => new Date(Date.now() + 86400000).toISOString();
 const PAST = () => new Date(Date.now() - 60000).toISOString();
 
 describe('authService.switchOrganization', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
+  beforeEach(() => { jest.clearAllMocks(); });
 
-  test('returns new token pair bound to the requested organization on success', async () => {
-    const refreshTokenValue = crypto.randomBytes(32).toString('hex');
-    const refreshHash = crypto.createHash('sha256').update(refreshTokenValue).digest('hex');
+  test('returns new token pair bound to the requested organization for a member', async () => {
+    const rt = crypto.randomBytes(32).toString('hex');
+    const rtHash = crypto.createHash('sha256').update(rt).digest('hex');
 
     db.query
-      // membership lookup
-      .mockResolvedValueOnce([[{ membership_role: 'admin', org_id: 7, org_name: 'Acme ISP' }]])
-      // findById
-      .mockResolvedValueOnce([[{ id: 1, email: 'jane@acme.test', role: 'admin', status: 'active', organization_id: 1 }]])
-      // session lookup
-      .mockResolvedValueOnce([[{ id: 99, token_hash: refreshHash, user_id: 1, token_family: 'fam-xyz', expires_at: FUTURE() }]])
-      // DELETE old session
-      .mockResolvedValueOnce([{ affectedRows: 1 }])
-      // INSERT new session
-      .mockResolvedValueOnce([{ insertId: 100 }]);
+      .mockResolvedValueOnce([[{ id: 1, email: 'jane@acme.test', role: 'support', status: 'active', organization_id: 1 }]]) // findById
+      .mockResolvedValueOnce([[{ id: 7, name: 'Acme ISP' }]]) // org exists
+      .mockResolvedValueOnce([[{ membership_role: 'support' }]]) // membership
+      .mockResolvedValueOnce([[{ id: 99, token_hash: rtHash, user_id: 1, token_family: 'fam-xyz', expires_at: FUTURE() }]]) // session
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // DELETE
+      .mockResolvedValueOnce([{ insertId: 100 }]); // INSERT
 
-    const result = await authService.switchOrganization(1, 7, refreshTokenValue);
+    const result = await authService.switchOrganization(1, 7, rt);
 
     expect(result.accessToken).toBeDefined();
     expect(result.refreshToken).toBeDefined();
-    expect(result.refreshToken).not.toBe(refreshTokenValue);
+    expect(result.refreshToken).not.toBe(rt);
     expect(result.expiresIn).toBe(900);
-    expect(result.organization).toEqual({ id: 7, name: 'Acme ISP', membership_role: 'admin' });
+    expect(result.organization).toEqual({ id: 7, name: 'Acme ISP', membership_role: 'support' });
 
-    // Verify the new access token's orgId claim is the requested org
     const payload = jwt.verify(result.accessToken, config.jwt.secret);
     expect(payload.sub).toBe(1);
     expect(payload.orgId).toBe(7);
   });
 
+  test('admin can switch to an org they are NOT a member of', async () => {
+    const rt = crypto.randomBytes(32).toString('hex');
+    const rtHash = crypto.createHash('sha256').update(rt).digest('hex');
+
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, email: 'admin@x', role: 'admin', status: 'active', organization_id: 1 }]]) // findById
+      .mockResolvedValueOnce([[{ id: 42, name: 'Other ISP' }]]) // org exists
+      .mockResolvedValueOnce([[]]) // NO membership
+      .mockResolvedValueOnce([[{ id: 5, token_hash: rtHash, user_id: 1, token_family: 'fam', expires_at: FUTURE() }]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ insertId: 6 }]);
+
+    const result = await authService.switchOrganization(1, 42, rt);
+
+    expect(result.organization).toEqual({ id: 42, name: 'Other ISP', membership_role: 'admin' });
+    const payload = jwt.verify(result.accessToken, config.jwt.secret);
+    expect(payload.orgId).toBe(42);
+  });
+
+  test('non-admin CANNOT switch to an org they are not a member of', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 2, email: 'u@x', role: 'support', status: 'active' }]]) // findById
+      .mockResolvedValueOnce([[{ id: 42, name: 'Other ISP' }]]) // org exists
+      .mockResolvedValueOnce([[]]); // no membership
+
+    await expect(authService.switchOrganization(2, 42, 'rt'))
+      .rejects.toThrow('User is not a member of the requested organization');
+  });
+
+  test('throws ForbiddenError when the target org does not exist', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active' }]]) // findById
+      .mockResolvedValueOnce([[]]); // org not found
+
+    await expect(authService.switchOrganization(1, 999, 'rt'))
+      .rejects.toThrow('Organization not found');
+  });
+
   test('throws ValidationError when organizationId is missing', async () => {
-    await expect(
-      authService.switchOrganization(1, undefined, 'rt'),
-    ).rejects.toThrow('organizationId is required');
+    await expect(authService.switchOrganization(1, undefined, 'rt'))
+      .rejects.toThrow('organizationId is required');
     expect(db.query).not.toHaveBeenCalled();
   });
 
-  test('throws ForbiddenError when the user is not a member of the target org', async () => {
-    db.query.mockResolvedValueOnce([[]]); // no membership rows
-
-    await expect(
-      authService.switchOrganization(1, 99, 'rt'),
-    ).rejects.toThrow('User is not a member of the requested organization');
-  });
-
-  test('membership query joins organizations and excludes soft-deleted rows', async () => {
-    db.query.mockResolvedValueOnce([[]]);
-
-    await expect(
-      authService.switchOrganization(1, 7, 'rt'),
-    ).rejects.toThrow();
-
-    const sql = db.query.mock.calls[0][0];
-    expect(sql).toMatch(/FROM organization_users ou/);
-    expect(sql).toMatch(/JOIN organizations o/);
-    expect(sql).toMatch(/ou\.deleted_at IS NULL/);
-    expect(sql).toMatch(/o\.deleted_at IS NULL/);
-    expect(db.query.mock.calls[0][1]).toEqual([1, 7]);
-  });
-
   test('throws when the user record is missing', async () => {
-    db.query
-      .mockResolvedValueOnce([[{ membership_role: 'support', org_id: 7, org_name: 'Acme' }]])
-      .mockResolvedValueOnce([[]]); // findById returns nothing
-
-    await expect(
-      authService.switchOrganization(1, 7, 'rt'),
-    ).rejects.toThrow('User not found or inactive');
+    db.query.mockResolvedValueOnce([[]]); // findById empty
+    await expect(authService.switchOrganization(1, 7, 'rt'))
+      .rejects.toThrow('User not found or inactive');
   });
 
   test('throws when the user is inactive', async () => {
-    db.query
-      .mockResolvedValueOnce([[{ membership_role: 'admin', org_id: 7, org_name: 'Acme' }]])
-      .mockResolvedValueOnce([[{ id: 1, email: 'a@b.c', status: 'inactive' }]]);
-
-    await expect(
-      authService.switchOrganization(1, 7, 'rt'),
-    ).rejects.toThrow('User not found or inactive');
+    db.query.mockResolvedValueOnce([[{ id: 1, email: 'a@b.c', role: 'admin', status: 'inactive' }]]);
+    await expect(authService.switchOrganization(1, 7, 'rt'))
+      .rejects.toThrow('User not found or inactive');
   });
 
   test('throws when refresh token is missing', async () => {
     db.query
-      .mockResolvedValueOnce([[{ membership_role: 'admin', org_id: 7, org_name: 'Acme' }]])
-      .mockResolvedValueOnce([[{ id: 1, email: 'a@b.c', role: 'admin', status: 'active' }]]);
-
-    await expect(
-      authService.switchOrganization(1, 7, ''),
-    ).rejects.toThrow('Refresh token required to switch organizations');
+      .mockResolvedValueOnce([[{ id: 1, email: 'a@b.c', role: 'admin', status: 'active' }]])
+      .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]])
+      .mockResolvedValueOnce([[{ membership_role: 'admin' }]]);
+    await expect(authService.switchOrganization(1, 7, ''))
+      .rejects.toThrow('Refresh token required to switch organizations');
   });
 
   test('throws when the refresh token does not exist for this user', async () => {
     const rt = crypto.randomBytes(32).toString('hex');
-
     db.query
-      .mockResolvedValueOnce([[{ membership_role: 'admin', org_id: 7, org_name: 'Acme' }]])
       .mockResolvedValueOnce([[{ id: 1, email: 'a@b.c', role: 'admin', status: 'active' }]])
-      .mockResolvedValueOnce([[]]); // session lookup empty
-
-    await expect(
-      authService.switchOrganization(1, 7, rt),
-    ).rejects.toThrow('Invalid or expired refresh token');
+      .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]])
+      .mockResolvedValueOnce([[{ membership_role: 'admin' }]])
+      .mockResolvedValueOnce([[]]); // session empty
+    await expect(authService.switchOrganization(1, 7, rt))
+      .rejects.toThrow('Invalid or expired refresh token');
   });
 
   test('session lookup is scoped to the calling user (defense in depth)', async () => {
     const rt = crypto.randomBytes(32).toString('hex');
-
     db.query
-      .mockResolvedValueOnce([[{ membership_role: 'admin', org_id: 7, org_name: 'Acme' }]])
       .mockResolvedValueOnce([[{ id: 1, email: 'a@b.c', role: 'admin', status: 'active' }]])
+      .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]])
+      .mockResolvedValueOnce([[{ membership_role: 'admin' }]])
       .mockResolvedValueOnce([[]]);
-
     await expect(authService.switchOrganization(1, 7, rt)).rejects.toThrow();
 
-    const sessionCall = db.query.mock.calls[2];
-    expect(sessionCall[0]).toMatch(/FROM user_sessions WHERE token_hash = \? AND user_id = \?/);
+    const sessionCall = db.query.mock.calls.find(c =>
+      typeof c[0] === 'string' && /FROM user_sessions WHERE token_hash = \? AND user_id = \?/.test(c[0]));
+    expect(sessionCall).toBeDefined();
     const expectedHash = crypto.createHash('sha256').update(rt).digest('hex');
     expect(sessionCall[1]).toEqual([expectedHash, 1]);
   });
@@ -146,20 +149,16 @@ describe('authService.switchOrganization', () => {
   test('throws when the refresh token is expired and deletes the stale session', async () => {
     const rt = crypto.randomBytes(32).toString('hex');
     const rtHash = crypto.createHash('sha256').update(rt).digest('hex');
-
     db.query
-      .mockResolvedValueOnce([[{ membership_role: 'admin', org_id: 7, org_name: 'Acme' }]])
       .mockResolvedValueOnce([[{ id: 1, email: 'a@b.c', role: 'admin', status: 'active' }]])
+      .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]])
+      .mockResolvedValueOnce([[{ membership_role: 'admin' }]])
       .mockResolvedValueOnce([[{ id: 55, token_hash: rtHash, user_id: 1, token_family: 'fam', expires_at: PAST() }]])
       .mockResolvedValueOnce([{ affectedRows: 1 }]); // DELETE expired
-
-    await expect(
-      authService.switchOrganization(1, 7, rt),
-    ).rejects.toThrow('Refresh token expired');
+    await expect(authService.switchOrganization(1, 7, rt)).rejects.toThrow('Refresh token expired');
 
     const deleteCall = db.query.mock.calls.find(c =>
-      typeof c[0] === 'string' && c[0].includes('DELETE FROM user_sessions WHERE id'),
-    );
+      typeof c[0] === 'string' && c[0].includes('DELETE FROM user_sessions WHERE id'));
     expect(deleteCall).toBeDefined();
     expect(deleteCall[1]).toContain(55);
   });
@@ -167,23 +166,21 @@ describe('authService.switchOrganization', () => {
   test('rotates refresh token within the same family', async () => {
     const rt = crypto.randomBytes(32).toString('hex');
     const rtHash = crypto.createHash('sha256').update(rt).digest('hex');
-
     db.query
-      .mockResolvedValueOnce([[{ membership_role: 'billing', org_id: 5, org_name: 'Beta ISP' }]])
-      .mockResolvedValueOnce([[{ id: 2, email: 'b@b.c', role: 'billing', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[{ id: 2, email: 'b@b.c', role: 'billing', status: 'active', organization_id: 1 }]]) // findById
+      .mockResolvedValueOnce([[{ id: 5, name: 'Beta ISP' }]]) // org
+      .mockResolvedValueOnce([[{ membership_role: 'billing' }]]) // membership
       .mockResolvedValueOnce([[{ id: 80, token_hash: rtHash, user_id: 2, token_family: 'fam-rotate', expires_at: FUTURE() }]])
-      .mockResolvedValueOnce([{ affectedRows: 1 }])  // DELETE old
-      .mockResolvedValueOnce([{ insertId: 81 }]);    // INSERT new
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // DELETE old
+      .mockResolvedValueOnce([{ insertId: 81 }]); // INSERT new
 
     const result = await authService.switchOrganization(2, 5, rt);
 
     const insertCall = db.query.mock.calls.find(c =>
-      typeof c[0] === 'string' && c[0].includes('INSERT INTO user_sessions'),
-    );
+      typeof c[0] === 'string' && c[0].includes('INSERT INTO user_sessions'));
     expect(insertCall).toBeDefined();
     expect(insertCall[1]).toContain('fam-rotate'); // same family
-    expect(insertCall[1]).toContain(2);            // user id
-
+    expect(insertCall[1]).toContain(2); // user id
     const newHash = crypto.createHash('sha256').update(result.refreshToken).digest('hex');
     expect(insertCall[1]).toContain(newHash);
   });

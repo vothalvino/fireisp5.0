@@ -371,27 +371,37 @@ async function switchOrganization(userId, organizationId, currentRefreshToken) {
     throw new ValidationError('organizationId is required');
   }
 
-  // Verify membership: user must have a non-deleted organization_users row
-  // for the target org AND the org itself must not be soft-deleted.
-  const [rows] = await db.query(
-    `SELECT ou.role AS membership_role, o.id AS org_id, o.name AS org_name
-     FROM organization_users ou
-     JOIN organizations o ON o.id = ou.organization_id
-     WHERE ou.user_id = ? AND ou.organization_id = ?
-       AND ou.deleted_at IS NULL AND o.deleted_at IS NULL`,
-    [userId, organizationId],
-  );
-
-  if (rows.length === 0) {
-    throw new ForbiddenError('User is not a member of the requested organization');
-  }
-  const membership = rows[0];
-
   // User must still be active.
   const user = await User.findById(userId);
   if (!user || user.status !== 'active') {
     throw new UnauthorizedError('User not found or inactive');
   }
+
+  // Target org must exist and not be soft-deleted.
+  const [orgRows] = await db.query(
+    'SELECT id, name FROM organizations WHERE id = ? AND deleted_at IS NULL',
+    [organizationId],
+  );
+  if (orgRows.length === 0) {
+    throw new ForbiddenError('Organization not found');
+  }
+  const targetOrg = orgRows[0];
+
+  // Membership is required for non-admins. Admins may switch to ANY organization
+  // (single-tenant / relaxed-isolation model: one operator can manage every ISP).
+  const [memberRows] = await db.query(
+    `SELECT role AS membership_role FROM organization_users
+     WHERE user_id = ? AND organization_id = ? AND deleted_at IS NULL`,
+    [userId, organizationId],
+  );
+  if (memberRows.length === 0 && user.role !== 'admin') {
+    throw new ForbiddenError('User is not a member of the requested organization');
+  }
+  const membership = {
+    org_id: targetOrg.id,
+    org_name: targetOrg.name,
+    membership_role: memberRows[0]?.membership_role || (user.role === 'admin' ? 'admin' : null),
+  };
 
   // Validate + rotate the refresh token.  We require the current refresh token
   // so a stolen access token alone cannot be used to pivot to another org.

@@ -5,7 +5,9 @@
 import { useState, type ChangeEvent } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/auth/AuthContext';
+import { api } from '@/api/client';
 import { hasRole } from '@/auth/PrivateRoute';
 import { DrDrillBanner } from '@/components/DrDrillBanner';
 import { useDarkMode } from '@/auth/DarkModeContext';
@@ -153,8 +155,24 @@ export function Layout() {
   const { user, logout, switchOrganization } = useAuth();
   const { t } = useTranslation();
   const { effectiveTheme, toggleTheme } = useDarkMode();
+  const qc = useQueryClient();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
+
+  // Admins can switch their active org to ANY organization (not just ones they're
+  // a member of), so for them the switcher lists every org. Non-admins only see
+  // the orgs they belong to (from /auth/me → user.organizations).
+  const isAdmin = !!user && hasRole(user.role, 'admin');
+  const { data: allOrgs } = useQuery({
+    queryKey: ['org-switcher-all'],
+    queryFn: async (): Promise<{ id: number; name: string }[]> => {
+      const res = await api.GET('/organizations', { params: { query: { limit: 500 } as never } });
+      if (res.error) return [];
+      return (res.data as unknown as { data?: { id: number; name: string }[] })?.data ?? [];
+    },
+    enabled: isAdmin,
+    staleTime: 5 * 60 * 1000,
+  });
 
   async function handleLogout() {
     await logout();
@@ -170,6 +188,8 @@ export function Layout() {
     setSwitching(true);
     try {
       await switchOrganization(newOrgId);
+      // Every list/detail query is scoped to the old org — refetch them all.
+      await qc.invalidateQueries();
     } catch (err) {
       // Restore the select to the current org and surface the error
       // eslint-disable-next-line no-alert
@@ -179,7 +199,8 @@ export function Layout() {
     }
   }
 
-  const orgs = user?.organizations ?? [];
+  const memberships = user?.organizations ?? [];
+  const orgs = isAdmin ? (allOrgs ?? memberships) : memberships;
   const showOrgSwitcher = orgs.length > 1;
 
   return (
