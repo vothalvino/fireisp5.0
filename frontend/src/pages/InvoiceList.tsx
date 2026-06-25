@@ -8,12 +8,13 @@
 //   • Click a row to navigate to /invoices/:id for full detail
 // =============================================================================
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
 import { extractApiError } from '@/components/ClientFormModal';
+import { useTableSort, SortableTh } from '@/components/SortableTh';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,8 +80,8 @@ function makeItem(type: ItemType): InvoiceLineItem {
 
 const PAGE_SIZE = 25;
 
-async function fetchInvoices(page: number, statusFilter: string): Promise<InvoicesResponse> {
-  const query: Record<string, string | number> = { page, limit: PAGE_SIZE };
+async function fetchInvoices(page: number, statusFilter: string, orderBy: string, order: string): Promise<InvoicesResponse> {
+  const query: Record<string, string | number> = { page, limit: PAGE_SIZE, order_by: orderBy, order };
   if (statusFilter) query.status = statusFilter;
   const res = await api.GET('/invoices', { params: { query: query as never } });
   if (res.error) throw new Error('Failed to load invoices');
@@ -411,11 +412,16 @@ export function InvoiceList() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirmVoid, setConfirmVoid] = useState(false);
   const [voidError, setVoidError] = useState<string | null>(null);
+  const sort = useTableSort('created_at', 'DESC');
   const qc = useQueryClient();
 
+  // Re-sorting from a deeper page would show a confusing slice — reset to page 1
+  // (and clear cross-page selection) whenever the sort changes.
+  useEffect(() => { setPage(1); setSelected(new Set()); }, [sort.sortBy, sort.sortDir]);
+
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['invoices', page, statusFilter],
-    queryFn: () => fetchInvoices(page, statusFilter),
+    queryKey: ['invoices', page, statusFilter, sort.sortBy, sort.sortDir],
+    queryFn: () => fetchInvoices(page, statusFilter, sort.order_by, sort.order),
     placeholderData: prev => prev,
   });
 
@@ -524,16 +530,12 @@ export function InvoiceList() {
                   <th style={{ padding: '10px 14px', width: 36 }}>
                     <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Select all invoices on this page" />
                   </th>
-                  {[
-                    t('invoiceList.table.invoiceNumber'),
-                    t('invoiceList.table.clientId'),
-                    t('invoiceList.table.total'),
-                    t('invoiceList.table.dueDate'),
-                    t('invoiceList.table.status'),
-                    t('invoiceList.table.created'),
-                  ].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>{h}</th>
-                  ))}
+                  <SortableTh label={t('invoiceList.table.invoiceNumber')} col="invoice_number" sort={sort} />
+                  <SortableTh label={t('invoiceList.table.clientId')} col="client_id" sort={sort} />
+                  <SortableTh label={t('invoiceList.table.total')} col="total" sort={sort} />
+                  <SortableTh label={t('invoiceList.table.dueDate')} col="due_date" sort={sort} />
+                  <SortableTh label={t('invoiceList.table.status')} col="status" sort={sort} />
+                  <SortableTh label={t('invoiceList.table.created')} col="created_at" sort={sort} />
                 </tr>
               </thead>
               <tbody>

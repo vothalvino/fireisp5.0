@@ -5,13 +5,14 @@
 // (dispatch → start → complete/cancel) and materials sub-resource.
 // =============================================================================
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles } from './crudStyles';
 import { tokenStore } from '@/api/client';
 import { ClientPicker } from '@/components/ClientPicker';
+import { useTableSort, SortableTh } from '@/components/SortableTh';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -114,8 +115,8 @@ function getBearerHeaders(): Record<string, string> {
 // API helpers
 // ---------------------------------------------------------------------------
 
-async function fetchWorkOrders(page: number, statusFilter: string): Promise<ListResponse<WorkOrder>> {
-  const query: Record<string, string | number> = { page, limit: PAGE_SIZE };
+async function fetchWorkOrders(page: number, statusFilter: string, orderBy: string, order: string): Promise<ListResponse<WorkOrder>> {
+  const query: Record<string, string | number> = { page, limit: PAGE_SIZE, order_by: orderBy, order };
   if (statusFilter) query.status = statusFilter;
   const res = await api.GET('/work-orders' as never, {
     params: { query: query as never },
@@ -323,10 +324,13 @@ export function WorkOrders() {
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState<Partial<WorkOrderBody>>({});
   const [formErr, setFormErr] = useState('');
+  const sort = useTableSort('created_at', 'DESC');
+
+  useEffect(() => { setPage(1); }, [sort.sortBy, sort.sortDir]);
 
   const workOrdersQ = useQuery({
-    queryKey: ['workOrders', page, statusFilter],
-    queryFn: () => fetchWorkOrders(page, statusFilter),
+    queryKey: ['workOrders', page, statusFilter, sort.sortBy, sort.sortDir],
+    queryFn: () => fetchWorkOrders(page, statusFilter, sort.order_by, sort.order),
   });
 
   const sitesQ = useQuery({ queryKey: ['workOrders', 'siteOptions'], queryFn: () => fetchOptions('/sites') });
@@ -411,13 +415,15 @@ export function WorkOrders() {
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    <th style={styles.th}>{t('common.id')}</th>
-                    <th style={styles.th}>Title</th>
-                    <th style={styles.th}>{t('workOrders.type')}</th>
+                    <SortableTh label={t('common.id')} col="id" sort={sort} style={styles.th} />
+                    <SortableTh label="Title" col="title" sort={sort} style={styles.th} />
+                    <SortableTh label={t('workOrders.type')} col="work_type" sort={sort} style={styles.th} />
+                    {/* target is a derived label from joined client/site/device name — non-sortable */}
                     <th style={styles.th}>{t('workOrders.target')}</th>
+                    {/* assigned_to name comes from a JOIN on users — non-sortable by name; assigned_to FK is own-table */}
                     <th style={styles.th}>Assigned To</th>
-                    <th style={styles.th}>Status</th>
-                    <th style={styles.th}>Scheduled</th>
+                    <SortableTh label="Status" col="status" sort={sort} style={styles.th} />
+                    <SortableTh label="Scheduled" col="scheduled_at" sort={sort} style={styles.th} />
                     <th style={styles.th}>Actions</th>
                   </tr>
                 </thead>

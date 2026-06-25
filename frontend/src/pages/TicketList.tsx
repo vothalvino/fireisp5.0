@@ -8,12 +8,13 @@
 //   • Click a row to navigate to /tickets/:id for full detail
 // =============================================================================
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { extractApiError } from '@/components/ClientFormModal';
+import { useTableSort, SortableTh } from '@/components/SortableTh';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -70,8 +71,10 @@ async function fetchTickets(
   page: number,
   statusFilter: string,
   priorityFilter: string,
+  orderBy: string,
+  order: string,
 ): Promise<TicketsResponse> {
-  const query: Record<string, string | number> = { page, limit: PAGE_SIZE };
+  const query: Record<string, string | number> = { page, limit: PAGE_SIZE, order_by: orderBy, order };
   if (statusFilter) query.status = statusFilter;
   if (priorityFilter) query.priority = priorityFilter;
   const res = await api.GET('/tickets' as never, { params: { query: query as never } } as never);
@@ -269,10 +272,13 @@ export function TicketList() {
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
+  const sort = useTableSort('created_at', 'DESC');
+
+  useEffect(() => { setPage(1); }, [sort.sortBy, sort.sortDir]);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['tickets', page, statusFilter, priorityFilter],
-    queryFn: () => fetchTickets(page, statusFilter, priorityFilter),
+    queryKey: ['tickets', page, statusFilter, priorityFilter, sort.sortBy, sort.sortDir],
+    queryFn: () => fetchTickets(page, statusFilter, priorityFilter, sort.order_by, sort.order),
   });
 
   const { data: clients = [] } = useQuery({
@@ -333,13 +339,15 @@ export function TicketList() {
             <table style={tableStyle}>
               <thead>
                 <tr>
-                  <th style={th}>{t('ticketList.table.id')}</th>
-                  <th style={th}>{t('ticketList.table.subject')}</th>
-                  <th style={th}>{t('ticketList.table.client')}</th>
-                  <th style={th}>{t('ticketList.table.priority')}</th>
-                  <th style={th}>{t('ticketList.table.status')}</th>
-                  <th style={th}>{t('ticketList.table.assignedTo')}</th>
-                  <th style={th}>{t('ticketList.table.created')}</th>
+                  <SortableTh label={t('ticketList.table.id')} col="id" sort={sort} style={th} />
+                  <SortableTh label={t('ticketList.table.subject')} col="subject" sort={sort} style={th} />
+                  {/* client name is resolved client-side from clientMap (not a JOIN in the list endpoint) — client_id IS sortable */}
+                  <SortableTh label={t('ticketList.table.client')} col="client_id" sort={sort} style={th} />
+                  <SortableTh label={t('ticketList.table.priority')} col="priority" sort={sort} style={th} />
+                  <SortableTh label={t('ticketList.table.status')} col="status" sort={sort} style={th} />
+                  {/* assigned_to name resolved client-side; assigned_to FK IS sortable */}
+                  <SortableTh label={t('ticketList.table.assignedTo')} col="assigned_to" sort={sort} style={th} />
+                  <SortableTh label={t('ticketList.table.created')} col="created_at" sort={sort} style={th} />
                 </tr>
               </thead>
               <tbody>

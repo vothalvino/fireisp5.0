@@ -8,11 +8,12 @@
 //   • "New Contract" button opens an inline modal form
 // =============================================================================
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
+import { useTableSort, SortableTh } from '@/components/SortableTh';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,8 +89,10 @@ const API_BASE = '/api/v1';
 async function fetchContracts(
   page: number,
   statusFilter: string,
+  orderBy: string,
+  order: string,
 ): Promise<ContractsResponse> {
-  const query: Record<string, string | number> = { page, limit: DEFAULT_PAGE_SIZE };
+  const query: Record<string, string | number> = { page, limit: DEFAULT_PAGE_SIZE, order_by: orderBy, order };
   if (statusFilter) query.status = statusFilter;
   const res = await api.GET('/contracts', {
     params: { query: query as never },
@@ -917,6 +920,9 @@ export function ContractList() {
   const [editContract, setEditContract] = useState<Contract | null>(null);
   const [detailContract, setDetailContract] = useState<Contract | null>(null);
   const [confirm, setConfirm] = useState<ConfirmAction | null>(null);
+  const sort = useTableSort('created_at', 'DESC');
+
+  useEffect(() => { setPage(1); }, [sort.sortBy, sort.sortDir]);
 
   // Mutation for terminate (uses dedicated endpoint)
   const terminateMutation = useMutation({
@@ -929,8 +935,8 @@ export function ContractList() {
 
   // Contracts query
   const contractsQ = useQuery({
-    queryKey: ['contracts', page, statusFilter],
-    queryFn: () => fetchContracts(page, statusFilter),
+    queryKey: ['contracts', page, statusFilter, sort.sortBy, sort.sortDir],
+    queryFn: () => fetchContracts(page, statusFilter, sort.order_by, sort.order),
   });
 
   // Plans + clients (needed for new contract form)
@@ -1052,20 +1058,18 @@ export function ContractList() {
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    {[
-                      t('contractList.table.id'),
-                      t('contractList.table.client'),
-                      t('contractList.table.plan'),
-                      t('contractList.table.type'),
-                      t('contractList.table.start'),
-                      t('contractList.table.end'),
-                      t('contractList.table.billingDay'),
-                      t('contractList.table.ip'),
-                      t('contractList.table.status'),
-                      t('contractList.table.actions'),
-                    ].map(
-                      h => <th key={h} style={styles.th}>{h}</th>,
-                    )}
+                    <SortableTh label={t('contractList.table.id')} col="id" sort={sort} style={styles.th} />
+                    {/* client_id is a real column; client name is from a JOIN → non-sortable */}
+                    <th style={styles.th}>{t('contractList.table.client')}</th>
+                    {/* plan name comes from a JOIN → non-sortable; plan_id is real but less useful */}
+                    <th style={styles.th}>{t('contractList.table.plan')}</th>
+                    <SortableTh label={t('contractList.table.type')} col="connection_type" sort={sort} style={styles.th} />
+                    <SortableTh label={t('contractList.table.start')} col="start_date" sort={sort} style={styles.th} />
+                    <SortableTh label={t('contractList.table.end')} col="end_date" sort={sort} style={styles.th} />
+                    <SortableTh label={t('contractList.table.billingDay')} col="billing_day" sort={sort} style={styles.th} />
+                    <th style={styles.th}>{t('contractList.table.ip')}</th>
+                    <SortableTh label={t('contractList.table.status')} col="status" sort={sort} style={styles.th} />
+                    <th style={styles.th}>{t('contractList.table.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>

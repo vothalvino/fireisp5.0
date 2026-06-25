@@ -10,12 +10,13 @@
 //   • Gateway transaction status badge when available
 // =============================================================================
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
 import { extractApiError } from '@/components/ClientFormModal';
+import { useTableSort, SortableTh } from '@/components/SortableTh';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -97,8 +98,8 @@ function extractList<T>(body: unknown): T[] {
   return [];
 }
 
-async function fetchPayments(page: number, statusFilter: string): Promise<PaymentsResponse> {
-  const query: Record<string, string | number> = { page, limit: PAGE_SIZE };
+async function fetchPayments(page: number, statusFilter: string, orderBy: string, order: string): Promise<PaymentsResponse> {
+  const query: Record<string, string | number> = { page, limit: PAGE_SIZE, order_by: orderBy, order };
   if (statusFilter) query.status = statusFilter;
   const res = await api.GET('/payments', { params: { query: query as never } });
   if (res.error) throw new Error('Failed to load payments');
@@ -922,11 +923,14 @@ export function PaymentList() {
   const [deletePaymentRow, setDeletePaymentRow] = useState<Payment | null>(null);
   const [toast, setToast] = useState('');
   const [sendingReceipt, setSendingReceipt] = useState<number | null>(null);
+  const sort = useTableSort('created_at', 'DESC');
   const qc = useQueryClient();
 
+  useEffect(() => { setPage(1); }, [sort.sortBy, sort.sortDir]);
+
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['payments', page, statusFilter],
-    queryFn: () => fetchPayments(page, statusFilter),
+    queryKey: ['payments', page, statusFilter, sort.sortBy, sort.sortDir],
+    queryFn: () => fetchPayments(page, statusFilter, sort.order_by, sort.order),
     placeholderData: prev => prev,
   });
 
@@ -1012,17 +1016,14 @@ export function PaymentList() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
               <thead>
                 <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                  {[
-                    t('paymentList.table.client'),
-                    t('paymentList.table.amount'),
-                    t('paymentList.table.method'),
-                    t('paymentList.table.status'),
-                    t('paymentList.table.date'),
-                    t('paymentList.table.reference'),
-                    t('paymentList.table.actions'),
-                  ].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>{h}</th>
-                  ))}
+                  <SortableTh label={t('paymentList.table.client')} col="client_id" sort={sort} />
+                  <SortableTh label={t('paymentList.table.amount')} col="amount" sort={sort} />
+                  <SortableTh label={t('paymentList.table.method')} col="payment_method" sort={sort} />
+                  <SortableTh label={t('paymentList.table.status')} col="status" sort={sort} />
+                  <SortableTh label={t('paymentList.table.date')} col="payment_date" sort={sort} />
+                  {/* reference_number column: left non-sortable — UI property 'reference' vs DB column 'reference_number' mismatch */}
+                  <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>{t('paymentList.table.reference')}</th>
+                  <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>{t('paymentList.table.actions')}</th>
                 </tr>
               </thead>
               <tbody>

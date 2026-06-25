@@ -29,9 +29,12 @@ router.use(orgScope);
 // List clients with optional free-text search (partial name/email/phone, exact
 // numeric id) and a client_group_id filter. Falls back to identical behaviour to
 // the generic list when neither is supplied.
+// Allowlist of own-table columns that are safe to sort by.
+const CLIENT_SORTABLE = ['id', 'name', 'email', 'phone', 'client_type', 'status', 'created_at', 'updated_at'];
+
 router.get('/', requirePermission('clients.view'), httpCache('clients', 60), async (req, res, next) => {
   try {
-    const { search, client_group_id, page = 1, limit = 50, include_deleted } = req.query;
+    const { search, client_group_id, page = 1, limit = 50, include_deleted, order_by, order } = req.query;
     const conditions = [];
     const params = [];
     if (Client.hasOrgScope && req.orgId) {
@@ -56,6 +59,11 @@ router.get('/', requirePermission('clients.view'), httpCache('clients', 60), asy
     const safePage = Math.max(1, parseInt(page, 10) || 1);
     const safeOffset = (safePage - 1) * safeLimit;
 
+    // Validate order_by against the allowlist to prevent SQL injection;
+    // fall back to created_at if the supplied value is not in the list.
+    const safeOrderBy = CLIENT_SORTABLE.includes(order_by) ? order_by : 'created_at';
+    const safeOrder = order === 'ASC' ? 'ASC' : 'DESC';
+
     // Resolve the account-group name server-side (LEFT JOIN) so the UI doesn't
     // depend on a capped client-side group list. LIMIT/OFFSET inlined as validated
     // ints (never bound — mysqld_stmt_execute rejects placeholder LIMIT); all
@@ -64,7 +72,7 @@ router.get('/', requirePermission('clients.view'), httpCache('clients', 60), asy
       `SELECT c.*, cg.name AS client_group_name
          FROM clients c
          LEFT JOIN client_groups cg ON cg.id = c.client_group_id AND cg.deleted_at IS NULL
-         ${where} ORDER BY c.id ASC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+         ${where} ORDER BY c.${safeOrderBy} ${safeOrder} LIMIT ${safeLimit} OFFSET ${safeOffset}`,
       params,
     );
     const [[{ total }]] = await db.query(
