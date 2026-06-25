@@ -213,9 +213,35 @@ describe('csrfOriginCheck', () => {
     expect(next).toHaveBeenCalledWith();
   });
 
-  test('POST with fireisp_refresh cookie and correct Origin is allowed (fallback)', () => {
+  // =========================================================================
+  // Regression (PR #303 follow-up): the refresh cookie alone must NOT trigger
+  // CSRF enforcement. Widening fireisp_refresh's Path to /api/v1/auth made the
+  // browser send it to /auth/login, which then 403'd returning users with
+  // "CSRF check failed: invalid or missing CSRF token". The refresh cookie is
+  // not an ambient authenticator, so its presence must not gate CSRF.
+  // =========================================================================
+  test('POST with ONLY fireisp_refresh cookie is exempt, even with a hostile Origin', () => {
     const req = mockReq({
       cookies: { fireisp_refresh: 'opaque-token' },
+      headers: { origin: 'https://evil.attacker.com' },
+    });
+    const res = mockRes();
+    const next = jest.fn();
+
+    csrfOriginCheck(req, res, next);
+
+    // Exempt because no fireisp_access cookie — SameSite=Strict already prevents
+    // the refresh cookie from being sent cross-site, so this is structurally safe.
+    expect(next).toHaveBeenCalledWith();
+    expect(res._status).toBeNull();
+  });
+
+  test('login-style POST with fireisp_refresh + stale csrf_secret and NO token is exempt', () => {
+    // Exact reproduction of the demo regression: a returning user opens /auth/login
+    // with a lingering 7-day refresh cookie plus a stale csrf secret, but the login
+    // request carries no X-CSRF-Token. Must pass through, not 403.
+    const req = mockReq({
+      cookies: { fireisp_refresh: 'opaque-token', fireisp_csrf_secret: 'stale-secret' },
       headers: { origin: 'https://app.fireisp.example.com' },
     });
     const res = mockRes();
@@ -224,6 +250,24 @@ describe('csrfOriginCheck', () => {
     csrfOriginCheck(req, res, next);
 
     expect(next).toHaveBeenCalledWith();
+    expect(res._status).toBeNull();
+    // The refresh cookie alone must never reach token verification.
+    expect(mockVerify).not.toHaveBeenCalled();
+  });
+
+  test('POST that carries fireisp_access still enforces CSRF even with a refresh cookie alongside', () => {
+    // Genuine cookie-authenticated session: access cookie present → CSRF enforced.
+    const req = mockReq({
+      cookies: { fireisp_access: 'jwt', fireisp_refresh: 'opaque-token' },
+      headers: { origin: 'https://evil.attacker.com' },
+    });
+    const res = mockRes();
+    const next = jest.fn();
+
+    csrfOriginCheck(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res._status).toBe(403);
   });
 
   test('POST falls back to Referer when no Origin header (fallback)', () => {
