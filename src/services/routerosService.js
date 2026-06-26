@@ -831,6 +831,267 @@ async function addressListRemove(conn, params) {
 }
 
 // =============================================================================
+// WireGuard command functions (RouterOS 7, native /interface/wireguard)
+// =============================================================================
+// HARD CONSTRAINT: these five functions are the ONLY WireGuard writes FireISP
+// makes to the router. They NEVER touch /ip/service (Winbox/8291 is left fully
+// alone) and NEVER touch /ip/firewall. The only permitted write paths are:
+//   /interface/wireguard   /ip/address   /interface/wireguard/peers   /ip/route
+// =============================================================================
+
+/**
+ * Create-or-update a WireGuard interface by name (idempotent).
+ * No listen-port is written — the NAS dials out to the FireISP server hub.
+ *
+ * @param {{ host: string, port?: number, user: string, password: string,
+ *            secure?: boolean, timeoutMs?: number }} conn
+ * @param {{ name: string, privateKey: string, comment?: string }} params
+ * @returns {Promise<{ id: string, created: boolean, updated: boolean }>}
+ */
+async function wireguardInterfaceUpsert(conn, params) {
+  const { name, privateKey, comment } = params;
+  if (!name) throw new Error('wireguardInterfaceUpsert: name is required');
+  if (!privateKey) throw new Error('wireguardInterfaceUpsert: privateKey is required');
+
+  const client = await createClient(conn);
+  try {
+    const existingId = await findId(client, '/interface/wireguard', [`?name=${name}`]);
+
+    // NOTE: privateKey is intentionally omitted from log output.
+    const attrWords = [`=private-key=${privateKey}`];
+    if (comment) attrWords.push(`=comment=${comment}`);
+
+    if (existingId) {
+      await client.run([
+        '/interface/wireguard/set',
+        `=.id=${existingId}`,
+        `=name=${name}`,
+        ...attrWords,
+      ]);
+      logger.info({ name, id: existingId }, 'RouterOS: WireGuard interface updated');
+      return { id: existingId, created: false, updated: true };
+    }
+
+    const sentences = await client.run([
+      '/interface/wireguard/add',
+      `=name=${name}`,
+      ...attrWords,
+    ]);
+    let newId = '';
+    for (const sentence of sentences) {
+      if (sentence[0] === '!done') {
+        newId = parseAttrs(sentence.slice(1)).ret || '';
+        break;
+      }
+    }
+    logger.info({ name, id: newId }, 'RouterOS: WireGuard interface created');
+    return { id: newId, created: true, updated: false };
+  } finally {
+    await client.close();
+  }
+}
+
+/**
+ * Create-or-update a WireGuard tunnel address on an interface (idempotent).
+ * Looks up by interface + address; updates in place or adds if absent.
+ *
+ * @param {{ host: string, port?: number, user: string, password: string }} conn
+ * @param {{ interface: string, address: string }} params
+ *   address: full CIDR notation, e.g. "10.255.0.1/32"
+ * @returns {Promise<{ id: string, created: boolean, updated: boolean }>}
+ */
+async function wireguardAddressUpsert(conn, params) {
+  const { interface: iface, address } = params;
+  if (!iface) throw new Error('wireguardAddressUpsert: interface is required');
+  if (!address) throw new Error('wireguardAddressUpsert: address is required');
+
+  const client = await createClient(conn);
+  try {
+    const existingId = await findId(client, '/ip/address', [
+      `?interface=${iface}`,
+      `?address=${address}`,
+    ]);
+
+    if (existingId) {
+      await client.run([
+        '/ip/address/set',
+        `=.id=${existingId}`,
+        `=interface=${iface}`,
+        `=address=${address}`,
+      ]);
+      logger.info({ interface: iface, address, id: existingId }, 'RouterOS: WireGuard address updated');
+      return { id: existingId, created: false, updated: true };
+    }
+
+    const sentences = await client.run([
+      '/ip/address/add',
+      `=interface=${iface}`,
+      `=address=${address}`,
+    ]);
+    let newId = '';
+    for (const sentence of sentences) {
+      if (sentence[0] === '!done') {
+        newId = parseAttrs(sentence.slice(1)).ret || '';
+        break;
+      }
+    }
+    logger.info({ interface: iface, address, id: newId }, 'RouterOS: WireGuard address created');
+    return { id: newId, created: true, updated: false };
+  } finally {
+    await client.close();
+  }
+}
+
+/**
+ * Create-or-update a WireGuard peer by interface + comment (idempotent).
+ * Comment is the stable lookup key so the peer survives server-side key rotation.
+ *
+ * @param {{ host: string, port?: number, user: string, password: string }} conn
+ * @param {{ interface: string, publicKey: string, endpointAddress: string,
+ *            endpointPort: number|string, allowedAddress: string,
+ *            keepalive?: number, comment: string }} params
+ *   allowedAddress: the server's tunnel subnet(s), e.g. "10.255.0.0/16"
+ * @returns {Promise<{ id: string, created: boolean, updated: boolean }>}
+ */
+async function wireguardPeerUpsert(conn, params) {
+  const {
+    interface: iface,
+    publicKey,
+    endpointAddress,
+    endpointPort,
+    allowedAddress,
+    keepalive,
+    comment,
+  } = params;
+
+  if (!iface) throw new Error('wireguardPeerUpsert: interface is required');
+  if (!publicKey) throw new Error('wireguardPeerUpsert: publicKey is required');
+  if (!endpointAddress) throw new Error('wireguardPeerUpsert: endpointAddress is required');
+  if (!endpointPort) throw new Error('wireguardPeerUpsert: endpointPort is required');
+  if (!allowedAddress) throw new Error('wireguardPeerUpsert: allowedAddress is required');
+  if (!comment) throw new Error('wireguardPeerUpsert: comment is required');
+
+  const client = await createClient(conn);
+  try {
+    // Stable lookup: interface + comment (comment survives key rotation).
+    const existingId = await findId(client, '/interface/wireguard/peers', [
+      `?interface=${iface}`,
+      `?comment=${comment}`,
+    ]);
+
+    const attrWords = [
+      `=public-key=${publicKey}`,
+      `=endpoint-address=${endpointAddress}`,
+      `=endpoint-port=${endpointPort}`,
+      `=allowed-address=${allowedAddress}`,
+    ];
+    if (keepalive !== null && keepalive !== undefined) attrWords.push(`=persistent-keepalive=${keepalive}`);
+
+    if (existingId) {
+      await client.run([
+        '/interface/wireguard/peers/set',
+        `=.id=${existingId}`,
+        `=interface=${iface}`,
+        `=comment=${comment}`,
+        ...attrWords,
+      ]);
+      logger.info({ interface: iface, comment, id: existingId }, 'RouterOS: WireGuard peer updated');
+      return { id: existingId, created: false, updated: true };
+    }
+
+    const sentences = await client.run([
+      '/interface/wireguard/peers/add',
+      `=interface=${iface}`,
+      `=comment=${comment}`,
+      ...attrWords,
+    ]);
+    let newId = '';
+    for (const sentence of sentences) {
+      if (sentence[0] === '!done') {
+        newId = parseAttrs(sentence.slice(1)).ret || '';
+        break;
+      }
+    }
+    logger.info({ interface: iface, comment, id: newId }, 'RouterOS: WireGuard peer created');
+    return { id: newId, created: true, updated: false };
+  } finally {
+    await client.close();
+  }
+}
+
+/**
+ * Read the WireGuard topology from the router (read-only, no writes).
+ * Returns the current WireGuard interfaces, IP addresses, and connected routes.
+ * Used by wgProvisioningService.discoverSubnets to propose routed_subnets.
+ *
+ * @param {{ host: string, port?: number, user: string, password: string }} conn
+ * @returns {Promise<{ interfaces: object[], addresses: object[], routes: object[] }>}
+ */
+async function wireguardReadTopology(conn) {
+  const client = await createClient(conn);
+  try {
+    // WireGuard interfaces
+    const ifaceSentences = await client.run(['/interface/wireguard/print']);
+    const interfaces = ifaceSentences
+      .filter((s) => s[0] === '!re')
+      .map((s) => parseAttrs(s.slice(1)));
+
+    // IP addresses (all interfaces; caller filters by interface name)
+    const addrSentences = await client.run(['/ip/address/print']);
+    const addresses = addrSentences
+      .filter((s) => s[0] === '!re')
+      .map((s) => parseAttrs(s.slice(1)));
+
+    // Connected routes (type=connected is the RouterOS 7 filter for auto-added
+    // routes; caller further excludes WAN/mgmt and the WG tunnel subnet itself)
+    const routeSentences = await client.run(['/ip/route/print', '?type=connected']);
+    const routes = routeSentences
+      .filter((s) => s[0] === '!re')
+      .map((s) => parseAttrs(s.slice(1)));
+
+    logger.info(
+      { host: conn.host, interfaces: interfaces.length, addresses: addresses.length, routes: routes.length },
+      'RouterOS: WireGuard topology read',
+    );
+    return { interfaces, addresses, routes };
+  } finally {
+    await client.close();
+  }
+}
+
+/**
+ * Remove a WireGuard peer by interface + comment (idempotent — no-ops if absent).
+ *
+ * @param {{ host: string, port?: number, user: string, password: string }} conn
+ * @param {{ interface: string, comment: string }} params
+ * @returns {Promise<{ deleted: boolean, interface: string, comment: string }>}
+ */
+async function wireguardPeerRemove(conn, params) {
+  const { interface: iface, comment } = params;
+  if (!iface) throw new Error('wireguardPeerRemove: interface is required');
+  if (!comment) throw new Error('wireguardPeerRemove: comment is required');
+
+  const client = await createClient(conn);
+  try {
+    const existingId = await findId(client, '/interface/wireguard/peers', [
+      `?interface=${iface}`,
+      `?comment=${comment}`,
+    ]);
+
+    if (!existingId) {
+      logger.info({ interface: iface, comment }, 'RouterOS: WireGuard peer not found (no-op remove)');
+      return { deleted: false, interface: iface, comment };
+    }
+
+    await client.run(['/interface/wireguard/peers/remove', `=.id=${existingId}`]);
+    logger.info({ interface: iface, comment, id: existingId }, 'RouterOS: WireGuard peer removed');
+    return { deleted: true, interface: iface, comment };
+  } finally {
+    await client.close();
+  }
+}
+
+// =============================================================================
 // FireRelay handler wrappers
 // =============================================================================
 // Each wrapper extracts the router connection details from the flat params
@@ -875,6 +1136,26 @@ const handlers = {
     const conn = connFromParams(params);
     return configBackup(conn, params);
   },
+  'wireguard.interfaceUpsert': async (params) => {
+    const conn = connFromParams(params);
+    return wireguardInterfaceUpsert(conn, params);
+  },
+  'wireguard.addressUpsert': async (params) => {
+    const conn = connFromParams(params);
+    return wireguardAddressUpsert(conn, params);
+  },
+  'wireguard.peerUpsert': async (params) => {
+    const conn = connFromParams(params);
+    return wireguardPeerUpsert(conn, params);
+  },
+  'wireguard.readTopology': async (params) => {
+    const conn = connFromParams(params);
+    return wireguardReadTopology(conn);
+  },
+  'wireguard.peerRemove': async (params) => {
+    const conn = connFromParams(params);
+    return wireguardPeerRemove(conn, params);
+  },
 };
 
 module.exports = {
@@ -893,6 +1174,11 @@ module.exports = {
   addressListAdd,
   addressListRemove,
   configBackup,
+  wireguardInterfaceUpsert,
+  wireguardAddressUpsert,
+  wireguardPeerUpsert,
+  wireguardReadTopology,
+  wireguardPeerRemove,
   handlers,
   connFromParams,
   DEFAULT_PORT,

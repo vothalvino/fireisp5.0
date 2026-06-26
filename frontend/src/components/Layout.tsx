@@ -109,6 +109,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/ptr-records', labelKey: 'nav.ptrRecords', requiredRole: 'technician' },
       { to: '/ipv6-management', labelKey: 'nav.ipv6Management', requiredRole: 'technician' },
       { to: '/transition-mechanisms', labelKey: 'nav.transitionMechanisms', requiredRole: 'technician' },
+      { to: '/wg-tunnels', labelKey: 'nav.myWgTunnels' },
     ],
   },
   {
@@ -147,6 +148,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/resellers', labelKey: 'nav.resellers', requiredRole: 'admin' },
       { to: '/integrations', labelKey: 'nav.integrations', requiredRole: 'admin' },
       { to: '/ai-support', labelKey: 'nav.aiSupport', requiredRole: 'admin' },
+      { to: '/admin/user-tunnels', labelKey: 'nav.adminUserTunnels', requiredRole: 'admin' },
     ],
   },
 ];
@@ -189,6 +191,7 @@ const TECHNICIAN_NAV_GROUPS: NavGroup[] = [
       { to: '/ipv6-management', labelKey: 'nav.ipv6Management' },
       { to: '/transition-mechanisms', labelKey: 'nav.transitionMechanisms' },
       { to: '/subscriber-certificates', labelKey: 'nav.subscriberCertificates' },
+      { to: '/wg-tunnels', labelKey: 'nav.myWgTunnels' },
     ],
   },
   {

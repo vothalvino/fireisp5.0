@@ -13,6 +13,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
+import { NasWireguardModal } from './NasWireguardModal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -80,9 +81,11 @@ async function fetchNas(page: number, statusFilter: string): Promise<NasResponse
   return res.data as unknown as NasResponse;
 }
 
-async function createNas(body: NasBody): Promise<void> {
+async function createNas(body: NasBody): Promise<Nas | null> {
   const res = await api.POST('/nas', { body: body as never });
   if (res.error) throw new Error('Failed to create NAS');
+  const d = res.data as { data?: Nas } | null;
+  return d?.data ?? null;
 }
 
 async function updateNas(id: number, body: Partial<NasBody>): Promise<void> {
@@ -208,9 +211,11 @@ interface NasModalProps {
   nas: Nas | null;
   onClose: () => void;
   onSaved: () => void;
+  /** Called after a successful *create* (not edit) with the newly created NAS. */
+  onCreated?: (nas: Nas) => void;
 }
 
-function NasModal({ nas, onClose, onSaved }: NasModalProps) {
+function NasModal({ nas, onClose, onSaved, onCreated }: NasModalProps) {
   const isEdit = nas !== null;
   const [form, setForm] = useState({
     name: nas?.name ?? '',
@@ -236,7 +241,7 @@ function NasModal({ nas, onClose, onSaved }: NasModalProps) {
   }
 
   const mutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async (): Promise<Nas | null> => {
       const body: NasBody = {
         name: form.name.trim(),
         ip_address: form.ip_address.trim(),
@@ -254,11 +259,13 @@ function NasModal({ nas, onClose, onSaved }: NasModalProps) {
       if (form.api_username) body.api_username = form.api_username.trim();
       if (form.api_password) body.api_password = form.api_password;
       body.api_use_tls = form.api_use_tls;
-      return isEdit ? updateNas(nas.id, body) : createNas(body);
+      if (isEdit) { await updateNas(nas.id, body); return null; }
+      return createNas(body);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       onSaved();
       onClose();
+      if (result) onCreated?.(result);
     },
     onError: () => setError('Failed to save NAS. Check all fields and try again.'),
   });
@@ -778,6 +785,7 @@ export function NasList() {
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [testingId, setTestingId] = useState<number | null>(null);
   const [seedNasTarget, setSeedNasTarget] = useState<Nas | null>(null);
+  const [wgNasTarget, setWgNasTarget] = useState<Nas | null>(null);
 
   const nasQ = useQuery({
     queryKey: ['nas', page, statusFilter],
@@ -910,6 +918,13 @@ export function NasList() {
                         >
                           Seed
                         </button>
+                        <button
+                          style={styles.actionBtn}
+                          onClick={() => setWgNasTarget(n)}
+                          title="Configure WireGuard tunnel for this NAS"
+                        >
+                          WG
+                        </button>
                         <Link to={`/nas/${n.id}`} style={{ ...styles.actionBtn, textDecoration: 'none', display: 'inline-block' }}>
                           View
                         </Link>
@@ -949,9 +964,19 @@ export function NasList() {
         )}
       </div>
 
-      {showNew && <NasModal nas={null} onClose={() => setShowNew(false)} onSaved={invalidate} />}
+      {showNew && (
+        <NasModal
+          nas={null}
+          onClose={() => setShowNew(false)}
+          onSaved={invalidate}
+          onCreated={(nas) => setWgNasTarget(nas)}
+        />
+      )}
       {editNas && <NasModal nas={editNas} onClose={() => setEditNas(null)} onSaved={invalidate} />}
       {seedNasTarget && <SeedModal nas={seedNasTarget} onClose={() => setSeedNasTarget(null)} />}
+      {wgNasTarget && (
+        <NasWireguardModal nas={wgNasTarget} onClose={() => setWgNasTarget(null)} />
+      )}
 
       {deleteId !== null && (
         <ConfirmDialog

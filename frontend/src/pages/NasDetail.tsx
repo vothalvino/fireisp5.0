@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
+import { NasWireguardModal } from './NasWireguardModal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,6 +48,26 @@ interface ConnectionLogRow {
 
 interface ListResp<T> { data: T[]; }
 
+interface WgTunnelRecord {
+  id?: number;
+  interface_name?: string;
+  tunnel_address?: string | null;
+  nas_public_key?: string | null;
+  nas_config_method?: string | null;
+  routed_subnets?: string[] | null;
+  state?: string | null;
+  server_peer_synced?: boolean;
+  last_handshake_at?: string | null;
+  last_error?: string | null;
+  provisioned_at?: string | null;
+}
+
+interface WgTunnelResponse {
+  tunnel: WgTunnelRecord | null;
+  serverPublicKey?: string | null;
+  serverEndpoint?: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -76,6 +97,23 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function WgStateBadge({ state }: { state: string | null | undefined }) {
+  const colorMap: Record<string, { bg: string; color: string }> = {
+    active:   { bg: '#d1fae5', color: '#065f46' },
+    manual:   { bg: '#dbeafe', color: '#1e40af' },
+    pending:  { bg: '#fef3c7', color: '#92400e' },
+    degraded: { bg: '#fee2e2', color: '#991b1b' },
+    error:    { bg: '#fee2e2', color: '#991b1b' },
+    disabled: { bg: '#f3f4f6', color: '#6b7280' },
+  };
+  const s = colorMap[state ?? ''] ?? { bg: '#f3f4f6', color: '#374151' };
+  return (
+    <span style={{ background: s.bg, color: s.color, padding: '2px 8px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 600, textTransform: 'capitalize' }}>
+      {state ?? 'none'}
+    </span>
+  );
+}
+
 function InfoRow({ label, value, mono }: { label: string; value: string | null | undefined; mono?: boolean }) {
   if (!value) return null;
   return (
@@ -90,7 +128,7 @@ function InfoRow({ label, value, mono }: { label: string; value: string | null |
 // Tabs
 // ---------------------------------------------------------------------------
 
-type TabId = 'overview' | 'health' | 'sessions';
+type TabId = 'overview' | 'health' | 'sessions' | 'wireguard';
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -105,6 +143,7 @@ export function NasDetail() {
   const [actionResult, setActionResult] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState<string | null>(null);
+  const [showWgModal, setShowWgModal] = useState(false);
 
   // Mirror the backend route guards: health-check requires nas.health,
   // test-connection requires devices.update.
@@ -112,9 +151,10 @@ export function NasDetail() {
   const canTestConn = can(user?.role, 'devices.update');
 
   const TABS: { id: TabId; label: string }[] = [
-    { id: 'overview', label: t('nasDetail.tabs.overview') },
-    { id: 'health',   label: t('nasDetail.tabs.health') },
-    { id: 'sessions', label: t('nasDetail.tabs.liveSessions') },
+    { id: 'overview',   label: t('nasDetail.tabs.overview') },
+    { id: 'health',     label: t('nasDetail.tabs.health') },
+    { id: 'sessions',   label: t('nasDetail.tabs.liveSessions') },
+    { id: 'wireguard',  label: t('nasDetail.tabs.wireguard') },
   ];
 
   const { data: nas, isLoading, error } = useQuery({
@@ -140,6 +180,19 @@ export function NasDetail() {
       return Array.isArray(d) ? d : (d as ListResp<ConnectionLogRow>).data ?? [];
     },
     enabled: Boolean(id) && Boolean(nas?.ip_address) && activeTab === 'sessions',
+  });
+
+  const { data: wgData, refetch: refetchWg } = useQuery({
+    queryKey: ['nas-wg', id],
+    queryFn: async () => {
+      const res = await api.GET('/nas/{id}/wg' as never, {
+        params: { path: { id: Number(id) } },
+      } as never);
+      if ((res as { error?: unknown }).error) return null;
+      const d = (res as { data: unknown }).data;
+      return (((d as { data?: WgTunnelResponse }).data) ?? d) as WgTunnelResponse;
+    },
+    enabled: Boolean(id) && activeTab === 'wireguard',
   });
 
   async function runHealthCheck() {
@@ -337,7 +390,90 @@ export function NasDetail() {
             )}
           </div>
         )}
+
+        {activeTab === 'wireguard' && (() => {
+          const wgTunnel = wgData?.tunnel ?? null;
+          const serverPublicKey = wgData?.serverPublicKey ?? null;
+          const serverEndpoint = wgData?.serverEndpoint ?? null;
+          return (
+            <div style={{ padding: '1.25rem' }}>
+              {!wgTunnel ? (
+                /* No tunnel provisioned yet */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                    {t('nasDetail.tunnel.notProvisioned')}
+                  </p>
+                  {can(user?.role, 'devices.update') && (
+                    <button style={styles.actionBtn} onClick={() => setShowWgModal(true)}>
+                      {t('nasDetail.tunnel.configure')}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                /* Tunnel exists — show details */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {/* State + actions row */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' as const }}>
+                    <WgStateBadge state={wgTunnel.state} />
+                    {can(user?.role, 'devices.update') && (
+                      <button style={styles.actionBtn} onClick={() => setShowWgModal(true)}>
+                        {t('nasDetail.tunnel.rebootstrap')}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Key-value details */}
+                  <div style={styles.infoGrid}>
+                    <InfoRow label={t('nasDetail.tunnel.tunnelIp')}      value={wgTunnel.tunnel_address}   mono />
+                    <InfoRow label={t('nasDetail.tunnel.configMethod')}  value={wgTunnel.nas_config_method} />
+                    <InfoRow label={t('nasDetail.tunnel.serverPubkey')}  value={serverPublicKey}            mono />
+                    <InfoRow label={t('nasDetail.tunnel.serverEndpoint')} value={serverEndpoint}            mono />
+                    <InfoRow label={t('nasDetail.tunnel.lastHandshake')} value={fmt(wgTunnel.last_handshake_at)} />
+                    <InfoRow label={t('nasDetail.tunnel.provisioned')}   value={fmt(wgTunnel.provisioned_at)} />
+                  </div>
+
+                  {/* Routed subnets */}
+                  {Array.isArray(wgTunnel.routed_subnets) && wgTunnel.routed_subnets.length > 0 && (
+                    <div>
+                      <p style={{ margin: '0 0 0.4rem', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-dimmed)' }}>
+                        {t('nasDetail.tunnel.routedSubnets')}
+                      </p>
+                      <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
+                        {wgTunnel.routed_subnets.map(s => (
+                          <span
+                            key={s}
+                            style={{ fontFamily: 'monospace', fontSize: '0.82rem', background: 'var(--bg-subtle, #f3f4f6)', padding: '2px 8px', borderRadius: 4, color: 'var(--text-secondary)' }}
+                          >
+                            {s}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Last error */}
+                  {wgTunnel.last_error && (
+                    <div style={{ padding: '0.65rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, color: '#991b1b', fontSize: '0.82rem' }}>
+                      <strong>{t('nasDetail.tunnel.lastError')}:</strong> {wgTunnel.last_error}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
+
+      {/* WireGuard provisioning modal */}
+      {showWgModal && nas && (
+        <NasWireguardModal
+          nas={nas}
+          onClose={() => {
+            setShowWgModal(false);
+            refetchWg();
+          }}
+        />
+      )}
     </div>
   );
 }
