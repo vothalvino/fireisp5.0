@@ -117,13 +117,20 @@ describe('Layout — grouped sidebar navigation', () => {
     expect(screen.queryByText('Administration')).not.toBeInTheDocument();
   });
 
-  it('shows the network section for a technician', () => {
+  it('shows a curated field/NOC nav for a technician', () => {
     mockUseAuth(makeUser('technician'));
     renderLayout();
 
+    // Technicians get a dedicated menu of pages their role can actually load,
+    // grouped into Field Work / Network / Inventory.
+    expect(screen.getByText('Field Work')).toBeInTheDocument();
     expect(screen.getByText('Network')).toBeInTheDocument();
-    expect(screen.getByText('🔌 VLANs')).toBeInTheDocument();
-    // Admin-only section stays hidden.
+    expect(screen.getByText('Inventory')).toBeInTheDocument();
+    expect(screen.getByText('🔧 Work Orders')).toBeInTheDocument();
+    expect(screen.getByText('🖧 NAS Devices')).toBeInTheDocument();
+    // Pages that 403 for a technician, and the billing/admin sections, are gone.
+    expect(screen.queryByText('🔌 VLANs')).not.toBeInTheDocument();
+    expect(screen.queryByText('Billing')).not.toBeInTheDocument();
     expect(screen.queryByText('Administration')).not.toBeInTheDocument();
   });
 

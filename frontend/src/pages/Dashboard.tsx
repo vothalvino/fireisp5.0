@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/api/client';
 import { useWebSocket } from '@/api/useWebSocket';
+import { TechnicianDashboard } from '@/pages/TechnicianDashboard';
 
 // ---------------------------------------------------------------------------
 // Response shapes (the OpenAPI spec uses generic `object` — cast at runtime)
@@ -141,10 +142,22 @@ function KpiCard({ label, value, sub, icon, accent = 'var(--accent)', loading, e
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard page
+// Dashboard page (role router)
 // ---------------------------------------------------------------------------
+// Technicians get a field/NOC dashboard built from endpoints their role can
+// load; everyone else keeps the existing admin/management dashboard unchanged.
 
 export function Dashboard() {
+  const { user } = useAuth();
+  if (user?.role === 'technician') return <TechnicianDashboard />;
+  return <AdminDashboard />;
+}
+
+// ---------------------------------------------------------------------------
+// Admin / management dashboard
+// ---------------------------------------------------------------------------
+
+function AdminDashboard() {
   const { user } = useAuth();
   const { t } = useTranslation();
   const queryClient = useQueryClient();
