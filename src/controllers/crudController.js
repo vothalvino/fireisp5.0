@@ -7,6 +7,7 @@
 
 const auditLog = require('../services/auditLog');
 const { bustCache } = require('../middleware/httpCache');
+const logger = require('../utils/logger').child({ service: 'crudController' });
 
 /**
  * Create standard CRUD handlers for a model.
@@ -27,6 +28,10 @@ function crudController(Model, _options = {}) {
   const createFn = typeof _options.createImpl === 'function'
     ? _options.createImpl
     : (data) => Model.create(data);
+  // Optional post-create hook — called after the create succeeds. NEVER allowed
+  // to fail the create response; errors are caught and logged. Receives
+  // (record, req). Useful for side-effects like WireGuard provisioning.
+  const afterCreateHook = typeof _options.afterCreate === 'function' ? _options.afterCreate : null;
 
   return {
     /**
@@ -99,6 +104,20 @@ function crudController(Model, _options = {}) {
         });
 
         if (cacheResource) await bustCache(req.orgId, cacheResource);
+
+        // Run the optional post-create hook. Wrapped in try/catch so it can
+        // NEVER fail the create response — side-effect errors are advisory.
+        if (afterCreateHook) {
+          try {
+            await afterCreateHook(record, req);
+          } catch (hookErr) {
+            logger.warn(
+              { err: hookErr.message, recordId: record.id, table: Model.tableName },
+              'crudController afterCreate hook failed (non-fatal)',
+            );
+          }
+        }
+
         res.status(201).json({ data: serialize(record) });
       } catch (err) {
         next(err);

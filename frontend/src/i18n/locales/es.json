@@ -140,6 +140,8 @@
                 "resellers": "Revendedores",
                 "integrations": "Integraciones",
                 "aiSupport": "🤖 Soporte IA",
+                "myWgTunnels": "🔒 Mis Túneles VPN",
+                "adminUserTunnels": "🔒 Túneles de Usuario",
                 "sections":  {
                                  "clients":  "Clientes",
                                  "billing":  "Facturación",
@@ -3233,7 +3235,8 @@
     "tabs": {
       "overview": "Resumen",
       "health": "Salud",
-      "liveSessions": "Sesiones Activas"
+      "liveSessions": "Sesiones Activas",
+      "tunnel": "WireGuard"
     },
     "health": {
       "lastCheck": "Último chequeo",
@@ -3247,6 +3250,32 @@
       "ipAddress": "Dirección IP",
       "macAddress": "Dirección MAC",
       "nasPortId": "Puerto NAS ID"
+    },
+    "tunnel": {
+      "notProvisioned": "El túnel WireGuard aún no está aprovisionado para este NAS.",
+      "configure": "Configurar WireGuard",
+      "state": "Estado del Túnel",
+      "tunnelIp": "IP del Túnel",
+      "serverPublicKey": "Clave Pública del Servidor",
+      "endpoint": "Endpoint",
+      "routedSubnets": "Subredes Enrutadas",
+      "lastHandshake": "Último Handshake",
+      "serverSynced": "Sincronizado con Servidor",
+      "configMethod": "Método de Configuración",
+      "provisionedAt": "Aprovisionado el",
+      "lastError": "Último Error",
+      "noSubnets": "Ninguna subred configurada aún.",
+      "neverHandshaked": "Nunca",
+      "rebootstrap": "Re-iniciar",
+      "showSnippet": "Mostrar Fragmento",
+      "discover": "Descubrir Subredes",
+      "serverDisabled": "El servidor WireGuard no está habilitado en este host — los fragmentos están disponibles pero el operador debe aplicarlos manualmente.",
+      "state_pending": "Pendiente",
+      "state_active": "Activo",
+      "state_manual": "Manual (Fragmento)",
+      "state_degraded": "Degradado",
+      "state_error": "Error",
+      "state_disabled": "Deshabilitado"
     }
   },
   "aiSupport": {
@@ -3301,6 +3330,174 @@
       "confidence": "Confianza",
       "summary": "Resumen",
       "recommendation": "Recomendación"
+    }
+  },
+  "nasWireguard": {
+    "modalTitle": "Configurar Túnel WireGuard",
+    "openModal": "Configurar WireGuard",
+    "step_discover": "Descubrir",
+    "step_confirm": "Confirmar Rutas",
+    "step_bootstrap": "Iniciar",
+    "discoverHint": "Escanea este NAS en busca de subredes enrutables para incluir en el túnel WireGuard.",
+    "discover": "Descubrir Subredes",
+    "discovering": "Descubriendo…",
+    "proposedSubnets": "Subredes Propuestas",
+    "noSubnets": "No se encontraron subredes enrutables en este dispositivo.",
+    "selectAll": "Seleccionar todo",
+    "selectNone": "Deseleccionar todo",
+    "confirmRoutes": "Confirmar Rutas",
+    "confirmingRoutes": "Confirmando…",
+    "bootstrap": "Iniciar WireGuard",
+    "bootstrapping": "Iniciando…",
+    "rebootstrap": "Re-iniciar",
+    "snippetTitle": "Fragmento RouterOS (pegar una vez)",
+    "snippetHint": "La API del router no está disponible. Copia este fragmento y pégalo en tu terminal MikroTik para levantar el túnel.",
+    "copySnippet": "Copiar Fragmento",
+    "copied": "¡Copiado!",
+    "errorDiscover": "Error al descubrir subredes.",
+    "errorConfirm": "Error al confirmar rutas.",
+    "errorBootstrap": "Error al iniciar WireGuard.",
+    "successBootstrap": "WireGuard iniciado correctamente.",
+    "successConfirm": "Rutas confirmadas.",
+    "stateLabel": "Estado del Túnel",
+    "state": {
+      "pending": "Pendiente",
+      "active": "Activo",
+      "manual": "Manual (Fragmento)",
+      "degraded": "Degradado",
+      "error": "Error",
+      "disabled": "Deshabilitado"
+    },
+    "configMethod": {
+      "api": "API",
+      "snippet": "Fragmento",
+      "manual": "Manual"
+    },
+    "overlapWarning": "Advertencia: {{subnet}} se superpone con otro túnel activo. Verifica el enrutamiento.",
+    "close": "Cerrar"
+  },
+  "wgTunnels": {
+    "title": "Mis Túneles VPN",
+    "subtitle": "Túneles WireGuard de acceso para tus dispositivos.",
+    "addPeer": "Agregar Dispositivo",
+    "empty": "Aún no hay túneles. Agrega un dispositivo para comenzar.",
+    "loading": "Cargando túneles…",
+    "errorLoad": "Error al cargar los túneles.",
+    "neverHandshaked": "Nunca",
+    "scopeNone": "Ninguna (sin asignaciones aún)",
+    "serverDisabled": "El aprovisionamiento VPN no está activo en este servidor. Se emiten archivos de configuración, pero debes aplicar el par manualmente.",
+    "table": {
+      "name": "Nombre del Dispositivo",
+      "tunnelIp": "IP Asignada",
+      "scopeCount": "Subredes Accesibles",
+      "lastHandshake": "Último Handshake",
+      "status": "Estado",
+      "actions": "Acciones"
+    },
+    "action": {
+      "downloadConf": "Descargar .conf",
+      "showQr": "Mostrar Código QR",
+      "revoke": "Revocar"
+    },
+    "status": {
+      "synced": "Sincronizado",
+      "unsynced": "Sincronización pendiente",
+      "revoked": "Revocado"
+    },
+    "modal": {
+      "addTitle": "Agregar Dispositivo",
+      "nameLabel": "Nombre del Dispositivo",
+      "namePlaceholder": "Ej. Laptop, Teléfono…",
+      "add": "Agregar",
+      "adding": "Agregando…",
+      "configTitle": "Descarga tu Configuración",
+      "configHint": "Guarda tu configuración ahora — tu clave privada no volverá a mostrarse.",
+      "downloadConf": "Descargar .conf",
+      "showQr": "Mostrar Código QR",
+      "done": "Listo"
+    },
+    "qr": {
+      "title": "Escanear para Configurar",
+      "hint": "Escanea con la aplicación móvil WireGuard para importar este dispositivo.",
+      "close": "Cerrar"
+    },
+    "confirm": {
+      "revokeTitle": "Revocar Túnel",
+      "revokeBody": "Esto desconectará y eliminará este dispositivo de la VPN de inmediato. ¿Estás seguro?",
+      "revokeConfirm": "Sí, Revocar",
+      "revokeCancel": "Cancelar"
+    },
+    "error": {
+      "create": "Error al crear el túnel.",
+      "revoke": "Error al revocar el túnel.",
+      "downloadConf": "Error al descargar la configuración.",
+      "showQr": "Error al cargar el código QR."
+    }
+  },
+  "adminWgTunnels": {
+    "title": "WireGuard — Todos los Túneles",
+    "tabs": {
+      "peers": "Todos los Pares",
+      "assignments": "Asignaciones de Red"
+    },
+    "peers": {
+      "empty": "No hay túneles activos.",
+      "loading": "Cargando pares…",
+      "errorLoad": "Error al cargar los pares.",
+      "neverHandshaked": "Nunca",
+      "table": {
+        "user": "Usuario",
+        "deviceName": "Nombre del Dispositivo",
+        "tunnelIp": "IP del Túnel",
+        "endpoint": "Último Endpoint",
+        "lastHandshake": "Último Handshake",
+        "allowedSubnets": "Alcance",
+        "synced": "Sincronizado",
+        "revokedAt": "Revocado el",
+        "actions": "Acciones"
+      },
+      "action": {
+        "revoke": "Revocar",
+        "rotate": "Rotar Claves",
+        "revoking": "Revocando…",
+        "rotating": "Rotando…"
+      },
+      "confirm": {
+        "revokeTitle": "Revocar Túnel",
+        "revokeBody": "Esto desconectará inmediatamente el dispositivo \"{{name}}\" de {{user}}. ¿Continuar?",
+        "rotateTitle": "Rotar Claves",
+        "rotateBody": "Se generará un nuevo par de claves. El usuario deberá volver a descargar su configuración.",
+        "confirm": "Confirmar",
+        "cancel": "Cancelar"
+      },
+      "error": {
+        "revoke": "Error al revocar el par.",
+        "rotate": "Error al rotar las claves."
+      },
+      "success": {
+        "revoke": "Par revocado.",
+        "rotate": "Claves rotadas. El usuario debe volver a descargar su configuración."
+      }
+    },
+    "assignments": {
+      "userLabel": "Usuario",
+      "userPlaceholder": "Selecciona un usuario…",
+      "loading": "Cargando asignaciones…",
+      "errorLoad": "Error al cargar las asignaciones.",
+      "empty": "Sin alcances asignados. Agrega NAS o sitios a continuación.",
+      "hint": "Asigna dispositivos NAS o sitios para que los túneles VPN de este usuario accedan a esas subredes.",
+      "adminNote": "Los usuarios administradores acceden automáticamente a todas las subredes de la organización — no es necesaria ninguna asignación.",
+      "scopeType": "Alcance",
+      "scopeTypeNas": "NAS",
+      "scopeTypeSite": "Sitio",
+      "scopeId": "ID",
+      "scopeName": "Nombre",
+      "addScope": "Agregar Alcance",
+      "removeScope": "Eliminar",
+      "save": "Guardar Asignaciones",
+      "saving": "Guardando…",
+      "successSave": "Asignaciones actualizadas. Los túneles activos se re-dimensionan de inmediato.",
+      "errorSave": "Error al guardar las asignaciones."
     }
   }
 }

@@ -522,6 +522,148 @@ CREATE TABLE IF NOT EXISTS nas (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
+-- Table: nas_wg_tunnels
+-- Purpose: Per-NAS WireGuard tunnel configuration and state (migration 364).
+--          One active row per NAS; the FireISP host is the hub (wg-fireisp).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS nas_wg_tunnels (
+    id                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id          BIGINT UNSIGNED NULL
+                                 COMMENT 'Tenant org; NULL = single-tenant deployment',
+    nas_id                   BIGINT UNSIGNED NOT NULL
+                                 COMMENT 'FK to nas.id — one active tunnel per NAS',
+    interface_name           VARCHAR(15) NOT NULL DEFAULT 'wg-fireisp'
+                                 COMMENT 'Host WireGuard interface name (max 15 chars; Linux IFNAMSIZ)',
+    tunnel_address           VARCHAR(45) NOT NULL
+                                 COMMENT 'Allocated /32 host IP within WG_SERVER_SUBNET (e.g. 10.255.0.2)',
+    nas_public_key           VARCHAR(64) NOT NULL
+                                 COMMENT 'NAS WireGuard public key (base64 x25519, 44 chars)',
+    nas_private_key_encrypted TEXT NULL
+                                 COMMENT 'NAS WireGuard private key, AES-256-GCM via src/utils/encryption.js',
+    nas_config_method        ENUM('api','snippet','manual') NOT NULL DEFAULT 'manual'
+                                 COMMENT 'How the NAS was/will be configured: api=RouterOS API push, snippet=paste-once CLI, manual=operator-managed',
+    routed_subnets           JSON NULL
+                                 COMMENT 'JSON array of confirmed CIDR strings this NAS owns',
+    state                    ENUM('pending','active','manual','degraded','error','disabled') NOT NULL DEFAULT 'pending'
+                                 COMMENT 'Provisioning state machine',
+    server_peer_synced       TINYINT(1) NOT NULL DEFAULT 0
+                                 COMMENT '1 when wg set wg-fireisp peer has been called for this NAS',
+    last_handshake_at        DATETIME NULL
+                                 COMMENT 'Last WireGuard handshake timestamp (poller; FOLLOW-UP)',
+    last_error               TEXT NULL
+                                 COMMENT 'Last provisioning or bootstrap error message',
+    provisioned_at           DATETIME NULL
+                                 COMMENT 'Timestamp when state first became active or manual',
+    created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at               DATETIME NULL,
+    active_flag              TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED
+                                 COMMENT 'NULL when soft-deleted; used in business unique keys',
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_wg_nas (nas_id, active_flag),
+    UNIQUE KEY uq_wg_tunnel_ip (tunnel_address, active_flag),
+    KEY idx_wg_state (state),
+    KEY idx_wg_nas_org (organization_id),
+    CONSTRAINT fk_nwgt_nas FOREIGN KEY (nas_id)
+        REFERENCES nas (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_nwgt_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Per-NAS WireGuard tunnel configuration and state (migration 364)';
+
+-- ---------------------------------------------------------------------------
+-- Table: wg_user_peers
+-- Purpose: One row per enrolled user VPN device (migration 365, Part 2 hub).
+--          User peers connect to wg-clients (WG_CLIENT_LISTEN_PORT 51821).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS wg_user_peers (
+    id                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id          BIGINT UNSIGNED NULL
+                                 COMMENT 'Tenant org; NULL = single-tenant deployment',
+    user_id                  BIGINT UNSIGNED NOT NULL
+                                 COMMENT 'Owning user (FK -> users.id)',
+    name                     VARCHAR(100) NOT NULL
+                                 COMMENT 'Human label for the device, e.g. "Laptop" or "Phone"',
+    public_key               VARCHAR(64) NOT NULL
+                                 COMMENT 'Client WireGuard public key (base64 x25519)',
+    private_key_encrypted    TEXT NULL
+                                 COMMENT 'Client WireGuard private key, AES-256-GCM via src/utils/encryption.js',
+    preshared_key_encrypted  TEXT NULL
+                                 COMMENT 'Optional WireGuard PSK, AES-256-GCM; passed via temp keyfile never argv',
+    tunnel_address           VARCHAR(45) NOT NULL
+                                 COMMENT 'Allocated /32 host IP within WG_CLIENT_SUBNET (e.g. 10.99.0.5)',
+    allowed_ips_snapshot     JSON NULL
+                                 COMMENT 'Last computed scoped CIDR list — audit trail; authoritative ACL is nftables FORWARD chain',
+    endpoint_host            VARCHAR(255) NULL
+                                 COMMENT 'Snapshot of WG_ENDPOINT_HOST at time of issue',
+    server_peer_synced       TINYINT(1) NOT NULL DEFAULT 0
+                                 COMMENT '1 when wg set wg-clients peer has been called for this device',
+    last_handshake_at        DATETIME NULL
+                                 COMMENT 'Last WireGuard handshake timestamp (live-read MVP; poller FOLLOW-UP)',
+    rx_bytes                 BIGINT UNSIGNED NULL
+                                 COMMENT 'Bytes received from this peer (from wg show dump; FOLLOW-UP poller)',
+    tx_bytes                 BIGINT UNSIGNED NULL
+                                 COMMENT 'Bytes sent to this peer (from wg show dump; FOLLOW-UP poller)',
+    revoked_at               DATETIME NULL
+                                 COMMENT 'Business revocation timestamp (deleted_at = soft-delete)',
+    revoked_by               BIGINT UNSIGNED NULL
+                                 COMMENT 'User id that performed the revocation (NULL = self-revoke)',
+    last_error               TEXT NULL
+                                 COMMENT 'Last sync or firewall error',
+    created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at               DATETIME NULL,
+    active_flag              TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED
+                                 COMMENT 'NULL when soft-deleted; used in business unique keys',
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_wg_user_ip (tunnel_address, active_flag),
+    UNIQUE KEY uq_wg_user_pubkey (public_key, active_flag),
+    KEY idx_wg_user (user_id, active_flag),
+    KEY idx_wg_user_org (organization_id),
+    CONSTRAINT fk_wgu_user FOREIGN KEY (user_id)
+        REFERENCES users (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_wgu_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='User WireGuard peer devices — one row per enrolled device per user (migration 365)';
+
+-- ---------------------------------------------------------------------------
+-- Table: user_network_assignments
+-- Purpose: Admin-granted VPN network scope (site or NAS grain) per user (migration 365).
+--          Durable — NOT derived from work orders (prevents privilege escalation).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_network_assignments (
+    id                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id          BIGINT UNSIGNED NULL
+                                 COMMENT 'Tenant org; NULL = single-tenant deployment',
+    user_id                  BIGINT UNSIGNED NOT NULL
+                                 COMMENT 'User whose VPN scope this row grants',
+    scope_type               ENUM('site','nas') NOT NULL
+                                 COMMENT 'Grain of the scope grant: site=all NASes at a site, nas=single NAS',
+    scope_id                 BIGINT UNSIGNED NOT NULL
+                                 COMMENT 'sites.id (scope_type=site) or nas.id (scope_type=nas)',
+    created_by               BIGINT UNSIGNED NULL
+                                 COMMENT 'Admin user who granted this scope',
+    created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at               DATETIME NULL
+                                 COMMENT 'Soft-delete: scope revoked but row retained for audit',
+    active_flag              TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED
+                                 COMMENT 'NULL when soft-deleted; used in business unique key',
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_una (user_id, scope_type, scope_id, active_flag),
+    KEY idx_una_user (user_id, active_flag),
+    KEY idx_una_org (organization_id),
+    CONSTRAINT fk_una_user FOREIGN KEY (user_id)
+        REFERENCES users (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_una_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Admin-granted VPN network scope per user; durable not work-order-derived (migration 365)';
+
+-- ---------------------------------------------------------------------------
 -- Table: radius
 -- Purpose: RADIUS subscriber authentication accounts
 -- ---------------------------------------------------------------------------

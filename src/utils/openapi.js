@@ -199,6 +199,7 @@ function generateSpec() {
       { name: 'Integration Connections', description: '§20.2 Per-org configured integration connections — credentials encrypted at rest, never returned in responses' },
       { name: 'AI Support', description: '§21 AI customer support — conversations, knowledge base, channel configs, diagnostics, and KPI metrics' },
       { name: 'NOC AI', description: '§21.11 NOC AI insights — alert explanation, capacity warnings, interference detection, shift summaries, runbook suggestions' },
+      { name: 'WireGuard Peers', description: 'WireGuard user peer self-service, admin oversight, and network scope assignment management — §6d' },
     ],
     paths: {
       // ---- Auth ----
@@ -498,6 +499,12 @@ function generateSpec() {
       '/nas/{id}/health-check': { post: { tags: ['NAS'], summary: 'Trigger manual health check probe for org NAS devices', operationId: 'triggerNasHealthCheck', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Health check results') } },
       '/nas/{id}/test-connection': { post: { tags: ['NAS'], summary: 'Test the direct RouterOS API connection to a NAS (uses its configured api_port/credentials)', operationId: 'testNasConnection', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Connection result (version, board, identity)') } },
       '/nas/{id}/seed': { post: { tags: ['NAS'], summary: 'Seed a MikroTik NAS: configure FireISP RADIUS client, PPP AAA, CoA incoming, and optional queue-tree skeleton + suspended walled garden (idempotent, non-destructive)', operationId: 'seedNasDevice', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('nas_seedNas'), responses: r200('Seed result — per-step report') } },
+
+      // ---- NAS WireGuard ----
+      '/nas/{id}/wg': { get: { tags: ['NAS'], summary: 'Get WireGuard tunnel state for a NAS (redacted — private key never returned)', operationId: 'getNasWgTunnel', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('NasWgTunnel (redacted)') } },
+      '/nas/{id}/wg/bootstrap': { post: { tags: ['NAS'], summary: 'Bootstrap WireGuard on a NAS via RouterOS API; falls back to a paste-once RouterOS CLI snippet if the device is unreachable', operationId: 'bootstrapNasWg', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Bootstrap result — method:api|snippet + steps[]') } },
+      '/nas/{id}/wg/discover': { post: { tags: ['NAS'], summary: 'Probe a NAS for connected subnets (read-only topology scan); returns proposed CIDRs to route through the WireGuard tunnel', operationId: 'discoverNasWgSubnets', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Proposed CIDRs') } },
+      '/nas/{id}/wg/routes': { put: { tags: ['NAS'], summary: 'Confirm routed CIDRs for a NAS WireGuard tunnel and re-sync the server-side peer on wg-fireisp', operationId: 'confirmNasWgRoutes', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('nas_confirmWgRoutes'), responses: r200('Updated NasWgTunnel') } },
 
       // ---- RADIUS ----
       ...crudPaths('radius', 'RADIUS', 'RadiusAccount'),
@@ -2613,6 +2620,35 @@ function generateSpec() {
       },
       '/noc-ai/insights/runbook': {
         post: { tags: ['NOC AI'], summary: 'Get runbook suggestion for an alert type', operationId: 'nocAiRunbook', security: [{ bearerAuth: [] }], requestBody: jsonBody('nocAi_runbookSuggestion'), responses: r200('NocAiInsight') },
+      },
+
+      // ---- WireGuard Peers — self-service (owner-scoped) ----
+      '/wg-peers': {
+        get:  { tags: ['WireGuard Peers'], summary: 'List own WireGuard peers (key columns redacted)', operationId: 'listWgPeers', security: [{ bearerAuth: [] }], responses: r200('WgUserPeer[]') },
+        post: { tags: ['WireGuard Peers'], summary: 'Create a WireGuard peer — keypair is server-generated; private key and QR SVG returned only here (never again)', operationId: 'createWgPeer', security: [{ bearerAuth: [] }], requestBody: jsonBody('wgPeers_createPeer'), responses: r201('WgUserPeer (redacted) + config + config_base64 + qr_svg') },
+      },
+      '/wg-peers/{id}/config': {
+        get: { tags: ['WireGuard Peers'], summary: 'Persistent profile re-download: return .conf text (default) or SVG QR for the owning user', operationId: 'getWgPeerConfig', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'format', in: 'query', required: false, schema: { type: 'string', enum: ['conf', 'qr'] }, description: 'conf (default) or qr' }, { name: 'download', in: 'query', required: false, schema: { type: 'string', enum: ['1'] }, description: 'If 1, sets Content-Disposition: attachment' }], responses: r200('.conf text or SVG QR') },
+      },
+      '/wg-peers/{id}': {
+        delete: { tags: ['WireGuard Peers'], summary: 'Revoke own WireGuard peer (owner only) — removes kernel peer immediately on next packet', operationId: 'deleteWgPeer', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+
+      // ---- WireGuard Peers — admin oversight ----
+      '/wg-peers/admin/all': {
+        get: { tags: ['WireGuard Peers'], summary: 'List all org WireGuard peers with live handshake stats (admin only — key columns never returned)', operationId: 'adminListWgPeers', security: [{ bearerAuth: [] }], parameters: [pageParam(), limitParam(), { name: 'order_by', in: 'query', required: false, schema: { type: 'string' } }, { name: 'order', in: 'query', required: false, schema: { type: 'string', enum: ['ASC', 'DESC'] } }], responses: r200('WgUserPeer[] + live_stats + meta') },
+      },
+      '/wg-peers/admin/{id}': {
+        delete: { tags: ['WireGuard Peers'], summary: 'Admin revoke any WireGuard peer by id', operationId: 'adminDeleteWgPeer', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/wg-peers/admin/{id}/rotate': {
+        post: { tags: ['WireGuard Peers'], summary: 'Rotate keypair for any peer — owner must re-download /config; admin never receives the key', operationId: 'adminRotateWgPeer', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('WgUserPeer (redacted, new public_key)') },
+      },
+
+      // ---- WireGuard Peers — assignment management (admin) ----
+      '/wg-peers/admin/assignments/{userId}': {
+        get: { tags: ['WireGuard Peers'], summary: 'Get network scope assignments for a user (site/NAS grain) plus computed reachable subnets', operationId: 'getWgAssignments', security: [{ bearerAuth: [] }], parameters: [{ name: 'userId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('UserNetworkAssignment[] + computed_subnets') },
+        put: { tags: ['WireGuard Peers'], summary: 'Replace network scope assignments for a user; live-refreshes their active WireGuard peers without reconnect', operationId: 'updateWgAssignments', security: [{ bearerAuth: [] }], parameters: [{ name: 'userId', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: jsonBody('wgPeers_updateAssignments'), responses: r200('UserNetworkAssignment[]') },
       },
     },
     components: {

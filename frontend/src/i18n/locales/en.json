@@ -140,6 +140,8 @@
     "resellers": "Resellers",
     "integrations": "Integrations",
     "aiSupport": "🤖 AI Support",
+    "myWgTunnels": "🔒 My VPN Tunnels",
+    "adminUserTunnels": "🔒 User Tunnels",
     "sections": {
       "clients": "Clients",
       "billing": "Billing",
@@ -3233,7 +3235,8 @@
     "tabs": {
       "overview": "Overview",
       "health": "Health",
-      "liveSessions": "Live Sessions"
+      "liveSessions": "Live Sessions",
+      "tunnel": "WireGuard"
     },
     "health": {
       "lastCheck": "Last check",
@@ -3247,6 +3250,32 @@
       "ipAddress": "IP Address",
       "macAddress": "MAC Address",
       "nasPortId": "NAS Port ID"
+    },
+    "tunnel": {
+      "notProvisioned": "WireGuard tunnel not yet provisioned for this NAS.",
+      "configure": "Configure WireGuard",
+      "state": "Tunnel State",
+      "tunnelIp": "Tunnel IP",
+      "serverPublicKey": "Server Public Key",
+      "endpoint": "Endpoint",
+      "routedSubnets": "Routed Subnets",
+      "lastHandshake": "Last Handshake",
+      "serverSynced": "Server Synced",
+      "configMethod": "Config Method",
+      "provisionedAt": "Provisioned At",
+      "lastError": "Last Error",
+      "noSubnets": "No subnets configured yet.",
+      "neverHandshaked": "Never",
+      "rebootstrap": "Re-bootstrap",
+      "showSnippet": "Show Snippet",
+      "discover": "Discover Subnets",
+      "serverDisabled": "WireGuard server is not enabled on this host — snippets are available but the operator must apply them manually.",
+      "state_pending": "Pending",
+      "state_active": "Active",
+      "state_manual": "Manual (Snippet)",
+      "state_degraded": "Degraded",
+      "state_error": "Error",
+      "state_disabled": "Disabled"
     }
   },
   "aiSupport": {
@@ -3301,6 +3330,174 @@
       "confidence": "Confidence",
       "summary": "Summary",
       "recommendation": "Recommendation"
+    }
+  },
+  "nasWireguard": {
+    "modalTitle": "Configure WireGuard Tunnel",
+    "openModal": "Configure WireGuard",
+    "step_discover": "Discover",
+    "step_confirm": "Confirm Routes",
+    "step_bootstrap": "Bootstrap",
+    "discoverHint": "Scan this NAS for routable subnets to include in the WireGuard tunnel.",
+    "discover": "Discover Subnets",
+    "discovering": "Discovering…",
+    "proposedSubnets": "Proposed Subnets",
+    "noSubnets": "No routable subnets found on this device.",
+    "selectAll": "Select all",
+    "selectNone": "Deselect all",
+    "confirmRoutes": "Confirm Routes",
+    "confirmingRoutes": "Confirming…",
+    "bootstrap": "Bootstrap WireGuard",
+    "bootstrapping": "Bootstrapping…",
+    "rebootstrap": "Re-bootstrap",
+    "snippetTitle": "Paste-once RouterOS Snippet",
+    "snippetHint": "The router API is unreachable. Copy this snippet and paste it into your MikroTik terminal to bring up the tunnel.",
+    "copySnippet": "Copy Snippet",
+    "copied": "Copied!",
+    "errorDiscover": "Failed to discover subnets.",
+    "errorConfirm": "Failed to confirm routes.",
+    "errorBootstrap": "Failed to bootstrap WireGuard.",
+    "successBootstrap": "WireGuard bootstrapped successfully.",
+    "successConfirm": "Routes confirmed.",
+    "stateLabel": "Tunnel State",
+    "state": {
+      "pending": "Pending",
+      "active": "Active",
+      "manual": "Manual (Snippet)",
+      "degraded": "Degraded",
+      "error": "Error",
+      "disabled": "Disabled"
+    },
+    "configMethod": {
+      "api": "API",
+      "snippet": "Snippet",
+      "manual": "Manual"
+    },
+    "overlapWarning": "Warning: {{subnet}} overlaps with another active tunnel. Verify routing is correct.",
+    "close": "Close"
+  },
+  "wgTunnels": {
+    "title": "My VPN Tunnels",
+    "subtitle": "WireGuard access tunnels for your devices.",
+    "addPeer": "Add Device",
+    "empty": "No tunnels yet. Add a device to get started.",
+    "loading": "Loading tunnels…",
+    "errorLoad": "Failed to load tunnels.",
+    "neverHandshaked": "Never",
+    "scopeNone": "None (no assignments yet)",
+    "serverDisabled": "VPN provisioning is not active on this server. Config files are issued but you must apply the peer manually.",
+    "table": {
+      "name": "Device Name",
+      "tunnelIp": "Assigned IP",
+      "scopeCount": "Accessible Subnets",
+      "lastHandshake": "Last Handshake",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "action": {
+      "downloadConf": "Download .conf",
+      "showQr": "Show QR Code",
+      "revoke": "Revoke"
+    },
+    "status": {
+      "synced": "Synced",
+      "unsynced": "Pending sync",
+      "revoked": "Revoked"
+    },
+    "modal": {
+      "addTitle": "Add Device",
+      "nameLabel": "Device Name",
+      "namePlaceholder": "e.g. Laptop, Phone…",
+      "add": "Add",
+      "adding": "Adding…",
+      "configTitle": "Download Your Configuration",
+      "configHint": "Save your configuration now — your private key will not be shown again.",
+      "downloadConf": "Download .conf",
+      "showQr": "Show QR Code",
+      "done": "Done"
+    },
+    "qr": {
+      "title": "Scan to Configure",
+      "hint": "Scan with the WireGuard mobile app to import this device.",
+      "close": "Close"
+    },
+    "confirm": {
+      "revokeTitle": "Revoke Tunnel",
+      "revokeBody": "This will immediately disconnect and remove this device from the VPN. Are you sure?",
+      "revokeConfirm": "Yes, Revoke",
+      "revokeCancel": "Cancel"
+    },
+    "error": {
+      "create": "Failed to create tunnel.",
+      "revoke": "Failed to revoke tunnel.",
+      "downloadConf": "Failed to download configuration.",
+      "showQr": "Failed to load QR code."
+    }
+  },
+  "adminWgTunnels": {
+    "title": "WireGuard — All Tunnels",
+    "tabs": {
+      "peers": "All Peers",
+      "assignments": "Network Assignments"
+    },
+    "peers": {
+      "empty": "No active tunnels.",
+      "loading": "Loading peers…",
+      "errorLoad": "Failed to load peers.",
+      "neverHandshaked": "Never",
+      "table": {
+        "user": "User",
+        "deviceName": "Device Name",
+        "tunnelIp": "Tunnel IP",
+        "endpoint": "Last Endpoint",
+        "lastHandshake": "Last Handshake",
+        "allowedSubnets": "Scope",
+        "synced": "Synced",
+        "revokedAt": "Revoked At",
+        "actions": "Actions"
+      },
+      "action": {
+        "revoke": "Revoke",
+        "rotate": "Rotate Keys",
+        "revoking": "Revoking…",
+        "rotating": "Rotating…"
+      },
+      "confirm": {
+        "revokeTitle": "Revoke Tunnel",
+        "revokeBody": "This will immediately disconnect {{user}}'s device \"{{name}}\". Continue?",
+        "rotateTitle": "Rotate Keys",
+        "rotateBody": "A new keypair will be generated. The user must re-download their configuration.",
+        "confirm": "Confirm",
+        "cancel": "Cancel"
+      },
+      "error": {
+        "revoke": "Failed to revoke peer.",
+        "rotate": "Failed to rotate keys."
+      },
+      "success": {
+        "revoke": "Peer revoked.",
+        "rotate": "Keys rotated. User must re-download their config."
+      }
+    },
+    "assignments": {
+      "userLabel": "User",
+      "userPlaceholder": "Select a user…",
+      "loading": "Loading assignments…",
+      "errorLoad": "Failed to load assignments.",
+      "empty": "No scopes assigned. Add NAS or site scopes below.",
+      "hint": "Assign NAS devices or sites to grant this user's VPN tunnels access to those subnets.",
+      "adminNote": "Admin users automatically reach all org subnets — no assignment needed.",
+      "scopeType": "Scope",
+      "scopeTypeNas": "NAS",
+      "scopeTypeSite": "Site",
+      "scopeId": "ID",
+      "scopeName": "Name",
+      "addScope": "Add Scope",
+      "removeScope": "Remove",
+      "save": "Save Assignments",
+      "saving": "Saving…",
+      "successSave": "Assignments updated. Live tunnels re-scoped immediately.",
+      "errorSave": "Failed to save assignments."
     }
   }
 }

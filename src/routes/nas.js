@@ -9,11 +9,13 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createNas, updateNas, seedNas } = require('../middleware/schemas/nas');
+const { createNas, updateNas, seedNas, confirmWgRoutes } = require('../middleware/schemas/nas');
 const { httpCache } = require('../middleware/httpCache');
 const { encrypt } = require('../utils/encryption');
 const { ValidationError } = require('../utils/errors');
 const routerProvisioningService = require('../services/routerProvisioningService');
+const wgProvisioningService = require('../services/wgProvisioningService');
+const config = require('../config');
 const db = require('../config/database');
 
 const router = Router();
@@ -23,6 +25,14 @@ function redactNas(row) {
   if (!row || typeof row !== 'object') return row;
   const rest = { ...row };
   delete rest.api_password_encrypted;
+  return rest;
+}
+
+// Never expose the NAS WireGuard private key in any response body.
+function redactTunnel(row) {
+  if (!row || typeof row !== 'object') return row;
+  const rest = { ...row };
+  delete rest.nas_private_key_encrypted;
   return rest;
 }
 
@@ -57,6 +67,10 @@ const ctrl = crudController(Nas, {
   // Re-adding a NAS on an IP that was soft-deleted restores the archived row
   // (keeps id/history) instead of orphaning it — see Nas.createOrRestore.
   createImpl: (data) => Nas.createOrRestore(data),
+  // Auto-provision the WireGuard tunnel record when the hub is enabled.
+  // The hook is advisory — failure is caught by crudController and logged,
+  // never surfaced to the caller. When WG_SERVER_ENABLED=false this is a no-op.
+  afterCreate: (nas) => config.wireguard.serverEnabled && wgProvisioningService.provisionDesiredState(nas),
 });
 
 router.use(authenticate);
@@ -143,6 +157,81 @@ router.post('/:id/health-check', requirePermission('nas.health'), async (req, re
     const { runHealthChecks } = require('../services/nasHealthService');
     const result = await runHealthChecks(req.orgId);
     res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =============================================================================
+// WireGuard per-NAS tunnel orchestration
+// =============================================================================
+// All four routes require an active NAS record (Nas.findByIdOrFail) and share
+// the sendRouterError error classifier from the provisioning routes above.
+// redactTunnel strips nas_private_key_encrypted from every response.
+//
+// POST /:id/wg/bootstrap  — push WG config to router (or return snippet)
+// POST /:id/wg/discover   — read connected subnets from router (read-only)
+// PUT  /:id/wg/routes     — confirm + store routed CIDRs, re-sync peer
+// GET  /:id/wg            — fetch tunnel state (redacted)
+// =============================================================================
+
+router.get('/:id/wg', requirePermission('devices.view'), async (req, res, next) => {
+  try {
+    // Ensure the NAS exists and is org-scoped before revealing tunnel data
+    await Nas.findByIdOrFail(req.params.id, req.orgId);
+    const [rows] = await db.query(
+      'SELECT * FROM nas_wg_tunnels WHERE nas_id = ? AND deleted_at IS NULL LIMIT 1',
+      [req.params.id],
+    );
+    const tunnel = rows[0] || null;
+    res.json({ data: tunnel ? redactTunnel(tunnel) : null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:id/wg/bootstrap', requirePermission('devices.update'), async (req, res, next) => {
+  try {
+    const nas = await Nas.findByIdOrFail(req.params.id, req.orgId);
+    try {
+      const result = await wgProvisioningService.bootstrap(nas);
+      // Redact private key from tunnel snapshot before sending
+      if (result.tunnel) result.tunnel = redactTunnel(result.tunnel);
+      // Bootstrap always returns HTTP 200 — both 'api' and 'snippet' outcomes
+      // are successful (snippet means the operator pastes the config manually).
+      res.json({ data: result });
+    } catch (e) {
+      return sendRouterError(res, next, e);
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:id/wg/discover', requirePermission('devices.update'), async (req, res, next) => {
+  try {
+    const nas = await Nas.findByIdOrFail(req.params.id, req.orgId);
+    try {
+      const result = await wgProvisioningService.discoverSubnets(nas);
+      res.json({ data: result });
+    } catch (e) {
+      return sendRouterError(res, next, e);
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/:id/wg/routes', requirePermission('devices.update'), validate(confirmWgRoutes), async (req, res, next) => {
+  try {
+    const nas = await Nas.findByIdOrFail(req.params.id, req.orgId);
+    try {
+      const result = await wgProvisioningService.confirmRoutes(nas, req.body);
+      if (result.tunnel) result.tunnel = redactTunnel(result.tunnel);
+      res.json({ data: result });
+    } catch (e) {
+      return sendRouterError(res, next, e);
+    }
   } catch (err) {
     next(err);
   }

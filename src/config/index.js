@@ -73,6 +73,24 @@ const config = {
     secret: process.env.RADIUS_SERVER_SECRET || '',
   },
 
+  // WireGuard VPN hub — two surfaces: per-NAS tunnels (wg-fireisp) + user access tunnels (wg-clients).
+  // Set WG_SERVER_ENABLED=true only on a Linux host with CAP_NET_ADMIN and wireguard-tools installed.
+  // When disabled (default), config/QR files are still issued but the operator wires peers manually.
+  // HARD CONSTRAINT: FireISP NEVER writes /ip/service or /ip/firewall on the router.
+  wireguard: {
+    serverEnabled:    parseBoolEnv('WG_SERVER_ENABLED', false),
+    serverInterface:  process.env.WG_SERVER_INTERFACE  || 'wg-fireisp',
+    serverEndpoint:   process.env.WG_ENDPOINT_HOST     || '',    // public host/IP both NAS + user clients dial
+    serverListenPort: parseIntEnv('WG_LISTEN_PORT',        51820),
+    serverPublicKey:  process.env.WG_SERVER_PUBLIC_KEY  || '',   // wg-fireisp public key (from wg-quick conf)
+    serverSubnet:     process.env.WG_SERVER_SUBNET      || '10.255.0.0/16', // NAS peer pool
+    keepalive:        parseIntEnv('WG_KEEPALIVE',           25),
+    clientInterface:  process.env.WG_CLIENT_INTERFACE   || 'wg-clients',
+    clientSubnet:     process.env.WG_CLIENT_SUBNET      || '10.99.0.0/16',  // user peer pool
+    clientListenPort: parseIntEnv('WG_CLIENT_LISTEN_PORT', 51821),
+    clientPublicKey:  process.env.WG_CLIENT_SERVER_PUBLIC_KEY || '', // wg-clients public key handed to users in .conf
+  },
+
   // Feature flags — set FEATURE_*=true to enable
   features: {
     cfdi: parseBoolEnv('FEATURE_CFDI', true),
@@ -129,6 +147,21 @@ function validateEnv(logger) {
   } else if (!HEX_64_RE.test(process.env.ENCRYPTION_KEY)) {
     const msg = 'ENCRYPTION_KEY must be a 64-character hex string (256 bits)';
     if (isProduction) errors.push(msg); else warnings.push(msg);
+  }
+
+  // WireGuard: fatal in production when server mode is enabled without the
+  // required endpoint + public key env vars (keys live in wg-quick conf files,
+  // never in DB; these env vars are the app's view of them).
+  if (config.wireguard.serverEnabled && isProduction) {
+    if (!config.wireguard.serverEndpoint) {
+      errors.push('WG_SERVER_ENABLED=true in production but WG_ENDPOINT_HOST is not set (NAS and user clients need a reachable endpoint)');
+    }
+    if (!config.wireguard.serverPublicKey) {
+      errors.push('WG_SERVER_ENABLED=true in production but WG_SERVER_PUBLIC_KEY is not set (required for NAS peer config generation)');
+    }
+    if (!config.wireguard.clientPublicKey) {
+      errors.push('WG_SERVER_ENABLED=true in production but WG_CLIENT_SERVER_PUBLIC_KEY is not set (required for user .conf and QR generation)');
+    }
   }
 
   // Database config: required in production

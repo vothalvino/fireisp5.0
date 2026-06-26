@@ -66,4 +66,11 @@ const seedNas = {
   portalAddress: { type: 'string', max: 255 },
 };
 
-module.exports = { createNas, updateNas, seedNas };
+// Confirm WireGuard routed subnets for PUT /nas/:id/wg/routes.
+// The caller sends a `subnets` array of CIDR strings; the server validates
+// and stores them in nas_wg_tunnels.routed_subnets.
+const confirmWgRoutes = {
+  subnets: { type: 'array', required: true },
+};
+
+module.exports = { createNas, updateNas, seedNas, confirmWgRoutes };

@@ -161,6 +161,8 @@ import AutomationPage from '@/pages/AutomationPage';
 import ResellerPage from '@/pages/ResellerPage';
 import { IntegrationsPage } from '@/pages/IntegrationsPage';
 import { AiSupportPage } from '@/pages/AiSupportPage';
+import { UserWgTunnels } from '@/pages/UserWgTunnels';
+import { AdminWgTunnels } from '@/pages/AdminWgTunnels';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
 
 const queryClient = new QueryClient({
@@ -222,6 +224,7 @@ export function App() {
                 <Route path="escalations" element={<EscalationList />} />
                 <Route path="devices" element={<DeviceMap />} />
                 <Route path="devices/:id" element={<DeviceDetail />} />
+                <Route path="wg-tunnels" element={<UserWgTunnels />} />
               </Route>
             </Route>
 
@@ -353,6 +356,7 @@ export function App() {
                 <Route path="resellers" element={<ResellerPage />} />
                 <Route path="integrations" element={<IntegrationsPage />} />
                 <Route path="ai-support" element={<AiSupportPage />} />
+                <Route path="admin/user-tunnels" element={<AdminWgTunnels />} />
               </Route>
             </Route>
 
