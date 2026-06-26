@@ -145,7 +145,9 @@
       "billing": "Billing",
       "network": "Network",
       "compliance": "Compliance",
-      "admin": "Administration"
+      "admin": "Administration",
+      "fieldWork": "Field Work",
+      "inventory": "Inventory"
     }
   },
   "layout": {
@@ -196,6 +198,34 @@
     "liveConnected": "Live",
     "liveDisconnected": "Offline",
     "liveEvents": "{{count}} new events"
+  },
+  "technicianDashboard": {
+    "title": "Technician Dashboard",
+    "subtitle": "Field & Network Ops",
+    "viewAll": "View all",
+    "recentWorkOrders": "🔧 Recent Work Orders",
+    "recentAlerts": "🚨 Recent Alerts",
+    "noWorkOrders": "No work orders yet.",
+    "noAlerts": "No alerts — all clear.",
+    "kpi": {
+      "latencyMs": "{{latency}} ms avg latency",
+      "devicesMonitored": "Monitored Devices",
+      "ofTotalDevices": "of {{total}} total devices",
+      "workOrdersInProgress": "Work Orders In Progress",
+      "ofTotalWorkOrders": "{{total}} total",
+      "activeAlerts": "Active Alerts",
+      "dueFollowUps": "Due Follow-ups",
+      "escalations": "Tickets to Escalate",
+      "nasDevices": "NAS Devices"
+    },
+    "col": {
+      "title": "Title",
+      "status": "Status",
+      "scheduled": "Scheduled",
+      "rule": "Rule",
+      "metric": "Metric",
+      "time": "Time"
+    }
   },
   "drDrill": {
     "modalTitle": "DR Drill Warning",

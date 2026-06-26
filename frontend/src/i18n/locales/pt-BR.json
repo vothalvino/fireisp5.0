@@ -145,7 +145,9 @@
                                  "billing":  "Faturamento",
                                  "network":  "Rede",
                                  "compliance":  "Conformidade",
-                                 "admin":  "Administração"
+                                 "admin":  "Administração",
+                                 "fieldWork":  "Trabalho de campo",
+                                 "inventory":  "Inventário"
                              }
             },
     "layout":  {
@@ -197,6 +199,34 @@
                       "liveDisconnected":  "Offline",
                       "liveEvents":  "{{count}} novos eventos"
                   },
+  "technicianDashboard": {
+    "title": "Painel do técnico",
+    "subtitle": "Operações de campo e rede",
+    "viewAll": "Ver tudo",
+    "recentWorkOrders": "🔧 Ordens de serviço recentes",
+    "recentAlerts": "🚨 Alertas recentes",
+    "noWorkOrders": "Nenhuma ordem de serviço ainda.",
+    "noAlerts": "Sem alertas — tudo certo.",
+    "kpi": {
+      "latencyMs": "{{latency}} ms de latência média",
+      "devicesMonitored": "Dispositivos monitorados",
+      "ofTotalDevices": "de {{total}} dispositivos no total",
+      "workOrdersInProgress": "Ordens de serviço em andamento",
+      "ofTotalWorkOrders": "{{total}} no total",
+      "activeAlerts": "Alertas ativos",
+      "dueFollowUps": "Acompanhamentos vencidos",
+      "escalations": "Tickets para escalar",
+      "nasDevices": "Dispositivos NAS"
+    },
+    "col": {
+      "title": "Título",
+      "status": "Status",
+      "scheduled": "Agendado",
+      "rule": "Regra",
+      "metric": "Métrica",
+      "time": "Hora"
+    }
+  },
     "drDrill":  {
                     "modalTitle":  "Aviso de simulação de DR",
                     "neverRun":  {

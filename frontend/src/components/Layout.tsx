@@ -151,6 +151,56 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Technician navigation — a curated field/NOC menu.
+//
+// The technician role has a rank-equal collision with `billing` in hasRole(),
+// so the generic NAV_GROUPS would show technicians the full Clients, Billing,
+// Network AND Compliance sections — most of which 403 on load because the
+// technician role lacks those permissions ("everything fails to load"). Rather
+// than rely on per-item role gates, technicians get their own list containing
+// ONLY the pages that actually load for the technician permission set (verified
+// against the backend requirePermission slugs). Admin/billing/support keep the
+// generic NAV_GROUPS unchanged.
+// ---------------------------------------------------------------------------
+const TECHNICIAN_NAV_GROUPS: NavGroup[] = [
+  {
+    items: [{ to: '/', labelKey: 'nav.dashboard' }],
+  },
+  {
+    titleKey: 'nav.sections.fieldWork',
+    items: [
+      { to: '/work-orders', labelKey: 'nav.workOrders' },
+      { to: '/service-orders', labelKey: 'nav.serviceOrders' },
+      { to: '/clients', labelKey: 'nav.clients' },
+      { to: '/follow-up-reminders', labelKey: 'nav.followUps' },
+      { to: '/escalations', labelKey: 'nav.escalations' },
+    ],
+  },
+  {
+    titleKey: 'nav.sections.network',
+    items: [
+      { to: '/nas', labelKey: 'nav.nas' },
+      { to: '/snmp-metrics', labelKey: 'nav.snmpMetrics' },
+      { to: '/snmp-traps', labelKey: 'nav.snmpTraps' },
+      { to: '/dhcp-servers', labelKey: 'nav.dhcpServers' },
+      { to: '/nat-management', labelKey: 'nav.natManagement' },
+      { to: '/ptr-records', labelKey: 'nav.ptrRecords' },
+      { to: '/ipv6-management', labelKey: 'nav.ipv6Management' },
+      { to: '/transition-mechanisms', labelKey: 'nav.transitionMechanisms' },
+      { to: '/subscriber-certificates', labelKey: 'nav.subscriberCertificates' },
+    ],
+  },
+  {
+    titleKey: 'nav.sections.inventory',
+    items: [
+      { to: '/inventory', labelKey: 'nav.inventory' },
+      { to: '/warehouses', labelKey: 'nav.warehouses' },
+      { to: '/inventory-management', labelKey: 'nav.inventoryManagement' },
+    ],
+  },
+];
+
 export function Layout() {
   const { user, logout, switchOrganization } = useAuth();
   const { t } = useTranslation();
@@ -163,6 +213,10 @@ export function Layout() {
   // a member of), so for them the switcher lists every org. Non-admins only see
   // the orgs they belong to (from /auth/me → user.organizations).
   const isAdmin = !!user && hasRole(user.role, 'admin');
+
+  // Technicians get a curated field/NOC menu of only the pages that load for
+  // their permission set; every other role keeps the generic grouped nav.
+  const navGroups = user?.role === 'technician' ? TECHNICIAN_NAV_GROUPS : NAV_GROUPS;
   const { data: allOrgs } = useQuery({
     queryKey: ['org-switcher-all'],
     queryFn: async (): Promise<{ id: number; name: string }[]> => {
@@ -230,7 +284,7 @@ export function Layout() {
         <div style={styles.logo}>{t('layout.brandName')}</div>
 
         <nav style={styles.nav}>
-          {NAV_GROUPS.map((group, idx) => {
+          {navGroups.map((group, idx) => {
             const visibleItems = group.items.filter(
               item => !item.requiredRole || (user && hasRole(user.role, item.requiredRole)),
             );

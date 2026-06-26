@@ -95,7 +95,9 @@ describe('authService', () => {
         .mockResolvedValueOnce([[]])  // findByEmail
         .mockResolvedValueOnce([{ insertId: 5 }])  // INSERT user
         .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]])  // findById
-        .mockResolvedValueOnce([{ insertId: 1 }]);  // INSERT organization_users
+        .mockResolvedValueOnce([{ insertId: 1 }]);  // register → INSERT IGNORE organization_users
+      // NB: the newUser fixture has no organization_id, so User.create's
+      // syncOrgMembership early-returns — only register's own insert runs here.
 
       const result = await authService.register({
         firstName: 'Jane',
@@ -107,9 +109,10 @@ describe('authService', () => {
       });
 
       expect(result.id).toBe(5);
-      // Verify organization_users INSERT was called
+      // An organization_users membership is created for the admin role (idempotent
+      // INSERT IGNORE — both User.create and register converge on the same row).
       expect(db.query).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO organization_users'),
+        expect.stringContaining('INSERT IGNORE INTO organization_users'),
         [42, 5, 'admin'],
       );
     });
@@ -165,7 +168,7 @@ describe('authService', () => {
       });
 
       expect(db.query).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO organization_users'),
+        expect.stringContaining('INSERT IGNORE INTO organization_users'),
         [10, 8, 'readonly'],
       );
     });

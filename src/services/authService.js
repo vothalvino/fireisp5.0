@@ -70,10 +70,13 @@ async function register({ firstName, lastName, email, password, organizationId, 
     role: role || 'support',
   });
 
-  // If organization provided, create organization_users membership
+  // If organization provided, ensure an organization_users membership exists.
+  // User.create() already mirrors roles that are valid in the membership ENUM
+  // (admin/billing/technician/readonly) into a row, so use INSERT IGNORE here to
+  // stay idempotent and still cover the legacy 'support' default (→ 'readonly').
   if (organizationId) {
     await db.query(
-      'INSERT INTO organization_users (organization_id, user_id, role) VALUES (?, ?, ?)',
+      'INSERT IGNORE INTO organization_users (organization_id, user_id, role) VALUES (?, ?, ?)',
       [organizationId, user.id, role || 'readonly'],
     );
   }
