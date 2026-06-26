@@ -140,7 +140,11 @@ router.post('/auth/login', authLimiter, validate(portalLoginSchema), async (req,
 });
 
 // POST /portal/auth/refresh
-router.post('/auth/refresh', authLimiter, validate(portalRefreshSchema), async (req, res, next) => {
+// Uses the general apiLimiter, NOT the strict authLimiter: the portal SPA keeps its
+// access token in memory and re-exchanges the (localStorage) refresh token on every
+// page load, so the strict 20/window limiter would 429 a frequently-reloaded session
+// and bounce the customer to the login screen. /auth/login stays on authLimiter.
+router.post('/auth/refresh', apiLimiter, validate(portalRefreshSchema), async (req, res, next) => {
   try {
     const result = await portalAuthService.refreshToken(req.body.refreshToken);
     res.json({ data: result });
