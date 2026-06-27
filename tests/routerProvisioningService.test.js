@@ -257,6 +257,14 @@ describe('seedDevice', () => {
     return obj;
   }
 
+  // Real rosBool — seedDevice reads API booleans ("true"/"false") through it.
+  function realRosBool(value) {
+    if (value === true) return true;
+    if (typeof value !== 'string') return false;
+    const v = value.trim().toLowerCase();
+    return v === 'true' || v === 'yes';
+  }
+
   // Fake client recording every command. `handler` decides each command's reply;
   // anything it doesn't answer defaults to a bare !done (printed → "not found").
   function makeSeedClient(handler = () => null) {
@@ -277,6 +285,7 @@ describe('seedDevice', () => {
 
   beforeEach(() => {
     ros.parseAttrs.mockImplementation(realParseAttrs);
+    ros.rosBool.mockImplementation(realRosBool);
     // upsertByComment now delegates the .id lookup to ros.findId (deduped into
     // routerosService). routerosService is mocked here, so supply the real scan
     // behaviour against the mock client's replies.
@@ -490,11 +499,12 @@ describe('seedDevice', () => {
 
   test('reports radius-incoming and ppp-aaa as unchanged when already configured', async () => {
     const { client } = makeSeedClient((words) => {
+      // The ROS API reports booleans as "true"/"false" (not the CLI's yes/no).
       if (words[0] === '/radius/incoming/print') {
-        return [['!re', '=accept=yes', '=port=3799'], ['!done']];
+        return [['!re', '=accept=true', '=port=3799'], ['!done']];
       }
       if (words[0] === '/ppp/aaa/print') {
-        return [['!re', '=use-radius=yes', '=accounting=yes', '=interim-update=5m'], ['!done']];
+        return [['!re', '=use-radius=true', '=accounting=true', '=interim-update=5m'], ['!done']];
       }
       return null;
     });
@@ -508,8 +518,9 @@ describe('seedDevice', () => {
 
   test('flags when ppp-aaa overrides a deliberate accounting=no', async () => {
     const { client } = makeSeedClient((words) => {
+      // accounting=false is how the API reports a deliberate accounting=no.
       if (words[0] === '/ppp/aaa/print') {
-        return [['!re', '=use-radius=no', '=accounting=no', '=interim-update=0s'], ['!done']];
+        return [['!re', '=use-radius=false', '=accounting=false', '=interim-update=0s'], ['!done']];
       }
       return null;
     });

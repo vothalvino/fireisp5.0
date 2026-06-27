@@ -381,6 +381,13 @@ async function discoverSubnets(nas) {
     const prefix = route['dst-address'] || '';
     if (!prefix || !prefix.includes('/')) continue;
 
+    // Skip single-host routes (/32 IPv4, /128 IPv6) and malformed masks. A host
+    // route is never a LAN "behind the NAS" — e.g. a cloud router's WAN gateway
+    // link-route (203.0.113.1/32) is connected but must not be proposed as a site
+    // subnet. Real customer LANs are always a prefix wider than a single host.
+    const maskBits = parseInt(prefix.split('/')[1], 10);
+    if (!Number.isFinite(maskBits) || maskBits === 32 || maskBits === 128) continue;
+
     // Exclude the WireGuard server tunnel pool
     if (overlapsSubnet(prefix, wgSubnet)) continue;
 

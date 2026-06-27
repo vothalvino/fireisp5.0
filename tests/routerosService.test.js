@@ -19,6 +19,7 @@ const {
   readWord,
   parseSentences,
   parseAttrs,
+  rosBool,
   RouterOSClient,
   pppoeCreate,
   pppoeUpsert,
@@ -134,6 +135,34 @@ describe('parseAttrs', () => {
   test('handles value with = in it', () => {
     const result = parseAttrs(['=comment=foo=bar']);
     expect(result.comment).toBe('foo=bar');
+  });
+});
+
+describe('rosBool', () => {
+  test('treats the API wire values "true"/"false" correctly', () => {
+    expect(rosBool('true')).toBe(true);
+    expect(rosBool('false')).toBe(false);
+  });
+
+  test('also accepts the CLI spellings yes/no and native booleans', () => {
+    expect(rosBool('yes')).toBe(true);
+    expect(rosBool('no')).toBe(false);
+    expect(rosBool(true)).toBe(true);
+    expect(rosBool(false)).toBe(false);
+  });
+
+  test('is case- and whitespace-insensitive', () => {
+    expect(rosBool('TRUE')).toBe(true);
+    expect(rosBool('  Yes ')).toBe(true);
+    expect(rosBool(' False ')).toBe(false);
+  });
+
+  test('treats absent / empty / unknown values as false', () => {
+    expect(rosBool(undefined)).toBe(false);
+    expect(rosBool(null)).toBe(false);
+    expect(rosBool('')).toBe(false);
+    expect(rosBool('enabled')).toBe(false);
+    expect(rosBool(1)).toBe(false);
   });
 });
 

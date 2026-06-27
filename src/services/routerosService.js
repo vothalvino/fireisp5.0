@@ -475,6 +475,26 @@ function parseAttrs(words) {
 }
 
 /**
+ * Interpret a RouterOS API boolean field as a real boolean.
+ *
+ * The binary API returns booleans as the STRINGS "true"/"false" — NOT the
+ * "yes"/"no" that the CLI/Winbox display. This is the single place that maps any
+ * of those spellings to a boolean, so call sites never compare an API value
+ * against a hard-coded string form (a recurring bug: `prev.accept === 'yes'` is
+ * always false because the API returns "true"). Truthy: true / "true" / "yes";
+ * everything else (false / "false" / "no" / "" / undefined / null) is false.
+ *
+ * @param {string|boolean|undefined|null} value
+ * @returns {boolean}
+ */
+function rosBool(value) {
+  if (value === true) return true;
+  if (typeof value !== 'string') return false;
+  const v = value.trim().toLowerCase();
+  return v === 'true' || v === 'yes';
+}
+
+/**
  * Find the `.id` of the first row under `basePath` matching the given query words
  * (e.g. `?name=foo`, `?comment=bar`). Returns null when nothing matches. This is
  * the single implementation of the "run /print, scan !re sentences, return .id"
@@ -1042,9 +1062,12 @@ async function wireguardReadTopology(conn) {
       .filter((s) => s[0] === '!re')
       .map((s) => parseAttrs(s.slice(1)));
 
-    // Connected routes (type=connected is the RouterOS 7 filter for auto-added
-    // routes; caller further excludes WAN/mgmt and the WG tunnel subnet itself)
-    const routeSentences = await client.run(['/ip/route/print', '?type=connected']);
+    // Connected routes. RouterOS 7's API has NO `type` field on route records;
+    // connected (auto-added) routes are flagged by the boolean property `connect`
+    // (CLI flag "C"), so the query is `?connect=yes`. The old `?type=connected`
+    // matched zero rows on ROS7, making subnet discovery always come up empty.
+    // The caller further excludes WAN/mgmt, the WG tunnel subnet, and /32 hosts.
+    const routeSentences = await client.run(['/ip/route/print', '?connect=yes']);
     const routes = routeSentences
       .filter((s) => s[0] === '!re')
       .map((s) => parseAttrs(s.slice(1)));
@@ -1165,6 +1188,7 @@ module.exports = {
   readWord,
   parseSentences,
   parseAttrs,
+  rosBool,
   createClient,
   findId,
   pppoeCreate,
