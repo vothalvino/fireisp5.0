@@ -45,6 +45,7 @@ networks:
 # ── Named volumes ─────────────────────────────────────────────────────────────
 volumes:
   storage:          # client/device/ticket document uploads (/app/storage)
+  wg_keys:          # WireGuard server keypairs (persist across redeploys; never in git)
   db_primary_data:
   db_replica_data:
   redis_data:
@@ -165,6 +166,14 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    # WireGuard hub: NET_ADMIN (used by the file-cap'd wg/ip/nft binaries as the
+    # non-root user) + IPv4 forwarding for wg-clients <-> wg-fireisp routing. Both are
+    # inert unless WG_SERVER_ENABLED=true, so activation needs no extra compose file —
+    # set WG_SERVER_ENABLED=true + WG_ENDPOINT_HOST in .env.prod and redeploy normally.
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      net.ipv4.ip_forward: '1'
     networks:
       - frontend
       - backend
@@ -186,12 +195,17 @@ services:
       RADIUS_AUTH_PORT:      ${RADIUS_AUTH_PORT:-1812}
       RADIUS_ACCT_PORT:      ${RADIUS_ACCT_PORT:-1813}
       RADIUS_SERVER_SECRET:  ${RADIUS_SERVER_SECRET:-}
+      # WireGuard hub — set WG_SERVER_ENABLED=true + WG_ENDPOINT_HOST in .env.prod and
+      # redeploy normally to activate. WG_KEY_DIR is pinned to the wg_keys mount below.
+      WG_KEY_DIR:            /etc/wireguard
     volumes:
       # Named volume, NOT a host bind mount: the previous `./storage` bind mount
       # was root-owned on the host, so the non-root `fireisp` container user hit
       # EACCES writing uploads. A named volume inherits the image's fireisp-owned
       # /app/storage on first init, so it is writable by the app.
       - storage:/app/storage
+      # Server WireGuard keypairs — generated on first boot, persist here, never in git/image.
+      - wg_keys:/etc/wireguard
     # HTTP (3000) stays internal behind Nginx. The RADIUS auth/accounting
     # listeners are UDP and must be published directly (Nginx proxies HTTP only).
     # NOTE: these are fixed host ports — keep the app at replicas:1, or front
@@ -201,6 +215,10 @@ services:
     ports:
       - '${RADIUS_AUTH_PORT:-1812}:1812/udp'
       - '${RADIUS_ACCT_PORT:-1813}:1813/udp'
+      # WireGuard dial-in (host:container kept identical so the app's bind port always
+      # matches the published port). Inert until WG_SERVER_ENABLED=true.
+      - '${WG_LISTEN_PORT:-51820}:${WG_LISTEN_PORT:-51820}/udp'
+      - '${WG_CLIENT_LISTEN_PORT:-51821}:${WG_CLIENT_LISTEN_PORT:-51821}/udp'
     deploy:
       replicas: 1          # increase with --scale app=N as traffic grows
       resources:
