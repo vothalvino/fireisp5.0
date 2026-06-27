@@ -46,6 +46,22 @@ describe('config', () => {
     const config = require('../src/config');
     expect(config.requestTimeoutMs).toBe(60000);
   });
+
+  test('WireGuard endpoint defaults to DOMAIN when WG_ENDPOINT_HOST is unset', () => {
+    delete process.env.WG_ENDPOINT_HOST;
+    process.env.DOMAIN = 'vpn.example.net';
+    jest.resetModules();
+    const config = require('../src/config');
+    expect(config.wireguard.serverEndpoint).toBe('vpn.example.net');
+  });
+
+  test('explicit WG_ENDPOINT_HOST overrides DOMAIN for the WireGuard endpoint', () => {
+    process.env.WG_ENDPOINT_HOST = 'wg.example.com';
+    process.env.DOMAIN = 'vpn.example.net';
+    jest.resetModules();
+    const config = require('../src/config');
+    expect(config.wireguard.serverEndpoint).toBe('wg.example.com');
+  });
 });
 
 describe('validateEnv', () => {
