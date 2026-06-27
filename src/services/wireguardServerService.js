@@ -24,11 +24,13 @@
 //     returns { applied: false, reason } without executing anything.
 //
 // Deployment prerequisite (Ubuntu Linux):
-//   - wireguard-tools, nftables, iproute2 installed; CAP_NET_ADMIN on the process
-//     (or run via `wg-quick@` systemd units as root).
-//   - net.ipv4.ip_forward=1 in /etc/sysctl.d/ (documented; NOT toggled here).
-//   - Two wg-quick@ units bring up wg-fireisp + wg-clients; their conf files
-//     hold the server private keys — those NEVER enter the DB or this app.
+//   - wireguard-tools, nftables, iproute2 installed; CAP_NET_ADMIN on the process.
+//   - bootstrapHost() (called at startup) auto-provisions both interfaces: it
+//     generates + persists the server keypairs to WG_KEY_DIR, brings wg-fireisp +
+//     wg-clients up, sets net.ipv4.ip_forward=1, and installs the nft base. The
+//     server private keys live only in WG_KEY_DIR — NEVER in the DB or git.
+//   - Self-managed alternative: bring the interfaces up yourself (host wg-quick@)
+//     and pin WG_*_PUBLIC_KEY to the matching keys (docs/wireguard-setup.md §2).
 //
 // RouterOS 7 only — no v6 fallbacks.
 // =============================================================================
@@ -164,6 +166,31 @@ function generateKeypair() {
     privateKey: privDer.slice(16).toString('base64'),
     publicKey:  pubDer.slice(12).toString('base64'),
   };
+}
+
+/**
+ * The fixed 16-byte PKCS8 DER prefix that precedes the 32-byte raw key in an
+ * x25519 private key (SEQUENCE → version 0 → AlgId OID 1.3.101.110 → OCTET STRING).
+ * Prepending it to a raw private key lets crypto re-derive the public key.
+ */
+const X25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b656e04220420', 'hex');
+
+/**
+ * Derive the WireGuard base64 public key from a base64 private key.
+ *
+ * Used to recover an interface's public key when its persisted `.pub` file is
+ * missing but its `.key` file survives, without invoking `wg pubkey` (which
+ * would require feeding the key on stdin).
+ *
+ * @param {string} privateKeyB64  44-char base64 x25519 private key
+ * @returns {string} 44-char base64 public key
+ */
+function publicKeyFromPrivate(privateKeyB64) {
+  const raw = Buffer.from(privateKeyB64, 'base64');
+  const der = Buffer.concat([X25519_PKCS8_PREFIX, raw]);
+  const keyObj = crypto.createPrivateKey({ key: der, format: 'der', type: 'pkcs8' });
+  const pubDer = crypto.createPublicKey(keyObj).export({ type: 'spki', format: 'der' });
+  return pubDer.slice(12).toString('base64');
 }
 
 /**
@@ -632,6 +659,192 @@ async function removeUserPeer({ publicKey, peerId }) {
 }
 
 // =============================================================================
+// Host bootstrap — idempotent interface + key provisioning
+// =============================================================================
+
+/**
+ * Run a side-effecting shell-out best-effort: log and swallow any failure.
+ * Used for interface/address creation that is expected to already exist on a
+ * redeploy (the kernel returns "File exists" / "RTNETLINK ... File exists").
+ *
+ * @param {string} cmd
+ * @param {string[]} args
+ * @param {string} label  short description for the warning log
+ */
+async function runBestEffort(cmd, args, label) {
+  try {
+    await execFileAsync(cmd, args);
+  } catch (err) {
+    logger.warn({ label, err: err.message }, `wireguardServerService: ${label} failed (non-fatal)`);
+  }
+}
+
+/**
+ * Adopt the public key actually bound to an interface into request-time config.
+ * The on-disk/interface key is authoritative: if an operator pinned a different
+ * WG_*_PUBLIC_KEY, warn (issued .conf/QR would otherwise advertise a key the
+ * server does not hold → silent handshake failure). No-op when the interface
+ * bring-up failed (actual undefined): the existing pinned/empty value is kept.
+ *
+ * @param {string} field    config.wireguard field to set
+ * @param {string} envName  the env var name (for the warning)
+ * @param {string|undefined} actual  the interface's real public key
+ * @param {string} iface
+ */
+function reconcilePublicKey(field, envName, actual, iface) {
+  if (!actual) return;
+  if (config.wireguard[field] && config.wireguard[field] !== actual) {
+    logger.warn(
+      { iface, envName },
+      `wireguardServerService: pinned ${envName} does not match the key bound to ${iface}; advertising the on-disk key`,
+    );
+  }
+  config.wireguard[field] = actual;
+}
+
+/**
+ * Ensure one WireGuard hub interface exists, is keyed, addressed, and up.
+ *
+ * Idempotent and safe to run on every boot:
+ *   - generates the interface keypair ONLY when its private key file is absent,
+ *     persisting both files to config.wireguard.keyDir (0600 key, 0644 pub) —
+ *     keys never enter git, the image, or the DB;
+ *   - (re)creates the interface, binds the private key (via file path, never
+ *     argv) + listen port, assigns the host's `.1` address, and brings it up;
+ *   - interface/address creation is best-effort so a redeploy against a host
+ *     that already has the interface re-converges instead of throwing.
+ *
+ * @param {object} opts
+ * @param {string} opts.iface       interface name, e.g. 'wg-fireisp'
+ * @param {string} opts.subnet      CIDR pool; the host interface takes network+1
+ * @param {number} opts.listenPort  UDP listen port for inbound peers
+ * @returns {Promise<string>} the interface's base64 public key
+ */
+async function ensureInterface({ iface, subnet, listenPort }) {
+  const keyDir  = config.wireguard.keyDir;
+  const keyFile = path.posix.join(keyDir, `${iface}.key`);
+  const pubFile = path.posix.join(keyDir, `${iface}.pub`);
+
+  // ── Keys: generate once, then reuse the persisted pair forever ─────────────
+  let publicKey;
+  if (!fs.existsSync(keyFile)) {
+    const pair = generateKeypair();
+    fs.writeFileSync(keyFile, pair.privateKey, { mode: 0o600 });
+    fs.writeFileSync(pubFile, pair.publicKey,  { mode: 0o644 });
+    publicKey = pair.publicKey;
+    logger.info({ iface, keyFile }, 'wireguardServerService: generated server keypair');
+  } else if (fs.existsSync(pubFile)) {
+    publicKey = fs.readFileSync(pubFile, 'utf8').trim();
+  } else {
+    // Private key survived but the .pub was lost — recompute and rewrite it.
+    publicKey = publicKeyFromPrivate(fs.readFileSync(keyFile, 'utf8').trim());
+    fs.writeFileSync(pubFile, publicKey, { mode: 0o644 });
+    logger.warn({ iface, pubFile }, 'wireguardServerService: recovered missing public key from private key');
+  }
+
+  // ── Interface: create if absent, key it, address it, bring it up ───────────
+  const { network } = subnetToRange(subnet);
+  const hostIp = intToIp(network + 1);          // e.g. 10.255.0.1
+  const prefix = subnet.split('/')[1];
+
+  try {
+    await execFileAsync('ip', ['link', 'show', iface]);
+  } catch (_) {
+    // Interface absent — create it (tolerate a concurrent/previous create).
+    await runBestEffort('ip', ['link', 'add', 'dev', iface, 'type', 'wireguard'], `create ${iface}`);
+  }
+
+  // Bind the private key by FILE PATH (never argv) + listen port. Idempotent.
+  await execFileAsync('wg', ['set', iface, 'private-key', keyFile, 'listen-port', String(listenPort)]);
+
+  // Assign the host's .1 address (tolerate "File exists" on redeploy).
+  await runBestEffort('ip', ['address', 'add', `${hostIp}/${prefix}`, 'dev', iface], `address ${iface}`);
+
+  // Bring the interface up.
+  await execFileAsync('ip', ['link', 'set', 'up', 'dev', iface]);
+
+  return publicKey;
+}
+
+/**
+ * Idempotently provision the WireGuard hub on the local host (the container's
+ * own network namespace under CAP_NET_ADMIN). No-op unless WG_SERVER_ENABLED=true.
+ *
+ * On every boot this brings the hub from "nothing" to "ready to accept peers":
+ *   1. ensures both interfaces exist + are keyed/addressed/up (ensureInterface);
+ *   2. populates config.wireguard.{server,client}PublicKey from the generated or
+ *      persisted keys (unless an operator pinned them) so request-time config/QR
+ *      issuance advertises the correct server public key;
+ *   3. enables IPv4 forwarding so wg-clients traffic can route out via wg-fireisp;
+ *   4. installs the base nftables ruleset (ensureBaseFirewall).
+ *
+ * Each interface is provisioned independently and idempotently; a failure on one
+ * (or on ip_forward / the firewall) is logged and does NOT abort the rest, and
+ * the caller (server.js) also wraps this in try/catch — so a host that lacks
+ * CAP_NET_ADMIN logs a warning and the API still starts in config-issuance mode.
+ *
+ * @returns {Promise<{applied:boolean, reason?:string}>}
+ */
+async function bootstrapHost() {
+  if (!config.wireguard.serverEnabled) return { ...NOOP_RESULT };
+
+  const keyDir = config.wireguard.keyDir;
+  try {
+    fs.mkdirSync(keyDir, { recursive: true, mode: 0o700 });
+  } catch (err) {
+    logger.warn({ keyDir, err: err.message }, 'wireguardServerService: mkdir keyDir failed (non-fatal)');
+  }
+
+  // Provision each interface independently — a hard failure on one is logged and
+  // must not abort the other interface, ip_forward, or the firewall.
+  let serverPub;
+  try {
+    serverPub = await ensureInterface({
+      iface:      config.wireguard.serverInterface,
+      subnet:     config.wireguard.serverSubnet,
+      listenPort: config.wireguard.serverListenPort,
+    });
+  } catch (err) {
+    logger.warn({ iface: config.wireguard.serverInterface, err: err.message }, 'wireguardServerService: server interface bring-up failed (non-fatal)');
+  }
+  let clientPub;
+  try {
+    clientPub = await ensureInterface({
+      iface:      config.wireguard.clientInterface,
+      subnet:     config.wireguard.clientSubnet,
+      listenPort: config.wireguard.clientListenPort,
+    });
+  } catch (err) {
+    logger.warn({ iface: config.wireguard.clientInterface, err: err.message }, 'wireguardServerService: client interface bring-up failed (non-fatal)');
+  }
+
+  // Adopt the key each interface is actually bound to (warns on a pin mismatch).
+  reconcilePublicKey('serverPublicKey', 'WG_SERVER_PUBLIC_KEY', serverPub, config.wireguard.serverInterface);
+  reconcilePublicKey('clientPublicKey', 'WG_CLIENT_SERVER_PUBLIC_KEY', clientPub, config.wireguard.clientInterface);
+
+  // Enable IPv4 forwarding so wg-clients → wg-fireisp routing works. Best-effort:
+  // the compose overlay also sets this via sysctls, and a locked-down host may
+  // refuse the write — neither should abort startup.
+  await runBestEffort('sysctl', ['-w', 'net.ipv4.ip_forward=1'], 'enable ip_forward');
+
+  // Install the base nftables ruleset (idempotent; no-op when already present).
+  try {
+    await ensureBaseFirewall();
+  } catch (err) {
+    logger.warn({ err: err.message }, 'wireguardServerService: ensureBaseFirewall failed (non-fatal)');
+  }
+
+  logger.info(
+    {
+      serverInterface: config.wireguard.serverInterface,
+      clientInterface: config.wireguard.clientInterface,
+    },
+    'wireguardServerService: host bootstrap complete',
+  );
+  return { applied: true };
+}
+
+// =============================================================================
 // Exports
 // =============================================================================
 
@@ -649,4 +862,7 @@ module.exports = {
   ensureBaseFirewall,
   setUserForwardScope,
   removeUserPeer,
+
+  // Host bootstrap (startup)
+  bootstrapHost,
 };

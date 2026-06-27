@@ -13,6 +13,7 @@ const { tunnelServer } = require('./services/firerelayTunnel');
 const { wsHub } = require('./services/wsHub');
 const snmpTrapReceiver = require('./services/snmpTrapReceiver');
 const radiusServer = require('./services/radiusServerService');
+const wireguardServerService = require('./services/wireguardServerService');
 const logger = require('./utils/logger');
 
 async function start() {
@@ -68,6 +69,16 @@ async function start() {
     workers.registerWorkers();
   } catch (err) {
     logger.warn({ err }, 'Worker registration failed');
+  }
+
+  // Bring up the WireGuard host interfaces (no-op unless WG_SERVER_ENABLED=true).
+  // Done before app.listen so config.wireguard.{server,client}PublicKey are
+  // populated before any request issues a NAS/user config. Best-effort: a host
+  // without CAP_NET_ADMIN logs a warning and the API still starts (config-only).
+  try {
+    await wireguardServerService.bootstrapHost();
+  } catch (err) {
+    logger.warn({ err }, 'WireGuard host bootstrap failed');
   }
 
   const server = app.listen(config.port, () => {
