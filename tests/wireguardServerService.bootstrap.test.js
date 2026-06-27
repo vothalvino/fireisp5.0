@@ -65,15 +65,15 @@ const service = require('../src/services/wireguardServerService');
  * ordering. By default every call succeeds; `ifaceUp`/`tableExists` flip the two
  * existence probes, and `failLinkAdd` makes `ip link add` reject once.
  */
-function routeExec({ ifaceUp = false, tableExists = false, failLinkAdd = false } = {}) {
+function routeExec({ ifaceUp = false, tableExists = false, linkAddError = null } = {}) {
   execFile.mockImplementation((cmd, args, _opts, cb) => {
     if (cmd === 'ip' && args[0] === 'link' && args[1] === 'show') {
       return ifaceUp
         ? cb(null, { stdout: '', stderr: '' })
         : cb(new Error(`Device "${args[2]}" does not exist.`));
     }
-    if (cmd === 'ip' && args[0] === 'link' && args[1] === 'add' && failLinkAdd) {
-      return cb(new Error('RTNETLINK answers: File exists'));
+    if (cmd === 'ip' && args[0] === 'link' && args[1] === 'add' && linkAddError) {
+      return cb(new Error(linkAddError));
     }
     if (cmd === 'nft' && args[0] === 'list' && args[1] === 'table') {
       return tableExists
@@ -260,12 +260,26 @@ describe('bootstrapHost() — dormant + resilience', () => {
 
   test('tolerates "File exists" on interface create (redeploy) without throwing', async () => {
     fs.existsSync.mockReturnValue(false);
-    routeExec({ ifaceUp: false, tableExists: false, failLinkAdd: true });
+    routeExec({ ifaceUp: false, tableExists: false, linkAddError: 'RTNETLINK answers: File exists' });
 
     const result = await service.bootstrapHost();
 
     expect(result).toMatchObject({ applied: true });
-    // bring-up continued past the failed create
+    // bring-up continued past the (tolerated) create error
     expect(execCalledWith('ip', ['link', 'set', 'up', 'dev', 'wg-fireisp'])).toBe(true);
+  });
+
+  test('on "Operation not permitted" creating the interface, does not cascade and still resolves', async () => {
+    fs.existsSync.mockReturnValue(false);
+    routeExec({ ifaceUp: false, tableExists: false, linkAddError: 'RTNETLINK answers: Operation not permitted' });
+
+    const result = await service.bootstrapHost();
+
+    // bootstrap stays best-effort overall…
+    expect(result).toMatchObject({ applied: true });
+    // …but a failed create rethrows, so we must NOT try to bring the dead interface
+    // up (avoids the misleading "No such device" cascade).
+    expect(execCalledWith('ip', ['link', 'set', 'up', 'dev', 'wg-fireisp'])).toBe(false);
+    expect(execCalledWith('ip', ['link', 'set', 'up', 'dev', 'wg-clients'])).toBe(false);
   });
 });
