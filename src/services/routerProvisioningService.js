@@ -300,12 +300,14 @@ async function seedDevice(nas, opts = {}) {
     // value when we overwrite it (e.g. another CoA controller's port).
     await step('radius-incoming', `CoA/Disconnect listener accept=yes port=${coaPort}`, async () => {
       const prev = await readFirst(client, '/radius/incoming');
-      if (prev.accept === 'yes' && String(prev.port) === String(coaPort)) {
+      // The API returns accept as "true"/"false" (not the CLI's yes/no) — read it
+      // through ros.rosBool so the idempotency short-circuit actually fires.
+      if (ros.rosBool(prev.accept) && String(prev.port) === String(coaPort)) {
         return { status: 'unchanged', detail: `CoA listener already accept=yes port=${coaPort}` };
       }
       await client.run(['/radius/incoming/set', '=accept=yes', `=port=${coaPort}`]);
       const had = prev.accept !== undefined || prev.port !== undefined;
-      const was = had ? ` (was accept=${prev.accept || 'no'} port=${prev.port || '-'})` : '';
+      const was = had ? ` (was accept=${ros.rosBool(prev.accept) ? 'yes' : 'no'} port=${prev.port || '-'})` : '';
       return { status: 'updated', detail: `CoA/Disconnect listener accept=yes port=${coaPort}${was}` };
     });
 
@@ -314,14 +316,18 @@ async function seedDevice(nas, opts = {}) {
     // reports 'unchanged', and flag when we override a deliberate accounting=no.
     await step('ppp-aaa', `PPP AAA use-radius=yes accounting=yes interim-update=${interimUpdate}`, async () => {
       const prev = await readFirst(client, '/ppp/aaa');
-      const already = prev['use-radius'] === 'yes'
-        && prev.accounting === 'yes'
+      // use-radius/accounting come back as "true"/"false" from the API (not the
+      // CLI's yes/no) — interpret via ros.rosBool so 'unchanged' can fire.
+      const already = ros.rosBool(prev['use-radius'])
+        && ros.rosBool(prev.accounting)
         && String(prev['interim-update']) === String(interimUpdate);
       if (already) {
         return { status: 'unchanged', detail: `PPP AAA already use-radius=yes accounting=yes interim-update=${interimUpdate}` };
       }
       await client.run(['/ppp/aaa/set', '=use-radius=yes', '=accounting=yes', `=interim-update=${interimUpdate}`]);
-      const note = prev.accounting === 'no' ? ' (overrode accounting=no)' : '';
+      // Only warn when accounting was explicitly off (present and false), so the
+      // operator sees that the seed overrode a deliberate accounting=no.
+      const note = (prev.accounting !== undefined && !ros.rosBool(prev.accounting)) ? ' (overrode accounting=no)' : '';
       return { status: 'updated', detail: `PPP AAA use-radius=yes accounting=yes interim-update=${interimUpdate}${note}` };
     });
 

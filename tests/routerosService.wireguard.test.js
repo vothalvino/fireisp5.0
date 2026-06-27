@@ -477,10 +477,10 @@ describe('wireguardReadTopology', () => {
         ['!re', '=.id=*2', '=address=10.255.0.1/32', '=interface=wg-fireisp'],
         ['!done'],
       ],
-      // /ip/route/print ?type=connected
+      // /ip/route/print ?connect=yes — ROS7 flags connected routes with connect=true
       [
-        ['!re', '=.id=*3', '=dst-address=192.168.10.0/24', '=type=connected'],
-        ['!re', '=.id=*4', '=dst-address=192.168.20.0/24', '=type=connected'],
+        ['!re', '=.id=*3', '=dst-address=192.168.10.0/24', '=connect=true'],
+        ['!re', '=.id=*4', '=dst-address=192.168.20.0/24', '=connect=true'],
         ['!done'],
       ],
     ]);
@@ -506,8 +506,8 @@ describe('wireguardReadTopology', () => {
       // Verify exact command words (read-only — no write paths)
       expect(received[1]).toEqual(['/interface/wireguard/print']);
       expect(received[2]).toEqual(['/ip/address/print']);
-      // Route query uses the ?type=connected filter
-      expect(received[3]).toEqual(['/ip/route/print', '?type=connected']);
+      // Route query uses the ?connect=yes filter (ROS7 has no `type` field)
+      expect(received[3]).toEqual(['/ip/route/print', '?connect=yes']);
     });
   });
 

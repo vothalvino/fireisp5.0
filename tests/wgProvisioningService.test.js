@@ -476,6 +476,23 @@ describe('discoverSubnets — subnet exclusion filter', () => {
     expect(proposed).toContain('172.16.0.0/24');
   });
 
+  test('skips /32 and /128 host routes (e.g. a cloud router WAN gateway link-route)', async () => {
+    // A cloud-hosted RouterOS (CHR) on a /32 WAN has a connected host-route to its
+    // gateway (203.0.113.1/32). It is connected but is NOT a LAN behind the NAS —
+    // it must never be proposed. /128 covers the IPv6 host-route equivalent.
+    mockTopology([
+      '203.0.113.1/32',  // WAN gateway link-route — host route, must be skipped
+      'fd00::1/128',     // IPv6 host route — skipped
+      '10.0.0.0/24',     // valid customer LAN
+    ]);
+
+    const { proposed } = await discoverSubnets(WG_NAS);
+
+    expect(proposed).not.toContain('203.0.113.1/32');
+    expect(proposed).not.toContain('fd00::1/128');
+    expect(proposed).toEqual(['10.0.0.0/24']);
+  });
+
   test('skips route entries that have no dst-address or no CIDR prefix', async () => {
     mockTopology([
       '',              // empty string
