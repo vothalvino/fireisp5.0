@@ -183,8 +183,10 @@ async function allocateTunnelIp() {
     'SELECT tunnel_address FROM nas_wg_tunnels WHERE deleted_at IS NULL',
   );
   const used = new Set(rows.map((r) => r.tunnel_address));
-  // Skip network (.0) and broadcast addresses; iterate host range
-  for (let n = network + 1; n < broadcast; n++) {
+  // Skip network (.0), the reserved server-interface address (network+1, e.g.
+  // 10.255.0.1 — the host's own wg-fireisp IP), and broadcast. Peers start at
+  // network+2 so the allocator never hands a NAS the server's own address.
+  for (let n = network + 2; n < broadcast; n++) {
     const ip = intToIp(n);
     if (!used.has(ip)) return ip;
   }
@@ -274,7 +276,9 @@ async function allocateUserTunnelIp() {
     'SELECT tunnel_address FROM wg_user_peers WHERE deleted_at IS NULL',
   );
   const used = new Set(rows.map((r) => r.tunnel_address));
-  for (let n = network + 1; n < broadcast; n++) {
+  // Reserve network+1 (e.g. 10.99.0.1) for the host's own wg-clients interface;
+  // user peers start at network+2.
+  for (let n = network + 2; n < broadcast; n++) {
     const ip = intToIp(n);
     if (!used.has(ip)) return ip;
   }
