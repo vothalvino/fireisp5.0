@@ -144,8 +144,9 @@ describe('allocateTunnelIp()', () => {
   test('returns the first host address in serverSubnet when pool is empty', async () => {
     db.query.mockResolvedValueOnce([[]]); // no existing tunnels
     const ip = await service.allocateTunnelIp();
-    // 10.255.0.0/16 → first usable host is 10.255.0.1
-    expect(ip).toBe('10.255.0.1');
+    // 10.255.0.0/16 → 10.255.0.1 is reserved for the wg-fireisp server interface,
+    // so the first peer address is 10.255.0.2
+    expect(ip).toBe('10.255.0.2');
   });
 
   test('skips already-used addresses and returns the lowest free one', async () => {

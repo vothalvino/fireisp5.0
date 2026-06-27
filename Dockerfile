@@ -19,6 +19,7 @@ FROM node:24-bookworm-slim
 
 RUN apt-get update \
   && apt-get upgrade -y --no-install-recommends \
+  && apt-get install -y --no-install-recommends wireguard-tools iproute2 nftables \
   && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system fireisp && useradd --system --gid fireisp --no-create-home fireisp
@@ -53,6 +54,10 @@ USER fireisp
 EXPOSE 3000
 # Embedded RADIUS server (auth + accounting) — only used when RADIUS_SERVER_ENABLED=true
 EXPOSE 1812/udp 1813/udp
+# WireGuard hub listen ports — only used when WG_SERVER_ENABLED=true. Run the
+# container with --network host + --cap-add NET_ADMIN; EXPOSE is informational
+# under host networking. See docs/wireguard-setup.md.
+EXPOSE 51820/udp 51821/udp
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/health',(r)=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"
