@@ -599,6 +599,8 @@ CREATE TABLE IF NOT EXISTS wg_user_peers (
                                  COMMENT 'Snapshot of WG_ENDPOINT_HOST at time of issue',
     server_peer_synced       TINYINT(1) NOT NULL DEFAULT 0
                                  COMMENT '1 when wg set wg-clients peer has been called for this device',
+    full_tunnel              TINYINT(1) NOT NULL DEFAULT 1
+                                 COMMENT '1=full-tunnel (AllowedIPs 0.0.0.0/0,::/0); 0=split-tunnel (scoped CIDRs); DEFAULT 1 for new peers',
     last_handshake_at        DATETIME NULL
                                  COMMENT 'Last WireGuard handshake timestamp (live-read MVP; poller FOLLOW-UP)',
     rx_bytes                 BIGINT UNSIGNED NULL

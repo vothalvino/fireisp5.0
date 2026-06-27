@@ -268,11 +268,14 @@ router.post(
   validate(wgPeers_createPeer),
   async (req, res, next) => {
     try {
+      // full_tunnel defaults to true: any value other than explicit false means full-tunnel
+      const fullTunnel = req.body.full_tunnel !== false;
       const { peer, config, config_base64, qr_svg } = await userTunnelService.createPeer(
         req.user.id,
         req.orgId,
         req.user.role,
         req.body.name,
+        fullTunnel,
       );
       res.status(201).json({
         data: redactPeer(peer),

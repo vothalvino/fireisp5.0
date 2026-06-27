@@ -80,6 +80,19 @@ function routeExec({ ifaceUp = false, tableExists = false, linkAddError = null }
         ? cb(null, { stdout: 'table inet fireisp_wg {}', stderr: '' })
         : cb(new Error('No such file or directory'));
     }
+    // When the table already exists, the upgrade path queries the postrouting chain
+    // to check whether the WAN masq rule is present. Return a dump that includes
+    // both the clientSubnet (10.99.0.0/16) and the oifname != pattern so that
+    // ensureBaseFirewall sees the rule as already installed and does NOT call nft -f.
+    if (cmd === 'nft' && args[0] === 'list' && args[1] === 'chain') {
+      if (tableExists) {
+        return cb(null, {
+          stdout: 'chain inet fireisp_wg postrouting { ip saddr 10.99.0.0/16 oifname != { "wg-clients", "wg-fireisp" } masquerade }',
+          stderr: '',
+        });
+      }
+      return cb(null, { stdout: '', stderr: '' });
+    }
     return cb(null, { stdout: '', stderr: '' });
   });
 }

@@ -326,16 +326,74 @@ describe('ensureBaseFirewall()', () => {
     expect(nftContent).toMatch(/iifname "wg-clients".*oifname "wg-clients".*drop/s);
   });
 
-  test('is idempotent — returns {applied:false} and skips nft -f when table already exists', async () => {
-    // nft list table exits 0 → table already installed
+  test('is idempotent — returns {applied:false} and skips nft -f when WAN masq rule already present', async () => {
+    // Call 1: nft list table → table already installed
     okOnce('table inet fireisp_wg {}');
+    // Call 2: nft list chain postrouting → chain dump CONTAINS both the clientSubnet
+    // (10.99.0.0/16) AND the oifname != negation pattern (WAN masq already installed)
+    okOnce('chain inet fireisp_wg postrouting { ip saddr 10.99.0.0/16 oifname != { "wg-clients", "wg-fireisp" } masquerade }');
 
     const result = await service.ensureBaseFirewall();
 
     expect(result).toMatchObject({ applied: false });
     expect(result.reason).toBeTruthy();
-    // Only one execFile call (the existence check); no nft -f
-    expect(execFile).toHaveBeenCalledTimes(1);
+    // Two execFile calls: table check + chain check; no nft -f since rule already present
+    expect(execFile).toHaveBeenCalledTimes(2);
+  });
+
+  test('adds WAN masq rule when table exists but postrouting chain lacks it', async () => {
+    // Call 1: nft list table → table exists
+    okOnce('table inet fireisp_wg {}');
+    // Call 2: nft list chain postrouting → chain exists but WAN masq rule is ABSENT
+    okOnce('chain inet fireisp_wg postrouting { ip saddr 10.99.0.0/16 oifname "wg-fireisp" masquerade }');
+    // Call 3: nft -f <tmpFile> to add the WAN masq rule
+    okOnce();
+
+    const result = await service.ensureBaseFirewall();
+
+    expect(result).toMatchObject({ applied: false });
+    // Three execFile calls: table check + chain dump + nft -f to add the rule
+    expect(execFile).toHaveBeenCalledTimes(3);
+
+    // The third call must be nft -f with a temp file
+    expect(execFile).toHaveBeenNthCalledWith(
+      3,
+      'nft', ['-f', expect.stringContaining('fireisp-wg-')],
+      expect.any(Object),
+      expect.any(Function),
+    );
+  });
+
+  test('WAN masq upgrade script contains oifname != pattern and clientSubnet', async () => {
+    const { writeFileSync } = require('fs');
+    // Table exists; chain dump lacks the WAN masq rule
+    okOnce('table inet fireisp_wg {}');
+    okOnce('chain inet fireisp_wg postrouting { }');
+    okOnce();
+
+    await service.ensureBaseFirewall();
+
+    // writeFileSync should have been called with the upgrade rule fragment
+    expect(writeFileSync).toHaveBeenCalled();
+    const [, upgradeContent] = writeFileSync.mock.calls[0];
+    expect(upgradeContent).toMatch(/add rule inet fireisp_wg postrouting/);
+    expect(upgradeContent).toMatch(/10\.99\.0\.0\/16/);   // clientSubnet
+    expect(upgradeContent).toMatch(/oifname !=/);          // WAN exclusion pattern
+    expect(upgradeContent).toMatch(/masquerade/);
+  });
+
+  test('fresh install nft content includes WAN masq rule (oifname != pattern)', async () => {
+    const { writeFileSync } = require('fs');
+    failOnce('table not found');
+    okOnce();
+
+    await service.ensureBaseFirewall();
+
+    expect(writeFileSync).toHaveBeenCalled();
+    const [, nftContent] = writeFileSync.mock.calls[0];
+    // The fresh install must include BOTH the per-serverIface masq AND the WAN masq
+    expect(nftContent).toMatch(/oifname "wg-fireisp".*masquerade/s);
+    expect(nftContent).toMatch(/oifname != \{[^}]+\}.*masquerade/s);
   });
 
   test('returns NOOP result and never calls execFile when serverEnabled=false', async () => {

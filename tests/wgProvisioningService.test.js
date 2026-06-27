@@ -127,6 +127,10 @@ beforeEach(() => {
 
   // NasWgTunnel.create returns the canonical mock tunnel
   NasWgTunnel.create.mockResolvedValue({ ...MOCK_TUNNEL });
+
+  // routerosService defaults — auto-mocked; provide stable defaults so bootstrap()
+  // tests don't need to set up wireguardRouteUpsert explicitly unless testing its behaviour.
+  ros.wireguardRouteUpsert.mockResolvedValue({ id: '*10', created: true, updated: false });
 });
 
 // =============================================================================
@@ -281,6 +285,128 @@ describe('bootstrap — API success', () => {
         comment: 'fireisp-server',
       }),
     );
+  });
+
+  test('calls wireguardRouteUpsert with server subnet + interface name after the peer step', async () => {
+    db.query
+      .mockResolvedValueOnce([[MOCK_TUNNEL]])        // loadTunnel → tunnel exists
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE state=active
+
+    ros.wireguardInterfaceUpsert.mockResolvedValue({ created: false });
+    ros.wireguardAddressUpsert.mockResolvedValue({ created: false });
+    ros.wireguardPeerUpsert.mockResolvedValue({ created: false });
+    ros.wireguardRouteUpsert.mockResolvedValue({ id: '*10', created: true, updated: false });
+
+    await bootstrap(BASE_NAS);
+
+    expect(ros.wireguardRouteUpsert).toHaveBeenCalledTimes(1);
+    expect(ros.wireguardRouteUpsert).toHaveBeenCalledWith(
+      MOCK_CONN,
+      expect.objectContaining({
+        dstAddress: expect.stringMatching(/^\d+\.\d+\.\d+\.\d+\/\d+$/), // CIDR form
+        gateway:    MOCK_TUNNEL.interface_name,
+        comment:    'fireisp-hub-return',
+      }),
+    );
+  });
+
+  test('step list contains return-route step after peer step', async () => {
+    db.query
+      .mockResolvedValueOnce([[MOCK_TUNNEL]])        // loadTunnel → tunnel exists
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE state=active
+
+    ros.wireguardInterfaceUpsert.mockResolvedValue({ created: false });
+    ros.wireguardAddressUpsert.mockResolvedValue({ created: false });
+    ros.wireguardPeerUpsert.mockResolvedValue({ created: false });
+    ros.wireguardRouteUpsert.mockResolvedValue({ id: '*10', created: true, updated: false });
+
+    const result = await bootstrap(BASE_NAS);
+
+    const stepNames = result.steps.map((s) => s.step);
+    expect(stepNames).toContain('return-route');
+
+    // return-route must appear AFTER peer in the step ordering
+    const peerIdx  = stepNames.indexOf('peer');
+    const routeIdx = stepNames.indexOf('return-route');
+    expect(routeIdx).toBeGreaterThan(peerIdx);
+  });
+
+  test('return-route step status is "created" when wireguardRouteUpsert returns created:true', async () => {
+    db.query
+      .mockResolvedValueOnce([[MOCK_TUNNEL]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+    ros.wireguardInterfaceUpsert.mockResolvedValue({ created: false });
+    ros.wireguardAddressUpsert.mockResolvedValue({ created: false });
+    ros.wireguardPeerUpsert.mockResolvedValue({ created: false });
+    ros.wireguardRouteUpsert.mockResolvedValue({ id: '*10', created: true, updated: false });
+
+    const result = await bootstrap(BASE_NAS);
+
+    const routeStep = result.steps.find((s) => s.step === 'return-route');
+    expect(routeStep).toBeDefined();
+    expect(routeStep.status).toBe('created');
+  });
+
+  test('return-route step status is "exists" when wireguardRouteUpsert returns created:false', async () => {
+    db.query
+      .mockResolvedValueOnce([[MOCK_TUNNEL]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+    ros.wireguardInterfaceUpsert.mockResolvedValue({ created: false });
+    ros.wireguardAddressUpsert.mockResolvedValue({ created: false });
+    ros.wireguardPeerUpsert.mockResolvedValue({ created: false });
+    ros.wireguardRouteUpsert.mockResolvedValue({ id: '*5', created: false, updated: false });
+
+    const result = await bootstrap(BASE_NAS);
+
+    const routeStep = result.steps.find((s) => s.step === 'return-route');
+    expect(routeStep).toBeDefined();
+    expect(routeStep.status).toBe('exists');
+  });
+});
+
+// =============================================================================
+// assembleSnippet — return-route line
+// =============================================================================
+
+// assembleSnippet is not exported — test it through bootstrap (snippet path)
+describe('assembleSnippet — return-route line in snippet output', () => {
+  function setupUnreachable() {
+    db.query
+      .mockResolvedValueOnce([[MOCK_TUNNEL]])        // loadTunnel → tunnel exists
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE state=manual
+    ros.wireguardInterfaceUpsert.mockRejectedValue(
+      Object.assign(new Error('ETIMEDOUT'), { routerUnreachable: true }),
+    );
+  }
+
+  test('snippet contains /ip/route/add with server subnet and interface gateway', async () => {
+    setupUnreachable();
+
+    const { snippet } = await bootstrap(BASE_NAS);
+
+    // The return-route command must be present with both required arguments
+    expect(snippet).toMatch(/\/ip\/route\/add/);
+    expect(snippet).toMatch(/dst-address=/);
+    expect(snippet).toMatch(/gateway=/);
+  });
+
+  test('snippet contains fireisp-hub-return comment on the return-route line', async () => {
+    setupUnreachable();
+
+    const { snippet } = await bootstrap(BASE_NAS);
+
+    expect(snippet).toMatch(/comment=fireisp-hub-return/);
+  });
+
+  test('snippet section comment explains RouterOS 7 auto-route limitation', async () => {
+    setupUnreachable();
+
+    const { snippet } = await bootstrap(BASE_NAS);
+
+    // The comment text may vary in casing but must reference the return-route concept
+    expect(snippet).toMatch(/[Rr]eturn route/);
   });
 });
 

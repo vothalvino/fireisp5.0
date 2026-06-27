@@ -3360,6 +3360,8 @@
     "bootstrapFailed": "Error al iniciar WireGuard."
   },
   "wgTunnels": {
+    "fullTunnelLabel": "Túnel completo (enrutar todo el tráfico por la VPN)",
+    "fullTunnelHint": "Cuando está habilitado, todo el tráfico de internet del dispositivo se enruta a través de FireISP. Deshabilita para acceso dividido solo a las LAN del dispositivo.",
     "title": "Mis Túneles VPN",
     "subtitle": "Túneles WireGuard de acceso para tus dispositivos.",
     "addPeer": "Agregar Dispositivo",

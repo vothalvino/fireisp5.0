@@ -196,6 +196,157 @@ describe('buildConfig()', () => {
     expect(conf).toContain('PrivateKey = PLAINTEXT-PRIVATE-KEY');
     expect(conf).not.toContain('iv:tag:cipher'); // the encrypted column value
   });
+
+  test('full_tunnel=1 → AllowedIPs is 0.0.0.0/0, ::/0 regardless of subnets', () => {
+    const conf = userTunnelService.buildConfig(
+      { ...mockPeer, full_tunnel: 1 },
+      'KEY==',
+      ['192.168.1.0/24', '10.0.0.0/8'], // subnets ignored in full-tunnel mode
+    );
+
+    expect(conf).toContain('AllowedIPs          = 0.0.0.0/0, ::/0');
+    expect(conf).not.toContain('192.168.1.0/24');
+    expect(conf).not.toContain('10.0.0.0/8');
+  });
+
+  test('full_tunnel=true → AllowedIPs is 0.0.0.0/0, ::/0 (truthy boolean form)', () => {
+    const conf = userTunnelService.buildConfig(
+      { ...mockPeer, full_tunnel: true },
+      'KEY==',
+      ['192.168.1.0/24'],
+    );
+
+    expect(conf).toContain('AllowedIPs          = 0.0.0.0/0, ::/0');
+  });
+
+  test('full_tunnel=0 → split-tunnel: uses subnets list', () => {
+    const conf = userTunnelService.buildConfig(
+      { ...mockPeer, full_tunnel: 0 },
+      'KEY==',
+      ['10.1.0.0/16', '10.2.0.0/16'],
+    );
+
+    // MUST use subnets, NOT the full-tunnel prefix
+    expect(conf).toContain('AllowedIPs          = 10.1.0.0/16, 10.2.0.0/16');
+    expect(conf).not.toContain('0.0.0.0/0');
+  });
+
+  test('full_tunnel=0 with empty subnets falls back to tunnel_address/32', () => {
+    const conf = userTunnelService.buildConfig(
+      { ...mockPeer, full_tunnel: 0 },
+      'KEY==',
+      [],
+    );
+
+    expect(conf).toContain('AllowedIPs          = 10.99.0.5/32');
+    expect(conf).not.toContain('0.0.0.0/0');
+  });
+
+  test('peer without full_tunnel field (legacy row) behaves as split-tunnel', () => {
+    // Existing peers backfilled to full_tunnel=0 by migration;
+    // rows created before the column was added may have no field at all.
+    const peerNoField = { ...mockPeer };
+    delete peerNoField.full_tunnel;
+
+    const conf = userTunnelService.buildConfig(peerNoField, 'KEY==', ['192.168.2.0/24']);
+
+    expect(conf).toContain('AllowedIPs          = 192.168.2.0/24');
+    expect(conf).not.toContain('0.0.0.0/0');
+  });
+});
+
+// =============================================================================
+// createPeer() — full_tunnel persistence
+// =============================================================================
+describe('createPeer() — full_tunnel flag', () => {
+  const CREATED_PEER_ROW = {
+    ...mockPeer,
+    id: 55,
+    full_tunnel: 1,
+    public_key: 'NEWPUBKEY==',
+    private_key_encrypted: 'encrypted-ciphertext',
+  };
+
+  function setupCreatePeerMocks(fullTunnelInRow = 1) {
+    wireguardServerService.generateKeypair.mockReturnValue({
+      privateKey: 'NEWPRIVKEY==',
+      publicKey: 'NEWPUBKEY==',
+    });
+    wireguardServerService.allocateUserTunnelIp.mockResolvedValue('10.99.0.55');
+    wireguardServerService.ensureBaseFirewall.mockResolvedValue({ applied: false });
+    wireguardServerService.syncUserPeer.mockResolvedValue({ applied: true });
+    wireguardServerService.setUserForwardScope.mockResolvedValue({ applied: true });
+    userTunnelScopeService.getScopedSubnets.mockResolvedValue(['192.168.1.0/24']);
+
+    db.query
+      .mockResolvedValueOnce([{ insertId: 55 }])                              // INSERT
+      .mockResolvedValueOnce([[{ ...CREATED_PEER_ROW, full_tunnel: fullTunnelInRow }]]) // SELECT
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);                          // UPDATE server_peer_synced
+
+    QRCode.toString.mockResolvedValue('<svg/>');
+  }
+
+  test('passes full_tunnel=1 to INSERT when called without explicit arg (default=true)', async () => {
+    setupCreatePeerMocks(1);
+
+    await userTunnelService.createPeer(1, 1, 'technician', 'Laptop');
+
+    // The INSERT call must include 1 for the full_tunnel bind parameter
+    const insertCall = db.query.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && /INSERT INTO wg_user_peers/.test(sql),
+    );
+    expect(insertCall).toBeDefined();
+    const params = insertCall[1];
+    // full_tunnel is at index 8 (0-based): orgId, userId, name, publicKey,
+    // encrypted key, tunnelIp, endpoint, full_tunnel, allowed_ips_snapshot
+    const fullTunnelParam = params[7]; // index 7 = full_tunnel
+    expect(fullTunnelParam).toBe(1);
+  });
+
+  test('passes full_tunnel=0 to INSERT when fullTunnel=false is explicitly passed', async () => {
+    setupCreatePeerMocks(0);
+
+    await userTunnelService.createPeer(1, 1, 'technician', 'Laptop', false);
+
+    const insertCall = db.query.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && /INSERT INTO wg_user_peers/.test(sql),
+    );
+    expect(insertCall).toBeDefined();
+    const params = insertCall[1];
+    const fullTunnelParam = params[7]; // index 7 = full_tunnel
+    expect(fullTunnelParam).toBe(0);
+  });
+
+  test('returned config uses 0.0.0.0/0,::/0 when peer row has full_tunnel=1', async () => {
+    setupCreatePeerMocks(1);
+
+    const result = await userTunnelService.createPeer(1, 1, 'technician', 'Laptop', true);
+
+    expect(result.config).toContain('AllowedIPs          = 0.0.0.0/0, ::/0');
+  });
+
+  test('returned config uses scoped subnets when peer row has full_tunnel=0', async () => {
+    setupCreatePeerMocks(0);
+    // Override the SELECT to return full_tunnel=0
+    db.query.mockReset();
+    wireguardServerService.allocateUserTunnelIp.mockResolvedValue('10.99.0.55');
+    wireguardServerService.ensureBaseFirewall.mockResolvedValue({ applied: false });
+    wireguardServerService.syncUserPeer.mockResolvedValue({ applied: true });
+    wireguardServerService.setUserForwardScope.mockResolvedValue({ applied: true });
+    userTunnelScopeService.getScopedSubnets.mockResolvedValue(['192.168.1.0/24']);
+
+    db.query
+      .mockResolvedValueOnce([{ insertId: 55 }])
+      .mockResolvedValueOnce([[{ ...CREATED_PEER_ROW, full_tunnel: 0 }]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+    QRCode.toString.mockResolvedValue('<svg/>');
+
+    const result = await userTunnelService.createPeer(1, 1, 'technician', 'Laptop', false);
+
+    expect(result.config).toContain('AllowedIPs          = 192.168.1.0/24');
+    expect(result.config).not.toContain('0.0.0.0/0');
+  });
 });
 
 // =============================================================================

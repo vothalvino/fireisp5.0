@@ -3360,6 +3360,8 @@
     "bootstrapFailed": "Failed to bootstrap WireGuard."
   },
   "wgTunnels": {
+    "fullTunnelLabel": "Full tunnel (route all traffic through VPN)",
+    "fullTunnelHint": "When enabled, all device internet traffic is routed through FireISP. Disable for split-tunnel access to device LANs only.",
     "title": "My VPN Tunnels",
     "subtitle": "WireGuard access tunnels for your devices.",
     "addPeer": "Add Device",
