@@ -823,7 +823,7 @@ async function bootstrapHost() {
   reconcilePublicKey('clientPublicKey', 'WG_CLIENT_SERVER_PUBLIC_KEY', clientPub, config.wireguard.clientInterface);
 
   // Enable IPv4 forwarding so wg-clients → wg-fireisp routing works. Best-effort:
-  // the compose overlay also sets this via sysctls, and a locked-down host may
+  // docker-compose.prod.yml also sets this via sysctls, and a locked-down host may
   // refuse the write — neither should abort startup.
   await runBestEffort('sysctl', ['-w', 'net.ipv4.ip_forward=1'], 'enable ip_forward');
 
