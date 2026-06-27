@@ -1,19 +1,23 @@
 // =============================================================================
 // FireISP 5.0 — NAS WireGuard Provisioning Modal
 // =============================================================================
-// Three-phase flow:
-//   idle       → intro + "Discover Subnets" button
+// Four-phase flow:
+//   idle        → intro + "Discover Subnets" button
 //   discovering → POST /nas/{id}/wg/discover pending
-//   select     → checkbox list of proposed CIDRs; PUT /wg/routes then POST /wg/bootstrap
-//   done       → colored step report; if method==='snippet', read-only textarea + Copy
+//   select      → checkbox list of proposed CIDRs + manual-add field; then
+//                 PUT /wg/routes (selected) followed by POST /wg/bootstrap
+//   done        → colored step report; if method==='snippet', read-only textarea + Copy
 //
-// i18n keys live under nasWireguard.* (locale files owned by the i18n task).
+// The discover response is read through the generated OpenAPI type
+// (operations['discoverNasWgSubnets']) so the field name (`proposed`) can't drift
+// from the backend again. i18n keys live under nasWireguard.*.
 // =============================================================================
 
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
+import type { operations } from '@/api/schema';
 import { styles, modalStyles } from './crudStyles';
 
 // ---------------------------------------------------------------------------
@@ -26,9 +30,10 @@ interface WgStep {
   detail: string;
 }
 
-interface DiscoverResult {
-  subnets: string[];
-}
+/** Discover payload shape, sourced from the generated OpenAPI types. */
+type WgDiscoverData = NonNullable<
+  operations['discoverNasWgSubnets']['responses'][200]['content']['application/json']['data']
+>;
 
 interface BootstrapResult {
   ok: boolean;
@@ -45,6 +50,18 @@ export interface NasWireguardModalProps {
 }
 
 type Phase = 'idle' | 'discovering' | 'select' | 'done';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Validate an IPv4 CIDR string (e.g. "10.199.0.0/24"). Discovery is IPv4-only. */
+export function isValidCidr(s: string): boolean {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/.exec(s.trim());
+  if (!m) return false;
+  if ([m[1], m[2], m[3], m[4]].some((o) => Number(o) > 255)) return false;
+  return Number(m[5]) <= 32;
+}
 
 // ---------------------------------------------------------------------------
 // Color palettes
@@ -72,15 +89,15 @@ const STATE_COLORS: Record<string, { bg: string; color: string }> = {
 // API helpers
 // ---------------------------------------------------------------------------
 
-async function wgDiscover(nasId: number): Promise<DiscoverResult> {
+async function wgDiscover(nasId: number): Promise<WgDiscoverData> {
   const res = (await api.POST('/nas/{id}/wg/discover' as never, {
     params: { path: { id: nasId } },
   } as never)) as {
-    data?: { data?: DiscoverResult };
+    data?: { data?: WgDiscoverData };
     error?: { error?: { message?: string } };
   };
   if (res.error) throw new Error(res.error?.error?.message ?? 'Discover failed');
-  return (res.data?.data ?? { subnets: [] }) as DiscoverResult;
+  return (res.data?.data ?? { proposed: [] }) as WgDiscoverData;
 }
 
 async function wgPutRoutes(nasId: number, subnets: string[]): Promise<void> {
@@ -100,6 +117,18 @@ async function wgBootstrap(nasId: number): Promise<BootstrapResult> {
   };
   if (res.error) throw new Error(res.error?.error?.message ?? 'Bootstrap failed');
   return (res.data?.data ?? { ok: false, method: 'manual', steps: [] }) as BootstrapResult;
+}
+
+/** Flatten topology addresses into "10.199.0.1/24 (bridge-lan-test)" reference strings. */
+function topologyAddresses(data: WgDiscoverData): string[] {
+  return (data.topology?.addresses ?? [])
+    .map((a) => {
+      const addr = typeof a.address === 'string' ? a.address : '';
+      const iface = typeof a.interface === 'string' ? a.interface : '';
+      if (!addr) return '';
+      return iface ? `${addr} (${iface})` : addr;
+    })
+    .filter(Boolean);
 }
 
 // ---------------------------------------------------------------------------
@@ -144,18 +173,29 @@ export function NasWireguardModal({ nas, onClose }: NasWireguardModalProps) {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>('idle');
   const [proposedSubnets, setProposedSubnets] = useState<string[]>([]);
+  const [manualSubnets, setManualSubnets] = useState<string[]>([]);
   const [selectedSubnets, setSelectedSubnets] = useState<Set<string>>(new Set());
+  const [deviceAddresses, setDeviceAddresses] = useState<string[]>([]);
+  const [manualInput, setManualInput] = useState('');
+  const [manualError, setManualError] = useState('');
   const [result, setResult] = useState<BootstrapResult | null>(null);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+
+  // Proposed first, then any manually-added CIDRs not already proposed.
+  const allSubnets = [...proposedSubnets, ...manualSubnets.filter((s) => !proposedSubnets.includes(s))];
 
   // --- discover ---
   const discoverMutation = useMutation({
     mutationFn: () => wgDiscover(nas.id),
     onSuccess: (data) => {
-      const subnets = data.subnets ?? [];
+      const subnets = data.proposed ?? [];
       setProposedSubnets(subnets);
-      setSelectedSubnets(new Set(subnets)); // pre-select all
+      setSelectedSubnets(new Set(subnets)); // pre-select all proposed
+      setManualSubnets([]);
+      setManualInput('');
+      setManualError('');
+      setDeviceAddresses(topologyAddresses(data));
       setPhase('select');
       setError('');
     },
@@ -190,6 +230,20 @@ export function NasWireguardModal({ nas, onClose }: NasWireguardModalProps) {
     });
   }
 
+  function addManual() {
+    const v = manualInput.trim();
+    if (!v) return;
+    if (!isValidCidr(v)) { setManualError(t('nasWireguard.manualInvalid')); return; }
+    if (proposedSubnets.includes(v) || manualSubnets.includes(v)) {
+      setManualError(t('nasWireguard.manualDuplicate'));
+      return;
+    }
+    setManualSubnets(prev => [...prev, v]);
+    setSelectedSubnets(prev => new Set(prev).add(v));
+    setManualInput('');
+    setManualError('');
+  }
+
   function handleCopy() {
     if (!result?.snippet) return;
     navigator.clipboard.writeText(result.snippet).then(() => {
@@ -202,7 +256,11 @@ export function NasWireguardModal({ nas, onClose }: NasWireguardModalProps) {
     setPhase('idle');
     setResult(null);
     setProposedSubnets([]);
+    setManualSubnets([]);
     setSelectedSubnets(new Set());
+    setDeviceAddresses([]);
+    setManualInput('');
+    setManualError('');
     setError('');
   }
 
@@ -270,7 +328,15 @@ export function NasWireguardModal({ nas, onClose }: NasWireguardModalProps) {
               {t('nasWireguard.selectSubnets')}
             </p>
 
-            {proposedSubnets.length === 0 ? (
+            {/* Router interface addresses — reference for manual entry */}
+            {deviceAddresses.length > 0 && (
+              <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                {t('nasWireguard.deviceAddressesLabel')}:{' '}
+                <span style={{ fontFamily: 'monospace' }}>{deviceAddresses.join(', ')}</span>
+              </p>
+            )}
+
+            {allSubnets.length === 0 ? (
               <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
                 {t('nasWireguard.noSubnetsFound')}
               </p>
@@ -278,10 +344,10 @@ export function NasWireguardModal({ nas, onClose }: NasWireguardModalProps) {
               <div
                 style={{
                   display: 'flex', flexDirection: 'column', gap: 8,
-                  maxHeight: 220, overflowY: 'auto', padding: '0.25rem 0',
+                  maxHeight: 200, overflowY: 'auto', padding: '0.25rem 0',
                 }}
               >
-                {proposedSubnets.map(subnet => (
+                {allSubnets.map(subnet => (
                   <label
                     key={subnet}
                     style={{
@@ -300,6 +366,39 @@ export function NasWireguardModal({ nas, onClose }: NasWireguardModalProps) {
                 ))}
               </div>
             )}
+
+            {/* Manual add — for subnets discovery can't see (static/OSPF/non-connected) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                {t('nasWireguard.manualAddLabel')}
+              </label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  value={manualInput}
+                  placeholder={t('nasWireguard.manualAddPlaceholder')}
+                  aria-label={t('nasWireguard.manualAddLabel')}
+                  onChange={e => { setManualInput(e.target.value); if (manualError) setManualError(''); }}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addManual(); } }}
+                  style={{
+                    flex: 1, fontFamily: 'monospace', fontSize: '0.82rem',
+                    padding: '0.4rem 0.55rem', border: '1px solid var(--border)',
+                    borderRadius: 6, boxSizing: 'border-box',
+                  }}
+                />
+                <button
+                  type="button"
+                  style={{ ...styles.btnSecondary, padding: '0.35rem 0.8rem' }}
+                  onClick={addManual}
+                  disabled={!manualInput.trim()}
+                >
+                  {t('nasWireguard.manualAdd')}
+                </button>
+              </div>
+              {manualError && (
+                <span style={{ fontSize: '0.75rem', color: '#991b1b' }}>{manualError}</span>
+              )}
+            </div>
 
             {error && <p style={modalStyles.error}>{error}</p>}
 
