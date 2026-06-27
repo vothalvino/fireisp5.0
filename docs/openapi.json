@@ -8905,11 +8905,55 @@
         ],
         "responses": {
           "200": {
-            "description": "Proposed CIDRs",
+            "description": "Proposed CIDRs and the raw RouterOS topology read",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "proposed"
+                      ],
+                      "properties": {
+                        "proposed": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "Connected device subnets to route (CIDR); excludes the WG server pool, the NAS WAN/management subnet, and /32 & /128 host-routes"
+                        },
+                        "topology": {
+                          "type": "object",
+                          "description": "Raw read-only RouterOS topology",
+                          "properties": {
+                            "interfaces": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": true
+                              }
+                            },
+                            "addresses": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": true
+                              }
+                            },
+                            "routes": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": true
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }

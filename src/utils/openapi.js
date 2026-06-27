@@ -503,7 +503,14 @@ function generateSpec() {
       // ---- NAS WireGuard ----
       '/nas/{id}/wg': { get: { tags: ['NAS'], summary: 'Get WireGuard tunnel state for a NAS (redacted — private key never returned)', operationId: 'getNasWgTunnel', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('NasWgTunnel (redacted)') } },
       '/nas/{id}/wg/bootstrap': { post: { tags: ['NAS'], summary: 'Bootstrap WireGuard on a NAS via RouterOS API; falls back to a paste-once RouterOS CLI snippet if the device is unreachable', operationId: 'bootstrapNasWg', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Bootstrap result — method:api|snippet + steps[]') } },
-      '/nas/{id}/wg/discover': { post: { tags: ['NAS'], summary: 'Probe a NAS for connected subnets (read-only topology scan); returns proposed CIDRs to route through the WireGuard tunnel', operationId: 'discoverNasWgSubnets', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Proposed CIDRs') } },
+      '/nas/{id}/wg/discover': { post: { tags: ['NAS'], summary: 'Probe a NAS for connected subnets (read-only topology scan); returns proposed CIDRs to route through the WireGuard tunnel', operationId: 'discoverNasWgSubnets', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: { 200: { description: 'Proposed CIDRs and the raw RouterOS topology read', content: { 'application/json': { schema: { type: 'object', properties: { data: { type: 'object', required: ['proposed'], properties: {
+        proposed: { type: 'array', items: { type: 'string' }, description: 'Connected device subnets to route (CIDR); excludes the WG server pool, the NAS WAN/management subnet, and /32 & /128 host-routes' },
+        topology: { type: 'object', description: 'Raw read-only RouterOS topology', properties: {
+          interfaces: { type: 'array', items: { type: 'object', additionalProperties: true } },
+          addresses: { type: 'array', items: { type: 'object', additionalProperties: true } },
+          routes: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        } },
+      } } } } } } } } } },
       '/nas/{id}/wg/routes': { put: { tags: ['NAS'], summary: 'Confirm routed CIDRs for a NAS WireGuard tunnel and re-sync the server-side peer on wg-fireisp', operationId: 'confirmNasWgRoutes', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('nas_confirmWgRoutes'), responses: r200('Updated NasWgTunnel') } },
 
       // ---- RADIUS ----
