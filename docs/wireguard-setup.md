@@ -21,8 +21,16 @@ Datapath: `user client → wg-clients → (IP-forward + nftables per-user scope 
 The IP allocator reserves `.1` on each subnet for the server interface and assigns
 peers from `.2` upward, so the addresses above never collide with a provisioned peer.
 
-> **Requirements.** A Linux host whose kernel has the `wireguard` module (Ubuntu ≥ 5.6
-> ships it) — bare-metal or a VPS, **not** most managed PaaS.
+> **Requirements.** A Linux host that can run kernel WireGuard:
+> - **full virtualization** (KVM / bare-metal) — *not* an OpenVZ/LXC VPS, which can't load kernel modules;
+> - the **`wireguard` kernel module loaded** (an unprivileged container can't load it itself):
+>   ```bash
+>   sudo apt install -y linux-modules-extra-$(uname -r)   # Ubuntu generic kernels ship wireguard.ko here
+>   sudo modprobe wireguard
+>   echo wireguard | sudo tee /etc/modules-load.d/wireguard.conf   # persist across reboots
+>   lsmod | grep wireguard                                # verify
+>   ```
+>   Without it, interface creation fails with `RTNETLINK answers: Operation not permitted`.
 
 ---
 
@@ -58,18 +66,11 @@ A redeploy re-runs all of this and re-converges — existing keys are reused, ex
 interfaces are left in place. To turn the hub back **off**, set `WG_SERVER_ENABLED=false`
 and redeploy; the app stops shelling out (configs/snippets/QRs are still issued).
 
-> **Upgrading a host that already enabled WireGuard under an older, root-based build?**
-> The `wg_keys` volume may hold root-owned keys the non-root user can't read, so the hub
-> would silently fail to come up. Fix it once before the first redeploy:
-> `docker compose -f docker-compose.prod.yml run --rm --user 0:0 app chown -R fireisp:fireisp /etc/wireguard`
-> (or `docker volume rm <project>_wg_keys` to regenerate fresh server keys, if no peers
-> are pinned to the old key). **Fresh installs need nothing.**
-
-> **Security model.** The hub runs as the non-root `fireisp` user: the image grants
-> `CAP_NET_ADMIN` to the `wg`/`ip`/`nft` binaries via file capabilities, and the prod
-> compose puts `NET_ADMIN` in the container's bounding set (`cap_add`). No `root` /
-> `user: "0:0"` is needed. When `WG_SERVER_ENABLED=false` the capability is never
-> exercised (the bootstrap no-ops), so a disabled deploy's posture is unchanged.
+> **Security model.** Kernel WireGuard requires **real root**: creating the interfaces
+> (`ip link add type wireguard`), assigning addresses, and managing routes need uid 0 —
+> `CAP_NET_ADMIN` via file-capabilities covers `wg`/`nft` but **not** those `ip`
+> rtnetlink ops. So the production `app` runs as `user: "0:0"` with `cap_add: NET_ADMIN`.
+> Dev / test / e2e keep the image's non-root `fireisp` user (they don't enable WG).
 
 > **Where do the interfaces live?** In the **app container's own network namespace**
 > (the compose does *not* use host networking, which would break the bridge service-DNS
