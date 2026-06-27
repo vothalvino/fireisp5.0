@@ -750,8 +750,29 @@ async function ensureInterface({ iface, subnet, listenPort }) {
   try {
     await execFileAsync('ip', ['link', 'show', iface]);
   } catch (_) {
-    // Interface absent — create it (tolerate a concurrent/previous create).
-    await runBestEffort('ip', ['link', 'add', 'dev', iface, 'type', 'wireguard'], `create ${iface}`);
+    // Interface absent — create it.
+    try {
+      await execFileAsync('ip', ['link', 'add', 'dev', iface, 'type', 'wireguard']);
+    } catch (err) {
+      if (/file exists/i.test(err.message)) {
+        // Concurrent/previous create won the race — the interface exists. Fine.
+      } else {
+        // Surface an ACTIONABLE hint for the two real-world blockers (this exact
+        // EPERM cost a long debug once): the host wireguard module not loaded, or
+        // the container not running as root. Then rethrow so bootstrapHost logs the
+        // per-interface failure and skips the doomed key/addr/up cascade.
+        if (/operation not permitted/i.test(err.message)) {
+          logger.error(
+            { iface, err: err.message },
+            `wireguardServerService: cannot create ${iface} (Operation not permitted) — load the wireguard `
+            + 'kernel module on the host (`sudo modprobe wireguard`; on Ubuntu also `apt install '
+            + 'linux-modules-extra-$(uname -r)`) AND run the container as root (user "0:0") with cap_add '
+            + 'NET_ADMIN. See docs/wireguard-setup.md.',
+          );
+        }
+        throw err;
+      }
+    }
   }
 
   // Bind the private key by FILE PATH (never argv) + listen port. Idempotent.
