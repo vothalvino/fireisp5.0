@@ -167,9 +167,9 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     # WireGuard hub: NET_ADMIN (used by the file-cap'd wg/ip/nft binaries as the
-    # non-root user) + IPv4 forwarding for wg-clients <-> wg-fireisp routing. Both are
-    # inert unless WG_SERVER_ENABLED=true, so activation needs no extra compose file —
-    # set WG_SERVER_ENABLED=true + WG_ENDPOINT_HOST in .env.prod and redeploy normally.
+    # non-root user) + IPv4 forwarding for wg-clients <-> wg-fireisp routing. The hub is
+    # ON by default in production (see the WG_SERVER_ENABLED default below; the endpoint
+    # derives from DOMAIN). Set WG_SERVER_ENABLED=false in .env.prod to opt out.
     cap_add:
       - NET_ADMIN
     sysctls:
@@ -195,8 +195,10 @@ services:
       RADIUS_AUTH_PORT:      ${RADIUS_AUTH_PORT:-1812}
       RADIUS_ACCT_PORT:      ${RADIUS_ACCT_PORT:-1813}
       RADIUS_SERVER_SECRET:  ${RADIUS_SERVER_SECRET:-}
-      # WireGuard hub — set WG_SERVER_ENABLED=true + WG_ENDPOINT_HOST in .env.prod and
-      # redeploy normally to activate. WG_KEY_DIR is pinned to the wg_keys mount below.
+      # WireGuard hub — ON by default in production; the dial-in endpoint auto-derives
+      # from DOMAIN (the TLS host), so a normal redeploy activates it with no extra
+      # config. Opt out by setting WG_SERVER_ENABLED=false in .env.prod.
+      WG_SERVER_ENABLED:     ${WG_SERVER_ENABLED:-true}
       WG_KEY_DIR:            /etc/wireguard
     volumes:
       # Named volume, NOT a host bind mount: the previous `./storage` bind mount

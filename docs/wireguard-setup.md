@@ -26,24 +26,23 @@ peers from `.2` upward, so the addresses above never collide with a provisioned 
 
 ---
 
-## 1. Activation — a normal redeploy, two env vars
+## 1. Activation — on by default, just redeploy
 
-The production compose (`docker-compose.prod.yml`) already carries everything the hub
-needs — `NET_ADMIN`, IPv4 forwarding, the published UDP ports, and the `wg_keys`
-volume — all **inert until you switch it on**. There is no separate compose file and no
-special deploy command: just set two variables and redeploy the way you always do.
+In **production the hub is ON by default**: `docker-compose.prod.yml` carries everything
+it needs (`NET_ADMIN`, IPv4 forwarding, the published UDP ports, the `wg_keys` volume),
+and the dial-in endpoint **auto-derives from `DOMAIN`** — the public host you already set
+for TLS. So a normal redeploy activates it: no extra variables, no separate compose file.
 
 ```bash
-# 1a. In .env.prod:
-#       WG_SERVER_ENABLED=true
-#       WG_ENDPOINT_HOST=demo.opentrk.com.mx     # public host/IP NAS + laptops dial
-
-# 1b. Redeploy normally (whatever your usual command is), e.g.:
+# Redeploy the way you always do, e.g.:
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 
-# 1c. Open the two UDP ports in the cloud firewall / security group
-#     (host ufw too, if active): 51820/udp and 51821/udp
+# Then open the two UDP ports in the cloud firewall / security group
+# (host ufw too, if active): 51820/udp and 51821/udp
 ```
+
+To **opt out**, set `WG_SERVER_ENABLED=false` in `.env.prod` and redeploy. To advertise a
+public host different from `DOMAIN`, set `WG_ENDPOINT_HOST`.
 
 On boot the app **self-provisions, idempotently** (no `wg-quick` / `/etc/wireguard`
 steps required):
