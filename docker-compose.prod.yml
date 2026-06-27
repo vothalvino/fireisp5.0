@@ -166,12 +166,18 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
-    # WireGuard hub: NET_ADMIN (used by the file-cap'd wg/ip/nft binaries as the
-    # non-root user) + IPv4 forwarding for wg-clients <-> wg-fireisp routing. The hub is
-    # ON by default in production (see the WG_SERVER_ENABLED default below; the endpoint
-    # derives from DOMAIN). Set WG_SERVER_ENABLED=false in .env.prod to opt out.
+    # WireGuard hub (ON by default in prod; endpoint derives from DOMAIN; set
+    # WG_SERVER_ENABLED=false in .env.prod to opt out):
+    #   - cap_add NET_ADMIN puts the capability in the bounding set, and
+    #   - user "0:0" runs the app as root — kernel WireGuard interface + route
+    #     management (`ip link add type wireguard`, `ip address add`, `ip route`)
+    #     requires REAL uid 0; CAP_NET_ADMIN via file-caps is sufficient for wg/nft
+    #     but NOT for those rtnetlink ops. Dev/test/e2e keep the image's non-root
+    #     `fireisp` user (they don't set `user:` and don't enable WG).
+    #   - sysctls enables IPv4 forwarding for wg-clients <-> wg-fireisp routing.
     cap_add:
       - NET_ADMIN
+    user: "0:0"
     sysctls:
       net.ipv4.ip_forward: '1'
     networks:

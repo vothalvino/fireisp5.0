@@ -159,9 +159,11 @@ describe('bootstrapHost() — first run (nothing provisioned yet)', () => {
     expect(execCalledWith('wg', ['set', 'wg-fireisp', 'private-key', keyFileArg])).toBe(true);
   });
 
-  test('enables ip_forward and installs the nftables base', async () => {
+  test('enables ip_forward (via /proc) and installs the nftables base', async () => {
     await service.bootstrapHost();
-    expect(execCalledWith('sysctl', ['-w', 'net.ipv4.ip_forward=1'])).toBe(true);
+    const fwdWrite = writeCallFor('/proc/sys/net/ipv4/ip_forward');
+    expect(fwdWrite).toBeTruthy();
+    expect(fwdWrite[1]).toBe('1');
     // ensureBaseFirewall writes an nft script then applies it with `nft -f`
     expect(execCalledWith('nft', ['-f'])).toBe(true);
   });

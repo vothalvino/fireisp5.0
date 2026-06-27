@@ -822,10 +822,15 @@ async function bootstrapHost() {
   reconcilePublicKey('serverPublicKey', 'WG_SERVER_PUBLIC_KEY', serverPub, config.wireguard.serverInterface);
   reconcilePublicKey('clientPublicKey', 'WG_CLIENT_SERVER_PUBLIC_KEY', clientPub, config.wireguard.clientInterface);
 
-  // Enable IPv4 forwarding so wg-clients → wg-fireisp routing works. Best-effort:
+  // Enable IPv4 forwarding so wg-clients → wg-fireisp routing works. Write /proc
+  // directly (there's no `sysctl` binary in the slim image). Best-effort:
   // docker-compose.prod.yml also sets this via sysctls, and a locked-down host may
   // refuse the write — neither should abort startup.
-  await runBestEffort('sysctl', ['-w', 'net.ipv4.ip_forward=1'], 'enable ip_forward');
+  try {
+    fs.writeFileSync('/proc/sys/net/ipv4/ip_forward', '1');
+  } catch (err) {
+    logger.warn({ err: err.message }, 'wireguardServerService: enable ip_forward failed (non-fatal)');
+  }
 
   // Install the base nftables ruleset (idempotent; no-op when already present).
   try {
