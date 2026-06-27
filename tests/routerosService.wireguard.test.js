@@ -30,6 +30,7 @@ const {
   wireguardPeerUpsert,
   wireguardReadTopology,
   wireguardPeerRemove,
+  wireguardRouteUpsert,
   handlers,
 } = require('../src/services/routerosService');
 
@@ -613,16 +614,113 @@ describe('wireguardPeerRemove', () => {
 });
 
 // =============================================================================
+// wireguardRouteUpsert
+// =============================================================================
+
+describe('wireguardRouteUpsert', () => {
+  const DST = '10.255.0.0/16';
+  const GW  = 'fireisp-nas-7';
+
+  test('creates a new route when absent and returns created:true with id from !done ret', async () => {
+    const { handler, received } = capturingServer([
+      [['!done']],             // login
+      [['!done']],             // /ip/route/print — not found (no !re)
+      [['!done', '=ret=*3']], // /ip/route/add
+    ]);
+
+    await withMockServer(handler, async (port) => {
+      const result = await wireguardRouteUpsert(
+        { ...CONN, port },
+        { dstAddress: DST, gateway: GW, comment: 'fireisp-hub-return' },
+      );
+      expect(result).toEqual({ id: '*3', created: true, updated: false });
+
+      // Lookup uses both dst-address AND gateway query words
+      expect(received[1]).toEqual(['/ip/route/print', `?dst-address=${DST}`, `?gateway=${GW}`]);
+
+      // Add command is /ip/route/add with all three attributes
+      expect(received[2][0]).toBe('/ip/route/add');
+      expect(received[2]).toContain(`=dst-address=${DST}`);
+      expect(received[2]).toContain(`=gateway=${GW}`);
+      expect(received[2]).toContain('=comment=fireisp-hub-return');
+    });
+  });
+
+  test('no-ops when route already exists and returns created:false updated:false', async () => {
+    const { handler, received } = capturingServer([
+      [['!done']],                                                         // login
+      [['!re', '=.id=*5', '=dst-address=10.255.0.0/16'], ['!done']],     // /ip/route/print — found
+    ]);
+
+    await withMockServer(handler, async (port) => {
+      const result = await wireguardRouteUpsert(
+        { ...CONN, port },
+        { dstAddress: DST, gateway: GW },
+      );
+      expect(result).toEqual({ id: '*5', created: false, updated: false });
+
+      // Only two sentences: login + print (no /ip/route/add sent)
+      expect(received).toHaveLength(2);
+    });
+  });
+
+  test('omits =comment= word when comment is not provided', async () => {
+    const { handler, received } = capturingServer([
+      [['!done']],
+      [['!done']],             // not found
+      [['!done', '=ret=*7']],
+    ]);
+
+    await withMockServer(handler, async (port) => {
+      await wireguardRouteUpsert({ ...CONN, port }, { dstAddress: DST, gateway: GW });
+      expect(received[2]).not.toContainEqual(expect.stringMatching(/^=comment=/));
+    });
+  });
+
+  test('only emits /ip/route writes — never /ip/service or /ip/firewall', async () => {
+    const { handler, received } = capturingServer([
+      [['!done']],
+      [['!done']],
+      [['!done', '=ret=*8']],
+    ]);
+
+    await withMockServer(handler, async (port) => {
+      await wireguardRouteUpsert({ ...CONN, port }, { dstAddress: DST, gateway: GW });
+      for (const sentence of received) {
+        expect(sentence[0]).not.toBe('/ip/service');
+        expect(sentence[0]).not.toBe('/ip/firewall');
+      }
+      // All write words must be under /ip/route
+      const writeSentences = received.filter((s) => s[0] && s[0].startsWith('/ip/route'));
+      expect(writeSentences.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  test('throws when dstAddress is missing', async () => {
+    await expect(
+      wireguardRouteUpsert(CONN, { gateway: GW }),
+    ).rejects.toThrow('wireguardRouteUpsert: dstAddress is required');
+  });
+
+  test('throws when gateway is missing', async () => {
+    await expect(
+      wireguardRouteUpsert(CONN, { dstAddress: DST }),
+    ).rejects.toThrow('wireguardRouteUpsert: gateway is required');
+  });
+});
+
+// =============================================================================
 // handlers — WireGuard FireRelay entries
 // =============================================================================
 
 describe('handlers — WireGuard entries', () => {
-  test('exports all five WireGuard handler functions', () => {
+  test('exports all six WireGuard handler functions including wireguard.routeUpsert', () => {
     expect(typeof handlers['wireguard.interfaceUpsert']).toBe('function');
     expect(typeof handlers['wireguard.addressUpsert']).toBe('function');
     expect(typeof handlers['wireguard.peerUpsert']).toBe('function');
     expect(typeof handlers['wireguard.readTopology']).toBe('function');
     expect(typeof handlers['wireguard.peerRemove']).toBe('function');
+    expect(typeof handlers['wireguard.routeUpsert']).toBe('function');
   });
 
   test('wireguard.interfaceUpsert handler routes through connFromParams and creates interface', async () => {
@@ -749,6 +847,28 @@ describe('handlers — WireGuard entries', () => {
         comment: WG_PEER_COMMENT,
       });
       expect(result.deleted).toBe(true);
+    });
+  });
+
+  test('wireguard.routeUpsert handler routes through connFromParams and creates route', async () => {
+    const handler = sequenceServer([
+      [['!done']],
+      [['!done']],             // route/print — not found
+      [['!done', '=ret=*9']],
+    ]);
+
+    await withMockServer(handler, async (port) => {
+      const result = await handlers['wireguard.routeUpsert']({
+        host: '127.0.0.1',
+        port,
+        user: 'admin',
+        password: 'secret',
+        dstAddress: '10.255.0.0/16',
+        gateway:    'wg-fireisp',
+        comment:    'fireisp-hub-return',
+      });
+      expect(result.created).toBe(true);
+      expect(result.id).toBe('*9');
     });
   });
 

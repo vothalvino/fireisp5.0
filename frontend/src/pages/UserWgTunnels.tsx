@@ -68,11 +68,11 @@ async function fetchMyPeers(): Promise<PeersResponse> {
   return res.json() as Promise<PeersResponse>;
 }
 
-async function createPeer(name: string): Promise<CreatePeerResponse> {
+async function createPeer(name: string, fullTunnel: boolean): Promise<CreatePeerResponse> {
   const res = await fetch(`${API_BASE}/wg-peers`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, full_tunnel: fullTunnel }),
   });
   if (!res.ok) {
     throw new Error(apiErrorMessage(await res.json().catch(() => ({})), 'Failed to create peer'));
@@ -119,10 +119,11 @@ interface AddPeerModalProps {
 function AddPeerModal({ onClose, onCreated }: AddPeerModalProps) {
   const { t } = useTranslation();
   const [name, setName] = useState('');
+  const [fullTunnel, setFullTunnel] = useState(true);
   const [err, setErr] = useState('');
 
   const mutation = useMutation({
-    mutationFn: () => createPeer(name.trim()),
+    mutationFn: () => createPeer(name.trim(), fullTunnel),
     onSuccess: (res) => onCreated(res),
     onError: (e: Error) => setErr(e.message),
   });
@@ -144,6 +145,26 @@ function AddPeerModal({ onClose, onCreated }: AddPeerModalProps) {
         <p style={{ fontSize: '0.78rem', color: '#6b7280', margin: '6px 0 0' }}>
           {t('wgTunnels.peerNameHint')}
         </p>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: '1rem' }}>
+          <input
+            id="full-tunnel-checkbox"
+            type="checkbox"
+            checked={fullTunnel}
+            onChange={e => setFullTunnel(e.target.checked)}
+            style={{ marginTop: 3, cursor: 'pointer' }}
+          />
+          <div>
+            <label
+              htmlFor="full-tunnel-checkbox"
+              style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', cursor: 'pointer' }}
+            >
+              {t('wgTunnels.fullTunnelLabel')}
+            </label>
+            <p style={{ fontSize: '0.78rem', color: '#6b7280', margin: '2px 0 0' }}>
+              {t('wgTunnels.fullTunnelHint')}
+            </p>
+          </div>
+        </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: '1rem' }}>
           <button style={btnSecondary} onClick={onClose}>{t('common.cancel')}</button>
           <button

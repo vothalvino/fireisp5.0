@@ -1083,6 +1083,53 @@ async function wireguardReadTopology(conn) {
 }
 
 /**
+ * Create-or-no-op an /ip/route entry by dst-address + gateway (idempotent).
+ *
+ * Looks up an existing route matching both dst-address and gateway; if found,
+ * returns immediately (no write). If absent, adds the route and returns the
+ * assigned .id.
+ *
+ * HARD CONSTRAINT: only writes to /ip/route — never /ip/service or /ip/firewall.
+ *
+ * @param {{ host: string, port?: number, user: string, password: string }} conn
+ * @param {{ dstAddress: string, gateway: string, comment?: string }} params
+ * @returns {Promise<{ id: string, created: boolean, updated: boolean }>}
+ */
+async function wireguardRouteUpsert(conn, { dstAddress, gateway, comment } = {}) {
+  if (!dstAddress) throw new Error('wireguardRouteUpsert: dstAddress is required');
+  if (!gateway) throw new Error('wireguardRouteUpsert: gateway is required');
+
+  const client = await createClient(conn);
+  try {
+    const existingId = await findId(client, '/ip/route', [
+      `?dst-address=${dstAddress}`,
+      `?gateway=${gateway}`,
+    ]);
+
+    if (existingId) {
+      logger.info({ dstAddress, gateway, id: existingId }, 'RouterOS: IP route already exists (no-op)');
+      return { id: existingId, created: false, updated: false };
+    }
+
+    const words = ['/ip/route/add', `=dst-address=${dstAddress}`, `=gateway=${gateway}`];
+    if (comment) words.push(`=comment=${comment}`);
+
+    const sentences = await client.run(words);
+    let newId = '';
+    for (const sentence of sentences) {
+      if (sentence[0] === '!done') {
+        newId = parseAttrs(sentence.slice(1)).ret || '';
+        break;
+      }
+    }
+    logger.info({ dstAddress, gateway, id: newId }, 'RouterOS: IP route created');
+    return { id: newId, created: true, updated: false };
+  } finally {
+    await client.close();
+  }
+}
+
+/**
  * Remove a WireGuard peer by interface + comment (idempotent — no-ops if absent).
  *
  * @param {{ host: string, port?: number, user: string, password: string }} conn
@@ -1179,6 +1226,10 @@ const handlers = {
     const conn = connFromParams(params);
     return wireguardPeerRemove(conn, params);
   },
+  'wireguard.routeUpsert': async (params) => {
+    const conn = connFromParams(params);
+    return wireguardRouteUpsert(conn, params);
+  },
 };
 
 module.exports = {
@@ -1203,6 +1254,7 @@ module.exports = {
   wireguardPeerUpsert,
   wireguardReadTopology,
   wireguardPeerRemove,
+  wireguardRouteUpsert,
   handlers,
   connFromParams,
   DEFAULT_PORT,

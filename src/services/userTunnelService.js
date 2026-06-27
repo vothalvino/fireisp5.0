@@ -60,9 +60,23 @@ function buildConfig(peer, privateKey, subnets, presharedKey = null) {
   if (presharedKey) {
     lines.push(`PresharedKey        = ${presharedKey}`);
   }
+
+  // AllowedIPs: full-tunnel routes ALL traffic through FireISP (default for new peers);
+  // split-tunnel routes only the scoped device subnets (legacy / explicit opt-out).
+  // The authoritative ACL is the nftables FORWARD chain — AllowedIPs in full-tunnel
+  // mode is a static "install once and never re-scan" client config.
+  let allowedIps;
+  if (peer.full_tunnel) {
+    allowedIps = '0.0.0.0/0, ::/0';
+  } else {
+    allowedIps = subnets.length
+      ? subnets.join(', ')
+      : (peer.tunnel_address ? `${peer.tunnel_address}/32` : '127.0.0.1/32');
+  }
+
   lines.push(
     `Endpoint            = ${config.wireguard.serverEndpoint}:${config.wireguard.clientListenPort}`,
-    `AllowedIPs          = ${subnets.length ? subnets.join(', ') : (peer.tunnel_address ? `${peer.tunnel_address}/32` : '127.0.0.1/32')}`,
+    `AllowedIPs          = ${allowedIps}`,
     `PersistentKeepalive = ${config.wireguard.keepalive}`,
   );
   return lines.join('\n');
@@ -96,9 +110,13 @@ async function buildQr(confText) {
  * @param {number|null} orgId
  * @param {string|null} legacyRole   users.role value (for admin scope detection)
  * @param {string} name              user-supplied peer label ("Laptop", "Phone")
+ * @param {boolean} [fullTunnel=true]  When true, issued config uses AllowedIPs=0.0.0.0/0,::/0
+ *                                     (full-tunnel, DEFAULT for new peers). When false, uses the
+ *                                     scoped subnet list (split-tunnel). Existing peers retain
+ *                                     their current mode unless explicitly updated.
  * @returns {Promise<{peer:object, config:string, config_base64:string, qr_svg:string}>}
  */
-async function createPeer(userId, orgId, legacyRole, name) {
+async function createPeer(userId, orgId, legacyRole, name, fullTunnel = true) {
   // 1. Compute the scope this user is allowed to reach
   const subnets = await userTunnelScopeService.getScopedSubnets(userId, orgId, legacyRole);
 
@@ -115,8 +133,8 @@ async function createPeer(userId, orgId, legacyRole, name) {
       const [result] = await db.query(
         `INSERT INTO wg_user_peers
            (organization_id, user_id, name, public_key, private_key_encrypted,
-            tunnel_address, endpoint_host, server_peer_synced, allowed_ips_snapshot)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+            tunnel_address, endpoint_host, server_peer_synced, full_tunnel, allowed_ips_snapshot)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
         [
           orgId,
           userId,
@@ -125,6 +143,7 @@ async function createPeer(userId, orgId, legacyRole, name) {
           encrypt(privateKey),          // NEVER log this value
           tunnelIp,
           config.wireguard.serverEndpoint || null,
+          fullTunnel ? 1 : 0,
           JSON.stringify(subnets),
         ],
       );

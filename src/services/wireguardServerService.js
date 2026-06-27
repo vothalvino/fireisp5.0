@@ -439,17 +439,52 @@ async function readPeerHandshakes(iface) {
 async function ensureBaseFirewall() {
   if (!config.wireguard.serverEnabled) return { ...NOOP_RESULT };
 
-  // Check whether our table already exists (nft exits non-zero if not found)
-  try {
-    await execFileAsync('nft', ['list', 'table', 'inet', 'fireisp_wg']);
-    return { applied: false, reason: 'fireisp_wg table already installed' };
-  } catch (_) {
-    // Table not found — proceed with installation
-  }
-
   const clientIface  = config.wireguard.clientInterface;
   const serverIface  = config.wireguard.serverInterface;
   const clientSubnet = config.wireguard.clientSubnet;
+
+  // Check whether our table already exists (nft exits non-zero if not found)
+  let tableExists = false;
+  try {
+    await execFileAsync('nft', ['list', 'table', 'inet', 'fireisp_wg']);
+    tableExists = true;
+  } catch (_) {
+    // Table not found — proceed with fresh installation
+  }
+
+  if (tableExists) {
+    // CRITICAL idempotent-upgrade: check whether the WAN-egress masquerade rule is
+    // present in the postrouting chain. Hubs deployed before this rule was added
+    // early-returned here and never got it; we now ensure it on every startup.
+    try {
+      const { stdout: chainDump } = await execFileAsync('nft', [
+        'list', 'chain', 'inet', 'fireisp_wg', 'postrouting',
+      ]);
+      // The WAN-masq rule is identified by the clientSubnet src-addr AND the
+      // `oifname !=` negation pattern (the per-serverIface masq uses `oifname "..."`,
+      // without `!=`, so this distinguishes the two rules reliably).
+      const hasWanMasq = chainDump.includes(clientSubnet) && chainDump.includes('oifname !=');
+      if (!hasWanMasq) {
+        const ruleContent = `add rule inet fireisp_wg postrouting ip saddr ${clientSubnet} oifname != { "${clientIface}", "${serverIface}" } masquerade`;
+        const tmpFile = writeTmpFile(ruleContent);
+        try {
+          await execFileAsync('nft', ['-f', tmpFile]);
+        } finally {
+          unlinkSafe(tmpFile);
+        }
+        logger.info(
+          { clientSubnet, clientIface, serverIface },
+          'wireguardServerService: WAN-egress masquerade rule added to existing fireisp_wg table',
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        { err: err.message },
+        'wireguardServerService: ensureBaseFirewall upgrade check failed (non-fatal)',
+      );
+    }
+    return { applied: false, reason: 'fireisp_wg table already installed' };
+  }
 
   const nftConfig = [
     'table inet fireisp_wg {',
@@ -471,6 +506,8 @@ async function ensureBaseFirewall() {
     '    type nat hook postrouting priority srcnat;',
     `    # MASQUERADE user client traffic so NAS peer replies route back via ${serverIface}`,
     `    ip saddr ${clientSubnet} oifname "${serverIface}" masquerade`,
+    '    # MASQUERADE full-tunnel clients internet traffic out the WAN',
+    `    ip saddr ${clientSubnet} oifname != { "${clientIface}", "${serverIface}" } masquerade`,
     '  }',
     '}',
   ].join('\n');

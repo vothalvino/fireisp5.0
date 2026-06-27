@@ -3,10 +3,12 @@
 // =============================================================================
 
 // POST /wg-peers — self-service peer creation.
-// Only `name` is accepted from the client; all other fields (keypair, IP,
-// scope) are generated server-side. min:1 rejects empty-string names.
+// Only `name` and the optional `full_tunnel` toggle are accepted from the client;
+// all other fields (keypair, IP, scope) are generated server-side.
+// full_tunnel defaults to true (new peers are full-tunnel). min:1 rejects empty names.
 const wgPeers_createPeer = {
   name: { type: 'string', required: true, min: 1, max: 100 },
+  full_tunnel: { type: 'boolean' },
 };
 
 // PUT /wg-peers/admin/assignments/:userId — replace a user's network scope.

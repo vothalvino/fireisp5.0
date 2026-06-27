@@ -129,9 +129,17 @@ function assembleSnippet(tunnel, serverCfg, subnets, privateKey) {
     '  comment=fireisp-server',
   ];
 
+  // 4. Return route — RouterOS 7 does NOT auto-create routes from a peer's
+  // allowed-address, so the NAS must have an explicit route for the FireISP hub
+  // subnet back via the WireGuard interface. Without this, reply traffic from the
+  // NAS to the hub's masqueraded source (10.255.0.1) exits via the WAN and is lost.
+  lines.push('');
+  lines.push('# 4. Return route — NAS must route the FireISP hub subnet via the WG interface');
+  lines.push(`/ip/route/add dst-address=${serverCfg.subnet} gateway=${ifaceName} comment=fireisp-hub-return`);
+
   if (subnets && subnets.length > 0) {
     lines.push('');
-    lines.push('# 4. Routes for confirmed device subnets');
+    lines.push('# 5. Routes for confirmed device subnets');
     for (const subnet of subnets) {
       lines.push(`/ip/route/add dst-address=${subnet} gateway=${ifaceName}`);
     }
@@ -313,6 +321,18 @@ async function bootstrap(nas) {
       step:   'peer',
       status: peerRes.created ? 'created' : 'updated',
       detail: `Server peer ${serverCfg.endpoint}:${serverCfg.port}`,
+    });
+
+    // ── 4. Return route (RouterOS 7 does not auto-create routes from peer allowed-address) ─
+    const routeRes = await ros.wireguardRouteUpsert(conn, {
+      dstAddress: serverCfg.subnet,
+      gateway:    ifaceName,
+      comment:    'fireisp-hub-return',
+    });
+    steps.push({
+      step:   'return-route',
+      status: routeRes.created ? 'created' : 'exists',
+      detail: `Return route ${serverCfg.subnet} via ${ifaceName}`,
     });
 
     // ── Persist success ───────────────────────────────────────────────────────
