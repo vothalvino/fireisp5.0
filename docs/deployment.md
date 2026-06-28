@@ -100,8 +100,9 @@ $COMPOSE up -d --build --force-recreate app
 $COMPOSE build --no-cache app
 $COMPOSE up -d --force-recreate app
 
-# 3. Apply any new database migrations
-$COMPOSE exec app npm run migrate
+# 3. Apply any new database migrations. NOTE: the production image strips npm to
+#    stay lean, so run the script with `node` directly (not `npm run migrate`).
+$COMPOSE exec app node src/scripts/migrate.js
 
 # 4. Verify the new frontend is actually being served — the hashed bundle
 #    filename changes after a real rebuild:
@@ -270,11 +271,12 @@ cp .env.example .env
 # Start services
 docker compose up -d
 
-# Run migrations (first time only)
-docker compose exec app npm run migrate
+# Run migrations (first time only).
+# NOTE: the production image strips npm, so call the script with `node` directly.
+docker compose exec app node src/scripts/migrate.js
 
 # Seed defaults (first time only)
-docker compose exec app npm run seed
+docker compose exec app node src/scripts/seed.js
 
 # View logs
 docker compose logs -f app
@@ -290,7 +292,7 @@ docker compose up -d --build --force-recreate app
 # frontend-build layer), then recreate the container:
 docker compose build --no-cache app && docker compose up -d --force-recreate app
 
-docker compose exec app npm run migrate   # apply any new migrations
+docker compose exec app node src/scripts/migrate.js   # apply any new migrations
 ```
 
 See **[Updating to a new version](#updating-to-a-new-version)** for why `--build`
@@ -1368,7 +1370,7 @@ cosignPolicy:
 Run migrations once after the first install (or after upgrading):
 
 ```bash
-kubectl exec -n fireisp deploy/fireisp -- npm run migrate
+kubectl exec -n fireisp deploy/fireisp -- node src/scripts/migrate.js
 ```
 
 ### Upgrading
