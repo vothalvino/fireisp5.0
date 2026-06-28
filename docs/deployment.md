@@ -74,13 +74,41 @@ docker compose -f /opt/fireisp/docker-compose.prod.yml --env-file /opt/fireisp/.
 # Follow application logs
 docker compose -f /opt/fireisp/docker-compose.prod.yml --env-file /opt/fireisp/.env.prod logs -f app
 
-# Update to the latest version
-git -C /opt/fireisp pull
-docker compose -f /opt/fireisp/docker-compose.prod.yml --env-file /opt/fireisp/.env.prod \
-  up -d --build
 ```
 
 > **Note:** After install, open `https://<DOMAIN>` in your browser to create your admin account. Then configure SMTP in **Settings → Organization → Email** so notifications are delivered.
+
+### Updating to a new version
+
+> **Heads-up:** the `app` image bundles the **compiled React frontend**. A plain
+> `up -d` (no `--build`) reuses the existing image, and even `up -d --build` can
+> reuse a cached `frontend-build` layer — so a merged change may not actually
+> reach the browser. Use the flow below and verify the served bundle changed.
+
+```bash
+COMPOSE="docker compose -f /opt/fireisp/docker-compose.prod.yml --env-file /opt/fireisp/.env.prod"
+
+# 1. Pull the new code and confirm you're on the commit you expect
+git -C /opt/fireisp pull
+git -C /opt/fireisp log --oneline -1
+
+# 2. Rebuild the image and recreate the app container
+$COMPOSE up -d --build --force-recreate app
+
+#    If a FRONTEND change still isn't visible, force a clean rebuild
+#    (bypasses Docker's cached frontend-build layer), then recreate:
+$COMPOSE build --no-cache app
+$COMPOSE up -d --force-recreate app
+
+# 3. Apply any new database migrations
+$COMPOSE exec app npm run migrate
+
+# 4. Verify the new frontend is actually being served — the hashed bundle
+#    filename changes after a real rebuild:
+curl -s https://<DOMAIN>/ | grep -o 'index-[^"]*\.js'
+#    (optional) confirm a specific change shipped:
+#    curl -s "https://<DOMAIN>/assets/<bundle>.js" | grep -c "<string from your change>"
+```
 
 ---
 
@@ -251,6 +279,22 @@ docker compose exec app npm run seed
 # View logs
 docker compose logs -f app
 ```
+
+### Updating
+
+```bash
+git pull
+docker compose up -d --build --force-recreate app
+
+# If a frontend change doesn't appear, force a clean rebuild (skips the cached
+# frontend-build layer), then recreate the container:
+docker compose build --no-cache app && docker compose up -d --force-recreate app
+
+docker compose exec app npm run migrate   # apply any new migrations
+```
+
+See **[Updating to a new version](#updating-to-a-new-version)** for why `--build`
+alone can serve a stale frontend, plus how to verify the new bundle is live.
 
 ### Custom Dockerfile (production optimized)
 
