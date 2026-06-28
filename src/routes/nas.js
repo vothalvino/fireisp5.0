@@ -71,6 +71,13 @@ const ctrl = crudController(Nas, {
   // The hook is advisory — failure is caught by crudController and logged,
   // never surfaced to the caller. When WG_SERVER_ENABLED=false this is a no-op.
   afterCreate: (nas) => config.wireguard.serverEnabled && wgProvisioningService.provisionDesiredState(nas),
+  // Tear down the NAS's WireGuard tunnel on delete (remove hub peer + routes,
+  // soft-delete the tunnel row, drop its subnets from affected users' scope).
+  // Advisory — failure is caught + logged, never fails the delete.
+  afterDelete: (nas) => wgProvisioningService.teardownNas(nas.id),
+  // Inverse of afterDelete: revive the torn-down tunnel (same keypair) when the
+  // NAS is restored, so delete→restore brings the site tunnel back. Advisory.
+  afterRestore: (nas) => wgProvisioningService.restoreNas(nas.id),
 });
 
 router.use(authenticate);

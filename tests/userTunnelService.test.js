@@ -48,6 +48,7 @@ jest.mock('qrcode', () => ({
 }));
 
 const db = require('../src/config/database');
+const config = require('../src/config');
 const wireguardServerService = require('../src/services/wireguardServerService');
 const userTunnelScopeService = require('../src/services/userTunnelScopeService');
 const auditLog = require('../src/services/auditLog');
@@ -514,14 +515,14 @@ describe('refreshAffectedByNas()', () => {
       //   4. user lookup
       .mockResolvedValueOnce([[{ id: 10, organization_id: 1, role: 'technician' }]])
       //   5. peer lookup
-      .mockResolvedValueOnce([[{ id: 100, tunnel_address: '10.99.0.10' }]])
+      .mockResolvedValueOnce([[{ id: 100, tunnel_address: '10.99.0.10', organization_id: 1 }]])
       //   6. UPDATE allowed_ips_snapshot for peer 100
       .mockResolvedValueOnce([{ affectedRows: 1 }])
       // refreshUserPeers(99):
       //   7. user lookup
       .mockResolvedValueOnce([[{ id: 99, organization_id: 1, role: 'admin' }]])
       //   8. peer lookup
-      .mockResolvedValueOnce([[{ id: 200, tunnel_address: '10.99.0.20' }]])
+      .mockResolvedValueOnce([[{ id: 200, tunnel_address: '10.99.0.20', organization_id: 1 }]])
       //   9. UPDATE allowed_ips_snapshot for peer 200
       .mockResolvedValueOnce([{ affectedRows: 1 }]);
 
@@ -546,7 +547,7 @@ describe('refreshAffectedByNas()', () => {
       .mockResolvedValueOnce([[{ user_id: 99 }]])  // same user in admin query
       // refreshUserPeers(99) — called only once due to Set deduplication:
       .mockResolvedValueOnce([[{ id: 99, organization_id: 1, role: 'admin' }]])
-      .mockResolvedValueOnce([[{ id: 200, tunnel_address: '10.99.0.20' }]])
+      .mockResolvedValueOnce([[{ id: 200, tunnel_address: '10.99.0.20', organization_id: 1 }]])
       .mockResolvedValueOnce([{ affectedRows: 1 }]);
 
     userTunnelScopeService.getScopedSubnets.mockResolvedValue(['10.0.0.0/8']);
@@ -566,7 +567,7 @@ describe('refreshAffectedByNas()', () => {
       .mockRejectedValueOnce(new Error('DB connection lost'))
       // refreshUserPeers(20) — succeeds:
       .mockResolvedValueOnce([[{ id: 20, organization_id: 1, role: 'technician' }]])
-      .mockResolvedValueOnce([[{ id: 300, tunnel_address: '10.99.0.30' }]])
+      .mockResolvedValueOnce([[{ id: 300, tunnel_address: '10.99.0.30', organization_id: 1 }]])
       .mockResolvedValueOnce([{ affectedRows: 1 }]);
 
     userTunnelScopeService.getScopedSubnets.mockResolvedValue(['172.16.0.0/12']);
@@ -586,7 +587,7 @@ describe('refreshAffectedByNas()', () => {
       .mockResolvedValueOnce([[]])
       // refreshUserPeers(10):
       .mockResolvedValueOnce([[{ id: 10, organization_id: 1, role: 'technician' }]])
-      .mockResolvedValueOnce([[{ id: 100, tunnel_address: '10.99.0.10' }]])
+      .mockResolvedValueOnce([[{ id: 100, tunnel_address: '10.99.0.10', organization_id: 1 }]])
       .mockResolvedValueOnce([{ affectedRows: 1 }]); // snapshot UPDATE
 
     userTunnelScopeService.getScopedSubnets.mockResolvedValue(['10.5.0.0/16']);
@@ -616,5 +617,208 @@ describe('refreshAffectedByNas()', () => {
 
     // No peers to refresh → setUserForwardScope should not be called
     expect(wireguardServerService.setUserForwardScope).not.toHaveBeenCalled();
+  });
+});
+
+// =============================================================================
+// refreshUserPeers — scope keyed on the PEER's own org (not users.organization_id)
+// =============================================================================
+
+describe('refreshUserPeers()', () => {
+  test('passes each peer\'s own organization_id to getScopedSubnets', async () => {
+    db.query
+      // user lookup (role only — no org column needed)
+      .mockResolvedValueOnce([[{ id: 7, role: 'admin' }]])
+      // peers, each carrying its own org
+      .mockResolvedValueOnce([[
+        { id: 1, tunnel_address: '10.99.0.2', organization_id: 5 },
+        { id: 2, tunnel_address: '10.99.0.3', organization_id: 9 },
+      ]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])  // snapshot UPDATE peer 1
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // snapshot UPDATE peer 2
+    userTunnelScopeService.getScopedSubnets
+      .mockResolvedValueOnce(['10.5.0.0/16'])
+      .mockResolvedValueOnce(['10.9.0.0/16']);
+
+    await userTunnelService.refreshUserPeers(7);
+
+    expect(userTunnelScopeService.getScopedSubnets).toHaveBeenCalledWith(7, 5, 'admin');
+    expect(userTunnelScopeService.getScopedSubnets).toHaveBeenCalledWith(7, 9, 'admin');
+    expect(wireguardServerService.setUserForwardScope).toHaveBeenCalledWith(
+      expect.objectContaining({ peerId: 1, subnets: ['10.5.0.0/16'] }));
+    expect(wireguardServerService.setUserForwardScope).toHaveBeenCalledWith(
+      expect.objectContaining({ peerId: 2, subnets: ['10.9.0.0/16'] }));
+  });
+
+  test('skips a peer whose organization_id is NULL (no scope computed)', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 7, role: 'technician' }]])
+      .mockResolvedValueOnce([[{ id: 1, tunnel_address: '10.99.0.2', organization_id: null }]]);
+
+    await userTunnelService.refreshUserPeers(7);
+
+    expect(userTunnelScopeService.getScopedSubnets).not.toHaveBeenCalled();
+    expect(wireguardServerService.setUserForwardScope).not.toHaveBeenCalled();
+  });
+});
+
+// =============================================================================
+// revokeAllForUser — revoke every peer of a deleted user
+// =============================================================================
+
+describe('revokeAllForUser()', () => {
+  test('revokes each live peer (hub remove + soft-delete + audit), returns count', async () => {
+    db.query
+      .mockResolvedValueOnce([[
+        { id: 1, public_key: 'PK1==', tunnel_address: '10.99.0.2', organization_id: 1 },
+        { id: 2, public_key: 'PK2==', tunnel_address: '10.99.0.3', organization_id: 1 },
+      ]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE peer 1
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE peer 2
+
+    const res = await userTunnelService.revokeAllForUser(7, 99);
+
+    expect(res).toEqual({ revoked: 2 });
+    expect(wireguardServerService.removeUserPeer).toHaveBeenCalledTimes(2);
+    expect(wireguardServerService.removeUserPeer).toHaveBeenCalledWith({ publicKey: 'PK1==', peerId: 1 });
+    // soft-delete UPDATE stamps revoked_by (99) + peer id
+    const updateCalls = db.query.mock.calls.filter(
+      (c) => typeof c[0] === 'string' && c[0].includes('UPDATE wg_user_peers'),
+    );
+    expect(updateCalls).toHaveLength(2);
+    expect(updateCalls[0][1]).toEqual([99, 1]);
+    expect(auditLog.log).toHaveBeenCalledTimes(2);
+  });
+
+  test('no-op (revoked: 0) when the user has no live peers', async () => {
+    db.query.mockResolvedValueOnce([[]]);
+
+    const res = await userTunnelService.revokeAllForUser(7, 99);
+
+    expect(res).toEqual({ revoked: 0 });
+    expect(wireguardServerService.removeUserPeer).not.toHaveBeenCalled();
+  });
+
+  test('hub-removal failure is non-fatal — the DB row is still stamped revoked', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, public_key: 'PK1==', tunnel_address: '10.99.0.2', organization_id: 1 }]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+    wireguardServerService.removeUserPeer.mockRejectedValueOnce(new Error('hub down'));
+
+    const res = await userTunnelService.revokeAllForUser(7, 99);
+
+    expect(res).toEqual({ revoked: 1 });
+    const updateCalls = db.query.mock.calls.filter(
+      (c) => typeof c[0] === 'string' && c[0].includes('UPDATE wg_user_peers'),
+    );
+    expect(updateCalls).toHaveLength(1);
+  });
+});
+
+// =============================================================================
+// rehydrateUserPeers — restore user hub peers + nft scope from the DB on startup
+// =============================================================================
+
+describe('rehydrateUserPeers()', () => {
+  let originalEnabled;
+
+  beforeEach(() => {
+    originalEnabled = config.wireguard.serverEnabled;
+  });
+
+  afterEach(() => {
+    config.wireguard.serverEnabled = originalEnabled;
+  });
+
+  test('no-op (skipped) when WG_SERVER_ENABLED is false — never touches the DB', async () => {
+    config.wireguard.serverEnabled = false;
+
+    const result = await userTunnelService.rehydrateUserPeers();
+
+    expect(result).toEqual({ rehydrated: 0, total: 0, skipped: true });
+    expect(db.query).not.toHaveBeenCalled();
+    expect(wireguardServerService.syncUserPeer).not.toHaveBeenCalled();
+  });
+
+  test('re-adds each peer and rebuilds its scope; recomputes scope once per user', async () => {
+    config.wireguard.serverEnabled = true;
+    // Two peers for user 10 (share a scope) + one peer for user 20.
+    db.query.mockResolvedValueOnce([[
+      { id: 1, user_id: 10, public_key: 'PK1==', tunnel_address: '10.99.0.2', organization_id: 1, role: 'admin' },
+      { id: 2, user_id: 10, public_key: 'PK2==', tunnel_address: '10.99.0.3', organization_id: 1, role: 'admin' },
+      { id: 3, user_id: 20, public_key: 'PK3==', tunnel_address: '10.99.0.4', organization_id: 1, role: 'technician' },
+    ]]);
+    userTunnelScopeService.getScopedSubnets
+      .mockResolvedValueOnce(['0.0.0.0/0'])        // user 10 (admin)
+      .mockResolvedValueOnce(['192.168.7.0/24']);  // user 20 (tech)
+
+    const result = await userTunnelService.rehydrateUserPeers();
+
+    expect(result).toEqual({ rehydrated: 3, total: 3 });
+    expect(wireguardServerService.syncUserPeer).toHaveBeenCalledTimes(3);
+    // The load-bearing kernel re-add: assert the exact payload, not just count —
+    // a swapped/wrong publicKey or tunnelIp must fail the test.
+    expect(wireguardServerService.syncUserPeer).toHaveBeenNthCalledWith(1, { publicKey: 'PK1==', tunnelIp: '10.99.0.2' });
+    expect(wireguardServerService.syncUserPeer).toHaveBeenNthCalledWith(3, { publicKey: 'PK3==', tunnelIp: '10.99.0.4' });
+    // Scope computed once per distinct user, not once per peer — and with the
+    // peer's own org + the user's role for BOTH users.
+    expect(userTunnelScopeService.getScopedSubnets).toHaveBeenCalledTimes(2);
+    expect(userTunnelScopeService.getScopedSubnets).toHaveBeenNthCalledWith(1, 10, 1, 'admin');
+    expect(userTunnelScopeService.getScopedSubnets).toHaveBeenNthCalledWith(2, 20, 1, 'technician');
+    // Both of user 10's peers get the cached admin scope.
+    expect(wireguardServerService.setUserForwardScope).toHaveBeenCalledWith({
+      peerId: 1, tunnelIp: '10.99.0.2', subnets: ['0.0.0.0/0'],
+    });
+    expect(wireguardServerService.setUserForwardScope).toHaveBeenCalledWith({
+      peerId: 2, tunnelIp: '10.99.0.3', subnets: ['0.0.0.0/0'],
+    });
+    expect(wireguardServerService.setUserForwardScope).toHaveBeenCalledWith({
+      peerId: 3, tunnelIp: '10.99.0.4', subnets: ['192.168.7.0/24'],
+    });
+  });
+
+  test('an empty scope is cached and reused (getScopedSubnets called once)', async () => {
+    config.wireguard.serverEnabled = true;
+    db.query.mockResolvedValueOnce([[
+      { id: 1, user_id: 30, public_key: 'PK1==', tunnel_address: '10.99.0.5', organization_id: 2, role: 'support' },
+      { id: 2, user_id: 30, public_key: 'PK2==', tunnel_address: '10.99.0.6', organization_id: 2, role: 'support' },
+    ]]);
+    userTunnelScopeService.getScopedSubnets.mockResolvedValueOnce([]); // tech with no assignments
+
+    const result = await userTunnelService.rehydrateUserPeers();
+
+    expect(result).toEqual({ rehydrated: 2, total: 2 });
+    // Empty-array scope must still be cached — not recomputed for the 2nd peer.
+    expect(userTunnelScopeService.getScopedSubnets).toHaveBeenCalledTimes(1);
+    expect(wireguardServerService.setUserForwardScope).toHaveBeenCalledWith({
+      peerId: 2, tunnelIp: '10.99.0.6', subnets: [],
+    });
+  });
+
+  test('one failing peer is logged but does not abort the rest', async () => {
+    config.wireguard.serverEnabled = true;
+    db.query.mockResolvedValueOnce([[
+      { id: 1, user_id: 10, public_key: 'PK1==', tunnel_address: '10.99.0.2', organization_id: 1, role: 'admin' },
+      { id: 2, user_id: 20, public_key: 'PK2==', tunnel_address: '10.99.0.3', organization_id: 1, role: 'admin' },
+    ]]);
+    userTunnelScopeService.getScopedSubnets.mockResolvedValue(['0.0.0.0/0']);
+    wireguardServerService.syncUserPeer
+      .mockRejectedValueOnce(new Error('wg set failed'))
+      .mockResolvedValueOnce({ applied: true });
+
+    const result = await userTunnelService.rehydrateUserPeers();
+
+    expect(result).toEqual({ rehydrated: 1, total: 2 });
+    expect(wireguardServerService.syncUserPeer).toHaveBeenCalledTimes(2);
+  });
+
+  test('returns zero counts when there are no live peers', async () => {
+    config.wireguard.serverEnabled = true;
+    db.query.mockResolvedValueOnce([[]]);
+
+    const result = await userTunnelService.rehydrateUserPeers();
+
+    expect(result).toEqual({ rehydrated: 0, total: 0 });
+    expect(wireguardServerService.syncUserPeer).not.toHaveBeenCalled();
   });
 });

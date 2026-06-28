@@ -14,6 +14,8 @@ const { wsHub } = require('./services/wsHub');
 const snmpTrapReceiver = require('./services/snmpTrapReceiver');
 const radiusServer = require('./services/radiusServerService');
 const wireguardServerService = require('./services/wireguardServerService');
+const wgProvisioningService = require('./services/wgProvisioningService');
+const userTunnelService = require('./services/userTunnelService');
 const logger = require('./utils/logger');
 
 async function start() {
@@ -79,6 +81,25 @@ async function start() {
     await wireguardServerService.bootstrapHost();
   } catch (err) {
     logger.warn({ err }, 'WireGuard host bootstrap failed');
+  }
+
+  // Re-add every NAS + user WireGuard peer to the hub from the database. Kernel
+  // peers and per-user nftables scope live only in the interface's runtime
+  // state, which a container restart wipes — bootstrapHost recreates the
+  // interfaces but not the peers, so without this every tunnel would stay down
+  // after a restart until manually re-saved. Idempotent + best-effort; each
+  // call no-ops unless WG_SERVER_ENABLED=true.
+  // Independent try/catch each: a failure restoring NAS peers must not suppress
+  // user-peer restoration (and vice versa).
+  try {
+    await wgProvisioningService.rehydrateNasPeers();
+  } catch (err) {
+    logger.warn({ err }, 'WireGuard NAS peer rehydration failed');
+  }
+  try {
+    await userTunnelService.rehydrateUserPeers();
+  } catch (err) {
+    logger.warn({ err }, 'WireGuard user peer rehydration failed');
   }
 
   const server = app.listen(config.port, () => {

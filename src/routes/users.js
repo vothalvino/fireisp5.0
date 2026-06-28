@@ -13,10 +13,17 @@ const { restrictRoleAssignment } = require('../middleware/restrictRoleAssignment
 const { validate } = require('../middleware/validate');
 const { createUser, updateUser, patchUser } = require('../middleware/schemas/users');
 const { hashPasswordField } = require('../middleware/hashPassword');
+const userTunnelService = require('../services/userTunnelService');
 
 const router = Router();
 // Strip password hash + 2FA secrets from every user record in responses.
-const ctrl = crudController(User, { serialize: sanitizeUser });
+const ctrl = crudController(User, {
+  serialize: sanitizeUser,
+  // Revoke the deleted user's WireGuard peers (kernel + nft + DB) so a removed
+  // user can't keep a live tunnel. Advisory — caught + logged, never fails the
+  // delete. req.user?.id stamps revoked_by.
+  afterDelete: (user, req) => userTunnelService.revokeAllForUser(user.id, req.user?.id ?? null),
+});
 
 router.use(authenticate);
 router.use(orgScope);
