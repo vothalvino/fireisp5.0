@@ -193,6 +193,23 @@ async function sendReceipt(paymentId: number): Promise<{ to: string }> {
   return body as { to: string };
 }
 
+// Download the payment receipt as a PDF (GET /api/v1/pdf/payments/:id streams the
+// file). Mirrors InvoiceDetail's invoice-PDF download.
+async function downloadReceipt(paymentId: number): Promise<void> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/pdf/payments/${paymentId}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`Failed to download receipt (${res.status})`);
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = blobUrl;
+  link.download = `receipt-${paymentId}.pdf`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+}
+
 interface UpdatePaymentBody {
   amount?: number;
   currency?: string;
@@ -805,13 +822,14 @@ interface PaymentRowProps {
   payment: Payment;
   idx: number;
   onSendReceipt: (id: number) => void;
+  onDownloadReceipt: (id: number) => void;
   sendingReceipt: number | null;
   onEdit: (payment: Payment) => void;
   onAllocate: (payment: Payment) => void;
   onDelete: (payment: Payment) => void;
 }
 
-function PaymentRow({ payment, idx, onSendReceipt, sendingReceipt, onEdit, onAllocate, onDelete }: PaymentRowProps) {
+function PaymentRow({ payment, idx, onSendReceipt, onDownloadReceipt, sendingReceipt, onEdit, onAllocate, onDelete }: PaymentRowProps) {
   const [expanded, setExpanded] = useState<'none' | 'alloc' | 'gateway'>('none');
 
   function toggleExpand(mode: 'alloc' | 'gateway') {
@@ -863,6 +881,13 @@ function PaymentRow({ payment, idx, onSendReceipt, sendingReceipt, onEdit, onAll
               title="Show gateway transactions"
             >
               🔗 GW
+            </button>
+            <button
+              style={{ ...actionBtn, background: '#dbeafe', color: '#1e40af' }}
+              onClick={() => onDownloadReceipt(payment.id)}
+              title="Download receipt PDF"
+            >
+              🧾 PDF
             </button>
             <button
               style={{ ...actionBtn, background: '#fef3c7', color: '#92400e' }}
@@ -971,6 +996,14 @@ export function PaymentList() {
     setTimeout(() => setToast(''), 4000);
   }
 
+  async function handleDownloadReceipt(id: number) {
+    try {
+      await downloadReceipt(id);
+    } catch (err) {
+      showToast(`Error: ${err instanceof Error ? err.message : 'Failed to download receipt'}`);
+    }
+  }
+
   function handleFilterChange(newStatus: string) {
     setStatusFilter(newStatus);
     setPage(1);
@@ -1040,6 +1073,7 @@ export function PaymentList() {
                     payment={payment}
                     idx={idx}
                     onSendReceipt={(id) => sendReceiptMutation.mutate(id)}
+                    onDownloadReceipt={handleDownloadReceipt}
                     sendingReceipt={sendingReceipt}
                     onEdit={setEditPayment}
                     onAllocate={setAllocatePaymentRow}
