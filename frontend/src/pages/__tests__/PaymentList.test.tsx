@@ -2,7 +2,7 @@
 // FireISP 5.0 — PaymentList page tests
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { PaymentList } from '../PaymentList';
@@ -60,5 +60,30 @@ describe('PaymentList page', () => {
   it('renders a payment row after data loads', async () => {
     renderPaymentList();
     await waitFor(() => expect(screen.getByText('REF-001')).toBeInTheDocument());
+  });
+
+  it('downloads the receipt PDF from /pdf/payments/:id when the PDF button is clicked', async () => {
+    // Serve a PDF blob for the receipt endpoint; JSON for everything else.
+    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (String(url).includes('/pdf/payments/')) {
+        return Promise.resolve({ ok: true, blob: () => Promise.resolve(new Blob(['%PDF'], { type: 'application/pdf' })) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+    });
+    URL.createObjectURL = vi.fn(() => 'blob:fake');
+    URL.revokeObjectURL = vi.fn();
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    renderPaymentList();
+    await waitFor(() => expect(screen.getByText('REF-001')).toBeInTheDocument());
+    fireEvent.click(screen.getByTitle('Download receipt PDF'));
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/v1/pdf/payments/1',
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer tok' }) }),
+    ));
+    await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalled());
+    expect(clickSpy).toHaveBeenCalled();
+    clickSpy.mockRestore();
   });
 });
