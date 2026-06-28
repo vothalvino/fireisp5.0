@@ -32,6 +32,7 @@ import {
 import { ProfileExtrasTab, CustomFieldsTab, DocumentsTab, DuplicatesTab } from '@/pages/ClientProfileTabs';
 import { ActivityTimelineTab } from '@/pages/ClientActivityTab';
 import { ClientCommunicationPrefs } from '@/pages/ClientCommunicationPrefs';
+import { GenerateInvoiceModal } from '@/components/GenerateInvoiceModal';
 
 // ---------------------------------------------------------------------------
 // GraphQL query — fetches the client + all sub-resources in one request
@@ -900,8 +901,10 @@ export function ClientDetail() {
   const [showAddContact, setShowAddContact] = useState(false);
   const [showMxProfile, setShowMxProfile] = useState(false);
   const [showPortalPassword, setShowPortalPassword] = useState(false);
+  const [showGenerateInvoice, setShowGenerateInvoice] = useState(false);
 
   const canEdit = can(user?.role, 'clients.update');
+  const canCreateInvoice = can(user?.role, 'invoices.create');
 
   const { data: client, isLoading, error } = useQuery({
     queryKey: ['client-detail-gql', id],
@@ -1009,11 +1012,14 @@ export function ClientDetail() {
             <span style={styles.clientId}>ID #{client.id}</span>
           </div>
         </div>
-        {canEdit && (
+        {(canEdit || canCreateInvoice) && (
           <div style={styles.headerActions}>
-            <button type="button" style={styles.actionBtn} onClick={() => setShowEdit(true)}>✏️ Edit</button>
-            <button type="button" style={styles.actionBtn} onClick={() => setShowMxProfile(true)}>🧾 MX Profile</button>
-            <button type="button" style={styles.actionBtn} onClick={() => setShowPortalPassword(true)}>🔑 Portal Password</button>
+            {canCreateInvoice && (
+              <button type="button" style={styles.actionBtn} onClick={() => setShowGenerateInvoice(true)}>➕ New Invoice</button>
+            )}
+            {canEdit && <button type="button" style={styles.actionBtn} onClick={() => setShowEdit(true)}>✏️ Edit</button>}
+            {canEdit && <button type="button" style={styles.actionBtn} onClick={() => setShowMxProfile(true)}>🧾 MX Profile</button>}
+            {canEdit && <button type="button" style={styles.actionBtn} onClick={() => setShowPortalPassword(true)}>🔑 Portal Password</button>}
           </div>
         )}
       </div>
@@ -1090,6 +1096,14 @@ export function ClientDetail() {
           initial={editInitial}
           onClose={() => setShowEdit(false)}
           onSaved={() => { setShowEdit(false); refetchClient(); }}
+        />
+      )}
+      {showGenerateInvoice && (
+        <GenerateInvoiceModal
+          lockedClientId={Number(id)}
+          lockedClientName={client.name}
+          onClose={() => setShowGenerateInvoice(false)}
+          onGenerated={() => { refetchClient(); setActiveTab('invoices'); }}
         />
       )}
       {showAddContact && (

@@ -31,6 +31,8 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'campaigns.view', 'dnd.view',
   ],
   billing: [
+    // Invoicing (mirrors the backend billing role seed — migration 119)
+    'invoices.view', 'invoices.create', 'invoices.update', 'invoices.delete',
     'winback.view', 'winback.create', 'winback.update', 'winback.delete',
     'lifecycle.view',
     'suspension_rules.create', 'suspension_rules.update', 'suspension_rules.delete',
