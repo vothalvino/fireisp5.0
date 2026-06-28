@@ -319,6 +319,60 @@ async function revokePeer(peerId, orgId, revokedBy) {
   return true;
 }
 
+/**
+ * Revoke EVERY live WireGuard peer belonging to a user — kernel peer + nftables
+ * scope removed, DB row soft-deleted + stamped revoked. Called when a user is
+ * deleted (crudController afterDelete on /users) so a deleted user's tunnels do
+ * not keep forwarding (nothing else revokes them at delete time).
+ *
+ * Per-peer best-effort: a hub-removal failure is logged, the DB row is still
+ * stamped revoked, and remaining peers continue. Returns the count revoked.
+ *
+ * @param {number} userId
+ * @param {number|null} [revokedBy]  user id of the caller (null = system)
+ * @returns {Promise<{ revoked: number }>}
+ */
+async function revokeAllForUser(userId, revokedBy = null) {
+  const [peers] = await db.query(
+    'SELECT id, public_key, tunnel_address, organization_id FROM wg_user_peers WHERE user_id = ? AND deleted_at IS NULL AND revoked_at IS NULL',
+    [userId],
+  );
+  if (!peers.length) return { revoked: 0 };
+
+  let revoked = 0;
+  for (const peer of peers) {
+    // Remove from WireGuard (best-effort; non-fatal if hub disabled)
+    try {
+      await wireguardServerService.removeUserPeer({ publicKey: peer.public_key, peerId: peer.id });
+    } catch (err) {
+      logger.warn(
+        { userId, peerId: peer.id, err: err.message },
+        'revokeAllForUser: hub remove failed (non-fatal)',
+      );
+    }
+
+    // Soft-delete + stamp revocation
+    await db.query(
+      'UPDATE wg_user_peers SET deleted_at = NOW(), revoked_at = NOW(), revoked_by = ?, server_peer_synced = 0 WHERE id = ?',
+      [revokedBy, peer.id],
+    );
+
+    // Audit — only safe fields; no key material
+    await auditLog.log({
+      userId: revokedBy || userId,
+      organizationId: peer.organization_id,
+      action: 'delete',
+      tableName: 'wg_user_peers',
+      recordId: peer.id,
+      oldValues: { tunnel_address: peer.tunnel_address, public_key: peer.public_key, reason: 'user_deleted' },
+    });
+    revoked += 1;
+  }
+
+  logger.info({ userId, revoked }, 'revokeAllForUser: user WireGuard peers revoked on user delete');
+  return { revoked };
+}
+
 // =============================================================================
 // Scope refresh helpers
 // =============================================================================
@@ -334,31 +388,39 @@ async function revokePeer(peerId, orgId, revokedBy) {
  * @returns {Promise<void>}
  */
 async function refreshUserPeers(userId) {
-  // Resolve the user's primary org + legacy role
+  // Resolve the user's role only. Scope is computed against each PEER's own org
+  // (wg_user_peers.organization_id), NOT users.organization_id: a user who
+  // belongs to an org via organization_users can hold a valid peer while their
+  // users.organization_id is NULL — gating on the user column would skip that
+  // peer entirely (a connectivity outage). Mirrors rehydrateUserPeers.
   const [userRows] = await db.query(
-    'SELECT id, organization_id, role FROM users WHERE id = ? AND deleted_at IS NULL',
+    'SELECT id, role FROM users WHERE id = ? AND deleted_at IS NULL',
     [userId],
   );
   if (!userRows.length) return;
-  const user = userRows[0];
-  if (!user.organization_id) return;
+  const { role } = userRows[0];
 
-  // Find all live, non-revoked peers for this user
+  // Find all live, non-revoked peers for this user, each with its own org
   const [peers] = await db.query(
-    'SELECT id, tunnel_address FROM wg_user_peers WHERE user_id = ? AND deleted_at IS NULL AND revoked_at IS NULL',
+    'SELECT id, tunnel_address, organization_id FROM wg_user_peers WHERE user_id = ? AND deleted_at IS NULL AND revoked_at IS NULL',
     [userId],
   );
   if (!peers.length) return;
 
-  // Compute fresh scope
-  const subnets = await userTunnelScopeService.getScopedSubnets(
-    userId,
-    user.organization_id,
-    user.role,
-  );
-  const snapshotJson = JSON.stringify(subnets);
+  // Scope is per-org; compute once per distinct org (a user's peers usually
+  // share one org, but multi-org users can differ).
+  const scopeByOrg = new Map();
 
   for (const peer of peers) {
+    if (!peer.organization_id) continue;
+    if (!scopeByOrg.has(peer.organization_id)) {
+      scopeByOrg.set(
+        peer.organization_id,
+        await userTunnelScopeService.getScopedSubnets(userId, peer.organization_id, role),
+      );
+    }
+    const subnets = scopeByOrg.get(peer.organization_id);
+
     // Push to WireGuard FORWARD chain (best-effort)
     try {
       await wireguardServerService.setUserForwardScope({
@@ -375,7 +437,7 @@ async function refreshUserPeers(userId) {
     // Persist snapshot
     await db.query(
       'UPDATE wg_user_peers SET allowed_ips_snapshot = ? WHERE id = ?',
-      [snapshotJson, peer.id],
+      [JSON.stringify(subnets), peer.id],
     );
   }
 }
@@ -392,15 +454,20 @@ async function refreshUserPeers(userId) {
  * @returns {Promise<void>}
  */
 async function refreshAffectedByNas(nasId) {
-  // Get NAS org
+  // Get NAS org. Do NOT filter deleted_at here: this is also called from the
+  // NAS-teardown path AFTER the NAS row is soft-deleted, and we still need to
+  // recompute scope for the users who were reaching it (so the now-deleted
+  // subnets drop out). The row persists under soft-delete, so the lookup works.
   const [nasRows] = await db.query(
-    'SELECT organization_id FROM nas WHERE id = ? AND deleted_at IS NULL',
+    'SELECT organization_id FROM nas WHERE id = ?',
     [nasId],
   );
   if (!nasRows.length) return;
   const orgId = nasRows[0].organization_id;
 
-  // Users with assignments covering this NAS (direct NAS match or via site)
+  // Users with assignments covering this NAS (direct NAS match or via site).
+  // No n.deleted_at filter — see above; the teardown caller passes a NAS that
+  // is already soft-deleted but whose assignment rows still exist.
   const [assignedRows] = await db.query(
     `SELECT DISTINCT una.user_id
        FROM user_network_assignments una
@@ -408,7 +475,7 @@ async function refreshAffectedByNas(nasId) {
              (una.scope_type = 'nas'  AND una.scope_id = n.id)
           OR (una.scope_type = 'site' AND una.scope_id = n.site_id)
        )
-      WHERE n.id = ? AND una.active_flag = 1 AND n.deleted_at IS NULL`,
+      WHERE n.id = ? AND una.active_flag = 1`,
     [nasId],
   );
 
@@ -441,12 +508,109 @@ async function refreshAffectedByNas(nasId) {
   }
 }
 
+// =============================================================================
+// Startup rehydration
+// =============================================================================
+
+/**
+ * Re-add every live user peer to wg-clients and rebuild its nftables scope from
+ * the database.
+ *
+ * Like NAS peers, a user peer and its per-user FORWARD-chain ACL live ONLY in
+ * the hub's runtime kernel/nftables state, which a container restart wipes.
+ * `wireguardServerService.bootstrapHost()` recreates the interface and the BASE
+ * firewall but leaves the `wg_user_fwd` chain empty, so without this step a
+ * full-tunnel client would still reach the internet but no device subnets after
+ * a restart. Call once at startup (server.js), right after bootstrapHost() and
+ * wgProvisioningService.rehydrateNasPeers().
+ *
+ * Scope is RECOMPUTED via getScopedSubnets (not replayed from the cached
+ * `allowed_ips_snapshot`), so any assignment/role/route change made while the
+ * hub was down is reflected on boot. Scope is computed at most once per user
+ * (all of a user's peers share one scope). Per-peer best-effort and idempotent.
+ * No-op unless WG_SERVER_ENABLED=true.
+ *
+ * @returns {Promise<{ rehydrated: number, total: number, skipped?: boolean }>}
+ */
+async function rehydrateUserPeers() {
+  if (!config.wireguard.serverEnabled) {
+    return { rehydrated: 0, total: 0, skipped: true };
+  }
+
+  // Join users for the role and to skip peers whose owner was soft-deleted —
+  // defense-in-depth: revokeAllForUser already revokes a deleted user's peers at
+  // delete time (the /users afterDelete hook), so this guard is belt-and-braces,
+  // ensuring such a peer is never resurrected on boot even if that revocation was
+  // missed (e.g. a direct DB delete or an advisory hook failure).
+  //
+  // The peer's authoritative org is wg_user_peers.organization_id (set from the
+  // request org at create time), NOT users.organization_id: a user who belongs
+  // to an org via organization_users can have a NULL users.organization_id yet a
+  // valid peer, so gating/scoping on the user column would drop that peer on
+  // boot (a full-tunnel outage) and could re-scope multi-org peers against the
+  // wrong org. Use the peer's own org for both the liveness gate and the scope.
+  const [peers] = await db.query(
+    `SELECT p.id, p.user_id, p.public_key, p.tunnel_address,
+            p.organization_id, u.role
+       FROM wg_user_peers p
+       JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL
+      WHERE p.deleted_at IS NULL
+        AND p.revoked_at IS NULL
+        AND p.organization_id IS NOT NULL`,
+  );
+
+  const scopeCache = new Map();
+  let rehydrated = 0;
+
+  for (const peer of peers) {
+    try {
+      // 1. Re-add the kernel peer on wg-clients (server-side allowed-ips is the
+      //    user's /32 only; destination scope is the nftables job below).
+      await wireguardServerService.syncUserPeer({
+        publicKey: peer.public_key,
+        tunnelIp:  peer.tunnel_address,
+      });
+
+      // 2. Rebuild the per-user nftables destination scope (recomputed once/user).
+      if (!scopeCache.has(peer.user_id)) {
+        scopeCache.set(
+          peer.user_id,
+          await userTunnelScopeService.getScopedSubnets(
+            peer.user_id,
+            peer.organization_id,
+            peer.role,
+          ),
+        );
+      }
+      await wireguardServerService.setUserForwardScope({
+        peerId:   peer.id,
+        tunnelIp: peer.tunnel_address,
+        subnets:  scopeCache.get(peer.user_id),
+      });
+      rehydrated += 1;
+    } catch (err) {
+      logger.warn(
+        { peerId: peer.id, err: err.message },
+        'rehydrateUserPeers: peer rehydrate failed (non-fatal)',
+      );
+    }
+  }
+
+  logger.info(
+    { rehydrated, total: peers.length },
+    'rehydrateUserPeers: user hub peers restored from DB',
+  );
+  return { rehydrated, total: peers.length };
+}
+
 module.exports = {
   buildConfig,
   buildQr,
   createPeer,
   rotatePeer,
   revokePeer,
+  revokeAllForUser,
   refreshUserPeers,
   refreshAffectedByNas,
+  rehydrateUserPeers,
 };

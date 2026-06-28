@@ -79,13 +79,17 @@ async function getScopedSubnets(userId, orgId, legacyRole) {
   let rows;
 
   if (isAdmin) {
-    // Admins reach ALL device subnets that have an active tunnel in the org
+    // Admins reach ALL device subnets that have an active tunnel in the org.
+    // Join nas so a soft-deleted NAS's tunnel drops out — the technician branch
+    // below already filters n.deleted_at, and a soft-deleted NAS's subnets must
+    // not stay in any user's scope.
     [rows] = await db.query(
-      `SELECT routed_subnets
-         FROM nas_wg_tunnels
-        WHERE deleted_at IS NULL
-          AND state IN ('active', 'manual')
-          AND (organization_id = ? OR organization_id IS NULL)`,
+      `SELECT t.routed_subnets
+         FROM nas_wg_tunnels t
+         JOIN nas n ON n.id = t.nas_id AND n.deleted_at IS NULL
+        WHERE t.deleted_at IS NULL
+          AND t.state IN ('active', 'manual')
+          AND (t.organization_id = ? OR t.organization_id IS NULL)`,
       [orgId],
     );
   } else {

@@ -324,6 +324,48 @@ function ConfirmRevoke({ peer, onClose, onConfirm, isPending }: ConfirmRevokePro
 }
 
 // ---------------------------------------------------------------------------
+// Inline action icons (no icon library in the project; 15px, inherit currentColor
+// so each button's color drives the glyph). Decorative — the button carries the
+// accessible name via aria-label + title.
+// ---------------------------------------------------------------------------
+
+const iconProps = {
+  width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+  strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
+  'aria-hidden': true,
+};
+
+function IconDownload() {
+  return (
+    <svg {...iconProps}>
+      <path d="M12 3v11" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M5 21h14" />
+    </svg>
+  );
+}
+
+function IconQr() {
+  return (
+    <svg {...iconProps}>
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <path d="M14 14h3M21 14v3M14 21h3M21 18v3M17.5 17.5h.01" />
+    </svg>
+  );
+}
+
+function IconRevoke() {
+  return (
+    <svg {...iconProps}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m5.6 5.6 12.8 12.8" />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
@@ -435,27 +477,31 @@ export function UserWgTunnels() {
                   </td>
                   <td style={td}>
                     {!peer.revoked_at && (
-                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', gap: 6 }}>
                         <button
-                          style={{ ...btnAction }}
+                          style={downloadingId === peer.id ? { ...btnIcon, opacity: 0.5, cursor: 'default' } : btnIcon}
                           onClick={() => handleDownload(peer)}
                           disabled={downloadingId === peer.id}
+                          title={downloadingId === peer.id ? t('wgTunnels.downloading') : t('wgTunnels.downloadConf')}
+                          aria-label={t('wgTunnels.downloadConf')}
                         >
-                          {downloadingId === peer.id
-                            ? t('wgTunnels.downloading')
-                            : t('wgTunnels.downloadConf')}
+                          <IconDownload />
                         </button>
                         <button
-                          style={{ ...btnAction }}
+                          style={btnIcon}
                           onClick={() => setQrPeer(peer)}
+                          title={t('wgTunnels.showQr')}
+                          aria-label={t('wgTunnels.showQr')}
                         >
-                          {t('wgTunnels.showQr')}
+                          <IconQr />
                         </button>
                         <button
-                          style={{ ...btnAction, borderColor: '#dc2626', color: '#dc2626' }}
+                          style={{ ...btnIcon, borderColor: '#dc2626', color: '#dc2626' }}
                           onClick={() => setRevokeTarget(peer)}
+                          title={t('wgTunnels.revoke')}
+                          aria-label={t('wgTunnels.revoke')}
                         >
-                          {t('wgTunnels.revoke')}
+                          <IconRevoke />
                         </button>
                       </div>
                     )}
@@ -516,10 +562,11 @@ const btnSecondary: React.CSSProperties = {
   border: '1px solid var(--border-strong)',
   padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem',
 };
-const btnAction: React.CSSProperties = {
+const btnIcon: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  width: 30, height: 30, padding: 0, lineHeight: 0,
   background: 'var(--bg-card)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border-strong)',
-  padding: '3px 9px', borderRadius: 5, cursor: 'pointer', fontSize: '0.78rem',
+  border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer',
 };
 const tableStyle: React.CSSProperties = {
   width: '100%', borderCollapse: 'collapse', background: 'var(--bg-card)',

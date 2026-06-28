@@ -361,6 +361,47 @@ function ConfirmAction({ peer, kind, onClose, onConfirm, isPending }: ConfirmAct
 }
 
 // ---------------------------------------------------------------------------
+// Inline action icons (no icon library in the project; 15px, inherit currentColor
+// so each button's color drives the glyph). Decorative — the button carries the
+// accessible name via aria-label + title.
+// ---------------------------------------------------------------------------
+
+const iconProps = {
+  width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+  strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
+  'aria-hidden': true,
+};
+
+function IconRevoke() {
+  return (
+    <svg {...iconProps}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m5.6 5.6 12.8 12.8" />
+    </svg>
+  );
+}
+
+function IconRotate() {
+  return (
+    <svg {...iconProps}>
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <path d="M21 3v5h-5" />
+    </svg>
+  );
+}
+
+function IconScope() {
+  return (
+    <svg {...iconProps}>
+      <line x1="4" y1="8" x2="20" y2="8" />
+      <line x1="4" y1="16" x2="20" y2="16" />
+      <circle cx="9" cy="8" r="2" />
+      <circle cx="15" cy="16" r="2" />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
@@ -484,31 +525,37 @@ export function AdminWgTunnels() {
                       )}
                     </td>
                     <td style={td}>
-                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', gap: 6 }}>
                         {!peer.revoked_at && (
                           <>
                             <button
-                              style={{ ...btnAction, borderColor: '#dc2626', color: '#dc2626' }}
+                              style={{ ...btnIcon, borderColor: '#dc2626', color: '#dc2626' }}
                               onClick={() => setActionPeer({ peer, kind: 'revoke' })}
+                              title={t('adminWgTunnels.revoke')}
+                              aria-label={t('adminWgTunnels.revoke')}
                             >
-                              {t('adminWgTunnels.revoke')}
+                              <IconRevoke />
                             </button>
                             <button
-                              style={{ ...btnAction }}
+                              style={btnIcon}
                               onClick={() => setActionPeer({ peer, kind: 'rotate' })}
+                              title={t('adminWgTunnels.rotate')}
+                              aria-label={t('adminWgTunnels.rotate')}
                             >
-                              {t('adminWgTunnels.rotate')}
+                              <IconRotate />
                             </button>
                           </>
                         )}
                         <button
-                          style={{ ...btnAction, borderColor: '#6366f1', color: '#4f46e5' }}
+                          style={{ ...btnIcon, borderColor: '#6366f1', color: '#4f46e5' }}
                           onClick={() => setAssignUser({
                             userId: peer.user_id,
                             userName: userLabel(peer),
                           })}
+                          title={t('adminWgTunnels.manageScope')}
+                          aria-label={t('adminWgTunnels.manageScope')}
                         >
-                          {t('adminWgTunnels.manageScope')}
+                          <IconScope />
                         </button>
                       </div>
                     </td>
@@ -579,10 +626,11 @@ const btnSecondary: React.CSSProperties = {
   border: '1px solid var(--border-strong)',
   padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem',
 };
-const btnAction: React.CSSProperties = {
+const btnIcon: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  width: 30, height: 30, padding: 0, lineHeight: 0,
   background: 'var(--bg-card)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border-strong)',
-  padding: '3px 9px', borderRadius: 5, cursor: 'pointer', fontSize: '0.78rem',
+  border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer',
 };
 const tableStyle: React.CSSProperties = {
   width: '100%', borderCollapse: 'collapse', background: 'var(--bg-card)',

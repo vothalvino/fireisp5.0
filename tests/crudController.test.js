@@ -292,4 +292,72 @@ describe('crudController', () => {
       }));
     });
   });
+
+  // =========================================================================
+  // afterDelete hook
+  // =========================================================================
+  describe('afterDelete hook', () => {
+    test('runs the hook with the pre-delete record after a successful delete', async () => {
+      const record = { id: 7, name: 'Gone', organization_id: 42 };
+      db.query
+        .mockResolvedValueOnce([[record]])              // findByIdOrFail
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);  // DELETE
+      const afterDelete = jest.fn().mockResolvedValue();
+      const hookedCtrl = crudController(TestEntity, { afterDelete });
+
+      const { req, res, next } = mockReqRes({ params: { id: '7' } });
+      await hookedCtrl.destroy(req, res, next);
+
+      expect(afterDelete).toHaveBeenCalledWith(record, req);
+      expect(res.status).toHaveBeenCalledWith(204);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    test('a throwing afterDelete hook is swallowed — delete still returns 204', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ id: 8, organization_id: 42 }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+      const afterDelete = jest.fn().mockRejectedValue(new Error('teardown boom'));
+      const hookedCtrl = crudController(TestEntity, { afterDelete });
+
+      const { req, res, next } = mockReqRes({ params: { id: '8' } });
+      await hookedCtrl.destroy(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(204);
+      expect(next).not.toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
+  // afterRestore hook
+  // =========================================================================
+  describe('afterRestore hook', () => {
+    test('runs the hook with the restored record', async () => {
+      const restored = { id: 9, name: 'Back', organization_id: 42 };
+      jest.spyOn(TestEntity, 'restore').mockResolvedValue(restored);
+      const afterRestore = jest.fn().mockResolvedValue();
+      const hookedCtrl = crudController(TestEntity, { afterRestore });
+
+      const { req, res, next } = mockReqRes({ params: { id: '9' } });
+      await hookedCtrl.restore(req, res, next);
+
+      expect(afterRestore).toHaveBeenCalledWith(restored, req);
+      expect(res.json).toHaveBeenCalledWith({ data: restored });
+      expect(next).not.toHaveBeenCalled();
+      TestEntity.restore.mockRestore();
+    });
+
+    test('a throwing afterRestore hook is swallowed — restore still responds', async () => {
+      jest.spyOn(TestEntity, 'restore').mockResolvedValue({ id: 9, organization_id: 42 });
+      const afterRestore = jest.fn().mockRejectedValue(new Error('revive boom'));
+      const hookedCtrl = crudController(TestEntity, { afterRestore });
+
+      const { req, res, next } = mockReqRes({ params: { id: '9' } });
+      await hookedCtrl.restore(req, res, next);
+
+      expect(res.json).toHaveBeenCalled();
+      expect(next).not.toHaveBeenCalled();
+      TestEntity.restore.mockRestore();
+    });
+  });
 });

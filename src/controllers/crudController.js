@@ -32,6 +32,16 @@ function crudController(Model, _options = {}) {
   // to fail the create response; errors are caught and logged. Receives
   // (record, req). Useful for side-effects like WireGuard provisioning.
   const afterCreateHook = typeof _options.afterCreate === 'function' ? _options.afterCreate : null;
+  // Optional post-delete hook — called after the delete succeeds with the record
+  // as it was BEFORE deletion (and req). NEVER allowed to fail the delete
+  // response; errors are caught and logged. Useful for teardown side-effects
+  // (e.g. revoking a deleted user's WireGuard peers).
+  const afterDeleteHook = typeof _options.afterDelete === 'function' ? _options.afterDelete : null;
+  // Optional post-restore hook — called after a soft-deleted record is restored,
+  // with the restored record (and req). NEVER allowed to fail the restore
+  // response; errors are caught and logged. The inverse of afterDelete (e.g.
+  // reviving a NAS's WireGuard tunnel that teardown soft-deleted).
+  const afterRestoreHook = typeof _options.afterRestore === 'function' ? _options.afterRestore : null;
 
   return {
     /**
@@ -192,6 +202,21 @@ function crudController(Model, _options = {}) {
         });
 
         if (cacheResource) await bustCache(req.orgId, cacheResource);
+
+        // Run the optional post-delete hook with the pre-delete record. Wrapped
+        // in try/catch so it can NEVER fail the delete response — teardown
+        // side-effect errors are advisory.
+        if (afterDeleteHook) {
+          try {
+            await afterDeleteHook(old, req);
+          } catch (hookErr) {
+            logger.warn(
+              { err: hookErr.message, recordId: old.id, table: Model.tableName },
+              'crudController afterDelete hook failed (non-fatal)',
+            );
+          }
+        }
+
         res.status(204).send();
       } catch (err) {
         next(err);
@@ -214,6 +239,21 @@ function crudController(Model, _options = {}) {
         });
 
         if (cacheResource) await bustCache(req.orgId, cacheResource);
+
+        // Run the optional post-restore hook with the restored record. Wrapped
+        // in try/catch so it can NEVER fail the restore response — side-effect
+        // errors are advisory (mirrors afterCreate/afterDelete).
+        if (afterRestoreHook) {
+          try {
+            await afterRestoreHook(record, req);
+          } catch (hookErr) {
+            logger.warn(
+              { err: hookErr.message, recordId: record.id, table: Model.tableName },
+              'crudController afterRestore hook failed (non-fatal)',
+            );
+          }
+        }
+
         res.json({ data: serialize(record) });
       } catch (err) {
         next(err);

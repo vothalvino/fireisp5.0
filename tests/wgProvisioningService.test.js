@@ -43,6 +43,10 @@ jest.mock('../src/config/database', () => ({
 // Hub service: mock every shell-out function
 jest.mock('../src/services/wireguardServerService');
 
+// userTunnelService is lazily required by teardownNas (for refreshAffectedByNas) —
+// mock it so the teardown tests stay isolated from real scope recomputation.
+jest.mock('../src/services/userTunnelService');
+
 // RouterOS API service: mock every router-protocol function
 jest.mock('../src/services/routerosService');
 
@@ -66,10 +70,16 @@ const { nasToConn } = require('../src/services/routerProvisioningService');
 const { encrypt, decrypt } = require('../src/utils/encryption');
 const NasWgTunnel = require('../src/models/NasWgTunnel');
 
+const config = require('../src/config');
+const userTunnelService = require('../src/services/userTunnelService');
+
 const {
   provisionDesiredState,
   bootstrap,
   discoverSubnets,
+  rehydrateNasPeers,
+  teardownNas,
+  restoreNas,
 } = require('../src/services/wgProvisioningService');
 
 // ---------------------------------------------------------------------------
@@ -654,5 +664,192 @@ describe('discoverSubnets — subnet exclusion filter', () => {
 
     expect(result.topology).toEqual(rawTopology);
     expect(result.proposed).toBeDefined();
+  });
+});
+
+// =============================================================================
+// rehydrateNasPeers — restore NAS hub peers from the DB on startup
+// =============================================================================
+
+describe('rehydrateNasPeers()', () => {
+  let originalEnabled;
+
+  beforeEach(() => {
+    originalEnabled = config.wireguard.serverEnabled;
+  });
+
+  afterEach(() => {
+    config.wireguard.serverEnabled = originalEnabled;
+  });
+
+  test('no-op (skipped) when WG_SERVER_ENABLED is false — never touches the DB', async () => {
+    config.wireguard.serverEnabled = false;
+
+    const result = await rehydrateNasPeers();
+
+    expect(result).toEqual({ rehydrated: 0, total: 0, skipped: true });
+    expect(db.query).not.toHaveBeenCalled();
+    expect(wg.syncPeer).not.toHaveBeenCalled();
+  });
+
+  test('re-syncs every live tunnel, parsing routed_subnets into syncPeer', async () => {
+    config.wireguard.serverEnabled = true;
+    db.query.mockResolvedValueOnce([[
+      { id: 1, nas_public_key: 'KEY-A==', tunnel_address: '10.255.0.2', routed_subnets: '["192.168.10.0/24","10.50.0.0/24"]' },
+      { id: 2, nas_public_key: 'KEY-B==', tunnel_address: '10.255.0.3', routed_subnets: '[]' },
+    ]]);
+
+    const result = await rehydrateNasPeers();
+
+    expect(result).toEqual({ rehydrated: 2, total: 2 });
+    expect(wg.syncPeer).toHaveBeenCalledTimes(2);
+    expect(wg.syncPeer).toHaveBeenNthCalledWith(1, {
+      publicKey: 'KEY-A==',
+      tunnelIp: '10.255.0.2',
+      subnets: ['192.168.10.0/24', '10.50.0.0/24'],
+    });
+    expect(wg.syncPeer).toHaveBeenNthCalledWith(2, {
+      publicKey: 'KEY-B==',
+      tunnelIp: '10.255.0.3',
+      subnets: [],
+    });
+  });
+
+  test('one failing tunnel is logged but does not abort the rest', async () => {
+    config.wireguard.serverEnabled = true;
+    db.query.mockResolvedValueOnce([[
+      { id: 1, nas_public_key: 'KEY-A==', tunnel_address: '10.255.0.2', routed_subnets: '[]' },
+      { id: 2, nas_public_key: 'KEY-B==', tunnel_address: '10.255.0.3', routed_subnets: '[]' },
+    ]]);
+    wg.syncPeer
+      .mockRejectedValueOnce(new Error('Operation not permitted'))
+      .mockResolvedValueOnce({ applied: true });
+
+    const result = await rehydrateNasPeers();
+
+    expect(result).toEqual({ rehydrated: 1, total: 2 });
+    expect(wg.syncPeer).toHaveBeenCalledTimes(2);
+  });
+
+  test('returns zero counts when there are no live tunnels', async () => {
+    config.wireguard.serverEnabled = true;
+    db.query.mockResolvedValueOnce([[]]);
+
+    const result = await rehydrateNasPeers();
+
+    expect(result).toEqual({ rehydrated: 0, total: 0 });
+    expect(wg.syncPeer).not.toHaveBeenCalled();
+  });
+});
+
+// =============================================================================
+// teardownNas — remove the hub peer + soft-delete the tunnel on NAS delete
+// =============================================================================
+
+describe('teardownNas()', () => {
+  // teardownNas does NOT gate on serverEnabled (removePeer is itself a no-op
+  // when the hub is disabled), so these tests don't toggle config.
+
+  test('removes the hub peer + its routes, soft-deletes the tunnel, refreshes scope', async () => {
+    db.query
+      .mockResolvedValueOnce([[
+        { id: 1, nas_public_key: 'KEY-A==', tunnel_address: '10.255.0.2', routed_subnets: '["192.168.10.0/24"]' },
+      ]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // soft-delete UPDATE
+
+    const result = await teardownNas(7);
+
+    expect(result).toEqual({ tornDown: 1 });
+    // removePeer gets the tunnel /32 plus every routed subnet
+    expect(wg.removePeer).toHaveBeenCalledWith({
+      publicKey: 'KEY-A==',
+      subnets: ['10.255.0.2/32', '192.168.10.0/24'],
+    });
+    const updateCall = db.query.mock.calls.find(
+      (c) => typeof c[0] === 'string' && c[0].includes('UPDATE nas_wg_tunnels'),
+    );
+    expect(updateCall).toBeDefined();
+    expect(updateCall[1]).toEqual([1]);
+    expect(userTunnelService.refreshAffectedByNas).toHaveBeenCalledWith(7);
+  });
+
+  test('no-op (tornDown: 0) when the NAS has no live tunnel', async () => {
+    db.query.mockResolvedValueOnce([[]]);
+
+    const result = await teardownNas(7);
+
+    expect(result).toEqual({ tornDown: 0 });
+    expect(wg.removePeer).not.toHaveBeenCalled();
+    expect(userTunnelService.refreshAffectedByNas).not.toHaveBeenCalled();
+  });
+
+  test('removePeer failure is non-fatal — tunnel still soft-deleted', async () => {
+    db.query
+      .mockResolvedValueOnce([[
+        { id: 1, nas_public_key: 'KEY-A==', tunnel_address: '10.255.0.2', routed_subnets: '[]' },
+      ]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+    wg.removePeer.mockRejectedValueOnce(new Error('nft fail'));
+
+    const result = await teardownNas(7);
+
+    expect(result).toEqual({ tornDown: 1 });
+    const updateCall = db.query.mock.calls.find(
+      (c) => typeof c[0] === 'string' && c[0].includes('UPDATE nas_wg_tunnels'),
+    );
+    expect(updateCall).toBeDefined();
+  });
+});
+
+// =============================================================================
+// restoreNas — revive the torn-down tunnel when the NAS is restored
+// =============================================================================
+
+describe('restoreNas()', () => {
+  test('revives the torn-down tunnel (same keypair), re-syncs peer + scope', async () => {
+    db.query
+      .mockResolvedValueOnce([[]])  // no live tunnel for this NAS
+      .mockResolvedValueOnce([[     // most recently torn-down tunnel
+        { id: 5, nas_public_key: 'KEY-A==', tunnel_address: '10.255.0.2', routed_subnets: '["192.168.10.0/24"]' },
+      ]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // un-soft-delete UPDATE
+
+    const result = await restoreNas(7);
+
+    expect(result).toEqual({ restored: 1 });
+    // un-soft-delete the original row (keeps the same id/keypair/IP)
+    const updateCall = db.query.mock.calls.find(
+      (c) => typeof c[0] === 'string' && c[0].includes('SET deleted_at = NULL'),
+    );
+    expect(updateCall).toBeDefined();
+    expect(updateCall[1]).toEqual([5]);
+    // re-add the hub peer with the ORIGINAL public key + routed subnets
+    expect(wg.syncPeer).toHaveBeenCalledWith({
+      publicKey: 'KEY-A==',
+      tunnelIp: '10.255.0.2',
+      subnets: ['192.168.10.0/24'],
+    });
+    expect(userTunnelService.refreshAffectedByNas).toHaveBeenCalledWith(7);
+  });
+
+  test('no-op when a live tunnel already exists for the NAS', async () => {
+    db.query.mockResolvedValueOnce([[{ id: 9 }]]); // live tunnel present
+
+    const result = await restoreNas(7);
+
+    expect(result).toEqual({ restored: 0 });
+    expect(wg.syncPeer).not.toHaveBeenCalled();
+    expect(userTunnelService.refreshAffectedByNas).not.toHaveBeenCalled();
+  });
+
+  test('no-op when there is no torn-down tunnel to revive', async () => {
+    db.query
+      .mockResolvedValueOnce([[]])  // no live
+      .mockResolvedValueOnce([[]]); // no soft-deleted
+
+    const result = await restoreNas(7);
+
+    expect(result).toEqual({ restored: 0 });
+    expect(wg.syncPeer).not.toHaveBeenCalled();
   });
 });

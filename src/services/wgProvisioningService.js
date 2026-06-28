@@ -567,6 +567,211 @@ async function buildSnippet(nas, serverCfg, subnets) {
 }
 
 // =============================================================================
+// rehydrateNasPeers
+// =============================================================================
+
+/**
+ * Re-add every live NAS hub peer to wg-fireisp from the database.
+ *
+ * A NAS peer and its routes live ONLY in the wg-fireisp interface's runtime
+ * kernel state, which is wiped whenever the hub container restarts.
+ * `wireguardServerService.bootstrapHost()` recreates the interfaces but NOT the
+ * per-NAS peers, so without this step every site tunnel would stay down after a
+ * restart until its routes were manually re-confirmed. Call once at startup
+ * (server.js), right after bootstrapHost().
+ *
+ * Idempotent: `syncPeer` issues `wg set … peer` + `ip route replace`, both of
+ * which converge rather than duplicate, so running on every boot is safe even
+ * when nothing was lost. Per-row best-effort — a single bad tunnel is logged and
+ * never aborts the rest. No-op unless WG_SERVER_ENABLED=true.
+ *
+ * Restores every live tunnel regardless of state ('pending'/'active'/'manual'):
+ * the server-side peer is added at provision time for all of them, so a faithful
+ * restore re-adds them all ('pending' tunnels simply carry no routed subnets
+ * yet). "Live" means the tunnel row is not soft-deleted AND its parent NAS is
+ * not soft-deleted: a NAS soft-delete does NOT cascade to its tunnel row (the FK
+ * cascades only on a hard DELETE), so without the nas join a restart would
+ * resurrect kernel peers + routes for a deleted NAS — and could hijack a CIDR
+ * that has since been reassigned to a live NAS. (nas_public_key/tunnel_address
+ * are NOT NULL in the schema, so no null guard is needed.)
+ *
+ * @returns {Promise<{ rehydrated: number, total: number, skipped?: boolean }>}
+ */
+async function rehydrateNasPeers() {
+  if (!config.wireguard.serverEnabled) {
+    return { rehydrated: 0, total: 0, skipped: true };
+  }
+
+  const [tunnels] = await db.query(
+    `SELECT t.id, t.nas_public_key, t.tunnel_address, t.routed_subnets
+       FROM nas_wg_tunnels t
+       JOIN nas n ON n.id = t.nas_id AND n.deleted_at IS NULL
+      WHERE t.deleted_at IS NULL`,
+  );
+
+  let rehydrated = 0;
+  for (const tunnel of tunnels) {
+    try {
+      const subnets = parseJsonField(tunnel.routed_subnets, []);
+      await wg.syncPeer({
+        publicKey: tunnel.nas_public_key,
+        tunnelIp:  tunnel.tunnel_address,
+        subnets,
+      });
+      rehydrated += 1;
+    } catch (err) {
+      logger.warn(
+        { tunnelId: tunnel.id, err: err.message },
+        'rehydrateNasPeers: syncPeer failed (non-fatal)',
+      );
+    }
+  }
+
+  logger.info(
+    { rehydrated, total: tunnels.length },
+    'rehydrateNasPeers: NAS hub peers restored from DB',
+  );
+  return { rehydrated, total: tunnels.length };
+}
+
+// =============================================================================
+// teardownNas
+// =============================================================================
+
+/**
+ * Tear down a NAS's WireGuard tunnel when the NAS is deleted.
+ *
+ * A NAS soft-delete does NOT cascade to nas_wg_tunnels (the FK cascades only on
+ * a hard DELETE), so without this the hub peer + its kernel routes would linger
+ * — and rehydrateNasPeers would otherwise resurrect them on the next restart.
+ * Called from the /nas DELETE route (crudController afterDelete hook).
+ *
+ * For each live tunnel of the NAS: removes the hub peer + its routes
+ * (`removePeer`, a no-op when WG_SERVER_ENABLED=false), soft-deletes the tunnel
+ * row, then recomputes scope for affected users so the now-gone subnets drop out
+ * of their nftables ACL. Best-effort throughout — the NAS delete itself must not
+ * fail because a hub op did.
+ *
+ * @param {number} nasId
+ * @returns {Promise<{ tornDown: number }>}
+ */
+async function teardownNas(nasId) {
+  const [tunnels] = await db.query(
+    'SELECT id, nas_public_key, tunnel_address, routed_subnets FROM nas_wg_tunnels WHERE nas_id = ? AND deleted_at IS NULL',
+    [nasId],
+  );
+  if (!tunnels.length) return { tornDown: 0 };
+
+  let tornDown = 0;
+  for (const tunnel of tunnels) {
+    const subnets = parseJsonField(tunnel.routed_subnets, []);
+    // Remove the hub peer + every route it owns (its /32 plus routed subnets).
+    try {
+      await wg.removePeer({
+        publicKey: tunnel.nas_public_key,
+        subnets: [`${tunnel.tunnel_address}/32`, ...subnets],
+      });
+    } catch (err) {
+      logger.warn(
+        { tunnelId: tunnel.id, err: err.message },
+        'teardownNas: removePeer failed (non-fatal)',
+      );
+    }
+    // Soft-delete the tunnel row so it is never rehydrated.
+    await db.query(
+      'UPDATE nas_wg_tunnels SET deleted_at = NOW(), updated_at = NOW() WHERE id = ?',
+      [tunnel.id],
+    );
+    tornDown += 1;
+  }
+
+  // Recompute scope for users who were reaching this NAS so its subnets are
+  // dropped from their nftables ACL now (not just on the next refresh/restart).
+  try {
+    const userTunnelService = require('./userTunnelService');
+    await userTunnelService.refreshAffectedByNas(nasId);
+  } catch (err) {
+    logger.warn({ nasId, err: err.message }, 'teardownNas: refreshAffectedByNas failed (non-fatal)');
+  }
+
+  logger.info({ nasId, tornDown }, 'teardownNas: NAS WireGuard tunnel torn down on delete');
+  return { tornDown };
+}
+
+// =============================================================================
+// restoreNas
+// =============================================================================
+
+/**
+ * Revive the WireGuard tunnel teardownNas soft-deleted, when the NAS is restored.
+ *
+ * The inverse of teardownNas: un-soft-deletes the most recently torn-down tunnel
+ * row for the NAS and re-adds the hub peer + routes with the SAME keypair, so the
+ * site tunnel comes back without a router reconfig (teardown only ever touched
+ * the hub side, never the router). Called from the /nas restore route
+ * (crudController afterRestore hook).
+ *
+ * No-op when a live tunnel already exists for the NAS (e.g. it was re-provisioned
+ * by a re-add-by-IP in the meantime) or when there is nothing to revive. Re-sync
+ * is a no-op when WG_SERVER_ENABLED=false. Best-effort — restore must not fail
+ * because a hub op did.
+ *
+ * @param {number} nasId
+ * @returns {Promise<{ restored: number }>}
+ */
+async function restoreNas(nasId) {
+  // If a live tunnel already exists (re-added by IP in the meantime), the old
+  // soft-deleted row must stay archived — reviving it would collide on the
+  // (nas_id, active_flag) / (tunnel_address, active_flag) unique keys.
+  const [live] = await db.query(
+    'SELECT id FROM nas_wg_tunnels WHERE nas_id = ? AND deleted_at IS NULL LIMIT 1',
+    [nasId],
+  );
+  if (live.length) return { restored: 0 };
+
+  // Find the most recently torn-down tunnel for this NAS.
+  const [rows] = await db.query(
+    `SELECT id, nas_public_key, tunnel_address, routed_subnets
+       FROM nas_wg_tunnels
+      WHERE nas_id = ? AND deleted_at IS NOT NULL
+      ORDER BY updated_at DESC, id DESC
+      LIMIT 1`,
+    [nasId],
+  );
+  if (!rows.length) return { restored: 0 };
+  const tunnel = rows[0];
+
+  // Un-soft-delete the original row (keeps id / keypair / tunnel IP).
+  await db.query(
+    'UPDATE nas_wg_tunnels SET deleted_at = NULL, updated_at = NOW() WHERE id = ?',
+    [tunnel.id],
+  );
+
+  // Re-add the hub peer + its routes (no-op when WG disabled).
+  try {
+    const subnets = parseJsonField(tunnel.routed_subnets, []);
+    await wg.syncPeer({
+      publicKey: tunnel.nas_public_key,
+      tunnelIp:  tunnel.tunnel_address,
+      subnets,
+    });
+  } catch (err) {
+    logger.warn({ tunnelId: tunnel.id, err: err.message }, 'restoreNas: syncPeer failed (non-fatal)');
+  }
+
+  // Re-add this NAS's subnets back into affected users' scope.
+  try {
+    const userTunnelService = require('./userTunnelService');
+    await userTunnelService.refreshAffectedByNas(nasId);
+  } catch (err) {
+    logger.warn({ nasId, err: err.message }, 'restoreNas: refreshAffectedByNas failed (non-fatal)');
+  }
+
+  logger.info({ nasId, tunnelId: tunnel.id }, 'restoreNas: NAS WireGuard tunnel revived on restore');
+  return { restored: 1 };
+}
+
+// =============================================================================
 // Exports
 // =============================================================================
 
@@ -576,4 +781,7 @@ module.exports = {
   discoverSubnets,
   confirmRoutes,
   buildSnippet,
+  rehydrateNasPeers,
+  teardownNas,
+  restoreNas,
 };
