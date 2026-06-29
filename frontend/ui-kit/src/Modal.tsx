@@ -20,6 +20,12 @@ export interface ModalProps {
    * Typically a row of Button components (Cancel + primary action).
    */
   footer?: React.ReactNode;
+  /**
+   * Render in-flow instead of as a fixed full-screen overlay — for embedding the
+   * dialog inside documentation, previews, or a constrained container. No dim
+   * backdrop and no viewport pinning. @default false
+   */
+  inline?: boolean;
   style?: React.CSSProperties;
 }
 
@@ -29,6 +35,7 @@ export function Modal({
   onClose,
   children,
   footer,
+  inline = false,
   style,
 }: ModalProps): React.ReactElement | null {
   const handleKeyDown = useCallback(
@@ -46,16 +53,23 @@ export function Modal({
 
   if (!open) return null;
 
-  const overlayStyle: React.CSSProperties = {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(0, 0, 0, 0.48)',
-    zIndex: 1000,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 'var(--sp-4)',
-  };
+  const overlayStyle: React.CSSProperties = inline
+    ? {
+        position: 'relative',
+        display: 'flex',
+        justifyContent: 'center',
+        padding: 'var(--sp-4)',
+      }
+    : {
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0, 0, 0, 0.48)',
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 'var(--sp-4)',
+      };
 
   const cardStyle: React.CSSProperties = {
     background: 'var(--bg-card)',
