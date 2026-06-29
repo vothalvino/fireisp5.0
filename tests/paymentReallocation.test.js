@@ -436,3 +436,224 @@ describe('POST /payments/:id/reassign (Capability 3)', () => {
     expect(res.status).toBe(401);
   });
 });
+
+// ===========================================================================
+// Capability 4 (Bug 1): Void-invoice guards on allocate and reallocate
+// ===========================================================================
+
+describe('INVOICE_VOID guard — POST /payments/:id/allocate', () => {
+  // In paymentReallocation.test.js, Payment model is NOT mocked, so
+  // Payment.allocate calls db.query for INSERT + SELECT. With the void guard
+  // the first db.query is now SELECT invoice (before Payment.allocate).
+
+  test('returns 422 INVOICE_VOID when invoice.status is void', async () => {
+    // db.query[0] = SELECT invoice → void
+    db.query.mockResolvedValueOnce([[{
+      id: 5, total: '200.00', status: 'void', contract_id: null, organization_id: 1,
+    }]]);
+
+    const res = await request(app)
+      .post('/api/v1/payments/1/allocate')
+      .set('Authorization', AUTH)
+      .send({ invoice_id: 5, amount: 200 });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_VOID');
+    expect(res.body.error.message).toMatch(/voided invoice/i);
+  });
+
+  test('returns 404 when invoice does not exist', async () => {
+    db.query.mockResolvedValueOnce([[]]); // no invoice row
+
+    const res = await request(app)
+      .post('/api/v1/payments/1/allocate')
+      .set('Authorization', AUTH)
+      .send({ invoice_id: 9999, amount: 100 });
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND');
+  });
+
+  test('normal (non-void) allocate still returns 201', async () => {
+    const allocation = { id: 10, payment_id: 1, invoice_id: 5, amount: '100.00' };
+    const invoice = { id: 5, total: '100.00', status: 'issued', contract_id: null, organization_id: 1 };
+
+    // SELECT invoice (void guard), INSERT alloc, SELECT alloc, SUM alloc
+    db.query
+      .mockResolvedValueOnce([[invoice]])
+      .mockResolvedValueOnce([{ insertId: 10, affectedRows: 1 }])
+      .mockResolvedValueOnce([[allocation]])
+      .mockResolvedValueOnce([[{ total_allocated: '100.00' }]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE invoices to 'paid'
+
+    const res = await request(app)
+      .post('/api/v1/payments/1/allocate')
+      .set('Authorization', AUTH)
+      .send({ invoice_id: 5, amount: 100 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.payment_id).toBe(1);
+  });
+});
+
+describe('INVOICE_VOID guard — POST /payments/:id/reallocate', () => {
+  test('returns 422 INVOICE_VOID when to_invoice is void', async () => {
+    const conn = makeConn();
+    conn.execute
+      // load payment
+      .mockResolvedValueOnce([[{ id: 20, client_id: 5, organization_id: 1, amount: '100.00', currency: 'MXN' }]])
+      // load existing allocation from→invoice A
+      .mockResolvedValueOnce([[{ id: 99, payment_id: 20, invoice_id: 30, amount: '100.00' }]])
+      // load both invoices: toInv is void
+      .mockResolvedValueOnce([[
+        { id: 30, client_id: 5, status: 'issued' },
+        { id: 31, client_id: 5, status: 'void' },
+      ]]);
+
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/payments/20/reallocate')
+      .set('Authorization', AUTH)
+      .send({ from_invoice_id: 30, to_invoice_id: 31 });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_VOID');
+    expect(res.body.error.message).toMatch(/voided invoice/i);
+    expect(conn.rollback).toHaveBeenCalled();
+  });
+
+  test('allows reallocating AWAY from a void from_invoice', async () => {
+    const conn = makeConn();
+    conn.execute
+      .mockResolvedValueOnce([[{ id: 20, client_id: 5, organization_id: 1, amount: '100.00', currency: 'MXN', reference_number: 'R' }]])
+      .mockResolvedValueOnce([[{ id: 99, payment_id: 20, invoice_id: 30, amount: '100.00' }]])
+      // from_invoice is void — that is fine; only to_invoice void is blocked
+      .mockResolvedValueOnce([[
+        { id: 30, client_id: 5, status: 'void' },
+        { id: 31, client_id: 5, status: 'issued' },
+      ]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])      // soft-delete old alloc
+      .mockResolvedValueOnce([{ insertId: 201 }]);        // insert new alloc
+
+    db.getConnection.mockResolvedValue(conn);
+
+    // refreshInvoicePaidStatus (×2) + SELECT new alloc
+    db.query
+      .mockResolvedValueOnce([[{ total: '100.00', allocated: '0.00' }]])
+      .mockResolvedValueOnce([{ affectedRows: 0 }])
+      .mockResolvedValueOnce([[{ total: '100.00', allocated: '100.00' }]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([[{ id: 201, payment_id: 20, invoice_id: 31, amount: '100.00' }]]);
+
+    const res = await request(app)
+      .post('/api/v1/payments/20/reallocate')
+      .set('Authorization', AUTH)
+      .send({ from_invoice_id: 30, to_invoice_id: 31 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.invoice_id).toBe(31);
+    expect(conn.commit).toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// Capability 5 (Bug 2): POST /payments/:id/unapply
+// ===========================================================================
+
+describe('POST /payments/:id/unapply (Capability 5)', () => {
+  test('soft-deletes the allocation and calls refreshInvoicePaidStatus', async () => {
+    const conn = makeConn();
+    conn.execute
+      // load payment (org-scoped)
+      .mockResolvedValueOnce([[{ id: 20, client_id: 5, organization_id: 1, amount: '200.00', currency: 'MXN' }]])
+      // find live allocation
+      .mockResolvedValueOnce([[{ id: 55, payment_id: 20, invoice_id: 10, amount: '200.00' }]])
+      // soft-delete allocation
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+    db.getConnection.mockResolvedValue(conn);
+
+    // refreshInvoicePaidStatus: SELECT (now under-allocated) + UPDATE to 'issued'
+    db.query
+      .mockResolvedValueOnce([[{ total: '200.00', allocated: '0.00' }]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+    const res = await request(app)
+      .post('/api/v1/payments/20/unapply')
+      .set('Authorization', AUTH)
+      .send({ invoice_id: 10 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.payment_id).toBe(20);
+    expect(res.body.data.invoice_id).toBe(10);
+    expect(res.body.data.unapplied).toBe(true);
+
+    expect(conn.commit).toHaveBeenCalled();
+
+    // Confirm the soft-delete was issued with the allocation id
+    const softDeleteCall = conn.execute.mock.calls.find(
+      c => typeof c[0] === 'string' && c[0].includes('UPDATE payment_allocations SET deleted_at'),
+    );
+    expect(softDeleteCall).toBeDefined();
+    expect(softDeleteCall[1]).toContain(55); // allocation id
+
+    // Confirm refreshInvoicePaidStatus was called (consumes 2 db.query calls)
+    expect(db.query).toHaveBeenCalled();
+  });
+
+  test('returns 422 ALLOCATION_NOT_FOUND when no live allocation exists', async () => {
+    const conn = makeConn();
+    conn.execute
+      .mockResolvedValueOnce([[{ id: 20, client_id: 5, organization_id: 1, amount: '200.00', currency: 'MXN' }]])
+      .mockResolvedValueOnce([[]]); // no live allocation
+
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/payments/20/unapply')
+      .set('Authorization', AUTH)
+      .send({ invoice_id: 10 });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('ALLOCATION_NOT_FOUND');
+    expect(res.body.error.message).toMatch(/not applied to that invoice/i);
+    expect(conn.rollback).toHaveBeenCalled();
+  });
+
+  test('returns 404 when payment not found', async () => {
+    const conn = makeConn();
+    conn.execute.mockResolvedValueOnce([[]]); // no payment
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/payments/999/unapply')
+      .set('Authorization', AUTH)
+      .send({ invoice_id: 10 });
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND');
+    expect(conn.rollback).toHaveBeenCalled();
+  });
+
+  test('returns 422 VALIDATION_ERROR when invoice_id is missing', async () => {
+    const conn = makeConn();
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/payments/20/unapply')
+      .set('Authorization', AUTH)
+      .send({});
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  test('returns 401 without authentication', async () => {
+    const res = await request(app)
+      .post('/api/v1/payments/20/unapply')
+      .send({ invoice_id: 10 });
+
+    expect(res.status).toBe(401);
+  });
+});

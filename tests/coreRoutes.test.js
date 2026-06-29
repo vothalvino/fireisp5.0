@@ -553,14 +553,14 @@ describe('Payment Routes — /api/payments', () => {
     test('allocates payment to invoice and returns 201', async () => {
       mockAuthUser();
       const allocation = { id: 1, payment_id: 1, invoice_id: 5, amount: 578.84 };
-      const invoice = { id: 5, total: 578.84, contract_id: 3, organization_id: 1 };
+      const invoice = { id: 5, total: 578.84, contract_id: 3, organization_id: 1, status: 'issued' };
 
-      // Payment.allocate: INSERT → SELECT
+      // Invoice lookup now happens BEFORE Payment.allocate (void guard),
+      // then Payment.allocate runs (INSERT → SELECT), then SUM + status update.
       db.query
+        .mockResolvedValueOnce([[invoice]])                            // SELECT invoice (void guard)
         .mockResolvedValueOnce([{ insertId: 1, affectedRows: 1 }])   // INSERT allocation
         .mockResolvedValueOnce([[allocation]])                         // SELECT allocation
-        // check if invoice is fully paid
-        .mockResolvedValueOnce([[invoice]])                            // SELECT invoice
         .mockResolvedValueOnce([[{ total_allocated: '578.84' }]])      // SUM allocations
         // update invoice status to 'paid'
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -579,12 +579,12 @@ describe('Payment Routes — /api/payments', () => {
     test('allocates payment partially (invoice not fully paid)', async () => {
       mockAuthUser();
       const allocation = { id: 2, payment_id: 1, invoice_id: 5, amount: 200 };
-      const invoice = { id: 5, total: 578.84, contract_id: 3, organization_id: 1 };
+      const invoice = { id: 5, total: 578.84, contract_id: 3, organization_id: 1, status: 'issued' };
 
       db.query
+        .mockResolvedValueOnce([[invoice]])                            // SELECT invoice (void guard)
         .mockResolvedValueOnce([{ insertId: 2, affectedRows: 1 }])
         .mockResolvedValueOnce([[allocation]])
-        .mockResolvedValueOnce([[invoice]])
         .mockResolvedValueOnce([[{ total_allocated: '200' }]]);  // partial — not enough
 
       const res = await request(app)
