@@ -492,10 +492,96 @@ function DevicesTab({ devices }: { devices: Device[] }) {
   );
 }
 
-function LedgerTab({ ledger }: { ledger: LedgerEntry[] }) {
-  if (!ledger.length) return <p style={styles.msg}>No ledger entries found.</p>;
+// Format a Date as a local YYYY-MM-DD (the API expects calendar dates).
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+type LedgerRange = 'all' | 'month' | 'year' | 'custom';
+
+function rangeToDates(range: LedgerRange, customFrom: string, customTo: string): { from: string; to: string } {
+  const now = new Date();
+  if (range === 'month') {
+    return { from: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), to: ymd(new Date(now.getFullYear(), now.getMonth() + 1, 0)) };
+  }
+  if (range === 'year') {
+    return { from: `${now.getFullYear()}-01-01`, to: `${now.getFullYear()}-12-31` };
+  }
+  if (range === 'custom') return { from: customFrom, to: customTo };
+  return { from: '', to: '' }; // all time
+}
+
+// Fetch the ledger statement PDF (auth-scoped) and trigger a browser download.
+async function downloadLedgerPdf(clientId: number | string, from: string, to: string, locale: string) {
+  const qs = new URLSearchParams({ locale });
+  if (from) qs.set('from', from);
+  if (to) qs.set('to', to);
+  const res = await authedFetch(`/api/v1/pdf/clients/${clientId}/ledger?${qs.toString()}`);
+  if (!res.ok) throw new Error('Failed to generate ledger PDF');
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ledger-client-${clientId}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function LedgerTab({ ledger, clientId }: { ledger: LedgerEntry[]; clientId: number | string }) {
+  const { i18n } = useTranslation();
+  const [range, setRange] = useState<LedgerRange>('all');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [err, setErr] = useState('');
+
+  const ctrlStyle: React.CSSProperties = {
+    padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)', color: 'var(--text)', fontSize: '0.82rem',
+  };
+
+  async function handleDownload() {
+    setErr('');
+    const { from, to } = rangeToDates(range, customFrom, customTo);
+    if (range === 'custom' && (!from || !to)) { setErr('Pick both a start and end date.'); return; }
+    if (range === 'custom' && from > to) { setErr('Start date must be on or before the end date.'); return; }
+    setDownloading(true);
+    try {
+      await downloadLedgerPdf(clientId, from, to, i18n.language?.startsWith('es') ? 'es' : 'en');
+    } catch {
+      setErr('Could not generate the ledger PDF. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
-    <div style={{ overflowX: 'auto' }}>
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '0.75rem 0.75rem 0', justifyContent: 'flex-end' }}>
+        <select value={range} onChange={e => setRange(e.target.value as LedgerRange)} style={ctrlStyle} aria-label="Statement period">
+          <option value="all">All time</option>
+          <option value="month">This month</option>
+          <option value="year">This year</option>
+          <option value="custom">Custom…</option>
+        </select>
+        {range === 'custom' && (
+          <>
+            <input type="date" value={customFrom} max={customTo || undefined} onChange={e => setCustomFrom(e.target.value)} style={ctrlStyle} aria-label="From date" />
+            <span style={{ color: 'var(--text-muted)' }}>–</span>
+            <input type="date" value={customTo} min={customFrom || undefined} onChange={e => setCustomTo(e.target.value)} style={ctrlStyle} aria-label="To date" />
+          </>
+        )}
+        <button type="button" onClick={handleDownload} disabled={downloading} style={styles.smallPrimaryBtn}>
+          {downloading ? 'Generating…' : '⬇ PDF'}
+        </button>
+      </div>
+      {err && <p style={{ color: '#991b1b', textAlign: 'right', padding: '4px 0.75rem 0', fontSize: '0.8rem', margin: 0 }}>{err}</p>}
+      {!ledger.length ? (
+        <p style={styles.msg}>No ledger entries found.</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
       <table style={styles.table}>
         <thead>
           <tr>{['Date', 'Type', 'Amount', 'Balance After', 'Notes'].map(h => (
@@ -530,6 +616,8 @@ function LedgerTab({ ledger }: { ledger: LedgerEntry[] }) {
           })}
         </tbody>
       </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -1110,7 +1198,7 @@ export function ClientDetail() {
             <TicketsTab clientId={Number(client.id)} />
           </>
         )}
-        {activeTab === 'ledger'    && <LedgerTab    ledger={client.ledger}       />}
+        {activeTab === 'ledger'    && <LedgerTab    ledger={client.ledger} clientId={client.id} />}
         {activeTab === 'contacts'  && (
           <ContactsTab
             contacts={client.contacts}

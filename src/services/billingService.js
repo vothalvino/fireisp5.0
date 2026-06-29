@@ -313,4 +313,20 @@ async function recordPaymentCredit(payment, orgId) {
   );
 }
 
-module.exports = { generateBillingPeriod, generateInvoice, calculateProration, recordPaymentCredit, isContractInTrial, calculateOverageCharges };
+/**
+ * Reverse the balance-ledger credit a payment created (the inverse of
+ * recordPaymentCredit). Called when a payment is deleted so the ledger and the
+ * computed balance stop reflecting a payment that is gone from the Payments tab.
+ * reference_id is the payments primary key (globally unique), so this removes
+ * exactly the one credit entry for that payment.
+ */
+async function reversePaymentCredit(paymentId) {
+  logger.info({ paymentId }, 'Reversing payment credit');
+  await db.query(
+    `DELETE FROM client_balance_ledger
+      WHERE reference_type = 'payment' AND reference_id = ?`,
+    [paymentId],
+  );
+}
+
+module.exports = { generateBillingPeriod, generateInvoice, calculateProration, recordPaymentCredit, reversePaymentCredit, isContractInTrial, calculateOverageCharges };

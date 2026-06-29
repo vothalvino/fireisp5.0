@@ -199,6 +199,25 @@ describe('billingService', () => {
   });
 
   // =========================================================================
+  // reversePaymentCredit
+  // =========================================================================
+  describe('reversePaymentCredit', () => {
+    test('deletes the payment credit entry from client_balance_ledger', async () => {
+      db.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      await billingService.reversePaymentCredit(77);
+
+      expect(db.query).toHaveBeenCalledWith(
+        expect.stringContaining('DELETE FROM client_balance_ledger'),
+        [77],
+      );
+      const sql = db.query.mock.calls[0][0];
+      expect(sql).toContain("reference_type = 'payment'");
+      expect(sql).toContain('reference_id = ?');
+    });
+  });
+
+  // =========================================================================
   // calculateProration
   // =========================================================================
   describe('calculateProration', () => {
