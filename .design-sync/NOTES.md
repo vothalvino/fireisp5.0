@@ -17,20 +17,19 @@ Repo-specific gotchas for future syncs.
   (not `[FONT_MISSING]`). Designs load the real fonts at runtime.
 
 ## Known render warns / limitations
-- **Modal preview title-bar clip**: the `Modal` is a `position: fixed` full-screen overlay. In the
-  static preview card (cardMode `single`, viewport `720x560`) the centered dialog's **title bar
-  crops at the top** — a capture artifact of fixed-positioned overlays, NOT a component bug. The
-  live component renders the title fine; the `.d.ts`/`.prompt.md` document the `title` prop. Graded
-  `good` deliberately. If a future sync wants a pixel-perfect card, render the dialog content in a
-  relatively-positioned wrapper for the preview only.
-- `Table` and `Card` use `cardMode: column` (wide/multi-row stories); `Modal` uses `single`.
+- **Modal preview** (title-clip — RESOLVED): the `Modal` defaults to a `position: fixed` overlay,
+  which clipped the title bar in the static preview card. The component now has an **`inline`** prop
+  (renders in-flow, no fixed overlay / no dim) for embedding in docs/previews; the Modal preview uses
+  `<Modal inline>`, so the full dialog (title + body + footer) renders in the card.
+- `Modal`, `Table`, and `Card` all use `cardMode: column` (wide / multi-row stories).
 
 ## Re-sync risks (what can silently go stale)
 - The kit's tokens are a **copy** of `frontend/src/index.css`. If the app's tokens change, re-copy
   them into `frontend/ui-kit/src/tokens.css` and rebuild, or the design system drifts from the app.
 - Preview content (client names, invoice numbers, amounts) is illustrative FireISP data inlined in
   `.design-sync/previews/*.tsx` — safe, but update if the brand examples should change.
-- Group is `general` for all 6 components (no per-component docs). To split into Actions/Forms/
-  Feedback/Surfaces/Data, add `cfg.docsMap` stubs with `---\ncategory: <Group>\n---`.
+- Groups come from `cfg.docsDir` (`../../.design-sync/docs`): each `<Name>.md`'s frontmatter
+  `category` sets the section (Actions / Forms / Feedback / Surfaces / Data) and doubles as the
+  component's `.prompt.md`. Add or re-group a component by adding/editing its doc there.
 - Render check needs Playwright + Chromium (installed under `.ds-sync/`); a fresh clone must
   reinstall them.
