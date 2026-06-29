@@ -6110,6 +6110,52 @@
         }
       }
     },
+    "/payments/{id}/unapply": {
+      "post": {
+        "tags": [
+          "Payments"
+        ],
+        "summary": "Remove (soft-delete) a payment allocation from a specific invoice",
+        "operationId": "unapplyPayment",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "invoice_id",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "UnapplyResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/payments/{id}/receipt": {
       "get": {
         "tags": [

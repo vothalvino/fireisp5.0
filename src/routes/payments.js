@@ -63,34 +63,43 @@ router.post('/:id/restore', requirePermission('payments.update'), ctrl.restore);
 router.post('/:id/allocate', requirePermission('payments.create'), validate(allocatePayment), async (req, res, next) => {
   try {
     const { invoice_id, amount } = req.body;
-    const allocation = await Payment.allocate(req.params.id, invoice_id, amount);
 
-    // Check if invoice is now fully paid
+    // Validate invoice exists and is not void BEFORE inserting the allocation.
+    // A voided invoice's total is NOT zeroed on void (only its ledger entries are),
+    // so the over-allocation trigger would otherwise still let the apply through.
     const [invoiceRows] = await db.query('SELECT * FROM invoices WHERE id = ? AND deleted_at IS NULL', [invoice_id]);
     const invoice = invoiceRows[0];
-    if (invoice) {
-      const [allocRows] = await db.query(
-        'SELECT SUM(amount) AS total_allocated FROM payment_allocations WHERE invoice_id = ? AND deleted_at IS NULL',
-        [invoice_id],
-      );
-      const totalAllocated = parseFloat(allocRows[0].total_allocated || 0);
-      if (totalAllocated >= parseFloat(invoice.total)) {
-        await db.query(
-          'UPDATE invoices SET status = ?, paid_at = NOW() WHERE id = ?',
-          ['paid', invoice_id],
-        );
+    if (!invoice) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Invoice not found.' } });
+    }
+    if (invoice.status === 'void' || invoice.status === 'cancelled') {
+      return res.status(422).json({ error: { code: 'INVOICE_NOT_PAYABLE', message: `Cannot apply a payment to a ${invoice.status} invoice.` } });
+    }
 
-        // Check if contract was suspended → reconnect
-        if (invoice.contract_id) {
-          const [contractRows] = await db.query(
-            'SELECT * FROM contracts WHERE id = ? AND status = ? AND deleted_at IS NULL',
-            [invoice.contract_id, 'suspended'],
+    const allocation = await Payment.allocate(req.params.id, invoice_id, amount);
+
+    // Check if invoice is now fully paid (reuse the already-fetched invoice for total)
+    const [allocRows] = await db.query(
+      'SELECT SUM(amount) AS total_allocated FROM payment_allocations WHERE invoice_id = ? AND deleted_at IS NULL',
+      [invoice_id],
+    );
+    const totalAllocated = parseFloat(allocRows[0].total_allocated || 0);
+    if (totalAllocated >= parseFloat(invoice.total)) {
+      await db.query(
+        'UPDATE invoices SET status = ?, paid_at = NOW() WHERE id = ?',
+        ['paid', invoice_id],
+      );
+
+      // Check if contract was suspended → reconnect
+      if (invoice.contract_id) {
+        const [contractRows] = await db.query(
+          'SELECT * FROM contracts WHERE id = ? AND status = ? AND deleted_at IS NULL',
+          [invoice.contract_id, 'suspended'],
+        );
+        if (contractRows[0]) {
+          await suspensionService.reconnectContract(
+            invoice.contract_id, req.user.id, invoice_id,
           );
-          if (contractRows[0]) {
-            await suspensionService.reconnectContract(
-              invoice.contract_id, req.user.id, invoice_id,
-            );
-          }
         }
       }
     }
@@ -179,7 +188,7 @@ router.post('/:id/reallocate', requirePermission('payments.update'), async (req,
 
     // Validate both invoices belong to the payment's client
     const [invRows] = await conn.execute(
-      'SELECT id, client_id FROM invoices WHERE id IN (?, ?) AND deleted_at IS NULL',
+      'SELECT id, client_id, status FROM invoices WHERE id IN (?, ?) AND deleted_at IS NULL',
       [from_invoice_id, to_invoice_id],
     );
     const fromInv = invRows.find(r => r.id === from_invoice_id || r.id === Number(from_invoice_id));
@@ -192,6 +201,14 @@ router.post('/:id/reallocate', requirePermission('payments.update'), async (req,
     if (!toInv) {
       await conn.rollback();
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'to_invoice_id not found.' } });
+    }
+    // Reallocating TO a void/cancelled invoice makes no sense — it owes nothing.
+    // Reallocating AWAY from such an invoice (from_invoice) is allowed.
+    if (toInv.status === 'void' || toInv.status === 'cancelled') {
+      await conn.rollback();
+      return res.status(422).json({
+        error: { code: 'INVOICE_NOT_PAYABLE', message: `Cannot reallocate a payment to a ${toInv.status} invoice.` },
+      });
     }
     if (Number(toInv.client_id) !== Number(payment.client_id)) {
       await conn.rollback();
@@ -351,6 +368,70 @@ router.post('/:id/reassign', requirePermission('payments.update'), async (req, r
       [paymentId],
     );
     res.json({ data: updatedRows[0] });
+  } catch (err) {
+    await conn.rollback().catch(() => {});
+    next(err);
+  } finally {
+    conn.release();
+  }
+});
+
+// Un-apply (de-allocate) a payment from a specific invoice.
+// Body: { invoice_id }
+// Soft-deletes the live payment_allocation so the payment becomes an
+// unallocated credit on the same client. The payment's ledger 'payment'
+// credit is NOT touched — only the invoice link is removed.
+// billingService.refreshInvoicePaidStatus reverts the invoice paid→issued
+// if no other allocations still cover it.
+router.post('/:id/unapply', requirePermission('payments.update'), async (req, res, next) => {
+  const conn = await db.getConnection();
+  try {
+    const paymentId = parseInt(req.params.id, 10);
+    const { invoice_id } = req.body;
+
+    if (!invoice_id) {
+      return res.status(422).json({
+        error: { code: 'VALIDATION_ERROR', message: 'invoice_id is required.' },
+      });
+    }
+
+    await conn.beginTransaction();
+
+    // Load payment (org-scoped)
+    const [payRows] = await conn.execute(
+      'SELECT * FROM payments WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [paymentId, req.orgId],
+    );
+    if (!payRows[0]) {
+      await conn.rollback();
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Payment not found.' } });
+    }
+
+    // Find the live allocation for this payment + invoice pair
+    const [allocRows] = await conn.execute(
+      'SELECT * FROM payment_allocations WHERE payment_id = ? AND invoice_id = ? AND deleted_at IS NULL LIMIT 1',
+      [paymentId, invoice_id],
+    );
+    if (!allocRows[0]) {
+      await conn.rollback();
+      return res.status(422).json({
+        error: { code: 'ALLOCATION_NOT_FOUND', message: 'This payment is not applied to that invoice.' },
+      });
+    }
+
+    // Soft-delete the allocation
+    await conn.execute(
+      'UPDATE payment_allocations SET deleted_at = NOW() WHERE id = ?',
+      [allocRows[0].id],
+    );
+
+    await conn.commit();
+
+    // Re-derive paid status for the invoice (outside the transaction — reads committed state).
+    // This reverts the invoice paid→issued if no longer fully covered.
+    await billingService.refreshInvoicePaidStatus(invoice_id);
+
+    res.json({ data: { payment_id: paymentId, invoice_id: Number(invoice_id), unapplied: true } });
   } catch (err) {
     await conn.rollback().catch(() => {});
     next(err);

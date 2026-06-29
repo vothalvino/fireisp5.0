@@ -392,12 +392,12 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
 
       const mockAllocation = { id: 1, payment_id: 300, invoice_id: 200, amount: '694.84' };
 
-      // Payment.allocate: INSERT → SELECT allocation
-      // Route: SELECT invoice → SUM allocations → UPDATE invoice → SELECT contract
+      // Route: SELECT invoice (void guard) → Payment.allocate (INSERT → SELECT) →
+      //        SUM allocations → UPDATE invoice → SELECT contract
       db.query
+        .mockResolvedValueOnce([[{ id: 200, total: '694.84', contract_id: 1, status: 'issued' }]])
         .mockResolvedValueOnce([{ insertId: 1 }])
         .mockResolvedValueOnce([[mockAllocation]])
-        .mockResolvedValueOnce([[{ id: 200, total: '694.84', contract_id: 1, status: 'issued' }]])
         .mockResolvedValueOnce([[{ total_allocated: '694.84' }]])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
         .mockResolvedValueOnce([[]]);
@@ -427,12 +427,12 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
 
       const mockAllocation = { id: 2, payment_id: 301, invoice_id: 200, amount: '300.00' };
 
-      // Payment.allocate: INSERT → SELECT allocation
-      // Route: SELECT invoice → SUM allocations (partial, no UPDATE)
+      // Route: SELECT invoice (void guard) → Payment.allocate (INSERT → SELECT) →
+      //        SUM allocations (partial — no UPDATE since not fully paid)
       db.query
+        .mockResolvedValueOnce([[{ id: 200, total: '694.84', contract_id: 1, status: 'issued' }]])
         .mockResolvedValueOnce([{ insertId: 2 }])
         .mockResolvedValueOnce([[mockAllocation]])
-        .mockResolvedValueOnce([[{ id: 200, total: '694.84', contract_id: 1, status: 'issued' }]])
         .mockResolvedValueOnce([[{ total_allocated: '300.00' }]]);
 
       const res = await request(app)
@@ -658,12 +658,12 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       expect(paymentId).toBe(300);
 
       // --- Step 6: Allocate payment to invoice ---
-      // Payment.allocate: INSERT → SELECT allocation
-      // Route: SELECT invoice → SUM allocations → UPDATE invoice → SELECT contract
+      // Route: SELECT invoice (void guard) → Payment.allocate (INSERT → SELECT) →
+      //        SUM allocations → UPDATE invoice → SELECT contract
       db.query
+        .mockResolvedValueOnce([[{ id: invoiceId, total: '694.84', contract_id: contractId, status: 'issued' }]])
         .mockResolvedValueOnce([{ insertId: 1 }])
         .mockResolvedValueOnce([[{ id: 1, payment_id: paymentId, invoice_id: invoiceId, amount: '694.84' }]])
-        .mockResolvedValueOnce([[{ id: invoiceId, total: '694.84', contract_id: contractId, status: 'issued' }]])
         .mockResolvedValueOnce([[{ total_allocated: '694.84' }]])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
         .mockResolvedValueOnce([[]]);

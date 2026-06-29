@@ -275,6 +275,23 @@ async function reassignPayment(id: number, newClientId: number): Promise<void> {
   }
 }
 
+async function unapplyPayment(id: number, invoiceId: number): Promise<void> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/payments/${id}/unapply`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ invoice_id: invoiceId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: { message?: string } | string };
+    const msg = typeof err.error === 'object' ? err.error?.message : (err.error as string);
+    throw new Error(msg || 'Failed to un-apply payment');
+  }
+}
+
 async function fetchAllInvoicesForClient(clientId: number): Promise<Invoice[]> {
   const token = tokenStore.getAccess();
   const params = new URLSearchParams({ client_id: String(clientId), limit: '200' });
@@ -856,6 +873,88 @@ function ReassignModal({ payment, clients, onClose, onReassigned }: ReassignModa
 }
 
 // ---------------------------------------------------------------------------
+// Un-apply Modal
+// ---------------------------------------------------------------------------
+
+interface UnapplyModalProps {
+  payment: Payment;
+  onClose: () => void;
+  onUnapplied: () => void;
+}
+
+function UnapplyModal({ payment, onClose, onUnapplied }: UnapplyModalProps) {
+  const { data: allocs = [], isLoading } = useQuery({
+    queryKey: ['payment-allocs', payment.id],
+    queryFn: () => fetchAllocations(payment.id),
+  });
+
+  const mutation = useMutation({
+    mutationFn: (invoiceId: number) => unapplyPayment(payment.id, invoiceId),
+    onSuccess: () => { onUnapplied(); },
+  });
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="Un-apply Payment">
+      <div style={{ ...modalBox, maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 0.25rem' }}>Un-apply Payment #{payment.id}</h3>
+        <p style={{ margin: '0 0 1rem', fontSize: '0.82rem', color: '#6b7280' }}>
+          Remove this payment from a specific invoice. The payment credit stays on the client account as an unallocated balance.
+        </p>
+
+        {isLoading && (
+          <p style={{ fontSize: '0.82rem', color: '#9ca3af' }}>Loading allocations…</p>
+        )}
+
+        {!isLoading && allocs.length === 0 && (
+          <p style={{ fontSize: '0.85rem', color: '#6b7280' }}>
+            This payment has no live allocations.
+          </p>
+        )}
+
+        {!isLoading && allocs.length > 0 && (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', marginBottom: '1rem' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #e5e7eb', color: '#6b7280', textAlign: 'left' }}>
+                <th style={{ padding: '6px 8px' }}>Invoice #</th>
+                <th style={{ padding: '6px 8px', textAlign: 'right' }}>Amount</th>
+                <th style={{ padding: '6px 8px' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {allocs.map(a => (
+                <tr key={a.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                  <td style={{ padding: '6px 8px', color: '#374151' }}>#{a.invoice_id}</td>
+                  <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {fmtAmount(a.amount, payment.currency)}
+                  </td>
+                  <td style={{ padding: '6px 8px' }}>
+                    <button
+                      style={{ ...actionBtn, background: '#fee2e2', color: '#991b1b', fontSize: '0.8rem' }}
+                      onClick={() => mutation.mutate(a.invoice_id)}
+                      disabled={mutation.isPending && mutation.variables === a.invoice_id}
+                    >
+                      {mutation.isPending && mutation.variables === a.invoice_id ? '…' : 'Un-apply'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {mutation.isError && (
+          <div style={errorBox}>{(mutation.error as Error).message}</div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+          <button type="button" onClick={onClose} style={cancelBtn}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Manual Allocate Modal
 // ---------------------------------------------------------------------------
 
@@ -1083,10 +1182,11 @@ interface PaymentRowProps {
   onAllocate: (payment: Payment) => void;
   onReallocate: (payment: Payment) => void;
   onReassign: (payment: Payment) => void;
+  onUnapply: (payment: Payment) => void;
   onDelete: (payment: Payment) => void;
 }
 
-function PaymentRow({ payment, idx, onSendReceipt, onDownloadReceipt, sendingReceipt, onEdit, onAllocate, onReallocate, onReassign, onDelete }: PaymentRowProps) {
+function PaymentRow({ payment, idx, onSendReceipt, onDownloadReceipt, sendingReceipt, onEdit, onAllocate, onReallocate, onReassign, onUnapply, onDelete }: PaymentRowProps) {
   const [expanded, setExpanded] = useState<'none' | 'alloc' | 'gateway'>('none');
 
   function toggleExpand(mode: 'alloc' | 'gateway') {
@@ -1169,6 +1269,13 @@ function PaymentRow({ payment, idx, onSendReceipt, onDownloadReceipt, sendingRec
               ↔ Reallocate
             </button>
             <button
+              style={{ ...actionBtn, background: '#fee2e2', color: '#991b1b' }}
+              onClick={() => onUnapply(payment)}
+              title="Remove this payment from an invoice (keeps credit on account)"
+            >
+              ✕ Un-apply
+            </button>
+            <button
               style={{ ...actionBtn, background: '#fef9c3', color: '#854d0e' }}
               onClick={() => onReassign(payment)}
               title="Reassign payment to a different client (unallocated only)"
@@ -1218,6 +1325,7 @@ export function PaymentList() {
   const [allocatePaymentRow, setAllocatePaymentRow] = useState<Payment | null>(null);
   const [reallocatePaymentRow, setReallocatePaymentRow] = useState<Payment | null>(null);
   const [reassignPaymentRow, setReassignPaymentRow] = useState<Payment | null>(null);
+  const [unapplyPaymentRow, setUnapplyPaymentRow] = useState<Payment | null>(null);
   const [deletePaymentRow, setDeletePaymentRow] = useState<Payment | null>(null);
   const [toast, setToast] = useState('');
   const [sendingReceipt, setSendingReceipt] = useState<number | null>(null);
@@ -1352,6 +1460,7 @@ export function PaymentList() {
                     onAllocate={setAllocatePaymentRow}
                     onReallocate={setReallocatePaymentRow}
                     onReassign={setReassignPaymentRow}
+                    onUnapply={setUnapplyPaymentRow}
                     onDelete={setDeletePaymentRow}
                   />
                 ))}
@@ -1411,6 +1520,19 @@ export function PaymentList() {
             qc.invalidateQueries({ queryKey: ['payments'] });
             qc.invalidateQueries({ queryKey: ['payment-allocs', reallocatePaymentRow.id] });
             showToast('Payment reallocated');
+          }}
+        />
+      )}
+
+      {/* Un-apply Payment Modal */}
+      {unapplyPaymentRow && (
+        <UnapplyModal
+          payment={unapplyPaymentRow}
+          onClose={() => setUnapplyPaymentRow(null)}
+          onUnapplied={() => {
+            qc.invalidateQueries({ queryKey: ['payments'] });
+            qc.invalidateQueries({ queryKey: ['payment-allocs', unapplyPaymentRow.id] });
+            showToast('Payment un-applied from invoice');
           }}
         />
       )}
