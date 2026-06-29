@@ -14,6 +14,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   admin: ['*'],
   support: [
     'clients.create', 'clients.update',
+    'tickets.view', 'tickets.create', 'tickets.update', 'tickets.delete',
     'leads.create', 'leads.update',
     'service_orders.create', 'service_orders.update',
     'winback.view', 'lifecycle.view',
@@ -31,8 +32,9 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'campaigns.view', 'dnd.view',
   ],
   billing: [
-    // Invoicing (mirrors the backend billing role seed — migration 119)
+    // Invoicing + payments (mirrors the backend billing role seed — migration 119)
     'invoices.view', 'invoices.create', 'invoices.update', 'invoices.delete',
+    'payments.view', 'payments.create', 'payments.update', 'payments.delete',
     'winback.view', 'winback.create', 'winback.update', 'winback.delete',
     'lifecycle.view',
     'suspension_rules.create', 'suspension_rules.update', 'suspension_rules.delete',
