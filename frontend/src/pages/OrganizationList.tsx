@@ -34,6 +34,7 @@ interface Organization {
   state: string | null;
   zip_code: string | null;
   country: string | null;
+  currency: string | null;
   locale: string | null;
   tax_id: string | null;
   logo_url: string | null;
@@ -56,6 +57,7 @@ interface OrganizationBody {
   state?: string;
   zip_code?: string;
   country?: string;
+  currency?: string;
   locale?: string;
   tax_id?: string;
   logo_url?: string;
@@ -179,6 +181,7 @@ function OrgModal({ organization, onClose, onSaved }: OrgModalProps) {
     state: organization?.state ?? '',
     zip_code: organization?.zip_code ?? '',
     country: organization?.country ?? '',
+    currency: organization?.currency ?? 'MXN',
     locale: organization?.locale ?? 'global',
     tax_id: organization?.tax_id ?? '',
     logo_url: organization?.logo_url ?? '',
@@ -193,6 +196,9 @@ function OrgModal({ organization, onClose, onSaved }: OrgModalProps) {
   const mutation = useMutation({
     mutationFn: () => {
       const body: OrganizationBody = { name: form.name.trim(), locale: form.locale, status: form.status };
+      // Always send currency — it has a valid 3-letter default so the input is never empty.
+      const currencyVal = form.currency.trim().toUpperCase();
+      if (currencyVal.length === 3) body.currency = currencyVal;
       const optional: (keyof OrganizationBody)[] = [
         'legal_name', 'email', 'phone', 'website', 'address',
         'city', 'state', 'zip_code', 'country', 'tax_id', 'logo_url',
@@ -288,6 +294,18 @@ function OrgModal({ organization, onClose, onSaved }: OrgModalProps) {
           <label style={modalStyles.label}>
             Country
             <input style={modalStyles.input} type="text" maxLength={100} value={form.country} onChange={e => setField('country', e.target.value)} />
+          </label>
+
+          <label style={modalStyles.label}>
+            Currency <RequiredMark />
+            <input
+              style={modalStyles.input}
+              type="text"
+              maxLength={3}
+              value={form.currency}
+              onChange={e => setField('currency', e.target.value.toUpperCase())}
+              placeholder="e.g. MXN"
+            />
           </label>
 
           <label style={modalStyles.label}>

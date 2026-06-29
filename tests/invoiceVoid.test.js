@@ -86,11 +86,20 @@ describe('PATCH /invoices/:id — void', () => {
   });
 
   it('a non-void PATCH still goes through the generic update path', async () => {
+    Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'overdue', client_id: 9, invoice_number: 'INV-5', currency: 'USD' });
     Invoice.update.mockResolvedValue({ id: 5, status: 'overdue' });
     const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'overdue' });
     expect(res.status).toBe(200);
     expect(ledgerInsert()).toBeFalsy();
     expect(ledgerZero()).toBeFalsy();
+  });
+
+  it('rejects un-voiding a void invoice (PATCH to issued) with 422 and writes nothing', async () => {
+    Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'void', client_id: 9, invoice_number: 'INV-5', currency: 'USD' });
+    const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'issued' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_VOID');
+    expect(Invoice.update).not.toHaveBeenCalled();
   });
 });
 
@@ -114,5 +123,13 @@ describe('PUT /invoices/:id — void (InvoiceDetail path)', () => {
     const zero = ledgerZero();
     expect(zero).toBeTruthy();
     expect(zero[1]).toEqual([7, 3]);
+  });
+
+  it('rejects un-voiding a void invoice via PUT with 422', async () => {
+    Invoice.findByIdOrFail.mockResolvedValue({ id: 7, status: 'void', client_id: 3, invoice_number: 'INV-7', currency: 'USD' });
+    const res = await request(app).put('/api/v1/invoices/7').send({ status: 'issued' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_VOID');
+    expect(Invoice.update).not.toHaveBeenCalled();
   });
 });

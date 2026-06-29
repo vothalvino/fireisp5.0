@@ -1213,8 +1213,13 @@ describe('Plan Routes — /api/plans', () => {
     test('creates a plan and returns 201', async () => {
       mockAuthUser();
       db.query
+        // Organization.getCurrency — called first when currency is absent in body
+        .mockResolvedValueOnce([[{ currency: 'MXN' }]])
+        // BaseModel.create INSERT
         .mockResolvedValueOnce([{ insertId: 2, affectedRows: 1 }])
+        // BaseModel.create SELECT after insert
         .mockResolvedValueOnce([[{ ...mockPlan, id: 2 }]])
+        // auditLog.log INSERT
         .mockResolvedValueOnce([{ affectedRows: 1 }]);
 
       const res = await request(app)

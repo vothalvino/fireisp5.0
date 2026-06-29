@@ -13,9 +13,20 @@ const { createInvoice, updateInvoice, patchInvoice, addInvoiceItem } = require('
 const billingService = require('../services/billingService');
 const auditLog = require('../services/auditLog');
 const db = require('../config/database');
+const { AppError } = require('../utils/errors');
 
 const router = Router();
-const ctrl = crudController(Invoice);
+// A voided invoice is terminal: any edit is rejected (PUT/PATCH that isn't a
+// re-void). Un-voiding back to 'issued' would also leave the reversed balance
+// ledger out of sync, so it must not be possible. Setting status to 'void' is
+// routed to voidInvoice (below), not through this hook.
+const ctrl = crudController(Invoice, {
+  beforeUpdate: (old) => {
+    if (old.status === 'void') {
+      throw new AppError('Voided invoices cannot be modified.', 422, 'INVOICE_VOID');
+    }
+  },
+});
 
 router.use(authenticate);
 router.use(orgScope);
@@ -160,6 +171,7 @@ router.post('/generate', requirePermission('invoices.create'), async (req, res, 
     const billingPeriodUpdates = []; // { periodId }
     let currency = 'USD';
     let subtotal = 0;
+    const contractIds = new Set(); // distinct contracts referenced by contract-charge items
 
     for (const item of items) {
       const type = item.type;
@@ -176,6 +188,7 @@ router.post('/generate', requirePermission('invoices.create'), async (req, res, 
           return res.status(404).json({ error: { code: 'NOT_FOUND', message: `Contract ${item.contract_id} not found` } });
         }
         const contract = contractRows[0];
+        contractIds.add(contract.id);
 
         const [planRows] = await db.query('SELECT * FROM plans WHERE id = ? AND deleted_at IS NULL', [contract.plan_id]);
         if (!planRows[0]) {
@@ -211,6 +224,11 @@ router.post('/generate', requirePermission('invoices.create'), async (req, res, 
       }
     }
 
+    // Link the invoice to a contract only when every contract-charge line points
+    // at the SAME single contract, so it shows in that contract's invoices. A
+    // mixed-contract or contract-less (product/custom only) invoice stays unlinked.
+    const invoiceContractId = contractIds.size === 1 ? [...contractIds][0] : null;
+
     // Get default tax rate
     const [taxRates] = await db.query(
       'SELECT * FROM tax_rates WHERE organization_id = ? AND is_default = TRUE LIMIT 1',
@@ -238,10 +256,10 @@ router.post('/generate', requirePermission('invoices.create'), async (req, res, 
 
       const [invResult] = await conn.execute(
         `INSERT INTO invoices
-           (organization_id, client_id, invoice_number, subtotal, tax_amount, total,
+           (organization_id, client_id, contract_id, invoice_number, subtotal, tax_amount, total,
             currency, tax_rate, tax_rate_id, due_date, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued')`,
-        [req.orgId, client_id, invoiceNumber, subtotal, taxAmount, total,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued')`,
+        [req.orgId, client_id, invoiceContractId, invoiceNumber, subtotal, taxAmount, total,
           currency, taxPct, taxRate?.id || null, dueDate],
       );
       const invoiceId = invResult.insertId;

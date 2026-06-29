@@ -14,6 +14,7 @@ import { useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { tokenStore } from '@/api/client';
+import { useOrgCurrency } from '@/auth/useOrgCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -169,9 +170,11 @@ async function deleteItem(id: number): Promise<void> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function fmtCurrency(amount: string | null | undefined): string {
-  if (!amount) return '—';
-  return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(parseFloat(amount));
+function makeFmtCurrency(currency: string) {
+  return function fmtCurrency(amount: string | null | undefined): string {
+    if (!amount) return '—';
+    return new Intl.NumberFormat('es-MX', { style: 'currency', currency }).format(parseFloat(amount));
+  };
 }
 
 function capitalize(s: string): string {
@@ -230,6 +233,7 @@ interface ItemFormModalProps {
 }
 
 function ItemFormModal({ item, onClose, onSaved }: ItemFormModalProps) {
+  const orgCurrency = useOrgCurrency();
   const isEdit = !!item;
   const [form, setForm] = useState<ItemFormValues>(
     item
@@ -328,12 +332,12 @@ function ItemFormModal({ item, onClose, onSaved }: ItemFormModalProps) {
                 onChange={e => set('model', e.target.value)} />
             </div>
             <div>
-              <label style={labelStyle}>Unit Cost (MXN)</label>
+              <label style={labelStyle}>Unit Cost ({orgCurrency})</label>
               <input style={inputStyle} type="number" min="0" step="0.01" value={form.unit_cost}
                 onChange={e => set('unit_cost', e.target.value)} placeholder="0.00" />
             </div>
             <div>
-              <label style={labelStyle}>Sale Price (MXN)</label>
+              <label style={labelStyle}>Sale Price ({orgCurrency})</label>
               <input style={inputStyle} type="number" min="0" step="0.01" value={form.sale_price}
                 onChange={e => set('sale_price', e.target.value)} placeholder="0.00" />
             </div>
@@ -458,6 +462,7 @@ interface TransactionModalProps {
 }
 
 function TransactionModal({ item, preselectedStockId, onClose, onRecorded }: TransactionModalProps) {
+  const orgCurrency = useOrgCurrency();
   const { data: warehouseData } = useQuery({
     queryKey: ['warehouseList'],
     queryFn: fetchWarehouses,
@@ -560,7 +565,7 @@ function TransactionModal({ item, preselectedStockId, onClose, onRecorded }: Tra
             placeholder={txType === 'adjustment' ? 'e.g. -5 or 10' : 'e.g. 10'}
           />
 
-          <label style={labelStyle}>Unit Price (MXN)</label>
+          <label style={labelStyle}>Unit Price ({orgCurrency})</label>
           <input
             style={inputStyle}
             type="number"
@@ -604,6 +609,8 @@ function TransactionModal({ item, preselectedStockId, onClose, onRecorded }: Tra
 
 export function InventoryList() {
   const qc = useQueryClient();
+  const orgCurrency = useOrgCurrency();
+  const fmtCurrency = makeFmtCurrency(orgCurrency);
   const [page, setPage] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');

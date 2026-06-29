@@ -41,6 +41,7 @@ export interface AuthUser {
 export interface AuthOrganization {
   id: number;
   name: string;
+  currency?: string;
   membership_role?: string;
 }
 
