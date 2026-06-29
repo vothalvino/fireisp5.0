@@ -32,8 +32,11 @@ router.use(authenticate);
 router.use(orgScope);
 
 // Void transition handler (shared by PUT and PATCH).
-// Two rules the generic CRUD update can't express:
-//   1. A PAID invoice must NOT be voidable (it's been settled).
+// Rules the generic CRUD update can't express:
+//   1. A PAID invoice CAN now be voided. Its payment_allocations for THIS invoice
+//      are soft-deleted (releasing just this invoice's slice of each payment).
+//      The payments' 'payment' credit entries in client_balance_ledger are NOT
+//      touched — so each payment stays on the same client as an unallocated credit.
 //   2. A voided invoice must read as $0 on the balance ledger — otherwise the
 //      client keeps "owing" a cancelled invoice. Rather than leave the debit and
 //      add a separate offsetting credit (two lines), we drop any prior reversal
@@ -44,15 +47,17 @@ router.use(orgScope);
 async function voidInvoice(req, res, next) {
   try {
     const existing = await Invoice.findByIdOrFail(req.params.id, req.orgId);
-    if (existing.status === 'paid') {
-      return res.status(422).json({
-        error: { code: 'INVOICE_PAID', message: 'Paid invoices cannot be voided.' },
-      });
-    }
 
     const record = await Invoice.update(req.params.id, req.body, req.orgId);
 
     if (existing.status !== 'void') {
+      if (existing.status === 'paid') {
+        // Release the allocations that pointed to this invoice so each payment
+        // becomes an unallocated credit on the client. Payments split across
+        // other invoices are NOT affected — only this invoice's rows are touched.
+        await billingService.releaseInvoiceAllocations(existing.id);
+      }
+
       // Remove any earlier void-reversal credit for this invoice (the only
       // credit entry that ever carries reference_type='invoice')…
       await db.query(

@@ -128,6 +128,237 @@ router.get('/:id/receipt', requirePermission('payments.view'), async (req, res, 
   }
 });
 
+// Reallocate a payment from one invoice to another (SAME CLIENT ONLY).
+// Body: { from_invoice_id, to_invoice_id, amount? }
+// amount defaults to the existing allocation's amount if omitted.
+// Both invoices must belong to the same client as the payment.
+// The DB over-allocation trigger fires on the new INSERT — surfaces as 422.
+router.post('/:id/reallocate', requirePermission('payments.update'), async (req, res, next) => {
+  const conn = await db.getConnection();
+  try {
+    const paymentId = parseInt(req.params.id, 10);
+    const { from_invoice_id, to_invoice_id, amount: amountParam } = req.body;
+
+    if (!from_invoice_id || !to_invoice_id) {
+      return res.status(422).json({
+        error: { code: 'VALIDATION_ERROR', message: 'from_invoice_id and to_invoice_id are required.' },
+      });
+    }
+    if (Number(from_invoice_id) === Number(to_invoice_id)) {
+      return res.status(422).json({
+        error: { code: 'VALIDATION_ERROR', message: 'from_invoice_id and to_invoice_id must differ.' },
+      });
+    }
+
+    await conn.beginTransaction();
+
+    // Load payment (org-scoped)
+    const [payRows] = await conn.execute(
+      'SELECT * FROM payments WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [paymentId, req.orgId],
+    );
+    if (!payRows[0]) {
+      await conn.rollback();
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Payment not found.' } });
+    }
+    const payment = payRows[0];
+
+    // Load the live allocation from → invoice
+    const [allocRows] = await conn.execute(
+      'SELECT * FROM payment_allocations WHERE payment_id = ? AND invoice_id = ? AND deleted_at IS NULL LIMIT 1',
+      [paymentId, from_invoice_id],
+    );
+    if (!allocRows[0]) {
+      await conn.rollback();
+      return res.status(422).json({
+        error: { code: 'ALLOCATION_NOT_FOUND', message: 'This payment has no live allocation to from_invoice_id.' },
+      });
+    }
+    const existingAlloc = allocRows[0];
+    const moveAmount = amountParam !== null && amountParam !== undefined ? parseFloat(amountParam) : parseFloat(existingAlloc.amount);
+
+    // Validate both invoices belong to the payment's client
+    const [invRows] = await conn.execute(
+      'SELECT id, client_id FROM invoices WHERE id IN (?, ?) AND deleted_at IS NULL',
+      [from_invoice_id, to_invoice_id],
+    );
+    const fromInv = invRows.find(r => r.id === from_invoice_id || r.id === Number(from_invoice_id));
+    const toInv   = invRows.find(r => r.id === to_invoice_id   || r.id === Number(to_invoice_id));
+
+    if (!fromInv) {
+      await conn.rollback();
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'from_invoice_id not found.' } });
+    }
+    if (!toInv) {
+      await conn.rollback();
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'to_invoice_id not found.' } });
+    }
+    if (Number(toInv.client_id) !== Number(payment.client_id)) {
+      await conn.rollback();
+      return res.status(422).json({
+        error: {
+          code: 'CROSS_CLIENT_REALLOCATION',
+          message: 'to_invoice_id belongs to a different client. Reassign the payment to that client first.',
+        },
+      });
+    }
+    if (Number(fromInv.client_id) !== Number(payment.client_id)) {
+      await conn.rollback();
+      return res.status(422).json({
+        error: {
+          code: 'CROSS_CLIENT_REALLOCATION',
+          message: 'from_invoice_id belongs to a different client than this payment.',
+        },
+      });
+    }
+
+    // Soft-delete the old allocation
+    await conn.execute(
+      'UPDATE payment_allocations SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL',
+      [existingAlloc.id],
+    );
+
+    // Insert the new allocation — DB trigger enforces over-allocation caps
+    let newAllocId;
+    try {
+      const [insertResult] = await conn.execute(
+        'INSERT INTO payment_allocations (payment_id, invoice_id, amount) VALUES (?, ?, ?)',
+        [paymentId, to_invoice_id, moveAmount],
+      );
+      newAllocId = insertResult.insertId;
+    } catch (allocErr) {
+      // Over-allocation guard trigger (migration 126/370) raises SQLSTATE 45000.
+      if (allocErr.sqlState === '45000' || allocErr.errno === 1644) {
+        await conn.rollback();
+        return res.status(422).json({
+          error: { code: 'OVER_ALLOCATION', message: 'Allocation would exceed the invoice or payment total.' },
+        });
+      }
+      // The soft-delete-aware UNIQUE (migration 361) rejects a SECOND live
+      // allocation of this payment to the same invoice.
+      if (allocErr.code === 'ER_DUP_ENTRY' || allocErr.errno === 1062) {
+        await conn.rollback();
+        return res.status(422).json({
+          error: { code: 'ALLOCATION_EXISTS', message: 'This payment is already applied to that invoice.' },
+        });
+      }
+      throw allocErr; // unexpected/infra error — outer catch rolls back + 500s
+    }
+
+    await conn.commit();
+
+    // Re-derive paid status for both invoices (outside the transaction — reads committed state)
+    await billingService.refreshInvoicePaidStatus(from_invoice_id);
+    await billingService.refreshInvoicePaidStatus(to_invoice_id);
+
+    const [newAllocRows] = await db.query('SELECT * FROM payment_allocations WHERE id = ?', [newAllocId]);
+    res.status(201).json({ data: newAllocRows[0] });
+  } catch (err) {
+    await conn.rollback().catch(() => {});
+    next(err);
+  } finally {
+    conn.release();
+  }
+});
+
+// Reassign a payment to a different client (ONLY IF UNALLOCATED).
+// Body: { new_client_id }
+// The payment must have NO live payment_allocations. Callers must un-apply first.
+// Moves the ledger credit from the old client to the new client atomically.
+router.post('/:id/reassign', requirePermission('payments.update'), async (req, res, next) => {
+  const conn = await db.getConnection();
+  try {
+    const paymentId = parseInt(req.params.id, 10);
+    const { new_client_id } = req.body;
+
+    if (!new_client_id) {
+      return res.status(422).json({
+        error: { code: 'VALIDATION_ERROR', message: 'new_client_id is required.' },
+      });
+    }
+
+    await conn.beginTransaction();
+
+    // Load payment (org-scoped)
+    const [payRows] = await conn.execute(
+      'SELECT * FROM payments WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [paymentId, req.orgId],
+    );
+    if (!payRows[0]) {
+      await conn.rollback();
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Payment not found.' } });
+    }
+    const payment = payRows[0];
+
+    // Validate new client exists in this org
+    const [clientRows] = await conn.execute(
+      'SELECT id FROM clients WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [new_client_id, req.orgId],
+    );
+    if (!clientRows[0]) {
+      await conn.rollback();
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'new_client_id not found in this organization.' } });
+    }
+
+    // Reject if there are live allocations. NOTE: this read is not FOR UPDATE and
+    // the apply path (POST /:id/allocate) is non-transactional, so a precisely
+    // concurrent allocate could slip in between this check and the commit. That is
+    // an accepted limitation for this single-tenant admin tool (two simultaneous
+    // admin actions on the same unallocated payment; manually recoverable).
+    const [allocCheck] = await conn.execute(
+      'SELECT COUNT(*) AS cnt FROM payment_allocations WHERE payment_id = ? AND deleted_at IS NULL',
+      [paymentId],
+    );
+    if (Number(allocCheck[0].cnt) > 0) {
+      await conn.rollback();
+      return res.status(422).json({
+        error: {
+          code: 'PAYMENT_ALLOCATED',
+          message: 'Un-apply this payment from its invoice(s) before reassigning it to another client.',
+        },
+      });
+    }
+
+    // Reverse the old client's ledger credit
+    await conn.execute(
+      'DELETE FROM client_balance_ledger WHERE reference_type = ? AND reference_id = ?',
+      ['payment', paymentId],
+    );
+
+    // Move the payment to the new client
+    await conn.execute(
+      'UPDATE payments SET client_id = ? WHERE id = ?',
+      [new_client_id, paymentId],
+    );
+
+    // Record the credit for the new client
+    await conn.execute(
+      `INSERT INTO client_balance_ledger
+         (client_id, organization_id, entry_type, amount, currency, reference_type, reference_id, description)
+       VALUES (?, ?, 'credit', ?, ?, 'payment', ?, ?)`,
+      [
+        new_client_id, req.orgId,
+        payment.amount, payment.currency || 'USD',
+        paymentId, 'Payment ' + (payment.reference_number || paymentId),
+      ],
+    );
+
+    await conn.commit();
+
+    // Return the updated payment
+    const [updatedRows] = await db.query(
+      'SELECT * FROM payments WHERE id = ? AND deleted_at IS NULL',
+      [paymentId],
+    );
+    res.json({ data: updatedRows[0] });
+  } catch (err) {
+    await conn.rollback().catch(() => {});
+    next(err);
+  } finally {
+    conn.release();
+  }
+});
+
 // Send payment receipt PDF via email
 router.post('/:id/send-receipt', requirePermission('payments.view'), async (req, res, next) => {
   try {
