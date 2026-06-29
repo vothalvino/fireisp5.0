@@ -11,6 +11,7 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createContract, updateContract, patchContract, createContractAddon } = require('../middleware/schemas/contracts');
 const db = require('../config/database');
+const { AppError } = require('../utils/errors');
 const suspensionService = require('../services/suspensionService');
 const topologyContextService = require('../services/topologyContextService');
 const provisioningService = require('../services/subscriberProvisioningService');
@@ -21,6 +22,19 @@ const logger = require('../utils/logger').child({ service: 'routes/contracts' })
 
 const router = Router();
 const ctrl = crudController(Contract);
+
+// A new or changed plan assignment may only target a LIVE plan. Archived
+// (soft-deleted) plans keep billing their EXISTING contracts but cannot take on
+// new ones. `executor` is the pool or a transaction connection (both expose .query).
+async function assertPlanSelectable(executor, planId) {
+  const [rows] = await executor.query(
+    'SELECT id FROM plans WHERE id = ? AND deleted_at IS NULL',
+    [planId],
+  );
+  if (!rows[0]) {
+    throw new AppError('This plan is archived or unavailable; a contract cannot be assigned to it.', 422, 'PLAN_ARCHIVED');
+  }
+}
 
 router.use(authenticate);
 router.use(orgScope);
@@ -41,6 +55,12 @@ async function updateContractHandler(req, res, next) {
         organizationId: req.orgId,
         excludeContractId: old.id,
       });
+    }
+
+    // Block MOVING a contract onto an archived plan. Keeping its current plan is
+    // always fine — even if that plan has since been archived.
+    if (req.body.plan_id !== undefined && Number(req.body.plan_id) !== Number(old.plan_id)) {
+      await assertPlanSelectable(db, req.body.plan_id);
     }
 
     const record = await Contract.update(req.params.id, req.body, req.orgId);
@@ -90,6 +110,9 @@ router.post('/', requirePermission('contracts.create'), validate(createContract)
         organizationId: req.orgId,
       });
     }
+
+    // A new contract may only run on a live (non-archived) plan.
+    await assertPlanSelectable(conn, filtered.plan_id);
 
     const cols = Object.keys(filtered);
     const [ins] = await conn.query(
@@ -233,6 +256,11 @@ router.post('/:id/renew', requirePermission('contracts.update'), async (req, res
     const updates = { status: 'active' };
     if (req.body.end_date !== undefined) updates.end_date = req.body.end_date || null;
     if (req.body.plan_id) updates.plan_id = req.body.plan_id;
+    // A renewal may not move the contract onto an archived plan (keeping the
+    // current plan, archived or not, is fine).
+    if (req.body.plan_id && Number(req.body.plan_id) !== Number(contract.plan_id)) {
+      await assertPlanSelectable(db, req.body.plan_id);
+    }
 
     // PPPoE re-provisioning: a pppoe/pppoe_dual contract cannot be activated
     // without a RADIUS account (trg_contracts_radius_consistency_bu). When the

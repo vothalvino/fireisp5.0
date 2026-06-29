@@ -141,7 +141,10 @@ router.post('/generate', requirePermission('invoices.create'), async (req, res, 
         return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Contract not found' } });
       }
       const contract = contracts[0];
-      const [plans] = await db.query('SELECT * FROM plans WHERE id = ? AND deleted_at IS NULL', [contract.plan_id]);
+      // No deleted_at filter: an EXISTING contract must keep billing even when its
+      // plan has been archived (soft-deleted). New contracts on archived plans are
+      // blocked at contract-creation time, not here.
+      const [plans] = await db.query('SELECT * FROM plans WHERE id = ?', [contract.plan_id]);
       if (!plans[0]) {
         return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Plan not found' } });
       }
@@ -195,7 +198,9 @@ router.post('/generate', requirePermission('invoices.create'), async (req, res, 
         const contract = contractRows[0];
         contractIds.add(contract.id);
 
-        const [planRows] = await db.query('SELECT * FROM plans WHERE id = ? AND deleted_at IS NULL', [contract.plan_id]);
+        // No deleted_at filter: an existing contract bills against its plan even
+        // when that plan has been archived (see the legacy path above).
+        const [planRows] = await db.query('SELECT * FROM plans WHERE id = ?', [contract.plan_id]);
         if (!planRows[0]) {
           return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Plan not found for contract' } });
         }

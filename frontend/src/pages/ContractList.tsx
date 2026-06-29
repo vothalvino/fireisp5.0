@@ -677,6 +677,12 @@ function EditContractModal({ contract, plans, onClose, onSaved }: EditContractMo
           <label style={modalStyles.label}>
             Plan
             <select style={modalStyles.select} value={form.plan_id} onChange={e => setField('plan_id', e.target.value)}>
+              {/* If the contract runs on an archived plan (absent from the active
+                  list), keep it shown + selectable so the selection stays correct
+                  and the contract isn't silently moved off it. */}
+              {!plans.some(p => p.id === contract.plan_id) && (
+                <option value={contract.plan_id}>Archived plan (#{contract.plan_id})</option>
+              )}
               {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </label>
