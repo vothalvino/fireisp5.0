@@ -1,0 +1,148 @@
+/* Brand typefaces — Inter (UI) + JetBrains Mono (numbers/IDs). FireISP self-hosts
+   these via @fontsource in the app; the kit loads the same families from Google
+   Fonts so it's self-sufficient wherever it's rendered. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* =============================================================================
+   FireISP 5.0 — Design tokens
+   Source of truth: extracted from frontend/src/index.css
+   Light theme (:root) and dark theme ([data-theme="dark"])
+   ============================================================================= */
+
+/* =============================================================================
+   Light theme (default)
+   ============================================================================= */
+
+:root {
+  color-scheme: light;
+
+  /* -- Backgrounds: clean off-white, no muddy greys ----------------------- */
+  --bg-body:        #f7f8fa;
+  --bg-page:        #f7f8fa;
+  --bg-card:        #ffffff;
+  --bg-subtle:      #f3f4f6;
+  --bg-muted:       #f9fafb;
+  --surface-2:      #f1f5f9;
+
+  /* -- Text: high-contrast primary, muted secondary ----------------------- */
+  --text-primary:   #18181b;
+  --text-secondary: #3f3f46;
+  --text-muted:     #71717a;
+  --text-dimmed:    #a1a1aa;
+  --text-faint:     #a1a1aa;
+
+  /* -- Borders: thin, crisp, low-contrast zinc ---------------------------- */
+  --border:         #e4e4e7;
+  --border-subtle:  #f1f1f4;
+  --border-strong:  #d4d4d8;
+
+  /* -- Inputs ------------------------------------------------------------- */
+  --input-bg:       #ffffff;
+  --input-border:   #d4d4d8;
+
+  /* -- Accent: the single functional accent colour ------------------------ */
+  --accent:         #e25822;
+  --accent-hover:   #c8491a;
+  --accent-active:  #a93c14;
+  --accent-fg:      #ffffff;
+  --accent-soft:    #fdeee7;
+  --focus-ring:     rgba(226, 88, 34, 0.45);
+
+  /* -- Functional status colours ----------------------------------------- */
+  --success:        #15803d;
+  --success-soft:   #dcfce7;
+  --danger:         #dc2626;
+  --danger-soft:    #fef2f2;
+  --danger-border:  #fecaca;
+  --warning:        #b45309;
+  --warning-soft:   #fef3c7;
+
+  /* -- Neutral badge (replaces hardcoded indigo/purple) ------------------- */
+  --badge-bg:       #f1f1f4;
+  --badge-fg:       #3f3f46;
+
+  /* -- Link / inline action colour (single accent, not stray blue) -------- */
+  --link:           var(--accent);
+
+  /* -- App shell (sidebar) ------------------------------------------------ */
+  --sidebar-bg:        #18181b;
+  --sidebar-border:    #27272a;
+  --sidebar-fg:        #d4d4d8;
+  --sidebar-fg-muted:  #a1a1aa;
+  --sidebar-fg-dim:    #71717a;
+  --sidebar-active-bg: var(--accent);
+  --sidebar-active-fg: #ffffff;
+  --sidebar-hover-bg:  #27272a;
+  --topbar-bg:         var(--bg-card);
+
+  /* -- Typography --------------------------------------------------------- */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* -- Spacing scale (strict 4px grid) ------------------------------------ */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  /* -- Radius scale (capped at 8px) --------------------------------------- */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+/* =============================================================================
+   Dark theme (deep slate / zinc)
+   ============================================================================= */
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-body:        #09090b;
+  --bg-page:        #09090b;
+  --bg-card:        #18181b;
+  --bg-subtle:      #27272a;
+  --bg-muted:       #1c1c1f;
+  --surface-2:      #27272a;
+
+  --text-primary:   #fafafa;
+  --text-secondary: #d4d4d8;
+  --text-muted:     #a1a1aa;
+  --text-dimmed:    #71717a;
+  --text-faint:     #71717a;
+
+  --border:         #27272a;
+  --border-subtle:  #1f1f23;
+  --border-strong:  #3f3f46;
+
+  --input-bg:       #09090b;
+  --input-border:   #3f3f46;
+
+  --accent:         #e25822;
+  --accent-hover:   #f06a35;
+  --accent-active:  #f57d4d;
+  --accent-fg:      #ffffff;
+  --accent-soft:    #2a1a12;
+  --focus-ring:     rgba(226, 88, 34, 0.55);
+
+  --success:        #4ade80;
+  --success-soft:   #14271a;
+  --danger:         #f87171;
+  --danger-soft:    #2a1416;
+  --danger-border:  #5b2526;
+  --warning:        #fbbf24;
+  --warning-soft:   #2a2010;
+
+  --badge-bg:       #27272a;
+  --badge-fg:       #d4d4d8;
+
+  --sidebar-bg:        #111113;
+  --sidebar-border:    #27272a;
+  --sidebar-fg:        #d4d4d8;
+  --sidebar-fg-muted:  #a1a1aa;
+  --sidebar-fg-dim:    #71717a;
+  --sidebar-hover-bg:  #27272a;
+  --topbar-bg:         var(--bg-card);
+}
