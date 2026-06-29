@@ -35,6 +35,8 @@ const Invoice = require('../src/models/Invoice');
 const app = require('../src/app');
 
 const ledgerInsert = () => db.query.mock.calls.find(c => /INSERT INTO client_balance_ledger/.test(c[0]));
+const ledgerDeleteCredit = () => db.query.mock.calls.find(c => /DELETE FROM client_balance_ledger/.test(c[0]));
+const ledgerZero = () => db.query.mock.calls.find(c => /UPDATE client_balance_ledger\s+SET amount = 0/.test(c[0]));
 
 beforeEach(() => { jest.clearAllMocks(); });
 
@@ -48,37 +50,39 @@ describe('PATCH /invoices/:id — void', () => {
     expect(ledgerInsert()).toBeFalsy();
   });
 
-  it('voids an issued invoice and reverses the outstanding ledger debit (credit entry)', async () => {
+  it('voids an issued invoice by zeroing its ledger entries (no offsetting credit)', async () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'issued', client_id: 9, invoice_number: 'INV-5', currency: 'USD' });
     Invoice.update.mockResolvedValue({ id: 5, status: 'void', client_id: 9 });
     db.query
-      .mockResolvedValueOnce([[{ net: 100 }]]) // SELECT net signed contribution
-      .mockResolvedValueOnce([{ insertId: 1 }]); // INSERT reversal credit
+      .mockResolvedValueOnce([{ affectedRows: 0 }]) // DELETE any prior void-reversal credit
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE — zero the debit
     const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'void' });
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('void');
-    const ins = ledgerInsert();
-    expect(ins).toBeTruthy();
-    expect(ins[0]).toMatch(/'credit'/);
-    expect(ins[1]).toEqual(expect.arrayContaining([9, 1, 100])); // client_id, org_id, reverse amount
+    expect(ledgerInsert()).toBeFalsy(); // never adds a credit line
+    expect(ledgerDeleteCredit()).toBeTruthy();
+    const zero = ledgerZero();
+    expect(zero).toBeTruthy();
+    expect(zero[1]).toEqual([5, 9]); // reference_id, client_id
   });
 
-  it('does not reverse when the invoice has no outstanding ledger debit (idempotent / never debited)', async () => {
+  it('still succeeds (no credit written) when the invoice never had a debit', async () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'issued', client_id: 9, invoice_number: 'INV-5', currency: 'USD' });
     Invoice.update.mockResolvedValue({ id: 5, status: 'void' });
-    db.query.mockResolvedValueOnce([[{ net: 0 }]]);
+    db.query
+      .mockResolvedValueOnce([{ affectedRows: 0 }])
+      .mockResolvedValueOnce([{ affectedRows: 0 }]);
     const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'void' });
     expect(res.status).toBe(200);
     expect(ledgerInsert()).toBeFalsy();
   });
 
-  it('skips reversal when the invoice is already void (no double credit)', async () => {
+  it('does nothing to the ledger when the invoice is already void', async () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'void', client_id: 9, invoice_number: 'INV-5', currency: 'USD' });
     Invoice.update.mockResolvedValue({ id: 5, status: 'void' });
     const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'void' });
     expect(res.status).toBe(200);
     expect(db.query).not.toHaveBeenCalled();
-    expect(ledgerInsert()).toBeFalsy();
   });
 
   it('a non-void PATCH still goes through the generic update path', async () => {
@@ -86,6 +90,7 @@ describe('PATCH /invoices/:id — void', () => {
     const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'overdue' });
     expect(res.status).toBe(200);
     expect(ledgerInsert()).toBeFalsy();
+    expect(ledgerZero()).toBeFalsy();
   });
 });
 
@@ -97,16 +102,17 @@ describe('PUT /invoices/:id — void (InvoiceDetail path)', () => {
     expect(res.body.error.code).toBe('INVOICE_PAID');
   });
 
-  it('reverses the ledger on a PUT void', async () => {
+  it('zeroes the ledger on a PUT void', async () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 7, status: 'issued', client_id: 3, invoice_number: 'INV-7', currency: 'USD' });
     Invoice.update.mockResolvedValue({ id: 7, status: 'void' });
     db.query
-      .mockResolvedValueOnce([[{ net: 50 }]])
-      .mockResolvedValueOnce([{ insertId: 2 }]);
+      .mockResolvedValueOnce([{ affectedRows: 0 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
     const res = await request(app).put('/api/v1/invoices/7').send({ status: 'void' });
     expect(res.status).toBe(200);
-    const ins = ledgerInsert();
-    expect(ins).toBeTruthy();
-    expect(ins[1]).toEqual(expect.arrayContaining([3, 1, 50]));
+    expect(ledgerInsert()).toBeFalsy();
+    const zero = ledgerZero();
+    expect(zero).toBeTruthy();
+    expect(zero[1]).toEqual([7, 3]);
   });
 });
