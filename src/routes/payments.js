@@ -76,7 +76,19 @@ router.post('/:id/allocate', requirePermission('payments.create'), validate(allo
       return res.status(422).json({ error: { code: 'INVOICE_NOT_PAYABLE', message: `Cannot apply a payment to a ${invoice.status} invoice.` } });
     }
 
-    const allocation = await Payment.allocate(req.params.id, invoice_id, amount);
+    let allocation;
+    try {
+      allocation = await Payment.allocate(req.params.id, invoice_id, amount);
+    } catch (allocErr) {
+      // Over-allocation guard trigger (SQLSTATE 45000) fires when the amount
+      // would exceed the invoice or payment total. Mirror the reallocate handler.
+      if (allocErr.sqlState === '45000' || allocErr.errno === 1644) {
+        return res.status(422).json({
+          error: { code: 'OVER_ALLOCATION', message: 'Allocation would exceed the invoice or payment total.' },
+        });
+      }
+      throw allocErr;
+    }
 
     // Check if invoice is now fully paid (reuse the already-fetched invoice for total)
     const [allocRows] = await db.query(

@@ -62,6 +62,11 @@ describe('PaymentList page', () => {
     await waitFor(() => expect(screen.getByText('REF-001')).toBeInTheDocument());
   });
 
+  it('renders consolidated Allocate button (with balance) in the payment row', async () => {
+    renderPaymentList();
+    await waitFor(() => expect(screen.getByTitle('Allocate payment to an invoice')).toBeInTheDocument());
+  });
+
   it('downloads the receipt PDF from /pdf/payments/:id when the PDF button is clicked', async () => {
     // Serve a PDF blob for the receipt endpoint; JSON for everything else.
     (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {

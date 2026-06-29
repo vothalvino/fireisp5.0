@@ -489,6 +489,23 @@ describe('INVOICE_NOT_PAYABLE guard — POST /payments/:id/allocate', () => {
     expect(res.body.error.code).toBe('NOT_FOUND');
   });
 
+  test('returns 422 OVER_ALLOCATION when db trigger fires on INSERT', async () => {
+    const invoice = { id: 5, total: '100.00', status: 'issued', contract_id: null, organization_id: 1 };
+    // db.query[0] = SELECT invoice (non-void), db.query[1] = INSERT in Payment.allocate → trigger fires
+    db.query
+      .mockResolvedValueOnce([[invoice]])
+      .mockRejectedValueOnce(Object.assign(new Error('exceeds total'), { sqlState: '45000', errno: 1644 }));
+
+    const res = await request(app)
+      .post('/api/v1/payments/1/allocate')
+      .set('Authorization', AUTH)
+      .send({ invoice_id: 5, amount: 9999 });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('OVER_ALLOCATION');
+    expect(res.body.error.message).toMatch(/allocation would exceed/i);
+  });
+
   test('normal (non-void) allocate still returns 201', async () => {
     const allocation = { id: 10, payment_id: 1, invoice_id: 5, amount: '100.00' };
     const invoice = { id: 5, total: '100.00', status: 'issued', contract_id: null, organization_id: 1 };
