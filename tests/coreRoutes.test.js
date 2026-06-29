@@ -135,6 +135,7 @@ describe('Contract Routes — /api/contracts', () => {
         release: jest.fn(),
       };
       conn.query
+        .mockResolvedValueOnce([[{ id: 5 }]])                       // assertPlanSelectable — plan 5 is live
         .mockResolvedValueOnce([{ insertId: 2, affectedRows: 1 }])  // INSERT contracts
         .mockResolvedValueOnce([[{ name: 'Acme' }]]);               // SELECT client name (seed)
       db.getConnection.mockResolvedValue(conn);
@@ -149,6 +150,27 @@ describe('Contract Routes — /api/contracts', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.data.id).toBe(2);
+    });
+
+    test('rejects creating a contract on an archived plan with 422 PLAN_ARCHIVED', async () => {
+      mockAuthUser();
+      const conn = {
+        query: jest.fn().mockResolvedValueOnce([[]]), // assertPlanSelectable — plan archived/missing
+        beginTransaction: jest.fn().mockResolvedValue(undefined),
+        commit: jest.fn().mockResolvedValue(undefined),
+        rollback: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn(),
+      };
+      db.getConnection.mockResolvedValue(conn);
+
+      const res = await request(app)
+        .post('/api/contracts')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 10, plan_id: 5, start_date: '2025-01-01' });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('PLAN_ARCHIVED');
+      expect(conn.rollback).toHaveBeenCalled();
     });
   });
 

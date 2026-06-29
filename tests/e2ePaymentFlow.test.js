@@ -54,6 +54,7 @@ function mockConnection() {
     query: jest.fn().mockImplementation((sql) => {
       if (/INSERT INTO contracts/i.test(sql)) return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
       if (/INSERT INTO radius/i.test(sql)) return Promise.resolve([{ insertId: 50, affectedRows: 1 }]);
+      if (/FROM plans/i.test(sql)) return Promise.resolve([[{ id: 1 }]]); // plan is live (assertPlanSelectable)
       if (/^\s*SELECT/i.test(sql)) return Promise.resolve([[]]);
       return Promise.resolve([{ affectedRows: 1 }]);
     }),
@@ -202,6 +203,7 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       // pool lookup, radius INSERT) → commit → Contract.findById → auditLog.
       const conn = {
         query: jest.fn()
+          .mockResolvedValueOnce([[{ id: 1 }]])                      // assertPlanSelectable — plan is live
           .mockResolvedValueOnce([{ insertId: 1, affectedRows: 1 }]) // INSERT contracts
           .mockResolvedValueOnce([[{ name: 'Acme' }]])               // SELECT client name
           .mockResolvedValueOnce([[]])                               // radius username uniqueness
