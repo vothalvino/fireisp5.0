@@ -931,9 +931,9 @@ function UnapplyModal({ payment, onClose, onUnapplied }: UnapplyModalProps) {
                     <button
                       style={{ ...actionBtn, background: '#fee2e2', color: '#991b1b', fontSize: '0.8rem' }}
                       onClick={() => mutation.mutate(a.invoice_id)}
-                      disabled={mutation.isPending}
+                      disabled={mutation.isPending && mutation.variables === a.invoice_id}
                     >
-                      {mutation.isPending ? '…' : 'Un-apply'}
+                      {mutation.isPending && mutation.variables === a.invoice_id ? '…' : 'Un-apply'}
                     </button>
                   </td>
                 </tr>

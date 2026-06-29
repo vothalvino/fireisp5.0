@@ -441,7 +441,7 @@ describe('POST /payments/:id/reassign (Capability 3)', () => {
 // Capability 4 (Bug 1): Void-invoice guards on allocate and reallocate
 // ===========================================================================
 
-describe('INVOICE_VOID guard — POST /payments/:id/allocate', () => {
+describe('INVOICE_NOT_PAYABLE guard — POST /payments/:id/allocate', () => {
   // In paymentReallocation.test.js, Payment model is NOT mocked, so
   // Payment.allocate calls db.query for INSERT + SELECT. With the void guard
   // the first db.query is now SELECT invoice (before Payment.allocate).
@@ -458,8 +458,23 @@ describe('INVOICE_VOID guard — POST /payments/:id/allocate', () => {
       .send({ invoice_id: 5, amount: 200 });
 
     expect(res.status).toBe(422);
-    expect(res.body.error.code).toBe('INVOICE_VOID');
-    expect(res.body.error.message).toMatch(/voided invoice/i);
+    expect(res.body.error.code).toBe('INVOICE_NOT_PAYABLE');
+    expect(res.body.error.message).toMatch(/void invoice/i);
+  });
+
+  test('returns 422 INVOICE_NOT_PAYABLE when invoice.status is cancelled', async () => {
+    db.query.mockResolvedValueOnce([[{
+      id: 5, total: '200.00', status: 'cancelled', contract_id: null, organization_id: 1,
+    }]]);
+
+    const res = await request(app)
+      .post('/api/v1/payments/1/allocate')
+      .set('Authorization', AUTH)
+      .send({ invoice_id: 5, amount: 200 });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_NOT_PAYABLE');
+    expect(res.body.error.message).toMatch(/cancelled invoice/i);
   });
 
   test('returns 404 when invoice does not exist', async () => {
@@ -496,8 +511,8 @@ describe('INVOICE_VOID guard — POST /payments/:id/allocate', () => {
   });
 });
 
-describe('INVOICE_VOID guard — POST /payments/:id/reallocate', () => {
-  test('returns 422 INVOICE_VOID when to_invoice is void', async () => {
+describe('INVOICE_NOT_PAYABLE guard — POST /payments/:id/reallocate', () => {
+  test('returns 422 INVOICE_NOT_PAYABLE when to_invoice is void', async () => {
     const conn = makeConn();
     conn.execute
       // load payment
@@ -518,8 +533,8 @@ describe('INVOICE_VOID guard — POST /payments/:id/reallocate', () => {
       .send({ from_invoice_id: 30, to_invoice_id: 31 });
 
     expect(res.status).toBe(422);
-    expect(res.body.error.code).toBe('INVOICE_VOID');
-    expect(res.body.error.message).toMatch(/voided invoice/i);
+    expect(res.body.error.code).toBe('INVOICE_NOT_PAYABLE');
+    expect(res.body.error.message).toMatch(/void invoice/i);
     expect(conn.rollback).toHaveBeenCalled();
   });
 

@@ -72,8 +72,8 @@ router.post('/:id/allocate', requirePermission('payments.create'), validate(allo
     if (!invoice) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Invoice not found.' } });
     }
-    if (invoice.status === 'void') {
-      return res.status(422).json({ error: { code: 'INVOICE_VOID', message: 'Cannot apply a payment to a voided invoice.' } });
+    if (invoice.status === 'void' || invoice.status === 'cancelled') {
+      return res.status(422).json({ error: { code: 'INVOICE_NOT_PAYABLE', message: `Cannot apply a payment to a ${invoice.status} invoice.` } });
     }
 
     const allocation = await Payment.allocate(req.params.id, invoice_id, amount);
@@ -202,12 +202,12 @@ router.post('/:id/reallocate', requirePermission('payments.update'), async (req,
       await conn.rollback();
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'to_invoice_id not found.' } });
     }
-    // Reallocating TO a void invoice makes no sense — it owes nothing.
-    // Reallocating AWAY from a void invoice (from_invoice) is allowed.
-    if (toInv.status === 'void') {
+    // Reallocating TO a void/cancelled invoice makes no sense — it owes nothing.
+    // Reallocating AWAY from such an invoice (from_invoice) is allowed.
+    if (toInv.status === 'void' || toInv.status === 'cancelled') {
       await conn.rollback();
       return res.status(422).json({
-        error: { code: 'INVOICE_VOID', message: 'Cannot reallocate a payment to a voided invoice.' },
+        error: { code: 'INVOICE_NOT_PAYABLE', message: `Cannot reallocate a payment to a ${toInv.status} invoice.` },
       });
     }
     if (Number(toInv.client_id) !== Number(payment.client_id)) {
