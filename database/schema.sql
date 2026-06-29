@@ -7320,7 +7320,7 @@ BEGIN
     DECLARE v_already_alloc DECIMAL(10,2);
     SELECT amount INTO v_payment_total FROM payments WHERE id = NEW.payment_id;
     SELECT COALESCE(SUM(amount),0) INTO v_already_alloc
-    FROM payment_allocations WHERE payment_id = NEW.payment_id;
+    FROM payment_allocations WHERE payment_id = NEW.payment_id AND deleted_at IS NULL;
     IF v_already_alloc + NEW.amount > v_payment_total THEN
         SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'Payment allocation would exceed total payment amount';
@@ -7336,7 +7336,7 @@ BEGIN
     DECLARE v_already_alloc DECIMAL(10,2);
     SELECT amount INTO v_payment_total FROM payments WHERE id = NEW.payment_id;
     SELECT COALESCE(SUM(amount),0) INTO v_already_alloc
-    FROM payment_allocations WHERE payment_id = NEW.payment_id AND id != OLD.id;
+    FROM payment_allocations WHERE payment_id = NEW.payment_id AND id != OLD.id AND deleted_at IS NULL;
     IF v_already_alloc + NEW.amount > v_payment_total THEN
         SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'Payment allocation would exceed total payment amount';
@@ -7352,7 +7352,7 @@ BEGIN
     DECLARE v_already_alloc DECIMAL(10,2);
     SELECT total INTO v_invoice_total FROM invoices WHERE id = NEW.invoice_id;
     SELECT COALESCE(SUM(amount),0) INTO v_already_alloc
-    FROM payment_allocations WHERE invoice_id = NEW.invoice_id;
+    FROM payment_allocations WHERE invoice_id = NEW.invoice_id AND deleted_at IS NULL;
     IF v_already_alloc + NEW.amount > v_invoice_total THEN
         SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'Payment allocation would exceed invoice total';
@@ -7368,7 +7368,7 @@ BEGIN
     DECLARE v_already_alloc DECIMAL(10,2);
     SELECT total INTO v_invoice_total FROM invoices WHERE id = NEW.invoice_id;
     SELECT COALESCE(SUM(amount),0) INTO v_already_alloc
-    FROM payment_allocations WHERE invoice_id = NEW.invoice_id AND id != OLD.id;
+    FROM payment_allocations WHERE invoice_id = NEW.invoice_id AND id != OLD.id AND deleted_at IS NULL;
     IF v_already_alloc + NEW.amount > v_invoice_total THEN
         SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'Payment allocation would exceed invoice total';

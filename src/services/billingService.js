@@ -353,6 +353,24 @@ async function refreshInvoicePaidStatus(invoiceId) {
 }
 
 /**
+ * Release (soft-delete) all live payment_allocations for a single invoice.
+ * Used when voiding a paid invoice so its payments become unallocated credits
+ * rather than leaving orphaned allocation rows. The payment ledger credits are
+ * NOT touched — the client keeps each payment as an unallocated balance credit.
+ *
+ * Unlike reversePaymentAllocations (which follows a payment), this follows an
+ * invoice and only removes rows for that invoice. Payments split across other
+ * invoices are unaffected.
+ */
+async function releaseInvoiceAllocations(invoiceId) {
+  logger.info({ invoiceId }, 'Releasing invoice payment allocations (void path)');
+  await db.query(
+    'UPDATE payment_allocations SET deleted_at = NOW() WHERE invoice_id = ? AND deleted_at IS NULL',
+    [invoiceId],
+  );
+}
+
+/**
  * Reverse a payment's allocations when the payment is deleted: soft-delete its
  * payment_allocations rows and re-derive the paid status of every invoice it
  * touched, so an invoice is not left flagged 'paid' once its payment is gone.
@@ -390,5 +408,6 @@ module.exports = {
   generateBillingPeriod, generateInvoice, calculateProration,
   recordPaymentCredit, reversePaymentCredit,
   reversePaymentAllocations, restorePaymentAllocations, refreshInvoicePaidStatus,
+  releaseInvoiceAllocations,
   isContractInTrial, calculateOverageCharges,
 };

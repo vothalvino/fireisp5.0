@@ -482,7 +482,11 @@ export function InvoiceDetail() {
   });
 
   function handleVoid() {
-    if (window.confirm('Void this invoice? This marks it as void and cannot be undone.')) {
+    const isPaid = invoice?.status === 'paid';
+    const msg = isPaid
+      ? 'Void this paid invoice? The invoice will be cancelled and its payment(s) will be released to the client as unallocated credit. This cannot be undone.'
+      : 'Void this invoice? This marks it as void and cannot be undone.';
+    if (window.confirm(msg)) {
       voidMutation.mutate();
     }
   }
@@ -574,8 +578,9 @@ export function InvoiceDetail() {
               </button>
               <button
                 onClick={handleVoid}
-                disabled={invoice.status === 'void' || invoice.status === 'paid' || voidMutation.isPending}
+                disabled={invoice.status === 'void' || voidMutation.isPending}
                 style={actionBtn('#b91c1c')}
+                title={invoice.status === 'paid' ? 'Voiding a paid invoice releases its payment(s) as unallocated client credit' : undefined}
               >
                 {voidMutation.isPending ? 'Voiding…' : '🚫 Void'}
               </button>

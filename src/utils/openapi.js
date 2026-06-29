@@ -388,6 +388,8 @@ function generateSpec() {
       ...crudPaths('payments', 'Payments', 'Payment'),
       '/payments/{id}/allocate': { post: { tags: ['Payments'], summary: 'Allocate payment to invoice', operationId: 'allocatePaymentToInvoice', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('payments_allocatePayment'), responses: r201('Allocation') } },
       '/payments/{id}/allocations': { get: { tags: ['Payments'], summary: 'List payment allocations', operationId: 'listPaymentAllocations', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Allocation[]') } },
+      '/payments/{id}/reallocate': { post: { tags: ['Payments'], summary: 'Move a payment allocation from one invoice to another (same client only)', operationId: 'reallocatePayment', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('from_invoice_id + to_invoice_id + optional amount'), responses: r201('Allocation') } },
+      '/payments/{id}/reassign': { post: { tags: ['Payments'], summary: 'Reassign an unallocated payment to a different client', operationId: 'reassignPayment', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('new_client_id'), responses: r200('Payment') } },
       '/payments/{id}/receipt': {
         get: {
           tags: ['Payments'],

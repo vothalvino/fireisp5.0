@@ -6018,6 +6018,98 @@
         }
       }
     },
+    "/payments/{id}/reallocate": {
+      "post": {
+        "tags": [
+          "Payments"
+        ],
+        "summary": "Move a payment allocation from one invoice to another (same client only)",
+        "operationId": "reallocatePayment",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "from_invoice_id + to_invoice_id + optional amount",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Allocation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/payments/{id}/reassign": {
+      "post": {
+        "tags": [
+          "Payments"
+        ],
+        "summary": "Reassign an unallocated payment to a different client",
+        "operationId": "reassignPayment",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "new_client_id",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Payment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/payments/{id}/receipt": {
       "get": {
         "tags": [

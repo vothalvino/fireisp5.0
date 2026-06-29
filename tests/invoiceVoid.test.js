@@ -1,5 +1,8 @@
 // =============================================================================
-// FireISP 5.0 — Invoice void: balance-ledger reversal + paid-invoice guard
+// FireISP 5.0 — Invoice void: balance-ledger reversal + paid-invoice handling
+// NOTE: Paid invoices CAN now be voided (Capability 1). Voiding a paid invoice
+// soft-deletes its payment_allocations (releasing them as client credits) then
+// zeroes the invoice's ledger entries. Payment 'credit' rows are NOT removed.
 // =============================================================================
 
 const request = require('supertest');
@@ -41,13 +44,26 @@ const ledgerZero = () => db.query.mock.calls.find(c => /UPDATE client_balance_le
 beforeEach(() => { jest.clearAllMocks(); });
 
 describe('PATCH /invoices/:id — void', () => {
-  it('rejects voiding a PAID invoice with 422 and writes nothing', async () => {
+  it('voids a PAID invoice: releases allocations + zeroes ledger, leaves payment credits', async () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'paid', client_id: 9, invoice_number: 'INV-5', currency: 'USD' });
+    Invoice.update.mockResolvedValue({ id: 5, status: 'void', client_id: 9 });
+    db.query
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // releaseInvoiceAllocations (UPDATE payment_allocations)
+      .mockResolvedValueOnce([{ affectedRows: 0 }]) // DELETE any prior void-reversal credit
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE — zero the debit
     const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'void' });
-    expect(res.status).toBe(422);
-    expect(res.body.error.code).toBe('INVOICE_PAID');
-    expect(Invoice.update).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('void');
+    // First db.query must soft-delete payment_allocations for this invoice
+    const allocRelease = db.query.mock.calls.find(c => /UPDATE payment_allocations SET deleted_at/.test(c[0]));
+    expect(allocRelease).toBeTruthy();
+    expect(allocRelease[1]).toContain(5); // invoice id
+    // No new ledger credit is inserted — payment credits stay on the client
     expect(ledgerInsert()).toBeFalsy();
+    // The debit row is zeroed
+    const zero = ledgerZero();
+    expect(zero).toBeTruthy();
+    expect(zero[1]).toEqual([5, 9]);
   });
 
   it('voids an issued invoice by zeroing its ledger entries (no offsetting credit)', async () => {
@@ -104,11 +120,19 @@ describe('PATCH /invoices/:id — void', () => {
 });
 
 describe('PUT /invoices/:id — void (InvoiceDetail path)', () => {
-  it('rejects voiding a PAID invoice with 422', async () => {
+  it('voids a PAID invoice via PUT: releases allocations + zeroes ledger', async () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 7, status: 'paid', client_id: 3, invoice_number: 'INV-7', currency: 'USD' });
+    Invoice.update.mockResolvedValue({ id: 7, status: 'void', client_id: 3 });
+    db.query
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // releaseInvoiceAllocations
+      .mockResolvedValueOnce([{ affectedRows: 0 }]) // DELETE void-reversal credit
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // zero the debit
     const res = await request(app).put('/api/v1/invoices/7').send({ status: 'void' });
-    expect(res.status).toBe(422);
-    expect(res.body.error.code).toBe('INVOICE_PAID');
+    expect(res.status).toBe(200);
+    expect(ledgerInsert()).toBeFalsy();
+    const zero = ledgerZero();
+    expect(zero).toBeTruthy();
+    expect(zero[1]).toEqual([7, 3]);
   });
 
   it('zeroes the ledger on a PUT void', async () => {
