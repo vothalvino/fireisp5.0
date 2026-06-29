@@ -313,4 +313,82 @@ async function recordPaymentCredit(payment, orgId) {
   );
 }
 
-module.exports = { generateBillingPeriod, generateInvoice, calculateProration, recordPaymentCredit, isContractInTrial, calculateOverageCharges };
+/**
+ * Reverse the balance-ledger credit a payment created (the inverse of
+ * recordPaymentCredit). Called when a payment is deleted so the ledger and the
+ * computed balance stop reflecting a payment that is gone from the Payments tab.
+ * reference_id is the payments primary key (globally unique), so this removes
+ * exactly the one credit entry for that payment.
+ */
+async function reversePaymentCredit(paymentId) {
+  logger.info({ paymentId }, 'Reversing payment credit');
+  await db.query(
+    `DELETE FROM client_balance_ledger
+      WHERE reference_type = 'payment' AND reference_id = ?`,
+    [paymentId],
+  );
+}
+
+/**
+ * Recompute an invoice's paid status from its LIVE allocations. Marks it 'paid'
+ * (paid_at = NOW) when fully covered, and reverts a 'paid' invoice back to
+ * 'issued' (clearing paid_at) when it is no longer covered. Other statuses are
+ * left untouched — the dunning/late-fee jobs re-derive overdue from there.
+ */
+async function refreshInvoicePaidStatus(invoiceId) {
+  const [rows] = await db.query(
+    `SELECT i.total,
+            COALESCE((SELECT SUM(pa.amount) FROM payment_allocations pa
+                       WHERE pa.invoice_id = i.id AND pa.deleted_at IS NULL), 0) AS allocated
+       FROM invoices i WHERE i.id = ? AND i.deleted_at IS NULL`,
+    [invoiceId],
+  );
+  const inv = rows[0];
+  if (!inv) return;
+  if (parseFloat(inv.allocated) >= parseFloat(inv.total)) {
+    await db.query("UPDATE invoices SET status = 'paid', paid_at = NOW() WHERE id = ? AND status <> 'paid'", [invoiceId]);
+  } else {
+    await db.query("UPDATE invoices SET status = 'issued', paid_at = NULL WHERE id = ? AND status = 'paid'", [invoiceId]);
+  }
+}
+
+/**
+ * Reverse a payment's allocations when the payment is deleted: soft-delete its
+ * payment_allocations rows and re-derive the paid status of every invoice it
+ * touched, so an invoice is not left flagged 'paid' once its payment is gone.
+ */
+async function reversePaymentAllocations(paymentId) {
+  const [allocs] = await db.query(
+    'SELECT DISTINCT invoice_id FROM payment_allocations WHERE payment_id = ? AND deleted_at IS NULL',
+    [paymentId],
+  );
+  if (!allocs.length) return;
+  await db.query('UPDATE payment_allocations SET deleted_at = NOW() WHERE payment_id = ? AND deleted_at IS NULL', [paymentId]);
+  for (const { invoice_id: invoiceId } of allocs) {
+    if (invoiceId) await refreshInvoicePaidStatus(invoiceId);
+  }
+}
+
+/**
+ * Restore a payment's allocations when the payment is restored: revive its
+ * soft-deleted payment_allocations and re-derive the paid status of every
+ * invoice it touched (inverse of reversePaymentAllocations).
+ */
+async function restorePaymentAllocations(paymentId) {
+  const [allocs] = await db.query(
+    'SELECT DISTINCT invoice_id FROM payment_allocations WHERE payment_id = ? AND deleted_at IS NOT NULL',
+    [paymentId],
+  );
+  if (!allocs.length) return;
+  await db.query('UPDATE payment_allocations SET deleted_at = NULL WHERE payment_id = ? AND deleted_at IS NOT NULL', [paymentId]);
+  for (const { invoice_id: invoiceId } of allocs) {
+    if (invoiceId) await refreshInvoicePaidStatus(invoiceId);
+  }
+}
+
+module.exports = {
+  generateBillingPeriod, generateInvoice, calculateProration,
+  recordPaymentCredit, reversePaymentCredit,
+  reversePaymentAllocations, restorePaymentAllocations, refreshInvoicePaidStatus,
+  isContractInTrial, calculateOverageCharges,
+};

@@ -15,7 +15,23 @@ const suspensionService = require('../services/suspensionService');
 const db = require('../config/database');
 
 const router = Router();
-const ctrl = crudController(Payment);
+// Keep the client balance ledger in sync with the payment lifecycle. Creating a
+// payment writes a 'payment' credit (see the POST handler below); deleting one
+// must remove that credit, otherwise the ledger and the computed balance keep
+// showing a payment that has vanished from the Payments tab. Restoring re-adds it.
+const ctrl = crudController(Payment, {
+  afterDelete: async (payment) => {
+    await billingService.reversePaymentCredit(payment.id);
+    // Also undo its invoice allocations so an invoice isn't left flagged 'paid'
+    // while the balance now shows it owed again.
+    await billingService.reversePaymentAllocations(payment.id);
+  },
+  afterRestore: async (payment, req) => {
+    await billingService.reversePaymentCredit(payment.id); // idempotent — avoid a double credit
+    await billingService.recordPaymentCredit(payment, req.orgId);
+    await billingService.restorePaymentAllocations(payment.id);
+  },
+});
 
 router.use(authenticate);
 router.use(orgScope);

@@ -467,4 +467,62 @@ describe('PDF Service', () => {
       expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
     });
   });
+
+  // ---- Client ledger statement PDF ----
+
+  describe('generateClientLedgerPdf()', () => {
+    const client = {
+      id: 14, name: 'Acme Corp', email: 'acme@example.com', phone: '+52 555 000 1111',
+      org_name: 'Test ISP', org_email: 'admin@testisp.com',
+      org_address: 'Insurgentes 456', org_city: 'CDMX', org_state: 'CDMX', org_country: 'MX',
+    };
+    const entries = [
+      { entry_type: 'invoice', amount: '580.00', debit: '0.00', credit: '0.00', currency: 'MXN', reference_type: 'invoice', reference_id: 100, description: 'Invoice INV-000100', created_at: '2026-04-01T00:00:00Z' },
+      { entry_type: 'payment', amount: '580.00', debit: '0.00', credit: '0.00', currency: 'MXN', reference_type: 'payment', reference_id: 10, description: 'Payment PAY-1', created_at: '2026-04-15T00:00:00Z' },
+      // Refund credit_balance entry — uses the debit/credit columns, amount = 0.
+      { entry_type: 'adjustment', amount: '0.00', debit: '0.00', credit: '200.00', currency: 'MXN', reference_type: 'adjustment', reference_id: 5, description: 'Refund credit', created_at: '2026-04-20T00:00:00Z' },
+    ];
+
+    it('generates an all-time statement (no opening-balance query); selects debit/credit columns', async () => {
+      db.query
+        .mockResolvedValueOnce([[client]])
+        .mockResolvedValueOnce([entries]);
+
+      const buffer = await pdfService.generateClientLedgerPdf(14, { orgId: 1 });
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
+      expect(db.query).toHaveBeenCalledTimes(2); // client + entries, no opening-balance query
+      // The entries query must fetch debit/credit so the refund row isn't shown as 0.
+      expect(db.query.mock.calls[1][0]).toContain('debit, credit');
+    });
+
+    it('generates a date-range statement with an opening balance (es locale)', async () => {
+      db.query
+        .mockResolvedValueOnce([[client]])
+        .mockResolvedValueOnce([[{ opening: '120.00' }]])
+        .mockResolvedValueOnce([[entries[1]]]);
+
+      const buffer = await pdfService.generateClientLedgerPdf(14, { from: '2026-06-01', to: '2026-06-30', orgId: 1, locale: 'es' });
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
+      expect(db.query).toHaveBeenCalledTimes(3); // client + opening + entries
+      const entriesSql = db.query.mock.calls[2][0];
+      expect(entriesSql).toContain('created_at >=');
+      expect(entriesSql).toContain('DATE_ADD');
+    });
+
+    it('renders an empty all-time statement without throwing', async () => {
+      db.query
+        .mockResolvedValueOnce([[client]])
+        .mockResolvedValueOnce([[]]);
+
+      const buffer = await pdfService.generateClientLedgerPdf(14, { orgId: 1 });
+      expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
+    });
+
+    it('throws for a non-existent client', async () => {
+      db.query.mockResolvedValueOnce([[]]);
+      await expect(pdfService.generateClientLedgerPdf(999, { orgId: 1 })).rejects.toThrow('Client not found');
+    });
+  });
 });

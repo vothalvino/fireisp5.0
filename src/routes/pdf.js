@@ -93,4 +93,26 @@ router.get('/payments/:id', async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/pdf/clients/:id/ledger?from=YYYY-MM-DD&to=YYYY-MM-DD&locale=
+ * Download a client's account statement (balance ledger) as PDF. Omit from/to
+ * for an all-time statement.
+ */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+router.get('/clients/:id/ledger', async (req, res, next) => {
+  try {
+    const locale = req.query.locale || 'en';
+    const from = ISO_DATE.test(req.query.from || '') ? req.query.from : null;
+    const to = ISO_DATE.test(req.query.to || '') ? req.query.to : null;
+    const buffer = await pdfService.generateClientLedgerPdf(parseInt(req.params.id, 10), {
+      locale, from, to, orgId: req.orgId,
+    });
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `attachment; filename="ledger-client-${req.params.id}.pdf"`);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

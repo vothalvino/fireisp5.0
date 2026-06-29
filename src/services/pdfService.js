@@ -7,6 +7,7 @@
 
 const PDFDocument = require('pdfkit');
 const db = require('../config/database');
+const ClientBalanceLedger = require('../models/ClientBalanceLedger');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -44,6 +45,10 @@ const PDF_LABELS = {
     uuid: 'Fiscal UUID', rfcEmitter: 'RFC Emitter', rfcReceiver: 'RFC Receiver',
     usoCfdi: 'CFDI Use', paymentMethod: 'Payment Method', paymentForm: 'Payment Form',
     certSerial: 'Certificate Serial', satSeal: 'SAT Digital Seal',
+    statement: 'ACCOUNT STATEMENT', period: 'Period', allTime: 'All time',
+    openingBalance: 'Opening Balance', closingBalance: 'Closing Balance',
+    stmtDate: 'Date', debit: 'Debit', credit: 'Credit', stmtBalance: 'Balance',
+    noEntries: 'No ledger entries for this period.',
   },
   es: {
     invoice: 'FACTURA', creditNote: 'NOTA DE CRÉDITO', quote: 'COTIZACIÓN',
@@ -62,6 +67,10 @@ const PDF_LABELS = {
     uuid: 'UUID Fiscal', rfcEmitter: 'RFC Emisor', rfcReceiver: 'RFC Receptor',
     usoCfdi: 'Uso CFDI', paymentMethod: 'Método de Pago', paymentForm: 'Forma de Pago',
     certSerial: 'No. Certificado', satSeal: 'Sello Digital SAT',
+    statement: 'ESTADO DE CUENTA', period: 'Período', allTime: 'Todo el tiempo',
+    openingBalance: 'Saldo Inicial', closingBalance: 'Saldo Final',
+    stmtDate: 'Fecha', debit: 'Cargo', credit: 'Abono', stmtBalance: 'Saldo',
+    noEntries: 'No hay movimientos en este período.',
   },
 };
 
@@ -766,12 +775,188 @@ async function generatePaymentReceiptPdf(paymentId, { locale = 'en' } = {}) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Client account-statement (balance ledger) PDF
+// ---------------------------------------------------------------------------
+
+// amount+entry_type representation: these entry types are debits (increase what
+// the client owes), the rest are credits. The signed delta below ALSO folds in
+// the debit/credit columns (the refund path uses those, leaving amount = 0),
+// matching ClientBalanceLedger.signedAmountSql exactly so the statement and the
+// on-screen balance can never disagree.
+const LEDGER_DEBIT_TYPES = ['invoice', 'usage_deduction', 'debit'];
+
+/**
+ * Generate a client balance-ledger statement PDF, optionally for a date range.
+ * @param {number} clientId
+ * @param {object} opts
+ * @param {string} [opts.locale='en']
+ * @param {string|null} [opts.from] inclusive period start (YYYY-MM-DD); null = all time
+ * @param {string|null} [opts.to]   inclusive period end (YYYY-MM-DD); null = open-ended
+ * @param {number|null} [opts.orgId]
+ * @returns {Promise<Buffer>}
+ */
+async function generateClientLedgerPdf(clientId, { locale = 'en', from = null, to = null, orgId = null } = {}) {
+  const L = pdfLabels(locale);
+
+  const [clients] = await db.query(
+    `SELECT cl.id, cl.name, cl.email, cl.phone,
+            o.name AS org_name, o.email AS org_email,
+            o.address AS org_address, o.city AS org_city, o.state AS org_state, o.country AS org_country
+     FROM clients cl
+     LEFT JOIN organizations o ON o.id = cl.organization_id
+     WHERE cl.id = ?`,
+    [clientId],
+  );
+  const client = clients[0];
+  if (!client) throw new Error('Client not found');
+
+  // Opening balance: signed sum of everything before the period start. Uses the
+  // single source of truth (ClientBalanceLedger.signedAmountSql) so the statement
+  // can never drift from the on-screen balance/ledger — both representations
+  // (amount+entry_type and the debit/credit refund path) are accounted for.
+  let opening = 0;
+  if (from) {
+    const [openRows] = await db.query(
+      `SELECT COALESCE(SUM(${ClientBalanceLedger.signedAmountSql}), 0) AS opening
+         FROM client_balance_ledger
+        WHERE client_id = ? AND organization_id <=> ? AND created_at < ?`,
+      [clientId, orgId, from],
+    );
+    opening = parseFloat(openRows[0].opening) || 0;
+  }
+
+  // Period entries (chronological so the running balance reads top-to-bottom).
+  const where = ['client_id = ?', 'organization_id <=> ?'];
+  const params = [clientId, orgId];
+  if (from) { where.push('created_at >= ?'); params.push(from); }
+  if (to) { where.push('created_at < DATE_ADD(?, INTERVAL 1 DAY)'); params.push(to); }
+  const [entries] = await db.query(
+    `SELECT entry_type, amount, debit, credit, currency, reference_type, reference_id, description, created_at
+       FROM client_balance_ledger
+      WHERE ${where.join(' AND ')}
+      ORDER BY created_at ASC, id ASC`,
+    params,
+  );
+
+  const currency = (entries.find(e => e.currency) || {}).currency || 'MXN';
+  const COL = [
+    { x: PAGE_MARGIN, width: 70 },
+    { x: 125, width: 205 },
+    { x: 335, width: 70, align: 'right' },
+    { x: 410, width: 70, align: 'right' },
+    { x: 485, width: 77, align: 'right' },
+  ];
+
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'LETTER', margin: PAGE_MARGIN });
+    const chunks = [];
+    doc.on('data', chunk => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    // ---- Header ----
+    doc.fontSize(20).font('Helvetica-Bold').fillColor(COLORS.primary)
+      .text(L.statement, PAGE_MARGIN, PAGE_MARGIN);
+    const periodText = (from || to)
+      ? `${L.period}: ${from ? fmtDate(from) : '…'} – ${to ? fmtDate(to) : '…'}`
+      : `${L.period}: ${L.allTime}`;
+    doc.fontSize(10).font('Helvetica').fillColor(COLORS.muted)
+      .text(periodText, PAGE_MARGIN, PAGE_MARGIN + 26);
+
+    // Organization info (top-right)
+    const rightX = 350;
+    doc.fontSize(11).font('Helvetica-Bold').fillColor(COLORS.text)
+      .text(client.org_name || 'FireISP', rightX, PAGE_MARGIN, { width: 200, align: 'right' });
+    doc.fontSize(8).font('Helvetica').fillColor(COLORS.muted);
+    let orgY = PAGE_MARGIN + 16;
+    if (client.org_address) { doc.text(client.org_address, rightX, orgY, { width: 200, align: 'right' }); orgY += 11; }
+    if (client.org_city || client.org_state) { doc.text(`${client.org_city || ''} ${client.org_state || ''} ${client.org_country || ''}`.trim(), rightX, orgY, { width: 200, align: 'right' }); orgY += 11; }
+    if (client.org_email) { doc.text(client.org_email, rightX, orgY, { width: 200, align: 'right' }); }
+
+    // ---- Client ----
+    let y = drawHR(doc, 110);
+    doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.muted).text(L.client, PAGE_MARGIN, y);
+    y += 14;
+    doc.fontSize(11).font('Helvetica-Bold').fillColor(COLORS.text).text(client.name || `Client #${clientId}`, PAGE_MARGIN, y);
+    y += 15;
+    doc.fontSize(8).font('Helvetica').fillColor(COLORS.muted);
+    if (client.email) { doc.text(client.email, PAGE_MARGIN, y); y += 11; }
+    if (client.phone) { doc.text(client.phone, PAGE_MARGIN, y); y += 11; }
+    y += 6;
+
+    // ---- Table header (redrawn after each page break) ----
+    const headerRow = (yy) => {
+      const h = drawTableRow(doc, yy, [
+        { ...COL[0], text: L.stmtDate, align: 'left' },
+        { ...COL[1], text: L.description, align: 'left' },
+        { ...COL[2], text: L.debit, align: 'right' },
+        { ...COL[3], text: L.credit, align: 'right' },
+        { ...COL[4], text: L.stmtBalance, align: 'right' },
+      ], { bold: true, color: COLORS.primary, fontSize: 8 });
+      return drawHR(doc, h);
+    };
+    y = drawHR(doc, y);
+    y = headerRow(y);
+
+    let running = opening;
+    if (from) {
+      y = drawTableRow(doc, y, [
+        { ...COL[0], text: fmtDate(from), align: 'left' },
+        { ...COL[1], text: L.openingBalance, align: 'left' },
+        { ...COL[2], text: '', align: 'right' },
+        { ...COL[3], text: '', align: 'right' },
+        { ...COL[4], text: fmt(running, currency), align: 'right' },
+      ], { bold: true, color: COLORS.muted, fontSize: 8 });
+    }
+
+    if (entries.length === 0 && !from) {
+      doc.fontSize(9).font('Helvetica').fillColor(COLORS.muted).text(L.noEntries, PAGE_MARGIN, y + 4);
+      y += 22;
+    } else {
+      for (const e of entries) {
+        // Signed delta = the amount+entry_type half + the debit/credit half,
+        // exactly as ClientBalanceLedger.signedAmountSql. Positive = a debit
+        // (client owed more); negative = a credit.
+        const amt = parseFloat(e.amount) || 0;
+        const signed = (LEDGER_DEBIT_TYPES.includes(e.entry_type) ? amt : -amt)
+          + (parseFloat(e.debit) || 0) - (parseFloat(e.credit) || 0);
+        running += signed;
+        const ec = e.currency || currency;
+        const mag = fmt(Math.abs(signed), ec);
+        y = drawTableRow(doc, y, [
+          { ...COL[0], text: fmtDate(e.created_at), align: 'left' },
+          { ...COL[1], text: e.description || `${e.entry_type}${e.reference_id ? ' #' + e.reference_id : ''}`, align: 'left' },
+          { ...COL[2], text: signed > 0 ? mag : '', align: 'right' },
+          { ...COL[3], text: signed < 0 ? mag : '', align: 'right' },
+          { ...COL[4], text: fmt(running, currency), align: 'right' },
+        ], { fontSize: 8 });
+        if (y > 700) { doc.addPage(); y = headerRow(PAGE_MARGIN); }
+      }
+    }
+
+    // ---- Closing balance ----
+    y += 4;
+    y = drawHR(doc, y);
+    doc.fontSize(10).font('Helvetica-Bold').fillColor(COLORS.primary);
+    doc.text(`${L.closingBalance}:`, 320, y, { width: 145, align: 'right' });
+    doc.text(fmt(running, currency), 470, y, { width: 92, align: 'right' });
+
+    // ---- Footer ----
+    doc.fontSize(7).font('Helvetica').fillColor(COLORS.muted)
+      .text(`Generated by FireISP 5.0 — ${new Date().toISOString()}`, PAGE_MARGIN, 750, { align: 'center', width: doc.page.width - PAGE_MARGIN * 2 });
+
+    doc.end();
+  });
+}
+
 module.exports = {
   generateInvoicePdf,
   generateCreditNotePdf,
   generateQuotePdf,
   generateCfdiPdf,
   generatePaymentReceiptPdf,
+  generateClientLedgerPdf,
   // Exported for testing
   fmt,
   fmtDate,
