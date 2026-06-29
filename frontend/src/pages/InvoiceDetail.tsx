@@ -557,7 +557,12 @@ export function InvoiceDetail() {
               <button onClick={handleDownloadPdf} style={actionBtn('#059669')}>
                 ⬇ Download PDF
               </button>
-              <button onClick={() => setShowEdit(true)} style={actionBtn('#6b7280')}>
+              <button
+                onClick={() => setShowEdit(true)}
+                disabled={invoice.status === 'void'}
+                style={actionBtn('#6b7280')}
+                title={invoice.status === 'void' ? 'Voided invoices cannot be edited' : undefined}
+              >
                 ✏️ Edit
               </button>
               <button

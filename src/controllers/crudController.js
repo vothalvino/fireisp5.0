@@ -42,6 +42,12 @@ function crudController(Model, _options = {}) {
   // response; errors are caught and logged. The inverse of afterDelete (e.g.
   // reviving a NAS's WireGuard tunnel that teardown soft-deleted).
   const afterRestoreHook = typeof _options.afterRestore === 'function' ? _options.afterRestore : null;
+  // Optional pre-update guard — called with the EXISTING record (and req) right
+  // after it is fetched and BEFORE the update is applied (PUT and PATCH). Unlike
+  // the after* hooks this one MAY throw (e.g. an AppError) to reject the update;
+  // the error propagates to the error handler. Reuses the existing fetch, so it
+  // adds no extra query. Useful for terminal-state guards (e.g. voided invoices).
+  const beforeUpdateHook = typeof _options.beforeUpdate === 'function' ? _options.beforeUpdate : null;
 
   return {
     /**
@@ -140,6 +146,7 @@ function crudController(Model, _options = {}) {
     async update(req, res, next) {
       try {
         const old = await Model.findByIdOrFail(req.params.id, req.orgId);
+        if (beforeUpdateHook) await beforeUpdateHook(old, req);
         const record = await Model.update(req.params.id, req.body, req.orgId);
 
         await auditLog.log({
@@ -165,6 +172,7 @@ function crudController(Model, _options = {}) {
     async partialUpdate(req, res, next) {
       try {
         const old = await Model.findByIdOrFail(req.params.id, req.orgId);
+        if (beforeUpdateHook) await beforeUpdateHook(old, req);
         const record = await Model.update(req.params.id, req.body, req.orgId);
 
         await auditLog.log({

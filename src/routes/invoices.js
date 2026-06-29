@@ -13,9 +13,20 @@ const { createInvoice, updateInvoice, patchInvoice, addInvoiceItem } = require('
 const billingService = require('../services/billingService');
 const auditLog = require('../services/auditLog');
 const db = require('../config/database');
+const { AppError } = require('../utils/errors');
 
 const router = Router();
-const ctrl = crudController(Invoice);
+// A voided invoice is terminal: any edit is rejected (PUT/PATCH that isn't a
+// re-void). Un-voiding back to 'issued' would also leave the reversed balance
+// ledger out of sync, so it must not be possible. Setting status to 'void' is
+// routed to voidInvoice (below), not through this hook.
+const ctrl = crudController(Invoice, {
+  beforeUpdate: (old) => {
+    if (old.status === 'void') {
+      throw new AppError('Voided invoices cannot be modified.', 422, 'INVOICE_VOID');
+    }
+  },
+});
 
 router.use(authenticate);
 router.use(orgScope);
