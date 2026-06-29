@@ -33,6 +33,9 @@ import { ProfileExtrasTab, CustomFieldsTab, DocumentsTab, DuplicatesTab } from '
 import { ActivityTimelineTab } from '@/pages/ClientActivityTab';
 import { ClientCommunicationPrefs } from '@/pages/ClientCommunicationPrefs';
 import { GenerateInvoiceModal } from '@/components/GenerateInvoiceModal';
+import { RecordPaymentModal } from '@/components/RecordPaymentModal';
+import { NewTicketModal } from '@/components/NewTicketModal';
+import { NewContractModal } from '@/components/NewContractModal';
 
 // ---------------------------------------------------------------------------
 // GraphQL query — fetches the client + all sub-resources in one request
@@ -305,6 +308,17 @@ interface ClientTicket {
   priority: string | null;
   status: string;
   created_at: string;
+}
+
+// Right-aligned "+ New X" button row shown above a tab's content (mirrors the
+// Contacts tab's "+ Add Contact"). Rendered by the parent so the tab components
+// stay presentational.
+function NewBtnRow({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <div style={{ padding: '0.75rem 0.75rem 0', textAlign: 'right' }}>
+      <button type="button" style={styles.smallPrimaryBtn} onClick={onClick}>{label}</button>
+    </div>
+  );
 }
 
 function TicketsTab({ clientId }: { clientId: number }) {
@@ -902,9 +916,15 @@ export function ClientDetail() {
   const [showMxProfile, setShowMxProfile] = useState(false);
   const [showPortalPassword, setShowPortalPassword] = useState(false);
   const [showGenerateInvoice, setShowGenerateInvoice] = useState(false);
+  const [showRecordPayment, setShowRecordPayment] = useState(false);
+  const [showNewTicket, setShowNewTicket] = useState(false);
+  const [showNewContract, setShowNewContract] = useState(false);
 
   const canEdit = can(user?.role, 'clients.update');
   const canCreateInvoice = can(user?.role, 'invoices.create');
+  const canRecordPayment = can(user?.role, 'payments.create');
+  const canCreateTicket = can(user?.role, 'tickets.create');
+  const canCreateContract = can(user?.role, 'contracts.create');
 
   const { data: client, isLoading, error } = useQuery({
     queryKey: ['client-detail-gql', id],
@@ -1012,14 +1032,11 @@ export function ClientDetail() {
             <span style={styles.clientId}>ID #{client.id}</span>
           </div>
         </div>
-        {(canEdit || canCreateInvoice) && (
+        {canEdit && (
           <div style={styles.headerActions}>
-            {canCreateInvoice && (
-              <button type="button" style={styles.actionBtn} onClick={() => setShowGenerateInvoice(true)}>➕ New Invoice</button>
-            )}
-            {canEdit && <button type="button" style={styles.actionBtn} onClick={() => setShowEdit(true)}>✏️ Edit</button>}
-            {canEdit && <button type="button" style={styles.actionBtn} onClick={() => setShowMxProfile(true)}>🧾 MX Profile</button>}
-            {canEdit && <button type="button" style={styles.actionBtn} onClick={() => setShowPortalPassword(true)}>🔑 Portal Password</button>}
+            <button type="button" style={styles.actionBtn} onClick={() => setShowEdit(true)}>✏️ Edit</button>
+            <button type="button" style={styles.actionBtn} onClick={() => setShowMxProfile(true)}>🧾 MX Profile</button>
+            <button type="button" style={styles.actionBtn} onClick={() => setShowPortalPassword(true)}>🔑 Portal Password</button>
           </div>
         )}
       </div>
@@ -1068,11 +1085,31 @@ export function ClientDetail() {
       {/* Tab content */}
       <div style={styles.tabContent}>
         {activeTab === 'activity'  && <ActivityTimelineTab clientId={Number(client.id)} />}
-        {activeTab === 'contracts' && <ContractsTab contracts={client.contracts} />}
-        {activeTab === 'invoices'  && <InvoicesTab  invoices={client.invoices}   />}
-        {activeTab === 'payments'  && <PaymentsTab  payments={client.payments}   />}
+        {activeTab === 'contracts' && (
+          <>
+            {canCreateContract && <NewBtnRow label="+ New Contract" onClick={() => setShowNewContract(true)} />}
+            <ContractsTab contracts={client.contracts} />
+          </>
+        )}
+        {activeTab === 'invoices' && (
+          <>
+            {canCreateInvoice && <NewBtnRow label="+ New Invoice" onClick={() => setShowGenerateInvoice(true)} />}
+            <InvoicesTab invoices={client.invoices} />
+          </>
+        )}
+        {activeTab === 'payments' && (
+          <>
+            {canRecordPayment && <NewBtnRow label="+ Record Payment" onClick={() => setShowRecordPayment(true)} />}
+            <PaymentsTab payments={client.payments} />
+          </>
+        )}
         {activeTab === 'devices'   && <DevicesTab   devices={client.devices}     />}
-        {activeTab === 'tickets'   && <TicketsTab   clientId={Number(client.id)}  />}
+        {activeTab === 'tickets'   && (
+          <>
+            {canCreateTicket && <NewBtnRow label="+ New Ticket" onClick={() => setShowNewTicket(true)} />}
+            <TicketsTab clientId={Number(client.id)} />
+          </>
+        )}
         {activeTab === 'ledger'    && <LedgerTab    ledger={client.ledger}       />}
         {activeTab === 'contacts'  && (
           <ContactsTab
@@ -1104,6 +1141,30 @@ export function ClientDetail() {
           lockedClientName={client.name}
           onClose={() => setShowGenerateInvoice(false)}
           onGenerated={() => { refetchClient(); setActiveTab('invoices'); }}
+        />
+      )}
+      {showRecordPayment && (
+        <RecordPaymentModal
+          lockedClientId={Number(id)}
+          lockedClientName={client.name}
+          onClose={() => setShowRecordPayment(false)}
+          onRecorded={() => { refetchClient(); setActiveTab('payments'); }}
+        />
+      )}
+      {showNewTicket && (
+        <NewTicketModal
+          lockedClientId={Number(id)}
+          lockedClientName={client.name}
+          onClose={() => setShowNewTicket(false)}
+          onCreated={() => { queryClient.invalidateQueries({ queryKey: ['client-tickets', Number(client.id)] }); setActiveTab('tickets'); }}
+        />
+      )}
+      {showNewContract && (
+        <NewContractModal
+          lockedClientId={Number(id)}
+          lockedClientName={client.name}
+          onClose={() => setShowNewContract(false)}
+          onCreated={() => { refetchClient(); setActiveTab('contracts'); }}
         />
       )}
       {showAddContact && (
