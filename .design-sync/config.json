@@ -1,0 +1,14 @@
+{
+  "pkg": "@fireisp/ui",
+  "globalName": "FireispUI",
+  "projectId": "a1935acd-620b-4770-8173-1779afe9b182",
+  "shape": "package",
+  "buildCmd": "npm run build",
+  "cssEntry": "dist/index.css",
+  "readmeHeader": ".design-sync/conventions.md",
+  "overrides": {
+    "Modal": { "cardMode": "single", "viewport": "720x560" },
+    "Table": { "cardMode": "column" },
+    "Card": { "cardMode": "column" }
+  }
+}
