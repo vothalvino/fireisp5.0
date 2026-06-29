@@ -560,7 +560,7 @@ function LedgerTab({ ledger, clientId }: { ledger: LedgerEntry[]; clientId: numb
   return (
     <div>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '0.75rem 0.75rem 0', justifyContent: 'flex-end' }}>
-        <select value={range} onChange={e => setRange(e.target.value as LedgerRange)} style={ctrlStyle} aria-label="Statement period">
+        <select value={range} onChange={e => { setErr(''); setRange(e.target.value as LedgerRange); }} style={ctrlStyle} aria-label="Statement period">
           <option value="all">All time</option>
           <option value="month">This month</option>
           <option value="year">This year</option>
@@ -573,11 +573,11 @@ function LedgerTab({ ledger, clientId }: { ledger: LedgerEntry[]; clientId: numb
             <input type="date" value={customTo} min={customFrom || undefined} onChange={e => setCustomTo(e.target.value)} style={ctrlStyle} aria-label="To date" />
           </>
         )}
-        <button type="button" onClick={handleDownload} disabled={downloading} style={styles.smallPrimaryBtn}>
+        <button type="button" onClick={handleDownload} disabled={downloading} aria-busy={downloading} style={styles.smallPrimaryBtn}>
           {downloading ? 'Generating…' : '⬇ PDF'}
         </button>
       </div>
-      {err && <p style={{ color: '#991b1b', textAlign: 'right', padding: '4px 0.75rem 0', fontSize: '0.8rem', margin: 0 }}>{err}</p>}
+      {err && <p role="alert" style={{ color: '#991b1b', textAlign: 'right', padding: '4px 0.75rem 0', fontSize: '0.8rem', margin: 0 }}>{err}</p>}
       {!ledger.length ? (
         <p style={styles.msg}>No ledger entries found.</p>
       ) : (

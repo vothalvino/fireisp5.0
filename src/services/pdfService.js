@@ -7,6 +7,7 @@
 
 const PDFDocument = require('pdfkit');
 const db = require('../config/database');
+const ClientBalanceLedger = require('../models/ClientBalanceLedger');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -778,9 +779,11 @@ async function generatePaymentReceiptPdf(paymentId, { locale = 'en' } = {}) {
 // Client account-statement (balance ledger) PDF
 // ---------------------------------------------------------------------------
 
-// Entry types that increase the amount the client owes (debits); everything
-// else (payment/topup/credit_note/adjustment/credit) is a credit. Mirrors the
-// client_balance_ledger.entry_type enum semantics + the GraphQL balance resolver.
+// amount+entry_type representation: these entry types are debits (increase what
+// the client owes), the rest are credits. The signed delta below ALSO folds in
+// the debit/credit columns (the refund path uses those, leaving amount = 0),
+// matching ClientBalanceLedger.signedAmountSql exactly so the statement and the
+// on-screen balance can never disagree.
 const LEDGER_DEBIT_TYPES = ['invoice', 'usage_deduction', 'debit'];
 
 /**
@@ -808,12 +811,14 @@ async function generateClientLedgerPdf(clientId, { locale = 'en', from = null, t
   const client = clients[0];
   if (!client) throw new Error('Client not found');
 
-  // Opening balance: signed sum of everything before the period start.
+  // Opening balance: signed sum of everything before the period start. Uses the
+  // single source of truth (ClientBalanceLedger.signedAmountSql) so the statement
+  // can never drift from the on-screen balance/ledger — both representations
+  // (amount+entry_type and the debit/credit refund path) are accounted for.
   let opening = 0;
   if (from) {
     const [openRows] = await db.query(
-      `SELECT COALESCE(SUM(CASE WHEN entry_type IN ('invoice','usage_deduction','debit')
-                                THEN amount ELSE -amount END), 0) AS opening
+      `SELECT COALESCE(SUM(${ClientBalanceLedger.signedAmountSql}), 0) AS opening
          FROM client_balance_ledger
         WHERE client_id = ? AND organization_id <=> ? AND created_at < ?`,
       [clientId, orgId, from],
@@ -827,7 +832,7 @@ async function generateClientLedgerPdf(clientId, { locale = 'en', from = null, t
   if (from) { where.push('created_at >= ?'); params.push(from); }
   if (to) { where.push('created_at < DATE_ADD(?, INTERVAL 1 DAY)'); params.push(to); }
   const [entries] = await db.query(
-    `SELECT entry_type, amount, currency, reference_type, reference_id, description, created_at
+    `SELECT entry_type, amount, debit, credit, currency, reference_type, reference_id, description, created_at
        FROM client_balance_ledger
       WHERE ${where.join(' AND ')}
       ORDER BY created_at ASC, id ASC`,
@@ -910,15 +915,20 @@ async function generateClientLedgerPdf(clientId, { locale = 'en', from = null, t
       y += 22;
     } else {
       for (const e of entries) {
+        // Signed delta = the amount+entry_type half + the debit/credit half,
+        // exactly as ClientBalanceLedger.signedAmountSql. Positive = a debit
+        // (client owed more); negative = a credit.
         const amt = parseFloat(e.amount) || 0;
-        const isDebit = LEDGER_DEBIT_TYPES.includes(e.entry_type);
-        running += isDebit ? amt : -amt;
+        const signed = (LEDGER_DEBIT_TYPES.includes(e.entry_type) ? amt : -amt)
+          + (parseFloat(e.debit) || 0) - (parseFloat(e.credit) || 0);
+        running += signed;
         const ec = e.currency || currency;
+        const mag = fmt(Math.abs(signed), ec);
         y = drawTableRow(doc, y, [
           { ...COL[0], text: fmtDate(e.created_at), align: 'left' },
           { ...COL[1], text: e.description || `${e.entry_type}${e.reference_id ? ' #' + e.reference_id : ''}`, align: 'left' },
-          { ...COL[2], text: isDebit ? fmt(amt, ec) : '', align: 'right' },
-          { ...COL[3], text: isDebit ? '' : fmt(amt, ec), align: 'right' },
+          { ...COL[2], text: signed > 0 ? mag : '', align: 'right' },
+          { ...COL[3], text: signed < 0 ? mag : '', align: 'right' },
           { ...COL[4], text: fmt(running, currency), align: 'right' },
         ], { fontSize: 8 });
         if (y > 700) { doc.addPage(); y = headerRow(PAGE_MARGIN); }

@@ -477,11 +477,13 @@ describe('PDF Service', () => {
       org_address: 'Insurgentes 456', org_city: 'CDMX', org_state: 'CDMX', org_country: 'MX',
     };
     const entries = [
-      { entry_type: 'invoice', amount: '580.00', currency: 'MXN', reference_type: 'invoice', reference_id: 100, description: 'Invoice INV-000100', created_at: '2026-04-01T00:00:00Z' },
-      { entry_type: 'payment', amount: '580.00', currency: 'MXN', reference_type: 'payment', reference_id: 10, description: 'Payment PAY-1', created_at: '2026-04-15T00:00:00Z' },
+      { entry_type: 'invoice', amount: '580.00', debit: '0.00', credit: '0.00', currency: 'MXN', reference_type: 'invoice', reference_id: 100, description: 'Invoice INV-000100', created_at: '2026-04-01T00:00:00Z' },
+      { entry_type: 'payment', amount: '580.00', debit: '0.00', credit: '0.00', currency: 'MXN', reference_type: 'payment', reference_id: 10, description: 'Payment PAY-1', created_at: '2026-04-15T00:00:00Z' },
+      // Refund credit_balance entry — uses the debit/credit columns, amount = 0.
+      { entry_type: 'adjustment', amount: '0.00', debit: '0.00', credit: '200.00', currency: 'MXN', reference_type: 'adjustment', reference_id: 5, description: 'Refund credit', created_at: '2026-04-20T00:00:00Z' },
     ];
 
-    it('generates an all-time statement (no opening-balance query)', async () => {
+    it('generates an all-time statement (no opening-balance query); selects debit/credit columns', async () => {
       db.query
         .mockResolvedValueOnce([[client]])
         .mockResolvedValueOnce([entries]);
@@ -490,6 +492,8 @@ describe('PDF Service', () => {
       expect(Buffer.isBuffer(buffer)).toBe(true);
       expect(buffer.toString('utf8', 0, 5)).toBe('%PDF-');
       expect(db.query).toHaveBeenCalledTimes(2); // client + entries, no opening-balance query
+      // The entries query must fetch debit/credit so the refund row isn't shown as 0.
+      expect(db.query.mock.calls[1][0]).toContain('debit, credit');
     });
 
     it('generates a date-range statement with an opening balance (es locale)', async () => {

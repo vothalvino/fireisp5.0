@@ -218,6 +218,35 @@ describe('billingService', () => {
   });
 
   // =========================================================================
+  // reversePaymentAllocations
+  // =========================================================================
+  describe('reversePaymentAllocations', () => {
+    test('soft-deletes allocations and reverts an over-covered invoice to issued', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ invoice_id: 5 }]])                       // distinct invoice ids
+        .mockResolvedValueOnce([{ affectedRows: 1 }])                       // soft-delete allocations
+        .mockResolvedValueOnce([[{ total: '580.00', allocated: '0.00' }]])  // refreshInvoicePaidStatus SELECT
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);                      // UPDATE invoices -> issued
+
+      await billingService.reversePaymentAllocations(99);
+
+      expect(db.query).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE payment_allocations SET deleted_at = NOW()'),
+        [99],
+      );
+      const updateInvoiceSql = db.query.mock.calls[3][0];
+      expect(updateInvoiceSql).toContain("status = 'issued'");
+      expect(updateInvoiceSql).toContain('paid_at = NULL');
+    });
+
+    test('no-ops when the payment has no live allocations', async () => {
+      db.query.mockResolvedValueOnce([[]]);
+      await billingService.reversePaymentAllocations(99);
+      expect(db.query).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // =========================================================================
   // calculateProration
   // =========================================================================
   describe('calculateProration', () => {
