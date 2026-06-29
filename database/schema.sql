@@ -1184,6 +1184,7 @@ CREATE TABLE IF NOT EXISTS organizations (
     city                VARCHAR(100)    NULL,
     state               VARCHAR(100)    NULL,
     country             VARCHAR(100)    NULL DEFAULT NULL,
+    currency            CHAR(3)         NOT NULL DEFAULT 'MXN' COMMENT 'ISO 4217 — the single currency for this org',
     zip_code            VARCHAR(20)     NULL,
     website             VARCHAR(255)    NULL,
     online_payment_url  VARCHAR(255)    NULL COMMENT 'URL for the online payment portal',

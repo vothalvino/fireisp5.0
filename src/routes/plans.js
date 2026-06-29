@@ -4,6 +4,7 @@
 
 const { Router } = require('express');
 const Plan = require('../models/Plan');
+const Organization = require('../models/Organization');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
@@ -21,7 +22,13 @@ router.use(orgScope);
 
 router.get('/', requirePermission('plans.view'), httpCache('plans', 300), ctrl.list);
 router.get('/:id', requirePermission('plans.view'), ctrl.get);
-router.post('/', requirePermission('plans.create'), validate(createPlan), ctrl.create);
+router.post('/', requirePermission('plans.create'), validate(createPlan), async (req, res, next) => {
+  // Default currency to the org's currency when the client omits it.
+  if (!req.body.currency && req.orgId) {
+    req.body.currency = await Organization.getCurrency(req.orgId);
+  }
+  return ctrl.create(req, res, next);
+});
 router.put('/:id', requirePermission('plans.update'), validate(updatePlan), ctrl.update);
 router.patch('/:id', requirePermission('plans.update'), validate(patchPlan), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('plans.delete'), ctrl.destroy);

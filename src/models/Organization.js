@@ -10,7 +10,7 @@ class Organization extends BaseModel {
   static get fillable() {
     return [
       'name', 'legal_name', 'email', 'phone', 'website',
-      'address', 'city', 'state', 'zip_code', 'country', 'locale',
+      'address', 'city', 'state', 'zip_code', 'country', 'currency', 'locale',
       'tax_id', 'logo_url', 'status',
     ];
   }
@@ -18,6 +18,21 @@ class Organization extends BaseModel {
   static get hasOrgScope() { return false; }
 
   static get softDelete() { return true; }
+
+  /**
+   * Return the ISO 4217 currency code for the given organization.
+   * Falls back to 'MXN' if the org is not found or has no currency set.
+   * @param {number|string} orgId
+   * @returns {Promise<string>}
+   */
+  static async getCurrency(orgId) {
+    const db = require('../config/database');
+    const [rows] = await db.query(
+      'SELECT currency FROM organizations WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+      [orgId],
+    );
+    return rows[0]?.currency || 'MXN';
+  }
 
   /**
    * Get settings for this organization from the settings table.

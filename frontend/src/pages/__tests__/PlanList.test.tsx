@@ -13,6 +13,11 @@ vi.mock('@/api/client', () => ({
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
 }));
 
+// useOrgCurrency requires AuthProvider; stub it for isolated PlanList tests.
+vi.mock('@/auth/useOrgCurrency', () => ({
+  useOrgCurrency: () => 'MXN',
+}));
+
 const plan1 = {
   id: 1, name: 'Fibra 100', description: null,
   download_speed_mbps: 100, upload_speed_mbps: 50,

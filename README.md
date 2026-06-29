@@ -110,7 +110,7 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 fireisp5.0/
 ├── database/                # Database schema and migrations
 │   ├── schema.sql           # Combined schema (all 324 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–368)
+│   └── migrations/          # Individual numbered migration files (001–369)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -507,6 +507,8 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 > **Migration 357 — §21 Channel Defaults:** No-op; channel configs created lazily per org on first use.
 
 > **Migration 358 — §21 Scheduled Task:** Seeds the `ai_support_metrics_rollup` task (nightly at 01:00, task_type=other).
+
+> **Migration 369 — Org-level currency:** Adds `currency CHAR(3) NOT NULL DEFAULT 'MXN'` to `organizations` (AFTER country). Each org now has one authoritative ISO 4217 currency; plan create defaults to it when no currency is supplied; Inventory UI reads it dynamically.
 
 > **Migration 165–173 table count note:** See migrations 241–246 below for the §5 Dual Stack tables. See migrations 249–263 for §6.1–6.6 SNMP & NMS tables.
 

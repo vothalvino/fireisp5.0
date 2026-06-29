@@ -59034,6 +59034,11 @@
             "type": "string",
             "maximum": 100
           },
+          "currency": {
+            "type": "string",
+            "minimum": 3,
+            "maximum": 3
+          },
           "locale": {
             "type": "string",
             "enum": [
@@ -59105,6 +59110,11 @@
             "type": "string",
             "maximum": 100
           },
+          "currency": {
+            "type": "string",
+            "minimum": 3,
+            "maximum": 3
+          },
           "locale": {
             "type": "string",
             "enum": [
@@ -59172,6 +59182,11 @@
           "country": {
             "type": "string",
             "maximum": 100
+          },
+          "currency": {
+            "type": "string",
+            "minimum": 3,
+            "maximum": 3
           },
           "locale": {
             "type": "string",

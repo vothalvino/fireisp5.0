@@ -12,6 +12,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
+import { useOrgCurrency } from '@/auth/useOrgCurrency';
 import {
   styles,
   modalStyles,
@@ -164,7 +165,6 @@ function PlanModal({ plan, onClose, onSaved }: PlanModalProps) {
     download_speed_mbps: plan?.download_speed_mbps != null ? String(plan.download_speed_mbps) : '',
     upload_speed_mbps: plan?.upload_speed_mbps != null ? String(plan.upload_speed_mbps) : '',
     price: plan?.price != null ? String(plan.price) : '',
-    currency: plan?.currency ?? 'MXN',
     billing_cycle: plan?.billing_cycle ?? 'monthly',
     data_cap_gb: plan?.data_cap_gb != null ? String(plan.data_cap_gb) : '',
     status: plan?.status ?? 'active',
@@ -193,7 +193,6 @@ function PlanModal({ plan, onClose, onSaved }: PlanModalProps) {
         download_speed_mbps: Number(form.download_speed_mbps),
         upload_speed_mbps: Number(form.upload_speed_mbps),
         price: Number(form.price),
-        currency: form.currency || undefined,
         billing_cycle: form.billing_cycle,
         status: form.status,
         overage_mode: form.overage_mode || 'none',
@@ -301,18 +300,6 @@ function PlanModal({ plan, onClose, onSaved }: PlanModalProps) {
               value={form.price}
               onChange={e => setField('price', e.target.value)}
               required
-            />
-          </label>
-
-          <label style={modalStyles.label}>
-            Currency
-            <input
-              style={modalStyles.input}
-              type="text"
-              maxLength={3}
-              value={form.currency}
-              onChange={e => setField('currency', e.target.value.toUpperCase())}
-              placeholder="e.g. MXN"
             />
           </label>
 
@@ -545,6 +532,7 @@ function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
 
 export function PlanList() {
   const queryClient = useQueryClient();
+  const orgCurrency = useOrgCurrency();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
@@ -631,7 +619,7 @@ export function PlanList() {
                       <td style={styles.td}>#{p.id}</td>
                       <td style={{ ...styles.td, fontWeight: 500 }}>{p.name}</td>
                       <td style={styles.td}>{p.download_speed_mbps ?? '—'} / {p.upload_speed_mbps ?? '—'}</td>
-                      <td style={styles.td}>{fmtMoney(p.price, p.currency ?? 'USD')}</td>
+                      <td style={styles.td}>{fmtMoney(p.price, p.currency ?? orgCurrency)}</td>
                       <td style={{ ...styles.td, textTransform: 'capitalize' }}>
                         {p.billing_cycle ? p.billing_cycle.replace('_', '-') : '—'}
                       </td>
