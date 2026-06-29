@@ -32,6 +32,9 @@ export interface AuthUser {
   role: string;        // primary role slug, e.g. "admin" | "technician" | "billing" | "support"
   roles?: string[];    // all roles the user belongs to
   organization_id: number | null;
+  /** Currency of the ACTIVE org, resolved server-side (works even for an org the
+   *  user is not a member of, e.g. a super-admin switched into another tenant). */
+  organization_currency?: string;
   is_active: boolean;
   email_verified: boolean;
   twofa_enabled: boolean;

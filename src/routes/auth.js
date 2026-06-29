@@ -8,6 +8,7 @@ const { authenticate } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const authSchemas = require('../middleware/schemas/auth');
 const User = require('../models/User');
+const Organization = require('../models/Organization');
 const { sanitizeUser } = require('../utils/userSanitize');
 const config = require('../config');
 const { setCsrfCookie, clearCsrfCookie } = require('../middleware/csrf');
@@ -148,10 +149,17 @@ router.get('/me', authenticate, async (req, res, next) => {
     const organizations = await User.getOrganizations(req.user.id);
     // Report the ACTIVE organization (from the access-token `orgId` claim), not the
     // user's stored home org — otherwise the org switcher snaps back after a switch.
+    const activeOrgId = req.user.organizationId ?? safeUser.organization_id;
+    // The active org's currency, fetched directly. NOT derived from `organizations`
+    // (which lists only the user's memberships): a super-admin can switch to an org
+    // they are not a member of, and its currency would otherwise be unavailable —
+    // making every such org fall back to the default currency in the UI.
+    const organizationCurrency = activeOrgId ? await Organization.getCurrency(activeOrgId) : 'MXN';
     res.json({
       data: {
         ...safeUser,
-        organization_id: req.user.organizationId ?? safeUser.organization_id,
+        organization_id: activeOrgId,
+        organization_currency: organizationCurrency,
         organizations,
       },
     });

@@ -9,17 +9,17 @@ import { useAuth } from './AuthContext';
 
 /**
  * Return the currency of the active organization.
- * The active org is identified by `user.organization_id`; the org record
- * is looked up in `user.organizations[]` which is populated by GET /auth/me.
+ * Prefers `user.organization_currency` (resolved server-side in GET /auth/me for
+ * the active org — correct even for an org the user is not a member of, e.g. a
+ * super-admin who switched tenants). Falls back to looking the active org up in
+ * `user.organizations[]` (memberships), then to 'MXN'.
  */
 export function useOrgCurrency(): string {
   const { user } = useAuth();
   if (!user) return 'MXN';
 
-  const activeOrg = (user.organizations ?? []).find(
-    (o) => o.id === user.organization_id,
-  );
+  if (user.organization_currency) return user.organization_currency;
 
-  // AuthOrganization now carries `currency` from the /auth/me response.
-  return (activeOrg as { id: number; name: string; currency?: string })?.currency ?? 'MXN';
+  const activeOrg = (user.organizations ?? []).find((o) => o.id === user.organization_id);
+  return activeOrg?.currency ?? 'MXN';
 }

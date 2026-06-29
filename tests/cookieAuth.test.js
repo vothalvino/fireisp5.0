@@ -40,6 +40,10 @@ jest.mock('../src/models/User', () => ({
   getOrganizations: jest.fn(),
 }));
 
+jest.mock('../src/models/Organization', () => ({
+  getCurrency: jest.fn().mockResolvedValue('MXN'),
+}));
+
 jest.mock('../src/config', () => ({
   env: 'test',
   jwt: { secret: 'test-secret' },
@@ -392,6 +396,9 @@ describe('P3.4 — httpOnly cookie auth', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.organization_id).toBe(1);
       expect(res.body.data.organizations).toHaveLength(2);
+      // The active org's currency is resolved server-side (works even when the
+      // active org isn't in the membership list).
+      expect(res.body.data.organization_currency).toBe('MXN');
     });
   });
 });
