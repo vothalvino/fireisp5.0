@@ -13,6 +13,11 @@ binlog-row-image   = FULL
 binlog-expire-logs-seconds = 604800
 max-binlog-size    = 256M
 sync-binlog        = 1
+# Allow the non-SUPER application user to (re)create TRIGGERs/FUNCTIONs while
+# binary logging is on. Their bodies are deterministic guards; without this,
+# migrations that create triggers fail with ER_BINLOG_CREATE_ROUTINE_NEED_SUPER
+# (errno 1419, "You do not have the SUPER privilege and binary logging is enabled").
+log_bin_trust_function_creators = 1
 
 # --- GTID replication ---
 gtid-mode          = ON
