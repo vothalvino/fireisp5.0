@@ -2017,6 +2017,25 @@ function generateSpec() {
         get: { tags: ['Work Orders'], summary: 'Work order counts grouped by status', operationId: 'getWorkOrderStats', security: [{ bearerAuth: [] }], responses: r200('StatusCount[]') },
       },
       ...crudPaths('work-orders', 'Work Orders', 'WorkOrder'),
+      // Override list to document ticket_id + service_order_id query filters
+      '/work-orders': {
+        get: {
+          tags: ['Work Orders'], summary: 'List work-orders', operationId: 'listWorkOrders',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'ticket_id',         in: 'query', schema: { type: 'integer' }, description: 'Filter by linked ticket' },
+            { name: 'service_order_id',  in: 'query', schema: { type: 'integer' }, description: 'Filter by linked service order' },
+            { name: 'client_id',         in: 'query', schema: { type: 'integer' }, description: 'Filter by client' },
+            { name: 'site_id',           in: 'query', schema: { type: 'integer' }, description: 'Filter by site' },
+            { name: 'device_id',         in: 'query', schema: { type: 'integer' }, description: 'Filter by device' },
+            { name: 'status',            in: 'query', schema: { type: 'string' }, description: 'Filter by status' },
+            { name: 'page',              in: 'query', schema: { type: 'integer', default: 1 } },
+            { name: 'limit',             in: 'query', schema: { type: 'integer', default: 50 } },
+          ],
+          responses: r200('WorkOrder[]'),
+        },
+        post: { tags: ['Work Orders'], summary: 'Create a WorkOrder', operationId: 'createWorkOrder', security: [{ bearerAuth: [] }], requestBody: jsonBody('WorkOrder'), responses: r201('WorkOrder') },
+      },
       '/work-orders/{id}/restore': {
         post: { tags: ['Work Orders'], summary: 'Restore a soft-deleted work order', operationId: 'restoreWorkOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('WorkOrder') },
       },

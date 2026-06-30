@@ -42,9 +42,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/churn-analytics', labelKey: 'nav.churnAnalytics', requiredRole: 'billing' },
       { to: '/communication-campaigns', labelKey: 'nav.communicationCampaigns', requiredRole: 'support' },
       { to: '/tickets', labelKey: 'nav.tickets' },
-      { to: '/follow-up-reminders', labelKey: 'nav.followUps' },
       { to: '/satisfaction-surveys', labelKey: 'nav.surveys' },
-      { to: '/escalations', labelKey: 'nav.escalations' },
       { to: '/noc-dashboard', labelKey: 'nav.nocDashboard', requiredRole: 'technician' },
       { to: '/work-orders', labelKey: 'nav.workOrders', requiredRole: 'technician' },
     ],
@@ -175,8 +173,6 @@ const TECHNICIAN_NAV_GROUPS: NavGroup[] = [
       { to: '/work-orders', labelKey: 'nav.workOrders' },
       { to: '/service-orders', labelKey: 'nav.serviceOrders' },
       { to: '/clients', labelKey: 'nav.clients' },
-      { to: '/follow-up-reminders', labelKey: 'nav.followUps' },
-      { to: '/escalations', labelKey: 'nav.escalations' },
     ],
   },
   {
