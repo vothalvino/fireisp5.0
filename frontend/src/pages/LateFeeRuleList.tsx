@@ -13,6 +13,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { tokenStore } from '@/api/client';
 import { styles } from './crudStyles';
+import { Pagination } from '@/components/Pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,6 +28,11 @@ interface LateFeeRule {
   max_applications: number | null;
   is_active: number | boolean;
   created_at: string;
+}
+
+interface RulesResponse {
+  data: LateFeeRule[];
+  meta: { total: number; page: number; limit: number; totalPages: number };
 }
 
 interface FormState {
@@ -71,8 +77,9 @@ async function apiFetch(path: string, opts: RequestInit = {}): Promise<unknown> 
   return res.status === 204 ? null : res.json();
 }
 
-async function fetchRules(): Promise<{ data: LateFeeRule[] }> {
-  return apiFetch('/late-fee-rules') as Promise<{ data: LateFeeRule[] }>;
+async function fetchRules(page: number, pageSize: number): Promise<RulesResponse> {
+  const params = new URLSearchParams({ page: String(page), limit: String(pageSize) });
+  return apiFetch(`/late-fee-rules?${params}`) as Promise<RulesResponse>;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,8 +94,13 @@ export function LateFeeRuleList() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<LateFeeRule | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const { data, isLoading } = useQuery({ queryKey: ['late-fee-rules'], queryFn: fetchRules });
+  const { data, isLoading } = useQuery({
+    queryKey: ['late-fee-rules', page, pageSize],
+    queryFn: () => fetchRules(page, pageSize),
+  });
   const rules = data?.data || [];
 
   const createMutation = useMutation({
@@ -164,6 +176,7 @@ export function LateFeeRuleList() {
       )}
 
       {rules.length > 0 && (
+        <>
         <table style={styles.table}>
           <thead>
             <tr>
@@ -202,6 +215,17 @@ export function LateFeeRuleList() {
             ))}
           </tbody>
         </table>
+
+        {/* Pagination */}
+        <Pagination
+          page={page}
+          totalPages={data?.meta?.totalPages ?? 1}
+          total={data?.meta?.total}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        />
+        </>
       )}
 
       {/* Create / Edit Form Modal */}

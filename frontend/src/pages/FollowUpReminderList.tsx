@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
+import { Pagination } from '@/components/Pagination';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
 import {
@@ -60,8 +61,8 @@ function toSqlDatetime(value: string): string {
   return value.replace('T', ' ') + (value.length === 16 ? ':00' : '');
 }
 
-async function fetchReminders(status: string): Promise<RemindersResponse> {
-  const query: Record<string, unknown> = { limit: 200, order_by: 'due_at', order: 'ASC' };
+async function fetchReminders(page: number, pageSize: number, status: string): Promise<RemindersResponse> {
+  const query: Record<string, unknown> = { page, limit: pageSize, order_by: 'due_at', order: 'ASC' };
   if (status) query.status = status;
   const res = await api.GET('/follow-up-reminders', { params: { query: query as never } });
   if (res.error) throw new Error('Failed to load follow-up reminders');
@@ -177,13 +178,15 @@ export function FollowUpReminderList() {
   const [statusFilter, setStatusFilter] = useState('pending');
   const [showCreate, setShowCreate] = useState(false);
   const [editReminder, setEditReminder] = useState<FollowUpReminder | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const canCreate = can(user?.role, 'follow_ups.create');
   const canUpdate = can(user?.role, 'follow_ups.update');
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['follow-up-reminders', statusFilter],
-    queryFn: () => fetchReminders(statusFilter),
+    queryKey: ['follow-up-reminders', page, pageSize, statusFilter],
+    queryFn: () => fetchReminders(page, pageSize, statusFilter),
   });
 
   const completeMutation = useMutation({
@@ -214,7 +217,7 @@ export function FollowUpReminderList() {
 
       <div style={{ margin: '0.5rem 0 1rem' }}>
         <select style={{ ...inputStyle, width: 200, marginBottom: 0 }} value={statusFilter}
-          onChange={e => setStatusFilter(e.target.value)} aria-label="Filter by status">
+          onChange={e => { setStatusFilter(e.target.value); setPage(1); }} aria-label="Filter by status">
           <option value="">All statuses</option>
           {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
@@ -224,6 +227,7 @@ export function FollowUpReminderList() {
       {error && <div style={errorBox}>{(error as Error).message}</div>}
 
       {data && (
+        <>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-strong)' }}>
@@ -266,6 +270,17 @@ export function FollowUpReminderList() {
             })}
           </tbody>
         </table>
+
+        {/* Pagination */}
+        <Pagination
+          page={page}
+          totalPages={data?.meta?.totalPages ?? 1}
+          total={data?.meta?.total}
+          pageSize={pageSize}
+          onPageChange={(p) => { setPage(p); }}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        />
+        </>
       )}
 
       {showCreate && (

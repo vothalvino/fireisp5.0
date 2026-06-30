@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { extractApiError } from '@/components/ClientFormModal';
 import { useTableSort, SortableTh } from '@/components/SortableTh';
+import { Pagination } from '@/components/Pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,16 +66,15 @@ interface CreateTicketBody {
 // Fetch / mutate helpers
 // ---------------------------------------------------------------------------
 
-const PAGE_SIZE = 25;
-
 async function fetchTickets(
   page: number,
+  pageSize: number,
   statusFilter: string,
   priorityFilter: string,
   orderBy: string,
   order: string,
 ): Promise<TicketsResponse> {
-  const query: Record<string, string | number> = { page, limit: PAGE_SIZE, order_by: orderBy, order };
+  const query: Record<string, string | number> = { page, limit: pageSize, order_by: orderBy, order };
   if (statusFilter) query.status = statusFilter;
   if (priorityFilter) query.priority = priorityFilter;
   const res = await api.GET('/tickets' as never, { params: { query: query as never } } as never);
@@ -269,6 +269,7 @@ export function TicketList() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
@@ -277,8 +278,8 @@ export function TicketList() {
   useEffect(() => { setPage(1); }, [sort.sortBy, sort.sortDir]);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['tickets', page, statusFilter, priorityFilter, sort.sortBy, sort.sortDir],
-    queryFn: () => fetchTickets(page, statusFilter, priorityFilter, sort.order_by, sort.order),
+    queryKey: ['tickets', page, pageSize, statusFilter, priorityFilter, sort.sortBy, sort.sortDir],
+    queryFn: () => fetchTickets(page, pageSize, statusFilter, priorityFilter, sort.order_by, sort.order),
   });
 
   const { data: clients = [] } = useQuery({
@@ -296,7 +297,6 @@ export function TicketList() {
 
   const tickets = data?.data ?? [];
   const meta = data?.meta;
-  const totalPages = meta?.totalPages ?? 1;
 
   function handleFilterChange(setter: (v: string) => void) {
     return (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -387,13 +387,14 @@ export function TicketList() {
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: '1rem' }}>
-              <button style={btnSecondary} disabled={page <= 1} onClick={() => setPage(p => p - 1)}>{t('clientList.prevPage')}</button>
-              <span style={{ fontSize: '0.85rem', color: '#555' }}>{t('clientList.pageInfo', { page, total: totalPages })} ({meta?.total} tickets)</span>
-              <button style={btnSecondary} disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>{t('clientList.nextPage')}</button>
-            </div>
-          )}
+          <Pagination
+            page={page}
+            totalPages={meta?.totalPages ?? 1}
+            total={meta?.total}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          />
         </>
       )}
 

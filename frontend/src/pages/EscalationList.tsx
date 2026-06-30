@@ -11,6 +11,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
+import { Pagination } from '@/components/Pagination';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
 import {
@@ -52,9 +53,9 @@ interface Candidate {
   hours_open: number;
 }
 
-async function fetchEscalations(): Promise<EscalationsResponse> {
+async function fetchEscalations(page: number, pageSize: number): Promise<EscalationsResponse> {
   const res = await api.GET('/escalations', {
-    params: { query: { limit: 200, order_by: 'created_at', order: 'DESC' } as never },
+    params: { query: { page, limit: pageSize, order_by: 'created_at', order: 'DESC' } as never },
   });
   if (res.error) throw new Error('Failed to load escalations');
   return res.data as unknown as EscalationsResponse;
@@ -127,11 +128,16 @@ export function EscalationList() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [escalateTicketId, setEscalateTicketId] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const canCreate = can(user?.role, 'escalations.create');
   const canUpdate = can(user?.role, 'escalations.update');
 
-  const { data, isLoading, error } = useQuery({ queryKey: ['escalations'], queryFn: fetchEscalations });
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['escalations', page, pageSize],
+    queryFn: () => fetchEscalations(page, pageSize),
+  });
   const { data: candidates } = useQuery({ queryKey: ['escalations', 'candidates'], queryFn: fetchCandidates });
 
   const transitionMutation = useMutation({
@@ -193,6 +199,7 @@ export function EscalationList() {
       {error && <div style={errorBox}>{(error as Error).message}</div>}
 
       {data && (
+        <>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-strong)' }}>
@@ -238,6 +245,17 @@ export function EscalationList() {
             ))}
           </tbody>
         </table>
+
+        {/* Pagination */}
+        <Pagination
+          page={page}
+          totalPages={data?.meta?.totalPages ?? 1}
+          total={data?.meta?.total}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        />
+        </>
       )}
 
       {escalateTicketId !== null && (

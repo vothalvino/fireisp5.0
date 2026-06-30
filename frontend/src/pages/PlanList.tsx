@@ -20,6 +20,7 @@ import {
   fmtMoney,
   capitalize,
 } from './crudStyles';
+import { Pagination } from '@/components/Pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -81,7 +82,6 @@ interface PlanBody {
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_PAGE_SIZE = 25;
 const BILLING_CYCLES = ['monthly', 'quarterly', 'semi_annual', 'annual'];
 const STATUSES = ['active', 'inactive', 'archived'];
 const STATUS_FILTER_OPTIONS = ['', ...STATUSES];
@@ -93,8 +93,8 @@ const STACK_TYPES = ['ipv4_only', 'ipv6_only', 'dual_stack'];
 // Fetch / mutate helpers
 // ---------------------------------------------------------------------------
 
-async function fetchPlans(page: number, statusFilter: string): Promise<PlansResponse> {
-  const query: Record<string, string | number> = { page, limit: DEFAULT_PAGE_SIZE };
+async function fetchPlans(page: number, pageSize: number, statusFilter: string): Promise<PlansResponse> {
+  const query: Record<string, string | number> = { page, limit: pageSize };
   if (statusFilter) query.status = statusFilter;
   const res = await api.GET('/plans', { params: { query: query as never } });
   if (res.error) throw new Error('Failed to load plans');
@@ -534,14 +534,15 @@ export function PlanList() {
   const queryClient = useQueryClient();
   const orgCurrency = useOrgCurrency();
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [editPlan, setEditPlan] = useState<Plan | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
   const plansQ = useQuery({
-    queryKey: ['plans', page, statusFilter],
-    queryFn: () => fetchPlans(page, statusFilter),
+    queryKey: ['plans', page, pageSize, statusFilter],
+    queryFn: () => fetchPlans(page, pageSize, statusFilter),
   });
 
   const deleteMutation = useMutation({
@@ -643,21 +644,14 @@ export function PlanList() {
               </table>
             </div>
 
-            {meta && meta.totalPages > 1 && (
-              <div style={styles.pagination}>
-                <button style={styles.pageBtn} onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-                  ← Prev
-                </button>
-                <span style={styles.pageInfo}>Page {page} of {meta.totalPages}</span>
-                <button
-                  style={styles.pageBtn}
-                  onClick={() => setPage(p => Math.min(meta.totalPages, p + 1))}
-                  disabled={page === meta.totalPages}
-                >
-                  Next →
-                </button>
-              </div>
-            )}
+            <Pagination
+              page={page}
+              totalPages={meta?.totalPages ?? 1}
+              total={meta?.total}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+            />
           </>
         )}
       </div>

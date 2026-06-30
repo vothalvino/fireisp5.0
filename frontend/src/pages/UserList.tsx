@@ -14,6 +14,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { tokenStore } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
+import { Pagination } from '@/components/Pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,7 +43,6 @@ interface UsersResponse {
 // ---------------------------------------------------------------------------
 
 const API_BASE = '/api/v1';
-const PAGE_SIZE = 25;
 const ROLES = ['admin', 'billing', 'support', 'technician'];
 const STATUSES = ['active', 'inactive'];
 
@@ -55,8 +55,8 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function fetchUsers(page: number, roleFilter: string, statusFilter: string): Promise<UsersResponse> {
-  const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
+async function fetchUsers(page: number, pageSize: number, roleFilter: string, statusFilter: string): Promise<UsersResponse> {
+  const params = new URLSearchParams({ page: String(page), limit: String(pageSize) });
   if (roleFilter) params.set('role', roleFilter);
   if (statusFilter) params.set('status', statusFilter);
   const res = await fetch(`${API_BASE}/users?${params}`, { headers: authHeaders() });
@@ -642,6 +642,7 @@ export function UserList() {
   const { t } = useTranslation();
   const { user: currentUser } = useAuth();
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
@@ -650,13 +651,12 @@ export function UserList() {
   const [show2FADisable, setShow2FADisable] = useState(false);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['users', page, roleFilter, statusFilter],
-    queryFn: () => fetchUsers(page, roleFilter, statusFilter),
+    queryKey: ['users', page, pageSize, roleFilter, statusFilter],
+    queryFn: () => fetchUsers(page, pageSize, roleFilter, statusFilter),
   });
 
   const users = data?.data ?? [];
   const meta = data?.meta;
-  const totalPages = meta?.totalPages ?? 1;
 
   function handleFilterChange(setter: (v: string) => void) {
     return (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -787,15 +787,14 @@ export function UserList() {
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: '1rem' }}>
-              <button style={btnSecondary} disabled={page <= 1} onClick={() => setPage(p => p - 1)}>{t('clientList.prevPage')}</button>
-              <span style={{ fontSize: '0.85rem', color: '#555' }}>
-                {t('clientList.pageInfo', { page, total: totalPages })} ({meta?.total} users)
-              </span>
-              <button style={btnSecondary} disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>{t('clientList.nextPage')}</button>
-            </div>
-          )}
+          <Pagination
+            page={page}
+            totalPages={meta?.totalPages ?? 1}
+            total={meta?.total}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          />
         </>
       )}
 

@@ -282,6 +282,12 @@
                           "loading":  "Cargando…",
                           "error":  "Error al cargar tickets."
                       },
+    "pagination":  {
+                       "rowsPerPage":  "Filas por página:",
+                       "prevPage":  "← Anterior",
+                       "nextPage":  "Siguiente →",
+                       "pageInfo":  "Página {{page}} de {{total}}"
+                   },
     "clientList":  {
                        "title":  "Clientes",
                        "newClient":  "+ Nuevo cliente",

@@ -14,6 +14,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
 import { useTableSort, SortableTh } from '@/components/SortableTh';
+import { Pagination } from '@/components/Pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -83,16 +84,16 @@ interface CreateContractBody {
 // Fetch / mutate helpers
 // ---------------------------------------------------------------------------
 
-const DEFAULT_PAGE_SIZE = 25;
 const API_BASE = '/api/v1';
 
 async function fetchContracts(
   page: number,
+  pageSize: number,
   statusFilter: string,
   orderBy: string,
   order: string,
 ): Promise<ContractsResponse> {
-  const query: Record<string, string | number> = { page, limit: DEFAULT_PAGE_SIZE, order_by: orderBy, order };
+  const query: Record<string, string | number> = { page, limit: pageSize, order_by: orderBy, order };
   if (statusFilter) query.status = statusFilter;
   const res = await api.GET('/contracts', {
     params: { query: query as never },
@@ -920,6 +921,7 @@ export function ContractList() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [renewId, setRenewId] = useState<number | null>(null);
@@ -941,8 +943,8 @@ export function ContractList() {
 
   // Contracts query
   const contractsQ = useQuery({
-    queryKey: ['contracts', page, statusFilter, sort.sortBy, sort.sortDir],
-    queryFn: () => fetchContracts(page, statusFilter, sort.order_by, sort.order),
+    queryKey: ['contracts', page, pageSize, statusFilter, sort.sortBy, sort.sortDir],
+    queryFn: () => fetchContracts(page, pageSize, statusFilter, sort.order_by, sort.order),
   });
 
   // Plans + clients (needed for new contract form)
@@ -1102,25 +1104,14 @@ export function ContractList() {
             </div>
 
             {/* Pagination */}
-            {meta && meta.totalPages > 1 && (
-              <div style={styles.pagination}>
-                <button
-                  style={styles.pageBtn}
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                >
-                  {t('clientList.prevPage')}
-                </button>
-                <span style={styles.pageInfo}>{t('clientList.pageInfo', { page, total: meta.totalPages })}</span>
-                <button
-                  style={styles.pageBtn}
-                  onClick={() => setPage(p => Math.min(meta.totalPages, p + 1))}
-                  disabled={page === meta.totalPages}
-                >
-                  {t('clientList.nextPage')}
-                </button>
-              </div>
-            )}
+            <Pagination
+              page={page}
+              totalPages={meta?.totalPages ?? 1}
+              total={meta?.total}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+            />
           </>
         )}
       </div>

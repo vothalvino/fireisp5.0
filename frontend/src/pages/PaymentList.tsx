@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
 import { readCsrfCookie } from '@/api/csrf';
 import { useTableSort, SortableTh } from '@/components/SortableTh';
+import { Pagination } from '@/components/Pagination';
 import {
   Payment,
   Client,
@@ -72,11 +73,10 @@ interface GatewayTransaction {
 // Fetch helpers (list-specific)
 // ---------------------------------------------------------------------------
 
-const PAGE_SIZE = 25;
 const API_BASE = '/api/v1';
 
-async function fetchPayments(page: number, statusFilter: string, orderBy: string, order: string): Promise<PaymentsResponse> {
-  const query: Record<string, string | number> = { page, limit: PAGE_SIZE, order_by: orderBy, order };
+async function fetchPayments(page: number, pageSize: number, statusFilter: string, orderBy: string, order: string): Promise<PaymentsResponse> {
+  const query: Record<string, string | number> = { page, limit: pageSize, order_by: orderBy, order };
   if (statusFilter) query.status = statusFilter;
   const res = await api.GET('/payments', { params: { query: query as never } });
   if (res.error) throw new Error('Failed to load payments');
@@ -591,14 +591,15 @@ const STATUS_OPTIONS = ['', 'pending', 'completed', 'failed', 'refunded', 'cance
 export function PaymentList() {
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [statusFilter, setStatusFilter] = useState('');
   const [showRecord, setShowRecord] = useState(false);
   const sort = useTableSort('created_at', 'DESC');
   const qc = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['payments', page, statusFilter, sort.sortBy, sort.sortDir],
-    queryFn: () => fetchPayments(page, statusFilter, sort.order_by, sort.order),
+    queryKey: ['payments', page, pageSize, statusFilter, sort.sortBy, sort.sortDir],
+    queryFn: () => fetchPayments(page, pageSize, statusFilter, sort.order_by, sort.order),
     placeholderData: prev => prev,
   });
 
@@ -614,9 +615,6 @@ export function PaymentList() {
     setStatusFilter(newStatus);
     setPage(1);
   }
-
-  const totalPages = data?.meta?.totalPages ?? 1;
-  const total = data?.meta?.total ?? 0;
 
   function onRowChanged() {
     qc.invalidateQueries({ queryKey: ['payments'] });
@@ -693,14 +691,14 @@ export function PaymentList() {
           </div>
 
           {/* Pagination */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.75rem', fontSize: '0.8rem', color: '#6b7280' }}>
-            <span>{total} payment{total !== 1 ? 's' : ''}</span>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button style={pageBtn} disabled={page <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
-              <span style={{ padding: '4px 8px' }}>Page {page} / {totalPages}</span>
-              <button style={pageBtn} disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next →</button>
-            </div>
-          </div>
+          <Pagination
+            page={page}
+            totalPages={data?.meta?.totalPages ?? 1}
+            total={data?.meta?.total}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          />
         </>
       )}
 
@@ -749,10 +747,6 @@ const cancelBtn: React.CSSProperties = {
   background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border-strong)',
   padding: '7px 18px', borderRadius: 6, cursor: 'pointer',
   fontWeight: 600, fontSize: '0.875rem',
-};
-const pageBtn: React.CSSProperties = {
-  padding: '4px 10px', border: '1px solid var(--border-strong)', borderRadius: 4,
-  background: 'var(--bg-card)', cursor: 'pointer', fontSize: '0.8rem',
 };
 const actionBtn: React.CSSProperties = {
   padding: '3px 9px', border: 'none', borderRadius: 5,

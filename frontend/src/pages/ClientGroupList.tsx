@@ -8,6 +8,7 @@ import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { Pagination } from '@/components/Pagination';
 import { api } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
@@ -55,8 +56,8 @@ interface GroupMember {
 
 const BILLING_MODES = ['separate', 'shared'];
 
-async function fetchGroups(): Promise<GroupsResponse> {
-  const res = await api.GET('/client-groups', { params: { query: { limit: 200 } as never } });
+async function fetchGroups(page: number, pageSize: number): Promise<GroupsResponse> {
+  const res = await api.GET('/client-groups', { params: { query: { page, limit: pageSize } as never } });
   if (res.error) throw new Error('Failed to load account groups');
   return res.data as unknown as GroupsResponse;
 }
@@ -206,12 +207,17 @@ export function ClientGroupList() {
   const [editGroup, setEditGroup] = useState<ClientGroup | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ClientGroup | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const canCreate = can(user?.role, 'clients.create');
   const canUpdate = can(user?.role, 'clients.update');
   const canDelete = can(user?.role, 'clients.delete');
 
-  const { data, isLoading, error } = useQuery({ queryKey: ['client-groups'], queryFn: fetchGroups });
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['client-groups', page, pageSize],
+    queryFn: () => fetchGroups(page, pageSize),
+  });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -240,6 +246,7 @@ export function ClientGroupList() {
       {error && <div style={errorBox}>{(error as Error).message}</div>}
 
       {data && (
+        <>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-strong)' }}>
@@ -282,6 +289,17 @@ export function ClientGroupList() {
             ))}
           </tbody>
         </table>
+
+        {/* Pagination */}
+        <Pagination
+          page={page}
+          totalPages={data?.meta?.totalPages ?? 1}
+          total={data?.meta?.total}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        />
+        </>
       )}
 
       {showCreate && <GroupFormModal mode="create" onClose={() => setShowCreate(false)} onSaved={refresh} />}
