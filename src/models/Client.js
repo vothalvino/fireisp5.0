@@ -18,6 +18,11 @@ class Client extends BaseModel {
 
   static get hasOrgScope() { return true; }
 
+  // Clients are SOFT-deleted (never hard-deleted), so the row — and its id —
+  // is retained forever. With auto-increment (which never re-hands an id) and `id`
+  // not being fillable (so it can't be set on create/import), a client's id is
+  // permanently reserved to that client and can never be reused by another, even
+  // after deletion. Guarded by clientModel.test.js "client id is permanently reserved".
   static get softDelete() { return true; }
 
   /**

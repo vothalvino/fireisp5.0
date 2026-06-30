@@ -35,6 +35,19 @@ describe('Client.findDuplicates', () => {
   });
 });
 
+describe('client id is permanently reserved (never reusable by another client)', () => {
+  // The id is blocked to its client forever: soft-delete keeps the deleted row
+  // (and its id), MySQL auto-increment never re-hands an id, and `id` is not
+  // fillable so it cannot be claimed on create/import.
+  test('clients are soft-deleted, so a deleted client keeps its id', () => {
+    expect(Client.softDelete).toBe(true);
+  });
+
+  test('id is not mass-assignable (cannot be set/reused on create or import)', () => {
+    expect(Client.fillable).not.toContain('id');
+  });
+});
+
 describe('Client.setCustomField / deleteCustomField', () => {
   test('upserts a custom field and returns the stored row', async () => {
     db.query
