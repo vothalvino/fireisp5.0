@@ -6864,6 +6864,42 @@
         }
       }
     },
+    "/bulk/invoices/void": {
+      "post": {
+        "tags": [
+          "Bulk"
+        ],
+        "summary": "Mass-void invoices",
+        "operationId": "bulkVoidInvoices",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "invoice_ids",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/bulk/invoices/generate": {
       "post": {
         "tags": [
@@ -50304,6 +50340,10 @@
         ]
       },
       "bulk_generateInvoices": {
+        "type": "object",
+        "properties": {}
+      },
+      "bulk_voidInvoices": {
         "type": "object",
         "properties": {}
       },

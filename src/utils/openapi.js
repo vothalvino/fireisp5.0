@@ -446,6 +446,7 @@ function generateSpec() {
       },
 
       // ---- Bulk Operations ----
+      '/bulk/invoices/void': { post: { tags: ['Bulk'], summary: 'Mass-void invoices', operationId: 'bulkVoidInvoices', security: [{ bearerAuth: [] }], requestBody: jsonBody('invoice_ids'), responses: r200('Results') } },
       '/bulk/invoices/generate': { post: { tags: ['Bulk'], summary: 'Mass-generate invoices', operationId: 'bulkGenerateInvoices', security: [{ bearerAuth: [] }], requestBody: jsonBody('contract_ids'), responses: r200('Results') } },
       '/bulk/suspend': { post: { tags: ['Bulk'], summary: 'Mass-suspend contracts', operationId: 'bulkSuspend', security: [{ bearerAuth: [] }], requestBody: jsonBody('contract_ids + reason'), responses: r200('Results') } },
       '/bulk/email': { post: { tags: ['Bulk'], summary: 'Mass-send emails to clients', operationId: 'bulkEmail', security: [{ bearerAuth: [] }], requestBody: jsonBody('client_ids + subject + body'), responses: r200('Results') } },

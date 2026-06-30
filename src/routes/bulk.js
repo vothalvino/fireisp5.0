@@ -12,11 +12,45 @@ const { validate } = require('../middleware/validate');
 const bulkSchemas = require('../middleware/schemas/bulk');
 const logger = require('../utils/logger');
 const eventBus = require('../services/eventBus');
+const billingService = require('../services/billingService');
 
 const router = Router();
 
 // All bulk routes require authentication
 router.use(authenticate);
+
+// ---------------------------------------------------------------------------
+// POST /bulk/invoices/void — Mass-void invoices
+// ---------------------------------------------------------------------------
+router.post('/invoices/void', requirePermission('invoices.update'), validate(bulkSchemas.voidInvoices), async (req, res, next) => {
+  try {
+    const orgId = req.orgId;
+    const { invoice_ids } = req.body;
+
+    if (!Array.isArray(invoice_ids) || invoice_ids.length === 0) {
+      return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'invoice_ids array is required' } });
+    }
+
+    if (invoice_ids.length > 500) {
+      return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Maximum 500 invoices per batch' } });
+    }
+
+    const results = { success: 0, failed: 0, errors: [] };
+
+    for (const invoiceId of invoice_ids) {
+      try {
+        await billingService.voidInvoiceById(invoiceId, orgId, req.user?.id);
+        results.success++;
+      } catch (err) {
+        results.failed++;
+        results.errors.push({ invoice_id: invoiceId, error: err.message });
+      }
+    }
+
+    logger.info({ orgId, ...results }, 'Bulk invoice void completed');
+    res.json({ data: results });
+  } catch (err) { next(err); }
+});
 
 // ---------------------------------------------------------------------------
 // POST /bulk/invoices/generate — Mass-generate invoices

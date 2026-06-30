@@ -9,6 +9,7 @@ const db = require('../config/database');
 const Invoice = require('../models/Invoice');
 const logger = require('../utils/logger').child({ service: 'billing' });
 const { InvoiceGenerationError } = require('../utils/errors');
+const auditLog = require('./auditLog');
 
 /**
  * Check if a contract is currently within its free trial period.
@@ -404,10 +405,74 @@ async function restorePaymentAllocations(paymentId) {
   }
 }
 
+/**
+ * Void a single invoice by ID.
+ *
+ * Business rules (single source of truth — called by both the single PATCH/PUT
+ * endpoint and the bulk void endpoint):
+ *   - Idempotent: re-voiding an already-void invoice returns the record unchanged
+ *     without touching allocations or the ledger.
+ *   - PAID invoice: soft-deletes its payment_allocations (releasing them as
+ *     unallocated credits) WITHOUT removing the payment ledger credit rows.
+ *   - Ledger: removes any prior void-reversal credit for this invoice, then
+ *     zeroes the invoice's debit entries so it contributes $0 to the balance.
+ *   - Writes an audit-log entry regardless of the starting status.
+ *
+ * Throws NotFoundError (404) if the invoice does not exist under the given org.
+ * Throws AppError (422 INVOICE_VOID) from Invoice.update if the route layer's
+ * beforeUpdate hook fires (non-void edit on a void record) — that guard is not
+ * exercised here because we always set status = 'void'.
+ *
+ * @param {number|string} invoiceId
+ * @param {number}        orgId
+ * @param {number|null}   userId   — for the audit log
+ * @returns {Promise<object>}      updated invoice record
+ */
+async function voidInvoiceById(invoiceId, orgId, userId) {
+  const existing = await Invoice.findByIdOrFail(invoiceId, orgId);
+  const record = await Invoice.update(invoiceId, { status: 'void' }, orgId);
+
+  if (existing.status !== 'void') {
+    if (existing.status === 'paid') {
+      // Release the allocations that pointed to this invoice so each payment
+      // becomes an unallocated credit on the client.
+      await releaseInvoiceAllocations(existing.id);
+    }
+
+    // Remove any earlier void-reversal credit for this invoice…
+    await db.query(
+      `DELETE FROM client_balance_ledger
+        WHERE reference_type = 'invoice' AND reference_id = ? AND client_id = ? AND entry_type = 'credit'`,
+      [existing.id, existing.client_id],
+    );
+    // …then zero the invoice's remaining (debit) ledger entries so the voided
+    // invoice shows as $0 and stops contributing to the balance.
+    await db.query(
+      `UPDATE client_balance_ledger
+          SET amount = 0, debit = 0, credit = 0
+        WHERE reference_type = 'invoice' AND reference_id = ? AND client_id = ?`,
+      [existing.id, existing.client_id],
+    );
+  }
+
+  await auditLog.log({
+    userId,
+    organizationId: orgId,
+    action: 'void',
+    tableName: 'invoices',
+    recordId: record.id,
+    oldValues: existing,
+    newValues: { status: 'void' },
+  });
+
+  return record;
+}
+
 module.exports = {
   generateBillingPeriod, generateInvoice, calculateProration,
   recordPaymentCredit, reversePaymentCredit,
   reversePaymentAllocations, restorePaymentAllocations, refreshInvoicePaidStatus,
   releaseInvoiceAllocations,
+  voidInvoiceById,
   isContractInTrial, calculateOverageCharges,
 };
