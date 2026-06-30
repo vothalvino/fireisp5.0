@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — Coverage Zone Map Editor
 // =============================================================================
 // Interactive SVG polygon editor for drawing and editing coverage zone
@@ -21,7 +21,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { tokenStore } from '@/api/client';
+import { authedFetch } from '@/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -168,13 +168,11 @@ function fitViewport(zones: CoverageZone[]): ViewPort {
 const API = '/api/v1';
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API}${path}`, {
+  const res = await authedFetch(`${API}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
+      ...(init?.headers as Record<string, string> | undefined),
     },
   });
   if (!res.ok) {
@@ -522,10 +520,9 @@ export function CoverageZoneMap() {
 
   const createMutation = useMutation({
     mutationFn: async (payload: object) => {
-      const token = tokenStore.getAccess();
-      const res = await fetch(`${API}/coverage-zones`, {
+      const res = await authedFetch(`${API}/coverage-zones`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
@@ -545,10 +542,9 @@ export function CoverageZoneMap() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, payload }: { id: number; payload: object }) => {
-      const token = tokenStore.getAccess();
-      const res = await fetch(`${API}/coverage-zones/${id}`, {
+      const res = await authedFetch(`${API}/coverage-zones/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
@@ -568,10 +564,8 @@ export function CoverageZoneMap() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      const token = tokenStore.getAccess();
-      const res = await fetch(`${API}/coverage-zones/${id}`, {
+      const res = await authedFetch(`${API}/coverage-zones/${id}`, {
         method: 'DELETE',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok && res.status !== 204) {
         const body = await res.json().catch(() => ({})) as { error?: { message?: string } };

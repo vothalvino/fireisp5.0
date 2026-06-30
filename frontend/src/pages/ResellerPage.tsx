@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — Reseller Management Page (Section 19)
 // =============================================================================
 // Multi-tab page covering §19 Reseller Support:
@@ -12,6 +12,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { readCsrfCookie } from '@/api/csrf';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -112,6 +113,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`,
       'X-Org-Id': orgId,
+      ...(readCsrfCookie() ? { 'X-CSRF-Token': readCsrfCookie()! } : {}),
       ...(init?.headers ?? {}),
     },
   });

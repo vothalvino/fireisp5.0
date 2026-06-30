@@ -13,7 +13,7 @@
 import { useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { tokenStore } from '@/api/client';
+import { authedFetch, tokenStore } from '@/api/client';
 import { useOrgCurrency } from '@/auth/useOrgCurrency';
 import { Pagination } from '@/components/Pagination';
 
@@ -121,9 +121,9 @@ async function fetchWarehouses(): Promise<WarehouseListResponse> {
 }
 
 async function createItem(body: Record<string, unknown>): Promise<void> {
-  const res = await fetch(`${API_BASE}/inventory/items`, {
+  const res = await authedFetch(`${API_BASE}/inventory/items`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -133,9 +133,9 @@ async function createItem(body: Record<string, unknown>): Promise<void> {
 }
 
 async function updateItem(id: number, body: Record<string, unknown>): Promise<void> {
-  const res = await fetch(`${API_BASE}/inventory/items/${id}`, {
+  const res = await authedFetch(`${API_BASE}/inventory/items/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -145,9 +145,9 @@ async function updateItem(id: number, body: Record<string, unknown>): Promise<vo
 }
 
 async function recordTransaction(body: Record<string, unknown>): Promise<void> {
-  const res = await fetch(`${API_BASE}/inventory/transactions`, {
+  const res = await authedFetch(`${API_BASE}/inventory/transactions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -157,9 +157,8 @@ async function recordTransaction(body: Record<string, unknown>): Promise<void> {
 }
 
 async function deleteItem(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/inventory/items/${id}`, {
+  const res = await authedFetch(`${API_BASE}/inventory/items/${id}`, {
     method: 'DELETE',
-    headers: authHeaders(),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({})) as { error?: { message?: string } };

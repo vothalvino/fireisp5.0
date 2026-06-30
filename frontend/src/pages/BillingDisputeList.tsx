@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — Billing Disputes (§2.5 Billing+)
 // =============================================================================
 // Page for tracking billing disputes:
@@ -12,7 +12,7 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { api, tokenStore } from '@/api/client';
+import { api, authedFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
 import { styles } from './crudStyles';
@@ -273,13 +273,11 @@ function EvidencePanel({ disputeId, colSpan }: { disputeId: number; colSpan: num
     setUploadError('');
     setUploading(true);
     try {
-      const token = tokenStore.getAccess();
       const fd = new FormData();
       fd.append('file', file);
       if (note.trim()) fd.append('note', note.trim());
-      const res = await fetch(`/api/v1/billing-disputes/${disputeId}/evidence`, {
+      const res = await authedFetch(`/api/v1/billing-disputes/${disputeId}/evidence`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: fd,
       });
       if (!res.ok) {

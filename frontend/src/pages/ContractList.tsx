@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — Contract Management
 // =============================================================================
 // Standalone page at /contracts. Shows all contracts across all clients with:
@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { api, tokenStore } from '@/api/client';
+import { api, authedFetch } from '@/api/client';
 import { useTableSort, SortableTh } from '@/components/SortableTh';
 import { Pagination } from '@/components/Pagination';
 
@@ -150,14 +150,10 @@ async function patchContractStatus(
 ): Promise<void> {
   const body: Record<string, unknown> = { status };
   if (endDate !== undefined) body.end_date = endDate;
-  // PATCH is not in the generated OpenAPI schema yet; use raw fetch with the stored token.
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/contracts/${id}`, {
+  // PATCH is not in the generated OpenAPI schema yet; use raw fetch with authedFetch.
+  const res = await authedFetch(`${API_BASE}/contracts/${id}`, {
     method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error('Failed to update contract');
@@ -168,13 +164,9 @@ async function postContractAction(
   action: 'suspend' | 'unsuspend' | 'renew' | 'terminate',
   extra?: Record<string, unknown>,
 ): Promise<void> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/contracts/${id}/${action}`, {
+  const res = await authedFetch(`${API_BASE}/contracts/${id}/${action}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(extra ?? {}),
   });
   if (!res.ok) throw new Error(`Failed to ${action} contract`);

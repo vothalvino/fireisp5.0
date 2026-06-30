@@ -12,7 +12,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { tokenStore } from '@/api/client';
+import { authedFetch, tokenStore } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { Pagination } from '@/components/Pagination';
 
@@ -84,9 +84,9 @@ export function apiErrorMessage(json: unknown, fallback: string): string {
 }
 
 async function createUser(body: CreateUserBody): Promise<void> {
-  const res = await fetch(`${API_BASE}/users`, {
+  const res = await authedFetch(`${API_BASE}/users`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -104,9 +104,9 @@ interface UpdateUserBody {
 }
 
 async function updateUser(id: number, body: UpdateUserBody): Promise<void> {
-  const res = await fetch(`${API_BASE}/users/${id}`, {
+  const res = await authedFetch(`${API_BASE}/users/${id}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -121,9 +121,8 @@ interface TwoFASetupData {
 }
 
 async function setup2FA(): Promise<TwoFASetupData> {
-  const res = await fetch(`${API_BASE}/2fa/setup`, {
+  const res = await authedFetch(`${API_BASE}/2fa/setup`, {
     method: 'POST',
-    headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to start 2FA setup');
   const json = (await res.json()) as { data: TwoFASetupData };
@@ -131,9 +130,9 @@ async function setup2FA(): Promise<TwoFASetupData> {
 }
 
 async function verify2FA(code: string): Promise<{ backup_codes?: string[] }> {
-  const res = await fetch(`${API_BASE}/2fa/verify`, {
+  const res = await authedFetch(`${API_BASE}/2fa/verify`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ code }),
   });
   if (!res.ok) {
@@ -144,9 +143,9 @@ async function verify2FA(code: string): Promise<{ backup_codes?: string[] }> {
 }
 
 async function disable2FA(code: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/2fa/disable`, {
+  const res = await authedFetch(`${API_BASE}/2fa/disable`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ code }),
   });
   if (!res.ok) {

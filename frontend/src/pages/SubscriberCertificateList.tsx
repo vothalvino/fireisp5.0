@@ -17,7 +17,7 @@
 
 import { useState, type CSSProperties, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { tokenStore } from '@/api/client';
+import { authedFetch } from '@/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,13 +67,11 @@ const EXPIRY_WARN_DAYS = 30;
 // ---------------------------------------------------------------------------
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await authedFetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
+      ...((options.headers as Record<string, string>) || {}),
     },
   });
   if (!res.ok) {

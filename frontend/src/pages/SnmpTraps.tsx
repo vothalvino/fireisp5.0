@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — SNMP Trap Log Page
 // =============================================================================
 // Page at /snmp-traps (technician+). Shows unsolicited SNMP trap messages
@@ -16,7 +16,7 @@
 import { useState, useEffect } from 'react';
 import type { CSSProperties } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { tokenStore } from '@/api/client';
+import { authedFetch, tokenStore } from '@/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -98,17 +98,15 @@ async function fetchTraps(
 }
 
 async function acknowledgeTrap(id: number): Promise<void> {
-  const res = await fetch(`/api/v1/snmp-traps/${id}/acknowledge`, {
+  const res = await authedFetch(`/api/v1/snmp-traps/${id}/acknowledge`, {
     method: 'POST',
-    headers: apiHeaders(),
   });
   if (!res.ok) throw new Error('Failed to acknowledge trap');
 }
 
 async function clearTrap(id: number): Promise<void> {
-  const res = await fetch(`/api/v1/snmp-traps/${id}/clear`, {
+  const res = await authedFetch(`/api/v1/snmp-traps/${id}/clear`, {
     method: 'POST',
-    headers: apiHeaders(),
   });
   if (!res.ok) throw new Error('Failed to clear trap');
 }

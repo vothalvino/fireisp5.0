@@ -28,6 +28,7 @@ vi.mock('@/api/client', () => ({
     setRefresh: vi.fn(),
     clear:      vi.fn(),
   },
+  authedFetch: vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init)),
 }));
 
 // react-i18next: return the key as the translation (avoids loading locale files)

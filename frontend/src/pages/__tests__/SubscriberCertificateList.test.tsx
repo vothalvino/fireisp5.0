@@ -17,6 +17,7 @@ global.fetch = mockFetch as unknown as typeof fetch;
 vi.mock('@/api/client', () => ({
   api: { GET: vi.fn() },
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
+  authedFetch: vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init)),
 }));
 
 vi.mock('@/auth/AuthContext', () => ({

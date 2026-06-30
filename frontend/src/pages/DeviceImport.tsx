@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — Device Bulk Import
 // =============================================================================
 // Standalone page at /device-import.
@@ -10,6 +10,7 @@
 import { useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { readCsrfCookie } from '@/api/csrf';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,12 +52,15 @@ async function uploadDeviceCsv(file: File): Promise<ImportResult> {
   const formData = new FormData();
   formData.append('file', file);
 
+  const csrf = readCsrfCookie();
   const res = await fetch('/api/import/devices/upload', {
     method: 'POST',
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(orgId ? { 'X-Org-Id': orgId } : {}),
+      ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
     },
+    credentials: 'include',
     body: formData,
   });
 

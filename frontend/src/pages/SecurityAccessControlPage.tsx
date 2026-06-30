@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — Security & Access Control Page (Section 17)
 // =============================================================================
 // Multi-tab page covering security management:
@@ -12,6 +12,7 @@
 
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { readCsrfCookie } from '@/api/csrf';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -147,6 +148,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
       'Content-Type': 'application/json',
       ...(token && { Authorization: `Bearer ${token}` }),
       ...(orgId && { 'X-Org-Id': orgId }),
+      ...(readCsrfCookie() ? { 'X-CSRF-Token': readCsrfCookie()! } : {}),
       ...options?.headers,
     },
   });

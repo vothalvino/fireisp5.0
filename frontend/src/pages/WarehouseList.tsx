@@ -12,7 +12,7 @@
 import { useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { tokenStore } from '@/api/client';
+import { authedFetch, tokenStore } from '@/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -80,9 +80,9 @@ async function fetchWarehouseStock(warehouseId: number): Promise<WarehouseStockR
 }
 
 async function createWarehouse(body: Record<string, unknown>): Promise<void> {
-  const res = await fetch(`${API_BASE}/warehouses`, {
+  const res = await authedFetch(`${API_BASE}/warehouses`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -92,9 +92,9 @@ async function createWarehouse(body: Record<string, unknown>): Promise<void> {
 }
 
 async function updateWarehouse(id: number, body: Record<string, unknown>): Promise<void> {
-  const res = await fetch(`${API_BASE}/warehouses/${id}`, {
+  const res = await authedFetch(`${API_BASE}/warehouses/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -104,9 +104,8 @@ async function updateWarehouse(id: number, body: Record<string, unknown>): Promi
 }
 
 async function deleteWarehouse(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/warehouses/${id}`, {
+  const res = await authedFetch(`${API_BASE}/warehouses/${id}`, {
     method: 'DELETE',
-    headers: authHeaders(),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({})) as { error?: { message?: string } };

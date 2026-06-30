@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — Ticket Detail
 // =============================================================================
 // Shows a single ticket at /tickets/:id with:
@@ -12,8 +12,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, tokenStore } from '@/api/client';
-import { readCsrfCookie } from '@/api/csrf';
+import { api, tokenStore, authedFetch } from '@/api/client';
 import { useWebSocket } from '@/api/useWebSocket';
 import { useGraphQLSubscription } from '@/api/useGraphQLSubscription';
 import { useAuth } from '@/auth/AuthContext';
@@ -98,13 +97,9 @@ async function fetchUsers(): Promise<User[]> {
 }
 
 async function patchTicket(id: number, patch: TicketPatch): Promise<void> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/tickets/${id}`, {
+  const res = await authedFetch(`${API_BASE}/tickets/${id}`, {
     method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
   });
   if (!res.ok) {
@@ -118,13 +113,9 @@ async function addComment(
   body: string,
   isInternal: boolean,
 ): Promise<void> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/tickets/${ticketId}/comments`, {
+  const res = await authedFetch(`${API_BASE}/tickets/${ticketId}/comments`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ body, is_internal: isInternal }),
   });
   if (!res.ok) {
@@ -139,13 +130,9 @@ async function updateComment(
   commentBody: string,
   isInternal: boolean,
 ): Promise<void> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/tickets/${ticketId}/comments/${commentId}`, {
+  const res = await authedFetch(`${API_BASE}/tickets/${ticketId}/comments/${commentId}`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: 'Bearer ' + token } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ body: commentBody, is_internal: isInternal }),
   });
   if (!res.ok) {
@@ -155,10 +142,8 @@ async function updateComment(
 }
 
 async function deleteComment(ticketId: number, commentId: number): Promise<void> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/tickets/${ticketId}/comments/${commentId}`, {
+  const res = await authedFetch(`${API_BASE}/tickets/${ticketId}/comments/${commentId}`, {
     method: 'DELETE',
-    headers: token ? { Authorization: 'Bearer ' + token } : {},
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -547,13 +532,9 @@ async function fetchLatestAiLog(ticketId: number): Promise<AiReplyLog | null> {
 }
 
 async function generateDraft(ticketId: number, contractId: number | null): Promise<{ logId: number; draftText: string | null }> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/ai/reply/draft`, {
+  const res = await authedFetch(`${API_BASE}/ai/reply/draft`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ticket_id: ticketId, channel: 'portal', inbound_text: '', contract_id: contractId }),
   });
   if (!res.ok) {
@@ -566,13 +547,9 @@ async function generateDraft(ticketId: number, contractId: number | null): Promi
 }
 
 async function finalizeReply(logId: number, finalText: string, action: 'sent' | 'edited' | 'discarded'): Promise<void> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/ai/reply/send`, {
+  const res = await authedFetch(`${API_BASE}/ai/reply/send`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ log_id: logId, final_text: finalText, action }),
   });
   if (!res.ok) {
@@ -941,10 +918,8 @@ async function fetchAiTriage(ticketId: number): Promise<AiTriageData | null> {
 }
 
 async function postAiSummary(ticketId: number): Promise<string> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/tickets/${ticketId}/ai-summary`, {
+  const res = await authedFetch(`${API_BASE}/tickets/${ticketId}/ai-summary`, {
     method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) throw new Error('Failed to generate summary');
   const body = await res.json() as { data?: { summary?: string }; summary?: string };
@@ -1063,13 +1038,9 @@ async function fetchRelations(ticketId: number): Promise<TicketRelation[]> {
 }
 
 async function addRelation(ticketId: number, relatedId: number, relationType: string): Promise<void> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/tickets/${ticketId}/relations`, {
+  const res = await authedFetch(`${API_BASE}/tickets/${ticketId}/relations`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ related_ticket_id: relatedId, relation_type: relationType }),
   });
   if (!res.ok) {
@@ -1079,10 +1050,8 @@ async function addRelation(ticketId: number, relatedId: number, relationType: st
 }
 
 async function removeRelation(ticketId: number, relId: number): Promise<void> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/tickets/${ticketId}/relations/${relId}`, {
+  const res = await authedFetch(`${API_BASE}/tickets/${ticketId}/relations/${relId}`, {
     method: 'DELETE',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) throw new Error('Failed to remove relation');
 }
@@ -1215,13 +1184,9 @@ async function fetchTimeLogs(ticketId: number): Promise<TimeLog[]> {
 }
 
 async function addTimeLog(ticketId: number, minutes: number, workDate: string, description: string): Promise<void> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/tickets/${ticketId}/time-logs`, {
+  const res = await authedFetch(`${API_BASE}/tickets/${ticketId}/time-logs`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ minutes, work_date: workDate, description }),
   });
   if (!res.ok) {
@@ -1348,11 +1313,9 @@ async function createWorkOrderFromTicket(payload: {
   scheduled_at: string | null;
   assigned_to: number | null;
 }): Promise<void> {
-  const token = tokenStore.getAccess();
-  const csrf = readCsrfCookie();
-  const res = await fetch(`${API_BASE}/work-orders`, {
+  const res = await authedFetch(`${API_BASE}/work-orders`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
@@ -1472,11 +1435,9 @@ async function fetchEscalationsByTicket(ticketId: number): Promise<EscalationRow
 }
 
 async function createEscalation(ticketId: number, reason: string, escalatedTo: number | null): Promise<void> {
-  const token = tokenStore.getAccess();
-  const csrf = readCsrfCookie();
-  const res = await fetch(`${API_BASE}/escalations`, {
+  const res = await authedFetch(`${API_BASE}/escalations`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ticket_id: ticketId, reason, ...(escalatedTo != null ? { escalated_to: escalatedTo } : {}) }),
   });
   if (!res.ok) {
@@ -1592,10 +1553,9 @@ async function fetchFollowUps(ticketId: number): Promise<FollowUp[]> {
 }
 
 async function createFollowUp(body: { client_id: number; ticket_id: number; title: string; due_at: string }): Promise<void> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/follow-up-reminders`, {
+  const res = await authedFetch(`${API_BASE}/follow-up-reminders`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -1701,10 +1661,8 @@ async function fetchAttachments(ticketId: number): Promise<TicketAttachment[]> {
 }
 
 async function deleteAttachment(ticketId: number, attachmentId: number): Promise<void> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/tickets/${ticketId}/attachments/${attachmentId}`, {
+  const res = await authedFetch(`${API_BASE}/tickets/${ticketId}/attachments/${attachmentId}`, {
     method: 'DELETE',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) throw new Error('Failed to delete attachment');
 }
@@ -1730,12 +1688,10 @@ function AttachmentsPanel({ ticketId }: { ticketId: number }) {
     setUploading(true);
     setUploadErr('');
     try {
-      const token = tokenStore.getAccess();
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch(`${API_BASE}/tickets/${ticketId}/attachments`, {
+      const res = await authedFetch(`${API_BASE}/tickets/${ticketId}/attachments`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
       });
       if (!res.ok) {

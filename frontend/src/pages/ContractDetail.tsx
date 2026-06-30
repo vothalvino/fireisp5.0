@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — Contract Detail
 // =============================================================================
 // Shows a single contract with tabbed sub-sections:
@@ -14,7 +14,7 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { gql } from '@/api/graphql';
-import { api, tokenStore } from '@/api/client';
+import { api, authedFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
 import { overlay, modalBox, cancelBtn, dangerBtn } from '@/components/ClientFormModal';
@@ -157,13 +157,9 @@ async function postContractAction(
   id: string,
   action: 'suspend' | 'unsuspend' | 'renew' | 'terminate',
 ): Promise<void> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/contracts/${id}/${action}`, {
+  const res = await authedFetch(`${API_BASE}/contracts/${id}/${action}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
   });
   if (!res.ok) throw new Error(`Failed to ${action} contract`);
@@ -190,10 +186,9 @@ async function fetchRadiusAccounts(contractId: string): Promise<RadiusAccount[]>
 }
 
 async function regeneratePppoe(id: string): Promise<{ username: string; password: string; pushed: boolean }> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/contracts/${id}/regenerate-pppoe`, {
+  const res = await authedFetch(`${API_BASE}/contracts/${id}/regenerate-pppoe`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
   });
   if (!res.ok) {

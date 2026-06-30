@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — Integrations Page (Section 20)
 // =============================================================================
 // Multi-tab page covering §20.2 Third-Party Integration Framework:
@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { readCsrfCookie } from '@/api/csrf';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,6 +75,7 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
       'Content-Type': 'application/json',
       'X-Org-Id': getOrgId(),
       Authorization: `Bearer ${getToken()}`,
+      ...(readCsrfCookie() ? { 'X-CSRF-Token': readCsrfCookie()! } : {}),
       ...(init.headers as Record<string, string> | undefined),
     },
   });

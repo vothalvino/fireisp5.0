@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — Payment Reminder Settings (§2.2B)
 // =============================================================================
 // Billing-only page to configure automated payment reminder schedules:
@@ -12,7 +12,7 @@ import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { tokenStore } from '@/api/client';
+import { authedFetch, tokenStore } from '@/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,11 +44,9 @@ async function fetchSettings(): Promise<ReminderSettings> {
 }
 
 async function saveSettings(body: object): Promise<ReminderSettings> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API}/payment-reminder-settings`, {
+  const res = await authedFetch(`${API}/payment-reminder-settings`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error('Failed to save settings');
