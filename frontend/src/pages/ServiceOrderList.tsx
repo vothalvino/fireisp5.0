@@ -12,6 +12,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
+import { readCsrfCookie } from '@/api/csrf';
 import { Pagination } from '@/components/Pagination';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
@@ -181,9 +182,10 @@ function WorkOrdersModal({ order, onClose, onCreated }: { order: ServiceOrder; o
       };
       if (order.client_id) body.client_id = order.client_id;
       if (scheduledAt) body.scheduled_at = scheduledAt;
+      const csrf = readCsrfCookie();
       const res = await fetch(`${API_BASE}/work-orders`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
         body: JSON.stringify(body),
       });
       if (!res.ok) {
@@ -267,12 +269,14 @@ function CreateContractModal({ order, onClose, onLinked }: { order: ServiceOrder
     mutationFn: async () => {
       if (!planId) throw new Error(t('serviceOrders.contractPlanRequired', 'Plan ID is required'));
       const token = tokenStore.getAccess();
+      const csrf = readCsrfCookie();
 
-      // 1. Create the contract pre-filled with client_id
+      // 1. Create the contract pre-filled with client_id (start_date defaults to
+      //    today — required by the contract schema; the operator can adjust it later).
       const createRes = await fetch(`${API_BASE}/contracts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ client_id: order.client_id, plan_id: Number(planId) }),
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+        body: JSON.stringify({ client_id: order.client_id, plan_id: Number(planId), start_date: new Date().toISOString().slice(0, 10) }),
       });
       if (!createRes.ok) {
         const err = await createRes.json().catch(() => ({})) as { error?: string };
@@ -283,7 +287,7 @@ function CreateContractModal({ order, onClose, onLinked }: { order: ServiceOrder
       // 2. Link the contract back to the service order
       const linkRes = await fetch(`${API_BASE}/service-orders/${order.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
         body: JSON.stringify({ contract_id: newContract.id }),
       });
       if (!linkRes.ok) {

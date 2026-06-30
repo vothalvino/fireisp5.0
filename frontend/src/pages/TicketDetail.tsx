@@ -13,6 +13,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, tokenStore } from '@/api/client';
+import { readCsrfCookie } from '@/api/csrf';
 import { useWebSocket } from '@/api/useWebSocket';
 import { useGraphQLSubscription } from '@/api/useGraphQLSubscription';
 import { useAuth } from '@/auth/AuthContext';
@@ -1348,9 +1349,10 @@ async function createWorkOrderFromTicket(payload: {
   assigned_to: number | null;
 }): Promise<void> {
   const token = tokenStore.getAccess();
+  const csrf = readCsrfCookie();
   const res = await fetch(`${API_BASE}/work-orders`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
@@ -1471,9 +1473,10 @@ async function fetchEscalationsByTicket(ticketId: number): Promise<EscalationRow
 
 async function createEscalation(ticketId: number, reason: string, escalatedTo: number | null): Promise<void> {
   const token = tokenStore.getAccess();
+  const csrf = readCsrfCookie();
   const res = await fetch(`${API_BASE}/escalations`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
     body: JSON.stringify({ ticket_id: ticketId, reason, ...(escalatedTo != null ? { escalated_to: escalatedTo } : {}) }),
   });
   if (!res.ok) {
