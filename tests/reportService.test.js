@@ -41,6 +41,15 @@ describe('reportService', () => {
       expect(sql).toContain('currency = ?');
       expect(params).toContain('USD');
     });
+
+    test('includes issued, sent and overdue statuses (not just issued)', async () => {
+      // AR aging must cover all unpaid statuses: issued, sent, overdue.
+      // A void or cancelled invoice is NOT outstanding and must be excluded.
+      db.queryReplica.mockResolvedValueOnce([[]]);
+      await reportService.agingReport(1);
+      const [sql] = db.queryReplica.mock.calls[0];
+      expect(sql).toContain("IN ('issued', 'sent', 'overdue')");
+    });
   });
 
   describe('financialSummary()', () => {
@@ -56,6 +65,31 @@ describe('reportService', () => {
       expect(result.payments.total).toBe(8500);
       expect(result.expenses.total).toBe(3000);
       expect(result.net_income).toBe(5500);
+    });
+
+    test('total_invoiced query excludes void, cancelled and draft invoices', async () => {
+      // void + cancelled invoices must not inflate the invoiced/billed metric.
+      // draft invoices are not yet real invoices.
+      db.queryReplica
+        .mockResolvedValueOnce([[{ total_invoiced: '0', total_collected: '0', total_outstanding: '0', invoice_count: 0 }]])
+        .mockResolvedValueOnce([[{ total_payments: '0', payment_count: 0 }]])
+        .mockResolvedValueOnce([[{ total_expenses: '0', expense_count: 0 }]]);
+      await reportService.financialSummary(1, { from: '2026-01-01', to: '2026-01-31' });
+      // financialSummary fires 3 queries in parallel; the invoice query is the first call
+      const [invoiceSql] = db.queryReplica.mock.calls[0];
+      expect(invoiceSql).toContain("NOT IN ('draft', 'void', 'cancelled')");
+    });
+
+    test('total_outstanding covers issued, sent and overdue statuses', async () => {
+      // "outstanding" = anything billed but not yet collected; sent and overdue
+      // invoices are unpaid and must not be silently excluded from this metric.
+      db.queryReplica
+        .mockResolvedValueOnce([[{ total_invoiced: '0', total_collected: '0', total_outstanding: '0', invoice_count: 0 }]])
+        .mockResolvedValueOnce([[{ total_payments: '0', payment_count: 0 }]])
+        .mockResolvedValueOnce([[{ total_expenses: '0', expense_count: 0 }]]);
+      await reportService.financialSummary(1, {});
+      const [invoiceSql] = db.queryReplica.mock.calls[0];
+      expect(invoiceSql).toContain("IN ('issued', 'sent', 'overdue')");
     });
   });
 
@@ -105,6 +139,24 @@ describe('reportService', () => {
       const [sql] = db.queryReplica.mock.calls[0];
       expect(sql).toMatch(/%Y-%m-%d/);
     });
+
+    test('excludes void, cancelled and draft from total_invoiced and invoice_count', async () => {
+      // The WHERE clause must filter out non-billable statuses so that voided
+      // invoices do not inflate the "invoiced" column.
+      db.queryReplica.mockResolvedValueOnce([[]]);
+      await reportService.revenueByPeriod(1, { period: 'monthly' });
+      const [sql] = db.queryReplica.mock.calls[0];
+      expect(sql).toContain("status NOT IN ('draft', 'void', 'cancelled')");
+    });
+
+    test('total_outstanding only covers unpaid active statuses (not draft)', async () => {
+      // Before fix: outstanding used NOT IN ('paid','cancelled','void') which
+      // incorrectly included draft invoices. After fix: IN ('issued','sent','overdue').
+      db.queryReplica.mockResolvedValueOnce([[]]);
+      await reportService.revenueByPeriod(1, {});
+      const [sql] = db.queryReplica.mock.calls[0];
+      expect(sql).toContain("IN ('issued', 'sent', 'overdue')");
+    });
   });
 
   describe('revenueByPlan()', () => {
@@ -115,6 +167,42 @@ describe('reportService', () => {
       const result = await reportService.revenueByPlan(1, {});
       expect(result.rows).toHaveLength(1);
       expect(result.rows[0].plan_name).toBe('Basic 10MB');
+    });
+
+    test('excludes void, cancelled and draft invoices', async () => {
+      db.queryReplica.mockResolvedValueOnce([[]]);
+      await reportService.revenueByPlan(1, {});
+      const [sql] = db.queryReplica.mock.calls[0];
+      expect(sql).toContain("status NOT IN ('draft', 'void', 'cancelled')");
+    });
+  });
+
+  describe('revenueByRegion()', () => {
+    test('excludes void, cancelled and draft invoices', async () => {
+      db.queryReplica.mockResolvedValueOnce([[]]);
+      await reportService.revenueByRegion(1, {});
+      const [sql] = db.queryReplica.mock.calls[0];
+      expect(sql).toContain("status NOT IN ('draft', 'void', 'cancelled')");
+    });
+  });
+
+  describe('revenueByAgent()', () => {
+    test('excludes void, cancelled and draft invoices', async () => {
+      db.queryReplica.mockResolvedValueOnce([[]]);
+      await reportService.revenueByAgent(1, {});
+      const [sql] = db.queryReplica.mock.calls[0];
+      expect(sql).toContain("status NOT IN ('draft', 'void', 'cancelled')");
+    });
+  });
+
+  describe('agentCommissions()', () => {
+    test('excludes void, cancelled and draft from commission base', async () => {
+      // Commissions must be calculated only on real billable invoices.
+      // A voided invoice that was paid and then reversed must not earn a commission.
+      db.queryReplica.mockResolvedValueOnce([[]]);
+      await reportService.agentCommissions(1, {});
+      const [sql] = db.queryReplica.mock.calls[0];
+      expect(sql).toContain("status NOT IN ('draft', 'void', 'cancelled')");
     });
   });
 
@@ -137,6 +225,18 @@ describe('reportService', () => {
       const result = await reportService.taxSummary(1, {});
       expect(result).toHaveProperty('total_tax', 1600);
       expect(result.by_rate).toHaveLength(1);
+    });
+
+    test('excludes void, cancelled and draft from both summary and by-rate queries', async () => {
+      // Tax on a voided invoice must not appear in the SAT liability total.
+      db.queryReplica
+        .mockResolvedValueOnce([[{ total_tax: '0', total_subtotal: '0', total_invoiced: '0' }]])
+        .mockResolvedValueOnce([[]]);
+      await reportService.taxSummary(1, {});
+      const calls = db.queryReplica.mock.calls;
+      expect(calls).toHaveLength(2);
+      expect(calls[0][0]).toContain("status NOT IN ('draft', 'void', 'cancelled')");
+      expect(calls[1][0]).toContain("status NOT IN ('draft', 'void', 'cancelled')");
     });
   });
 

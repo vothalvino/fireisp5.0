@@ -49,7 +49,7 @@ async function agingReport(organizationId, { currency } = {}) {
       END AS aging_bucket
     FROM \`invoices\` i
     JOIN \`clients\` c ON c.id = i.client_id
-    WHERE i.organization_id = ? AND i.status = 'issued'
+    WHERE i.organization_id = ? AND i.status IN ('issued', 'sent', 'overdue')
   `;
   const params = [organizationId];
 
@@ -90,10 +90,10 @@ async function financialSummary(organizationId, { from, to, currency } = {}) {
   const [[invoiceRows], [paymentRows], [expenseRows]] = await Promise.all([
     db.queryReplica(`
       SELECT
-        COALESCE(SUM(total), 0) AS total_invoiced,
+        COALESCE(SUM(CASE WHEN status NOT IN ('draft', 'void', 'cancelled') THEN total ELSE 0 END), 0) AS total_invoiced,
         COALESCE(SUM(CASE WHEN status = 'paid' THEN total ELSE 0 END), 0) AS total_collected,
-        COALESCE(SUM(CASE WHEN status = 'issued' THEN total ELSE 0 END), 0) AS total_outstanding,
-        COUNT(*) AS invoice_count
+        COALESCE(SUM(CASE WHEN status IN ('issued', 'sent', 'overdue') THEN total ELSE 0 END), 0) AS total_outstanding,
+        COUNT(CASE WHEN status NOT IN ('draft', 'void', 'cancelled') THEN 1 END) AS invoice_count
       FROM \`invoices\`
       WHERE organization_id = ? AND created_at >= ? AND created_at <= ? ${currencyFilter}
     `, baseParams),
@@ -231,11 +231,12 @@ async function revenueByPeriod(organizationId, { period = 'monthly', from, to, c
       ${periodExpr} AS period_label,
       COALESCE(SUM(i.total), 0) AS total_invoiced,
       COALESCE(SUM(CASE WHEN i.status = 'paid' THEN i.total ELSE 0 END), 0) AS total_collected,
-      COALESCE(SUM(CASE WHEN i.status NOT IN ('paid', 'cancelled', 'void') THEN i.total ELSE 0 END), 0) AS total_outstanding,
+      COALESCE(SUM(CASE WHEN i.status IN ('issued', 'sent', 'overdue') THEN i.total ELSE 0 END), 0) AS total_outstanding,
       COUNT(*) AS invoice_count
     FROM \`invoices\` i
     WHERE i.organization_id = ?
       AND i.issue_date >= ? AND i.issue_date <= ?
+      AND i.status NOT IN ('draft', 'void', 'cancelled')
       ${currencyFilter}
     GROUP BY period_label
     ORDER BY period_label ASC
@@ -267,6 +268,7 @@ async function revenueByPlan(organizationId, { from, to } = {}) {
     LEFT JOIN \`plans\` p ON p.id = co.plan_id
     WHERE i.organization_id = ?
       AND i.issue_date >= ? AND i.issue_date <= ?
+      AND i.status NOT IN ('draft', 'void', 'cancelled')
     GROUP BY p.name
     ORDER BY total_invoiced DESC
   `, [organizationId, dateFrom, dateTo]);
@@ -296,6 +298,7 @@ async function revenueByRegion(organizationId, { from, to } = {}) {
     LEFT JOIN \`sites\` s ON s.id = co.site_id
     WHERE i.organization_id = ?
       AND i.issue_date >= ? AND i.issue_date <= ?
+      AND i.status NOT IN ('draft', 'void', 'cancelled')
     GROUP BY s.city
     ORDER BY total_invoiced DESC
   `, [organizationId, dateFrom, dateTo]);
@@ -326,6 +329,7 @@ async function revenueByAgent(organizationId, { from, to } = {}) {
     LEFT JOIN \`users\` u ON u.id = i.created_by
     WHERE i.organization_id = ?
       AND i.issue_date >= ? AND i.issue_date <= ?
+      AND i.status NOT IN ('draft', 'void', 'cancelled')
     GROUP BY i.created_by, u.first_name, u.last_name
     ORDER BY total_invoiced DESC
   `, [organizationId, dateFrom, dateTo]);
@@ -470,6 +474,7 @@ async function agentCommissions(organizationId, { from, to, rate = 0.05 } = {}) 
     LEFT JOIN \`users\` u ON u.id = i.created_by
     WHERE i.organization_id = ?
       AND i.issue_date >= ? AND i.issue_date <= ?
+      AND i.status NOT IN ('draft', 'void', 'cancelled')
     GROUP BY i.created_by, u.first_name, u.last_name
     ORDER BY total_invoiced DESC
   `, [rate, organizationId, dateFrom, dateTo]);
@@ -506,6 +511,7 @@ async function taxSummary(organizationId, { from, to, currency } = {}) {
       FROM \`invoices\`
       WHERE organization_id = ?
         AND issue_date >= ? AND issue_date <= ?
+        AND status NOT IN ('draft', 'void', 'cancelled')
         ${currencyFilter}
     `, params),
     db.queryReplica(`
@@ -517,6 +523,7 @@ async function taxSummary(organizationId, { from, to, currency } = {}) {
       FROM \`invoices\`
       WHERE organization_id = ?
         AND issue_date >= ? AND issue_date <= ?
+        AND status NOT IN ('draft', 'void', 'cancelled')
         ${currencyFilter}
       GROUP BY tax_rate
       ORDER BY tax_rate ASC
