@@ -31,9 +31,9 @@ async function summary(req, res, next) {
       ),
       db.queryReplica(
         `SELECT
-           COALESCE(SUM(CASE WHEN status = 'issued' THEN total ELSE 0 END), 0) AS outstanding,
+           COALESCE(SUM(CASE WHEN status IN ('issued', 'sent', 'overdue') THEN total ELSE 0 END), 0) AS outstanding,
            COALESCE(SUM(CASE WHEN status = 'paid' THEN total ELSE 0 END), 0) AS collected,
-           COALESCE(SUM(total), 0) AS total_invoiced
+           COALESCE(SUM(CASE WHEN status NOT IN ('draft', 'void', 'cancelled') THEN total ELSE 0 END), 0) AS total_invoiced
          FROM invoices
          WHERE organization_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`,
         [orgId],
@@ -72,9 +72,9 @@ async function revenue(req, res, next) {
       `SELECT
          DATE_FORMAT(created_at, '%Y-%m') AS month,
          currency,
-         COALESCE(SUM(total), 0) AS invoiced,
+         COALESCE(SUM(CASE WHEN status NOT IN ('draft', 'void', 'cancelled') THEN total ELSE 0 END), 0) AS invoiced,
          COALESCE(SUM(CASE WHEN status = 'paid' THEN total ELSE 0 END), 0) AS collected,
-         COUNT(*) AS invoice_count
+         COUNT(CASE WHEN status NOT IN ('draft', 'void', 'cancelled') THEN 1 END) AS invoice_count
        FROM invoices
        WHERE organization_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
        GROUP BY month, currency
