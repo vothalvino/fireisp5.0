@@ -3366,7 +3366,11 @@
     "runAgain": "Ejecutar de nuevo",
     "done": "Listo",
     "discoverFailed": "Error al descubrir subredes.",
-    "bootstrapFailed": "Error al iniciar WireGuard."
+    "bootstrapFailed": "Error al iniciar WireGuard.",
+    "quickBootstrap": "Obtener Configuración",
+    "quickBootstrapping": "Obteniendo configuración…",
+    "quickBootstrapHint": "Obtén el fragmento RouterOS para levantar este túnel. Úsalo primero — antes de que el túnel esté conectado.",
+    "orLabel": "o"
   },
   "wgTunnels": {
     "fullTunnelLabel": "Túnel completo (enrutar todo el tráfico por la VPN)",

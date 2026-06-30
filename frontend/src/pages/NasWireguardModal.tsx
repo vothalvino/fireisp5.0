@@ -185,6 +185,19 @@ export function NasWireguardModal({ nas, onClose }: NasWireguardModalProps) {
   // Proposed first, then any manually-added CIDRs not already proposed.
   const allSubnets = [...proposedSubnets, ...manualSubnets.filter((s) => !proposedSubnets.includes(s))];
 
+  // --- direct bootstrap (skips discover — the primary path for a new NATed NAS) ---
+  const directBootstrapMutation = useMutation({
+    mutationFn: () => wgBootstrap(nas.id),
+    onSuccess: (data) => {
+      setResult(data);
+      setPhase('done');
+      setError('');
+    },
+    onError: (e: unknown) => {
+      setError(e instanceof Error ? e.message : t('nasWireguard.bootstrapFailed'));
+    },
+  });
+
   // --- discover ---
   const discoverMutation = useMutation({
     mutationFn: () => wgDiscover(nas.id),
@@ -271,6 +284,7 @@ export function NasWireguardModal({ nas, onClose }: NasWireguardModalProps) {
 
   const isDiscovering = discoverMutation.isPending;
   const isBootstrapping = bootstrapMutation.isPending;
+  const isDirectBootstrapping = directBootstrapMutation.isPending;
 
   return (
     <div style={modalStyles.backdrop} onClick={onClose}>
@@ -292,21 +306,53 @@ export function NasWireguardModal({ nas, onClose }: NasWireguardModalProps) {
         {/* ── IDLE ─────────────────────────────────────── */}
         {phase === 'idle' && (
           <div style={modalStyles.form}>
-            <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-              {t('nasWireguard.intro')}
-            </p>
-            {error && <p style={modalStyles.error}>{error}</p>}
-            <div style={modalStyles.actions}>
-              <button type="button" style={styles.btnSecondary} onClick={onClose}>
-                {t('nasWireguard.cancel')}
-              </button>
+            {/* Primary path: get the bootstrap snippet immediately (new / NATed NAS) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                {t('nasWireguard.quickBootstrapHint')}
+              </p>
               <button
                 type="button"
                 style={styles.btnPrimary}
-                disabled={isDiscovering}
+                disabled={isDirectBootstrapping || isDiscovering}
+                onClick={() => directBootstrapMutation.mutate()}
+                aria-label={t('nasWireguard.quickBootstrap')}
+              >
+                {isDirectBootstrapping
+                  ? t('nasWireguard.quickBootstrapping')
+                  : t('nasWireguard.quickBootstrap')}
+              </button>
+            </div>
+
+            {/* Visual divider */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0' }}>
+              <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                {t('nasWireguard.orLabel')}
+              </span>
+              <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+            </div>
+
+            {/* Secondary path: discover subnets (tunnel already up) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                {t('nasWireguard.intro')}
+              </p>
+              <button
+                type="button"
+                style={styles.btnSecondary}
+                disabled={isDirectBootstrapping || isDiscovering}
                 onClick={startDiscover}
               >
                 {t('nasWireguard.discover')}
+              </button>
+            </div>
+
+            {error && <p style={modalStyles.error}>{error}</p>}
+
+            <div style={modalStyles.actions}>
+              <button type="button" style={styles.btnSecondary} onClick={onClose}>
+                {t('nasWireguard.cancel')}
               </button>
             </div>
           </div>

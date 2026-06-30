@@ -66,9 +66,46 @@ describe('NasWireguardModal', () => {
     mockPut.mockResolvedValue({ data: { data: {} }, error: undefined });
   });
 
-  it('renders the intro and a Discover button', () => {
+  it('renders both the Get Setup Config and Discover Subnets buttons', () => {
     renderModal();
-    expect(screen.getByText('Discover Subnets')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Get Setup Config' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Discover Subnets' })).toBeInTheDocument();
+  });
+
+  it('calls bootstrap directly when Get Setup Config is clicked and shows the snippet', async () => {
+    mockPost.mockImplementation((path: string) => {
+      if (path === '/nas/{id}/wg/bootstrap') {
+        return Promise.resolve({
+          data: {
+            data: {
+              ok: false,
+              method: 'snippet',
+              state: 'pending',
+              steps: [],
+              snippet: '/interface wireguard add name=wg-fireisp listen-port=51820',
+            },
+          },
+          error: undefined,
+        });
+      }
+      return Promise.resolve({ data: { data: {} }, error: undefined });
+    });
+
+    const user = userEvent.setup();
+    renderModal();
+    await user.click(screen.getByRole('button', { name: 'Get Setup Config' }));
+
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith('/nas/{id}/wg/bootstrap', expect.anything()),
+    );
+    // Should reach the done phase with the snippet textarea
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: /paste-once routeros snippet/i }),
+      ).toBeInTheDocument(),
+    );
+    // discover should NOT have been called
+    expect(mockPost).not.toHaveBeenCalledWith('/nas/{id}/wg/discover', expect.anything());
   });
 
   it('shows the proposed subnet (reads `proposed`, not `subnets`) and router address reference', async () => {

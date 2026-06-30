@@ -3366,7 +3366,11 @@
     "runAgain": "Run again",
     "done": "Done",
     "discoverFailed": "Failed to discover subnets.",
-    "bootstrapFailed": "Failed to bootstrap WireGuard."
+    "bootstrapFailed": "Failed to bootstrap WireGuard.",
+    "quickBootstrap": "Get Setup Config",
+    "quickBootstrapping": "Getting config…",
+    "quickBootstrapHint": "Fetch the one-time RouterOS paste config to bring this tunnel up. Use this first — before the tunnel is connected.",
+    "orLabel": "or"
   },
   "wgTunnels": {
     "fullTunnelLabel": "Full tunnel (route all traffic through VPN)",
