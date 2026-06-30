@@ -20,7 +20,8 @@
     "prev": "Prev",
     "next": "Next",
     "none": "(none)",
-    "id": "ID"
+    "id": "ID",
+    "unassigned": "— unassigned —"
   },
   "clientPicker": {
     "label": "Client",
@@ -2621,7 +2622,25 @@
     "attachmentsUpload": "Upload File",
     "attachmentsDownload": "Download",
     "attachmentsDelete": "Delete",
-    "attachmentsUploading": "Uploading..."
+    "attachmentsUploading": "Uploading...",
+    "workOrders": "Work Orders",
+    "workOrdersCreate": "Create Work Order",
+    "workOrdersTitle": "Title",
+    "workOrdersTitlePlaceholder": "Describe the work needed",
+    "workOrdersType": "Work Type",
+    "workOrdersScheduled": "Scheduled At",
+    "workOrdersAssignee": "Assign To",
+    "workOrdersSave": "Create",
+    "workOrdersNone": "No work orders linked to this ticket.",
+    "workOrdersNoClient": "This ticket has no client.",
+    "escalations": "Escalations",
+    "escalationsAdd": "Escalate",
+    "escalationsReason": "Reason",
+    "escalationsReasonPlaceholder": "Why is this ticket being escalated?",
+    "escalationsAssignee": "Escalate To",
+    "escalationsSave": "Escalate",
+    "escalationsNone": "No escalations for this ticket.",
+    "escalationsLevel": "Level"
   },
   "topologyMap": {
     "title": "Topology & Map",
@@ -3289,7 +3308,12 @@
   },
   "aiSupport": {
     "title": "AI Customer Support",
-    "tabs": { "chat": "Chat", "kb": "Knowledge Base", "metrics": "Metrics", "noc": "NOC Insights" },
+    "tabs": {
+      "chat": "Chat",
+      "kb": "Knowledge Base",
+      "metrics": "Metrics",
+      "noc": "NOC Insights"
+    },
     "chat": {
       "newConversation": "New Conversation",
       "send": "Send",
@@ -3313,7 +3337,11 @@
       "locale": "Language",
       "tags": "Tags",
       "published": "Published",
-      "feedback": { "helpful": "Helpful", "wrong": "Wrong", "partial": "Partially helpful" }
+      "feedback": {
+        "helpful": "Helpful",
+        "wrong": "Wrong",
+        "partial": "Partially helpful"
+      }
     },
     "metrics": {
       "resolutionRate": "Resolution Rate",
@@ -3509,5 +3537,35 @@
     "ipAddressLabel": "IP Address (IPv4)",
     "ipAddressPlaceholder": "e.g. 10.0.0.1",
     "natedHint": "FireISP will assign a WireGuard tunnel address as the device IP. After saving, open the WG tab, copy the bootstrap config, paste it into the router, then run Seed / Test."
+  },
+  "serviceOrders": {
+    "title": "Service Orders",
+    "new": "New Order",
+    "description": "Track installation and change requests through the provisioning workflow.",
+    "colOrder": "Order",
+    "colType": "Type",
+    "colClient": "Client",
+    "colStatus": "Status",
+    "colContract": "Contract",
+    "colActions": "Actions",
+    "empty": "No service orders yet.",
+    "cancel": "Cancel",
+    "linkContract": "+ Link Contract",
+    "workOrders": "Work Orders",
+    "workOrdersModalTitle": "Work Orders",
+    "workOrdersNone": "No work orders for this service order yet.",
+    "workOrderTitleField": "Title",
+    "workOrderTypeField": "Work Type",
+    "workOrderScheduledField": "Scheduled At",
+    "workOrderCreate": "Create Work Order",
+    "createContractTitle": "Create Contract",
+    "contractClientId": "Client ID",
+    "contractPlanId": "Plan ID",
+    "contractPlanPlaceholder": "Enter plan ID",
+    "contractPlanRequired": "Plan ID is required",
+    "contractCreateFailed": "Failed to create contract",
+    "contractLinkFailed": "Contract created but failed to link",
+    "contractCreate": "Create & Link",
+    "contractCreateNote": "A new contract will be created and linked to this service order."
   }
 }

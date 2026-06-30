@@ -74,7 +74,7 @@ router.get('/', requirePermission('work_orders.view'), async (req, res, next) =>
     // Optional filters: by target (client/site/device) or status.
     const where = ['wo.organization_id = ?', 'wo.deleted_at IS NULL'];
     const params = [req.orgId];
-    for (const f of ['client_id', 'site_id', 'device_id', 'status']) {
+    for (const f of ['client_id', 'site_id', 'device_id', 'status', 'ticket_id', 'service_order_id']) {
       if (req.query[f] !== undefined && req.query[f] !== null && req.query[f] !== '') { where.push(`wo.${f} = ?`); params.push(req.query[f]); }
     }
     const whereSql = where.join(' AND ');

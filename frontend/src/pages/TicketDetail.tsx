@@ -1314,6 +1314,259 @@ function TimeLogsPanel({ ticketId }: { ticketId: number }) {
 }
 
 // ---------------------------------------------------------------------------
+// Work Orders panel (A — Ticket → Work Order wiring)
+// ---------------------------------------------------------------------------
+
+interface WorkOrderRow {
+  id: number;
+  title: string;
+  status: string;
+  work_type: string;
+  scheduled_at: string | null;
+  assigned_first: string | null;
+  assigned_last: string | null;
+}
+
+const WORK_TYPES_LIST = ['installation', 'maintenance', 'repair', 'survey', 'other'];
+
+async function fetchWorkOrdersByTicket(ticketId: number): Promise<WorkOrderRow[]> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/work-orders?ticket_id=${ticketId}&limit=50`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return [];
+  const body = await res.json() as { data: WorkOrderRow[] };
+  return body.data ?? [];
+}
+
+async function createWorkOrderFromTicket(payload: {
+  ticket_id: number;
+  client_id: number;
+  title: string;
+  work_type: string;
+  scheduled_at: string | null;
+  assigned_to: number | null;
+}): Promise<void> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/work-orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(err.error || 'Failed to create work order');
+  }
+}
+
+function WorkOrdersPanel({ ticket, users }: { ticket: Ticket; users: User[] }) {
+  const { t } = useTranslation();
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState('');
+  const [workType, setWorkType] = useState('repair');
+  const [scheduledAt, setScheduledAt] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
+  const [formErr, setFormErr] = useState('');
+
+  const { data: workOrders = [], refetch } = useQuery({
+    queryKey: ['ticket-work-orders', ticket.id],
+    queryFn: () => fetchWorkOrdersByTicket(ticket.id),
+  });
+
+  const addMut = useMutation({
+    mutationFn: () => {
+      if (ticket.client_id == null) throw new Error(t('ticketDetail.workOrdersNoClient', 'This ticket has no client.'));
+      return createWorkOrderFromTicket({
+        ticket_id: ticket.id,
+        client_id: ticket.client_id,
+        title: title.trim(),
+        work_type: workType,
+        scheduled_at: scheduledAt || null,
+        assigned_to: assignedTo ? Number(assignedTo) : null,
+      });
+    },
+    onSuccess: () => { setShowForm(false); setTitle(''); setScheduledAt(''); setAssignedTo(''); setFormErr(''); void refetch(); },
+    onError: (e: Error) => setFormErr(e.message),
+  });
+
+  return (
+    <div style={{ ...card, marginTop: '1.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+        <h3 style={{ ...cardTitle, margin: 0 }}>{t('ticketDetail.workOrders', 'Work Orders')} ({workOrders.length})</h3>
+        {ticket.client_id != null && (
+          <button style={{ ...btnPrimary, fontSize: '0.78rem', padding: '4px 12px' }} onClick={() => setShowForm(s => !s)}>
+            {t('ticketDetail.workOrdersCreate', 'Create Work Order')}
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '0.75rem', marginBottom: '0.75rem' }}>
+          {formErr && <div style={errStyle}>{formErr}</div>}
+          <label style={labelStyle}>{t('ticketDetail.workOrdersTitle', 'Title')}</label>
+          <input type="text" style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder={t('ticketDetail.workOrdersTitlePlaceholder', 'Describe the work needed')} />
+          <label style={labelStyle}>{t('ticketDetail.workOrdersType', 'Work Type')}</label>
+          <select style={inputStyle} value={workType} onChange={e => setWorkType(e.target.value)}>
+            {WORK_TYPES_LIST.map(wt => <option key={wt} value={wt}>{t(`workOrders.workType.${wt}`, wt)}</option>)}
+          </select>
+          <label style={labelStyle}>{t('ticketDetail.workOrdersScheduled', 'Scheduled At')}</label>
+          <input type="datetime-local" style={inputStyle} value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} />
+          <label style={labelStyle}>{t('ticketDetail.workOrdersAssignee', 'Assign To')}</label>
+          <select style={inputStyle} value={assignedTo} onChange={e => setAssignedTo(e.target.value)}>
+            <option value="">{t('common.unassigned', '— unassigned —')}</option>
+            {users.map(u => <option key={u.id} value={u.id}>{u.first_name} {u.last_name}</option>)}
+          </select>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button style={btnPrimary} disabled={!title.trim() || addMut.isPending} onClick={() => addMut.mutate()}>
+              {addMut.isPending ? '...' : t('ticketDetail.workOrdersSave', 'Create')}
+            </button>
+            <button style={btnSecondary} onClick={() => { setShowForm(false); setFormErr(''); }}>
+              {t('common.cancel', 'Cancel')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {workOrders.length === 0 ? (
+        <p style={{ color: '#9ca3af', fontSize: '0.85rem', margin: 0 }}>{t('ticketDetail.workOrdersNone', 'No work orders linked to this ticket.')}</p>
+      ) : (
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {workOrders.map(wo => (
+            <li key={wo.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.85rem', padding: '6px 0', borderBottom: '1px solid #f3f4f6' }}>
+              <Link to={`/work-orders`} style={{ color: 'var(--link)', textDecoration: 'none', fontWeight: 600, minWidth: 32 }}>#{wo.id}</Link>
+              <span style={{ flex: 1, color: '#374151' }}>{wo.title}</span>
+              <span style={{ textTransform: 'capitalize', color: '#6b7280', fontSize: '0.78rem' }}>{wo.work_type}</span>
+              <span style={{ textTransform: 'capitalize', color: '#6b7280', fontSize: '0.78rem' }}>{wo.status}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Escalations panel (D — fold escalations into TicketDetail)
+// ---------------------------------------------------------------------------
+
+interface EscalationRow {
+  id: number;
+  ticket_id: number;
+  level: number;
+  reason: string | null;
+  status: string;
+  escalated_to: number | null;
+  created_at: string;
+}
+
+async function fetchEscalationsByTicket(ticketId: number): Promise<EscalationRow[]> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/escalations?ticket_id=${ticketId}&limit=50`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return [];
+  const body = await res.json() as { data: EscalationRow[] };
+  return body.data ?? [];
+}
+
+async function createEscalation(ticketId: number, reason: string, escalatedTo: number | null): Promise<void> {
+  const token = tokenStore.getAccess();
+  const res = await fetch(`${API_BASE}/escalations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ ticket_id: ticketId, reason, ...(escalatedTo != null ? { escalated_to: escalatedTo } : {}) }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(err.error || 'Failed to create escalation');
+  }
+}
+
+const ESC_STATUS_COLOR: Record<string, { bg: string; color: string }> = {
+  open:         { bg: '#fee2e2', color: '#991b1b' },
+  acknowledged: { bg: '#fef9c3', color: '#854d0e' },
+  resolved:     { bg: '#d1fae5', color: '#065f46' },
+};
+
+function EscalationsPanel({ ticket, users }: { ticket: Ticket; users: User[] }) {
+  const { t } = useTranslation();
+  const [showForm, setShowForm] = useState(false);
+  const [reason, setReason] = useState('');
+  const [escalatedTo, setEscalatedTo] = useState('');
+  const [formErr, setFormErr] = useState('');
+
+  const { data: escalations = [], refetch } = useQuery({
+    queryKey: ['ticket-escalations', ticket.id],
+    queryFn: () => fetchEscalationsByTicket(ticket.id),
+  });
+
+  const addMut = useMutation({
+    mutationFn: () => createEscalation(ticket.id, reason.trim(), escalatedTo ? Number(escalatedTo) : null),
+    onSuccess: () => { setShowForm(false); setReason(''); setEscalatedTo(''); setFormErr(''); void refetch(); },
+    onError: (e: Error) => setFormErr(e.message),
+  });
+
+  return (
+    <div style={{ ...card, marginTop: '1.5rem', border: '1px solid #fee2e2' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+        <h3 style={{ ...cardTitle, margin: 0, color: '#991b1b' }}>{t('ticketDetail.escalations', 'Escalations')} ({escalations.length})</h3>
+        <button style={{ ...btnPrimary, fontSize: '0.78rem', padding: '4px 12px', background: '#dc2626' }} onClick={() => setShowForm(s => !s)}>
+          {t('ticketDetail.escalationsAdd', 'Escalate')}
+        </button>
+      </div>
+
+      {showForm && (
+        <div style={{ background: '#fff5f5', border: '1px solid #fca5a5', borderRadius: 6, padding: '0.75rem', marginBottom: '0.75rem' }}>
+          {formErr && <div style={errStyle}>{formErr}</div>}
+          <label style={labelStyle}>{t('ticketDetail.escalationsReason', 'Reason')}</label>
+          <textarea
+            style={{ ...inputStyle, height: 70, resize: 'vertical' as const }}
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            placeholder={t('ticketDetail.escalationsReasonPlaceholder', 'Why is this ticket being escalated?')}
+          />
+          <label style={labelStyle}>{t('ticketDetail.escalationsAssignee', 'Escalate To')}</label>
+          <select style={inputStyle} value={escalatedTo} onChange={e => setEscalatedTo(e.target.value)}>
+            <option value="">{t('common.unassigned', '— unassigned —')}</option>
+            {users.map(u => <option key={u.id} value={u.id}>{u.first_name} {u.last_name}</option>)}
+          </select>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button style={{ ...btnPrimary, background: '#dc2626' }} disabled={!reason.trim() || addMut.isPending} onClick={() => addMut.mutate()}>
+              {addMut.isPending ? '...' : t('ticketDetail.escalationsSave', 'Escalate')}
+            </button>
+            <button style={btnSecondary} onClick={() => { setShowForm(false); setFormErr(''); }}>
+              {t('common.cancel', 'Cancel')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {escalations.length === 0 ? (
+        <p style={{ color: '#9ca3af', fontSize: '0.85rem', margin: 0 }}>{t('ticketDetail.escalationsNone', 'No escalations for this ticket.')}</p>
+      ) : (
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {escalations.map(esc => {
+            const s = ESC_STATUS_COLOR[esc.status] ?? { bg: '#f3f4f6', color: '#374151' };
+            return (
+              <li key={esc.id} style={{ fontSize: '0.85rem', padding: '8px 10px', background: '#fff5f5', borderRadius: 6, border: '1px solid #fca5a5' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: esc.reason ? 4 : 0 }}>
+                  <span style={{ fontWeight: 700, color: '#dc2626' }}>{t('ticketDetail.escalationsLevel', 'Level')} {esc.level}</span>
+                  <span style={{ ...s, padding: '2px 8px', borderRadius: 10, fontSize: '0.72rem', fontWeight: 700, textTransform: 'capitalize' as const }}>
+                    {esc.status}
+                  </span>
+                  <span style={{ marginLeft: 'auto', color: '#9ca3af', fontSize: '0.75rem' }}>{fmt(esc.created_at)}</span>
+                </div>
+                {esc.reason && <p style={{ margin: 0, color: '#374151', lineHeight: 1.5 }}>{esc.reason}</p>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Follow-ups panel
 // ---------------------------------------------------------------------------
 
@@ -1691,6 +1944,12 @@ export function TicketDetail() {
 
           {/* Relations */}
           <RelationsPanel ticketId={ticket.id} />
+
+          {/* Work Orders (A) */}
+          <WorkOrdersPanel ticket={ticket} users={users} />
+
+          {/* Escalations (D) */}
+          <EscalationsPanel ticket={ticket} users={users} />
 
           {/* Follow-ups */}
           <FollowUpsPanel ticket={ticket} />
