@@ -42,7 +42,17 @@ function validate(schema, options = {}) {
       } else if (rules.type === 'number' && typeof value !== 'number') {
         errors.push({ field, message: `${field} must be a number` });
       } else if (rules.type === 'boolean' && typeof value !== 'boolean') {
-        errors.push({ field, message: `${field} must be a boolean` });
+        // Boolean columns are stored as MySQL tinyint and serialized back as the
+        // numbers 0/1. A value read from a GET and re-submitted in an edit form
+        // therefore arrives as 0 or 1, not true/false. Accept that exact tinyint
+        // form and coerce it to a real boolean (so the model and downstream logic
+        // get a boolean); reject anything else. Without this, every edit form that
+        // round-trips a boolean field 422s with "<field> must be a boolean".
+        if (value === 0 || value === 1) {
+          body[field] = value === 1;
+        } else {
+          errors.push({ field, message: `${field} must be a boolean` });
+        }
       } else if (rules.type === 'array' && !Array.isArray(value)) {
         errors.push({ field, message: `${field} must be an array` });
       } else if (rules.type === 'email' && typeof value === 'string') {
