@@ -61,8 +61,24 @@ interface WorkOrderForSO {
   work_type: string;
 }
 
+const TODAY_SO = new Date().toISOString().split('T')[0];
+
 const ORDER_TYPES = ['new_install', 'upgrade', 'downgrade', 'relocation', 'reconnect'];
 const WORK_TYPES_SO = ['installation', 'maintenance', 'repair', 'survey', 'other'];
+
+interface Plan {
+  id: number;
+  name: string;
+  price: string;
+}
+
+async function fetchPlansForSO(): Promise<Plan[]> {
+  const res = await api.GET('/plans', {
+    params: { query: { limit: 200 } as never },
+  });
+  if (res.error) throw new Error('Failed to load plans');
+  return (res.data as unknown as { data: Plan[] }).data;
+}
 
 // Maps the current status to the transition action that may follow it.
 const NEXT_ACTION: Record<string, { label: string; path: string } | null> = {
@@ -262,21 +278,44 @@ function WorkOrdersModal({ order, onClose, onCreated }: { order: ServiceOrder; o
 
 function CreateContractModal({ order, onClose, onLinked }: { order: ServiceOrder; onClose: () => void; onLinked: () => void }) {
   const { t } = useTranslation();
-  const [planId, setPlanId] = useState('');
+  const [form, setForm] = useState({
+    plan_id: '',
+    connection_type: 'pppoe',
+    start_date: TODAY_SO,
+    billing_day: '',
+    price_override: '',
+  });
   const [error, setError] = useState('');
+
+  const { data: plans = [], isLoading: plansLoading } = useQuery({
+    queryKey: ['plans-lookup'],
+    queryFn: fetchPlansForSO,
+    staleTime: 60_000,
+  });
 
   const mutation = useMutation({
     mutationFn: async () => {
-      if (!planId) throw new Error(t('serviceOrders.contractPlanRequired', 'Plan ID is required'));
+      if (!form.plan_id) throw new Error(t('serviceOrders.contractPlanRequired', 'Plan is required'));
       const token = tokenStore.getAccess();
       const csrf = readCsrfCookie();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (csrf) headers['X-CSRF-Token'] = csrf;
 
-      // 1. Create the contract pre-filled with client_id (start_date defaults to
-      //    today — required by the contract schema; the operator can adjust it later).
+      const body: Record<string, unknown> = {
+        client_id: order.client_id,
+        plan_id: Number(form.plan_id),
+        connection_type: form.connection_type,
+        start_date: form.start_date,
+      };
+      if (form.billing_day) body['billing_day'] = Math.min(28, Math.max(1, Number(form.billing_day)));
+      if (form.price_override) body['price_override'] = Number(form.price_override);
+
+      // 1. Create contract
       const createRes = await fetch(`${API_BASE}/contracts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
-        body: JSON.stringify({ client_id: order.client_id, plan_id: Number(planId), start_date: new Date().toISOString().slice(0, 10) }),
+        headers,
+        body: JSON.stringify(body),
       });
       if (!createRes.ok) {
         const err = await createRes.json().catch(() => ({})) as { error?: string };
@@ -284,10 +323,10 @@ function CreateContractModal({ order, onClose, onLinked }: { order: ServiceOrder
       }
       const { data: newContract } = await createRes.json() as { data: { id: number } };
 
-      // 2. Link the contract back to the service order
+      // 2. Link contract back to the service order
       const linkRes = await fetch(`${API_BASE}/service-orders/${order.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+        headers,
         body: JSON.stringify({ contract_id: newContract.id }),
       });
       if (!linkRes.ok) {
@@ -301,27 +340,92 @@ function CreateContractModal({ order, onClose, onLinked }: { order: ServiceOrder
 
   return (
     <div style={overlay} role="dialog" aria-modal="true" aria-label={t('serviceOrders.createContractTitle', 'Create Contract')}>
-      <div style={{ ...modalBox, width: 420 }}>
-        <h3 style={{ margin: '0 0 1rem' }}>{t('serviceOrders.createContractTitle', 'Create Contract')} — {order.order_number}</h3>
+      <div style={{ ...modalBox, width: 480, maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <h3 style={{ margin: 0 }}>{t('serviceOrders.createContractTitle', 'Create Contract')} — {order.order_number}</h3>
+          <button type="button" onClick={onClose} style={cancelBtn}>✕</button>
+        </div>
         {error && <div style={errorBox}>{error}</div>}
 
-        <label style={labelStyle}>{t('serviceOrders.contractClientId', 'Client ID')} (pre-filled)</label>
-        <input style={{ ...inputStyle, background: 'var(--bg-subtle)', color: 'var(--text-secondary)' }}
-          type="number" value={order.client_id ?? ''} readOnly />
+        {/* Client — read-only display */}
+        <label style={labelStyle}>{t('serviceOrders.contractClientId', 'Client')} (pre-filled)</label>
+        <input
+          style={{ ...inputStyle, background: 'var(--bg-subtle)', color: 'var(--text-secondary)' }}
+          type="text"
+          value={order.client_id != null ? `#${order.client_id}` : '—'}
+          readOnly
+        />
 
-        <label style={labelStyle}>{t('serviceOrders.contractPlanId', 'Plan ID')}</label>
-        <input style={inputStyle} type="number" min={1} value={planId}
-          onChange={e => setPlanId(e.target.value)}
-          placeholder={t('serviceOrders.contractPlanPlaceholder', 'Enter plan ID')} />
+        {/* Plan — dropdown of active org plans */}
+        <label style={labelStyle}>{t('serviceOrders.contractPlanId', 'Plan')} *</label>
+        <select
+          style={inputStyle}
+          value={form.plan_id}
+          onChange={e => setForm(p => ({ ...p, plan_id: e.target.value }))}
+          disabled={plansLoading}
+        >
+          <option value="">
+            {plansLoading ? t('common.loading', 'Loading…') : t('serviceOrders.contractPlanPlaceholder', '— select plan —')}
+          </option>
+          {plans.map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
 
-        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 8 }}>
-          {t('serviceOrders.contractCreateNote', 'A new contract will be created and linked to this service order.')}
-        </p>
+        {/* Connection type */}
+        <label style={labelStyle}>{t('serviceOrders.contractConnectionType', 'Connection Type')}</label>
+        <select
+          style={inputStyle}
+          value={form.connection_type}
+          onChange={e => setForm(p => ({ ...p, connection_type: e.target.value }))}
+        >
+          <option value="pppoe">PPPoE</option>
+          <option value="pppoe_dual">PPPoE Dual</option>
+          <option value="static">Static</option>
+          <option value="dual">Dual</option>
+        </select>
+
+        {/* Start date */}
+        <label style={labelStyle}>{t('serviceOrders.contractStartDate', 'Start Date')} *</label>
+        <input
+          style={inputStyle}
+          type="date"
+          value={form.start_date}
+          onChange={e => setForm(p => ({ ...p, start_date: e.target.value }))}
+        />
+
+        {/* Billing day (optional) */}
+        <label style={labelStyle}>{t('serviceOrders.contractBillingDay', 'Billing Day (1–28)')}</label>
+        <input
+          style={inputStyle}
+          type="number"
+          min={1}
+          max={28}
+          value={form.billing_day}
+          onChange={e => setForm(p => ({ ...p, billing_day: e.target.value }))}
+          placeholder="e.g. 1"
+        />
+
+        {/* Price override (optional) */}
+        <label style={labelStyle}>{t('serviceOrders.contractPriceOverride', 'Price Override (leave blank for plan default)')}</label>
+        <input
+          style={inputStyle}
+          type="number"
+          min={0}
+          step="0.01"
+          value={form.price_override}
+          onChange={e => setForm(p => ({ ...p, price_override: e.target.value }))}
+          placeholder="e.g. 350.00"
+        />
 
         <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
           <button type="button" onClick={onClose} style={cancelBtn}>{t('common.cancel', 'Cancel')}</button>
-          <button type="button" style={submitBtn} disabled={!planId || mutation.isPending || !order.client_id}
-            onClick={() => mutation.mutate()}>
+          <button
+            type="button"
+            style={submitBtn}
+            disabled={!form.plan_id || !form.start_date || mutation.isPending || !order.client_id}
+            onClick={() => { setError(''); mutation.mutate(); }}
+          >
             {mutation.isPending ? t('common.saving', 'Saving…') : t('serviceOrders.contractCreate', 'Create & Link')}
           </button>
         </div>
