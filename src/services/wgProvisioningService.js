@@ -176,11 +176,16 @@ async function loadTunnel(nasId) {
  * already exists, the existing keypair and tunnel IP are reused.
  *
  * @param {object} nas  NAS row from `nas` table
+ * @param {object} [opts]
+ * @param {string} [opts.preallocatedTunnelIp]  When provided, use this tunnel IP
+ *   instead of calling allocateTunnelIp(). Used for NATed NAS creates where the
+ *   tunnel IP was pre-allocated and written to nas.ip_address before insert.
  * @returns {Promise<{ tunnel: object, steps: Array<{step,status,detail}> }>}
  */
-async function provisionDesiredState(nas) {
+async function provisionDesiredState(nas, opts = {}) {
   const steps = [];
   const record = (step, status, detail) => steps.push({ step, status, detail });
+  const { preallocatedTunnelIp } = opts;
 
   let tunnel = await loadTunnel(nas.id);
 
@@ -188,9 +193,17 @@ async function provisionDesiredState(nas) {
     // Reuse existing record — idempotent
     record('keypair', 'exists', `Reusing keypair for tunnel IP ${tunnel.tunnel_address}`);
   } else {
-    // Generate keypair and allocate tunnel IP
+    // Generate keypair and allocate tunnel IP.
+    // For NATed NAS creates, the tunnel IP was pre-allocated by the route handler
+    // (and written to nas.ip_address) — reuse it here so ip_address == tunnel_address.
     const { privateKey, publicKey } = wg.generateKeypair();
-    const tunnelIp = await wg.allocateTunnelIp();
+    // For a NATed NAS, ip_address IS its tunnel address (assigned at create). On the
+    // deferred/bootstrap path preallocatedTunnelIp is absent, so reuse ip_address
+    // instead of allocating a fresh one — otherwise tunnel_address would drift from
+    // ip_address and break the RADIUS/RouterOS-API host. A direct NAS (ip_address =
+    // the real device IP) always allocates a separate tunnel IP.
+    const tunnelIp = preallocatedTunnelIp
+      || (nas.access_mode === 'nated' && nas.ip_address ? nas.ip_address : await wg.allocateTunnelIp());
 
     const tunnelData = {
       organization_id: nas.organization_id || null,

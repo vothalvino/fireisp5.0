@@ -501,6 +501,7 @@ CREATE TABLE IF NOT EXISTS nas (
     api_username VARCHAR(128)   NULL COMMENT 'RouterOS API login user for direct provisioning (migration 360)',
     api_password_encrypted TEXT NULL COMMENT 'AES-256-GCM encrypted RouterOS API password (migration 360)',
     api_use_tls BOOLEAN         NOT NULL DEFAULT FALSE COMMENT 'Use api-ssl (TLS) for the RouterOS API connection (migration 360)',
+    access_mode ENUM('direct','nated') NOT NULL DEFAULT 'direct' COMMENT 'How FireISP connects to this NAS: direct (routable IP) or nated (ip_address = WG tunnel address) (migration 371)',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,

@@ -3493,5 +3493,17 @@
       "successSave": "Assignments updated. Live tunnels re-scoped immediately.",
       "errorSave": "Failed to save assignments."
     }
+  },
+  "nasList": {
+    "accessMode": {
+      "label": "Access Mode",
+      "direct": "Direct",
+      "nated": "Behind NAT",
+      "hint": "How FireISP connects to this device: Direct = routable IP; Behind NAT = reachable only over its WireGuard tunnel.",
+      "immutable": "Access mode can't be changed after registration — delete and re-create to switch."
+    },
+    "ipAddressLabel": "IP Address (IPv4)",
+    "ipAddressPlaceholder": "e.g. 10.0.0.1",
+    "natedHint": "FireISP will assign a WireGuard tunnel address as the device IP. After saving, open the WG tab, copy the bootstrap config, paste it into the router, then run Seed / Test."
   }
 }

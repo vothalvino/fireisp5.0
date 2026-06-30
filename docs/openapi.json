@@ -56933,11 +56933,17 @@
           },
           "api_use_tls": {
             "type": "boolean"
+          },
+          "access_mode": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "nated"
+            ]
           }
         },
         "required": [
           "name",
-          "ip_address",
           "secret"
         ]
       },
@@ -57021,6 +57027,13 @@
           },
           "api_use_tls": {
             "type": "boolean"
+          },
+          "access_mode": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "nated"
+            ]
           }
         }
       },
