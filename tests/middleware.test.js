@@ -76,6 +76,51 @@ describe('validate middleware', () => {
       statusCode: 422,
     }));
   });
+
+  test('passes a real boolean through unchanged', () => {
+    const { req, res, next } = mockReqRes({ api_use_tls: true });
+    const mw = validate({ api_use_tls: { type: 'boolean' } });
+    mw(req, res, next);
+    expect(next).toHaveBeenCalledWith();
+    expect(req.body.api_use_tls).toBe(true);
+  });
+
+  // Boolean columns are MySQL tinyint, serialized back as 0/1; an edit form that
+  // round-trips such a field re-submits the number. The validator accepts the
+  // tinyint form and coerces it so the request is not rejected with a 422.
+  test('accepts tinyint 1 for a boolean field and coerces to true', () => {
+    const { req, res, next } = mockReqRes({ api_use_tls: 1 });
+    const mw = validate({ api_use_tls: { type: 'boolean' } });
+    mw(req, res, next);
+    expect(next).toHaveBeenCalledWith(); // no error
+    expect(req.body.api_use_tls).toBe(true);
+  });
+
+  test('accepts tinyint 0 for a boolean field and coerces to false', () => {
+    const { req, res, next } = mockReqRes({ api_use_tls: 0 });
+    const mw = validate({ api_use_tls: { type: 'boolean' } });
+    mw(req, res, next);
+    expect(next).toHaveBeenCalledWith(); // no error
+    expect(req.body.api_use_tls).toBe(false);
+  });
+
+  test('still rejects a non-0/1 number for a boolean field', () => {
+    const { req, res, next } = mockReqRes({ api_use_tls: 2 });
+    const mw = validate({ api_use_tls: { type: 'boolean' } });
+    mw(req, res, next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({
+      statusCode: 422,
+    }));
+  });
+
+  test('still rejects a string for a boolean field', () => {
+    const { req, res, next } = mockReqRes({ api_use_tls: 'true' });
+    const mw = validate({ api_use_tls: { type: 'boolean' } });
+    mw(req, res, next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({
+      statusCode: 422,
+    }));
+  });
 });
 
 describe('orgScope middleware', () => {

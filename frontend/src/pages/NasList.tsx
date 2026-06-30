@@ -237,7 +237,11 @@ function NasModal({ nas, onClose, onSaved, onCreated }: NasModalProps) {
     api_port: nas?.api_port != null ? String(nas.api_port) : '8728',
     api_username: nas?.api_username ?? '',
     api_password: '',
-    api_use_tls: nas?.api_use_tls ?? false,
+    // The API serves api_use_tls as a MySQL tinyint (0/1). `?? false` only
+    // replaces null/undefined, so an existing 0/1 would survive as a *number*
+    // and the server's strict-boolean validator rejects the edit with a 422
+    // ("api_use_tls must be a boolean"). Coerce to a real boolean on load.
+    api_use_tls: Boolean(nas?.api_use_tls),
   });
   const isNated = form.access_mode === 'nated';
   const [error, setError] = useState('');
@@ -267,7 +271,7 @@ function NasModal({ nas, onClose, onSaved, onCreated }: NasModalProps) {
       if (form.api_port) body.api_port = Number(form.api_port);
       if (form.api_username) body.api_username = form.api_username.trim();
       if (form.api_password) body.api_password = form.api_password;
-      body.api_use_tls = form.api_use_tls;
+      body.api_use_tls = Boolean(form.api_use_tls);
       if (isEdit) { await updateNas(nas.id, body); return null; }
       return createNas(body);
     },
