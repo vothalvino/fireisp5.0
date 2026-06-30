@@ -40,11 +40,22 @@ interface InvoicesResponse {
   meta: { total: number; page: number; limit: number; totalPages: number };
 }
 
+interface Client {
+  id: number;
+  name: string;
+}
+
 // ---------------------------------------------------------------------------
 // Fetch / mutate helpers
 // ---------------------------------------------------------------------------
 
 const PAGE_SIZE = 25;
+
+async function fetchInvoiceClients(): Promise<Client[]> {
+  const res = await api.GET('/clients', { params: { query: { limit: 500 } as never } });
+  if (res.error) throw new Error('Failed to load clients');
+  return (res.data as unknown as { data: Client[] }).data;
+}
 
 async function fetchInvoices(page: number, statusFilter: string, orderBy: string, order: string): Promise<InvoicesResponse> {
   const query: Record<string, string | number> = { page, limit: PAGE_SIZE, order_by: orderBy, order };
@@ -147,6 +158,15 @@ export function InvoiceList() {
     placeholderData: prev => prev,
   });
 
+  // Load all clients for the name display (no backend changes — client-side lookup).
+  const { data: clients = [] } = useQuery({
+    queryKey: ['invoice-clients'],
+    queryFn: fetchInvoiceClients,
+    staleTime: 60_000,
+  });
+
+  const clientMap = new Map(clients.map((c: Client) => [c.id, c.name]));
+
   // Only voidable rows participate in selection / select-all.
   const voidableIds = (data?.data ?? []).filter(i => isVoidable(i.status)).map(i => i.id);
   const allVisibleSelected = voidableIds.length > 0 && voidableIds.every(id => selected.has(id));
@@ -241,7 +261,10 @@ export function InvoiceList() {
                     <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Select all invoices on this page" />
                   </th>
                   <SortableTh label={t('invoiceList.table.invoiceNumber')} col="invoice_number" sort={sort} />
-                  <SortableTh label={t('invoiceList.table.clientId')} col="client_id" sort={sort} />
+                  <SortableTh label={t('invoiceList.table.client')} col="client_id" sort={sort} />
+                  <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap', width: 40, fontSize: '0.875rem' }}>
+                    {t('invoiceList.table.clientId')}
+                  </th>
                   <SortableTh label={t('invoiceList.table.total')} col="total" sort={sort} />
                   <SortableTh label={t('invoiceList.table.dueDate')} col="due_date" sort={sort} />
                   <SortableTh label={t('invoiceList.table.status')} col="status" sort={sort} />
@@ -251,7 +274,7 @@ export function InvoiceList() {
               <tbody>
                 {data.data.length === 0 && (
                   <tr>
-                    <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
+                    <td colSpan={8} style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
                       {t('invoiceList.noInvoices')}
                     </td>
                   </tr>
@@ -282,9 +305,12 @@ export function InvoiceList() {
                     <td style={{ padding: '10px 14px' }}>
                       {inv.client_id
                         ? <Link to={`/clients/${inv.client_id}`} style={{ color: '#374151', textDecoration: 'none' }}>
-                            Client {inv.client_id}
+                            {clientMap.get(inv.client_id) ?? String(inv.client_id)}
                           </Link>
                         : '—'}
+                    </td>
+                    <td style={{ padding: '10px 8px', color: '#9ca3af', fontSize: '0.8rem', whiteSpace: 'nowrap', width: 40 }}>
+                      {inv.client_id ?? '—'}
                     </td>
                     <td style={{ padding: '10px 14px', fontVariantNumeric: 'tabular-nums' }}>
                       {fmtAmount(inv.total, inv.currency)}

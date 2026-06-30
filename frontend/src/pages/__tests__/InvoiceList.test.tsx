@@ -23,6 +23,8 @@ const invoice1 = {
   currency: 'MXN', due_date: '2024-02-01', paid_at: null, status: 'pending', created_at: '2024-01-01',
 };
 
+const client10 = { id: 10, name: 'Acme Corp', email: 'acme@example.com' };
+
 function renderInvoiceList() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -41,7 +43,7 @@ describe('InvoiceList page', () => {
       if (path === '/invoices')
         return Promise.resolve({ data: { data: [invoice1], meta: { total: 1, page: 1, limit: 20, totalPages: 1 } }, error: undefined });
       if (path === '/clients')
-        return Promise.resolve({ data: { data: [] }, error: undefined });
+        return Promise.resolve({ data: { data: [client10] }, error: undefined });
       if (path === '/contracts')
         return Promise.resolve({ data: { data: [] }, error: undefined });
       return Promise.resolve({ data: { data: [] }, error: undefined });
@@ -87,6 +89,19 @@ describe('InvoiceList page', () => {
     renderInvoiceList();
     await waitFor(() => expect(screen.getByText('INV-2024-001')).toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'issued' })).toBeInTheDocument();
+  });
+
+  it('renders the client name in the Client column', async () => {
+    renderInvoiceList();
+    await waitFor(() => expect(screen.getByText('Acme Corp')).toBeInTheDocument());
+  });
+
+  it('renders the narrow numeric client ID column', async () => {
+    renderInvoiceList();
+    await waitFor(() => expect(screen.getByText('INV-2024-001')).toBeInTheDocument());
+    // The narrow ID column cell should contain the raw client_id number "10".
+    const cells = screen.getAllByText('10');
+    expect(cells.length).toBeGreaterThanOrEqual(1);
   });
 
   it('disables selection for paid invoices (they cannot be voided)', async () => {
