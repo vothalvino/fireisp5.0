@@ -3493,5 +3493,17 @@
       "successSave": "Atribuições atualizadas. Túneis ativos redimensionados imediatamente.",
       "errorSave": "Falha ao salvar atribuições."
     }
+  },
+  "nasList": {
+    "accessMode": {
+      "label": "Modo de acesso",
+      "direct": "Direto",
+      "nated": "Atrás de NAT",
+      "hint": "Como o FireISP se conecta ao dispositivo: Direto = IP roteável; Atrás de NAT = acessível apenas pelo túnel WireGuard.",
+      "immutable": "O modo de acesso não pode ser alterado após o registro — exclua e recrie o NAS para mudar."
+    },
+    "ipAddressLabel": "Endereço IP (IPv4)",
+    "ipAddressPlaceholder": "ex.: 10.0.0.1",
+    "natedHint": "O FireISP atribuirá um endereço de túnel WireGuard como IP do dispositivo. Após salvar, abra a aba WG, copie a configuração bootstrap, cole-a no roteador e execute Seed / Test."
   }
 }

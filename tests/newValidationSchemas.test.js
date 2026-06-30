@@ -231,11 +231,14 @@ describe('Site validation schemas', () => {
 describe('NAS validation schemas', () => {
   const { createNas, updateNas } = require('../src/middleware/schemas/nas');
 
-  test('createNas requires name, ip_address, secret', () => {
+  test('createNas requires name and secret (ip_address conditionally required by route middleware for direct mode)', () => {
+    // ip_address is no longer schema-level required: for nated mode the route
+    // pre-allocates the WG tunnel IP; for direct mode the validateNasIpAddress
+    // route middleware enforces the requirement. The schema only checks type/format.
     const next = run(createNas, {});
     const fields = errorFields(next);
     expect(fields).toContain('name');
-    expect(fields).toContain('ip_address');
+    expect(fields).not.toContain('ip_address'); // conditional requirement lives in the route
     expect(fields).toContain('secret');
   });
 

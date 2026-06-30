@@ -4,7 +4,11 @@
 
 const createNas = {
   name: { type: 'string', required: true, min: 1, max: 255 },
-  ip_address: { type: 'string', required: true, max: 45 },
+  // ip_address is required when access_mode is 'direct' (or absent); for 'nated'
+  // it is omitted — the route allocates the WG tunnel address and uses that.
+  // Conditional enforcement is handled by the validateNasIpAddress middleware in
+  // nas.js; here the field is declared optional so validate() doesn't reject early.
+  ip_address: { type: 'string', max: 45 },
   ipv6_address: { type: 'string', max: 45 },
   secret: { type: 'string', required: true, min: 1, max: 255 },
   type: { type: 'string', max: 50 },
@@ -23,6 +27,8 @@ const createNas = {
   api_username: { type: 'string', max: 128 },
   api_password: { type: 'string', max: 255 },
   api_use_tls: { type: 'boolean' },
+  // Per-NAS connectivity mode (migration 371)
+  access_mode: { type: 'string', enum: ['direct', 'nated'] },
 };
 
 const updateNas = {
@@ -46,6 +52,8 @@ const updateNas = {
   api_username: { type: 'string', max: 128 },
   api_password: { type: 'string', max: 255 },
   api_use_tls: { type: 'boolean' },
+  // Per-NAS connectivity mode (migration 371)
+  access_mode: { type: 'string', enum: ['direct', 'nated'] },
 };
 
 // Seed (one-click bootstrap) parameters for POST /nas/:id/seed. Flat scalars so

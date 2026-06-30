@@ -15,6 +15,7 @@ const { encrypt } = require('../utils/encryption');
 const { ValidationError } = require('../utils/errors');
 const routerProvisioningService = require('../services/routerProvisioningService');
 const wgProvisioningService = require('../services/wgProvisioningService');
+const wireguardServerService = require('../services/wireguardServerService');
 const config = require('../config');
 const db = require('../config/database');
 
@@ -61,6 +62,56 @@ function encryptApiPassword(req, _res, next) {
   next();
 }
 
+// Conditional ip_address requirement: required for direct mode, forbidden/ignored
+// for nated mode. validate() already accepted the body; this middleware adds the
+// mode-specific rule.
+function validateNasIpAddress(req, _res, next) {
+  const mode = req.body?.access_mode ?? 'direct';
+  if (mode !== 'nated') {
+    // Direct mode (or unset — defaults to direct): ip_address is required.
+    const ip = req.body?.ip_address;
+    if (!ip || typeof ip !== 'string' || !ip.trim()) {
+      return next(new ValidationError('Validation failed', [
+        { field: 'ip_address', message: 'ip_address is required for direct-mode NAS' },
+      ]));
+    }
+  }
+  next();
+}
+
+// For NATed creates: pre-allocate the WG tunnel IP and write it to req.body.ip_address
+// so the NAS row is inserted with ip_address = tunnel_address from the start.
+// Stashes the pre-allocated IP on req.nasPreallocatedTunnelIp for the afterCreate hook.
+async function preallocateNatedTunnelIp(req, _res, next) {
+  if ((req.body?.access_mode ?? 'direct') !== 'nated') return next();
+  try {
+    const tunnelIp = await wireguardServerService.allocateTunnelIp();
+    req.body.ip_address = tunnelIp;
+    req.nasPreallocatedTunnelIp = tunnelIp;
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
+// For NATed NAS: before making any RouterOS API or WG call that requires an active
+// tunnel (test-connection, seed, wg/discover), verify a WG tunnel row exists.
+// If no tunnel has been provisioned yet (e.g. WG_SERVER_ENABLED was false at create
+// time), the operator must bootstrap first.
+async function requireNatedTunnelProvisioned(nas) {
+  if ((nas.access_mode ?? 'direct') !== 'nated') return; // direct mode: skip
+  const [rows] = await db.query(
+    'SELECT id FROM nas_wg_tunnels WHERE nas_id = ? AND deleted_at IS NULL LIMIT 1',
+    [nas.id],
+  );
+  if (!rows.length) {
+    throw new ValidationError(
+      "WireGuard tunnel for this NAS isn't set up yet — paste the bootstrap config " +
+      'and bring the tunnel up first (POST /nas/:id/wg/bootstrap).',
+    );
+  }
+}
+
 const ctrl = crudController(Nas, {
   cacheResource: 'nas',
   serialize: redactNas,
@@ -70,7 +121,23 @@ const ctrl = crudController(Nas, {
   // Auto-provision the WireGuard tunnel record when the hub is enabled.
   // The hook is advisory — failure is caught by crudController and logged,
   // never surfaced to the caller. When WG_SERVER_ENABLED=false this is a no-op.
-  afterCreate: (nas) => config.wireguard.serverEnabled && wgProvisioningService.provisionDesiredState(nas),
+  // For NATed NAS: passes the pre-allocated tunnel IP (which is already stored in
+  // nas.ip_address) so provisionDesiredState reuses it instead of allocating a new one.
+  afterCreate: (nas, req) => config.wireguard.serverEnabled && wgProvisioningService.provisionDesiredState(
+    nas,
+    req?.nasPreallocatedTunnelIp ? { preallocatedTunnelIp: req.nasPreallocatedTunnelIp } : {},
+  ),
+  // access_mode is immutable after registration. Switching it would desync
+  // ip_address from the WG tunnel (direct→nated leaves a real IP with no tunnel;
+  // nated→direct leaves a tunnel address as if it were a device IP, orphaning the
+  // tunnel). Reject the change — delete and re-create the NAS to switch modes.
+  beforeUpdate: (old, req) => {
+    if (req.body?.access_mode !== undefined && req.body.access_mode !== old.access_mode) {
+      throw new ValidationError(
+        'Access mode cannot be changed after registration — delete and re-create the NAS to switch between direct and behind-NAT.',
+      );
+    }
+  },
   // Tear down the NAS's WireGuard tunnel on delete (remove hub peer + routes,
   // soft-delete the tunnel row, drop its subnets from affected users' scope).
   // Advisory — failure is caught + logged, never fails the delete.
@@ -85,7 +152,7 @@ router.use(orgScope);
 
 router.get('/', requirePermission('devices.view'), httpCache('nas', 300), ctrl.list);
 router.get('/:id', requirePermission('devices.view'), ctrl.get);
-router.post('/', requirePermission('devices.create'), validate(createNas), encryptApiPassword, ctrl.create);
+router.post('/', requirePermission('devices.create'), validate(createNas), validateNasIpAddress, preallocateNatedTunnelIp, encryptApiPassword, ctrl.create);
 router.put('/:id', requirePermission('devices.update'), validate(updateNas), encryptApiPassword, ctrl.update);
 router.delete('/:id', requirePermission('devices.delete'), ctrl.destroy);
 router.post('/:id/restore', requirePermission('devices.update'), ctrl.restore);
@@ -97,6 +164,8 @@ router.post('/:id/restore', requirePermission('devices.update'), ctrl.restore);
 router.post('/:id/test-connection', requirePermission('devices.update'), async (req, res, next) => {
   try {
     const nas = await Nas.findByIdOrFail(req.params.id, req.orgId);
+    // NATed NAS: requires an active WG tunnel before the RouterOS API is reachable.
+    await requireNatedTunnelProvisioned(nas);
     try {
       res.json({ data: await routerProvisioningService.testConnection(nas) });
     } catch (e) {
@@ -118,6 +187,8 @@ router.post('/:id/test-connection', requirePermission('devices.update'), async (
 router.post('/:id/seed', requirePermission('devices.update'), validate(seedNas), async (req, res, next) => {
   try {
     const nas = await Nas.findByIdOrFail(req.params.id, req.orgId);
+    // NATed NAS: requires an active WG tunnel before the RouterOS API is reachable.
+    await requireNatedTunnelProvisioned(nas);
     try {
       const result = await routerProvisioningService.seedDevice(nas, req.body);
       // If EVERY step failed (e.g. the API user can authenticate but lacks the
@@ -218,6 +289,8 @@ router.post('/:id/wg/bootstrap', requirePermission('devices.update'), async (req
 router.post('/:id/wg/discover', requirePermission('devices.update'), async (req, res, next) => {
   try {
     const nas = await Nas.findByIdOrFail(req.params.id, req.orgId);
+    // NATed NAS: RouterOS subnet discovery goes over the WG tunnel; requires provisioned tunnel.
+    await requireNatedTunnelProvisioned(nas);
     try {
       const result = await wgProvisioningService.discoverSubnets(nas);
       res.json({ data: result });

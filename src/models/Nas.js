@@ -16,6 +16,8 @@ class Nas extends BaseModel {
       'description', 'status',
       // RouterOS direct-provisioning API connection (migration 360)
       'api_port', 'api_username', 'api_password_encrypted', 'api_use_tls',
+      // Per-NAS connectivity mode (migration 371)
+      'access_mode',
     ];
   }
 

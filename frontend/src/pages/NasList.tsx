@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
 import { NasWireguardModal } from './NasWireguardModal';
@@ -37,6 +38,7 @@ interface Nas {
   api_port?: number | null;
   api_username?: string | null;
   api_use_tls?: boolean | null;
+  access_mode?: 'direct' | 'nated';
 }
 
 interface NasResponse {
@@ -46,7 +48,7 @@ interface NasResponse {
 
 interface NasBody {
   name: string;
-  ip_address: string;
+  ip_address?: string;
   ipv6_address?: string;
   secret?: string;
   type?: string;
@@ -60,6 +62,7 @@ interface NasBody {
   api_username?: string;
   api_password?: string;
   api_use_tls?: boolean;
+  access_mode?: 'direct' | 'nated';
 }
 
 // ---------------------------------------------------------------------------
@@ -217,8 +220,10 @@ interface NasModalProps {
 
 function NasModal({ nas, onClose, onSaved, onCreated }: NasModalProps) {
   const isEdit = nas !== null;
+  const { t } = useTranslation();
   const [form, setForm] = useState({
     name: nas?.name ?? '',
+    access_mode: (nas?.access_mode ?? 'direct') as 'direct' | 'nated',
     ip_address: nas?.ip_address ?? '',
     ipv6_address: nas?.ipv6_address ?? '',
     secret: '',
@@ -234,6 +239,7 @@ function NasModal({ nas, onClose, onSaved, onCreated }: NasModalProps) {
     api_password: '',
     api_use_tls: nas?.api_use_tls ?? false,
   });
+  const isNated = form.access_mode === 'nated';
   const [error, setError] = useState('');
 
   function setField(name: string, value: unknown) {
@@ -244,9 +250,12 @@ function NasModal({ nas, onClose, onSaved, onCreated }: NasModalProps) {
     mutationFn: async (): Promise<Nas | null> => {
       const body: NasBody = {
         name: form.name.trim(),
-        ip_address: form.ip_address.trim(),
+        access_mode: form.access_mode,
         status: form.status,
       };
+      // ip_address is only sent for direct mode; for nated the server allocates
+      // the WireGuard tunnel address and uses it as ip_address.
+      if (!isNated && form.ip_address.trim()) body.ip_address = form.ip_address.trim();
       if (form.ipv6_address) body.ipv6_address = form.ipv6_address.trim();
       if (form.secret) body.secret = form.secret;
       if (form.type) body.type = form.type.trim();
@@ -272,8 +281,13 @@ function NasModal({ nas, onClose, onSaved, onCreated }: NasModalProps) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.name.trim() || !form.ip_address.trim()) {
-      setError('Name and IP address are required.');
+    if (!form.name.trim()) {
+      setError('Name is required.');
+      return;
+    }
+    // ip_address only required for direct mode
+    if (!isNated && !form.ip_address.trim()) {
+      setError('IP address is required for direct-mode NAS.');
       return;
     }
     if (!isEdit && !form.secret) {
@@ -312,17 +326,52 @@ function NasModal({ nas, onClose, onSaved, onCreated }: NasModalProps) {
           </label>
 
           <label style={modalStyles.label}>
-            IP Address (IPv4) <RequiredMark />
-            <input
-              style={modalStyles.input}
-              type="text"
-              maxLength={45}
-              value={form.ip_address}
-              onChange={e => setField('ip_address', e.target.value)}
-              placeholder="e.g. 10.0.0.1"
-              required
-            />
+            {t('nasList.accessMode.label')}
+            <select
+              style={modalStyles.select}
+              value={form.access_mode}
+              onChange={e => setField('access_mode', e.target.value as 'direct' | 'nated')}
+              aria-label={t('nasList.accessMode.label')}
+              disabled={isEdit}
+              title={isEdit ? t('nasList.accessMode.immutable') : undefined}
+            >
+              <option value="direct">{t('nasList.accessMode.direct')}</option>
+              <option value="nated">{t('nasList.accessMode.nated')}</option>
+            </select>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+              {t('nasList.accessMode.hint')}
+            </span>
           </label>
+
+          {isNated && (
+            <p style={{
+              margin: '0 0 8px',
+              padding: '8px 12px',
+              background: '#eff6ff',
+              border: '1px solid #bfdbfe',
+              borderRadius: 6,
+              fontSize: '0.82rem',
+              color: '#1e40af',
+              lineHeight: 1.5,
+            }}>
+              {t('nasList.natedHint')}
+            </p>
+          )}
+
+          {!isNated && (
+            <label style={modalStyles.label}>
+              {t('nasList.ipAddressLabel')} <RequiredMark />
+              <input
+                style={modalStyles.input}
+                type="text"
+                maxLength={45}
+                value={form.ip_address}
+                onChange={e => setField('ip_address', e.target.value)}
+                placeholder={t('nasList.ipAddressPlaceholder')}
+                required={!isNated}
+              />
+            </label>
+          )}
 
           <label style={modalStyles.label}>
             IPv6 Address
