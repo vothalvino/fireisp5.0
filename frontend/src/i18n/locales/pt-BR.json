@@ -3366,7 +3366,11 @@
     "runAgain": "Executar novamente",
     "done": "Concluído",
     "discoverFailed": "Falha ao descobrir sub-redes.",
-    "bootstrapFailed": "Falha ao inicializar o WireGuard."
+    "bootstrapFailed": "Falha ao inicializar o WireGuard.",
+    "quickBootstrap": "Obter Configuração",
+    "quickBootstrapping": "Obtendo configuração…",
+    "quickBootstrapHint": "Obtenha o snippet RouterOS para ativar este túnel. Use isso primeiro — antes que o túnel esteja conectado.",
+    "orLabel": "ou"
   },
   "wgTunnels": {
     "fullTunnelLabel": "Túnel completo (rotear todo o tráfego pela VPN)",
