@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — Work Orders (§12)
 // =============================================================================
 // List, create, and manage field work orders.  Supports status transitions
@@ -8,9 +8,8 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { api } from '@/api/client';
+import { api, authedFetch } from '@/api/client';
 import { styles, modalStyles } from './crudStyles';
-import { tokenStore } from '@/api/client';
 import { ClientPicker } from '@/components/ClientPicker';
 import { useTableSort, SortableTh } from '@/components/SortableTh';
 
@@ -89,29 +88,6 @@ const STATUSES = ['pending', 'assigned', 'in_progress', 'completed', 'cancelled'
 const WORK_TYPES = ['installation', 'maintenance', 'repair', 'survey', 'other'];
 
 // ---------------------------------------------------------------------------
-// Auth header helpers
-// ---------------------------------------------------------------------------
-
-function getAuthHeaders(): Record<string, string> {
-  const token = tokenStore.getAccess();
-  const orgId = sessionStorage.getItem('orgId') || localStorage.getItem('orgId') || '';
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(orgId ? { 'X-Org-Id': orgId } : {}),
-  };
-}
-
-function getBearerHeaders(): Record<string, string> {
-  const token = tokenStore.getAccess();
-  const orgId = sessionStorage.getItem('orgId') || localStorage.getItem('orgId') || '';
-  return {
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(orgId ? { 'X-Org-Id': orgId } : {}),
-  };
-}
-
-// ---------------------------------------------------------------------------
 // API helpers
 // ---------------------------------------------------------------------------
 
@@ -138,9 +114,9 @@ async function fetchUsers(): Promise<UserOption[]> {
 }
 
 async function createWorkOrder(body: WorkOrderBody): Promise<WorkOrder> {
-  const resp = await fetch('/api/v1/work-orders', {
+  const resp = await authedFetch('/api/v1/work-orders', {
     method: 'POST',
-    headers: getAuthHeaders(),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!resp.ok) throw new Error('Failed to create work order');
@@ -149,9 +125,9 @@ async function createWorkOrder(body: WorkOrderBody): Promise<WorkOrder> {
 }
 
 async function patchWorkOrder(id: number, body: Partial<WorkOrderBody>): Promise<void> {
-  const resp = await fetch(`/api/v1/work-orders/${id}`, {
+  const resp = await authedFetch(`/api/v1/work-orders/${id}`, {
     method: 'PATCH',
-    headers: getAuthHeaders(),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!resp.ok) throw new Error('Failed to update work order');
@@ -166,18 +142,17 @@ async function fetchMaterials(workOrderId: number): Promise<WorkOrderMaterial[]>
 }
 
 async function addMaterial(workOrderId: number, body: WorkOrderMaterialBody): Promise<void> {
-  const resp = await fetch(`/api/v1/work-orders/${workOrderId}/materials`, {
+  const resp = await authedFetch(`/api/v1/work-orders/${workOrderId}/materials`, {
     method: 'POST',
-    headers: getAuthHeaders(),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!resp.ok) throw new Error('Failed to add material');
 }
 
 async function removeMaterial(workOrderId: number, materialId: number): Promise<void> {
-  const resp = await fetch(`/api/v1/work-orders/${workOrderId}/materials/${materialId}`, {
+  const resp = await authedFetch(`/api/v1/work-orders/${workOrderId}/materials/${materialId}`, {
     method: 'DELETE',
-    headers: getBearerHeaders(),
   });
   if (!resp.ok && resp.status !== 204) throw new Error('Failed to remove material');
 }

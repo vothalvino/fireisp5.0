@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — PROFECO Complaints Page (P3.12)
 // =============================================================================
 // Lists PROFECO (Procuraduría Federal del Consumidor) consumer complaints with
@@ -8,7 +8,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { api, tokenStore } from '@/api/client';
+import { api, authedFetch } from '@/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -87,14 +87,9 @@ async function fetchComplaints(
 }
 
 async function createComplaint(body: CreateComplaintBody): Promise<ProfecoComplaint> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/profeco-complaints`, {
+  const res = await authedFetch(`${API_BASE}/profeco-complaints`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error('Failed to create complaint');

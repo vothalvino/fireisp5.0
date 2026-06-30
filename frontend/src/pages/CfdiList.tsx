@@ -10,7 +10,7 @@
 
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { tokenStore } from '@/api/client';
+import { authedFetch, tokenStore } from '@/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -62,9 +62,9 @@ async function fetchCfdi(page: number, statusFilter: string, typeFilter: string)
 }
 
 async function stampCfdi(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/cfdi/stamp`, {
+  const res = await authedFetch(`${API_BASE}/cfdi/stamp`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ cfdi_document_id: id }),
   });
   if (!res.ok) {
@@ -76,9 +76,9 @@ async function stampCfdi(id: number): Promise<void> {
 async function cancelCfdi(id: number, reason: string, replacementUuid?: string): Promise<void> {
   const body: Record<string, unknown> = { cfdi_document_id: id, reason };
   if (replacementUuid) body.replacement_uuid = replacementUuid;
-  const res = await fetch(`${API_BASE}/cfdi/cancel`, {
+  const res = await authedFetch(`${API_BASE}/cfdi/cancel`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) {

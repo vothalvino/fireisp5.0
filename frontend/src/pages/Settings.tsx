@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { tokenStore } from '@/api/client';
+import { authedFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 
 // ---------------------------------------------------------------------------
@@ -70,15 +70,10 @@ const ENVIRONMENTS = ['sandbox', 'production'];
 // API helpers
 // ---------------------------------------------------------------------------
 
-function authHeaders(): Record<string, string> {
-  const token = tokenStore.getAccess();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const res = await authedFetch(url, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(init?.headers ?? {}) },
+    headers: { 'Content-Type': 'application/json', ...(init?.headers as Record<string, string> | undefined) },
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };

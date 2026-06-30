@@ -12,7 +12,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { tokenStore } from '@/api/client';
+import { authedFetch, tokenStore } from '@/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,9 +69,9 @@ async function fetchMyPeers(): Promise<PeersResponse> {
 }
 
 async function createPeer(name: string, fullTunnel: boolean): Promise<CreatePeerResponse> {
-  const res = await fetch(`${API_BASE}/wg-peers`, {
+  const res = await authedFetch(`${API_BASE}/wg-peers`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, full_tunnel: fullTunnel }),
   });
   if (!res.ok) {
@@ -81,9 +81,8 @@ async function createPeer(name: string, fullTunnel: boolean): Promise<CreatePeer
 }
 
 async function deletePeer(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/wg-peers/${id}`, {
+  const res = await authedFetch(`${API_BASE}/wg-peers/${id}`, {
     method: 'DELETE',
-    headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to revoke peer');
 }

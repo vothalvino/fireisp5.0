@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — AI Customer Support Page (Section 21)
 // =============================================================================
 // 4-tab page covering §21 AI Customer Support:
@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { readCsrfCookie } from '@/api/csrf';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -87,6 +88,7 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
       'Content-Type': 'application/json',
       'X-Org-Id': getOrgId(),
       Authorization: `Bearer ${getToken()}`,
+      ...(readCsrfCookie() ? { 'X-CSRF-Token': readCsrfCookie()! } : {}),
       ...(init.headers as Record<string, string> | undefined),
     },
   });

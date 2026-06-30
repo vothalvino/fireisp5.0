@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — Invoice Detail
 // =============================================================================
 // Shows a single invoice at /invoices/:id with:
@@ -11,7 +11,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, tokenStore } from '@/api/client';
+import { api, tokenStore, authedFetch } from '@/api/client';
 import { extractApiError } from '@/components/ClientFormModal';
 
 // ---------------------------------------------------------------------------
@@ -93,10 +93,8 @@ async function fetchClient(id: number): Promise<Client> {
 }
 
 async function sendInvoiceEmail(invoiceId: number): Promise<{ to: string }> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/invoices/${invoiceId}/send-email`, {
+  const res = await authedFetch(`${API_BASE}/invoices/${invoiceId}/send-email`, {
     method: 'POST',
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((body as { error?: string }).error || 'Failed to send email');
@@ -104,14 +102,10 @@ async function sendInvoiceEmail(invoiceId: number): Promise<{ to: string }> {
 }
 
 async function createPayment(invoiceId: number, body: RecordPaymentBody): Promise<void> {
-  const token = tokenStore.getAccess();
   // Create payment then allocate to this invoice
-  const createRes = await fetch(`${API_BASE}/payments`, {
+  const createRes = await authedFetch(`${API_BASE}/payments`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!createRes.ok) {
@@ -121,12 +115,9 @@ async function createPayment(invoiceId: number, body: RecordPaymentBody): Promis
   const { data: payment } = await createRes.json() as { data: { id: number } };
 
   // Allocate the payment to this invoice
-  const allocRes = await fetch(`${API_BASE}/payments/${payment.id}/allocate`, {
+  const allocRes = await authedFetch(`${API_BASE}/payments/${payment.id}/allocate`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ invoice_id: invoiceId, amount: body.amount }),
   });
   if (!allocRes.ok) {

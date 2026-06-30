@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — Client Detail extra tabs (Subscriber Profile §1.1)
 // =============================================================================
 // REST-backed tabs appended to ClientDetail:
@@ -11,7 +11,7 @@
 
 import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, tokenStore } from '@/api/client';
+import { api, tokenStore, authedFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { extractApiError, errorBox, inputStyle, labelStyle, submitBtn, cancelBtn, dangerBtn } from '@/components/ClientFormModal';
 
@@ -365,14 +365,11 @@ export function DocumentsTab({ clientId, canEdit }: TabProps) {
     setUploading(true);
     setError('');
     try {
-      const token = tokenStore.getAccess();
       const fd = new FormData();
       fd.append('file', file);
       fd.append('category', 'client_file');
-      const res = await fetch(`/api/v1/clients/${clientId}/documents`, {
+      const res = await authedFetch(`/api/v1/clients/${clientId}/documents`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: 'include',
         body: fd,
       });
       if (!res.ok) {

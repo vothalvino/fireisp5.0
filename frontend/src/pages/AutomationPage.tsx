@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — Automation & Scripting Page (Section 18)
 // =============================================================================
 // Multi-tab page covering §18 automation features:
@@ -13,6 +13,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { readCsrfCookie } from '@/api/csrf';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -125,6 +126,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`,
       'X-Org-Id': orgId,
+      ...(readCsrfCookie() ? { 'X-CSRF-Token': readCsrfCookie()! } : {}),
       ...(init?.headers ?? {}),
     },
   });

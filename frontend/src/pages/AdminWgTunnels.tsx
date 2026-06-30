@@ -13,7 +13,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { tokenStore } from '@/api/client';
+import { authedFetch, tokenStore } from '@/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -86,17 +86,15 @@ async function fetchAllPeers(page: number): Promise<AdminPeersResponse> {
 }
 
 async function adminRevokePeer(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/wg-peers/admin/${id}`, {
+  const res = await authedFetch(`${API_BASE}/wg-peers/admin/${id}`, {
     method: 'DELETE',
-    headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to revoke peer');
 }
 
 async function adminRotatePeer(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/wg-peers/admin/${id}/rotate`, {
+  const res = await authedFetch(`${API_BASE}/wg-peers/admin/${id}/rotate`, {
     method: 'POST',
-    headers: authHeaders(),
   });
   if (!res.ok) {
     throw new Error(apiErrorMessage(await res.json().catch(() => ({})), 'Failed to rotate peer'));
@@ -112,9 +110,9 @@ async function fetchAssignments(userId: number): Promise<AssignmentsResponse> {
 }
 
 async function putAssignments(userId: number, scopes: ScopeEntry[]): Promise<void> {
-  const res = await fetch(`${API_BASE}/wg-peers/admin/assignments/${userId}`, {
+  const res = await authedFetch(`${API_BASE}/wg-peers/admin/assignments/${userId}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scopes }),
   });
   if (!res.ok) {

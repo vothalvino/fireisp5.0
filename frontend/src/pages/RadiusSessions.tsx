@@ -20,7 +20,7 @@ import { useState, useEffect, useRef } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { tokenStore } from '@/api/client';
+import { authedFetch } from '@/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -116,13 +116,11 @@ function formatDate(iso: string): string {
 }
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await authedFetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
+      ...((options.headers as Record<string, string>) || {}),
     },
   });
   if (!res.ok) {

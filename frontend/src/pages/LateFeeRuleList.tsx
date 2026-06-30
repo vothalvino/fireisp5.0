@@ -11,7 +11,7 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { tokenStore } from '@/api/client';
+import { authedFetch } from '@/api/client';
 import { styles } from './crudStyles';
 import { Pagination } from '@/components/Pagination';
 
@@ -60,15 +60,12 @@ const EMPTY_FORM: FormState = {
 const API = '/api/v1';
 
 async function apiFetch(path: string, opts: RequestInit = {}): Promise<unknown> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API}${path}`, {
+  const res = await authedFetch(`${API}${path}`, {
     ...opts,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
       ...((opts.headers as Record<string, string>) || {}),
     },
-    credentials: 'include',
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));

@@ -12,7 +12,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api, tokenStore } from '@/api/client';
+import { api, authedFetch } from '@/api/client';
 import {
   overlay, modalBox, errorBox, labelStyle, inputStyle, submitBtn, cancelBtn,
 } from '@/components/ClientFormModal';
@@ -53,13 +53,8 @@ interface CreatePaymentBody {
   reference_number?: string;
 }
 
-function authHeaders(): Record<string, string> {
-  const token = tokenStore.getAccess();
-  return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
-}
-
 async function createPaymentReq(body: CreatePaymentBody): Promise<number> {
-  const res = await fetch(`${API_BASE}/payments`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) });
+  const res = await authedFetch(`${API_BASE}/payments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (!res.ok) {
     const e = (await res.json().catch(() => ({}))) as { error?: { message?: string } | string };
     const msg = e.error;
@@ -70,8 +65,8 @@ async function createPaymentReq(body: CreatePaymentBody): Promise<number> {
 }
 
 async function allocatePaymentReq(paymentId: number, invoiceId: number, amount: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/payments/${paymentId}/allocate`, {
-    method: 'POST', headers: authHeaders(), body: JSON.stringify({ invoice_id: invoiceId, amount }),
+  const res = await authedFetch(`${API_BASE}/payments/${paymentId}/allocate`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invoice_id: invoiceId, amount }),
   });
   if (!res.ok) throw new Error('Payment was recorded, but applying it to the invoice failed — allocate it from the Payments page.');
 }

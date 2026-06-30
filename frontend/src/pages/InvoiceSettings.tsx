@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // FireISP 5.0 — Invoice Branding Settings (§2.2B)
 // =============================================================================
 // Admin/billing page for configuring per-org invoice branding:
@@ -10,7 +10,7 @@ import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { tokenStore } from '@/api/client';
+import { authedFetch, tokenStore } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 
 // ---------------------------------------------------------------------------
@@ -43,14 +43,9 @@ async function fetchSettings(): Promise<InvoiceSettingsData> {
 }
 
 async function saveSettings(body: Partial<InvoiceSettingsData>): Promise<InvoiceSettingsData> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API}/invoice-settings`, {
+  const res = await authedFetch(`${API}/invoice-settings`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error('Failed to save invoice settings');

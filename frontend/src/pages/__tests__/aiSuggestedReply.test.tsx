@@ -32,6 +32,7 @@ vi.mock('@/api/client', () => ({
     setRefresh: vi.fn(),
     clear: vi.fn(),
   },
+  authedFetch: vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init)),
 }));
 
 vi.mock('@/api/useWebSocket',          () => ({ useWebSocket:          vi.fn(() => ({ lastMessage: null })) }));

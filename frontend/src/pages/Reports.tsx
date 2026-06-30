@@ -25,7 +25,7 @@ import { useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { api, tokenStore } from '@/api/client';
+import { api, authedFetch } from '@/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -127,15 +127,10 @@ interface IftListData {
 // API helpers
 // ---------------------------------------------------------------------------
 
-function authHeaders(): Record<string, string> {
-  const token = tokenStore.getAccess();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 async function apiFetch<T>(path: string, opts: RequestInit = {}): Promise<T> {
-  const res = await fetch(`/api/v1${path}`, {
+  const res = await authedFetch(`/api/v1${path}`, {
     ...opts,
-    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...opts.headers },
+    headers: { 'Content-Type': 'application/json', ...(opts.headers as Record<string, string> | undefined) },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
