@@ -7,6 +7,11 @@ const generateInvoices = {
   // No additional non-array fields to validate (contract_ids is an array)
 };
 
+// POST /bulk/invoices/void — invoice_ids validated manually in route
+const voidInvoices = {
+  // No additional non-array fields to validate (invoice_ids is an array)
+};
+
 // POST /bulk/suspend — contract_ids validated manually in route
 const suspend = {
   reason: { type: 'string', max: 500 },
@@ -18,4 +23,4 @@ const email = {
   body: { type: 'string', required: true, min: 1, max: 50000 },
 };
 
-module.exports = { generateInvoices, suspend, email };
+module.exports = { generateInvoices, voidInvoices, suspend, email };

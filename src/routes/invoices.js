@@ -11,7 +11,6 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createInvoice, updateInvoice, patchInvoice, addInvoiceItem } = require('../middleware/schemas/invoices');
 const billingService = require('../services/billingService');
-const auditLog = require('../services/auditLog');
 const db = require('../config/database');
 const { AppError } = require('../utils/errors');
 
@@ -32,59 +31,13 @@ router.use(authenticate);
 router.use(orgScope);
 
 // Void transition handler (shared by PUT and PATCH).
-// Rules the generic CRUD update can't express:
-//   1. A PAID invoice CAN now be voided. Its payment_allocations for THIS invoice
-//      are soft-deleted (releasing just this invoice's slice of each payment).
-//      The payments' 'payment' credit entries in client_balance_ledger are NOT
-//      touched — so each payment stays on the same client as an unallocated credit.
-//   2. A voided invoice must read as $0 on the balance ledger — otherwise the
-//      client keeps "owing" a cancelled invoice. Rather than leave the debit and
-//      add a separate offsetting credit (two lines), we drop any prior reversal
-//      credit and zero the invoice's own ledger entries, so it shows a single
-//      $0 line. The net balance contribution is 0 either way.
-// Idempotent: re-voiding an already-void invoice does nothing, and an invoice
-// that never had a debit (e.g. created via plain POST) simply has nothing to zero.
+// Delegates to billingService.voidInvoiceById which is the single source of truth
+// for all void business logic (allocation release, ledger zeroing, audit log).
+// Both this single-invoice path and the bulk endpoint (POST /bulk/invoices/void)
+// call the same service function to ensure identical behaviour.
 async function voidInvoice(req, res, next) {
   try {
-    const existing = await Invoice.findByIdOrFail(req.params.id, req.orgId);
-
-    const record = await Invoice.update(req.params.id, req.body, req.orgId);
-
-    if (existing.status !== 'void') {
-      if (existing.status === 'paid') {
-        // Release the allocations that pointed to this invoice so each payment
-        // becomes an unallocated credit on the client. Payments split across
-        // other invoices are NOT affected — only this invoice's rows are touched.
-        await billingService.releaseInvoiceAllocations(existing.id);
-      }
-
-      // Remove any earlier void-reversal credit for this invoice (the only
-      // credit entry that ever carries reference_type='invoice')…
-      await db.query(
-        `DELETE FROM client_balance_ledger
-          WHERE reference_type = 'invoice' AND reference_id = ? AND client_id = ? AND entry_type = 'credit'`,
-        [existing.id, existing.client_id],
-      );
-      // …then zero the invoice's remaining (debit) ledger entries so the voided
-      // invoice shows as $0 and stops contributing to the balance.
-      await db.query(
-        `UPDATE client_balance_ledger
-            SET amount = 0, debit = 0, credit = 0
-          WHERE reference_type = 'invoice' AND reference_id = ? AND client_id = ?`,
-        [existing.id, existing.client_id],
-      );
-    }
-
-    await auditLog.log({
-      userId: req.user?.id,
-      organizationId: req.orgId,
-      action: 'void',
-      tableName: 'invoices',
-      recordId: record.id,
-      oldValues: existing,
-      newValues: { status: 'void' },
-    });
-
+    const record = await billingService.voidInvoiceById(req.params.id, req.orgId, req.user?.id);
     res.json({ data: record });
   } catch (err) {
     next(err);

@@ -66,8 +66,12 @@ describe('InvoiceList page', () => {
     await waitFor(() => expect(screen.getByText('No invoices found.')).toBeInTheDocument());
   });
 
-  it('bulk-voids selected invoices after confirmation', async () => {
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+  it('bulk-voids selected invoices via single POST /bulk/invoices/void', async () => {
+    // The bulk void endpoint returns a batch result object.
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { success: 1, failed: 0, errors: [] } }),
+    });
     renderInvoiceList();
     await waitFor(() => expect(screen.getByText('INV-2024-001')).toBeInTheDocument());
 
@@ -79,10 +83,14 @@ describe('InvoiceList page', () => {
     expect(global.fetch).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Void invoices' }));
 
-    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(
-      '/api/v1/invoices/1',
-      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ status: 'void' }) }),
-    ));
+    // One single POST to the bulk endpoint (not N individual PATCHes)
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/v1/bulk/invoices/void',
+        expect.objectContaining({ method: 'POST', body: JSON.stringify({ invoice_ids: [1] }) }),
+      ),
+    );
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   it('offers an "issued" status filter', async () => {
@@ -104,7 +112,10 @@ describe('InvoiceList page', () => {
     expect(cells.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('disables selection for paid invoices (they cannot be voided)', async () => {
+  it('enables selection for paid invoices (paid invoices ARE voidable — backend releases allocations)', async () => {
+    // The old code blocked paid selection with a wrong comment claiming "backend
+    // rejects paid voids with 422". billingService.voidInvoiceById handles paid
+    // invoices by soft-deleting payment_allocations and zeroing ledger debits.
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/invoices')
         return Promise.resolve({ data: { data: [{ ...invoice1, id: 2, invoice_number: 'INV-PAID', status: 'paid' }], meta: { total: 1, page: 1, limit: 20, totalPages: 1 } }, error: undefined });
@@ -112,6 +123,27 @@ describe('InvoiceList page', () => {
     });
     renderInvoiceList();
     await waitFor(() => expect(screen.getByText('INV-PAID')).toBeInTheDocument());
-    expect(screen.getByLabelText('Select invoice INV-PAID')).toBeDisabled();
+    expect(screen.getByLabelText('Select invoice INV-PAID')).not.toBeDisabled();
+  });
+
+  it('disables selection for void and cancelled invoices (terminal — non-voidable)', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/invoices')
+        return Promise.resolve({
+          data: {
+            data: [
+              { ...invoice1, id: 3, invoice_number: 'INV-VOID', status: 'void' },
+              { ...invoice1, id: 4, invoice_number: 'INV-CANCELLED', status: 'cancelled' },
+            ],
+            meta: { total: 2, page: 1, limit: 20, totalPages: 1 },
+          },
+          error: undefined,
+        });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    renderInvoiceList();
+    await waitFor(() => expect(screen.getByText('INV-VOID')).toBeInTheDocument());
+    expect(screen.getByLabelText('Select invoice INV-VOID')).toBeDisabled();
+    expect(screen.getByLabelText('Select invoice INV-CANCELLED')).toBeDisabled();
   });
 });
