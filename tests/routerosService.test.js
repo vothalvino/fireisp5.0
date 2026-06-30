@@ -368,6 +368,23 @@ describe('RouterOSClient', () => {
     await expect(client.close()).resolves.toBeUndefined();
   });
 
+  test('tags a connect-phase failure as routerUnreachable', async () => {
+    // Nothing is listening on this port, so the TCP connect fails
+    // (ECONNREFUSED / EHOSTUNREACH). That failure MUST carry routerUnreachable
+    // so provisioning callers degrade gracefully — e.g. WG bootstrap returns a
+    // paste-once snippet (HTTP 200) instead of surfacing a raw "connect
+    // EHOSTUNREACH". A NATed NAS hits this on its first bootstrap because its API
+    // IP only becomes reachable after the very tunnel being bootstrapped is up.
+    const client = new RouterOSClient({
+      host: '127.0.0.1',
+      port: 19998, // no listener
+      user: 'admin',
+      password: '',
+      timeoutMs: 1000,
+    });
+    await expect(client.connect()).rejects.toMatchObject({ routerUnreachable: true });
+  });
+
   test('rejects with !fatal login response', async () => {
     // !fatal is handled in _onSentence same as !trap — rejects with message
     const handler = sequenceServer([
