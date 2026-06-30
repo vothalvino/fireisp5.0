@@ -23,6 +23,8 @@ const payment1 = {
   payment_date: '2024-01-15', created_at: '2024-01-15',
 };
 
+const client10 = { id: 10, name: 'Acme Corp', email: 'acme@example.com' };
+
 function renderPaymentList() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -42,7 +44,7 @@ describe('PaymentList page', () => {
       if (path === '/payments')
         return Promise.resolve({ data: { data: [payment1], meta: { total: 1, page: 1, limit: 20, totalPages: 1 } }, error: undefined });
       if (path === '/clients')
-        return Promise.resolve({ data: { data: [] }, error: undefined });
+        return Promise.resolve({ data: { data: [client10] }, error: undefined });
       return Promise.resolve({ data: { data: [] }, error: undefined });
     });
     // fetchInvoices for open invoices in RecordPaymentForm uses raw fetch
@@ -65,6 +67,20 @@ describe('PaymentList page', () => {
   it('renders consolidated Allocate button (with balance) in the payment row', async () => {
     renderPaymentList();
     await waitFor(() => expect(screen.getByTitle('Allocate payment to an invoice')).toBeInTheDocument());
+  });
+
+  it('renders the client name in the Client column', async () => {
+    renderPaymentList();
+    await waitFor(() => expect(screen.getByText('Acme Corp')).toBeInTheDocument());
+  });
+
+  it('renders the narrow numeric client ID column', async () => {
+    renderPaymentList();
+    await waitFor(() => expect(screen.getByText('REF-001')).toBeInTheDocument());
+    // The narrow ID column should contain the raw client_id number "10".
+    // It appears as a standalone cell separate from the name link.
+    const cells = screen.getAllByText('10');
+    expect(cells.length).toBeGreaterThanOrEqual(1);
   });
 
   it('downloads the receipt PDF from /pdf/payments/:id when the PDF button is clicked', async () => {

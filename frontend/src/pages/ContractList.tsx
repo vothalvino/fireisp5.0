@@ -958,6 +958,8 @@ export function ContractList() {
     staleTime: 60_000,
   });
 
+  const clientMap = new Map((clientsQ.data ?? []).map((c: Client) => [c.id, c.name]));
+
   // Mutation for suspend (uses dedicated CoA-disconnect endpoint)
   const suspendMutation = useMutation({
     mutationFn: ({ id }: { id: number }) =>
@@ -1065,8 +1067,9 @@ export function ContractList() {
                 <thead>
                   <tr>
                     <SortableTh label={t('contractList.table.id')} col="id" sort={sort} style={styles.th} />
-                    {/* client_id is a real column; client name is from a JOIN → non-sortable */}
+                    {/* Client name (non-sortable — from a JOIN); narrow ID column sorts by client_id */}
                     <th style={styles.th}>{t('contractList.table.client')}</th>
+                    <th style={{ ...styles.th, width: 40 }}>{t('contractList.table.clientId')}</th>
                     {/* plan name comes from a JOIN → non-sortable; plan_id is real but less useful */}
                     <th style={styles.th}>{t('contractList.table.plan')}</th>
                     <SortableTh label={t('contractList.table.type')} col="connection_type" sort={sort} style={styles.th} />
@@ -1084,6 +1087,7 @@ export function ContractList() {
                       key={c.id}
                       contract={c}
                       plans={plansQ.data ?? []}
+                      clientName={clientMap.get(c.client_id) ?? null}
                       onSuspend={() => setConfirm({ type: 'suspend', contractId: c.id })}
                       onTerminate={() => setConfirm({ type: 'terminate', contractId: c.id })}
                       onCancel={() => setConfirm({ type: 'cancel', contractId: c.id })}
@@ -1182,6 +1186,7 @@ export function ContractList() {
 interface ContractRowProps {
   contract: Contract;
   plans: Plan[];
+  clientName: string | null;
   onSuspend: () => void;
   onTerminate: () => void;
   onCancel: () => void;
@@ -1191,7 +1196,7 @@ interface ContractRowProps {
   onCredentials: () => void;
 }
 
-function ContractRow({ contract: c, plans, onSuspend, onTerminate, onCancel, onRenew, onEdit, onDelete, onCredentials }: ContractRowProps) {
+function ContractRow({ contract: c, plans, clientName, onSuspend, onTerminate, onCancel, onRenew, onEdit, onDelete, onCredentials }: ContractRowProps) {
   const { t } = useTranslation();
   const plan = plans.find(p => p.id === c.plan_id);
 
@@ -1216,8 +1221,11 @@ function ContractRow({ contract: c, plans, onSuspend, onTerminate, onCancel, onR
           to={`/clients/${c.client_id}`}
           style={{ color: 'var(--link)', textDecoration: 'none', fontWeight: 500 }}
         >
-          #{c.client_id}
+          {clientName ?? String(c.client_id)}
         </Link>
+      </td>
+      <td style={{ ...styles.td, color: 'var(--text-muted)', fontSize: '0.8rem', whiteSpace: 'nowrap', width: 40 }}>
+        {c.client_id}
       </td>
       <td style={styles.td}>{plan ? plan.name : `Plan #${c.plan_id}`}</td>
       <td style={{ ...styles.td, textTransform: 'capitalize' }}>{c.connection_type || '—'}</td>

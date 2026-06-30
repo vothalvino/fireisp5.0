@@ -328,6 +328,7 @@
     "table": {
       "id": "ID",
       "client": "Client",
+      "clientId": "ID",
       "plan": "Plan",
       "type": "Type",
       "start": "Start",
@@ -360,7 +361,8 @@
     "generateInvoice": "+ Generate Invoice",
     "table": {
       "invoiceNumber": "Invoice #",
-      "clientId": "Client ID",
+      "client": "Client",
+      "clientId": "ID",
       "total": "Total",
       "status": "Status",
       "dueDate": "Due Date",
@@ -376,6 +378,7 @@
     "recordPayment": "+ Record Payment",
     "table": {
       "client": "Client",
+      "clientId": "ID",
       "amount": "Amount",
       "method": "Method",
       "status": "Status",

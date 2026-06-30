@@ -35,6 +35,8 @@ function renderContractList() {
   );
 }
 
+const client1 = { id: 10, name: 'Acme Corp', email: 'a@example.com', status: 'active' };
+
 describe('ContractList page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -44,7 +46,7 @@ describe('ContractList page', () => {
       if (path === '/plans')
         return Promise.resolve({ data: { data: [] }, error: undefined });
       if (path === '/clients')
-        return Promise.resolve({ data: { data: [] }, error: undefined });
+        return Promise.resolve({ data: { data: [client1] }, error: undefined });
       return Promise.resolve({ data: { data: [] }, error: undefined });
     });
   });
@@ -58,6 +60,19 @@ describe('ContractList page', () => {
     renderContractList();
     // IP address is shown in the table
     await waitFor(() => expect(screen.getByText('10.0.0.1')).toBeInTheDocument());
+  });
+
+  it('renders the client name in the Client column', async () => {
+    renderContractList();
+    await waitFor(() => expect(screen.getByText('Acme Corp')).toBeInTheDocument());
+  });
+
+  it('renders the narrow numeric client ID column', async () => {
+    renderContractList();
+    await waitFor(() => expect(screen.getByText('10.0.0.1')).toBeInTheDocument());
+    // The narrow ID cell should show raw client_id "10"
+    const cells = screen.getAllByText('10');
+    expect(cells.length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows empty message when no contracts', async () => {

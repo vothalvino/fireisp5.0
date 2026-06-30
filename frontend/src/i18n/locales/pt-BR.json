@@ -328,6 +328,7 @@
                          "table":  {
                                        "id":  "ID",
                                        "client":  "Cliente",
+                                       "clientId":  "ID",
                                        "plan":  "Plano",
                                        "type":  "Tipo",
                                        "start":  "Início",
@@ -360,7 +361,8 @@
                         "generateInvoice":  "+ Gerar fatura",
                         "table":  {
                                       "invoiceNumber":  "Fatura #",
-                                      "clientId":  "ID do cliente",
+                                      "client":  "Cliente",
+                                      "clientId":  "ID",
                                       "total":  "Total",
                                       "status":  "Status",
                                       "dueDate":  "Data de vencimento",
@@ -376,6 +378,7 @@
                         "recordPayment":  "+ Registrar pagamento",
                         "table":  {
                                       "client":  "Cliente",
+                                      "clientId":  "ID",
                                       "amount":  "Valor",
                                       "method":  "Método",
                                       "status":  "Status",

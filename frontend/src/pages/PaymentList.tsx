@@ -3,54 +3,51 @@
 // =============================================================================
 // Standalone page at /payments. Shows all payments across all clients with:
 //   • Filtering by status
-//   • Paginated table (client, amount, method, status, date, reference)
+//   • Paginated table (client name, client ID, amount, method, status, date, reference)
 //   • "Record Payment" button opens an inline modal form
 //   • Per-row "Allocations" button expands inline to show invoice allocations
-//   • Per-row "Send Receipt" action
+//   • Per-row action buttons via shared <PaymentActionButtons>
 //   • Gateway transaction status badge when available
 // =============================================================================
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
 import { readCsrfCookie } from '@/api/csrf';
-import { extractApiError } from '@/components/ClientFormModal';
 import { useTableSort, SortableTh } from '@/components/SortableTh';
+import {
+  Payment,
+  Client,
+  Invoice,
+  extractList,
+  fmtAmount,
+  PAYMENT_METHODS,
+  fetchClients,
+  fetchOpenInvoices,
+  fetchAllocations,
+  PaymentActionButtons,
+} from './payments/PaymentActions';
 
 // ---------------------------------------------------------------------------
-// Types
+// Types (local to this file — list-level concerns)
 // ---------------------------------------------------------------------------
-
-interface Payment {
-  id: number;
-  client_id: number;
-  amount: string;
-  currency: string;
-  payment_method: string | null;
-  reference: string | null;
-  status: string;
-  payment_date: string | null;
-  created_at: string;
-}
 
 interface PaymentsResponse {
   data: Payment[];
   meta: { total: number; page: number; limit: number; totalPages: number };
 }
 
-interface Client {
-  id: number;
-  name: string;
-  email: string | null;
-}
-
-interface Invoice {
-  id: number;
-  invoice_number: string;
-  total: string;
-  status?: string;
+interface RecordPaymentBody {
+  client_id: number;
+  amount: number;
+  currency: string;
+  payment_method: string;
+  payment_date?: string;
+  reference?: string;
+  status: string;
+  invoice_id?: number;
 }
 
 interface PaymentAllocation {
@@ -71,34 +68,12 @@ interface GatewayTransaction {
   created_at: string;
 }
 
-interface RecordPaymentBody {
-  client_id: number;
-  amount: number;
-  currency: string;
-  payment_method: string;
-  payment_date?: string;
-  reference?: string;
-  status: string;
-  invoice_id?: number;
-}
-
 // ---------------------------------------------------------------------------
-// Fetch / mutate helpers
+// Fetch helpers (list-specific)
 // ---------------------------------------------------------------------------
 
 const PAGE_SIZE = 25;
 const API_BASE = '/api/v1';
-
-/**
- * Normalises paginated and non-paginated API responses that wrap arrays in
- * either `{ data: { data: T[] } }` or `{ data: T[] }`.
- */
-function extractList<T>(body: unknown): T[] {
-  const b = body as { data?: { data?: T[] } | T[] };
-  if (Array.isArray(b?.data)) return b.data as T[];
-  if (Array.isArray((b?.data as { data?: T[] })?.data)) return (b.data as { data: T[] }).data;
-  return [];
-}
 
 async function fetchPayments(page: number, statusFilter: string, orderBy: string, order: string): Promise<PaymentsResponse> {
   const query: Record<string, string | number> = { page, limit: PAGE_SIZE, order_by: orderBy, order };
@@ -106,40 +81,6 @@ async function fetchPayments(page: number, statusFilter: string, orderBy: string
   const res = await api.GET('/payments', { params: { query: query as never } });
   if (res.error) throw new Error('Failed to load payments');
   return res.data as unknown as PaymentsResponse;
-}
-
-async function fetchClients(): Promise<Client[]> {
-  const res = await api.GET('/clients', { params: { query: { limit: 500 } as never } });
-  if (res.error) throw new Error('Failed to load clients');
-  return (res.data as unknown as { data: Client[] }).data;
-}
-
-// Statuses that are NOT payable — filtered out in both the RecordPayment picker
-// and the Allocate modal. Keeping the exclusion set here so both call sites stay in sync.
-const NON_PAYABLE_STATUSES = new Set(['void', 'cancelled', 'paid', 'draft']);
-
-async function fetchOpenInvoices(clientId: number): Promise<Invoice[]> {
-  const token = tokenStore.getAccess();
-  // No status filter on the request — we filter client-side so issued/sent/overdue/partial
-  // all appear (a 'sent' only filter excluded re-issued invoices after an unapply).
-  // Order newest first so the most relevant open invoices are at the top.
-  const params = new URLSearchParams({ client_id: String(clientId), limit: '100', order_by: 'id', order: 'DESC' });
-  const res = await fetch(`${API_BASE}/invoices?${params}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) return [];
-  const body = await res.json() as unknown;
-  return extractList<Invoice>(body).filter(inv => !NON_PAYABLE_STATUSES.has(inv.status ?? ''));
-}
-
-async function fetchAllocations(paymentId: number): Promise<PaymentAllocation[]> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/payments/${paymentId}/allocations`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) return [];
-  const body = await res.json() as { data: PaymentAllocation[] };
-  return body.data ?? [];
 }
 
 async function fetchGatewayTransactions(clientId: number): Promise<GatewayTransaction[]> {
@@ -158,7 +99,6 @@ async function recordPayment(body: RecordPaymentBody): Promise<{ id: number }> {
   const csrf = readCsrfCookie();
   const { invoice_id, ...paymentBody } = body;
 
-  // Create payment
   const createRes = await fetch(`${API_BASE}/payments`, {
     method: 'POST',
     headers: {
@@ -174,7 +114,6 @@ async function recordPayment(body: RecordPaymentBody): Promise<{ id: number }> {
   }
   const { data: payment } = await createRes.json() as { data: { id: number } };
 
-  // Allocate to invoice if provided
   if (invoice_id) {
     const allocRes = await fetch(`${API_BASE}/payments/${payment.id}/allocate`, {
       method: 'POST',
@@ -194,139 +133,6 @@ async function recordPayment(body: RecordPaymentBody): Promise<{ id: number }> {
   return payment;
 }
 
-async function sendReceipt(paymentId: number): Promise<{ to: string }> {
-  const token = tokenStore.getAccess();
-  const csrf = readCsrfCookie();
-  const res = await fetch(`${API_BASE}/payments/${paymentId}/send-receipt`, {
-    method: 'POST',
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
-    },
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((body as { error?: string }).error || 'Failed to send receipt');
-  return body as { to: string };
-}
-
-// Download the payment receipt as a PDF (GET /api/v1/pdf/payments/:id streams the
-// file). Mirrors InvoiceDetail's invoice-PDF download.
-async function downloadReceipt(paymentId: number): Promise<void> {
-  const token = tokenStore.getAccess();
-  const res = await fetch(`${API_BASE}/pdf/payments/${paymentId}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) throw new Error(`Failed to download receipt (${res.status})`);
-  const blob = await res.blob();
-  const blobUrl = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = blobUrl;
-  link.download = `receipt-${paymentId}.pdf`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
-}
-
-interface UpdatePaymentBody {
-  amount?: number;
-  currency?: string;
-  payment_method?: string;
-  reference?: string;
-  status?: string;
-}
-
-async function updatePayment(id: number, body: UpdatePaymentBody): Promise<void> {
-  const { error } = await api.PUT('/payments/{id}', {
-    params: { path: { id } },
-    body: body as never,
-  });
-  if (error) throw new Error(extractApiError(error, 'Failed to update payment'));
-}
-
-async function deletePayment(id: number): Promise<void> {
-  const { error } = await api.DELETE('/payments/{id}', { params: { path: { id } } });
-  if (error) throw new Error(extractApiError(error, 'Failed to delete payment'));
-}
-
-async function allocatePayment(id: number, invoiceId: number, amount: number): Promise<void> {
-  const { error } = await api.POST('/payments/{id}/allocate', {
-    params: { path: { id } },
-    body: { invoice_id: invoiceId, amount } as never,
-  });
-  if (error) throw new Error(extractApiError(error, 'Failed to allocate payment'));
-}
-
-async function reallocatePayment(id: number, fromInvoiceId: number, toInvoiceId: number, amount?: number): Promise<void> {
-  const token = tokenStore.getAccess();
-  const csrf = readCsrfCookie();
-  const body: Record<string, unknown> = { from_invoice_id: fromInvoiceId, to_invoice_id: toInvoiceId };
-  if (amount != null) body.amount = amount;
-  const res = await fetch(`${API_BASE}/payments/${id}/reallocate`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { error?: { message?: string } | string };
-    const msg = typeof err.error === 'object' ? err.error?.message : (err.error as string);
-    throw new Error(msg || 'Failed to reallocate payment');
-  }
-}
-
-async function reassignPayment(id: number, newClientId: number): Promise<void> {
-  const token = tokenStore.getAccess();
-  const csrf = readCsrfCookie();
-  const res = await fetch(`${API_BASE}/payments/${id}/reassign`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
-    },
-    body: JSON.stringify({ new_client_id: newClientId }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { error?: { message?: string } | string };
-    const msg = typeof err.error === 'object' ? err.error?.message : (err.error as string);
-    throw new Error(msg || 'Failed to reassign payment');
-  }
-}
-
-async function unapplyPayment(id: number, invoiceId: number): Promise<void> {
-  const token = tokenStore.getAccess();
-  const csrf = readCsrfCookie();
-  const res = await fetch(`${API_BASE}/payments/${id}/unapply`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
-    },
-    body: JSON.stringify({ invoice_id: invoiceId }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { error?: { message?: string } | string };
-    const msg = typeof err.error === 'object' ? err.error?.message : (err.error as string);
-    throw new Error(msg || 'Failed to un-apply payment');
-  }
-}
-
-async function fetchAllInvoicesForClient(clientId: number): Promise<Invoice[]> {
-  const token = tokenStore.getAccess();
-  // Newest first so open invoices aren't displaced by older paid ones at the
-  // backend's crudController page-size cap (100 rows).
-  const params = new URLSearchParams({ client_id: String(clientId), limit: '100', order_by: 'id', order: 'DESC' });
-  const res = await fetch(`${API_BASE}/invoices?${params}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) return [];
-  const body = await res.json() as unknown;
-  return extractList<Invoice>(body);
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -336,12 +142,6 @@ function fmt(dateStr: string | null | undefined): string {
   return new Date(dateStr).toLocaleDateString('es-MX', {
     year: 'numeric', month: 'short', day: 'numeric',
   });
-}
-
-function fmtAmount(amount: string | null | undefined, currency: string): string {
-  if (!amount) return '—';
-  const num = parseFloat(amount);
-  return new Intl.NumberFormat('es-MX', { style: 'currency', currency: currency || 'MXN' }).format(num);
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -391,10 +191,6 @@ function GatewayBadge({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 // Record Payment Modal
 // ---------------------------------------------------------------------------
-
-const PAYMENT_METHODS = [
-  'cash', 'card', 'transfer', 'check', 'online', 'other',
-];
 
 interface RecordPaymentModalProps {
   clients: Client[];
@@ -544,7 +340,7 @@ function RecordPaymentModal({ clients, onClose, onRecorded }: RecordPaymentModal
                 disabled={loadingInvoices}
               >
                 <option value="">— no allocation —</option>
-                {openInvoices.map(inv => (
+                {openInvoices.map((inv: Invoice) => (
                   <option key={inv.id} value={inv.id}>
                     {inv.invoice_number || `#${inv.id}`} — {fmtAmount(inv.total, form.currency)}
                   </option>
@@ -576,543 +372,6 @@ function RecordPaymentModal({ clients, onClose, onRecorded }: RecordPaymentModal
 }
 
 // ---------------------------------------------------------------------------
-// Edit Payment Modal
-// ---------------------------------------------------------------------------
-
-interface EditPaymentModalProps {
-  payment: Payment;
-  onClose: () => void;
-  onSaved: () => void;
-}
-
-function EditPaymentModal({ payment, onClose, onSaved }: EditPaymentModalProps) {
-  const [form, setForm] = useState({
-    amount: payment.amount,
-    currency: payment.currency,
-    payment_method: payment.payment_method || 'cash',
-    reference: payment.reference || '',
-    status: payment.status,
-  });
-
-  const mutation = useMutation({
-    mutationFn: () => updatePayment(payment.id, {
-      amount: parseFloat(form.amount),
-      currency: form.currency,
-      payment_method: form.payment_method,
-      reference: form.reference,
-      status: form.status,
-    }),
-    onSuccess: () => { onSaved(); onClose(); },
-  });
-
-  function setField(name: string, value: string) {
-    setForm(prev => ({ ...prev, [name]: value }));
-  }
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.amount || isNaN(parseFloat(form.amount))) return;
-    mutation.mutate();
-  }
-
-  return (
-    <div style={overlay} role="dialog" aria-modal="true" aria-label="Edit Payment">
-      <div style={{ ...modalBox, maxHeight: '90vh', overflowY: 'auto' }}>
-        <h3 style={{ margin: '0 0 1rem' }}>Edit Payment #{payment.id}</h3>
-        {mutation.isError && (
-          <div style={errorBox}>{(mutation.error as Error).message}</div>
-        )}
-        <form onSubmit={handleSubmit}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
-            <div>
-              <label style={labelStyle}>Amount *</label>
-              <input
-                type="number" step="0.01" min="0.01"
-                style={inputStyle}
-                value={form.amount}
-                onChange={e => setField('amount', e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Currency</label>
-              <input
-                type="text" maxLength={3}
-                style={inputStyle}
-                value={form.currency}
-                onChange={e => setField('currency', e.target.value.toUpperCase())}
-                required
-              />
-            </div>
-          </div>
-
-          <label style={labelStyle}>Payment Method</label>
-          <select
-            style={inputStyle}
-            value={form.payment_method}
-            onChange={e => setField('payment_method', e.target.value)}
-          >
-            {PAYMENT_METHODS.map(m => (
-              <option key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>
-            ))}
-          </select>
-
-          <label style={labelStyle}>Status</label>
-          <select
-            style={inputStyle}
-            value={form.status}
-            onChange={e => setField('status', e.target.value)}
-          >
-            {['pending', 'completed', 'failed', 'refunded', 'cancelled'].map(s => (
-              <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
-            ))}
-          </select>
-
-          <label style={labelStyle}>Reference / Folio (optional)</label>
-          <input
-            type="text" style={inputStyle}
-            value={form.reference}
-            onChange={e => setField('reference', e.target.value)}
-            placeholder="e.g. transfer ID, check number"
-          />
-
-          <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>
-            <button type="submit" style={submitBtn} disabled={mutation.isPending}>
-              {mutation.isPending ? 'Saving…' : 'Save Changes'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Reallocate Modal — move a payment allocation from one invoice to another
-// ---------------------------------------------------------------------------
-
-interface ReallocateModalProps {
-  payment: Payment;
-  onClose: () => void;
-  onReallocated: () => void;
-}
-
-function ReallocateModal({ payment, onClose, onReallocated }: ReallocateModalProps) {
-  const [fromInvoiceId, setFromInvoiceId] = useState('');
-  const [toInvoiceId, setToInvoiceId] = useState('');
-  const [amount, setAmount] = useState(payment.amount);
-
-  const { data: allocs = [], isLoading: loadingAllocs } = useQuery({
-    queryKey: ['payment-allocs', payment.id],
-    queryFn: () => fetchAllocations(payment.id),
-  });
-
-  const { data: clientInvoices = [], isLoading: loadingInvoices } = useQuery({
-    queryKey: ['client-invoices', payment.client_id],
-    queryFn: () => fetchAllInvoicesForClient(payment.client_id),
-  });
-
-  // When from-invoice changes, fill in the allocation amount
-  function handleFromChange(invoiceId: string) {
-    setFromInvoiceId(invoiceId);
-    const alloc = allocs.find(a => a.invoice_id === Number(invoiceId));
-    if (alloc) setAmount(alloc.amount);
-  }
-
-  const mutation = useMutation({
-    mutationFn: () => reallocatePayment(
-      payment.id,
-      Number(fromInvoiceId),
-      Number(toInvoiceId),
-      parseFloat(amount),
-    ),
-    onSuccess: () => { onReallocated(); onClose(); },
-  });
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!fromInvoiceId || !toInvoiceId) return;
-    mutation.mutate();
-  }
-
-  return (
-    <div style={overlay} role="dialog" aria-modal="true" aria-label="Reallocate Payment">
-      <div style={{ ...modalBox, maxHeight: '90vh', overflowY: 'auto' }}>
-        <h3 style={{ margin: '0 0 0.25rem' }}>Reallocate Payment #{payment.id}</h3>
-        <p style={{ margin: '0 0 1rem', fontSize: '0.82rem', color: '#6b7280' }}>
-          Move this payment's allocation from one invoice to another (same client only).
-        </p>
-        {mutation.isError && (
-          <div style={errorBox}>{(mutation.error as Error).message}</div>
-        )}
-        <form onSubmit={handleSubmit}>
-          <label style={labelStyle}>From Invoice (current allocation) *</label>
-          <select
-            style={inputStyle}
-            value={fromInvoiceId}
-            onChange={e => handleFromChange(e.target.value)}
-            disabled={loadingAllocs}
-            required
-          >
-            <option value="">— select allocation —</option>
-            {allocs.map(a => (
-              <option key={a.id} value={a.invoice_id}>
-                Invoice #{a.invoice_id} — {fmtAmount(a.amount, payment.currency)}
-              </option>
-            ))}
-          </select>
-          {!loadingAllocs && allocs.length === 0 && (
-            <p style={{ fontSize: '0.78rem', color: '#9ca3af', margin: '4px 0 0' }}>
-              No current allocations for this payment.
-            </p>
-          )}
-
-          <label style={labelStyle}>To Invoice *</label>
-          <select
-            style={inputStyle}
-            value={toInvoiceId}
-            onChange={e => setToInvoiceId(e.target.value)}
-            disabled={loadingInvoices}
-            required
-          >
-            <option value="">— select target invoice —</option>
-            {clientInvoices
-              .filter(inv => String(inv.id) !== fromInvoiceId)
-              .map(inv => (
-                <option key={inv.id} value={inv.id}>
-                  {inv.invoice_number || `#${inv.id}`} — {fmtAmount(inv.total, payment.currency)}
-                </option>
-              ))}
-          </select>
-
-          <label style={labelStyle}>Amount *</label>
-          <input
-            type="number" step="0.01" min="0.01"
-            style={inputStyle}
-            value={amount}
-            onChange={e => setAmount(e.target.value)}
-            required
-          />
-
-          <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>
-            <button type="submit" style={submitBtn} disabled={mutation.isPending || !fromInvoiceId || !toInvoiceId}>
-              {mutation.isPending ? 'Moving…' : 'Reallocate'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Reassign Modal — move payment to a different client (unallocated only)
-// ---------------------------------------------------------------------------
-
-interface ReassignModalProps {
-  payment: Payment;
-  clients: Client[];
-  onClose: () => void;
-  onReassigned: () => void;
-}
-
-function ReassignModal({ payment, clients, onClose, onReassigned }: ReassignModalProps) {
-  const [newClientId, setNewClientId] = useState('');
-
-  // Check for live allocations — block reassign if any exist
-  const { data: allocs = [], isLoading: loadingAllocs } = useQuery({
-    queryKey: ['payment-allocs', payment.id],
-    queryFn: () => fetchAllocations(payment.id),
-  });
-
-  const isBlocked = allocs.length > 0;
-
-  const mutation = useMutation({
-    mutationFn: () => reassignPayment(payment.id, Number(newClientId)),
-    onSuccess: () => { onReassigned(); onClose(); },
-  });
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newClientId || isBlocked) return;
-    mutation.mutate();
-  }
-
-  return (
-    <div style={overlay} role="dialog" aria-modal="true" aria-label="Reassign Payment">
-      <div style={{ ...modalBox, maxHeight: '90vh', overflowY: 'auto' }}>
-        <h3 style={{ margin: '0 0 0.25rem' }}>Reassign Payment #{payment.id}</h3>
-        <p style={{ margin: '0 0 1rem', fontSize: '0.82rem', color: '#6b7280' }}>
-          Move this payment to a different client. The payment must be unallocated first.
-        </p>
-
-        {loadingAllocs && (
-          <p style={{ fontSize: '0.82rem', color: '#9ca3af' }}>Checking allocations…</p>
-        )}
-
-        {!loadingAllocs && isBlocked && (
-          <div style={{ background: '#fef3c7', color: '#92400e', padding: '10px 12px', borderRadius: 6, marginBottom: '1rem', fontSize: '0.85rem' }}>
-            This payment is applied to {allocs.length} invoice{allocs.length !== 1 ? 's' : ''}.
-            Un-apply it from all invoices before reassigning.
-          </div>
-        )}
-
-        {mutation.isError && (
-          <div style={errorBox}>{(mutation.error as Error).message}</div>
-        )}
-
-        <form onSubmit={handleSubmit}>
-          <label style={labelStyle}>New Client *</label>
-          <select
-            style={inputStyle}
-            value={newClientId}
-            onChange={e => setNewClientId(e.target.value)}
-            disabled={isBlocked}
-            required
-          >
-            <option value="">— select client —</option>
-            {clients
-              .filter(c => c.id !== payment.client_id)
-              .map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-          </select>
-
-          <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>
-            <button
-              type="submit"
-              style={{ ...submitBtn, ...(isBlocked ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }}
-              disabled={mutation.isPending || isBlocked || !newClientId}
-            >
-              {mutation.isPending ? 'Reassigning…' : 'Reassign'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Un-apply Modal
-// ---------------------------------------------------------------------------
-
-interface UnapplyModalProps {
-  payment: Payment;
-  onClose: () => void;
-  onUnapplied: () => void;
-}
-
-function UnapplyModal({ payment, onClose, onUnapplied }: UnapplyModalProps) {
-  const { data: allocs = [], isLoading } = useQuery({
-    queryKey: ['payment-allocs', payment.id],
-    queryFn: () => fetchAllocations(payment.id),
-  });
-
-  const mutation = useMutation({
-    mutationFn: (invoiceId: number) => unapplyPayment(payment.id, invoiceId),
-    onSuccess: () => { onUnapplied(); },
-  });
-
-  return (
-    <div style={overlay} role="dialog" aria-modal="true" aria-label="Un-apply Payment">
-      <div style={{ ...modalBox, maxHeight: '90vh', overflowY: 'auto' }}>
-        <h3 style={{ margin: '0 0 0.25rem' }}>Un-apply Payment #{payment.id}</h3>
-        <p style={{ margin: '0 0 1rem', fontSize: '0.82rem', color: '#6b7280' }}>
-          Remove this payment from a specific invoice. The payment credit stays on the client account as an unallocated balance.
-        </p>
-
-        {isLoading && (
-          <p style={{ fontSize: '0.82rem', color: '#9ca3af' }}>Loading allocations…</p>
-        )}
-
-        {!isLoading && allocs.length === 0 && (
-          <p style={{ fontSize: '0.85rem', color: '#6b7280' }}>
-            This payment has no live allocations.
-          </p>
-        )}
-
-        {!isLoading && allocs.length > 0 && (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', marginBottom: '1rem' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid #e5e7eb', color: '#6b7280', textAlign: 'left' }}>
-                <th style={{ padding: '6px 8px' }}>Invoice #</th>
-                <th style={{ padding: '6px 8px', textAlign: 'right' }}>Amount</th>
-                <th style={{ padding: '6px 8px' }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {allocs.map(a => (
-                <tr key={a.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  <td style={{ padding: '6px 8px', color: '#374151' }}>#{a.invoice_id}</td>
-                  <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {fmtAmount(a.amount, payment.currency)}
-                  </td>
-                  <td style={{ padding: '6px 8px' }}>
-                    <button
-                      style={{ ...actionBtn, background: '#fee2e2', color: '#991b1b', fontSize: '0.8rem' }}
-                      onClick={() => mutation.mutate(a.invoice_id)}
-                      disabled={mutation.isPending && mutation.variables === a.invoice_id}
-                    >
-                      {mutation.isPending && mutation.variables === a.invoice_id ? '…' : 'Un-apply'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        {mutation.isError && (
-          <div style={errorBox}>{(mutation.error as Error).message}</div>
-        )}
-
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-          <button type="button" onClick={onClose} style={cancelBtn}>Close</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Allocate Modal — allocate a payment to an invoice, showing the remaining
-// unallocated balance and listing all payable invoices (not just 'sent').
-// Replaces the old narrow AllocateModal (fetchOpenInvoices + no balance) and
-// the short-lived ApplyModal — one consolidated action on the payment row.
-// ---------------------------------------------------------------------------
-
-interface AllocateModalProps {
-  payment: Payment;
-  onClose: () => void;
-  onAllocated: () => void;
-}
-
-function AllocateModal({ payment, onClose, onAllocated }: AllocateModalProps) {
-  const [invoiceId, setInvoiceId] = useState('');
-  const [amount, setAmount] = useState('');
-
-  // Current live allocations — used to compute the unallocated balance.
-  const { data: allocs = [], isLoading: loadingAllocs } = useQuery({
-    queryKey: ['payment-allocs', payment.id],
-    queryFn: () => fetchAllocations(payment.id),
-  });
-
-  const totalAllocated = allocs.reduce((sum, a) => sum + parseFloat(a.amount), 0);
-  const unallocatedBalance = parseFloat(payment.amount) - totalAllocated;
-  const isFullyAllocated = !loadingAllocs && unallocatedBalance <= 0;
-
-  // Re-seed the amount field whenever the balance recomputes (allocs load or
-  // change on a background refetch), so the banner and the prefilled amount agree.
-  useEffect(() => {
-    if (!loadingAllocs) {
-      setAmount(unallocatedBalance > 0 ? String(Math.round(unallocatedBalance * 100) / 100) : '0');
-    }
-  }, [loadingAllocs, unallocatedBalance]);
-
-  // All invoices for the client, excluding non-payable statuses.
-  const { data: allInvoices = [], isLoading: loadingInvoices } = useQuery({
-    queryKey: ['client-invoices', payment.client_id],
-    queryFn: () => fetchAllInvoicesForClient(payment.client_id),
-  });
-
-  const applicableInvoices = allInvoices.filter(
-    inv => !NON_PAYABLE_STATUSES.has(inv.status ?? ''),
-  );
-
-  const mutation = useMutation({
-    mutationFn: () => allocatePayment(payment.id, Number(invoiceId), parseFloat(amount)),
-    onSuccess: () => { onAllocated(); onClose(); },
-  });
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!invoiceId || isFullyAllocated) return;
-    if (!amount || isNaN(parseFloat(amount))) return;
-    mutation.mutate();
-  }
-
-  return (
-    <div style={overlay} role="dialog" aria-modal="true" aria-label="Allocate Payment">
-      <div style={{ ...modalBox, maxHeight: '90vh', overflowY: 'auto' }}>
-        <h3 style={{ margin: '0 0 0.25rem' }}>Allocate Payment #{payment.id}</h3>
-        <p style={{ margin: '0 0 1rem', fontSize: '0.82rem', color: '#6b7280' }}>
-          Apply this payment to an open invoice. Excludes paid, void, cancelled, and draft invoices.
-        </p>
-
-        {loadingAllocs && (
-          <p style={{ fontSize: '0.82rem', color: '#9ca3af' }}>Computing unallocated balance…</p>
-        )}
-
-        {!loadingAllocs && (
-          <div style={{ background: isFullyAllocated ? '#fef3c7' : '#d1fae5', color: isFullyAllocated ? '#92400e' : '#065f46', padding: '8px 12px', borderRadius: 6, marginBottom: '1rem', fontSize: '0.85rem' }}>
-            {isFullyAllocated
-              ? 'Fully allocated — this payment has no remaining balance to apply.'
-              : `Unallocated balance: ${fmtAmount(String(unallocatedBalance), payment.currency)}`}
-          </div>
-        )}
-
-        {mutation.isError && (
-          <div style={errorBox}>{(mutation.error as Error).message}</div>
-        )}
-
-        <form onSubmit={handleSubmit}>
-          <label style={labelStyle}>Invoice *</label>
-          <select
-            style={inputStyle}
-            value={invoiceId}
-            onChange={e => setInvoiceId(e.target.value)}
-            disabled={loadingInvoices || isFullyAllocated}
-            required
-          >
-            <option value="">— select invoice —</option>
-            {applicableInvoices.map(inv => (
-              <option key={inv.id} value={inv.id}>
-                {inv.invoice_number || `#${inv.id}`} — {fmtAmount(inv.total, payment.currency)}
-              </option>
-            ))}
-          </select>
-          {loadingInvoices && (
-            <p style={{ fontSize: '0.78rem', color: '#9ca3af', margin: '4px 0 0' }}>
-              Loading invoices…
-            </p>
-          )}
-          {!loadingInvoices && applicableInvoices.length === 0 && (
-            <p style={{ fontSize: '0.78rem', color: '#9ca3af', margin: '4px 0 0' }}>
-              No applicable invoices for this client.
-            </p>
-          )}
-
-          <label style={labelStyle}>Amount *</label>
-          <input
-            type="number" step="0.01" min="0.01"
-            style={inputStyle}
-            value={amount}
-            onChange={e => setAmount(e.target.value)}
-            disabled={isFullyAllocated}
-            required
-          />
-
-          <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>
-            <button
-              type="submit"
-              style={{ ...submitBtn, ...(isFullyAllocated ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }}
-              disabled={mutation.isPending || isFullyAllocated || !invoiceId}
-            >
-              {mutation.isPending ? 'Allocating…' : isFullyAllocated ? 'Fully Allocated' : 'Allocate'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Inline Allocations Drawer
 // ---------------------------------------------------------------------------
 
@@ -1130,7 +389,7 @@ function AllocationsRow({ paymentId, currency }: AllocationsRowProps) {
   if (isLoading) {
     return (
       <tr>
-        <td colSpan={8} style={{ padding: '8px 20px', background: '#f8faff', fontSize: '0.82rem', color: '#9ca3af' }}>
+        <td colSpan={9} style={{ padding: '8px 20px', background: '#f8faff', fontSize: '0.82rem', color: '#9ca3af' }}>
           Loading allocations…
         </td>
       </tr>
@@ -1139,7 +398,7 @@ function AllocationsRow({ paymentId, currency }: AllocationsRowProps) {
 
   return (
     <tr>
-      <td colSpan={8} style={{ padding: '8px 20px 12px', background: '#f8faff' }}>
+      <td colSpan={9} style={{ padding: '8px 20px 12px', background: '#f8faff' }}>
         {allocs.length === 0 ? (
           <p style={{ margin: 0, fontSize: '0.82rem', color: '#9ca3af' }}>No invoice allocations.</p>
         ) : (
@@ -1152,7 +411,7 @@ function AllocationsRow({ paymentId, currency }: AllocationsRowProps) {
               </tr>
             </thead>
             <tbody>
-              {allocs.map(a => (
+              {allocs.map((a: PaymentAllocation) => (
                 <tr key={a.id}>
                   <td style={{ padding: '4px 8px' }}>
                     <Link
@@ -1190,12 +449,12 @@ function GatewayRow({ clientId, paymentId }: GatewayRowProps) {
     queryFn: () => fetchGatewayTransactions(clientId),
   });
 
-  const linked = txns.filter(t => t.payment_id === paymentId);
+  const linked = txns.filter((t: GatewayTransaction) => t.payment_id === paymentId);
 
   if (isLoading) {
     return (
       <tr>
-        <td colSpan={8} style={{ padding: '8px 20px', background: '#fafff8', fontSize: '0.82rem', color: '#9ca3af' }}>
+        <td colSpan={9} style={{ padding: '8px 20px', background: '#fafff8', fontSize: '0.82rem', color: '#9ca3af' }}>
           Loading gateway transactions…
         </td>
       </tr>
@@ -1204,7 +463,7 @@ function GatewayRow({ clientId, paymentId }: GatewayRowProps) {
 
   return (
     <tr>
-      <td colSpan={8} style={{ padding: '8px 20px 12px', background: '#fafff8' }}>
+      <td colSpan={9} style={{ padding: '8px 20px 12px', background: '#fafff8' }}>
         {linked.length === 0 ? (
           <p style={{ margin: 0, fontSize: '0.82rem', color: '#9ca3af' }}>
             No gateway transactions linked to this payment.
@@ -1219,7 +478,7 @@ function GatewayRow({ clientId, paymentId }: GatewayRowProps) {
               </tr>
             </thead>
             <tbody>
-              {linked.map(t => (
+              {linked.map((t: GatewayTransaction) => (
                 <tr key={t.id}>
                   <td style={{ padding: '4px 8px', textTransform: 'capitalize' }}>{t.gateway}</td>
                   <td style={{ padding: '4px 8px', fontFamily: 'monospace', fontSize: '0.78rem', color: '#6b7280' }}>
@@ -1247,18 +506,11 @@ function GatewayRow({ clientId, paymentId }: GatewayRowProps) {
 interface PaymentRowProps {
   payment: Payment;
   idx: number;
-  onSendReceipt: (id: number) => void;
-  onDownloadReceipt: (id: number) => void;
-  sendingReceipt: number | null;
-  onEdit: (payment: Payment) => void;
-  onAllocate: (payment: Payment) => void;
-  onReallocate: (payment: Payment) => void;
-  onReassign: (payment: Payment) => void;
-  onUnapply: (payment: Payment) => void;
-  onDelete: (payment: Payment) => void;
+  clientName: string | null;
+  onChanged: () => void;
 }
 
-function PaymentRow({ payment, idx, onSendReceipt, onDownloadReceipt, sendingReceipt, onEdit, onAllocate, onReallocate, onReassign, onUnapply, onDelete }: PaymentRowProps) {
+function PaymentRow({ payment, idx, clientName, onChanged }: PaymentRowProps) {
   const [expanded, setExpanded] = useState<'none' | 'alloc' | 'gateway'>('none');
 
   function toggleExpand(mode: 'alloc' | 'gateway') {
@@ -1268,11 +520,15 @@ function PaymentRow({ payment, idx, onSendReceipt, onDownloadReceipt, sendingRec
   return (
     <>
       <tr style={{ borderBottom: '1px solid #f3f4f6', background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
-        {/* Client */}
+        {/* Client name */}
         <td style={{ padding: '10px 14px' }}>
           <Link to={`/clients/${payment.client_id}`} style={{ color: '#374151', textDecoration: 'none' }}>
-            Client {payment.client_id}
+            {clientName ?? String(payment.client_id)}
           </Link>
+        </td>
+        {/* Client ID — narrow */}
+        <td style={{ padding: '10px 8px', color: '#9ca3af', fontSize: '0.8rem', whiteSpace: 'nowrap', width: 40 }}>
+          {payment.client_id}
         </td>
         {/* Amount */}
         <td style={{ padding: '10px 14px', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
@@ -1296,7 +552,7 @@ function PaymentRow({ payment, idx, onSendReceipt, onDownloadReceipt, sendingRec
         </td>
         {/* Actions */}
         <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <button
               style={{ ...actionBtn, background: expanded === 'alloc' ? '#ede9fe' : '#f3f4f6', color: '#5b21b6' }}
               onClick={() => toggleExpand('alloc')}
@@ -1311,63 +567,7 @@ function PaymentRow({ payment, idx, onSendReceipt, onDownloadReceipt, sendingRec
             >
               🔗 GW
             </button>
-            <button
-              style={{ ...actionBtn, background: '#dbeafe', color: '#1e40af' }}
-              onClick={() => onDownloadReceipt(payment.id)}
-              title="Download receipt PDF"
-            >
-              🧾 PDF
-            </button>
-            <button
-              style={{ ...actionBtn, background: '#fef3c7', color: '#92400e' }}
-              onClick={() => onSendReceipt(payment.id)}
-              disabled={sendingReceipt === payment.id}
-              title="Send receipt email to client"
-            >
-              {sendingReceipt === payment.id ? '…' : '📧 Receipt'}
-            </button>
-            <button
-              style={{ ...actionBtn, background: '#e0f2fe', color: '#075985' }}
-              onClick={() => onAllocate(payment)}
-              title="Allocate payment to an invoice"
-            >
-              ➕ Allocate
-            </button>
-            <button
-              style={{ ...actionBtn, background: '#ede9fe', color: '#5b21b6' }}
-              onClick={() => onReallocate(payment)}
-              title="Move allocation from one invoice to another (same client)"
-            >
-              ↔ Reallocate
-            </button>
-            <button
-              style={{ ...actionBtn, background: '#fee2e2', color: '#991b1b' }}
-              onClick={() => onUnapply(payment)}
-              title="Remove this payment from an invoice (keeps credit on account)"
-            >
-              ✕ Un-apply
-            </button>
-            <button
-              style={{ ...actionBtn, background: '#fef9c3', color: '#854d0e' }}
-              onClick={() => onReassign(payment)}
-              title="Reassign payment to a different client (unallocated only)"
-            >
-              ↗ Reassign
-            </button>
-            <button
-              style={{ ...actionBtn, background: '#f3f4f6', color: '#374151' }}
-              onClick={() => onEdit(payment)}
-              title="Edit payment"
-            >
-              ✏️ Edit
-            </button>
-            <button
-              style={{ ...actionBtn, background: '#fee2e2', color: '#991b1b' }}
-              onClick={() => onDelete(payment)}
-              title="Delete payment"
-            >
-              🗑 Delete
-            </button>
+            <PaymentActionButtons payment={payment} onChanged={onChanged} />
           </div>
         </td>
       </tr>
@@ -1393,18 +593,8 @@ export function PaymentList() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [showRecord, setShowRecord] = useState(false);
-  const [editPayment, setEditPayment] = useState<Payment | null>(null);
-  const [allocatePaymentRow, setAllocatePaymentRow] = useState<Payment | null>(null);
-  const [reallocatePaymentRow, setReallocatePaymentRow] = useState<Payment | null>(null);
-  const [reassignPaymentRow, setReassignPaymentRow] = useState<Payment | null>(null);
-  const [unapplyPaymentRow, setUnapplyPaymentRow] = useState<Payment | null>(null);
-  const [deletePaymentRow, setDeletePaymentRow] = useState<Payment | null>(null);
-  const [toast, setToast] = useState('');
-  const [sendingReceipt, setSendingReceipt] = useState<number | null>(null);
   const sort = useTableSort('created_at', 'DESC');
   const qc = useQueryClient();
-
-  useEffect(() => { setPage(1); }, [sort.sortBy, sort.sortDir]);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['payments', page, statusFilter, sort.sortBy, sort.sortDir],
@@ -1412,50 +602,13 @@ export function PaymentList() {
     placeholderData: prev => prev,
   });
 
+  // Always load clients: needed for the name column display and RecordPaymentModal.
   const { data: clients = [] } = useQuery({
     queryKey: ['clients-slim'],
     queryFn: fetchClients,
-    enabled: showRecord || !!reassignPaymentRow,
   });
 
-  const sendReceiptMutation = useMutation({
-    mutationFn: sendReceipt,
-    onMutate: (id) => setSendingReceipt(id),
-    onSuccess: (res) => {
-      showToast(`Receipt sent to ${res.to}`);
-      setSendingReceipt(null);
-    },
-    onError: (err: Error) => {
-      showToast(`Error: ${err.message}`);
-      setSendingReceipt(null);
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => deletePayment(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['payments'] });
-      showToast('Payment deleted');
-      setDeletePaymentRow(null);
-    },
-    onError: (err: Error) => {
-      showToast(`Error: ${err.message}`);
-      setDeletePaymentRow(null);
-    },
-  });
-
-  function showToast(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(''), 4000);
-  }
-
-  async function handleDownloadReceipt(id: number) {
-    try {
-      await downloadReceipt(id);
-    } catch (err) {
-      showToast(`Error: ${err instanceof Error ? err.message : 'Failed to download receipt'}`);
-    }
-  }
+  const clientMap = new Map(clients.map((c: Client) => [c.id, c.name]));
 
   function handleFilterChange(newStatus: string) {
     setStatusFilter(newStatus);
@@ -1464,6 +617,10 @@ export function PaymentList() {
 
   const totalPages = data?.meta?.totalPages ?? 1;
   const total = data?.meta?.total ?? 0;
+
+  function onRowChanged() {
+    qc.invalidateQueries({ queryKey: ['payments'] });
+  }
 
   return (
     <div style={{ padding: '1.5rem' }}>
@@ -1503,11 +660,13 @@ export function PaymentList() {
               <thead>
                 <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
                   <SortableTh label={t('paymentList.table.client')} col="client_id" sort={sort} />
+                  <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap', width: 40, fontSize: '0.875rem' }}>
+                    {t('paymentList.table.clientId')}
+                  </th>
                   <SortableTh label={t('paymentList.table.amount')} col="amount" sort={sort} />
                   <SortableTh label={t('paymentList.table.method')} col="payment_method" sort={sort} />
                   <SortableTh label={t('paymentList.table.status')} col="status" sort={sort} />
                   <SortableTh label={t('paymentList.table.date')} col="payment_date" sort={sort} />
-                  {/* reference_number column: left non-sortable — UI property 'reference' vs DB column 'reference_number' mismatch */}
                   <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>{t('paymentList.table.reference')}</th>
                   <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>{t('paymentList.table.actions')}</th>
                 </tr>
@@ -1515,7 +674,7 @@ export function PaymentList() {
               <tbody>
                 {data.data.length === 0 && (
                   <tr>
-                    <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
+                    <td colSpan={8} style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
                       {t('paymentList.noPayments')}
                     </td>
                   </tr>
@@ -1525,15 +684,8 @@ export function PaymentList() {
                     key={payment.id}
                     payment={payment}
                     idx={idx}
-                    onSendReceipt={(id) => sendReceiptMutation.mutate(id)}
-                    onDownloadReceipt={handleDownloadReceipt}
-                    sendingReceipt={sendingReceipt}
-                    onEdit={setEditPayment}
-                    onAllocate={setAllocatePaymentRow}
-                    onReallocate={setReallocatePaymentRow}
-                    onReassign={setReassignPaymentRow}
-                    onUnapply={setUnapplyPaymentRow}
-                    onDelete={setDeletePaymentRow}
+                    clientName={clientMap.get(payment.client_id) ?? null}
+                    onChanged={onRowChanged}
                   />
                 ))}
               </tbody>
@@ -1559,105 +711,6 @@ export function PaymentList() {
           onClose={() => setShowRecord(false)}
           onRecorded={() => qc.invalidateQueries({ queryKey: ['payments'] })}
         />
-      )}
-
-      {/* Edit Payment Modal */}
-      {editPayment && (
-        <EditPaymentModal
-          payment={editPayment}
-          onClose={() => setEditPayment(null)}
-          onSaved={() => { qc.invalidateQueries({ queryKey: ['payments'] }); showToast('Payment updated'); }}
-        />
-      )}
-
-      {/* Allocate Payment Modal */}
-      {allocatePaymentRow && (
-        <AllocateModal
-          payment={allocatePaymentRow}
-          onClose={() => setAllocatePaymentRow(null)}
-          onAllocated={() => {
-            qc.invalidateQueries({ queryKey: ['payments'] });
-            qc.invalidateQueries({ queryKey: ['payment-allocs', allocatePaymentRow.id] });
-            qc.invalidateQueries({ queryKey: ['client-invoices', allocatePaymentRow.client_id] });
-            showToast('Payment allocated');
-          }}
-        />
-      )}
-
-      {/* Reallocate Payment Modal */}
-      {reallocatePaymentRow && (
-        <ReallocateModal
-          payment={reallocatePaymentRow}
-          onClose={() => setReallocatePaymentRow(null)}
-          onReallocated={() => {
-            qc.invalidateQueries({ queryKey: ['payments'] });
-            qc.invalidateQueries({ queryKey: ['payment-allocs', reallocatePaymentRow.id] });
-            showToast('Payment reallocated');
-          }}
-        />
-      )}
-
-      {/* Un-apply Payment Modal */}
-      {unapplyPaymentRow && (
-        <UnapplyModal
-          payment={unapplyPaymentRow}
-          onClose={() => setUnapplyPaymentRow(null)}
-          onUnapplied={() => {
-            qc.invalidateQueries({ queryKey: ['payments'] });
-            qc.invalidateQueries({ queryKey: ['payment-allocs', unapplyPaymentRow.id] });
-            showToast('Payment un-applied from invoice');
-          }}
-        />
-      )}
-
-      {/* Reassign Payment Modal */}
-      {reassignPaymentRow && (
-        <ReassignModal
-          payment={reassignPaymentRow}
-          clients={clients}
-          onClose={() => setReassignPaymentRow(null)}
-          onReassigned={() => {
-            qc.invalidateQueries({ queryKey: ['payments'] });
-            qc.invalidateQueries({ queryKey: ['payment-allocs', reassignPaymentRow.id] });
-            showToast('Payment reassigned to new client');
-          }}
-        />
-      )}
-
-      {/* Delete Confirmation */}
-      {deletePaymentRow && (
-        <div style={overlay} role="alertdialog" aria-modal="true" aria-label="Delete Payment">
-          <div style={modalBox}>
-            <h3 style={{ margin: '0 0 0.75rem' }}>Delete Payment #{deletePaymentRow.id}?</h3>
-            <p style={{ margin: '0 0 1.25rem', color: '#4b5563', fontSize: '0.9rem' }}>
-              This will permanently remove payment of {fmtAmount(deletePaymentRow.amount, deletePaymentRow.currency)}. This action cannot be undone.
-            </p>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button type="button" onClick={() => setDeletePaymentRow(null)} style={cancelBtn}>Cancel</button>
-              <button
-                type="button"
-                onClick={() => deleteMutation.mutate(deletePaymentRow.id)}
-                disabled={deleteMutation.isPending}
-                style={{ ...submitBtn, background: '#dc2626' }}
-              >
-                {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Toast */}
-      {toast && (
-        <div style={{
-          position: 'fixed', bottom: 24, right: 24,
-          background: 'var(--sidebar-bg)', color: '#fff',
-          padding: '10px 18px', borderRadius: 8,
-          fontSize: '0.85rem', boxShadow: '0 4px 16px rgba(0,0,0,.25)',
-          zIndex: 200,
-        }}>
-          {toast}
-        </div>
       )}
     </div>
   );

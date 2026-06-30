@@ -1,19 +1,24 @@
 // =============================================================================
 // FireISP 5.0 — Payment Detail
 // =============================================================================
-// Shows a single payment with its info card and a section listing the invoices
-// this payment was allocated to.
+// Shows a single payment with its info card, allocations table, and the full
+// set of lifecycle action buttons (Edit, Allocate, Reallocate, Reassign,
+// Un-apply, Send Receipt, Download Receipt PDF, Delete).
 //
-// Mirrors ContractDetail's structure: single GraphQL query, loading/not-found
-// states, breadcrumb, header with StatusBadge, info card, and allocations table.
-// Payments are read-only — no lifecycle action buttons are needed.
+// Action buttons are rendered by the shared <PaymentActionButtons> component
+// (frontend/src/pages/payments/PaymentActions.tsx) so that the behaviour stays
+// in sync with the PaymentList row actions — no copy-paste divergence.
 // =============================================================================
 
-import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { gql } from '@/api/graphql';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
+import {
+  PaymentActionButtons,
+  Payment as RestPayment,
+} from './payments/PaymentActions';
 
 // ---------------------------------------------------------------------------
 // GraphQL query — fetches the payment + allocations + client in one request
@@ -269,12 +274,32 @@ function AllocationsSection({ allocations, currency }: { allocations: PaymentAll
 }
 
 // ---------------------------------------------------------------------------
+// Adapter — map GraphQL Payment (camelCase, id=string) → REST shape
+// ---------------------------------------------------------------------------
+
+function toRestPayment(p: Payment): RestPayment {
+  return {
+    id: Number(p.id),
+    client_id: Number(p.clientId),
+    amount: p.amount,
+    currency: p.currency,
+    payment_method: p.paymentMethod || null,
+    reference: p.reference,
+    status: p.status,
+    payment_date: p.paymentDate,
+    created_at: p.createdAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export function PaymentDetail() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
 
   // Permission gate — same slug as REST route
   const canView = can(user?.role, 'payments.view');
@@ -311,6 +336,8 @@ export function PaymentDetail() {
     );
   }
 
+  const restPayment = toRestPayment(payment);
+
   return (
     <div style={styles.page}>
       {/* Breadcrumb */}
@@ -339,6 +366,14 @@ export function PaymentDetail() {
               <span style={styles.metaChip}>{payment.paymentMethod}</span>
             )}
           </div>
+        </div>
+        {/* Action buttons toolbar */}
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <PaymentActionButtons
+            payment={restPayment}
+            onChanged={() => qc.invalidateQueries({ queryKey: ['payment-detail-gql', id] })}
+            onDeleted={() => navigate('/payments')}
+          />
         </div>
       </div>
 
