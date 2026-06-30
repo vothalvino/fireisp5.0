@@ -219,7 +219,11 @@ class RouterOSClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this._socket) this._socket.destroy();
-        reject(new Error(`RouterOS connect timeout to ${this.host}:${this.port}`));
+        const err = new Error(`RouterOS connect timeout to ${this.host}:${this.port}`);
+        // A connect that never completes = transport unreachable, so provisioning
+        // callers map it to 502 / fall back to a snippet rather than a hard error.
+        err.routerUnreachable = true;
+        reject(err);
       }, this.timeoutMs);
 
       // 'secureConnect' for TLS, 'connect' for plain TCP — the event that
@@ -246,6 +250,15 @@ class RouterOSClient {
         // caller awaits createClient() outside its try/finally, so it has no
         // client handle to close on this path.
         socket.destroy();
+        // A connect-phase failure (EHOSTUNREACH / ECONNREFUSED / ENETUNREACH /
+        // TLS handshake, etc.) means the transport never came up — the device is
+        // unreachable. Tag it so provisioning callers surface a clean "router
+        // unreachable" (502) or fall back to the paste-once snippet, instead of a
+        // raw "connect EHOSTUNREACH". Critical for a NATed NAS: its API IP only
+        // becomes reachable AFTER the WG tunnel that bootstrap is setting up, so
+        // the first bootstrap MUST degrade to a snippet. The specific cause is
+        // preserved in err.message (stored as the tunnel's last_error).
+        err.routerUnreachable = true;
         reject(err);
       });
 
