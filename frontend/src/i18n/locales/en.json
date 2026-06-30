@@ -3559,13 +3559,16 @@
     "workOrderScheduledField": "Scheduled At",
     "workOrderCreate": "Create Work Order",
     "createContractTitle": "Create Contract",
-    "contractClientId": "Client ID",
-    "contractPlanId": "Plan ID",
-    "contractPlanPlaceholder": "Enter plan ID",
-    "contractPlanRequired": "Plan ID is required",
+    "contractClientId": "Client",
+    "contractPlanId": "Plan",
+    "contractPlanPlaceholder": "— select plan —",
+    "contractPlanRequired": "Plan is required",
+    "contractConnectionType": "Connection Type",
+    "contractStartDate": "Start Date",
+    "contractBillingDay": "Billing Day (1–28)",
+    "contractPriceOverride": "Price Override (leave blank for plan default)",
     "contractCreateFailed": "Failed to create contract",
     "contractLinkFailed": "Contract created but failed to link",
-    "contractCreate": "Create & Link",
-    "contractCreateNote": "A new contract will be created and linked to this service order."
+    "contractCreate": "Create & Link"
   }
 }

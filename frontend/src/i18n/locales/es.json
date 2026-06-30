@@ -3559,13 +3559,16 @@
     "workOrderScheduledField": "Fecha programada",
     "workOrderCreate": "Crear orden de trabajo",
     "createContractTitle": "Crear contrato",
-    "contractClientId": "ID de cliente",
-    "contractPlanId": "ID de plan",
-    "contractPlanPlaceholder": "Ingresa el ID del plan",
-    "contractPlanRequired": "Se requiere el ID del plan",
+    "contractClientId": "Cliente",
+    "contractPlanId": "Plan",
+    "contractPlanPlaceholder": "— seleccionar plan —",
+    "contractPlanRequired": "Se requiere un plan",
+    "contractConnectionType": "Tipo de conexion",
+    "contractStartDate": "Fecha de inicio",
+    "contractBillingDay": "Dia de facturacion (1–28)",
+    "contractPriceOverride": "Precio personalizado (dejar en blanco para usar el del plan)",
     "contractCreateFailed": "Error al crear el contrato",
     "contractLinkFailed": "Contrato creado pero no se pudo vincular",
-    "contractCreate": "Crear y vincular",
-    "contractCreateNote": "Se creara un nuevo contrato y se vinculara a esta orden de servicio."
+    "contractCreate": "Crear y vincular"
   }
 }
