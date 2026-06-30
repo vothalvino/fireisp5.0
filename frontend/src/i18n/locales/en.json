@@ -282,6 +282,12 @@
     "loading": "Loading…",
     "error": "Failed to load tickets."
   },
+  "pagination": {
+    "rowsPerPage": "Rows per page:",
+    "prevPage": "← Prev",
+    "nextPage": "Next →",
+    "pageInfo": "Page {{page}} of {{total}}"
+  },
   "clientList": {
     "title": "Clients",
     "newClient": "+ New Client",

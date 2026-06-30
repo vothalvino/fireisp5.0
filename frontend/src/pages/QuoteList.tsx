@@ -21,6 +21,7 @@ import {
   fmtDate,
   capitalize,
 } from './crudStyles';
+import { Pagination } from '@/components/Pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,7 +67,6 @@ interface QuoteBody {
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_PAGE_SIZE = 25;
 const STATUSES = ['draft', 'sent', 'accepted', 'rejected', 'expired'];
 const STATUS_FILTER_OPTIONS = ['', ...STATUSES];
 
@@ -74,8 +74,8 @@ const STATUS_FILTER_OPTIONS = ['', ...STATUSES];
 // Fetch / mutate helpers
 // ---------------------------------------------------------------------------
 
-async function fetchQuotes(page: number, statusFilter: string): Promise<QuotesResponse> {
-  const query: Record<string, string | number> = { page, limit: DEFAULT_PAGE_SIZE };
+async function fetchQuotes(page: number, pageSize: number, statusFilter: string): Promise<QuotesResponse> {
+  const query: Record<string, string | number> = { page, limit: pageSize };
   if (statusFilter) query.status = statusFilter;
   const res = await api.GET('/quotes', { params: { query: query as never } });
   if (res.error) throw new Error('Failed to load quotes');
@@ -317,14 +317,15 @@ type Confirmable =
 export function QuoteList() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [editQuote, setEditQuote] = useState<Quote | null>(null);
   const [confirm, setConfirm] = useState<Confirmable | null>(null);
 
   const quotesQ = useQuery({
-    queryKey: ['quotes', page, statusFilter],
-    queryFn: () => fetchQuotes(page, statusFilter),
+    queryKey: ['quotes', page, pageSize, statusFilter],
+    queryFn: () => fetchQuotes(page, pageSize, statusFilter),
   });
 
   const clientsQ = useQuery({
@@ -438,13 +439,14 @@ export function QuoteList() {
               </table>
             </div>
 
-            {meta && meta.totalPages > 1 && (
-              <div style={styles.pagination}>
-                <button style={styles.pageBtn} onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>← Prev</button>
-                <span style={styles.pageInfo}>Page {page} of {meta.totalPages}</span>
-                <button style={styles.pageBtn} onClick={() => setPage(p => Math.min(meta.totalPages, p + 1))} disabled={page === meta.totalPages}>Next →</button>
-              </div>
-            )}
+            <Pagination
+              page={page}
+              totalPages={meta?.totalPages ?? 1}
+              total={meta?.total}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+            />
           </>
         )}
       </div>

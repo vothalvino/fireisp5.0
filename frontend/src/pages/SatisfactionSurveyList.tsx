@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
+import { Pagination } from '@/components/Pagination';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
 import {
@@ -49,9 +50,9 @@ interface SurveyMetrics {
   csat: { sent: number; responses: number; satisfied: number; average: number | null; satisfaction_pct: number | null };
 }
 
-async function fetchSurveys(): Promise<SurveysResponse> {
+async function fetchSurveys(page: number, pageSize: number): Promise<SurveysResponse> {
   const res = await api.GET('/satisfaction-surveys', {
-    params: { query: { limit: 200, order_by: 'created_at', order: 'DESC' } as never },
+    params: { query: { page, limit: pageSize, order_by: 'created_at', order: 'DESC' } as never },
   });
   if (res.error) throw new Error('Failed to load surveys');
   return res.data as unknown as SurveysResponse;
@@ -200,11 +201,16 @@ export function SatisfactionSurveyList() {
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [respondTo, setRespondTo] = useState<Survey | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const canCreate = can(user?.role, 'surveys.create');
   const canUpdate = can(user?.role, 'surveys.update');
 
-  const { data, isLoading, error } = useQuery({ queryKey: ['satisfaction-surveys'], queryFn: fetchSurveys });
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['satisfaction-surveys', page, pageSize],
+    queryFn: () => fetchSurveys(page, pageSize),
+  });
   const { data: metrics } = useQuery({ queryKey: ['satisfaction-surveys', 'metrics'], queryFn: fetchMetrics });
 
   const sendMutation = useMutation({
@@ -245,6 +251,7 @@ export function SatisfactionSurveyList() {
       {error && <div style={errorBox}>{(error as Error).message}</div>}
 
       {data && (
+        <>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-strong)' }}>
@@ -286,6 +293,17 @@ export function SatisfactionSurveyList() {
             ))}
           </tbody>
         </table>
+
+        {/* Pagination */}
+        <Pagination
+          page={page}
+          totalPages={data?.meta?.totalPages ?? 1}
+          total={data?.meta?.total}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        />
+        </>
       )}
 
       {showCreate && <NewSurveyModal onClose={() => setShowCreate(false)} onSaved={refresh} />}

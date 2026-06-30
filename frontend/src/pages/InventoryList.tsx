@@ -15,6 +15,7 @@ import type { CSSProperties, FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { tokenStore } from '@/api/client';
 import { useOrgCurrency } from '@/auth/useOrgCurrency';
+import { Pagination } from '@/components/Pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -71,7 +72,6 @@ interface WarehouseListResponse {
 // Constants & helpers
 // ---------------------------------------------------------------------------
 
-const PAGE_SIZE = 25;
 const API_BASE = '/api/v1';
 
 const CATEGORIES = [
@@ -96,10 +96,11 @@ function authHeaders(): Record<string, string> {
 
 async function fetchItems(
   page: number,
+  pageSize: number,
   categoryFilter: string,
   statusFilter: string,
 ): Promise<InventoryListResponse> {
-  const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
+  const params = new URLSearchParams({ page: String(page), limit: String(pageSize) });
   if (categoryFilter) params.set('category', categoryFilter);
   if (statusFilter) params.set('status', statusFilter);
   const res = await fetch(`${API_BASE}/inventory/items?${params}`, { headers: authHeaders() });
@@ -612,6 +613,7 @@ export function InventoryList() {
   const orgCurrency = useOrgCurrency();
   const fmtCurrency = makeFmtCurrency(orgCurrency);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
 
@@ -622,8 +624,8 @@ export function InventoryList() {
   const [txStockId, setTxStockId] = useState<number | null>(null);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['inventoryItems', page, categoryFilter, statusFilter],
-    queryFn: () => fetchItems(page, categoryFilter, statusFilter),
+    queryKey: ['inventoryItems', page, pageSize, categoryFilter, statusFilter],
+    queryFn: () => fetchItems(page, pageSize, categoryFilter, statusFilter),
     placeholderData: (prev: InventoryListResponse | undefined) => prev,
   });
 
@@ -648,8 +650,6 @@ export function InventoryList() {
     setTxStockId(stockId);
     setTxItem(item);
   }
-
-  const totalPages = data?.meta.totalPages ?? 1;
 
   return (
     <div style={{ padding: '1.5rem', fontFamily: 'var(--font-sans)' }}>
@@ -747,11 +747,14 @@ export function InventoryList() {
           </div>
 
           {/* Pagination */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: '1rem', color: '#6b7280', fontSize: '0.85rem' }}>
-            <button style={pageBtn} disabled={page === 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
-            <span>Page {page} of {totalPages} ({data.meta.total} items)</span>
-            <button style={pageBtn} disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next →</button>
-          </div>
+          <Pagination
+            page={page}
+            totalPages={data.meta.totalPages ?? 1}
+            total={data.meta.total}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          />
         </>
       )}
 
@@ -860,10 +863,6 @@ const deleteBtn: CSSProperties = {
   borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: '0.78rem',
 };
 
-const pageBtn: CSSProperties = {
-  background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb',
-  borderRadius: 4, padding: '4px 12px', cursor: 'pointer', fontSize: '0.8rem',
-};
 
 const tbl: CSSProperties = {
   width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem',

@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
+import { Pagination } from '@/components/Pagination';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
 import {
@@ -52,8 +53,8 @@ interface LeadFormBody {
 const SOURCES = ['website', 'referral', 'phone', 'walk_in', 'social', 'campaign', 'other'];
 const STAGES = ['new', 'contacted', 'qualified', 'proposal', 'won', 'lost'];
 
-async function fetchLeads(): Promise<LeadsResponse> {
-  const res = await api.GET('/leads', { params: { query: { limit: 200 } as never } });
+async function fetchLeads(page: number, pageSize: number): Promise<LeadsResponse> {
+  const res = await api.GET('/leads', { params: { query: { page, limit: pageSize } as never } });
   if (res.error) throw new Error('Failed to load leads');
   return res.data as unknown as LeadsResponse;
 }
@@ -171,12 +172,17 @@ export function LeadList() {
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [editLead, setEditLead] = useState<Lead | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const canCreate = can(user?.role, 'leads.create');
   const canUpdate = can(user?.role, 'leads.update');
   const canConvert = can(user?.role, 'clients.create');
 
-  const { data, isLoading, error } = useQuery({ queryKey: ['leads'], queryFn: fetchLeads });
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['leads', page, pageSize],
+    queryFn: () => fetchLeads(page, pageSize),
+  });
   const { data: pipeline } = useQuery({ queryKey: ['leads', 'pipeline'], queryFn: fetchPipeline });
 
   const convertMutation = useMutation({
@@ -225,6 +231,7 @@ export function LeadList() {
       {error && <div style={errorBox}>{(error as Error).message}</div>}
 
       {data && (
+        <>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-strong)' }}>
@@ -265,6 +272,17 @@ export function LeadList() {
             ))}
           </tbody>
         </table>
+
+        {/* Pagination */}
+        <Pagination
+          page={page}
+          totalPages={data?.meta?.totalPages ?? 1}
+          total={data?.meta?.total}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        />
+        </>
       )}
 
       {showCreate && (

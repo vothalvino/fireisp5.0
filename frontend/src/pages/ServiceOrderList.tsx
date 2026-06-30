@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
+import { Pagination } from '@/components/Pagination';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
 import {
@@ -56,8 +57,10 @@ const NEXT_ACTION: Record<string, { label: string; path: string } | null> = {
   cancelled: null,
 };
 
-async function fetchOrders(): Promise<OrdersResponse> {
-  const res = await api.GET('/service-orders', { params: { query: { limit: 200 } as never } });
+async function fetchOrders(page: number, pageSize: number): Promise<OrdersResponse> {
+  const res = await api.GET('/service-orders', {
+    params: { query: { page, limit: pageSize } as never },
+  });
   if (res.error) throw new Error('Failed to load service orders');
   return res.data as unknown as OrdersResponse;
 }
@@ -126,11 +129,16 @@ export function ServiceOrderList() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const canCreate = can(user?.role, 'service_orders.create');
   const canUpdate = can(user?.role, 'service_orders.update');
 
-  const { data, isLoading, error } = useQuery({ queryKey: ['service-orders'], queryFn: fetchOrders });
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['service-orders', page, pageSize],
+    queryFn: () => fetchOrders(page, pageSize),
+  });
 
   const transition = useMutation({
     mutationFn: async ({ id, path }: { id: number; path: string }) => {
@@ -170,6 +178,7 @@ export function ServiceOrderList() {
       {error && <div style={errorBox}>{(error as Error).message}</div>}
 
       {data && (
+        <>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-strong)' }}>
@@ -210,6 +219,17 @@ export function ServiceOrderList() {
             })}
           </tbody>
         </table>
+
+        {/* Pagination */}
+        <Pagination
+          page={page}
+          totalPages={data?.meta?.totalPages ?? 1}
+          total={data?.meta?.total}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        />
+        </>
       )}
 
       {showCreate && (

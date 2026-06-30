@@ -14,6 +14,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
 import { NasWireguardModal } from './NasWireguardModal';
+import { Pagination } from '@/components/Pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,7 +66,6 @@ interface NasBody {
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_PAGE_SIZE = 25;
 const STATUSES = ['active', 'inactive'];
 const STATUS_FILTER_OPTIONS = ['', ...STATUSES];
 
@@ -73,8 +73,8 @@ const STATUS_FILTER_OPTIONS = ['', ...STATUSES];
 // Fetch / mutate helpers
 // ---------------------------------------------------------------------------
 
-async function fetchNas(page: number, statusFilter: string): Promise<NasResponse> {
-  const query: Record<string, string | number> = { page, limit: DEFAULT_PAGE_SIZE };
+async function fetchNas(page: number, pageSize: number, statusFilter: string): Promise<NasResponse> {
+  const query: Record<string, string | number> = { page, limit: pageSize };
   if (statusFilter) query.status = statusFilter;
   const res = await api.GET('/nas', { params: { query: query as never } });
   if (res.error) throw new Error('Failed to load NAS devices');
@@ -779,6 +779,7 @@ function SeedModal({ nas, onClose }: SeedModalProps) {
 export function NasList() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [editNas, setEditNas] = useState<Nas | null>(null);
@@ -788,8 +789,8 @@ export function NasList() {
   const [wgNasTarget, setWgNasTarget] = useState<Nas | null>(null);
 
   const nasQ = useQuery({
-    queryKey: ['nas', page, statusFilter],
-    queryFn: () => fetchNas(page, statusFilter),
+    queryKey: ['nas', page, pageSize, statusFilter],
+    queryFn: () => fetchNas(page, pageSize, statusFilter),
   });
 
   const deleteMutation = useMutation({
@@ -945,21 +946,14 @@ export function NasList() {
               </table>
             </div>
 
-            {meta && meta.totalPages > 1 && (
-              <div style={styles.pagination}>
-                <button style={styles.pageBtn} onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-                  &larr; Prev
-                </button>
-                <span style={styles.pageInfo}>Page {page} of {meta.totalPages}</span>
-                <button
-                  style={styles.pageBtn}
-                  onClick={() => setPage(p => Math.min(meta.totalPages, p + 1))}
-                  disabled={page === meta.totalPages}
-                >
-                  Next &rarr;
-                </button>
-              </div>
-            )}
+            <Pagination
+              page={page}
+              totalPages={meta?.totalPages ?? 1}
+              total={meta?.total}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+            />
           </>
         )}
       </div>

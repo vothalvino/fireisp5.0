@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
 import { useTableSort, SortableTh } from '@/components/SortableTh';
 import { GenerateInvoiceModal } from '@/components/GenerateInvoiceModal';
+import { Pagination } from '@/components/Pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,16 +50,14 @@ interface Client {
 // Fetch / mutate helpers
 // ---------------------------------------------------------------------------
 
-const PAGE_SIZE = 25;
-
 async function fetchInvoiceClients(): Promise<Client[]> {
   const res = await api.GET('/clients', { params: { query: { limit: 500 } as never } });
   if (res.error) throw new Error('Failed to load clients');
   return (res.data as unknown as { data: Client[] }).data;
 }
 
-async function fetchInvoices(page: number, statusFilter: string, orderBy: string, order: string): Promise<InvoicesResponse> {
-  const query: Record<string, string | number> = { page, limit: PAGE_SIZE, order_by: orderBy, order };
+async function fetchInvoices(page: number, pageSize: number, statusFilter: string, orderBy: string, order: string): Promise<InvoicesResponse> {
+  const query: Record<string, string | number> = { page, limit: pageSize, order_by: orderBy, order };
   if (statusFilter) query.status = statusFilter;
   const res = await api.GET('/invoices', { params: { query: query as never } });
   if (res.error) throw new Error('Failed to load invoices');
@@ -140,6 +139,7 @@ function isVoidable(status: string): boolean {
 export function InvoiceList() {
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [statusFilter, setStatusFilter] = useState('');
   const [showGenerate, setShowGenerate] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -153,8 +153,8 @@ export function InvoiceList() {
   useEffect(() => { setPage(1); setSelected(new Set()); }, [sort.sortBy, sort.sortDir]);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['invoices', page, statusFilter, sort.sortBy, sort.sortDir],
-    queryFn: () => fetchInvoices(page, statusFilter, sort.order_by, sort.order),
+    queryKey: ['invoices', page, pageSize, statusFilter, sort.sortBy, sort.sortDir],
+    queryFn: () => fetchInvoices(page, pageSize, statusFilter, sort.order_by, sort.order),
     placeholderData: prev => prev,
   });
 
@@ -182,8 +182,6 @@ export function InvoiceList() {
       return n;
     });
   }
-  function changePage(next: number) { setSelected(new Set()); setPage(next); }
-
   const voidMut = useMutation({
     mutationFn: async () => {
       const ids = Array.from(selected);
@@ -200,9 +198,6 @@ export function InvoiceList() {
     setPage(1);
     setSelected(new Set());
   }
-
-  const totalPages = data?.meta?.totalPages ?? 1;
-  const total = data?.meta?.total ?? 0;
 
   return (
     <div style={{ padding: '1.5rem' }}>
@@ -325,14 +320,14 @@ export function InvoiceList() {
           </div>
 
           {/* Pagination */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.75rem', fontSize: '0.8rem', color: '#6b7280' }}>
-            <span>{total} invoice{total !== 1 ? 's' : ''}</span>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button style={pageBtn} disabled={page <= 1} onClick={() => changePage(page - 1)}>← Prev</button>
-              <span style={{ padding: '4px 8px' }}>Page {page} / {totalPages}</span>
-              <button style={pageBtn} disabled={page >= totalPages} onClick={() => changePage(page + 1)}>Next →</button>
-            </div>
-          </div>
+          <Pagination
+            page={page}
+            totalPages={data?.meta?.totalPages ?? 1}
+            total={data?.meta?.total}
+            pageSize={pageSize}
+            onPageChange={(p) => { setSelected(new Set()); setPage(p); }}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); setSelected(new Set()); }}
+          />
         </>
       )}
 
@@ -387,8 +382,4 @@ const cancelBtn: React.CSSProperties = {
   background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border-strong)',
   padding: '7px 18px', borderRadius: 6, cursor: 'pointer',
   fontWeight: 600, fontSize: '0.875rem',
-};
-const pageBtn: React.CSSProperties = {
-  padding: '4px 10px', border: '1px solid var(--border-strong)', borderRadius: 4,
-  background: 'var(--bg-card)', cursor: 'pointer', fontSize: '0.8rem',
 };

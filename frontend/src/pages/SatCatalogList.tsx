@@ -13,6 +13,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { styles } from './crudStyles';
+import { Pagination } from '@/components/Pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,6 +76,10 @@ export function SatCatalogList() {
   const [catalog, setCatalog] = useState(CATALOGS[0].value);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+  // Client-side pagination: SAT catalog endpoints return all rows at once.
+  // Server-side pagination is not available on these read-only reference endpoints.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const selected = CATALOGS.find(c => c.value === catalog) ?? CATALOGS[0];
   // Searchable catalogs are huge, so only query once the operator submits a term.
@@ -90,21 +95,26 @@ export function SatCatalogList() {
     setCatalog(value);
     setSearchInput('');
     setSearch('');
+    setPage(1);
   }
 
   function onSearchSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSearch(searchInput);
+    setPage(1);
   }
 
   const rows = catalogQ.data?.data ?? [];
   const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+  // Client-side page slice
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <div style={styles.page}>
       <div style={styles.header}>
         <h1 style={styles.pageTitle}>📚 SAT Catalogs</h1>
-        {enabled && catalogQ.data && <span style={styles.countBadge}>{rows.length} rows</span>}
+        {enabled && catalogQ.data && rows.length > 0 && <span style={styles.countBadge}>{rows.length} rows</span>}
       </div>
 
       <div style={{ ...styles.filterRow, flexWrap: 'wrap' }}>
@@ -151,7 +161,7 @@ export function SatCatalogList() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, i) => (
+                {pageRows.map((row, i) => (
                   <tr key={i} style={styles.tr}>
                     {columns.map(col => (
                       <td key={col} style={styles.td}>{row[col] ?? '—'}</td>
@@ -160,6 +170,16 @@ export function SatCatalogList() {
                 ))}
               </tbody>
             </table>
+
+            {/* Client-side pagination */}
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              total={rows.length}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+            />
           </div>
         )}
       </div>

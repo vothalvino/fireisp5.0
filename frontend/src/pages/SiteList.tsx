@@ -13,6 +13,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
+import { Pagination } from '@/components/Pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,7 +57,6 @@ interface SiteBody {
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_PAGE_SIZE = 25;
 const SITE_TYPES = ['pop', 'data_center', 'tower', 'aggregation_node', 'other'];
 const STATUSES = ['active', 'inactive'];
 const STATUS_FILTER_OPTIONS = ['', ...STATUSES];
@@ -69,8 +69,8 @@ function labelType(t: string): string {
 // Fetch / mutate helpers
 // ---------------------------------------------------------------------------
 
-async function fetchSites(page: number, statusFilter: string): Promise<SitesResponse> {
-  const query: Record<string, string | number> = { page, limit: DEFAULT_PAGE_SIZE };
+async function fetchSites(page: number, pageSize: number, statusFilter: string): Promise<SitesResponse> {
+  const query: Record<string, string | number> = { page, limit: pageSize };
   if (statusFilter) query.status = statusFilter;
   const res = await api.GET('/sites', { params: { query: query as never } });
   if (res.error) throw new Error('Failed to load sites');
@@ -376,14 +376,15 @@ function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
 export function SiteList() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [editSite, setEditSite] = useState<Site | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
   const sitesQ = useQuery({
-    queryKey: ['sites', page, statusFilter],
-    queryFn: () => fetchSites(page, statusFilter),
+    queryKey: ['sites', page, pageSize, statusFilter],
+    queryFn: () => fetchSites(page, pageSize, statusFilter),
   });
 
   const deleteMutation = useMutation({
@@ -484,21 +485,14 @@ export function SiteList() {
               </table>
             </div>
 
-            {meta && meta.totalPages > 1 && (
-              <div style={styles.pagination}>
-                <button style={styles.pageBtn} onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-                  ← Prev
-                </button>
-                <span style={styles.pageInfo}>Page {page} of {meta.totalPages}</span>
-                <button
-                  style={styles.pageBtn}
-                  onClick={() => setPage(p => Math.min(meta.totalPages, p + 1))}
-                  disabled={page === meta.totalPages}
-                >
-                  Next →
-                </button>
-              </div>
-            )}
+            <Pagination
+              page={page}
+              totalPages={meta?.totalPages ?? 1}
+              total={meta?.total}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+            />
           </>
         )}
       </div>

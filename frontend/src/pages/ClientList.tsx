@@ -27,6 +27,7 @@ import {
   dangerBtn,
 } from '@/components/ClientFormModal';
 import { useTableSort, SortableTh } from '@/components/SortableTh';
+import { Pagination } from '@/components/Pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,13 +67,12 @@ interface ClientGroupOption {
 // Fetch
 // ---------------------------------------------------------------------------
 
-const PAGE_SIZE = 20;
-
 // Single server-side call. The backend supports free-text ?search= (partial
 // name/email/phone, exact numeric id) and a ?client_group_id= filter, returning
 // { data, meta }, so no client-side filtering / large-fetch is needed.
 async function fetchClients(
   page: number,
+  pageSize: number,
   search: string,
   includeDeleted: boolean,
   groupId: number | null,
@@ -81,7 +81,7 @@ async function fetchClients(
 ): Promise<ClientsResponse> {
   const query = {
     page,
-    limit: PAGE_SIZE,
+    limit: pageSize,
     order_by: orderBy,
     order,
     ...(search ? { search } : {}),
@@ -192,6 +192,7 @@ export function ClientList() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [groupId, setGroupId] = useState<number | null>(null);
@@ -213,8 +214,8 @@ export function ClientList() {
   });
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['clients', page, search, showArchived, groupId, sort.sortBy, sort.sortDir],
-    queryFn: () => fetchClients(page, search, showArchived, groupId, sort.order_by, sort.order),
+    queryKey: ['clients', page, pageSize, search, showArchived, groupId, sort.sortBy, sort.sortDir],
+    queryFn: () => fetchClients(page, pageSize, search, showArchived, groupId, sort.order_by, sort.order),
   });
 
   const groupName = (id: number | null) =>
@@ -385,27 +386,14 @@ export function ClientList() {
             </div>
 
             {/* Pagination */}
-            {meta && meta.totalPages > 1 && (
-              <div style={styles.pagination}>
-                <button
-                  style={styles.pageBtn}
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                >
-                  {t('clientList.prevPage')}
-                </button>
-                <span style={styles.pageInfo}>
-                  {t('clientList.pageInfo', { page, total: meta.totalPages })}
-                </span>
-                <button
-                  style={styles.pageBtn}
-                  onClick={() => setPage(p => Math.min(meta.totalPages, p + 1))}
-                  disabled={page === meta.totalPages}
-                >
-                  {t('clientList.nextPage')}
-                </button>
-              </div>
-            )}
+            <Pagination
+              page={page}
+              totalPages={meta?.totalPages ?? 1}
+              total={meta?.total}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+            />
           </>
         )}
       </div>
