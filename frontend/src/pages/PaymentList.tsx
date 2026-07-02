@@ -552,20 +552,22 @@ function PaymentRow({ payment, idx, clientName, onChanged }: PaymentRowProps) {
         </td>
         {/* Actions */}
         <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
             <button
               style={{ ...actionBtn, background: expanded === 'alloc' ? '#ede9fe' : '#f3f4f6', color: '#5b21b6' }}
               onClick={() => toggleExpand('alloc')}
               title="Show invoice allocations"
+              aria-label="Show invoice allocations"
             >
-              📎 Alloc
+              📎
             </button>
             <button
               style={{ ...actionBtn, background: expanded === 'gateway' ? '#d1fae5' : '#f3f4f6', color: '#065f46' }}
               onClick={() => toggleExpand('gateway')}
               title="Show gateway transactions"
+              aria-label="Show gateway transactions"
             >
-              🔗 GW
+              🔗
             </button>
             <PaymentActionButtons payment={payment} onChanged={onChanged} />
           </div>
@@ -749,6 +751,8 @@ const cancelBtn: React.CSSProperties = {
   fontWeight: 600, fontSize: '0.875rem',
 };
 const actionBtn: React.CSSProperties = {
-  padding: '3px 9px', border: 'none', borderRadius: 5,
-  cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600,
+  width: 28, height: 28, padding: 0, border: 'none', borderRadius: 5,
+  cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  lineHeight: 1,
 };

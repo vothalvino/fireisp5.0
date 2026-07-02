@@ -280,6 +280,13 @@ const actionBtnBase: React.CSSProperties = {
   padding: '3px 9px', border: 'none', borderRadius: 5,
   cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600,
 };
+// Compact icon-only variant: fixed square, label shown via title on hover.
+const iconBtn: React.CSSProperties = {
+  width: 28, height: 28, padding: 0, border: 'none', borderRadius: 5,
+  cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  lineHeight: 1,
+};
 
 // ---------------------------------------------------------------------------
 // Edit Payment Modal
@@ -887,64 +894,72 @@ export function PaymentActionButtons({ payment, onChanged, onDeleted }: PaymentA
 
   return (
     <>
-      {/* ── Action buttons ── */}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+      {/* ── Action buttons (icon-only; hover for label) ── */}
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
         <button
-          style={{ ...actionBtnBase, background: '#dbeafe', color: '#1e40af' }}
+          style={{ ...iconBtn, background: '#dbeafe', color: '#1e40af' }}
           onClick={handleDownloadReceipt}
           title="Download receipt PDF"
+          aria-label="Download receipt PDF"
         >
-          🧾 PDF
+          🧾
         </button>
         <button
-          style={{ ...actionBtnBase, background: '#fef3c7', color: '#92400e' }}
+          style={{ ...iconBtn, background: '#fef3c7', color: '#92400e' }}
           onClick={() => sendReceiptMut.mutate()}
           disabled={sendingReceipt}
           title="Send receipt email to client"
+          aria-label="Send receipt email to client"
         >
-          {sendingReceipt ? '…' : '📧 Receipt'}
+          {sendingReceipt ? '…' : '📧'}
         </button>
         <button
-          style={{ ...actionBtnBase, background: '#e0f2fe', color: '#075985' }}
+          style={{ ...iconBtn, background: '#e0f2fe', color: '#075985' }}
           onClick={() => setAllocateOpen(true)}
           title="Allocate payment to an invoice"
+          aria-label="Allocate payment to an invoice"
         >
-          ➕ Allocate
+          ➕
         </button>
         <button
-          style={{ ...actionBtnBase, background: '#ede9fe', color: '#5b21b6' }}
+          style={{ ...iconBtn, background: '#ede9fe', color: '#5b21b6' }}
           onClick={() => setReallocateOpen(true)}
           title="Move allocation from one invoice to another (same client)"
+          aria-label="Reallocate payment"
         >
-          ↔ Reallocate
+          ↔
         </button>
         <button
-          style={{ ...actionBtnBase, background: '#fee2e2', color: '#991b1b' }}
+          style={{ ...iconBtn, background: '#fee2e2', color: '#991b1b' }}
           onClick={() => setUnapplyOpen(true)}
           title="Remove this payment from an invoice (keeps credit on account)"
+          aria-label="Un-apply payment from an invoice"
         >
-          ✕ Un-apply
+          ✕
         </button>
         <button
-          style={{ ...actionBtnBase, background: '#fef9c3', color: '#854d0e' }}
+          style={{ ...iconBtn, background: '#fef9c3', color: '#854d0e' }}
           onClick={() => setReassignOpen(true)}
           title="Reassign payment to a different client (unallocated only)"
+          aria-label="Reassign payment to a different client"
         >
-          ↗ Reassign
+          ↗
         </button>
         <button
-          style={{ ...actionBtnBase, background: '#f3f4f6', color: '#374151' }}
+          style={{ ...iconBtn, background: '#f3f4f6', color: '#374151' }}
           onClick={() => setEditOpen(true)}
           title="Edit payment"
+          aria-label="Edit payment"
         >
-          ✏️ Edit
+          ✏️
         </button>
         <button
-          style={{ ...actionBtnBase, background: '#fee2e2', color: '#991b1b' }}
+          style={{ ...iconBtn, background: '#fee2e2', color: '#991b1b' }}
           onClick={() => setDeleteOpen(true)}
           title="Delete payment"
+          aria-label="Delete payment"
         >
-          🗑 Delete
+          🗑
         </button>
       </div>
 
