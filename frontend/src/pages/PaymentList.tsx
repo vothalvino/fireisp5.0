@@ -531,7 +531,7 @@ function PaymentRow({ payment, idx, clientName, onChanged }: PaymentRowProps) {
           {payment.client_id}
         </td>
         {/* Amount */}
-        <td style={{ padding: '10px 14px', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+        <td style={{ padding: '10px 14px', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: '#111827' }}>
           {fmtAmount(payment.amount, payment.currency)}
         </td>
         {/* Method */}
