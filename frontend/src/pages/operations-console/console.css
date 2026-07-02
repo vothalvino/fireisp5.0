@@ -1,0 +1,138 @@
+/* ============================================================================
+   FireISP Operations Console — layout + chrome
+   Ported from the design's console.css. Topbar/sidebar are dropped: the app's
+   existing shell (Layout.tsx) provides them. Colors/spacing/type come from the
+   FireISP design tokens (var(--*)) declared in src/index.css.
+   ============================================================================ */
+
+.fi-console {
+  padding: var(--sp-4) var(--sp-5) var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+}
+
+/* Tabular mono helper for numbers/IDs/money */
+.fi-console .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ----- header ------------------------------------------------------------- */
+.fi-console .fi-main-head { display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; }
+.fi-console .fi-main-title { font-size: 19px; font-weight: 700; letter-spacing: -.01em; margin: 0; color: var(--text-primary); }
+.fi-console .fi-main-sub { font-size: 12px; color: var(--text-muted); }
+.fi-console .fi-spacer { flex: 1; }
+
+.fi-console .fi-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; }
+.fi-console .fi-dot-sm { width: 6px; height: 6px; }
+.fi-console .fi-live { animation: fi-pulse 1.8s ease-in-out infinite; }
+
+/* ----- KPI tiles ---------------------------------------------------------- */
+.fi-console .fi-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: var(--sp-3); }
+.fi-console .fi-kpi {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 12px 13px; display: flex; flex-direction: column; gap: 9px; min-height: 98px;
+  transition: border-color .15s;
+}
+.fi-console .fi-kpi:hover { border-color: var(--border-strong); }
+.fi-console .fi-kpi.accent { background: var(--warning-soft); border-color: var(--warning); }
+.fi-console .fi-kpi-top { display: flex; align-items: center; justify-content: space-between; }
+.fi-console .fi-kpi-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); }
+.fi-console .fi-kpi-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 23px; font-weight: 600; letter-spacing: -.01em; line-height: 1; display: flex; align-items: baseline; gap: 5px; color: var(--text-primary); }
+.fi-console .fi-kpi-num .unit { font-size: 13px; color: var(--text-muted); font-weight: 500; }
+.fi-console .fi-trend { font-family: var(--font-mono); font-size: 10px; color: var(--accent); }
+.fi-console .fi-trend.down { color: var(--danger); }
+
+.fi-console .fi-bar { height: 4px; background: var(--bg-subtle); border-radius: 2px; overflow: hidden; }
+.fi-console .fi-bar > i { display: block; height: 100%; border-radius: 2px; background: var(--success); }
+.fi-console .fi-seg { display: flex; gap: 3px; }
+.fi-console .fi-seg > i { height: 4px; border-radius: 2px; }
+
+/* ----- panels row --------------------------------------------------------- */
+.fi-console .fi-row { display: flex; gap: var(--sp-3); align-items: stretch; }
+.fi-console .fi-row > .grow { flex: 2.3; min-width: 0; }
+.fi-console .fi-row > .side { flex: 1; min-width: 0; }
+
+.fi-console .fi-legend { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+.fi-console .fi-legend .sw { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+
+.fi-console .fi-tabs { display: flex; gap: 4px; }
+.fi-console .fi-tab {
+  padding: 4px 11px; border-radius: var(--radius-md); font-size: 11px; font-family: var(--font-mono);
+  font-weight: 600; line-height: 1; cursor: pointer; background: transparent;
+  color: var(--text-muted); border: 1px solid transparent; transition: all .12s;
+}
+.fi-console .fi-tab:hover { color: var(--text-primary); background: var(--bg-subtle); }
+.fi-console .fi-tab.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+
+.fi-console .fi-chart-stats { display: flex; gap: 26px; border-top: 1px solid var(--border-subtle); padding-top: 10px; margin-top: 12px; flex-wrap: wrap; }
+.fi-console .fi-stat { display: flex; flex-direction: column; gap: 2px; }
+.fi-console .fi-stat .k { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+.fi-console .fi-stat .v { font-family: var(--font-mono); font-size: 14px; color: var(--text-primary); }
+.fi-console .fi-stat .v small { font-size: 10px; color: var(--text-muted); }
+
+/* events list */
+.fi-console .fi-events { display: flex; flex-direction: column; }
+.fi-console .fi-event { display: flex; gap: 9px; padding: 9px 0; border-top: 1px solid var(--border-subtle); }
+.fi-console .fi-event:first-child { border-top: none; }
+.fi-console .fi-event .t { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); white-space: nowrap; padding-top: 2px; }
+.fi-console .fi-event .d { margin-top: 5px; }
+.fi-console .fi-event .m { font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
+.fi-console .fi-event .m b { color: var(--text-primary); font-family: var(--font-mono); font-weight: 600; }
+.fi-console .fi-events-empty { font-size: 12px; color: var(--text-muted); padding: 6px 0; }
+
+/* sites strip */
+.fi-console .fi-sites { display: grid; grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)); gap: var(--sp-2); }
+.fi-console .fi-site {
+  background: var(--bg-muted); border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 9px 10px; display: flex; flex-direction: column; gap: 7px; transition: border-color .15s;
+}
+.fi-console .fi-site:hover { border-color: var(--border-strong); }
+.fi-console .fi-site.warn { background: var(--warning-soft); border-color: var(--warning); }
+.fi-console .fi-site.crit { background: var(--danger-soft); border-color: var(--danger-border); }
+.fi-console .fi-site-top { display: flex; align-items: center; justify-content: space-between; }
+.fi-console .fi-site-code { font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
+.fi-console .fi-site-val { font-family: var(--font-mono); font-size: 16px; color: var(--text-secondary); }
+.fi-console .fi-site-val small { font-size: 10px; color: var(--text-muted); }
+
+/* device table extras */
+.fi-console .fi-table-wrap { overflow-x: auto; }
+.fi-console .fi-chips { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.fi-console .fi-chip {
+  font-family: var(--font-mono); font-size: 11px; padding: 3px 9px; border-radius: var(--radius-md);
+  color: var(--text-muted); cursor: pointer; border: 1px solid transparent; transition: all .12s;
+  background: transparent; -webkit-appearance: none; appearance: none; line-height: 1;
+}
+.fi-console .fi-chip:focus-visible, .fi-console .fi-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.fi-console .fi-chip:hover { color: var(--text-primary); background: var(--bg-subtle); }
+.fi-console .fi-chip.active { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+.fi-console .fi-dev { display: flex; flex-direction: column; }
+.fi-console .fi-dev .n { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.fi-console .fi-dev .s { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+.fi-console .fi-cpu { display: flex; align-items: center; gap: 7px; }
+.fi-console .fi-cpu .fi-bar { flex: 1; }
+
+/* empty state for panels with no live source yet */
+.fi-console .fi-panel-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; text-align: center; padding: 28px 16px; color: var(--text-muted); font-size: 12px;
+}
+
+/* ----- motion ------------------------------------------------------------- */
+@keyframes fi-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+@keyframes fi-draw { from { stroke-dashoffset: var(--len, 1200); } to { stroke-dashoffset: 0; } }
+.fi-console .fi-chart-line { stroke-dasharray: var(--len, 1200); animation: fi-draw .7s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fi-console .fi-live { animation: none; }
+  .fi-console .fi-chart-line { animation: none; stroke-dasharray: none; }
+}
+
+/* ----- responsive --------------------------------------------------------- */
+@media (max-width: 1080px) {
+  .fi-console .fi-row { flex-direction: column; }
+  .fi-console .fi-row > .grow, .fi-console .fi-row > .side { flex: 1 1 auto; }
+}
+@media (max-width: 720px) {
+  .fi-console { padding: var(--sp-3) var(--sp-3) var(--sp-5); }
+}

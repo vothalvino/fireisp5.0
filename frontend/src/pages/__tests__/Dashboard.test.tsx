@@ -1,5 +1,10 @@
 // =============================================================================
-// FireISP 5.0 — Dashboard page tests
+// FireISP 5.0 — Dashboard / Operations Console tests
+// =============================================================================
+// The admin/staff dashboard route now renders the Operations Console. It shows
+// polished DEMO data while the system is empty (no real clients) and switches
+// to live data once the first client exists. These tests cover both modes via
+// the Dashboard role-router (admin → OperationsConsole).
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -52,20 +57,24 @@ function mockUseAuth() {
   } as ReturnType<typeof AuthContextModule.useAuth>);
 }
 
-const summary = {
-  clients: { total: 10, active: 8 },
-  contracts: { total: 9, active: 7, suspended: 2 },
-  revenue_30d: { outstanding: '0', collected: '5000', total_invoiced: '5000' },
-  tickets: { total: 3, open_count: 1 },
-  devices: { total: 5, monitored: 4 },
-};
+// clients.total drives the demo↔real gate: 0 → demo, >0 → real.
+function summaryWith(total: number, active: number) {
+  return {
+    clients: { total, active },
+    contracts: { total: 9, active: 7, suspended: 2 },
+    revenue_30d: { outstanding: '0', collected: '5000', total_invoiced: '5000' },
+    tickets: { total: 3, open_count: 1 },
+    devices: { total: 5, monitored: 4 },
+  };
+}
 
-function setupApiMock() {
+function setupApiMock(summary: ReturnType<typeof summaryWith>) {
   mockApiGet.mockImplementation((path: string) => {
     if (path.includes('summary')) return Promise.resolve({ data: { data: summary }, error: undefined });
-    if (path.includes('mrr')) return Promise.resolve({ data: { data: [] }, error: undefined });
+    if (path.includes('mrr')) return Promise.resolve({ data: { data: [{ currency: 'MXN', active_contracts: 7, mrr: '5000', arpu: '714' }] }, error: undefined });
     if (path.includes('device-health')) return Promise.resolve({ data: { data: { devices_by_type: [], health_snapshots: [] } }, error: undefined });
     if (path.includes('overdue')) return Promise.resolve({ data: { data: [] }, error: undefined });
+    if (path.includes('alerts/events')) return Promise.resolve({ data: { data: [] }, error: undefined });
     return Promise.resolve({ data: { data: {} }, error: undefined });
   });
 }
@@ -77,7 +86,7 @@ function renderDashboard() {
       <MemoryRouter>
         <Dashboard />
       </MemoryRouter>
-    </QueryClientProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -85,31 +94,40 @@ function renderDashboard() {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('Dashboard page', () => {
+describe('Operations Console (dashboard route)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseAuth();
-    setupApiMock();
   });
 
-  it('renders the page title', async () => {
+  it('renders the console title', async () => {
+    setupApiMock(summaryWith(0, 0));
     renderDashboard();
-    await waitFor(() => expect(screen.getByText('Dashboard')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Operations Overview')).toBeInTheDocument());
   });
 
-  it('renders KPI card labels', async () => {
+  it('renders KPI labels', async () => {
+    setupApiMock(summaryWith(0, 0));
     renderDashboard();
     await waitFor(() => expect(screen.getByText('Active Clients')).toBeInTheDocument());
+    expect(screen.getByText('MRR')).toBeInTheDocument();
+    expect(screen.getByText('Open Tickets')).toBeInTheDocument();
   });
 
-  it('renders Overdue Invoices section heading', async () => {
+  it('shows DEMO data and a "Demo data" marker while the system is empty', async () => {
+    setupApiMock(summaryWith(0, 0));
     renderDashboard();
-    await waitFor(() => expect(screen.getByRole('heading', { name: /Overdue Invoices/i })).toBeInTheDocument());
+    // 12,847 is the design's demo active-client figure.
+    await waitFor(() => expect(screen.getByText('12,847')).toBeInTheDocument());
+    expect(screen.getByText('Demo data')).toBeInTheDocument();
   });
 
-  it('shows active client count after data loads', async () => {
+  it('switches to REAL data once the first client exists', async () => {
+    setupApiMock(summaryWith(10, 8));
     renderDashboard();
-    // "8" comes from summary.clients.active
+    // Real active-client count from summary, no demo marker.
     await waitFor(() => expect(screen.getByText('8')).toBeInTheDocument());
+    expect(screen.queryByText('Demo data')).not.toBeInTheDocument();
+    expect(screen.queryByText('12,847')).not.toBeInTheDocument();
   });
 });

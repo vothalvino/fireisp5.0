@@ -1,0 +1,324 @@
+// =============================================================================
+// FireISP Operations Console — presentational widgets
+// =============================================================================
+// Ported from the design's widgets.jsx. Composes the FireISP UI kit
+// (Card / Table / Badge) + token-driven layout glue. The topbar/sidebar/icons
+// from the design are omitted — the app shell (Layout.tsx) supplies them.
+// =============================================================================
+
+import type { CSSProperties } from 'react';
+import { Card, Table, Badge, type TableColumn, type TableRow } from '@/components/ui';
+import {
+  RANGES, type Range, type ChartModel,
+  type KpiModel, type SiteModel, type DeviceModel, type EventModel, type DeviceStatus,
+} from './consoleModel';
+
+// ---------------------------------------------------------------------------
+// Sparkline
+// ---------------------------------------------------------------------------
+
+interface SparklineProps {
+  points: number[] | null;
+  stroke?: string;
+  vbW?: number;
+  vbH?: number;
+  h?: number;
+}
+
+export function Sparkline({ points, stroke = 'var(--accent)', vbW = 120, vbH = 24, h = 22 }: SparklineProps) {
+  if (!points) {
+    return (
+      <svg viewBox={`0 0 ${vbW} ${vbH}`} preserveAspectRatio="none" style={{ width: '100%', height: h, display: 'block' }}>
+        <line x1="0" y1={vbH - 4} x2={vbW} y2={vbH - 4} stroke="var(--border-strong)" strokeWidth="1.5" />
+      </svg>
+    );
+  }
+  const n = points.length;
+  const pts = points.map((v, i) => `${((i / (n - 1)) * vbW).toFixed(1)},${v}`).join(' ');
+  return (
+    <svg viewBox={`0 0 ${vbW} ${vbH}`} preserveAspectRatio="none" style={{ width: '100%', height: h, display: 'block' }}>
+      <polyline fill="none" stroke={stroke} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" points={pts} />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Shared status maps
+// ---------------------------------------------------------------------------
+
+const STATUS: Record<DeviceStatus, { tone: 'success' | 'warning' | 'danger'; label: string }> = {
+  online: { tone: 'success', label: 'Online' },
+  degraded: { tone: 'warning', label: 'Degraded' },
+  offline: { tone: 'danger', label: 'Offline' },
+};
+
+function cpuColor(v: number | null): string {
+  return v == null ? 'var(--border-strong)' : v <= 50 ? 'var(--success)' : v <= 85 ? 'var(--warning)' : 'var(--danger)';
+}
+
+// ---------------------------------------------------------------------------
+// KPI row
+// ---------------------------------------------------------------------------
+
+export function KpiRow({ kpis: k }: { kpis: KpiModel }) {
+  return (
+    <div className="fi-kpi-grid">
+      {/* active clients */}
+      <div className="fi-kpi">
+        <div className="fi-kpi-top">
+          <span className="fi-kpi-label">Active Clients</span>
+          {k.activeClients.trend && <span className="fi-trend">▲ {k.activeClients.trend}</span>}
+        </div>
+        <div className="fi-kpi-num">{k.activeClients.value}</div>
+        <Sparkline points={k.activeClients.spark} h={22} />
+      </div>
+      {/* MRR */}
+      <div className="fi-kpi">
+        <div className="fi-kpi-top">
+          <span className="fi-kpi-label">MRR</span>
+          {k.mrr.trend && <span className="fi-trend">▲ {k.mrr.trend}</span>}
+        </div>
+        <div className="fi-kpi-num">
+          ${k.mrr.value}
+          {k.mrr.unit && <span className="unit">{k.mrr.unit}</span>}
+          {k.mrr.code && <span className="fi-kpi-label" style={{ alignSelf: 'flex-end', marginBottom: 2 }}>{k.mrr.code}</span>}
+        </div>
+        <Sparkline points={k.mrr.spark} h={22} />
+      </div>
+      {/* devices online */}
+      <div className="fi-kpi">
+        <div className="fi-kpi-top">
+          <span className="fi-kpi-label">Devices Online</span>
+          <span className="fi-dot" style={{ background: 'var(--success)' }} />
+        </div>
+        <div className="fi-kpi-num">
+          {k.devicesOnline.online.toLocaleString()}<span className="unit">/{k.devicesOnline.total.toLocaleString()}</span>
+        </div>
+        <div className="fi-bar">
+          <i style={{ width: (k.devicesOnline.total ? (k.devicesOnline.online / k.devicesOnline.total) * 100 : 0).toFixed(1) + '%' }} />
+        </div>
+      </div>
+      {/* live sessions */}
+      <div className="fi-kpi">
+        <div className="fi-kpi-top">
+          <span className="fi-kpi-label">Live Sessions</span>
+          <span className="fi-dot fi-live" style={{ background: 'var(--success)' }} />
+        </div>
+        <div className="fi-kpi-num">{k.liveSessions.value}</div>
+        <span className="fi-kpi-label">{k.liveSessions.note}</span>
+      </div>
+      {/* open tickets */}
+      <div className="fi-kpi">
+        <div className="fi-kpi-top">
+          <span className="fi-kpi-label">Open Tickets</span>
+          {k.openTickets.sla && <span className="fi-kpi-label" style={{ color: 'var(--warning)' }}>{k.openTickets.sla}</span>}
+        </div>
+        <div className="fi-kpi-num">{k.openTickets.value}</div>
+        <div className="fi-seg">
+          {k.openTickets.mix.map((m, i) => (
+            <i key={i} style={{ flex: m.w, background: m.tone === 'accent' ? 'var(--accent)' : `var(--${m.tone})` }} />
+          ))}
+        </div>
+      </div>
+      {/* overdue (emphasis) */}
+      <div className="fi-kpi accent">
+        <div className="fi-kpi-top">
+          <span className="fi-kpi-label" style={{ color: 'var(--warning)' }}>Overdue</span>
+          <span className="fi-dot fi-live" style={{ background: 'var(--warning)' }} />
+        </div>
+        <div className="fi-kpi-num" style={{ color: 'var(--warning)' }}>
+          {k.overdue.value}<span className="unit" style={{ color: 'var(--warning)' }}>${k.overdue.amount}</span>
+        </div>
+        <span className="fi-kpi-label" style={{ color: 'var(--warning)' }}>{k.overdue.note}</span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Throughput chart
+// ---------------------------------------------------------------------------
+
+export function ThroughputChart({ range, onRange, chart }: { range: Range; onRange: (r: Range) => void; chart: ChartModel }) {
+  const legend = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+      <div className="fi-legend">
+        <span className="sw" style={{ background: 'var(--accent)' }} />Ingress
+        <span className="sw" style={{ background: 'var(--text-dimmed)', marginLeft: 8 }} />Egress
+      </div>
+      <div className="fi-tabs">
+        {RANGES.map((r) => (
+          <button key={r} type="button" className={'fi-tab' + (r === range ? ' active' : '')} aria-pressed={r === range} onClick={() => onRange(r)}>{r}</button>
+        ))}
+      </div>
+    </div>
+  );
+  return (
+    <Card title="Network Throughput" actions={legend} style={{ height: '100%' }}>
+      <svg viewBox="0 0 820 220" preserveAspectRatio="none" style={{ width: '100%', height: 200, display: 'block' }}>
+        <defs>
+          <linearGradient id="fiIn" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.24" />
+            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <line x1="0" y1="55" x2="820" y2="55" stroke="var(--border-subtle)" strokeWidth="1" />
+        <line x1="0" y1="110" x2="820" y2="110" stroke="var(--border-subtle)" strokeWidth="1" />
+        <line x1="0" y1="165" x2="820" y2="165" stroke="var(--border-subtle)" strokeWidth="1" />
+        <path d={chart.outLine} fill="none" stroke="var(--text-dimmed)" strokeWidth="1.5" strokeOpacity="0.7" />
+        <path d={chart.inArea} fill="url(#fiIn)" />
+        <path key={'in' + range} className="fi-chart-line" style={{ '--len': 2000 } as CSSProperties} d={chart.inLine} fill="none" stroke="var(--accent)" strokeWidth="2" />
+      </svg>
+      <div className="fi-chart-stats">
+        <div className="fi-stat"><span className="k">PEAK</span><span className="v">{chart.peak} <small>Gbps</small></span></div>
+        <div className="fi-stat"><span className="k">AVG</span><span className="v">{chart.avg} <small>Gbps</small></span></div>
+        <div className="fi-stat"><span className="k">95TH %ILE</span><span className="v">{chart.p95} <small>Gbps</small></span></div>
+        <div style={{ flex: 1 }} />
+        <div className="fi-stat" style={{ alignItems: 'flex-end' }}><span className="k">95/5 COMMIT</span><span className="v" style={{ color: 'var(--accent)' }}>{chart.commit}% used</span></div>
+      </div>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Live events
+// ---------------------------------------------------------------------------
+
+export function LiveEvents({ events }: { events: EventModel[] }) {
+  const dot = (lvl: EventModel['level']) => (lvl === 'accent' ? 'var(--accent)' : `var(--${lvl})`);
+  const actions = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span className="fi-dot fi-live" style={{ background: 'var(--success)' }} />
+      <span className="mono" style={{ fontSize: 10, color: 'var(--text-muted)' }}>last 5m</span>
+    </div>
+  );
+  return (
+    <Card title="Live Events" actions={actions} style={{ height: '100%' }}>
+      {events.length === 0 ? (
+        <div className="fi-events-empty">No recent events.</div>
+      ) : (
+        <div className="fi-events">
+          {events.map((e, i) => (
+            <div className="fi-event" key={i}>
+              <span className="t">{e.time}</span>
+              <span className="fi-dot fi-dot-sm d" style={{ background: dot(e.level) }} />
+              <span className="m">{e.pre}<b>{e.strong}</b>{e.post}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sites strip
+// ---------------------------------------------------------------------------
+
+export function SitesStrip({ sites }: { sites: SiteModel[] }) {
+  const counts = sites.reduce<Record<string, number>>((a, s) => { a[s.status] = (a[s.status] || 0) + 1; return a; }, {});
+  const cls: Record<SiteModel['status'], string> = { ok: '', warn: ' warn', crit: ' crit' };
+  const barColor: Record<SiteModel['status'], string> = { ok: 'var(--success)', warn: 'var(--warning)', crit: 'var(--danger)' };
+  const valColor: Record<SiteModel['status'], string> = { ok: 'var(--text-secondary)', warn: 'var(--warning)', crit: 'var(--danger)' };
+  const summary = `${sites.length} sites · ${counts.ok || 0} healthy · ${counts.warn || 0} warn · ${counts.crit || 0} critical`;
+  return (
+    <Card title="Sites & POPs" actions={<span className="mono" style={{ fontSize: 10, color: 'var(--text-muted)' }}>{sites.length ? `${summary} · uplink util` : 'no POP telemetry'}</span>}>
+      {sites.length === 0 ? (
+        <div className="fi-panel-empty">No POP telemetry yet — utilization appears once sites report uplink stats.</div>
+      ) : (
+        <div className="fi-sites">
+          {sites.map((s) => (
+            <div className={'fi-site' + cls[s.status]} key={s.code}>
+              <div className="fi-site-top"><span className="fi-site-code">{s.code}</span><span className="fi-dot fi-dot-sm" style={{ background: barColor[s.status] }} /></div>
+              <span className="fi-site-val" style={{ color: valColor[s.status] }}>{s.util}<small>%</small></span>
+              <div className="fi-bar"><i style={{ width: s.util + '%', background: barColor[s.status] }} /></div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Device table
+// ---------------------------------------------------------------------------
+
+const DEVICE_FILTERS = ['All', 'Online', 'Degraded', 'Offline'] as const;
+export type DeviceFilter = (typeof DEVICE_FILTERS)[number];
+
+export function DeviceTable({
+  devices, filter, onFilter, query,
+}: {
+  devices: DeviceModel[];
+  filter: DeviceFilter;
+  onFilter: (f: DeviceFilter) => void;
+  query: string;
+}) {
+  let rows = devices;
+  if (filter !== 'All') rows = rows.filter((d) => STATUS[d.status].label === filter);
+  if (query.trim()) {
+    const q = query.trim().toLowerCase();
+    rows = rows.filter((d) => (d.name + ' ' + d.sub + ' ' + d.ip + ' ' + d.type).toLowerCase().includes(q));
+  }
+
+  const columns: TableColumn[] = [
+    { key: 'status', header: 'Status' },
+    { key: 'device', header: 'Device' },
+    { key: 'ip', header: 'Mgmt IP' },
+    { key: 'type', header: 'Type' },
+    { key: 'tp', header: 'Throughput' },
+    { key: 'clients', header: 'Clients', align: 'right', numeric: true },
+    { key: 'uptime', header: 'Uptime' },
+    { key: 'cpu', header: 'CPU' },
+  ];
+
+  const dimmed = (offline: boolean): CSSProperties => ({ fontSize: 12, color: offline ? 'var(--text-dimmed)' : 'var(--text-secondary)' });
+
+  const tableRows: TableRow[] = rows.map((d) => {
+    const st = STATUS[d.status];
+    const sparkStroke = d.status === 'degraded' ? 'var(--warning)' : 'var(--accent)';
+    return {
+      status: <Badge tone={st.tone}><span className="fi-dot fi-dot-sm" style={{ background: 'currentColor', marginRight: 6 }} />{st.label}</Badge>,
+      device: <div className="fi-dev"><span className="n">{d.name}</span><span className="s">{d.sub}</span></div>,
+      ip: <span className="mono" style={dimmed(d.status === 'offline')}>{d.ip}</span>,
+      type: <span className="mono" style={{ fontSize: 12, color: 'var(--text-muted)' }}>{d.type}</span>,
+      tp: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <span style={{ width: 56, flex: 'none' }}><Sparkline points={d.spark} stroke={sparkStroke} vbW={70} vbH={20} h={16} /></span>
+          <span className="mono" style={dimmed(d.status === 'offline')}>{d.tp}</span>
+        </span>
+      ),
+      clients: <span className="mono">{d.clients}</span>,
+      uptime: <span className="mono" style={{ fontSize: 12, color: 'var(--text-muted)' }}>{d.uptime}</span>,
+      cpu: d.cpu == null
+        ? <span className="mono" style={{ fontSize: 12, color: 'var(--text-dimmed)' }}>—</span>
+        : (
+          <span className="fi-cpu">
+            <span className="fi-bar"><i style={{ width: d.cpu + '%', background: cpuColor(d.cpu) }} /></span>
+            <span className="mono" style={{ fontSize: 11, color: d.cpu > 50 ? cpuColor(d.cpu) : 'var(--text-secondary)' }}>{d.cpu}%</span>
+          </span>
+        ),
+    };
+  });
+
+  const actions = (
+    <div className="fi-chips">
+      {DEVICE_FILTERS.map((f) => (
+        <button key={f} type="button" className={'fi-chip' + (filter === f ? ' active' : '')} aria-pressed={filter === f} onClick={() => onFilter(f)}>
+          {f}{f === 'All' ? ' ' + devices.length : ''}
+        </button>
+      ))}
+    </div>
+  );
+
+  return (
+    <Card title="Network Devices" actions={actions} padding={false}>
+      <div className="fi-table-wrap">
+        <div style={{ minWidth: 880 }}>
+          <Table columns={columns} rows={tableRows} empty={devices.length === 0 ? 'No device telemetry yet.' : 'No devices match this filter.'} />
+        </div>
+      </div>
+    </Card>
+  );
+}
