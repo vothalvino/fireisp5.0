@@ -139,13 +139,22 @@ export function KpiRow({ kpis: k }: { kpis: KpiModel }) {
 // Throughput chart
 // ---------------------------------------------------------------------------
 
-export function ThroughputChart({ range, onRange, chart }: { range: Range; onRange: (r: Range) => void; chart: ChartModel }) {
+export function ThroughputChart({
+  range, onRange, chart, emptyMessage,
+}: {
+  range: Range;
+  onRange: (r: Range) => void;
+  chart?: ChartModel;
+  emptyMessage?: string;
+}) {
   const legend = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-      <div className="fi-legend">
-        <span className="sw" style={{ background: 'var(--accent)' }} />Ingress
-        <span className="sw" style={{ background: 'var(--text-dimmed)', marginLeft: 8 }} />Egress
-      </div>
+      {chart && (
+        <div className="fi-legend">
+          <span className="sw" style={{ background: 'var(--accent)' }} />Ingress
+          <span className="sw" style={{ background: 'var(--text-dimmed)', marginLeft: 8 }} />Egress
+        </div>
+      )}
       <div className="fi-tabs">
         {RANGES.map((r) => (
           <button key={r} type="button" className={'fi-tab' + (r === range ? ' active' : '')} aria-pressed={r === range} onClick={() => onRange(r)}>{r}</button>
@@ -153,6 +162,15 @@ export function ThroughputChart({ range, onRange, chart }: { range: Range; onRan
       </div>
     </div>
   );
+
+  if (!chart) {
+    return (
+      <Card title="Network Throughput" actions={legend} style={{ height: '100%' }}>
+        <div className="fi-panel-empty" style={{ minHeight: 200 }}>{emptyMessage ?? 'No throughput data.'}</div>
+      </Card>
+    );
+  }
+
   return (
     <Card title="Network Throughput" actions={legend} style={{ height: '100%' }}>
       <svg viewBox="0 0 820 220" preserveAspectRatio="none" style={{ width: '100%', height: 200, display: 'block' }}>
@@ -174,7 +192,7 @@ export function ThroughputChart({ range, onRange, chart }: { range: Range; onRan
         <div className="fi-stat"><span className="k">AVG</span><span className="v">{chart.avg} <small>Gbps</small></span></div>
         <div className="fi-stat"><span className="k">95TH %ILE</span><span className="v">{chart.p95} <small>Gbps</small></span></div>
         <div style={{ flex: 1 }} />
-        <div className="fi-stat" style={{ alignItems: 'flex-end' }}><span className="k">95/5 COMMIT</span><span className="v" style={{ color: 'var(--accent)' }}>{chart.commit}% used</span></div>
+        <div className="fi-stat" style={{ alignItems: 'flex-end' }}><span className="k">95/5 COMMIT</span><span className="v" style={{ color: 'var(--accent)' }}>{chart.commit == null ? '—' : `${chart.commit}% used`}</span></div>
       </div>
     </Card>
   );

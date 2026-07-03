@@ -16,7 +16,7 @@ jest.mock('../src/config/database', () => ({
 }));
 
 const db = require('../src/config/database');
-const { summary, revenue } = require('../src/controllers/dashboardController');
+const { summary, revenue, throughput } = require('../src/controllers/dashboardController');
 
 // Minimal Express-style request/response helpers
 function makeReq(orgId = 1) {
@@ -110,6 +110,54 @@ describe('dashboardController', () => {
       const [sql] = db.queryReplica.mock.calls[0];
       // Both the invoiced CASE and the invoice_count CASE use the same exclusion
       expect((sql.match(/NOT IN \('draft', 'void', 'cancelled'\)/g) || []).length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('throughput()', () => {
+    test('returns an empty series (has_data=false) when there is no SNMP telemetry', async () => {
+      db.queryReplica.mockResolvedValueOnce([[]]);
+      const res = makeRes();
+      await throughput({ orgId: 1, query: { range: '24H' } }, res, jest.fn());
+      const { data } = res.json.mock.calls[0][0];
+      expect(data.has_data).toBe(false);
+      expect(data.range).toBe('24H');
+      expect(data.points).toHaveLength(96);
+      expect(data.peak_gbps).toBe(0);
+    });
+
+    test('aggregates interface counter deltas into a real bit-rate', async () => {
+      const now = Date.now();
+      // BIGINT columns arrive as strings from mysql2 — exercise Number() coercion.
+      db.queryReplica.mockResolvedValueOnce([[
+        { iface: '1:1', t: now - 2000, inO: '0', outO: '0' },
+        { iface: '1:1', t: now - 1000, inO: '1000000', outO: '0' },
+      ]]);
+      const res = makeRes();
+      await throughput({ orgId: 1, query: { range: '24H' } }, res, jest.fn());
+      const { data } = res.json.mock.calls[0][0];
+      expect(data.has_data).toBe(true);
+      // 1,000,000 bytes over 1s = 8,000,000 bps in the most recent bucket.
+      expect(Math.max(...data.points.map((p) => p.in_bps))).toBe(8_000_000);
+    });
+
+    test('defaults an unknown range to 24H and org-scopes / interface-filters the query', async () => {
+      db.queryReplica.mockResolvedValueOnce([[]]);
+      const res = makeRes();
+      await throughput({ orgId: 7, query: { range: 'bogus' } }, res, jest.fn());
+      expect(res.json.mock.calls[0][0].data.range).toBe('24H');
+      const [sql, params] = db.queryReplica.mock.calls[0];
+      expect(sql).toContain('d.organization_id = ?');
+      expect(sql).toContain('m.interface_id IS NOT NULL');
+      expect(params[0]).toBe(7);
+    });
+
+    test('honours a valid range param (1H → 60 buckets)', async () => {
+      db.queryReplica.mockResolvedValueOnce([[]]);
+      const res = makeRes();
+      await throughput({ orgId: 1, query: { range: '1H' } }, res, jest.fn());
+      const { data } = res.json.mock.calls[0][0];
+      expect(data.range).toBe('1H');
+      expect(data.points).toHaveLength(60);
     });
   });
 });

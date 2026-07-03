@@ -5,6 +5,15 @@
 // =============================================================================
 
 const db = require('../config/database');
+const { aggregateThroughput } = require('../services/throughputService');
+
+// Network-throughput ranges → SNMP lookback window + number of chart buckets.
+const THROUGHPUT_RANGES = {
+  '1H': { hours: 1, buckets: 60 },
+  '6H': { hours: 6, buckets: 72 },
+  '24H': { hours: 24, buckets: 96 },
+  '7D': { hours: 168, buckets: 84 },
+};
 
 /**
  * GET /api/dashboard/summary
@@ -180,4 +189,57 @@ async function overdue(req, res, next) {
   }
 }
 
-module.exports = { summary, revenue, mrr, deviceHealth, overdue };
+/**
+ * GET /api/dashboard/throughput?range=1H|6H|24H|7D
+ * Org-wide network throughput derived from SNMP interface octet counters.
+ * Returns bucketed in/out bit-rate points + peak/avg/p95 Gbps. `has_data` is
+ * false when no SNMP telemetry exists yet (the console then shows an empty
+ * state instead of a chart).
+ */
+async function throughput(req, res, next) {
+  try {
+    const range = THROUGHPUT_RANGES[req.query.range] ? req.query.range : '24H';
+    const cfg = THROUGHPUT_RANGES[range];
+
+    const [rows] = await db.queryReplica(
+      `SELECT CONCAT(m.device_id, ':', m.interface_id) AS iface,
+              UNIX_TIMESTAMP(m.polled_at) * 1000 AS t,
+              m.if_in_octets  AS inO,
+              m.if_out_octets AS outO
+       FROM snmp_metrics m
+       JOIN devices d ON d.id = m.device_id
+       WHERE d.organization_id = ?
+         AND d.deleted_at IS NULL
+         AND m.interface_id IS NOT NULL
+         AND m.if_in_octets IS NOT NULL
+         AND m.if_out_octets IS NOT NULL
+         AND m.polled_at >= NOW() - INTERVAL ? HOUR
+       ORDER BY m.polled_at DESC
+       LIMIT 50000`,
+      [req.orgId, cfg.hours],
+    );
+    // Cap favors the most recent rows (DESC); the aggregator re-sorts per
+    // interface. Very large orgs on wide ranges may see only the most recent
+    // window until SQL-side rollup aggregation is added.
+
+    const now = Date.now();
+    const samples = rows.map((r) => ({
+      iface: r.iface,
+      t: Number(r.t),
+      inO: Number(r.inO),
+      outO: Number(r.outO),
+    }));
+
+    const result = aggregateThroughput(samples, {
+      fromMs: now - cfg.hours * 3600 * 1000,
+      toMs: now,
+      buckets: cfg.buckets,
+    });
+
+    res.json({ data: { range, ...result } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { summary, revenue, mrr, deviceHealth, overdue, throughput };

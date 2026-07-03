@@ -18,5 +18,6 @@ router.get('/revenue', requirePermission('invoices.view'), httpCache('dashboard_
 router.get('/mrr', requirePermission('invoices.view'), httpCache('dashboard_mrr', 300), dashboardController.mrr);
 router.get('/device-health', requirePermission('devices.view'), httpCache('dashboard_device_health', 120), dashboardController.deviceHealth);
 router.get('/overdue', requirePermission('invoices.view'), httpCache('dashboard_overdue', 60), dashboardController.overdue);
+router.get('/throughput', requirePermission('devices.view'), dashboardController.throughput);
 
 module.exports = router;

@@ -16,10 +16,12 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { useWebSocket } from '@/api/useWebSocket';
+import { useOrgCurrency } from '@/auth/useOrgCurrency';
 import { Button, Badge, Modal, Field } from '@/components/ui';
 import {
-  resolveModel, buildChart, type Range,
+  resolveModel, buildChart, buildChartFromSeries, hasRealData, type Range,
   type SummaryData, type MrrRow, type DeviceHealthData, type OverdueInvoice, type AlertEvent, type EventModel,
+  type ThroughputSeries, type ChartModel,
 } from './operations-console/consoleModel';
 import { KpiRow, ThroughputChart, LiveEvents, SitesStrip, DeviceTable, type DeviceFilter } from './operations-console/consoleWidgets';
 import './operations-console/console.css';
@@ -58,6 +60,19 @@ async function fetchEvents(): Promise<AlertEvent[]> {
     return Array.isArray(d) ? (d as AlertEvent[]) : [];
   } catch {
     return [];
+  }
+}
+
+// Real network throughput from SNMP interface counters. Best-effort: returns
+// null on error/malformed payload so the console shows an empty state.
+async function fetchThroughput(range: Range): Promise<ThroughputSeries | null> {
+  try {
+    const res = await api.GET('/dashboard/throughput' as never, { params: { query: { range } as never } } as never) as { error?: unknown; data?: unknown };
+    if (res.error) return null;
+    const d = (res.data as { data?: ThroughputSeries })?.data;
+    return d && Array.isArray(d.points) ? d : null;
+  } catch {
+    return null;
   }
 }
 
@@ -101,6 +116,7 @@ export function OperationsConsole() {
     }
   }, [liveEvent, qc]);
 
+  const orgCurrency = useOrgCurrency();
   const model = useMemo(
     () => resolveModel({
       summary: summaryQ.data,
@@ -108,14 +124,25 @@ export function OperationsConsole() {
       health: healthQ.data,
       overdue: overdueQ.data,
       events: eventsQ.data,
+      orgCurrency,
     }),
-    [summaryQ.data, mrrQ.data, healthQ.data, overdueQ.data, eventsQ.data],
+    [summaryQ.data, mrrQ.data, healthQ.data, overdueQ.data, eventsQ.data, orgCurrency],
   );
 
   // View state
   const [range, setRange] = useState<Range>('24H');
   const [filter, setFilter] = useState<DeviceFilter>('All');
   const [query, setQuery] = useState('');
+
+  // Real network throughput (SNMP) — fetched only once the system has real data;
+  // demo mode keeps the synthetic sample.
+  const isReal = hasRealData(summaryQ.data);
+  const throughputQ = useQuery({
+    queryKey: ['dashboard-throughput', range],
+    queryFn: () => fetchThroughput(range),
+    refetchInterval: 30_000,
+    enabled: isReal,
+  });
 
   // Demo-only local interactions (new-ticket simulation)
   const [created, setCreated] = useState(0);
@@ -139,7 +166,20 @@ export function OperationsConsole() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const chart = useMemo(() => buildChart(7, range), [range]);
+  // Chart: demo → synthetic sample; real → SNMP series, or an honest empty state.
+  const chartModel = useMemo<ChartModel | null>(() => {
+    if (model.isDemo) return buildChart(7, range);
+    if (throughputQ.data?.has_data) return buildChartFromSeries(throughputQ.data);
+    return null;
+  }, [model.isDemo, throughputQ.data, range]);
+
+  const throughputEmpty = model.isDemo
+    ? undefined
+    : throughputQ.data?.has_data
+      ? undefined
+      : throughputQ.isFetched
+        ? 'No SNMP throughput telemetry yet — appears once network devices are SNMP-monitored and polled.'
+        : 'Loading throughput…';
 
   // Compose the rendered model, folding in demo-only local interactions.
   const kpis = model.isDemo
@@ -187,7 +227,7 @@ export function OperationsConsole() {
 
       {/* Throughput + live events */}
       <div className="fi-row">
-        <div className="grow"><ThroughputChart range={range} onRange={setRange} chart={chart} /></div>
+        <div className="grow"><ThroughputChart range={range} onRange={setRange} chart={chartModel ?? undefined} emptyMessage={throughputEmpty} /></div>
         <div className="side"><LiveEvents events={events} /></div>
       </div>
 
