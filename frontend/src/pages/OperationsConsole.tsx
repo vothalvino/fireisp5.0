@@ -21,7 +21,7 @@ import { Button, Badge, Modal, Field } from '@/components/ui';
 import {
   resolveModel, buildChart, buildChartFromSeries, hasRealData, type Range,
   type SummaryData, type MrrRow, type DeviceHealthData, type OverdueInvoice, type AlertEvent, type EventModel,
-  type ThroughputSeries, type ChartModel,
+  type ThroughputSeries, type ChartModel, type SessionsData, type SiteRow, type DeviceRow,
 } from './operations-console/consoleModel';
 import { KpiRow, ThroughputChart, LiveEvents, SitesStrip, DeviceTable, type DeviceFilter } from './operations-console/consoleWidgets';
 import './operations-console/console.css';
@@ -76,6 +76,42 @@ async function fetchThroughput(range: Range): Promise<ThroughputSeries | null> {
   }
 }
 
+// Live RADIUS session count. Best-effort → undefined so the KPI shows a placeholder.
+async function fetchSessions(): Promise<SessionsData | undefined> {
+  try {
+    const res = await api.GET('/dashboard/live-sessions' as never, {} as never) as { error?: unknown; data?: unknown };
+    if (res.error) return undefined;
+    const d = (res.data as { data?: SessionsData })?.data;
+    return d && typeof d.value === 'string' ? d : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Per-site device-health for the Sites & POPs strip. Best-effort → [].
+async function fetchSites(): Promise<SiteRow[]> {
+  try {
+    const res = await api.GET('/dashboard/sites-utilization' as never, {} as never) as { error?: unknown; data?: unknown };
+    if (res.error) return [];
+    const d = (res.data as { data?: unknown })?.data;
+    return Array.isArray(d) ? (d as SiteRow[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Per-device operational feed for the Network Devices table. Best-effort → [].
+async function fetchNetworkDevices(): Promise<DeviceRow[]> {
+  try {
+    const res = await api.GET('/dashboard/network-devices' as never, {} as never) as { error?: unknown; data?: unknown };
+    if (res.error) return [];
+    const d = (res.data as { data?: unknown })?.data;
+    return Array.isArray(d) ? (d as DeviceRow[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -103,6 +139,13 @@ export function OperationsConsole() {
   const overdueQ = useQuery({ queryKey: ['dashboard-overdue'], queryFn: fetchOverdue, refetchInterval: 60_000 });
   const eventsQ = useQuery({ queryKey: ['alerts-events'], queryFn: fetchEvents, refetchInterval: 30_000 });
 
+  // These panels only carry real data once the system has real data (first
+  // client); demo mode keeps the sample and skips the fetch.
+  const isReal = hasRealData(summaryQ.data);
+  const sessionsQ = useQuery({ queryKey: ['dashboard-live-sessions'], queryFn: fetchSessions, refetchInterval: 30_000, enabled: isReal });
+  const sitesQ = useQuery({ queryKey: ['dashboard-sites'], queryFn: fetchSites, refetchInterval: 60_000, enabled: isReal });
+  const devicesQ = useQuery({ queryKey: ['dashboard-network-devices'], queryFn: fetchNetworkDevices, refetchInterval: 60_000, enabled: isReal });
+
   // Live notifications → silently refresh KPIs (proven pattern from AdminDashboard).
   const { lastMessage: liveEvent } = useWebSocket('notifications');
   useEffect(() => {
@@ -124,9 +167,12 @@ export function OperationsConsole() {
       health: healthQ.data,
       overdue: overdueQ.data,
       events: eventsQ.data,
+      sessions: sessionsQ.data,
+      sitesData: sitesQ.data,
+      devicesData: devicesQ.data,
       orgCurrency,
     }),
-    [summaryQ.data, mrrQ.data, healthQ.data, overdueQ.data, eventsQ.data, orgCurrency],
+    [summaryQ.data, mrrQ.data, healthQ.data, overdueQ.data, eventsQ.data, sessionsQ.data, sitesQ.data, devicesQ.data, orgCurrency],
   );
 
   // View state
@@ -136,7 +182,6 @@ export function OperationsConsole() {
 
   // Real network throughput (SNMP) — fetched only once the system has real data;
   // demo mode keeps the synthetic sample.
-  const isReal = hasRealData(summaryQ.data);
   const throughputQ = useQuery({
     queryKey: ['dashboard-throughput', range],
     queryFn: () => fetchThroughput(range),

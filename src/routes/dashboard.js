@@ -19,5 +19,8 @@ router.get('/mrr', requirePermission('invoices.view'), httpCache('dashboard_mrr'
 router.get('/device-health', requirePermission('devices.view'), httpCache('dashboard_device_health', 120), dashboardController.deviceHealth);
 router.get('/overdue', requirePermission('invoices.view'), httpCache('dashboard_overdue', 60), dashboardController.overdue);
 router.get('/throughput', requirePermission('devices.view'), dashboardController.throughput);
+router.get('/live-sessions', requirePermission('connection_logs.view'), httpCache('dashboard_live_sessions', 30), dashboardController.liveSessions);
+router.get('/sites-utilization', requirePermission('devices.view'), httpCache('dashboard_sites_util', 60), dashboardController.sitesUtilization);
+router.get('/network-devices', requirePermission('devices.view'), httpCache('dashboard_network_devices', 60), dashboardController.networkDevices);
 
 module.exports = router;

@@ -242,4 +242,154 @@ async function throughput(req, res, next) {
   }
 }
 
-module.exports = { summary, revenue, mrr, deviceHealth, overdue, throughput };
+/**
+ * GET /api/dashboard/live-sessions
+ * Count of currently-online RADIUS/PPPoE sessions (connection_logs 'start' with
+ * no matching 'stop') vs the active-contract subscriber base. Org-scoped via the
+ * clients join, with a NAS fallback for accounting rows that carry no client_id.
+ */
+async function liveSessions(req, res, next) {
+  try {
+    const [[row]] = await db.queryReplica(
+      `SELECT
+         (
+           SELECT COUNT(*)
+           FROM connection_logs cl
+           LEFT JOIN clients c ON c.id = cl.client_id
+           WHERE cl.event_type = 'start'
+             AND cl.session_id IS NOT NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM connection_logs cl2
+               WHERE cl2.session_id = cl.session_id
+                 AND cl2.contract_id = cl.contract_id
+                 AND cl2.event_type = 'stop'
+             )
+             AND (
+               c.organization_id = ?
+               OR (c.id IS NULL AND EXISTS (
+                 SELECT 1 FROM nas n WHERE n.id = cl.nas_id AND n.organization_id = ?
+               ))
+             )
+         ) AS live_sessions,
+         (
+           SELECT COUNT(*)
+           FROM contracts
+           WHERE organization_id = ? AND status = 'active' AND deleted_at IS NULL
+         ) AS subscriber_base`,
+      [req.orgId, req.orgId, req.orgId],
+    );
+    const live = Number(row?.live_sessions ?? 0);
+    const base = Number(row?.subscriber_base ?? 0);
+    const pct = base > 0 ? Math.round((live / base) * 100) : 0;
+    res.json({
+      data: {
+        value: live.toLocaleString('en-US'),
+        note: base > 0 ? `RADIUS · ${pct}% of base` : 'RADIUS · no active contracts',
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/dashboard/sites-utilization
+ * Per-site device-health signal for the Sites & POPs strip. True uplink
+ * utilization has no reliable source yet (link throughput columns are unwritten),
+ * so the honest, always-available metric is devices-online / devices-total per
+ * site. The frontend renders it as a health bar + status.
+ */
+async function sitesUtilization(req, res, next) {
+  try {
+    const [rows] = await db.queryReplica(
+      `SELECT s.id, s.name, s.city, s.site_type,
+              COUNT(d.id) AS device_count,
+              COALESCE(SUM(d.status = 'online'), 0) AS devices_online
+       FROM sites s
+       LEFT JOIN devices d ON d.site_id = s.id AND d.deleted_at IS NULL
+       WHERE s.organization_id = ? AND s.deleted_at IS NULL AND s.status = 'active'
+       GROUP BY s.id, s.name, s.city, s.site_type
+       ORDER BY s.name
+       LIMIT 24`,
+      [req.orgId],
+    );
+    res.json({
+      data: rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        city: r.city,
+        site_type: r.site_type,
+        device_count: Number(r.device_count),
+        devices_online: Number(r.devices_online),
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/dashboard/network-devices
+ * Per-device operational feed for the Network Devices table: status, mgmt IP,
+ * type, latest CPU (from snmp_metrics), and active-client count (RADIUS sessions
+ * correlated to a NAS by management IP). Throughput/uptime have no clean per-device
+ * source yet and are returned null so the frontend can render an honest placeholder.
+ */
+async function networkDevices(req, res, next) {
+  try {
+    const [rows] = await db.queryReplica(
+      `SELECT
+         d.id, d.name, d.status, d.ip_address, d.type, d.manufacturer, d.model,
+         d.role, d.last_poll_error,
+         (
+           SELECT sm.cpu_usage
+           FROM snmp_metrics sm
+           WHERE sm.device_id = d.id
+             AND sm.cpu_usage IS NOT NULL
+             AND sm.polled_at >= NOW() - INTERVAL 24 HOUR
+           ORDER BY sm.polled_at DESC
+           LIMIT 1
+         ) AS cpu,
+         COALESCE(ac.active_clients, 0) AS clients
+       FROM devices d
+       LEFT JOIN nas n ON n.ip_address = d.ip_address
+         AND n.organization_id <=> d.organization_id AND n.deleted_at IS NULL
+       LEFT JOIN (
+         SELECT cl.nas_id, COUNT(*) AS active_clients
+         FROM connection_logs cl
+         WHERE cl.event_type = 'start'
+           AND cl.session_id IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM connection_logs cl2
+             WHERE cl2.session_id = cl.session_id
+               AND cl2.contract_id = cl.contract_id
+               AND cl2.event_type = 'stop'
+           )
+         GROUP BY cl.nas_id
+       ) ac ON ac.nas_id = n.id
+       WHERE d.organization_id = ? AND d.deleted_at IS NULL
+       ORDER BY (d.status = 'online') DESC, d.name ASC
+       LIMIT 200`,
+      [req.orgId],
+    );
+    res.json({
+      data: rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        status: r.status,
+        ip_address: r.ip_address,
+        type: r.type,
+        manufacturer: r.manufacturer,
+        model: r.model,
+        role: r.role,
+        last_poll_error: r.last_poll_error,
+        cpu: (r.cpu === null || r.cpu === undefined) ? null : Number(r.cpu),
+        clients: Number(r.clients),
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { summary, revenue, mrr, deviceHealth, overdue, throughput, liveSessions, sitesUtilization, networkDevices };

@@ -16,7 +16,7 @@ jest.mock('../src/config/database', () => ({
 }));
 
 const db = require('../src/config/database');
-const { summary, revenue, throughput } = require('../src/controllers/dashboardController');
+const { summary, revenue, throughput, liveSessions, sitesUtilization, networkDevices } = require('../src/controllers/dashboardController');
 
 // Minimal Express-style request/response helpers
 function makeReq(orgId = 1) {
@@ -158,6 +158,73 @@ describe('dashboardController', () => {
       const { data } = res.json.mock.calls[0][0];
       expect(data.range).toBe('1H');
       expect(data.points).toHaveLength(60);
+    });
+  });
+
+  describe('liveSessions()', () => {
+    test('formats the count and % of base, org-scoped', async () => {
+      db.queryReplica.mockResolvedValueOnce([[{ live_sessions: 1284, subscriber_base: 1370 }]]);
+      const res = makeRes();
+      await liveSessions({ orgId: 3 }, res, jest.fn());
+      const { data } = res.json.mock.calls[0][0];
+      expect(data.value).toBe('1,284');
+      expect(data.note).toBe('RADIUS · 94% of base'); // 1284/1370 → 94%
+      const [sql, params] = db.queryReplica.mock.calls[0];
+      expect(sql).toContain("event_type = 'start'");
+      expect(sql).toContain('organization_id = ?');
+      // Hardened: only count sessions with a real session_id (NULL never matches a
+      // stop → would count as live forever), and fall back to NAS on a join miss.
+      expect(sql).toContain('cl.session_id IS NOT NULL');
+      expect(sql).toContain('c.id IS NULL');
+      expect(params).toEqual([3, 3, 3]);
+    });
+
+    test('guards divide-by-zero when there are no active contracts', async () => {
+      db.queryReplica.mockResolvedValueOnce([[{ live_sessions: 0, subscriber_base: 0 }]]);
+      const res = makeRes();
+      await liveSessions({ orgId: 1 }, res, jest.fn());
+      const { data } = res.json.mock.calls[0][0];
+      expect(data.value).toBe('0');
+      expect(data.note).toBe('RADIUS · no active contracts');
+    });
+  });
+
+  describe('sitesUtilization()', () => {
+    test('maps site device-health counts to numbers', async () => {
+      db.queryReplica.mockResolvedValueOnce([[
+        { id: 1, name: 'Norte', city: 'CDMX', site_type: 'pop', device_count: '5', devices_online: '4' },
+      ]]);
+      const res = makeRes();
+      await sitesUtilization({ orgId: 1 }, res, jest.fn());
+      const { data } = res.json.mock.calls[0][0];
+      expect(data[0]).toMatchObject({ id: 1, name: 'Norte', device_count: 5, devices_online: 4 });
+      const [sql] = db.queryReplica.mock.calls[0];
+      expect(sql).toContain('FROM sites s');
+      expect(sql).toContain("d.status = 'online'");
+    });
+  });
+
+  describe('networkDevices()', () => {
+    test('maps device rows, coercing cpu null and clients number', async () => {
+      db.queryReplica.mockResolvedValueOnce([[
+        { id: 1, name: 'bras-01', status: 'online', ip_address: '10.0.0.1', type: 'router', manufacturer: 'MikroTik', model: 'CCR', role: 'core', last_poll_error: null, cpu: '28', clients: '8420' },
+        { id: 2, name: 'ptmp-2', status: 'offline', ip_address: '10.0.6.4', type: 'ptmp_ap', manufacturer: null, model: null, role: 'access', last_poll_error: null, cpu: null, clients: '0' },
+      ]]);
+      const res = makeRes();
+      await networkDevices({ orgId: 1 }, res, jest.fn());
+      const { data } = res.json.mock.calls[0][0];
+      expect(data[0]).toMatchObject({ name: 'bras-01', status: 'online', cpu: 28, clients: 8420 });
+      expect(data[1].cpu).toBeNull();
+      expect(data[1].clients).toBe(0);
+      const [sql, params] = db.queryReplica.mock.calls[0];
+      expect(sql).toContain('FROM devices d');
+      expect(sql).toContain('d.organization_id = ?');
+      // Latest CPU via a correlated scalar subquery → exactly one row per device
+      // (a MAX(polled_at) join could tie and duplicate the device row).
+      expect(sql).toContain('ORDER BY sm.polled_at DESC');
+      expect(sql).toContain('LIMIT 1');
+      expect(sql).toContain('cl.session_id IS NOT NULL');
+      expect(params).toEqual([1]);
     });
   });
 });
