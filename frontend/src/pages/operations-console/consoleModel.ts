@@ -162,7 +162,34 @@ export type Range = (typeof RANGES)[number];
 
 export interface ChartModel {
   inLine: string; inArea: string; outLine: string; outArea: string;
-  peak: string; avg: string; p95: string; commit: number;
+  peak: string; avg: string; p95: string;
+  /** 95/5 commit utilization; null when unknown (real mode has no commit config). */
+  commit: number | null;
+}
+
+export interface ThroughputPoint { ts: string; in_bps: number; out_bps: number; }
+export interface ThroughputSeries {
+  range?: string;
+  points: ThroughputPoint[];
+  peak_gbps: number;
+  avg_gbps: number;
+  p95_gbps: number;
+  has_data: boolean;
+}
+
+// Chart geometry (matches the design's 820×220 viewBox). Shared by the demo
+// generator and the real-series builder so both render identically.
+const CHART_W = 820, CHART_H = 220, CHART_PAD = 12;
+function chartPaths(inV: number[], outV: number[]) {
+  const n = inV.length;
+  const x = (i: number) => CHART_PAD + (n <= 1 ? 0 : (i / (n - 1)) * (CHART_W - CHART_PAD * 2));
+  const y = (v: number) => CHART_H - CHART_PAD - v * (CHART_H - CHART_PAD * 2);
+  const line = (vals: number[]) => vals.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
+  const area = (vals: number[]) =>
+    'M' + x(0).toFixed(1) + ' ' + (CHART_H - CHART_PAD) + ' ' +
+    vals.map((v, i) => 'L' + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ') +
+    ' L' + x(Math.max(0, n - 1)).toFixed(1) + ' ' + (CHART_H - CHART_PAD) + ' Z';
+  return { inLine: line(inV), inArea: area(inV), outLine: line(outV), outArea: area(outV) };
 }
 
 function rng(seed: number): () => number {
@@ -182,7 +209,6 @@ export function buildChart(seed: number, range: Range): ChartModel {
     '24H': { n: 96, amp: 0.48, s: 3 },
     '7D': { n: 84, amp: 0.7, s: 4 },
   } as Record<Range, { n: number; amp: number; s: number }>)[range];
-  const W = 820, H = 220, pad = 12;
   const r = rng(seed * 131 + cfg.s * 17);
   const n = cfg.n;
   const inV: number[] = [], outV: number[] = [];
@@ -194,21 +220,32 @@ export function buildChart(seed: number, range: Range): ChartModel {
     inV.push(li);
     outV.push(Math.min(lo, li - 0.04));
   }
-  const x = (i: number) => pad + (i / (n - 1)) * (W - pad * 2);
-  const y = (v: number) => H - pad - v * (H - pad * 2);
-  const line = (vals: number[]) => vals.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
-  const area = (vals: number[]) =>
-    'M' + x(0).toFixed(1) + ' ' + (H - pad) + ' ' +
-    vals.map((v, i) => 'L' + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ') +
-    ' L' + x(n - 1).toFixed(1) + ' ' + (H - pad) + ' Z';
   const g = (v: number) => (v * 1000).toFixed(1);
   const sorted = inV.slice().sort((a, b) => a - b);
   return {
-    inLine: line(inV), inArea: area(inV), outLine: line(outV), outArea: area(outV),
+    ...chartPaths(inV, outV),
     peak: g(Math.max(...inV)),
     avg: g(inV.reduce((a, b) => a + b, 0) / n),
     p95: g(sorted[Math.floor(n * 0.95)]),
     commit: 68,
+  };
+}
+
+// Build a chart from a REAL throughput series (bps points → normalized paths +
+// Gbps stats). No 95/5 commit config exists, so commit is null.
+export function buildChartFromSeries(series: ThroughputSeries): ChartModel {
+  const points = series.points ?? [];
+  const inBps = points.map((p) => p.in_bps);
+  const outBps = points.map((p) => p.out_bps);
+  const scale = Math.max(1, ...inBps, ...outBps);
+  // Leave a little headroom (×0.94) and lift zero off the baseline (+0.02).
+  const norm = (v: number) => Math.max(0, Math.min(1, v / scale)) * 0.94 + 0.02;
+  return {
+    ...chartPaths(inBps.map(norm), outBps.map(norm)),
+    peak: series.peak_gbps.toFixed(2),
+    avg: series.avg_gbps.toFixed(2),
+    p95: series.p95_gbps.toFixed(2),
+    commit: null,
   };
 }
 
@@ -226,16 +263,13 @@ function fmtInt(n: number): string {
   return new Intl.NumberFormat('en-US').format(n);
 }
 
-// Sum invoice totals within a single currency (the one with the largest total),
-// so multi-currency overdue lists never add unlike units into one figure.
-function sumDominantCurrency(rows: OverdueInvoice[]): number {
-  if (rows.length === 0) return 0;
-  const byCcy: Record<string, number> = {};
-  for (const inv of rows) {
-    const c = inv.currency || 'MXN';
-    byCcy[c] = (byCcy[c] || 0) + parseFloat(inv.total || '0');
-  }
-  return Math.max(...Object.values(byCcy));
+// Sum invoice totals for a single currency (the org's), so multi-currency
+// overdue lists never add unlike units into one figure.
+function sumCurrency(rows: OverdueInvoice[], currency: string): number {
+  const ccy = currency.toUpperCase();
+  return rows.reduce((s, inv) => (
+    (inv.currency || 'MXN').toUpperCase() === ccy ? s + parseFloat(inv.total || '0') : s
+  ), 0);
 }
 
 function severityToLevel(sev?: string | null, status?: string | null): EventLevel {
@@ -265,6 +299,8 @@ export interface RealInputs {
   health?: DeviceHealthData;
   overdue?: OverdueInvoice[];
   events?: AlertEvent[];
+  /** ISO 4217 currency of the active organization (from useOrgCurrency). */
+  orgCurrency?: string;
 }
 
 export function buildRealModel(inp: RealInputs): ConsoleModel {
@@ -273,15 +309,12 @@ export function buildRealModel(inp: RealInputs): ConsoleModel {
   const overdue = inp.overdue ?? [];
   const health = inp.health;
 
-  // MRR: /dashboard/mrr returns one row per currency (GROUP BY currency).
-  // Summing across currencies would add unlike units, so surface the dominant
-  // currency's MRR instead (single-currency deployments are unaffected).
-  const primaryRow = mrrRows.reduce<MrrRow | undefined>(
-    (best, r) => (!best || parseFloat(r.mrr || '0') > parseFloat(best.mrr || '0') ? r : best),
-    undefined,
-  );
-  const primaryCurrency = primaryRow?.currency ?? 'MXN';
-  const mrrC = compact(primaryRow ? parseFloat(primaryRow.mrr || '0') : 0);
+  // MRR: /dashboard/mrr returns one row per currency (GROUP BY currency). Show
+  // the organization's own currency — never a cross-currency sum — so the KPI
+  // always matches the org's configured currency.
+  const orgCurrency = (inp.orgCurrency || 'MXN').toUpperCase();
+  const orgMrrRow = mrrRows.find((r) => (r.currency || '').toUpperCase() === orgCurrency);
+  const mrrC = compact(orgMrrRow ? parseFloat(orgMrrRow.mrr || '0') : 0);
 
   // "Devices online" has no true reachability count in the summary; monitored
   // (SNMP-enabled) is the closest available signal until an up/down count lands.
@@ -292,14 +325,14 @@ export function buildRealModel(inp: RealInputs): ConsoleModel {
   // LIMIT 100). Show "100+" when saturated rather than a silently-truncated exact
   // count, and sum the $ amount within a single (dominant) currency only.
   const overdueCapped = overdue.length >= 100;
-  const overdueTotal = sumDominantCurrency(overdue);
+  const overdueTotal = sumCurrency(overdue, orgCurrency);
   const overdueAmt = compact(overdueTotal);
 
   const openTickets = summary?.tickets.open_count ?? 0;
 
   const kpis: KpiModel = {
     activeClients: { value: fmtInt(summary?.clients.active ?? 0), spark: null },
-    mrr: { value: mrrC.value, unit: mrrC.unit, code: primaryCurrency, spark: null },
+    mrr: { value: mrrC.value, unit: mrrC.unit, code: orgCurrency, spark: null },
     devicesOnline: { online: devOnline, total: devTotal },
     // No RADIUS-session count endpoint wired yet — shown as pending until sourced.
     liveSessions: { value: '—', note: 'RADIUS' },
@@ -343,5 +376,10 @@ export function hasRealData(summary?: SummaryData): boolean {
 }
 
 export function resolveModel(inp: RealInputs): ConsoleModel {
-  return hasRealData(inp.summary) ? buildRealModel(inp) : DEMO_MODEL;
+  if (hasRealData(inp.summary)) return buildRealModel(inp);
+  // Demo: keep the design's sample figures, but label MRR with the org's own
+  // currency so the currency is consistent even before real data exists.
+  const orgCurrency = (inp.orgCurrency || 'MXN').toUpperCase();
+  if (orgCurrency === DEMO_MODEL.kpis.mrr.code) return DEMO_MODEL;
+  return { ...DEMO_MODEL, kpis: { ...DEMO_MODEL.kpis, mrr: { ...DEMO_MODEL.kpis.mrr, code: orgCurrency } } };
 }

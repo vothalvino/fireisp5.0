@@ -3,8 +3,8 @@
 // =============================================================================
 import { describe, it, expect } from 'vitest';
 import {
-  DEMO_MODEL, resolveModel, buildRealModel, hasRealData, buildChart,
-  type SummaryData, type MrrRow, type AlertEvent, type OverdueInvoice,
+  DEMO_MODEL, resolveModel, buildRealModel, hasRealData, buildChart, buildChartFromSeries,
+  type SummaryData, type MrrRow, type AlertEvent, type OverdueInvoice, type ThroughputSeries,
 } from '../consoleModel';
 
 const summary = (total: number, active: number): SummaryData => ({
@@ -33,6 +33,14 @@ describe('demo↔real gate', () => {
     expect(m.isDemo).toBe(false);
     expect(m.kpis.activeClients.value).toBe('8');
   });
+
+  it('labels demo MRR with the org currency', () => {
+    const usd = resolveModel({ orgCurrency: 'USD' });
+    expect(usd.isDemo).toBe(true);
+    expect(usd.kpis.mrr.code).toBe('USD');
+    // Default (MXN) returns the shared DEMO_MODEL unchanged.
+    expect(resolveModel({ orgCurrency: 'MXN' })).toBe(DEMO_MODEL);
+  });
 });
 
 describe('real mapping', () => {
@@ -45,16 +53,30 @@ describe('real mapping', () => {
     expect(m.kpis.mrr.code).toBe('MXN');
   });
 
-  it('shows the dominant currency MRR, never a cross-currency sum', () => {
-    const multi: MrrRow[] = [
-      { currency: 'MXN', active_contracts: 40, mrr: '1000000', arpu: '600' },
-      { currency: 'USD', active_contracts: 3, mrr: '50000', arpu: '900' },
-    ];
-    const m = buildRealModel({ summary: summary(10, 8), mrr: multi });
-    // 1.00M MXN (the dominant row) — NOT 1.05M mixing pesos + dollars.
+  const multiCcy: MrrRow[] = [
+    { currency: 'MXN', active_contracts: 40, mrr: '1000000', arpu: '600' },
+    { currency: 'USD', active_contracts: 3, mrr: '50000', arpu: '900' },
+  ];
+
+  it('shows MRR in the organization currency, never a cross-currency sum', () => {
+    const m = buildRealModel({ summary: summary(10, 8), mrr: multiCcy, orgCurrency: 'MXN' });
+    // 1.00M MXN (the org's own row) — NOT 1.05M mixing pesos + dollars.
     expect(m.kpis.mrr.value).toBe('1.00');
     expect(m.kpis.mrr.unit).toBe('M');
     expect(m.kpis.mrr.code).toBe('MXN');
+  });
+
+  it('picks the org currency row even when it is not the largest', () => {
+    const m = buildRealModel({ summary: summary(10, 8), mrr: multiCcy, orgCurrency: 'USD' });
+    expect(m.kpis.mrr.value).toBe('50.0');
+    expect(m.kpis.mrr.unit).toBe('K');
+    expect(m.kpis.mrr.code).toBe('USD');
+  });
+
+  it('shows 0 in the org currency when no MRR row matches it', () => {
+    const m = buildRealModel({ summary: summary(10, 8), mrr: multiCcy, orgCurrency: 'EUR' });
+    expect(m.kpis.mrr.value).toBe('0');
+    expect(m.kpis.mrr.code).toBe('EUR');
   });
 
   it('maps devices online/total from the summary', () => {
@@ -136,5 +158,22 @@ describe('throughput chart', () => {
     expect(c.inArea.endsWith('Z')).toBe(true);
     expect(Number(c.peak)).toBeGreaterThan(0);
     expect(c.commit).toBe(68);
+  });
+
+  it('builds paths + Gbps stats from a real SNMP series (commit null)', () => {
+    const series: ThroughputSeries = {
+      points: [
+        { ts: '2026-07-02T00:00:00Z', in_bps: 0, out_bps: 0 },
+        { ts: '2026-07-02T00:15:00Z', in_bps: 8_000_000_000, out_bps: 4_000_000_000 },
+      ],
+      peak_gbps: 8, avg_gbps: 4, p95_gbps: 7.6, has_data: true,
+    };
+    const c = buildChartFromSeries(series);
+    expect(c.inLine.startsWith('M')).toBe(true);
+    expect(c.inArea.endsWith('Z')).toBe(true);
+    expect(c.peak).toBe('8.00');
+    expect(c.avg).toBe('4.00');
+    expect(c.p95).toBe('7.60');
+    expect(c.commit).toBeNull();
   });
 });
