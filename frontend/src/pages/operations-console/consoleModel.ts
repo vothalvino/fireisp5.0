@@ -315,6 +315,9 @@ export interface DeviceRow {
   last_poll_error: string | null;
   cpu: number | null;
   clients: number;
+  tp_bps?: number | null;       // current in+out bit-rate (from SNMP octet deltas)
+  spark?: number[] | null;      // per-bucket total bit-rate series
+  uptime_ticks?: number | null; // SNMP sysUpTime (hundredths of a second)
 }
 
 // ---------------------------------------------------------------------------
@@ -363,6 +366,38 @@ function titleCase(s: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
 
+// Compact bit-rate label for the device table (e.g. "184.2M", "1.20G"); '—' when
+// there is no throughput sample yet. Sub-Mbps values use one decimal of Kbps so a
+// tiny non-zero rate reads "0.5K", never a misleading "0K"/"1K".
+function formatRate(bps: number | null | undefined): string {
+  if (!bps || bps <= 0) return '—';
+  if (bps >= 1e9) return (bps / 1e9).toFixed(2) + 'G';
+  if (bps >= 1e6) return (bps / 1e6).toFixed(1) + 'M';
+  return (bps / 1e3).toFixed(1) + 'K';
+}
+
+// Format SNMP sysUpTime (TimeTicks = hundredths of a second) as "312d 4h".
+function formatUptime(ticks: number | null | undefined): string {
+  if (ticks === null || ticks === undefined || ticks < 0) return '—';
+  const sec = Math.floor(ticks / 100);
+  const days = Math.floor(sec / 86400);
+  const hours = Math.floor((sec % 86400) / 3600);
+  const mins = Math.floor((sec % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
+
+// Normalize a raw bps series to the Sparkline's y-coordinate space (SVG y grows
+// downward, so peak throughput → small y ≈ top). null when there is no data.
+function sparkFromSeries(series: number[] | null | undefined): number[] | null {
+  if (!Array.isArray(series) || series.length === 0) return null;
+  const max = Math.max(...series);
+  if (max <= 0) return null;
+  const VB = 20, PAD = 2;
+  return series.map((v) => VB - PAD - (Math.max(0, v) / max) * (VB - PAD * 2));
+}
+
 // One device row → DeviceModel. The DB enum has no 'degraded'; it's derived from
 // maintenance / a recent poll error. Throughput, sparkline, and uptime have no
 // clean per-device source yet, so they render as placeholders.
@@ -383,10 +418,10 @@ export function mapDevice(r: DeviceRow): DeviceModel {
     sub: subParts.join(' · ') || '—',
     ip: r.ip_address || '—',
     type: (r.type && DEVICE_TYPE_LABEL[r.type]) || r.type || '—',
-    tp: '—',
-    spark: null,
+    tp: formatRate(r.tp_bps),
+    spark: sparkFromSeries(r.spark),
     clients: r.clients > 0 ? r.clients.toLocaleString('en-US') : '0',
-    uptime: '—',
+    uptime: formatUptime(r.uptime_ticks),
     cpu: r.cpu,
   };
 }

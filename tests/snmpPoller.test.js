@@ -133,10 +133,15 @@ describe('snmpPoller', () => {
 
       await snmpPoller.pollDevice(device);
       expect(mockSession.subtree).toHaveBeenCalled();
-      expect(db.query).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO snmp_metrics'),
-        expect.any(Array),
-      );
+      const insertCall = db.query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO snmp_metrics'));
+      expect(insertCall).toBeDefined();
+      const [insertSql, insertParams] = insertCall;
+      // Regression guard: §9.1 wireless cols + uptime must be in the INSERT list
+      // (they were previously in VALID_METRIC_COLUMNS but silently dropped).
+      expect(insertSql).toContain('noise_floor_dbm');
+      expect(insertSql).toContain('uptime_ticks');
+      // Placeholder count must match the params array length.
+      expect((insertSql.match(/\?/g) || []).length).toBe(insertParams.length);
     });
   });
 

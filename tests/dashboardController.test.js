@@ -206,25 +206,49 @@ describe('dashboardController', () => {
 
   describe('networkDevices()', () => {
     test('maps device rows, coercing cpu null and clients number', async () => {
-      db.queryReplica.mockResolvedValueOnce([[
-        { id: 1, name: 'bras-01', status: 'online', ip_address: '10.0.0.1', type: 'router', manufacturer: 'MikroTik', model: 'CCR', role: 'core', last_poll_error: null, cpu: '28', clients: '8420' },
-        { id: 2, name: 'ptmp-2', status: 'offline', ip_address: '10.0.6.4', type: 'ptmp_ap', manufacturer: null, model: null, role: 'access', last_poll_error: null, cpu: null, clients: '0' },
-      ]]);
+      db.queryReplica
+        .mockResolvedValueOnce([[
+          { id: 1, name: 'bras-01', status: 'online', ip_address: '10.0.0.1', type: 'router', manufacturer: 'MikroTik', model: 'CCR', role: 'core', last_poll_error: null, cpu: '28', clients: '8420' },
+          { id: 2, name: 'ptmp-2', status: 'offline', ip_address: '10.0.6.4', type: 'ptmp_ap', manufacturer: null, model: null, role: 'access', last_poll_error: null, cpu: null, clients: '0' },
+        ]])
+        .mockResolvedValueOnce([[]]); // per-device octet query (no throughput samples)
       const res = makeRes();
       await networkDevices({ orgId: 1 }, res, jest.fn());
       const { data } = res.json.mock.calls[0][0];
-      expect(data[0]).toMatchObject({ name: 'bras-01', status: 'online', cpu: 28, clients: 8420 });
+      expect(data[0]).toMatchObject({ name: 'bras-01', status: 'online', cpu: 28, clients: 8420, tp_bps: null, spark: null });
       expect(data[1].cpu).toBeNull();
       expect(data[1].clients).toBe(0);
       const [sql, params] = db.queryReplica.mock.calls[0];
       expect(sql).toContain('FROM devices d');
       expect(sql).toContain('d.organization_id = ?');
+      // Also runs a second query for per-device octet throughput.
+      expect(db.queryReplica).toHaveBeenCalledTimes(2);
       // Latest CPU via a correlated scalar subquery → exactly one row per device
       // (a MAX(polled_at) join could tie and duplicate the device row).
       expect(sql).toContain('ORDER BY sm.polled_at DESC');
       expect(sql).toContain('LIMIT 1');
       expect(sql).toContain('cl.session_id IS NOT NULL');
       expect(params).toEqual([1]);
+    });
+
+    test('attaches per-device throughput from octet samples', async () => {
+      const now = Date.now();
+      db.queryReplica
+        .mockResolvedValueOnce([[
+          { id: 7, name: 'r7', status: 'online', ip_address: '10.0.0.7', type: 'router', manufacturer: 'Mk', model: 'x', role: 'core', last_poll_error: null, cpu: '10', clients: '5' },
+        ]])
+        .mockResolvedValueOnce([[
+          { device: 7, iface: '7:1', t: now - 2000, inO: '0', outO: '0' },
+          { device: 7, iface: '7:1', t: now - 1000, inO: '1000000', outO: '0' }, // 8,000,000 bps
+        ]]);
+      const res = makeRes();
+      await networkDevices({ orgId: 1 }, res, jest.fn());
+      const { data } = res.json.mock.calls[0][0];
+      expect(data[0].tp_bps).toBe(8_000_000);
+      expect(Array.isArray(data[0].spark)).toBe(true);
+      const [octetSql] = db.queryReplica.mock.calls[1];
+      expect(octetSql).toContain('if_in_octets');
+      expect(octetSql).toContain('ORDER BY m.polled_at DESC');
     });
   });
 });

@@ -5,7 +5,7 @@
 // =============================================================================
 
 const db = require('../config/database');
-const { aggregateThroughput } = require('../services/throughputService');
+const { aggregateThroughput, deviceThroughput } = require('../services/throughputService');
 
 // Network-throughput ranges → SNMP lookback window + number of chart buckets.
 const THROUGHPUT_RANGES = {
@@ -350,6 +350,15 @@ async function networkDevices(req, res, next) {
            ORDER BY sm.polled_at DESC
            LIMIT 1
          ) AS cpu,
+         (
+           SELECT sm.uptime_ticks
+           FROM snmp_metrics sm
+           WHERE sm.device_id = d.id
+             AND sm.uptime_ticks IS NOT NULL
+             AND sm.polled_at >= NOW() - INTERVAL 24 HOUR
+           ORDER BY sm.polled_at DESC
+           LIMIT 1
+         ) AS uptime_ticks,
          COALESCE(ac.active_clients, 0) AS clients
        FROM devices d
        LEFT JOIN nas n ON n.ip_address = d.ip_address
@@ -372,20 +381,53 @@ async function networkDevices(req, res, next) {
        LIMIT 200`,
       [req.orgId],
     );
+
+    // Per-device throughput from raw SNMP octet counters over the last hour.
+    // Empty until the SNMP poller has cycled — devices then show tp/sparkline.
+    const now = Date.now();
+    const TP_HOURS = 1;
+    const TP_BUCKETS = 12;
+    const [octetRows] = await db.queryReplica(
+      `SELECT m.device_id AS device,
+              CONCAT(m.device_id, ':', m.interface_id) AS iface,
+              UNIX_TIMESTAMP(m.polled_at) * 1000 AS t,
+              m.if_in_octets AS inO, m.if_out_octets AS outO
+       FROM snmp_metrics m
+       JOIN devices d ON d.id = m.device_id
+       WHERE d.organization_id = ?
+         AND d.deleted_at IS NULL
+         AND m.interface_id IS NOT NULL
+         AND m.if_in_octets IS NOT NULL AND m.if_out_octets IS NOT NULL
+         AND m.polled_at >= NOW() - INTERVAL ? HOUR
+       ORDER BY m.polled_at DESC
+       LIMIT 20000`,
+      [req.orgId, TP_HOURS],
+    );
+    const perDevice = deviceThroughput(
+      octetRows.map((r) => ({ device: r.device, iface: r.iface, t: Number(r.t), inO: Number(r.inO), outO: Number(r.outO) })),
+      { fromMs: now - TP_HOURS * 3600 * 1000, toMs: now, buckets: TP_BUCKETS },
+    );
+
     res.json({
-      data: rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        status: r.status,
-        ip_address: r.ip_address,
-        type: r.type,
-        manufacturer: r.manufacturer,
-        model: r.model,
-        role: r.role,
-        last_poll_error: r.last_poll_error,
-        cpu: (r.cpu === null || r.cpu === undefined) ? null : Number(r.cpu),
-        clients: Number(r.clients),
-      })),
+      data: rows.map((r) => {
+        const dt = perDevice[String(r.id)];
+        return {
+          id: r.id,
+          name: r.name,
+          status: r.status,
+          ip_address: r.ip_address,
+          type: r.type,
+          manufacturer: r.manufacturer,
+          model: r.model,
+          role: r.role,
+          last_poll_error: r.last_poll_error,
+          cpu: (r.cpu === null || r.cpu === undefined) ? null : Number(r.cpu),
+          uptime_ticks: (r.uptime_ticks === null || r.uptime_ticks === undefined) ? null : Number(r.uptime_ticks),
+          clients: Number(r.clients),
+          tp_bps: dt ? dt.tp_bps : null,
+          spark: dt ? dt.series : null,
+        };
+      }),
     });
   } catch (err) {
     next(err);
