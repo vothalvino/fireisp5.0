@@ -25,7 +25,7 @@ function aggregateThroughput(samples, { fromMs, toMs, buckets }) {
   // Group samples by interface (device_id:ifIndex).
   const byIface = new Map();
   for (const s of samples || []) {
-    if (!s || s.iface == null) continue;
+    if (!s || s.iface === null || s.iface === undefined) continue;
     if (!byIface.has(s.iface)) byIface.set(s.iface, []);
     byIface.get(s.iface).push(s);
   }
