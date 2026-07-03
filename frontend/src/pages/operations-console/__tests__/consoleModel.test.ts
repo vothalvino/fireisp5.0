@@ -200,6 +200,31 @@ describe('live panels (sessions / sites / devices)', () => {
     expect(m.sub).toBe('Ubiquiti · PTMP'); // not "Ubiquiti · Ptmp_ap"
   });
 
+  it('formats real per-device throughput and normalizes the sparkline', () => {
+    const m = mapDevice(dev({ tp_bps: 184_200_000, spark: [0, 90_000_000, 184_200_000] }));
+    expect(m.tp).toBe('184.2M');
+    expect(m.spark).toHaveLength(3);
+    // peak → top of the sparkline (smallest y in the SVG coordinate space)
+    expect(Math.min(...(m.spark as number[]))).toBeLessThan(Math.max(...(m.spark as number[])));
+  });
+
+  it('shows dash throughput and null sparkline when no octet data yet', () => {
+    const m = mapDevice(dev({ tp_bps: null, spark: null }));
+    expect(m.tp).toBe('—');
+    expect(m.spark).toBeNull();
+  });
+
+  it('formats sub-Mbps rates as Kbps with a decimal (never "0K")', () => {
+    expect(mapDevice(dev({ tp_bps: 3 })).tp).toBe('0.0K');
+    expect(mapDevice(dev({ tp_bps: 500_000 })).tp).toBe('500.0K');
+  });
+
+  it('formats device uptime from SNMP sysUpTime ticks', () => {
+    const ticks = (312 * 86400 + 4 * 3600) * 100; // 312d 4h in TimeTicks (1/100 s)
+    expect(mapDevice(dev({ uptime_ticks: ticks })).uptime).toBe('312d 4h');
+    expect(mapDevice(dev({ uptime_ticks: null })).uptime).toBe('—');
+  });
+
   it('wires sessions/sites/devices into the real model, with a session fallback', () => {
     const m = buildRealModel({
       summary: summary(10, 8),

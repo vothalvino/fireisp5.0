@@ -1539,6 +1539,7 @@ CREATE TABLE IF NOT EXISTS snmp_metrics (
     ccq_pct            SMALLINT        NULL       COMMENT '§9.1 Client Connection Quality percentage (0–100)',
     tx_rate_mbps       DECIMAL(8,2)    NULL       COMMENT '§9.1 Wireless transmit modulation rate in Mbps',
     rx_rate_mbps       DECIMAL(8,2)    NULL       COMMENT '§9.1 Wireless receive modulation rate in Mbps',
+    uptime_ticks       BIGINT          NULL       COMMENT 'sysUpTime in TimeTicks (hundredths of a second); resets on reboot (migration 372)',
     polled_at          TIMESTAMP       NOT NULL   COMMENT 'Timestamp of the SNMP poll',
     created_at         TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -2437,6 +2438,20 @@ SELECT
     115
 FROM snmp_profiles p
 WHERE p.name = 'Mimosa Networks';
+
+-- Standard MIB-II sysUpTime — device uptime for every profile (migration 372)
+INSERT IGNORE INTO snmp_profile_oids
+    (profile_id, oid, metric_column, label, oid_type, is_per_interface, transform, sort_order)
+SELECT
+    p.id,
+    '1.3.6.1.2.1.1.3.0',
+    'uptime_ticks',
+    'System Uptime (sysUpTime)',
+    'timeticks',
+    FALSE,
+    NULL,
+    5
+FROM snmp_profiles p;
 
 -- =============================================================================
 -- Connection Logs (Compliance & Usage)

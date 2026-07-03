@@ -1,7 +1,7 @@
 // =============================================================================
 // FireISP 5.0 — throughputService.aggregateThroughput tests
 // =============================================================================
-const { aggregateThroughput } = require('../src/services/throughputService');
+const { aggregateThroughput, deviceThroughput } = require('../src/services/throughputService');
 
 describe('aggregateThroughput', () => {
   it('returns has_data=false and zeroed stats for no samples', () => {
@@ -84,5 +84,28 @@ describe('aggregateThroughput', () => {
     );
     expect(r.has_data).toBe(false);
     expect(r.points[0].in_bps).toBe(0);
+  });
+});
+
+describe('deviceThroughput', () => {
+  it('computes per-device in+out bit-rate keyed by device', () => {
+    const samples = [
+      { device: 1, iface: '1:1', t: 0, inO: 0, outO: 0 },
+      { device: 1, iface: '1:1', t: 1000, inO: 1_000_000, outO: 500_000 }, // 8M in + 4M out
+      { device: 2, iface: '2:1', t: 0, inO: 0, outO: 0 },
+      { device: 2, iface: '2:1', t: 1000, inO: 250_000, outO: 0 },          // 2M in
+    ];
+    const r = deviceThroughput(samples, { fromMs: 0, toMs: 10000, buckets: 1 });
+    expect(r['1'].tp_bps).toBe(12_000_000);
+    expect(r['2'].tp_bps).toBe(2_000_000);
+    expect(r['1'].series).toHaveLength(1);
+  });
+
+  it('omits devices that have no usable delta', () => {
+    const r = deviceThroughput(
+      [{ device: 5, iface: '5:1', t: 0, inO: 100, outO: 100 }],
+      { fromMs: 0, toMs: 10000, buckets: 1 },
+    );
+    expect(r['5']).toBeUndefined();
   });
 });

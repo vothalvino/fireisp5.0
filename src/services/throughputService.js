@@ -102,4 +102,40 @@ function aggregateThroughput(samples, { fromMs, toMs, buckets }) {
   };
 }
 
-module.exports = { aggregateThroughput };
+/**
+ * Per-device throughput from raw SNMP octet samples. Groups samples by device,
+ * runs the same interface-delta aggregation per device, and returns a compact
+ * in+out bit-rate series + the most-recent rate for a device-table sparkline.
+ *
+ * @param {Array<{device:(number|string), iface:string, t:number, inO:number, outO:number}>} samples
+ * @param {{fromMs:number, toMs:number, buckets:number}} opts
+ * @returns {Object<string,{tp_bps:number, series:number[]}>} keyed by device (string)
+ */
+function deviceThroughput(samples, opts) {
+  const byDevice = new Map();
+  for (const s of samples || []) {
+    if (!s || s.device === null || s.device === undefined) continue;
+    const key = String(s.device);
+    if (!byDevice.has(key)) byDevice.set(key, []);
+    byDevice.get(key).push(s);
+  }
+  const out = {};
+  for (const [device, arr] of byDevice) {
+    const agg = aggregateThroughput(arr, opts);
+    if (!agg.has_data) continue;
+    // Total interface throughput (in+out summed across the device's interfaces).
+    // For a transit router this counts forwarded traffic on both the ingress and
+    // egress interface — a known interface-counter limitation (no WAN/LAN role
+    // data), consistent with the org-wide throughput chart.
+    const series = agg.points.map((p) => p.in_bps + p.out_bps);
+    // "current" throughput = the most recent bucket that carries data.
+    let tp = 0;
+    for (let i = series.length - 1; i >= 0; i--) {
+      if (series[i] > 0) { tp = series[i]; break; }
+    }
+    out[device] = { tp_bps: tp, series };
+  }
+  return out;
+}
+
+module.exports = { aggregateThroughput, deviceThroughput };

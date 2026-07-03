@@ -52,6 +52,8 @@ const VALID_METRIC_COLUMNS = new Set([
   'ccq_pct',
   'tx_rate_mbps',
   'rx_rate_mbps',
+  // §uptime — SNMP sysUpTime (migration 372)
+  'uptime_ticks',
 ]);
 
 // Configurable concurrency for parallel polling (default: 10 devices at a time)
@@ -210,8 +212,11 @@ async function insertMetricRow(deviceId, interfaceId, metrics) {
         sfp_tx_power_dbm, sfp_rx_power_dbm, sfp_temperature_c,
         ups_battery_pct, ups_runtime_min, poe_power_mw, humidity_pct,
         if_oper_status,
+        noise_floor_dbm, air_util_pct, gps_sync_status, snr_db, ccq_pct,
+        tx_rate_mbps, rx_rate_mbps,
+        uptime_ticks,
         polled_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
     [
       deviceId,
       interfaceId,
@@ -236,6 +241,16 @@ async function insertMetricRow(deviceId, interfaceId, metrics) {
       metrics.poe_power_mw ?? null,
       metrics.humidity_pct ?? null,
       metrics.if_oper_status ?? null,
+      // §9.1 wireless/RF metrics — previously collected but dropped (never in the
+      // INSERT list); now persisted. Plus sysUpTime (migration 372).
+      metrics.noise_floor_dbm ?? null,
+      metrics.air_util_pct ?? null,
+      metrics.gps_sync_status ?? null,
+      metrics.snr_db ?? null,
+      metrics.ccq_pct ?? null,
+      metrics.tx_rate_mbps ?? null,
+      metrics.rx_rate_mbps ?? null,
+      metrics.uptime_ticks ?? null,
     ],
   );
 }
