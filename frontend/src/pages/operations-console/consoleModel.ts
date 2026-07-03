@@ -289,6 +289,34 @@ function hhmmss(iso?: string | null): string {
   return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
 }
 
+// GET /dashboard/live-sessions
+export interface SessionsData { value: string; note: string; }
+
+// GET /dashboard/sites-utilization (one row per active site)
+export interface SiteRow {
+  id: number;
+  name: string;
+  city?: string | null;
+  site_type?: string | null;
+  device_count: number;
+  devices_online: number;
+}
+
+// GET /dashboard/network-devices (one row per device)
+export interface DeviceRow {
+  id: number;
+  name: string;
+  status: string;               // 'online' | 'offline' | 'maintenance'
+  ip_address: string | null;
+  type: string | null;
+  manufacturer: string | null;
+  model: string | null;
+  role: string | null;          // access | distribution | backhaul | core
+  last_poll_error: string | null;
+  cpu: number | null;
+  clients: number;
+}
+
 // ---------------------------------------------------------------------------
 // Real → view-model mapping
 // ---------------------------------------------------------------------------
@@ -299,8 +327,68 @@ export interface RealInputs {
   health?: DeviceHealthData;
   overdue?: OverdueInvoice[];
   events?: AlertEvent[];
+  sessions?: SessionsData;
+  sitesData?: SiteRow[];
+  devicesData?: DeviceRow[];
   /** ISO 4217 currency of the active organization (from useOrgCurrency). */
   orgCurrency?: string;
+}
+
+// Short site code derived from the name (sites have no code column). Multi-word
+// names use word initials (so "POP Norte" / "POP Sur" → PN / PS, not both "POP").
+function siteCode(name: string): string {
+  const words = (name || '').split(/[^a-zA-Z0-9]+/).filter(Boolean);
+  if (words.length >= 2) return words.slice(0, 3).map((w) => w[0]).join('').toUpperCase();
+  return ((words[0] || '').slice(0, 3) || '???').toUpperCase();
+}
+
+// Per-site health → SiteModel. util = % of the site's devices online; status is
+// health-based so a fully-up POP shows a green full bar and a partly-down one
+// shows warn/crit.
+export function mapSite(r: SiteRow): SiteModel {
+  const total = r.device_count || 0;
+  const online = r.devices_online || 0;
+  const util = total > 0 ? Math.round((online / total) * 100) : 0;
+  let status: SiteStatus = 'ok';
+  if (total > 0 && online < total) status = (online / total) >= 0.5 ? 'warn' : 'crit';
+  return { code: siteCode(r.name), util, status };
+}
+
+const DEVICE_TYPE_LABEL: Record<string, string> = {
+  router: 'Router', switch: 'Switch', olt: 'OLT', onu: 'ONU', ptp: 'PTP',
+  ptmp_ap: 'PTMP', outdoor_cpe: 'CPE', indoor_cpe: 'CPE', other: 'Other',
+};
+
+function titleCase(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+// One device row → DeviceModel. The DB enum has no 'degraded'; it's derived from
+// maintenance / a recent poll error. Throughput, sparkline, and uptime have no
+// clean per-device source yet, so they render as placeholders.
+export function mapDevice(r: DeviceRow): DeviceModel {
+  let status: DeviceStatus = 'online';
+  if (r.status === 'offline') status = 'offline';
+  else if (r.status === 'maintenance' || (r.status === 'online' && r.last_poll_error)) status = 'degraded';
+
+  // Prefer the network role (Core/Access/…); otherwise the display type label
+  // (matches the Type column — never a raw "Ptmp_ap"-style enum).
+  const kindLabel = r.role
+    ? titleCase(r.role)
+    : (r.type ? (DEVICE_TYPE_LABEL[r.type] || r.type) : '');
+  const subParts = [r.manufacturer, kindLabel].filter(Boolean);
+  return {
+    status,
+    name: r.name,
+    sub: subParts.join(' · ') || '—',
+    ip: r.ip_address || '—',
+    type: (r.type && DEVICE_TYPE_LABEL[r.type]) || r.type || '—',
+    tp: '—',
+    spark: null,
+    clients: r.clients > 0 ? r.clients.toLocaleString('en-US') : '0',
+    uptime: '—',
+    cpu: r.cpu,
+  };
 }
 
 export function buildRealModel(inp: RealInputs): ConsoleModel {
@@ -334,8 +422,7 @@ export function buildRealModel(inp: RealInputs): ConsoleModel {
     activeClients: { value: fmtInt(summary?.clients.active ?? 0), spark: null },
     mrr: { value: mrrC.value, unit: mrrC.unit, code: orgCurrency, spark: null },
     devicesOnline: { online: devOnline, total: devTotal },
-    // No RADIUS-session count endpoint wired yet — shown as pending until sourced.
-    liveSessions: { value: '—', note: 'RADIUS' },
+    liveSessions: inp.sessions ?? { value: '—', note: 'RADIUS' },
     openTickets: {
       value: fmtInt(openTickets),
       mix: openTickets > 0 ? [{ tone: 'accent', w: 1 }] : [],
@@ -359,10 +446,8 @@ export function buildRealModel(inp: RealInputs): ConsoleModel {
   return {
     isDemo: false,
     kpis,
-    // No POP-utilization endpoint yet — real mode starts with an empty POP strip.
-    sites: [],
-    // No per-device operational feed wired yet — populated as that source lands.
-    devices: [],
+    sites: (inp.sitesData ?? []).map(mapSite),
+    devices: (inp.devicesData ?? []).map(mapDevice),
     events,
   };
 }

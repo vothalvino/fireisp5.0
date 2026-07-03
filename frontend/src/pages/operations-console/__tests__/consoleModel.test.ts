@@ -4,7 +4,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEMO_MODEL, resolveModel, buildRealModel, hasRealData, buildChart, buildChartFromSeries,
+  mapSite, mapDevice,
   type SummaryData, type MrrRow, type AlertEvent, type OverdueInvoice, type ThroughputSeries,
+  type SiteRow, type DeviceRow,
 } from '../consoleModel';
 
 const summary = (total: number, active: number): SummaryData => ({
@@ -140,6 +142,81 @@ describe('real mapping', () => {
     const m = buildRealModel({ summary: summary(10, 8) });
     expect(m.sites).toEqual([]);
     expect(m.devices).toEqual([]);
+  });
+});
+
+describe('live panels (sessions / sites / devices)', () => {
+  const site = (name: string, total: number, online: number): SiteRow => ({
+    id: 1, name, device_count: total, devices_online: online,
+  });
+
+  it('maps a fully-up site to util 100 / ok', () => {
+    const m = mapSite(site('Norte', 5, 5));
+    expect(m).toEqual({ code: 'NOR', util: 100, status: 'ok' });
+  });
+
+  it('maps a partly-down site to warn, majority-down to crit', () => {
+    expect(mapSite(site('Poniente', 5, 4)).status).toBe('warn'); // 80%
+    expect(mapSite(site('Poniente', 5, 4)).util).toBe(80);
+    expect(mapSite(site('Bajio', 5, 1)).status).toBe('crit');    // 20%
+  });
+
+  it('maps a site with no devices to util 0 / ok', () => {
+    expect(mapSite(site('Empty', 0, 0))).toEqual({ code: 'EMP', util: 0, status: 'ok' });
+  });
+
+  it('uses word initials for multi-word site names so codes stay distinct', () => {
+    expect(mapSite(site('POP Norte', 4, 4)).code).toBe('PN');
+    expect(mapSite(site('POP Sur', 4, 4)).code).toBe('PS');
+  });
+
+  const dev = (over: Partial<DeviceRow>): DeviceRow => ({
+    id: 1, name: 'bras-01', status: 'online', ip_address: '10.0.0.1', type: 'router',
+    manufacturer: 'MikroTik', model: 'CCR', role: 'core', last_poll_error: null,
+    cpu: 28, clients: 8420, ...over,
+  });
+
+  it('maps an online device with derived sub / type label / formatted clients', () => {
+    const m = mapDevice(dev({}));
+    expect(m.status).toBe('online');
+    expect(m.sub).toBe('MikroTik · Core');
+    expect(m.type).toBe('Router');
+    expect(m.clients).toBe('8,420');
+    expect(m.cpu).toBe(28);
+    expect(m.tp).toBe('—');       // no per-device throughput source yet
+    expect(m.uptime).toBe('—');
+    expect(m.spark).toBeNull();
+  });
+
+  it('derives degraded from maintenance or a poll error, offline from status', () => {
+    expect(mapDevice(dev({ status: 'offline', cpu: null })).status).toBe('offline');
+    expect(mapDevice(dev({ status: 'maintenance' })).status).toBe('degraded');
+    expect(mapDevice(dev({ status: 'online', last_poll_error: 'timeout' })).status).toBe('degraded');
+    expect(mapDevice(dev({ status: 'offline', cpu: null })).cpu).toBeNull();
+  });
+
+  it('labels the device sub with the type label (not a raw enum) when role is null', () => {
+    const m = mapDevice(dev({ role: null, type: 'ptmp_ap', manufacturer: 'Ubiquiti' }));
+    expect(m.sub).toBe('Ubiquiti · PTMP'); // not "Ubiquiti · Ptmp_ap"
+  });
+
+  it('wires sessions/sites/devices into the real model, with a session fallback', () => {
+    const m = buildRealModel({
+      summary: summary(10, 8),
+      sessions: { value: '1,284', note: 'RADIUS · 93% of base' },
+      sitesData: [site('Norte', 5, 5), site('Bajio', 5, 1)],
+      devicesData: [dev({}), dev({ id: 2, name: 'ptmp-2', status: 'offline', cpu: null, clients: 0 })],
+    });
+    expect(m.kpis.liveSessions).toEqual({ value: '1,284', note: 'RADIUS · 93% of base' });
+    expect(m.sites).toHaveLength(2);
+    expect(m.devices).toHaveLength(2);
+    expect(m.devices[1].clients).toBe('0');
+
+    // No sessions payload → placeholder.
+    const m2 = buildRealModel({ summary: summary(10, 8) });
+    expect(m2.kpis.liveSessions).toEqual({ value: '—', note: 'RADIUS' });
+    expect(m2.sites).toEqual([]);
+    expect(m2.devices).toEqual([]);
   });
 });
 

@@ -245,8 +245,9 @@ export function SitesStrip({ sites }: { sites: SiteModel[] }) {
         <div className="fi-panel-empty">No POP telemetry yet — utilization appears once sites report uplink stats.</div>
       ) : (
         <div className="fi-sites">
-          {sites.map((s) => (
-            <div className={'fi-site' + cls[s.status]} key={s.code}>
+          {sites.map((s, i) => (
+            // Key by index — derived site codes are not guaranteed unique.
+            <div className={'fi-site' + cls[s.status]} key={i}>
               <div className="fi-site-top"><span className="fi-site-code">{s.code}</span><span className="fi-dot fi-dot-sm" style={{ background: barColor[s.status] }} /></div>
               <span className="fi-site-val" style={{ color: valColor[s.status] }}>{s.util}<small>%</small></span>
               <div className="fi-bar"><i style={{ width: s.util + '%', background: barColor[s.status] }} /></div>
