@@ -143,6 +143,19 @@ describe('NasDetail page', () => {
     expect(screen.getByRole('button', { name: 'Overview' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Health' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Live Sessions' })).toBeInTheDocument();
+    // Regression: the WireGuard tab label must resolve (was rendering the raw
+    // i18n key 'nasDetail.tabs.wireguard' — the locale key is 'tabs.tunnel').
+    expect(screen.getByRole('button', { name: 'WireGuard' })).toBeInTheDocument();
+  });
+
+  it('shows the health-check result inside the Health tab (not a far-away banner)', async () => {
+    mockApiPost.mockResolvedValue({ data: { data: { checked: 1, up: 1, down: 0 } }, error: undefined });
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Core-Router' })).toBeInTheDocument());
+    screen.getByRole('button', { name: 'Health' }).click();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run health check' })).toBeInTheDocument());
+    screen.getByRole('button', { name: 'Run health check' }).click();
+    await waitFor(() => expect(screen.getByText(/"checked": 1/)).toBeInTheDocument());
   });
 
   it('shows health check buttons for admin role', async () => {
