@@ -7,36 +7,23 @@
 // =============================================================================
 
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
 import { NasWireguardModal } from './NasWireguardModal';
+// Shared NAS action modals/helpers — the per-device actions live on this page now,
+// not in the list (which only navigates here).
+import { type Nas, SeedModal, NasModal, ConfirmDialog, deleteNas } from './NasList';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface NasRecord {
-  id: number;
-  name: string;
-  ip_address: string;
-  ipv6_address: string | null;
-  type: string | null;
-  ports: number | null;
-  coa_port: number | null;
-  location: string | null;
-  site_id: number | null;
-  health_status: string;
-  last_health_check_at: string | null;
-  status: string;
-  api_port: number | null;
-  api_username: string | null;
-  api_use_tls: boolean | null;
-  // NEVER include: api_password_encrypted, secret
-}
+// The NAS record shape is the shared `Nas` type imported from NasList (the GET
+// /nas/:id response never includes api_password_encrypted / secret).
 
 interface ConnectionLogRow {
   id: number;
@@ -66,6 +53,7 @@ interface WgTunnelResponse {
   tunnel: WgTunnelRecord | null;
   serverPublicKey?: string | null;
   serverEndpoint?: string | null;
+  serverTunnelIp?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -138,17 +126,23 @@ export function NasDetail() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [actionResult, setActionResult] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState<string | null>(null);
   const [showWgModal, setShowWgModal] = useState(false);
+  const [showSeed, setShowSeed] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
 
   // Mirror the backend route guards: health-check requires nas.health,
-  // test-connection requires devices.update.
+  // seed/test/voip/edit require devices.update, delete requires devices.delete.
   const canHealthCheck = can(user?.role, 'nas.health');
   const canTestConn = can(user?.role, 'devices.update');
+  const canManage = can(user?.role, 'devices.update');
+  const canDelete = can(user?.role, 'devices.delete');
 
   const TABS: { id: TabId; label: string }[] = [
     { id: 'overview',   label: t('nasDetail.tabs.overview') },
@@ -163,7 +157,7 @@ export function NasDetail() {
       const res = await api.GET('/nas/{id}' as never, { params: { path: { id: Number(id) } } } as never);
       if ((res as { error?: unknown }).error) throw new Error('NAS not found');
       const d = (res as { data: unknown }).data;
-      return (((d as { data?: NasRecord }).data) ?? d) as NasRecord;
+      return (((d as { data?: Nas }).data) ?? d) as Nas;
     },
     enabled: Boolean(id),
   });
@@ -192,7 +186,9 @@ export function NasDetail() {
       const d = (res as { data: unknown }).data;
       return (((d as { data?: WgTunnelResponse }).data) ?? d) as WgTunnelResponse;
     },
-    enabled: Boolean(id) && activeTab === 'wireguard',
+    // Always fetch: the WG tab needs the tunnel, and the Seed modal needs
+    // serverTunnelIp to default the RADIUS address to the hub over the tunnel.
+    enabled: Boolean(id),
   });
 
   async function runHealthCheck() {
@@ -240,6 +236,45 @@ export function NasDetail() {
     }
   }
 
+  async function runVoipRefresh() {
+    setActionPending('voip-refresh');
+    setActionResult(null);
+    setActionError(null);
+    try {
+      const res = (await api.POST('/nas/{id}/voip/refresh' as never, {
+        params: { path: { id: Number(id) } },
+      } as never)) as {
+        data?: { data?: { added?: number; removed?: number; kept?: number; ranges?: number; skipped?: boolean; reason?: string } };
+        error?: { error?: { message?: string } };
+      };
+      if (res.error) {
+        setActionError(res.error?.error?.message ?? 'VoIP refresh failed — router unreachable');
+        return;
+      }
+      const d = res.data?.data ?? {};
+      setActionResult(d.skipped
+        ? `Skipped: ${d.reason ?? 'real-time priority not seeded on this NAS'}`
+        : `VoIP ranges reconciled — added ${d.added ?? 0}, removed ${d.removed ?? 0}, kept ${d.kept ?? 0} (of ${d.ranges ?? 0} ranges)`);
+    } catch {
+      setActionError('VoIP refresh request failed.');
+    } finally {
+      setActionPending(null);
+    }
+  }
+
+  async function handleDelete() {
+    try {
+      await deleteNas(Number(id));
+      // Invalidate the list cache so the soft-deleted NAS doesn't linger on /nas
+      // (this ran in the old inline-list delete; keep it now that delete lives here).
+      queryClient.invalidateQueries({ queryKey: ['nas'] });
+      navigate('/nas');
+    } catch {
+      setShowDelete(false);
+      setActionError('Failed to delete this NAS.');
+    }
+  }
+
   if (isLoading) {
     return <div style={styles.page}><p style={styles.msg}>{t('nasDetail.loading')}</p></div>;
   }
@@ -271,7 +306,42 @@ export function NasDetail() {
             <span style={styles.idLabel}>ID #{nas.id}</span>
           </div>
         </div>
+        {/* Per-device actions (moved here from the NAS list) */}
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' as const }}>
+          {canManage && (
+            <button style={styles.actionBtn} onClick={() => setShowSeed(true)} title="Seed RADIUS, PPP AAA, CoA + optional QoS / walled-garden / VoIP onto this MikroTik">
+              Seed
+            </button>
+          )}
+          {canManage && (
+            <button style={styles.actionBtn} onClick={runVoipRefresh} disabled={actionPending !== null} title="Refresh the fireisp-voip RTC/VoIP address-list from provider ranges">
+              {actionPending === 'voip-refresh' ? 'VoIP…' : 'VoIP'}
+            </button>
+          )}
+          {canManage && (
+            <button style={styles.actionBtn} onClick={() => setShowEdit(true)} title="Edit this NAS">
+              Edit
+            </button>
+          )}
+          {canDelete && (
+            <button style={{ ...styles.actionBtn, color: '#991b1b', borderColor: '#fecaca' }} onClick={() => setShowDelete(true)} title="Delete this NAS">
+              Delete
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Action feedback (shared across header + tab actions) */}
+      {actionError && (
+        <div style={{ padding: '0.65rem 0.85rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, color: '#991b1b', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+          {actionError}
+        </div>
+      )}
+      {actionResult && (
+        <pre style={{ background: '#f9fafb', border: '1px solid var(--border)', borderRadius: 6, padding: '0.75rem', fontSize: '0.8rem', overflowX: 'auto', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
+          {actionResult}
+        </pre>
+      )}
 
       {/* Info card */}
       <div style={styles.infoCard}>
@@ -349,17 +419,6 @@ export function NasDetail() {
               </div>
             )}
 
-            {actionError && (
-              <div style={{ padding: '0.75rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, color: '#991b1b', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
-                {actionError}
-              </div>
-            )}
-
-            {actionResult && (
-              <pre style={{ background: '#f9fafb', border: '1px solid var(--border)', borderRadius: 6, padding: '0.75rem', fontSize: '0.8rem', overflowX: 'auto', color: 'var(--text-secondary)' }}>
-                {actionResult}
-              </pre>
-            )}
           </div>
         )}
 
@@ -472,6 +531,37 @@ export function NasDetail() {
             setShowWgModal(false);
             refetchWg();
           }}
+        />
+      )}
+
+      {/* Seed — RADIUS address defaults to the hub tunnel IP so RADIUS rides the WG tunnel */}
+      {showSeed && nas && (
+        <SeedModal
+          nas={nas}
+          defaultRadiusAddress={wgData?.serverTunnelIp ?? undefined}
+          onClose={() => setShowSeed(false)}
+        />
+      )}
+
+      {/* Edit */}
+      {showEdit && nas && (
+        <NasModal
+          nas={nas}
+          onClose={() => setShowEdit(false)}
+          onSaved={() => {
+            // Refresh both the detail view and the list (name/status may have changed).
+            queryClient.invalidateQueries({ queryKey: ['nas-detail', id] });
+            queryClient.invalidateQueries({ queryKey: ['nas'] });
+          }}
+        />
+      )}
+
+      {/* Delete → soft-delete then back to the list */}
+      {showDelete && (
+        <ConfirmDialog
+          message="Delete this NAS? It will be soft-deleted."
+          onConfirm={handleDelete}
+          onCancel={() => setShowDelete(false)}
         />
       )}
     </div>

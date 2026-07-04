@@ -9,19 +9,18 @@
 // =============================================================================
 
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
-import { NasWireguardModal } from './NasWireguardModal';
 import { Pagination } from '@/components/Pagination';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface Nas {
+export interface Nas {
   id: number;
   name: string;
   ip_address: string;
@@ -30,6 +29,7 @@ interface Nas {
   ports: number | null;
   coa_port: number | null;
   location: string | null;
+  site_id?: number | null;
   secondary_nas_id: number | null;
   health_status: string;
   last_health_check_at: string | null;
@@ -96,7 +96,7 @@ async function updateNas(id: number, body: Partial<NasBody>): Promise<void> {
   if (res.error) throw new Error('Failed to update NAS');
 }
 
-async function deleteNas(id: number): Promise<void> {
+export async function deleteNas(id: number): Promise<void> {
   const res = await api.DELETE('/nas/{id}', { params: { path: { id } } });
   if (res.error) throw new Error('Failed to delete NAS');
 }
@@ -147,7 +147,7 @@ interface SeedResult {
   steps: SeedStep[];
 }
 
-async function seedNasDevice(id: number, body: SeedBody): Promise<SeedResult> {
+export async function seedNasDevice(id: number, body: SeedBody): Promise<SeedResult> {
   const res = (await api.POST('/nas/{id}/seed', {
     params: { path: { id } },
     body: body as never,
@@ -235,7 +235,7 @@ interface NasModalProps {
   onCreated?: (nas: Nas) => void;
 }
 
-function NasModal({ nas, onClose, onSaved, onCreated }: NasModalProps) {
+export function NasModal({ nas, onClose, onSaved, onCreated }: NasModalProps) {
   const isEdit = nas !== null;
   const { t } = useTranslation();
   const [form, setForm] = useState({
@@ -580,7 +580,7 @@ interface ConfirmDialogProps {
   onCancel: () => void;
 }
 
-function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
   return (
     <div style={modalStyles.backdrop} onClick={onCancel}>
       <div
@@ -615,6 +615,12 @@ const SEED_STEP_COLORS: Record<string, { bg: string; color: string }> = {
 interface SeedModalProps {
   nas: Nas;
   onClose: () => void;
+  /**
+   * Pre-fills the RADIUS server address. Every NAS reaches FireISP over the
+   * WireGuard tunnel, so this should be the hub tunnel IP (e.g. 10.255.0.1) —
+   * that way RADIUS rides the tunnel and no management port faces the internet.
+   */
+  defaultRadiusAddress?: string;
 }
 
 /**
@@ -631,13 +637,13 @@ function isIpAddress(v: string): boolean {
   return false;
 }
 
-function SeedModal({ nas, onClose }: SeedModalProps) {
+export function SeedModal({ nas, onClose, defaultRadiusAddress }: SeedModalProps) {
   const [form, setForm] = useState({
-    // The router must reach FireISP's RADIUS at a routable IP. RouterOS's /radius
-    // `address` accepts an IP literal ONLY (a hostname trips a cryptic device
-    // error), so we DON'T prefill window.location.hostname — that is almost always
-    // a DNS name. Leave it blank and let the operator enter the RADIUS server IP.
-    radiusAddress: '',
+    // Prefill the FireISP hub's WireGuard tunnel IP (an IP literal, which RouterOS's
+    // /radius `address` requires — a hostname trips a cryptic device error). Routing
+    // RADIUS over the tunnel means only 80/443 + the WG port need be public on the
+    // server. Falls back to blank when the hub IP isn't known yet.
+    radiusAddress: defaultRadiusAddress ?? '',
     authPort: '1812',
     acctPort: '1813',
     coaPort: nas.coa_port != null ? String(nas.coa_port) : '3799',
@@ -1049,25 +1055,15 @@ function SeedModal({ nas, onClose }: SeedModalProps) {
 
 export function NasList() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
-  const [editNas, setEditNas] = useState<Nas | null>(null);
-  const [deleteId, setDeleteId] = useState<number | null>(null);
-  const [testingId, setTestingId] = useState<number | null>(null);
-  const [voipRefreshingId, setVoipRefreshingId] = useState<number | null>(null);
-  const [seedNasTarget, setSeedNasTarget] = useState<Nas | null>(null);
-  const [wgNasTarget, setWgNasTarget] = useState<Nas | null>(null);
 
   const nasQ = useQuery({
     queryKey: ['nas', page, pageSize, statusFilter],
     queryFn: () => fetchNas(page, pageSize, statusFilter),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => deleteNas(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['nas'] }),
   });
 
   function invalidate() {
@@ -1077,55 +1073,6 @@ export function NasList() {
   function handleFilterChange(value: string) {
     setStatusFilter(value);
     setPage(1);
-  }
-
-  async function handleTestConnection(id: number) {
-    setTestingId(id);
-    try {
-      const res = (await api.POST('/nas/{id}/test-connection', { params: { path: { id } } })) as {
-        data?: { data?: Record<string, unknown> };
-        error?: { error?: { message?: string } };
-      };
-      if (res.error) {
-        alert(`Connection failed: ${res.error?.error?.message ?? 'Router unreachable'}`);
-        return;
-      }
-      const data = res.data?.data ?? {};
-      // Use `||` not `??`: the service returns '' (empty string, not null) for an
-      // attribute it couldn't parse, and we want the dash for those too.
-      const version = data.version || '—';
-      const board = data.boardName || '—';
-      const identity = data.identity || '—';
-      alert(`Connection OK\nVersion: ${version}\nBoard: ${board}\nIdentity: ${identity}`);
-    } catch {
-      alert('Connection failed: request error.');
-    } finally {
-      setTestingId(null);
-    }
-  }
-
-  async function handleVoipRefresh(id: number) {
-    setVoipRefreshingId(id);
-    try {
-      const res = (await api.POST('/nas/{id}/voip/refresh', { params: { path: { id } } })) as {
-        data?: { data?: { added?: number; removed?: number; kept?: number; ranges?: number; skipped?: boolean; reason?: string } };
-        error?: { error?: { message?: string } };
-      };
-      if (res.error) {
-        alert(`VoIP refresh failed: ${res.error?.error?.message ?? 'Router unreachable'}`);
-        return;
-      }
-      const d = res.data?.data ?? {};
-      if (d.skipped) {
-        alert(`VoIP refresh skipped: ${d.reason ?? 'real-time priority not seeded on this NAS'}`);
-        return;
-      }
-      alert(`VoIP ranges reconciled\nAdded: ${d.added ?? 0}\nRemoved: ${d.removed ?? 0}\nKept: ${d.kept ?? 0}\nTotal ranges: ${d.ranges ?? 0}`);
-    } catch {
-      alert('VoIP refresh failed: request error.');
-    } finally {
-      setVoipRefreshingId(null);
-    }
   }
 
   const devices = nasQ.data?.data ?? [];
@@ -1158,12 +1105,6 @@ export function NasList() {
           </button>
         )}
       </div>
-
-      {deleteMutation.isError && (
-        <p style={{ color: '#ef4444', marginBottom: '0.75rem', fontSize: '0.85rem' }}>
-          Action failed. Please try again.
-        </p>
-      )}
 
       <div style={styles.tableCard}>
         {nasQ.isLoading ? (
@@ -1200,49 +1141,13 @@ export function NasList() {
                       </td>
                       <td style={styles.td}><StatusBadge status={n.status} /></td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
-                        <button
-                          style={styles.actionBtn}
-                          onClick={() => handleTestConnection(n.id)}
-                          disabled={testingId === n.id}
-                          title="Test RouterOS API connection"
+                        <Link
+                          to={`/nas/${n.id}`}
+                          style={{ ...styles.actionBtn, textDecoration: 'none', display: 'inline-block' }}
+                          title="Open this NAS to test, seed, configure WireGuard, refresh VoIP, edit or delete"
                         >
-                          {testingId === n.id ? 'Testing...' : 'Test'}
-                        </button>
-                        <button
-                          style={styles.actionBtn}
-                          onClick={() => setSeedNasTarget(n)}
-                          title="Seed RADIUS, PPP AAA, CoA + optional QoS/walled-garden onto this MikroTik"
-                        >
-                          Seed
-                        </button>
-                        <button
-                          style={styles.actionBtn}
-                          onClick={() => handleVoipRefresh(n.id)}
-                          disabled={voipRefreshingId === n.id}
-                          title="Refresh the fireisp-voip RTC/VoIP address-list from provider ranges"
-                        >
-                          {voipRefreshingId === n.id ? 'VoIP…' : 'VoIP'}
-                        </button>
-                        <button
-                          style={styles.actionBtn}
-                          onClick={() => setWgNasTarget(n)}
-                          title="Configure WireGuard tunnel for this NAS"
-                        >
-                          WG
-                        </button>
-                        <Link to={`/nas/${n.id}`} style={{ ...styles.actionBtn, textDecoration: 'none', display: 'inline-block' }}>
-                          View
+                          Manage →
                         </Link>
-                        <button style={styles.actionBtn} onClick={() => setEditNas(n)} title="Edit this NAS">
-                          Edit
-                        </button>
-                        <button
-                          style={{ ...styles.actionBtn, color: '#991b1b' }}
-                          onClick={() => setDeleteId(n.id)}
-                          title="Delete this NAS"
-                        >
-                          Delete
-                        </button>
                       </td>
                     </tr>
                   ))}
@@ -1267,23 +1172,9 @@ export function NasList() {
           nas={null}
           onClose={() => setShowNew(false)}
           onSaved={invalidate}
-          onCreated={(nas) => setWgNasTarget(nas)}
-        />
-      )}
-      {editNas && <NasModal nas={editNas} onClose={() => setEditNas(null)} onSaved={invalidate} />}
-      {seedNasTarget && <SeedModal nas={seedNasTarget} onClose={() => setSeedNasTarget(null)} />}
-      {wgNasTarget && (
-        <NasWireguardModal nas={wgNasTarget} onClose={() => setWgNasTarget(null)} />
-      )}
-
-      {deleteId !== null && (
-        <ConfirmDialog
-          message="Delete this NAS? It will be soft-deleted and removed from the list."
-          onConfirm={() => {
-            deleteMutation.mutate(deleteId);
-            setDeleteId(null);
-          }}
-          onCancel={() => setDeleteId(null)}
+          // After creating a NAS, jump straight to its detail page — that's where
+          // WireGuard, seeding and the rest of the per-device actions now live.
+          onCreated={(nas) => navigate(`/nas/${nas.id}`)}
         />
       )}
     </div>
