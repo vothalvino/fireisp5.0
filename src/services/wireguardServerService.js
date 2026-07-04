@@ -140,6 +140,18 @@ function subnetToRange(cidr) {
   return { network, broadcast };
 }
 
+/**
+ * The FireISP hub's own wg-fireisp tunnel IP (first host in the server subnet,
+ * network+1 — e.g. 10.255.0.1 for 10.255.0.0/16). This is the address every
+ * managed NAS should point RADIUS/API/CoA at so that traffic rides the encrypted
+ * tunnel and no management port needs to face the public internet.
+ * @returns {string}
+ */
+function serverTunnelIp() {
+  const { network } = subnetToRange(config.wireguard.serverSubnet);
+  return intToIp(network + 1);
+}
+
 // =============================================================================
 // Part 1 — NAS peer management on wg-fireisp
 // =============================================================================
@@ -928,4 +940,7 @@ module.exports = {
 
   // Host bootstrap (startup)
   bootstrapHost,
+
+  // Derived addressing
+  serverTunnelIp,
 };

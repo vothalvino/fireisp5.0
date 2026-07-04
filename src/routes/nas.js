@@ -291,7 +291,16 @@ router.get('/:id/wg', requirePermission('devices.view'), async (req, res, next) 
       [req.params.id],
     );
     const tunnel = rows[0] || null;
-    res.json({ data: tunnel ? redactTunnel(tunnel) : null });
+    // Surface the hub's own tunnel IP + public endpoint so the UI can default the
+    // Seed RADIUS address to the tunnel (10.255.0.x) — every NAS should reach FireISP
+    // over WireGuard, so only 80/443 + the WG port need to be public on the server.
+    res.json({
+      data: {
+        tunnel: tunnel ? redactTunnel(tunnel) : null,
+        serverTunnelIp: wireguardServerService.serverTunnelIp(),
+        serverEndpoint: config.wireguard.serverEndpoint || null,
+      },
+    });
   } catch (err) {
     next(err);
   }

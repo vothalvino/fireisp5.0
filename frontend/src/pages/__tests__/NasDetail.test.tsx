@@ -13,12 +13,13 @@ import { NasDetail } from '../NasDetail';
 
 const mockApiGet = vi.fn();
 const mockApiPost = vi.fn();
+const mockApiDelete = vi.fn();
 vi.mock('@/api/client', () => ({
   api: {
     GET: (...args: unknown[]) => mockApiGet(...args),
     POST: (...args: unknown[]) => mockApiPost(...args),
     PUT: vi.fn(),
-    DELETE: vi.fn(),
+    DELETE: (...args: unknown[]) => mockApiDelete(...args),
   },
   tokenStore: {
     getAccess: () => 'tok',
@@ -204,5 +205,65 @@ describe('NasDetail page', () => {
     mockApiGet.mockImplementation(() => new Promise(() => {}));
     renderDetail();
     expect(screen.getByText('Loading NAS…')).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Per-device actions (moved here from the NAS list)
+  // -------------------------------------------------------------------------
+
+  it('shows Seed / VoIP / Edit / Delete header actions for admin', async () => {
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Core-Router' })).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Seed' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'VoIP' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+  });
+
+  it('refreshes VoIP ranges from the header and shows the reconcile result', async () => {
+    mockApiPost.mockResolvedValue({ data: { data: { added: 3, removed: 1, kept: 2, ranges: 6 } }, error: undefined });
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Core-Router' })).toBeInTheDocument());
+
+    screen.getByRole('button', { name: 'VoIP' }).click();
+
+    await waitFor(() => expect(screen.getByText(/VoIP ranges reconciled/i)).toBeInTheDocument());
+    expect(mockApiPost).toHaveBeenCalledWith('/nas/{id}/voip/refresh', expect.objectContaining({ params: { path: { id: 1 } } }));
+  });
+
+  it('opens the Seed modal with the RADIUS address defaulted to the hub tunnel IP', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/nas/{id}') return Promise.resolve({ data: { data: nas }, error: undefined });
+      if (path === '/nas/{id}/wg') return Promise.resolve({ data: { data: { tunnel: null, serverTunnelIp: '10.255.0.1' } }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Core-Router' })).toBeInTheDocument());
+
+    screen.getByRole('button', { name: 'Seed' }).click();
+
+    await waitFor(() => expect(screen.getByRole('dialog', { name: /Seed NAS Core-Router/i })).toBeInTheDocument());
+    expect(screen.getByRole('textbox', { name: /FireISP RADIUS Address/i })).toHaveValue('10.255.0.1');
+  });
+
+  it('deletes the NAS after confirmation and returns to the list', async () => {
+    mockApiDelete.mockResolvedValue({ error: undefined });
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Core-Router' })).toBeInTheDocument());
+
+    screen.getByRole('button', { name: 'Delete' }).click();
+    await waitFor(() => expect(screen.getByRole('button', { name: /Yes, confirm/i })).toBeInTheDocument());
+    screen.getByRole('button', { name: /Yes, confirm/i }).click();
+
+    await waitFor(() => expect(mockApiDelete).toHaveBeenCalledWith('/nas/{id}', expect.objectContaining({ params: { path: { id: 1 } } })));
+  });
+
+  it('hides Seed / Edit / Delete for a role without devices permissions (billing)', async () => {
+    mockRole = 'billing';
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Core-Router' })).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Seed' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
   });
 });

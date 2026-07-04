@@ -121,14 +121,16 @@ describe('GET /api/nas/:id/wg', () => {
 
     expect(res.status).toBe(200);
     // redactTunnel must have removed the private key column
-    expect(res.body.data).not.toHaveProperty('nas_private_key_encrypted');
-    // Other fields are present
-    expect(res.body.data.tunnel_address).toBe('10.255.0.2');
-    expect(res.body.data.nas_public_key).toBe('NASPUBKEY==');
-    expect(res.body.data.state).toBe('active');
+    expect(res.body.data.tunnel).not.toHaveProperty('nas_private_key_encrypted');
+    // Tunnel fields are nested under data.tunnel
+    expect(res.body.data.tunnel.tunnel_address).toBe('10.255.0.2');
+    expect(res.body.data.tunnel.nas_public_key).toBe('NASPUBKEY==');
+    expect(res.body.data.tunnel.state).toBe('active');
+    // The hub's own tunnel IP is surfaced so the UI can default the RADIUS address to it
+    expect(res.body.data.serverTunnelIp).toBe('10.255.0.1');
   });
 
-  test('200 with data:null when no tunnel record exists yet', async () => {
+  test('200 with tunnel:null when no tunnel record exists yet (still returns serverTunnelIp)', async () => {
     mockAdminUser();
     Nas.findByIdOrFail.mockResolvedValue(mockNas);
     db.query.mockResolvedValueOnce([[]]); // no tunnel row
@@ -138,7 +140,8 @@ describe('GET /api/nas/:id/wg', () => {
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toBeNull();
+    expect(res.body.data.tunnel).toBeNull();
+    expect(res.body.data.serverTunnelIp).toBe('10.255.0.1');
   });
 
   test('404 when NAS does not exist', async () => {
