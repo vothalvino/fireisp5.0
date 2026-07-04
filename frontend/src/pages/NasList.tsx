@@ -617,11 +617,27 @@ interface SeedModalProps {
   onClose: () => void;
 }
 
+/**
+ * True if `v` is an IPv4 or IPv6 literal. RouterOS's /radius `address` accepts
+ * only an IP (a hostname fails on the device), so the Seed form validates the
+ * RADIUS address up front. The backend re-checks authoritatively via net.isIP.
+ */
+function isIpAddress(v: string): boolean {
+  const s = v.trim();
+  // IPv4 dotted-quad with 0–255 octets.
+  if (/^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(s)) return true;
+  // IPv6 (loose): hex groups separated by colons, incl. "::" compression.
+  if (s.includes(':') && /^[0-9a-fA-F:]+$/.test(s)) return true;
+  return false;
+}
+
 function SeedModal({ nas, onClose }: SeedModalProps) {
   const [form, setForm] = useState({
-    // The router must reach FireISP's RADIUS at a routable address. Default to the
-    // host the admin is browsing — usually correct; editable for split DNS / NAT.
-    radiusAddress: window.location.hostname,
+    // The router must reach FireISP's RADIUS at a routable IP. RouterOS's /radius
+    // `address` accepts an IP literal ONLY (a hostname trips a cryptic device
+    // error), so we DON'T prefill window.location.hostname — that is almost always
+    // a DNS name. Leave it blank and let the operator enter the RADIUS server IP.
+    radiusAddress: '',
     authPort: '1812',
     acctPort: '1813',
     coaPort: nas.coa_port != null ? String(nas.coa_port) : '3799',
@@ -716,6 +732,10 @@ function SeedModal({ nas, onClose }: SeedModalProps) {
       setError('FireISP RADIUS address is required.');
       return;
     }
+    if (!isIpAddress(form.radiusAddress)) {
+      setError('FireISP RADIUS address must be an IP address, not a hostname — RouterOS only accepts an IP here.');
+      return;
+    }
     setError('');
     mutation.mutate();
   }
@@ -784,9 +804,13 @@ function SeedModal({ nas, onClose }: SeedModalProps) {
                 maxLength={255}
                 value={form.radiusAddress}
                 onChange={e => setField('radiusAddress', e.target.value)}
-                placeholder="e.g. radius.myisp.net or 203.0.113.10"
+                placeholder="e.g. 203.0.113.10"
                 required
               />
+              <span style={{ fontWeight: 400, fontSize: 12, color: '#6b7280' }}>
+                The IP the router uses to reach FireISP's RADIUS. Must be an IP address —
+                RouterOS's /radius does not accept a hostname.
+              </span>
             </label>
 
             <div style={{ display: 'flex', gap: 10 }}>

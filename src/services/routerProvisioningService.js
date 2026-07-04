@@ -14,6 +14,7 @@
 //   nas.api_use_tls           — use api-ssl (TLS) transport
 // =============================================================================
 
+const net = require('net');
 const ros = require('./routerosService');
 const { decrypt } = require('../utils/encryption');
 const { ValidationError } = require('../utils/errors');
@@ -320,6 +321,15 @@ async function seedDevice(nas, opts = {}) {
   const radiusAddr = String(radiusAddress ?? '').trim();
   if (!radiusAddr) {
     throw new ValidationError('radiusAddress is required to seed the RADIUS client');
+  }
+  // RouterOS's /radius `address` accepts an IP literal ONLY — a DNS name is
+  // rejected with a cryptic "invalid or unexpected argument base" trap (confirmed
+  // on ROS7.21). Reject a hostname here with a clear message so the operator sees
+  // WHY the RADIUS client can't be seeded, instead of that opaque device error.
+  if (!net.isIP(radiusAddr)) {
+    throw new ValidationError(
+      `radiusAddress must be an IP address, not a hostname (got "${radiusAddr}") — RouterOS's /radius accepts only an IP`,
+    );
   }
   const portalAddr = portalAddress ? String(portalAddress).trim() : '';
   if (!nas.secret) {
