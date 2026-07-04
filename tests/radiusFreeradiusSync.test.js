@@ -270,6 +270,22 @@ describe('syncFreeradiusTables — EAP-TLS subscriber with certificate', () => {
     expect(mikrotikRow).toBeDefined();
     expect(mikrotikRow.params[0]).toBe('plan_7');
   });
+
+  test('appends the plan priority as the 5th rate-limit field via the FreeRADIUS SQL backend', async () => {
+    // Regression guard: syncFreeradiusTables must carry p.priority into the plan
+    // object, or the new priority field only reaches the embedded RADIUS server.
+    const prioritized = { ...subscriber, plan_priority: 2 };
+    const calls = setupMockDb({ subscribers: [prioritized], certs: [] });
+
+    await syncFreeradiusTables(10);
+
+    const mikrotikRow = calls.find(
+      c => c.sql.includes('INSERT INTO radgroupreply') && c.params && c.params[1] === 'Mikrotik-Rate-Limit',
+    );
+    expect(mikrotikRow).toBeDefined();
+    // dl100/ul50, burst→2x, threshold→CIR, burst-time 8, priority 2
+    expect(mikrotikRow.params[3]).toBe('100M/50M 200M/100M 100M/50M 8 2');
+  });
 });
 
 describe('syncFreeradiusTables — Cisco vendor', () => {

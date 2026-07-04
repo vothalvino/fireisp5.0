@@ -54,6 +54,34 @@ describe('radiusAttributeService.generateAttributes()', () => {
     expect(attrs['Mikrotik-Rate-Limit']).toBe('10M/2M 20M/4M 10M/2M 8');
   });
 
+  it('appends the plan priority as the 5th rate-limit field when set', () => {
+    // Business tier (priority 2) — the low number out-ranks residential under a
+    // shared parent queue; RouterOS reads it as the queue priority.
+    const attrs = generateAttributes({
+      download_speed_mbps: 100,
+      upload_speed_mbps: 20,
+      burst_download_mbps: 200,
+      burst_upload_mbps: 40,
+      radius_vendor: 'mikrotik',
+      priority: 2,
+    });
+    expect(attrs['Mikrotik-Rate-Limit']).toBe('100M/20M 200M/40M 100M/20M 8 2');
+  });
+
+  it('omits the priority field when the plan has no priority (legacy 4-field form)', () => {
+    for (const priority of [null, undefined, '']) {
+      const attrs = generateAttributes({
+        download_speed_mbps: 10,
+        upload_speed_mbps: 2,
+        burst_download_mbps: 20,
+        burst_upload_mbps: 4,
+        radius_vendor: 'mikrotik',
+        priority,
+      });
+      expect(attrs['Mikrotik-Rate-Limit']).toBe('10M/2M 20M/4M 10M/2M 8');
+    }
+  });
+
   it('returns Cisco AVPair attributes for cisco vendor', () => {
     const attrs = generateAttributes({ ...basePlan, radius_vendor: 'cisco' });
     expect(attrs).toHaveProperty('Cisco-AVPair');

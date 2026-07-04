@@ -69,9 +69,33 @@ const seedNas = {
   queueParent: { type: 'string', max: 64 },
   totalDownloadMbps: { type: 'number', min: 0, max: 1000000 },
   totalUploadMbps: { type: 'number', min: 0, max: 1000000 },
+  // §3 fq-codel queue types; §4 Business/Residential priority simple queues
+  // (reuse totalDownloadMbps/totalUploadMbps as the POP limit).
+  seedQueueTypes: { type: 'boolean' },
+  seedPriorityQueues: { type: 'boolean' },
+  // §2 PPPoE server + base profile. pppoeInterface is required by the service
+  // when seedPppoeServer is set (validated there → skipped step if absent).
+  seedPppoeServer: { type: 'boolean' },
+  pppoeInterface: { type: 'string', max: 64 },
+  pppoeServiceName: { type: 'string', max: 64 },
+  pppoeProfileName: { type: 'string', max: 64 },
+  pppoeLocalAddress: { type: 'string', max: 45 },
+  pppoeParentQueue: { type: 'string', max: 64 },
   seedWalledGarden: { type: 'boolean' },
   suspendedListName: { type: 'string', max: 64 },
   portalAddress: { type: 'string', max: 255 },
+  // §5 walled-garden redirect tuning: ports it matches, the portal's listen port,
+  // and whether it is laid down live (permanent) or disabled on create.
+  redirectPorts: { type: 'string', max: 64 },
+  redirectToPort: { type: 'number', min: 1, max: 65535 },
+  redirectEnabled: { type: 'boolean' },
+  // Real-time (VoIP / calling) priority: classify → DSCP EF → priority-1 queue.
+  seedRealtimePriority: { type: 'boolean' },
+  sipRtpPorts: { type: 'string', max: 128 },
+  voipNetworks: { type: 'string', max: 2000 },
+  trustClientDscp: { type: 'boolean' },
+  realtimeParent: { type: 'string', max: 64 },
+  realtimeMaxMbps: { type: 'number', min: 0, max: 1000000 },
 };
 
 // Confirm WireGuard routed subnets for PUT /nas/:id/wg/routes.

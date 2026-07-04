@@ -158,6 +158,13 @@ async function pushSubscriber(nas, { username, password, profile, comment }) {
 // Comment tag prefix marking every FireISP-managed object on the router.
 const SEED_TAG = 'fireisp';
 
+// Blueprint §4 — global priority-class simple-queue names. The numeric prefixes
+// keep them ordered at the top of the simple-queue list (RouterOS evaluates
+// simple queues top-to-bottom). Business (priority 2) out-ranks Residential (5).
+const POP_LIMIT_NAME = '01-GLOBAL-POP-LIMIT';
+const BUSINESS_CLASS_NAME = '02-BUSINESS-CLASS';
+const RESIDENTIAL_CLASS_NAME = '03-RESIDENTIAL-CLASS';
+
 /**
  * Read the first `!re` row under a device-global singleton path (e.g. /ppp/aaa,
  * /radius/incoming) and return its attributes, or `{}` when there is no row.
@@ -204,6 +211,35 @@ async function upsertByComment(client, basePath, comment, attrWords, addOnlyWord
 }
 
 /**
+ * Read the first `!re` row matching a query under `basePath` (e.g. a queue type
+ * by name), returning its attributes or `null`. Unlike `readFirst`, this narrows
+ * with a query so it targets one named row rather than a device-global singleton.
+ */
+async function readRow(client, basePath, queries = []) {
+  const sentences = await client.run([`${basePath}/print`, ...queries]);
+  for (const sentence of sentences) {
+    if (sentence[0] === '!re') return ros.parseAttrs(sentence.slice(1));
+  }
+  return null;
+}
+
+/**
+ * Upsert (set-if-present, else add) an object matched by NAME rather than by a
+ * comment tag. Used for objects whose stable identity IS their name — the §4
+ * priority-class simple queues and the base PPP profile — so a re-run updates the
+ * existing named object instead of failing on RouterOS's "name already used".
+ */
+async function upsertByName(client, basePath, name, attrWords, addOnlyWords = []) {
+  const id = await ros.findId(client, basePath, [`?name=${name}`]);
+  if (id) {
+    await client.run([`${basePath}/set`, `=.id=${id}`, ...attrWords]);
+    return 'updated';
+  }
+  await client.run([`${basePath}/add`, ...attrWords, ...addOnlyWords]);
+  return 'created';
+}
+
+/**
  * Seed a MikroTik NAS with the FireISP RADIUS/PPP/QoS bootstrap.
  *
  * Idempotent and non-destructive — safe to re-run. Connection/credential
@@ -219,11 +255,28 @@ async function upsertByComment(client, basePath, comment, attrWords, addOnlyWord
  * @param {string} [opts.interimUpdate='5m']
  * @param {boolean}[opts.seedQueueTree=false]
  * @param {string} [opts.queueParent='global']
- * @param {number} [opts.totalDownloadMbps]
- * @param {number} [opts.totalUploadMbps]
+ * @param {number} [opts.totalDownloadMbps]   Also used as the §4 POP-limit download cap
+ * @param {number} [opts.totalUploadMbps]     Also used as the §4 POP-limit upload cap
+ * @param {boolean}[opts.seedQueueTypes=false]     §3 — set default/default-small queue kinds to fq-codel
+ * @param {boolean}[opts.seedPriorityQueues=false] §4 — GLOBAL-POP-LIMIT → BUSINESS(2)/RESIDENTIAL(5) simple queues
+ * @param {boolean}[opts.seedPppoeServer=false]    §2 — base PPP profile + pppoe-server on pppoeInterface
+ * @param {string} [opts.pppoeInterface]           Required when seedPppoeServer (e.g. 'ether2')
+ * @param {string} [opts.pppoeServiceName='FireISP-Internet']
+ * @param {string} [opts.pppoeProfileName='fireisp-pppoe']
+ * @param {string} [opts.pppoeLocalAddress]        PPP profile local-address (gateway IP)
+ * @param {string} [opts.pppoeParentQueue]         PPP profile parent-queue (defaults to POP limit when §4 seeded)
  * @param {boolean}[opts.seedWalledGarden=false]
  * @param {string} [opts.suspendedListName='fireisp-suspended']
- * @param {string} [opts.portalAddress]     If set, lays down a (disabled) HTTP redirect-to-portal NAT rule
+ * @param {string} [opts.portalAddress]     If set, lays down a redirect-to-portal NAT rule for the suspended list
+ * @param {string} [opts.redirectPorts='80,443']   §5 — dst-ports the walled-garden redirect matches
+ * @param {number} [opts.redirectToPort=80]        §5 — port the portal listens on (dst-nat to-ports)
+ * @param {boolean}[opts.redirectEnabled=true]     §5 — lay the redirect down live (false = disabled on create)
+ * @param {boolean}[opts.seedRealtimePriority=false] Realtime/VoIP priority: classify → DSCP EF → priority-1 queue
+ * @param {string} [opts.sipRtpPorts='5060,5061,10000-20000'] UDP ports treated as SIP/RTP
+ * @param {string} [opts.voipNetworks]              CIDRs (comma/space) added to the fireisp-voip address-list (OTT providers)
+ * @param {boolean}[opts.trustClientDscp=false]     Also mark packets the client already tags DSCP EF (spoofable — capped)
+ * @param {string} [opts.realtimeParent='global']   Parent for the priority-1 realtime queue-tree node
+ * @param {number} [opts.realtimeMaxMbps]           Optional cap (Mbps) on the realtime queue — the anti-abuse limit
  * @returns {Promise<{ ok: boolean, host: string, port: number, tls: boolean,
  *                     steps: Array<{ step: string, status: string, detail: string }> }>}
  */
@@ -238,9 +291,26 @@ async function seedDevice(nas, opts = {}) {
     queueParent = 'global',
     totalDownloadMbps,
     totalUploadMbps,
+    seedQueueTypes = false,
+    seedPriorityQueues = false,
+    seedPppoeServer = false,
+    pppoeInterface,
+    pppoeServiceName = 'FireISP-Internet',
+    pppoeProfileName = `${SEED_TAG}-pppoe`,
+    pppoeLocalAddress,
+    pppoeParentQueue,
     seedWalledGarden = false,
     suspendedListName = `${SEED_TAG}-suspended`,
     portalAddress,
+    redirectPorts = '80,443',
+    redirectToPort = 80,
+    redirectEnabled = true,
+    seedRealtimePriority = false,
+    sipRtpPorts = '5060,5061,10000-20000',
+    voipNetworks,
+    trustClientDscp = false,
+    realtimeParent = 'global',
+    realtimeMaxMbps,
   } = opts;
 
   // Pre-flight validation — these become a 422 (misconfiguration), not "unreachable".
@@ -359,14 +429,149 @@ async function seedDevice(nas, opts = {}) {
       }
     }
 
-    // ── 5. Suspended-subscriber walled garden (optional) ──────────────────────
+    // ── 5. Modern queue types — fq-codel (bufferbloat prevention, §3) ─────────
+    // /queue/type is a device-global list; `default` and `default-small` are the
+    // built-in kinds every dynamic/simple queue inherits. Flip both to fq-codel.
+    if (seedQueueTypes) {
+      for (const typeName of ['default', 'default-small']) {
+        await step(`queue-type:${typeName}`, `${typeName} kind=fq-codel`, async () => {
+          const row = await readRow(client, '/queue/type', [`?name=${typeName}`]);
+          if (!row || !row['.id']) {
+            return { status: 'skipped', detail: `built-in queue type "${typeName}" not present on device` };
+          }
+          // The API reports kind as a plain string; short-circuit when already set.
+          if (String(row.kind || '').toLowerCase() === 'fq-codel') {
+            return { status: 'unchanged', detail: `${typeName} already kind=fq-codel` };
+          }
+          await client.run(['/queue/type/set', `=.id=${row['.id']}`, '=kind=fq-codel']);
+          return { status: 'updated', detail: `${typeName} kind=fq-codel (was ${row.kind || '?'})` };
+        });
+      }
+    }
+
+    // ── 6. Business/Residential priority simple queues (§4) ────────────────────
+    // A master POP limit with two priority child classes. Business (priority 2)
+    // wins contention over Residential (priority 5) under the shared POP cap. Rate
+    // per subscriber still comes from RADIUS (Mikrotik-Rate-Limit); this is the
+    // parent hierarchy those per-session queues (and the base PPP profile) hang under.
+    if (seedPriorityQueues) {
+      const popDl = normalizeRate(totalDownloadMbps);
+      const popUl = normalizeRate(totalUploadMbps);
+      if (!popDl && !popUl) {
+        record('priority-queues', 'skipped', 'no total download/upload bandwidth provided for the POP limit');
+      } else {
+        // "<download>/<upload>"; fall back to whichever side was supplied so a
+        // one-sided cap still forms a valid RouterOS rate pair.
+        const popLimit = `${popDl || popUl}/${popUl || popDl}`;
+        // priority on /queue/simple is a DUAL upload/download field (confirmed on ROS
+        // 7.21: a single "=priority=2" is stored as "2/8", prioritising only one
+        // direction). Send "2/2" / "5/5" so both directions are prioritised — the
+        // blueprint form. target="" makes each node a pure HTB parent that shapes the
+        // sum of its children rather than matching a target itself.
+        await step('priority-queues:pop', `${POP_LIMIT_NAME} max-limit=${popLimit}`, () =>
+          upsertByName(client, '/queue/simple', POP_LIMIT_NAME, [
+            `=name=${POP_LIMIT_NAME}`,
+            `=max-limit=${popLimit}`,
+            '=target=',
+            `=comment=${SEED_TAG}-pop-limit`,
+          ]));
+        await step('priority-queues:business', `${BUSINESS_CLASS_NAME} parent=${POP_LIMIT_NAME} priority=2/2`, () =>
+          upsertByName(client, '/queue/simple', BUSINESS_CLASS_NAME, [
+            `=name=${BUSINESS_CLASS_NAME}`,
+            `=parent=${POP_LIMIT_NAME}`,
+            `=max-limit=${popLimit}`,
+            '=priority=2/2',
+            '=target=',
+            `=comment=${SEED_TAG}-business-class`,
+          ]));
+        await step('priority-queues:residential', `${RESIDENTIAL_CLASS_NAME} parent=${POP_LIMIT_NAME} priority=5/5`, () =>
+          upsertByName(client, '/queue/simple', RESIDENTIAL_CLASS_NAME, [
+            `=name=${RESIDENTIAL_CLASS_NAME}`,
+            `=parent=${POP_LIMIT_NAME}`,
+            `=max-limit=${popLimit}`,
+            '=priority=5/5',
+            '=target=',
+            `=comment=${SEED_TAG}-residential-class`,
+          ]));
+      }
+    }
+
+    // ── 7. PPPoE server + base profile (§2) ────────────────────────────────────
+    // A single base profile (rate/IP come from RADIUS per session; no per-plan
+    // profile is needed) and one pppoe-server on the access interface. The profile's
+    // parent-queue defaults to the §4 POP limit so dynamic sessions inherit it.
+    if (seedPppoeServer) {
+      const iface = String(pppoeInterface ?? '').trim();
+      if (!iface) {
+        record('pppoe-server', 'skipped', 'no PPPoE interface provided (set pppoeInterface, e.g. ether2)');
+      } else {
+        const profileName = String(pppoeProfileName || `${SEED_TAG}-pppoe`).trim();
+        const serviceName = String(pppoeServiceName || 'FireISP-Internet').trim();
+        const localAddr = pppoeLocalAddress ? String(pppoeLocalAddress).trim() : '';
+        // Explicit parent-queue wins; otherwise hang sessions under the POP limit
+        // ONLY when §4 actually creates it (flag set AND POP bandwidth provided).
+        // Referencing a queue that was skipped would make RouterOS reject the whole
+        // /ppp/profile/add — parent-queue is a validated object reference, not free text.
+        const popLimitSeeded = seedPriorityQueues
+          && !!(normalizeRate(totalDownloadMbps) || normalizeRate(totalUploadMbps));
+        const parentQueue = (pppoeParentQueue && String(pppoeParentQueue).trim())
+          || (popLimitSeeded ? POP_LIMIT_NAME : '');
+
+        await step('pppoe-profile',
+          `${profileName} change-tcp-mss=yes${localAddr ? ` local-address=${localAddr}` : ''}${parentQueue ? ` parent-queue=${parentQueue}` : ''}`,
+          () => {
+            const attrWords = [
+              `=name=${profileName}`,
+              '=change-tcp-mss=yes',
+              `=comment=${SEED_TAG}-pppoe-profile`,
+            ];
+            if (localAddr) attrWords.push(`=local-address=${localAddr}`);
+            if (parentQueue) attrWords.push(`=parent-queue=${parentQueue}`);
+            return upsertByName(client, '/ppp/profile', profileName, attrWords);
+          });
+
+        await step('pppoe-server',
+          `service-name=${serviceName} interface=${iface} default-profile=${profileName} disabled=no`,
+          async () => {
+            // A physical interface hosts one pppoe-server, so match by interface.
+            const attrWords = [
+              `=service-name=${serviceName}`,
+              `=interface=${iface}`,
+              `=default-profile=${profileName}`,
+            ];
+            const id = await ros.findId(client, '/interface/pppoe-server/server', [`?interface=${iface}`]);
+            if (id) {
+              // On a re-run, update config but do NOT re-toggle disabled — respect an
+              // admin who deliberately took the server down.
+              await client.run(['/interface/pppoe-server/server/set', `=.id=${id}`, ...attrWords]);
+              return 'updated';
+            }
+            await client.run(['/interface/pppoe-server/server/add', ...attrWords, '=disabled=no']);
+            return 'created';
+          });
+      }
+    }
+
+    // ── 8. Suspended-subscriber walled garden (optional) ──────────────────────
     if (seedWalledGarden) {
+      const ports = String(redirectPorts || '80,443').trim();
+      const toPort = redirectToPort || 80;
+      const redirectOn = redirectEnabled !== false;
+      // When an ENABLED redirect points at an OFF-router portal, the dst-nat'd portal
+      // traffic still traverses the forward chain and would be dropped by the reject
+      // below (leaving the portal unreachable). Spare portal-bound (post-NAT) traffic
+      // by negating its destination on the reject so the captive portal stays reachable.
+      const sparePortal = !!(portalAddr && redirectOn);
+
       // Forward reject for any source in the suspended address-list. This is the
       // hook the suspension flow targets by adding the subscriber IP to the list.
-      await step('walled-garden:block', `forward reject src-address-list=${suspendedListName} (placed first)`, () =>
-        upsertByComment(client, '/ip/firewall/filter', `${SEED_TAG}-suspended-block`, [
+      await step('walled-garden:block',
+        `forward reject src-address-list=${suspendedListName}${sparePortal ? ` (except → ${portalAddr})` : ''} (placed first)`,
+        () => upsertByComment(client, '/ip/firewall/filter', `${SEED_TAG}-suspended-block`, [
           '=chain=forward',
           `=src-address-list=${suspendedListName}`,
+          // Exempt the captive portal so the redirect above can actually reach it.
+          ...(sparePortal ? [`=dst-address=!${portalAddr}`] : []),
           '=action=reject',
           '=reject-with=icmp-network-unreachable',
           `=comment=${SEED_TAG}-suspended-block`,
@@ -376,23 +581,124 @@ async function seedDevice(nas, opts = {}) {
         // so this can't affect non-suspended subscribers.
         ], ['=place-before=0']));
 
-      // Optional captive-portal redirect, laid down DISABLED — enabling + correct
-      // rule ordering (allow the portal before the reject) is left to the admin.
+      // Captive-portal redirect for the suspended list. Blueprint §5 wants a
+      // PERMANENT redirect on 80+443 → portal:80. Enabled by default; the operator
+      // can opt into the conservative disabled-on-create path via redirectEnabled=false.
+      // NOTE on 443: dst-nat'ing HTTPS to a plaintext portal breaks the TLS handshake
+      // (cert mismatch) — the user still gets bounced to the portal, they just see a
+      // browser warning first. The §5 block rule drops everything else fast.
       if (portalAddr) {
-        await step('walled-garden:redirect', `dst-nat tcp/80 → ${portalAddr} (disabled on create — review ordering)`, () =>
+        const stateNote = redirectOn
+          ? 'enabled — permanent walled garden'
+          : 'disabled on create — review ordering before enabling';
+        await step('walled-garden:redirect', `dst-nat tcp/${ports} → ${portalAddr}:${toPort} (${stateNote})`, () =>
           upsertByComment(client, '/ip/firewall/nat', `${SEED_TAG}-suspended-redirect`, [
             '=chain=dstnat',
             `=src-address-list=${suspendedListName}`,
             '=protocol=tcp',
-            '=dst-port=80',
+            `=dst-port=${ports}`,
             '=action=dst-nat',
             `=to-addresses=${portalAddr}`,
+            `=to-ports=${toPort}`,
             `=comment=${SEED_TAG}-suspended-redirect`,
-          // Lay the rule down DISABLED on first create only. On a re-run we must
-          // NOT re-send disabled=yes, or we'd silently turn off a redirect the
-          // admin has since enabled (correct ordering is left to the admin).
-          ], ['=disabled=yes']));
+          // When disabled is requested, lay it down disabled on FIRST CREATE only —
+          // on a re-run we never re-send disabled, so an admin who has since enabled
+          // (or disabled) the rule keeps their choice. When enabled (default), create
+          // it live and likewise never re-toggle it.
+          ], redirectOn ? [] : ['=disabled=yes']));
       }
+    }
+
+    // ── 9. Real-time (VoIP / calling) priority (optional) ──────────────────────
+    // Classify real-time media, stamp DSCP EF, and give it a priority-1 queue so
+    // calls stay crisp while the same subscriber saturates the link. Layers on top
+    // of §3 fq-codel (the biggest low-latency win). RADIUS still governs per-plan
+    // rate; this prioritises voice WITHIN each pipe. Encrypted OTT calls (WhatsApp,
+    // FaceTime, Meet…) can't be matched by port — the operator-fillable fireisp-voip
+    // address-list (provider netblocks) covers those; SIP/RTP is matched by port.
+    if (seedRealtimePriority) {
+      const RT_CONN = `${SEED_TAG}-rt-conn`;
+      const RT_PKT = `${SEED_TAG}-realtime`;
+      const VOIP_LIST = `${SEED_TAG}-voip`;
+      const ports = String(sipRtpPorts || '5060,5061,10000-20000').trim();
+      const rtParent = String(realtimeParent || 'global').trim();
+
+      // (a) Seed operator-supplied OTT provider networks into the fireisp-voip list.
+      const voipNets = String(voipNetworks || '').split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+      for (const cidr of voipNets) {
+        await step(`realtime:voip-list:${cidr}`, `address-list ${VOIP_LIST} += ${cidr}`, async () => {
+          const existing = await ros.findId(client, '/ip/firewall/address-list', [`?list=${VOIP_LIST}`, `?address=${cidr}`]);
+          if (existing) return { status: 'unchanged', detail: `${cidr} already in ${VOIP_LIST}` };
+          await client.run(['/ip/firewall/address-list/add', `=list=${VOIP_LIST}`, `=address=${cidr}`, `=comment=${SEED_TAG}-voip`]);
+          return { status: 'created', detail: `${cidr} → ${VOIP_LIST}` };
+        });
+      }
+
+      // (b) Mangle: mark realtime CONNECTIONS by SIP/RTP ports, by voip-list membership
+      //     (both directions), and — only if opted-in — by client-set DSCP EF.
+      await step('realtime:mark-ports', `mangle mark-connection udp dst-port=${ports}`, () =>
+        upsertByComment(client, '/ip/firewall/mangle', `${SEED_TAG}-rt-ports`, [
+          '=chain=prerouting', '=protocol=udp', `=dst-port=${ports}`,
+          '=action=mark-connection', `=new-connection-mark=${RT_CONN}`, '=passthrough=yes',
+          `=comment=${SEED_TAG}-rt-ports`,
+        ]));
+      await step('realtime:mark-voip-src', `mangle mark-connection src-address-list=${VOIP_LIST}`, () =>
+        upsertByComment(client, '/ip/firewall/mangle', `${SEED_TAG}-rt-voip-src`, [
+          '=chain=prerouting', `=src-address-list=${VOIP_LIST}`,
+          '=action=mark-connection', `=new-connection-mark=${RT_CONN}`, '=passthrough=yes',
+          `=comment=${SEED_TAG}-rt-voip-src`,
+        ]));
+      await step('realtime:mark-voip-dst', `mangle mark-connection dst-address-list=${VOIP_LIST}`, () =>
+        upsertByComment(client, '/ip/firewall/mangle', `${SEED_TAG}-rt-voip-dst`, [
+          '=chain=prerouting', `=dst-address-list=${VOIP_LIST}`,
+          '=action=mark-connection', `=new-connection-mark=${RT_CONN}`, '=passthrough=yes',
+          `=comment=${SEED_TAG}-rt-voip-dst`,
+        ]));
+      if (trustClientDscp) {
+        await step('realtime:trust-dscp', 'mangle mark-connection dscp=46 (trust client EF)', async () => {
+          // A mark-connection rule must sit BEFORE the mark-packet rule. On first seed
+          // that happens naturally (created earlier). But if trust is enabled on a
+          // LATER re-run, /add would append this to the chain tail — after rt-packet —
+          // so a DSCP-only flow's first packet would miss its mark. Anchor it before
+          // rt-packet when that rule already exists (add-path only).
+          const packetId = await ros.findId(client, '/ip/firewall/mangle', [`?comment=${SEED_TAG}-rt-packet`]);
+          const addOnly = packetId ? [`=place-before=${packetId}`] : [];
+          return upsertByComment(client, '/ip/firewall/mangle', `${SEED_TAG}-rt-dscp`, [
+            '=chain=prerouting', '=dscp=46',
+            '=action=mark-connection', `=new-connection-mark=${RT_CONN}`, '=passthrough=yes',
+            `=comment=${SEED_TAG}-rt-dscp`,
+          ], addOnly);
+        });
+      }
+      // Mark PACKETS from the realtime connection, then stamp DSCP EF so the whole path honours it.
+      await step('realtime:mark-packet', `mangle mark-packet ${RT_PKT}`, () =>
+        upsertByComment(client, '/ip/firewall/mangle', `${SEED_TAG}-rt-packet`, [
+          '=chain=prerouting', `=connection-mark=${RT_CONN}`,
+          '=action=mark-packet', `=new-packet-mark=${RT_PKT}`, '=passthrough=no',
+          `=comment=${SEED_TAG}-rt-packet`,
+        ]));
+      await step('realtime:set-dscp', 'mangle change-dscp=46 on realtime connection', () =>
+        upsertByComment(client, '/ip/firewall/mangle', `${SEED_TAG}-rt-setdscp`, [
+          '=chain=postrouting', `=connection-mark=${RT_CONN}`,
+          '=action=change-dscp', '=new-dscp=46', '=passthrough=yes',
+          `=comment=${SEED_TAG}-rt-setdscp`,
+        ]));
+
+      // (c) Priority-1 queue-tree node for the realtime packet-mark. priority on
+      //     /queue/tree is a SINGLE 1-8 value (confirmed on ROS7). The optional
+      //     max-limit is the anti-abuse cap for the trust-DSCP path.
+      const rtMax = normalizeRate(realtimeMaxMbps);
+      await step('realtime:queue', `queue-tree ${RT_PKT} parent=${rtParent} priority=1${rtMax ? ` max-limit=${rtMax}` : ''}`, () => {
+        const words = [
+          `=name=${SEED_TAG}-realtime`,
+          `=parent=${rtParent}`,
+          `=packet-mark=${RT_PKT}`,
+          '=priority=1',
+          `=comment=${SEED_TAG}-realtime`,
+        ];
+        if (rtMax) words.push(`=max-limit=${rtMax}`);
+        return upsertByComment(client, '/queue/tree', `${SEED_TAG}-realtime`, words);
+      });
     }
   } finally {
     await client.close();

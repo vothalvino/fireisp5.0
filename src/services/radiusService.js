@@ -296,6 +296,7 @@ async function syncFreeradiusTables(organizationId) {
             p.download_speed_mbps, p.upload_speed_mbps,
             p.burst_download_mbps, p.burst_upload_mbps,
             p.radius_vendor, p.name AS plan_name,
+            p.priority AS plan_priority,
             p.session_timeout_seconds, p.idle_timeout_seconds,
             p.simultaneous_use AS plan_sim_use,
             ipv6_pool.name AS ipv6_pool_name
@@ -341,6 +342,9 @@ async function syncFreeradiusTables(organizationId) {
         burst_download_mbps: sub.burst_download_mbps,
         burst_upload_mbps: sub.burst_upload_mbps,
         radius_vendor: sub.radius_vendor,
+        // Carry plan priority so generateAttributes() emits the Mikrotik-Rate-Limit
+        // priority field via the FreeRADIUS SQL backend too (not just embedded RADIUS).
+        priority: sub.plan_priority,
         session_timeout_seconds: sub.session_timeout_seconds,
         idle_timeout_seconds: sub.idle_timeout_seconds,
         simultaneous_use: sub.plan_sim_use,

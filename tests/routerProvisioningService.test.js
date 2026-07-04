@@ -387,7 +387,7 @@ describe('seedDevice', () => {
     expect(calls.find((c) => c[0] === '/queue/tree/add')).toBeUndefined();
   });
 
-  test('seeds a walled-garden firewall hook and a DISABLED portal redirect', async () => {
+  test('seeds a walled-garden firewall hook and an ENABLED 80,443 portal redirect by default', async () => {
     const { client, calls } = makeSeedClient();
     ros.createClient.mockResolvedValue(client);
 
@@ -403,9 +403,55 @@ describe('seedDevice', () => {
     expect(filter).toEqual(expect.arrayContaining([
       '=chain=forward', '=src-address-list=fireisp-suspended', '=action=reject',
     ]));
-    // Portal redirect is laid down but disabled (admin must order it correctly).
+    // With an ENABLED portal redirect, the reject must spare the portal destination
+    // so the (off-router) captive portal stays reachable through the forward chain.
+    expect(filter).toContain('=dst-address=!203.0.113.10');
+    // Permanent redirect (§5): 80+443 → portal:80, laid down live (no disabled=yes).
     const nat = callTo(calls, '/ip/firewall/nat/add');
-    expect(nat).toEqual(expect.arrayContaining(['=action=dst-nat', '=to-addresses=203.0.113.10', '=disabled=yes']));
+    expect(nat).toEqual(expect.arrayContaining([
+      '=action=dst-nat', '=to-addresses=203.0.113.10', '=dst-port=80,443', '=to-ports=80',
+    ]));
+    expect(nat).not.toContain('=disabled=yes');
+  });
+
+  test('does NOT add a portal exemption to the block rule when there is no portal', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+
+    await seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10', seedWalledGarden: true });
+
+    const filter = callTo(calls, '/ip/firewall/filter/add');
+    expect(filter.some((w) => w.startsWith('=dst-address='))).toBe(false);
+  });
+
+  test('does NOT spare the portal when the redirect is laid down disabled', async () => {
+    // redirect disabled ⇒ admin owns ordering ⇒ no auto-exemption on the reject.
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+
+    await seedDevice(SEED_NAS, {
+      radiusAddress: '203.0.113.10', seedWalledGarden: true, portalAddress: '203.0.113.10', redirectEnabled: false,
+    });
+
+    const filter = callTo(calls, '/ip/firewall/filter/add');
+    expect(filter.some((w) => w.startsWith('=dst-address='))).toBe(false);
+  });
+
+  test('honors custom redirect ports and to-port', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+
+    await seedDevice(SEED_NAS, {
+      radiusAddress: '203.0.113.10',
+      seedWalledGarden: true,
+      portalAddress: '10.0.0.1',
+      redirectPorts: '80',
+      redirectToPort: 8080,
+    });
+
+    const nat = callTo(calls, '/ip/firewall/nat/add');
+    expect(nat).toContain('=dst-port=80');
+    expect(nat).toContain('=to-ports=8080');
   });
 
   test('captures a per-step RouterOS error without aborting the rest', async () => {
@@ -470,12 +516,12 @@ describe('seedDevice', () => {
     expect(filterAdd).toContain('=place-before=0');
   });
 
-  test('lays the portal redirect down disabled on create, but never re-disables it on a re-run', async () => {
-    // First run — rule absent → /add carries disabled=yes.
+  test('lays the portal redirect down disabled on create when redirectEnabled=false, but never re-disables it on a re-run', async () => {
+    // First run — rule absent, conservative path → /add carries disabled=yes.
     const fresh = makeSeedClient();
     ros.createClient.mockResolvedValue(fresh.client);
     await seedDevice(SEED_NAS, {
-      radiusAddress: '203.0.113.10', seedWalledGarden: true, portalAddress: '203.0.113.10',
+      radiusAddress: '203.0.113.10', seedWalledGarden: true, portalAddress: '203.0.113.10', redirectEnabled: false,
     });
     expect(callTo(fresh.calls, '/ip/firewall/nat/add')).toContain('=disabled=yes');
 
@@ -489,7 +535,7 @@ describe('seedDevice', () => {
     });
     ros.createClient.mockResolvedValue(rerun.client);
     await seedDevice(SEED_NAS, {
-      radiusAddress: '203.0.113.10', seedWalledGarden: true, portalAddress: '203.0.113.10',
+      radiusAddress: '203.0.113.10', seedWalledGarden: true, portalAddress: '203.0.113.10', redirectEnabled: false,
     });
     const natSet = callTo(rerun.calls, '/ip/firewall/nat/set');
     expect(natSet).toBeDefined();
@@ -554,6 +600,247 @@ describe('seedDevice', () => {
 
     const nat = callTo(calls, '/ip/firewall/nat/add');
     expect(nat).toContain('=to-addresses=10.0.0.1');
+  });
+
+  // ── §3 fq-codel queue types ────────────────────────────────────────────────
+  test('sets default and default-small queue types to fq-codel (§3)', async () => {
+    const { client, calls } = makeSeedClient((words) => {
+      if (words[0] === '/queue/type/print') {
+        const nameQ = words.find((w) => typeof w === 'string' && w.startsWith('?name='));
+        const name = nameQ ? nameQ.slice('?name='.length) : '';
+        const id = name === 'default' ? '*1' : '*FE';
+        return [['!re', `=.id=${id}`, `=name=${name}`, '=kind=pfifo'], ['!done']];
+      }
+      return null;
+    });
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10', seedQueueTypes: true });
+
+    expect(stepStatus(result.steps, 'queue-type:default')).toBe('updated');
+    expect(stepStatus(result.steps, 'queue-type:default-small')).toBe('updated');
+    const sets = calls.filter((c) => c[0] === '/queue/type/set');
+    expect(sets).toHaveLength(2);
+    expect(sets[0]).toEqual(expect.arrayContaining(['=.id=*1', '=kind=fq-codel']));
+  });
+
+  test('reports queue types unchanged when already fq-codel', async () => {
+    const { client, calls } = makeSeedClient((words) => {
+      if (words[0] === '/queue/type/print') {
+        return [['!re', '=.id=*1', '=name=default', '=kind=fq-codel'], ['!done']];
+      }
+      return null;
+    });
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10', seedQueueTypes: true });
+
+    expect(stepStatus(result.steps, 'queue-type:default')).toBe('unchanged');
+    expect(calls.some((c) => c[0] === '/queue/type/set')).toBe(false);
+  });
+
+  test('skips a queue type that is not present on the device', async () => {
+    // Default handler → bare !done → no !re rows → readRow null → skipped.
+    const { client } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+    const result = await seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10', seedQueueTypes: true });
+    expect(stepStatus(result.steps, 'queue-type:default')).toBe('skipped');
+  });
+
+  // ── §4 Business/Residential priority simple queues ─────────────────────────
+  test('seeds the Business/Residential priority simple-queue hierarchy (§4)', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, {
+      radiusAddress: '203.0.113.10',
+      seedPriorityQueues: true,
+      totalDownloadMbps: 1000,
+      totalUploadMbps: 1000,
+    });
+
+    expect(stepStatus(result.steps, 'priority-queues:pop')).toBe('created');
+    expect(stepStatus(result.steps, 'priority-queues:business')).toBe('created');
+    expect(stepStatus(result.steps, 'priority-queues:residential')).toBe('created');
+
+    const adds = calls.filter((c) => c[0] === '/queue/simple/add');
+    expect(adds).toHaveLength(3);
+    // POP master: empty target, no priority on the root node.
+    expect(adds[0]).toEqual(expect.arrayContaining(['=name=01-GLOBAL-POP-LIMIT', '=max-limit=1000M/1000M', '=target=']));
+    expect(adds[0].some((w) => w.startsWith('=priority='))).toBe(false);
+    // Business = dual priority 2/2 under the POP master. /queue/simple priority is a
+    // DUAL up/down field on ROS7 (a single "2" is stored "2/8"), so both must be set.
+    expect(adds[1]).toEqual(expect.arrayContaining(['=name=02-BUSINESS-CLASS', '=parent=01-GLOBAL-POP-LIMIT', '=priority=2/2']));
+    // Residential = priority 5/5.
+    expect(adds[2]).toEqual(expect.arrayContaining(['=name=03-RESIDENTIAL-CLASS', '=priority=5/5']));
+  });
+
+  test('skips the priority queues when no POP bandwidth is supplied', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+    const result = await seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10', seedPriorityQueues: true });
+    expect(stepStatus(result.steps, 'priority-queues')).toBe('skipped');
+    expect(calls.some((c) => c[0] === '/queue/simple/add')).toBe(false);
+  });
+
+  // ── §2 PPPoE server + base profile ─────────────────────────────────────────
+  test('seeds the PPPoE base profile and server, defaulting parent-queue to the POP limit (§2)', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, {
+      radiusAddress: '203.0.113.10',
+      seedPriorityQueues: true,
+      totalDownloadMbps: 500,
+      totalUploadMbps: 500,
+      seedPppoeServer: true,
+      pppoeInterface: 'ether2',
+      pppoeLocalAddress: '10.0.0.1',
+    });
+
+    expect(stepStatus(result.steps, 'pppoe-profile')).toBe('created');
+    expect(stepStatus(result.steps, 'pppoe-server')).toBe('created');
+
+    const profileAdd = callTo(calls, '/ppp/profile/add');
+    expect(profileAdd).toEqual(expect.arrayContaining([
+      '=name=fireisp-pppoe', '=change-tcp-mss=yes', '=local-address=10.0.0.1', '=parent-queue=01-GLOBAL-POP-LIMIT',
+    ]));
+    // The blueprint's invalid "remote-pool" token is never sent (real prop is remote-address).
+    expect(profileAdd.some((w) => w.startsWith('=remote-pool='))).toBe(false);
+
+    const serverAdd = callTo(calls, '/interface/pppoe-server/server/add');
+    expect(serverAdd).toEqual(expect.arrayContaining([
+      '=service-name=FireISP-Internet', '=interface=ether2', '=default-profile=fireisp-pppoe', '=disabled=no',
+    ]));
+  });
+
+  test('does NOT set profile parent-queue to the POP limit when §4 was skipped for lack of bandwidth', async () => {
+    // seedPriorityQueues is on but no POP bandwidth → the POP queue is never created.
+    // The profile must NOT reference it, or RouterOS rejects the /ppp/profile/add.
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, {
+      radiusAddress: '203.0.113.10',
+      seedPriorityQueues: true, // flag on…
+      // …but no totalDownloadMbps/totalUploadMbps → priority queues skipped
+      seedPppoeServer: true,
+      pppoeInterface: 'ether2',
+    });
+
+    expect(stepStatus(result.steps, 'priority-queues')).toBe('skipped');
+    expect(stepStatus(result.steps, 'pppoe-profile')).toBe('created');
+    const profileAdd = callTo(calls, '/ppp/profile/add');
+    expect(profileAdd.some((w) => w.startsWith('=parent-queue='))).toBe(false);
+    // No dangling reference means the server add still succeeds.
+    expect(stepStatus(result.steps, 'pppoe-server')).toBe('created');
+  });
+
+  test('skips the PPPoE server when no interface is supplied', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+    const result = await seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10', seedPppoeServer: true });
+    expect(stepStatus(result.steps, 'pppoe-server')).toBe('skipped');
+    expect(calls.some((c) => c[0] === '/ppp/profile/add')).toBe(false);
+    expect(calls.some((c) => c[0] === '/interface/pppoe-server/server/add')).toBe(false);
+  });
+
+  test('updates the PPPoE server in place on a re-run without re-toggling disabled', async () => {
+    const { client, calls } = makeSeedClient((words) => {
+      if (words[0] === '/interface/pppoe-server/server/print') {
+        return [['!re', '=.id=*3', '=interface=ether2'], ['!done']];
+      }
+      if (words[0] === '/ppp/profile/print') {
+        return [['!re', '=.id=*9', '=name=fireisp-pppoe'], ['!done']];
+      }
+      return null;
+    });
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, {
+      radiusAddress: '203.0.113.10', seedPppoeServer: true, pppoeInterface: 'ether2',
+    });
+
+    expect(stepStatus(result.steps, 'pppoe-server')).toBe('updated');
+    const serverSet = callTo(calls, '/interface/pppoe-server/server/set');
+    expect(serverSet).toContain('=.id=*3');
+    expect(serverSet).not.toContain('=disabled=no'); // respect an admin's disabled state on re-run
+  });
+
+  // ── Real-time / VoIP priority ──────────────────────────────────────────────
+  test('seeds the realtime/VoIP priority chain (mangle + DSCP + priority-1 queue)', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await seedDevice(SEED_NAS, {
+      radiusAddress: '203.0.113.10',
+      seedRealtimePriority: true,
+      voipNetworks: '157.240.0.0/16, 142.250.0.0/15',
+      realtimeMaxMbps: 50,
+    });
+
+    // OTT provider networks land in the fireisp-voip address-list.
+    const alAdds = calls.filter((c) => c[0] === '/ip/firewall/address-list/add');
+    expect(alAdds).toHaveLength(2);
+    expect(alAdds[0]).toEqual(expect.arrayContaining(['=list=fireisp-voip', '=address=157.240.0.0/16']));
+    expect(alAdds[1]).toEqual(expect.arrayContaining(['=address=142.250.0.0/15']));
+
+    // Mangle chain: mark-connection (ports/voip-src/voip-dst) → mark-packet → change-dscp.
+    const mangleAdds = calls.filter((c) => c[0] === '/ip/firewall/mangle/add');
+    const byComment = (frag) => mangleAdds.find((c) => c.includes(`=comment=${frag}`));
+    expect(byComment('fireisp-rt-ports')).toEqual(expect.arrayContaining(['=protocol=udp', '=dst-port=5060,5061,10000-20000', '=action=mark-connection']));
+    expect(byComment('fireisp-rt-voip-src')).toEqual(expect.arrayContaining(['=src-address-list=fireisp-voip']));
+    expect(byComment('fireisp-rt-voip-dst')).toEqual(expect.arrayContaining(['=dst-address-list=fireisp-voip']));
+    expect(byComment('fireisp-rt-packet')).toEqual(expect.arrayContaining(['=action=mark-packet', '=new-packet-mark=fireisp-realtime']));
+    expect(byComment('fireisp-rt-setdscp')).toEqual(expect.arrayContaining(['=action=change-dscp', '=new-dscp=46']));
+    // trust-client-DSCP is OFF by default → no such rule.
+    expect(byComment('fireisp-rt-dscp')).toBeUndefined();
+
+    // Priority-1 queue-tree node (single-value priority) with the anti-abuse cap.
+    const qAdd = callTo(calls, '/queue/tree/add');
+    expect(qAdd).toEqual(expect.arrayContaining([
+      '=name=fireisp-realtime', '=parent=global', '=packet-mark=fireisp-realtime', '=priority=1', '=max-limit=50M',
+    ]));
+    expect(result.ok).toBe(true);
+  });
+
+  test('adds the client-DSCP trust rule only when trustClientDscp is set', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+    await seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10', seedRealtimePriority: true, trustClientDscp: true });
+    const dscpRule = calls.filter((c) => c[0] === '/ip/firewall/mangle/add')
+      .find((c) => c.includes('=comment=fireisp-rt-dscp'));
+    expect(dscpRule).toEqual(expect.arrayContaining(['=dscp=46', '=action=mark-connection']));
+    // Fresh device: rt-packet not created yet when rt-dscp is added → no place-before needed.
+    expect(dscpRule.some((w) => w.startsWith('=place-before='))).toBe(false);
+  });
+
+  test('anchors the trust-DSCP rule before rt-packet when enabled on a re-run (ordering)', async () => {
+    // Device already has rt-packet (prior seed); now trustClientDscp is turned on.
+    // The new rt-dscp mark-connection must be placed BEFORE rt-packet, not appended.
+    const { client, calls } = makeSeedClient((words) => {
+      if (words[0] === '/ip/firewall/mangle/print' && words.includes('?comment=fireisp-rt-packet')) {
+        return [['!re', '=.id=*77', '=comment=fireisp-rt-packet'], ['!done']];
+      }
+      return null;
+    });
+    ros.createClient.mockResolvedValue(client);
+
+    await seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10', seedRealtimePriority: true, trustClientDscp: true });
+
+    const dscpAdd = calls.filter((c) => c[0] === '/ip/firewall/mangle/add')
+      .find((c) => c.includes('=comment=fireisp-rt-dscp'));
+    expect(dscpAdd).toEqual(expect.arrayContaining(['=dscp=46', '=place-before=*77']));
+  });
+
+  test('omits the realtime queue cap and address-list when none are given', async () => {
+    const { client, calls } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+    await seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10', seedRealtimePriority: true });
+    const qAdd = callTo(calls, '/queue/tree/add');
+    expect(qAdd).toEqual(expect.arrayContaining(['=name=fireisp-realtime', '=priority=1']));
+    expect(qAdd.some((w) => w.startsWith('=max-limit='))).toBe(false);
+    expect(calls.some((c) => c[0] === '/ip/firewall/address-list/add')).toBe(false);
   });
 
   test('aborts (rejects) when a step hits a lost connection, so the route can map it to 502', async () => {
