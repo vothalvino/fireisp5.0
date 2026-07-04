@@ -306,6 +306,22 @@ describe('seedDevice', () => {
     expect(ros.createClient).not.toHaveBeenCalled();
   });
 
+  test('throws ValidationError (no router connection) when radiusAddress is a hostname', async () => {
+    // RouterOS's /radius `address` accepts an IP only — a DNS name traps on the
+    // device ("invalid or unexpected argument base"). We reject it before connecting.
+    await expect(
+      seedDevice(SEED_NAS, { radiusAddress: 'radius.myisp.net' }),
+    ).rejects.toThrow('must be an IP address');
+    expect(ros.createClient).not.toHaveBeenCalled();
+  });
+
+  test('accepts an IPv6 literal for radiusAddress', async () => {
+    const { client } = makeSeedClient();
+    ros.createClient.mockResolvedValue(client);
+    const result = await seedDevice(SEED_NAS, { radiusAddress: '2001:db8::1' });
+    expect(stepStatus(result.steps, 'radius-client')).toBe('created');
+  });
+
   test('throws ValidationError when the NAS has no RADIUS secret', async () => {
     await expect(
       seedDevice({ ...SEED_NAS, secret: undefined }, { radiusAddress: '203.0.113.10' }),

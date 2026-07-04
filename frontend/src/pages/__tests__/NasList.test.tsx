@@ -187,7 +187,7 @@ describe('NasList page', () => {
   // Seed modal — one-click RouterOS bootstrap
   // -------------------------------------------------------------------------
 
-  it('opens the Seed modal from the row action and prefills the RADIUS address', async () => {
+  it('opens the Seed modal from the row action with an empty RADIUS address', async () => {
     const user = userEvent.setup();
     renderNasList();
     await waitFor(() => expect(screen.getByText('Core-Router')).toBeInTheDocument());
@@ -196,8 +196,24 @@ describe('NasList page', () => {
 
     expect(screen.getByRole('dialog', { name: /Seed NAS Core-Router/i })).toBeInTheDocument();
     const addr = screen.getByRole('textbox', { name: /FireISP RADIUS Address/i });
-    // Prefilled from the browsing host (jsdom → "localhost").
-    expect(addr).toHaveValue('localhost');
+    // NOT prefilled from the browsing host — RouterOS's /radius needs an IP, and the
+    // browsing hostname is almost always a DNS name. Operator enters the IP.
+    expect(addr).toHaveValue('');
+    expect(screen.getByText(/does not accept a hostname/i)).toBeInTheDocument();
+  });
+
+  it('blocks submit when the RADIUS address is a hostname, before hitting the API', async () => {
+    const user = userEvent.setup();
+    renderNasList();
+    await waitFor(() => expect(screen.getByText('Core-Router')).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'Seed' }));
+
+    const addr = screen.getByRole('textbox', { name: /FireISP RADIUS Address/i });
+    await user.type(addr, 'radius.myisp.net');
+    await user.click(screen.getByRole('button', { name: /Seed Device/i }));
+
+    expect(screen.getByText(/must be an IP address, not a hostname/i)).toBeInTheDocument();
+    expect(mockApiPost).not.toHaveBeenCalled();
   });
 
   it('submits a seed request and renders the per-step report', async () => {
@@ -221,15 +237,16 @@ describe('NasList page', () => {
     renderNasList();
     await waitFor(() => expect(screen.getByText('Core-Router')).toBeInTheDocument());
     await user.click(screen.getByRole('button', { name: 'Seed' }));
+    await user.type(screen.getByRole('textbox', { name: /FireISP RADIUS Address/i }), '203.0.113.10');
     await user.click(screen.getByRole('button', { name: /Seed Device/i }));
 
     await waitFor(() => expect(screen.getByText(/Seed completed/i)).toBeInTheDocument());
-    // POST hit the seed endpoint with the prefilled radius address.
+    // POST hit the seed endpoint with the IP the operator entered.
     expect(mockApiPost).toHaveBeenCalledWith(
       '/nas/{id}/seed',
       expect.objectContaining({
         params: { path: { id: 1 } },
-        body: expect.objectContaining({ radiusAddress: 'localhost' }),
+        body: expect.objectContaining({ radiusAddress: '203.0.113.10' }),
       }),
     );
     expect(screen.getByText('radius-client')).toBeInTheDocument();
@@ -245,6 +262,7 @@ describe('NasList page', () => {
     renderNasList();
     await waitFor(() => expect(screen.getByText('Core-Router')).toBeInTheDocument());
     await user.click(screen.getByRole('button', { name: 'Seed' }));
+    await user.type(screen.getByRole('textbox', { name: /FireISP RADIUS Address/i }), '203.0.113.10');
     await user.click(screen.getByRole('button', { name: /Seed Device/i }));
 
     await waitFor(() => expect(screen.getByText(/RouterOS login failed/i)).toBeInTheDocument());
@@ -265,6 +283,7 @@ describe('NasList page', () => {
     renderNasList();
     await waitFor(() => expect(screen.getByText('Core-Router')).toBeInTheDocument());
     await user.click(screen.getByRole('button', { name: 'Seed' }));
+    await user.type(screen.getByRole('textbox', { name: /FireISP RADIUS Address/i }), '203.0.113.10');
     await user.click(screen.getByRole('button', { name: /Seed Device/i }));
 
     await waitFor(() => expect(screen.getByText(/interimUpdate must be at most 16 characters/i)).toBeInTheDocument());
