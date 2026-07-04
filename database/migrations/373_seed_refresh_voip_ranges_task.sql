@@ -6,7 +6,10 @@
 --
 -- Seeded DISABLED (is_enabled = 0): pushing provider ranges to routers is opt-in,
 -- to be enabled per deployment once real-time priority is seeded and VOIP_RANGES_ENABLED
--- is set. Global (organization_id = NULL). task_type 'maintenance', priority 'low'.
+-- is set. Global (organization_id = NULL). priority 'low'. task_type 'other': the
+-- migration-built scheduled_tasks.task_type ENUM only has
+-- {auto_suspend,generate_invoice,radius_sync,snmp_poll,usage_rollup,cleanup,notification,
+-- backup,other} — 'maintenance' exists only in schema.sql (drift) and truncates here.
 --
 -- Idempotent via INSERT ... SELECT FROM DUAL WHERE NOT EXISTS (MySQL 8 valid; no
 -- FROM DUAL syntax error, no INSERT IGNORE on NULL-org which never collides).
@@ -20,7 +23,7 @@ INSERT INTO scheduled_tasks
 SELECT
     NULL,
     'refresh_voip_ranges',
-    'maintenance',
+    'other',
     'voipRangesService.refreshAllNas',
     'Refreshes the fireisp-voip RTC/VoIP address-list on managed MikroTik NAS from provider IP-range sources. Disabled by default; enable once real-time priority is seeded and VOIP_RANGES_ENABLED=true.',
     '0 4 * * 1',
