@@ -132,6 +132,9 @@ export function NasDetail() {
   const [actionResult, setActionResult] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState<string | null>(null);
+  // Where to render the action feedback so it appears next to the button that ran:
+  // 'header' for Seed/VoIP, 'health' for Run-health-check / Test-connection.
+  const [actionKind, setActionKind] = useState<'header' | 'health' | null>(null);
   const [showWgModal, setShowWgModal] = useState(false);
   const [showSeed, setShowSeed] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -148,7 +151,7 @@ export function NasDetail() {
     { id: 'overview',   label: t('nasDetail.tabs.overview') },
     { id: 'health',     label: t('nasDetail.tabs.health') },
     { id: 'sessions',   label: t('nasDetail.tabs.liveSessions') },
-    { id: 'wireguard',  label: t('nasDetail.tabs.wireguard') },
+    { id: 'wireguard',  label: t('nasDetail.tabs.tunnel') },
   ];
 
   const { data: nas, isLoading, error } = useQuery({
@@ -193,6 +196,7 @@ export function NasDetail() {
 
   async function runHealthCheck() {
     setActionPending('health-check');
+    setActionKind('health');
     setActionResult(null);
     setActionError(null);
     try {
@@ -216,6 +220,7 @@ export function NasDetail() {
 
   async function runTestConnection() {
     setActionPending('test-connection');
+    setActionKind('health');
     setActionResult(null);
     setActionError(null);
     try {
@@ -238,6 +243,7 @@ export function NasDetail() {
 
   async function runVoipRefresh() {
     setActionPending('voip-refresh');
+    setActionKind('header');
     setActionResult(null);
     setActionError(null);
     try {
@@ -288,6 +294,14 @@ export function NasDetail() {
     );
   }
 
+  // Shared action feedback — rendered next to whichever button triggered it.
+  const feedback = (actionError || actionResult) ? (
+    <div style={{ marginBottom: '0.75rem' }}>
+      {actionError && <div style={styles.feedbackError}>{actionError}</div>}
+      {actionResult && <pre style={styles.feedbackResult}>{actionResult}</pre>}
+    </div>
+  ) : null;
+
   return (
     <div style={styles.page}>
       {/* Breadcrumb */}
@@ -331,17 +345,8 @@ export function NasDetail() {
         </div>
       </div>
 
-      {/* Action feedback (shared across header + tab actions) */}
-      {actionError && (
-        <div style={{ padding: '0.65rem 0.85rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, color: '#991b1b', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
-          {actionError}
-        </div>
-      )}
-      {actionResult && (
-        <pre style={{ background: '#f9fafb', border: '1px solid var(--border)', borderRadius: 6, padding: '0.75rem', fontSize: '0.8rem', overflowX: 'auto', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
-          {actionResult}
-        </pre>
-      )}
+      {/* Header-action feedback (Seed / VoIP) renders here, right below the buttons */}
+      {actionKind === 'header' && feedback}
 
       {/* Info card */}
       <div style={styles.infoCard}>
@@ -419,6 +424,7 @@ export function NasDetail() {
               </div>
             )}
 
+            {actionKind === 'health' && feedback}
           </div>
         )}
 
@@ -454,6 +460,7 @@ export function NasDetail() {
           const wgTunnel = wgData?.tunnel ?? null;
           const serverPublicKey = wgData?.serverPublicKey ?? null;
           const serverEndpoint = wgData?.serverEndpoint ?? null;
+          const serverTunnelIp = wgData?.serverTunnelIp ?? null;
           return (
             <div style={{ padding: '1.25rem' }}>
               {!wgTunnel ? (
@@ -484,11 +491,12 @@ export function NasDetail() {
                   {/* Key-value details */}
                   <div style={styles.infoGrid}>
                     <InfoRow label={t('nasDetail.tunnel.tunnelIp')}      value={wgTunnel.tunnel_address}   mono />
-                    <InfoRow label={t('nasDetail.tunnel.configMethod')}  value={wgTunnel.nas_config_method} />
-                    <InfoRow label={t('nasDetail.tunnel.serverPubkey')}  value={serverPublicKey}            mono />
-                    <InfoRow label={t('nasDetail.tunnel.serverEndpoint')} value={serverEndpoint}            mono />
-                    <InfoRow label={t('nasDetail.tunnel.lastHandshake')} value={fmt(wgTunnel.last_handshake_at)} />
-                    <InfoRow label={t('nasDetail.tunnel.provisioned')}   value={fmt(wgTunnel.provisioned_at)} />
+                    <InfoRow label="FireISP Hub IP"                     value={serverTunnelIp}            mono />
+                    <InfoRow label={t('nasDetail.tunnel.configMethod')}    value={wgTunnel.nas_config_method} />
+                    <InfoRow label={t('nasDetail.tunnel.serverPublicKey')} value={serverPublicKey}            mono />
+                    <InfoRow label={t('nasDetail.tunnel.endpoint')}        value={serverEndpoint}            mono />
+                    <InfoRow label={t('nasDetail.tunnel.lastHandshake')}   value={fmt(wgTunnel.last_handshake_at)} />
+                    <InfoRow label={t('nasDetail.tunnel.provisionedAt')}   value={fmt(wgTunnel.provisioned_at)} />
                   </div>
 
                   {/* Routed subnets */}
@@ -584,10 +592,12 @@ const styles = {
   headerMeta: { display: 'flex', alignItems: 'center', gap: '0.75rem' },
   idLabel: { color: 'var(--text-dimmed)', fontSize: '0.8rem' },
   infoCard: { background: 'var(--bg-card)', borderRadius: 8, boxShadow: '0 0 0 1px var(--border)', padding: '1rem 1.25rem', marginBottom: '1.5rem' },
-  infoGrid: { display: 'grid' as const, gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '0.5rem 1.5rem' },
-  infoRow:  { display: 'flex', gap: '0.5rem', alignItems: 'baseline', fontSize: '0.85rem' },
-  infoLabel: { color: 'var(--text-dimmed)', fontSize: '0.75rem', textTransform: 'uppercase' as const, letterSpacing: '0.04em', minWidth: 80 },
-  infoValue: { color: 'var(--text-secondary)' },
+  infoGrid: { display: 'grid' as const, gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.6rem 1.5rem' },
+  // minWidth:0 lets a row shrink inside its grid cell; without it a long mono value
+  // (tunnel IP, server endpoint, WG key) overflows and the grid looks broken.
+  infoRow:  { display: 'flex', gap: '0.5rem', alignItems: 'baseline', fontSize: '0.85rem', minWidth: 0 },
+  infoLabel: { color: 'var(--text-dimmed)', fontSize: '0.75rem', textTransform: 'uppercase' as const, letterSpacing: '0.04em', minWidth: 80, flexShrink: 0 },
+  infoValue: { color: 'var(--text-secondary)', minWidth: 0, overflowWrap: 'anywhere' as const },
   tabBar: { display: 'flex', gap: '0.25rem', borderBottom: '2px solid var(--border)', marginBottom: '0' },
   tabBtn: { padding: '0.6rem 1rem', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-muted)', borderBottom: '2px solid transparent', marginBottom: '-2px', fontFamily: 'var(--font-sans)', fontWeight: 500, whiteSpace: 'nowrap' as const, transition: 'color .15s' },
   tabBtnActive: { color: 'var(--accent)', borderBottom: '2px solid var(--accent)', fontWeight: 600 },
@@ -608,4 +618,6 @@ const styles = {
     fontSize: '0.82rem',
     fontWeight: 500,
   } as React.CSSProperties,
+  feedbackError: { padding: '0.65rem 0.85rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, color: '#991b1b', fontSize: '0.85rem' } as React.CSSProperties,
+  feedbackResult: { background: 'var(--bg-subtle, #f9fafb)', border: '1px solid var(--border)', borderRadius: 6, padding: '0.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, whiteSpace: 'pre-wrap' as const, overflowWrap: 'anywhere' as const },
 };
