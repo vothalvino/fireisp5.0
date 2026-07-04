@@ -712,8 +712,83 @@ async function seedDevice(nas, opts = {}) {
   return { ok, host: conn.host, port: conn.port, tls: conn.secure, steps };
 }
 
+// =============================================================================
+// VoIP address-list reconciliation (auto-updater push target)
+// =============================================================================
+
+/**
+ * Reconcile the `fireisp-voip` firewall address-list on one NAS against a desired
+ * set of RTC/VoIP CIDRs. Only entries THIS updater owns (comment `fireisp-voip-auto`)
+ * are managed — operator-added entries (seed-time `fireisp-voip`, or untagged) are
+ * left untouched. Adds missing CIDRs, removes stale auto-entries, and no-ops the rest.
+ *
+ * Skips NAS that never seeded real-time priority (no `fireisp-realtime` queue or
+ * `fireisp-rt-packet` mangle), so we never create an orphan list on an opted-out device.
+ *
+ * @param {object} nas  NAS row (ip/api credentials)
+ * @param {string[]} ranges  desired IPv4 CIDRs
+ * @param {{ listName?: string }} [opts]
+ * @returns {Promise<{ skipped?: boolean, reason?: string, added?: number,
+ *                     removed?: number, kept?: number, desired?: number }>}
+ */
+async function syncVoipAddressList(nas, ranges, opts = {}) {
+  const listName = opts.listName || `${SEED_TAG}-voip`;
+  const autoComment = `${SEED_TAG}-voip-auto`;
+
+  const conn = nasToConn(nas);
+  const client = await ros.createClient(conn);
+  try {
+    // Only manage the list where real-time priority is actually configured.
+    const realtimeSeeded = (await ros.findId(client, '/queue/tree', [`?comment=${SEED_TAG}-realtime`]))
+      || (await ros.findId(client, '/ip/firewall/mangle', [`?comment=${SEED_TAG}-rt-packet`]));
+    if (!realtimeSeeded) {
+      return { skipped: true, reason: 'real-time priority not seeded on this NAS' };
+    }
+
+    // Print the list once; track ALL addresses (any comment) for the add decision
+    // and only OUR auto-managed rows (address → .id) for the remove decision.
+    const printed = await client.run(['/ip/firewall/address-list/print', `?list=${listName}`]);
+    const allAddresses = new Set(); // every address in the list, regardless of comment
+    const autoEntries = new Map();  // address → .id (only fireisp-voip-auto rows)
+    for (const s of printed) {
+      if (s[0] !== '!re') continue;
+      const a = ros.parseAttrs(s.slice(1));
+      if (!a.address) continue;
+      allAddresses.add(a.address);
+      if (a['.id'] && a.comment === autoComment) autoEntries.set(a.address, a['.id']);
+    }
+
+    const desired = new Set(ranges);
+    let added = 0;
+    let removed = 0;
+
+    // Add only CIDRs not already on the list under ANY comment — a duplicate
+    // (list,address) add is rejected by RouterOS ("already have such entry"), and an
+    // operator-seeded entry already covers that CIDR, so re-adding it is pointless.
+    for (const cidr of desired) {
+      if (!allAddresses.has(cidr)) {
+        await client.run(['/ip/firewall/address-list/add', `=list=${listName}`, `=address=${cidr}`, `=comment=${autoComment}`]);
+        added++;
+      }
+    }
+    // Remove only OUR auto entries no longer desired (never operator entries).
+    for (const [addr, id] of autoEntries) {
+      if (!desired.has(addr)) {
+        await client.run(['/ip/firewall/address-list/remove', `=.id=${id}`]);
+        removed++;
+      }
+    }
+
+    logger.info({ host: conn.host, listName, added, removed, desired: desired.size }, 'RouterOS: VoIP address-list reconciled');
+    return { added, removed, kept: desired.size - added, desired: desired.size };
+  } finally {
+    await client.close();
+  }
+}
+
 module.exports = {
   nasToConn,
+  syncVoipAddressList,
   testConnection,
   pushSubscriber,
   seedDevice,

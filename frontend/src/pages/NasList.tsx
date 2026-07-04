@@ -1032,6 +1032,7 @@ export function NasList() {
   const [editNas, setEditNas] = useState<Nas | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [testingId, setTestingId] = useState<number | null>(null);
+  const [voipRefreshingId, setVoipRefreshingId] = useState<number | null>(null);
   const [seedNasTarget, setSeedNasTarget] = useState<Nas | null>(null);
   const [wgNasTarget, setWgNasTarget] = useState<Nas | null>(null);
 
@@ -1076,6 +1077,30 @@ export function NasList() {
       alert('Connection failed: request error.');
     } finally {
       setTestingId(null);
+    }
+  }
+
+  async function handleVoipRefresh(id: number) {
+    setVoipRefreshingId(id);
+    try {
+      const res = (await api.POST('/nas/{id}/voip/refresh', { params: { path: { id } } })) as {
+        data?: { data?: { added?: number; removed?: number; kept?: number; ranges?: number; skipped?: boolean; reason?: string } };
+        error?: { error?: { message?: string } };
+      };
+      if (res.error) {
+        alert(`VoIP refresh failed: ${res.error?.error?.message ?? 'Router unreachable'}`);
+        return;
+      }
+      const d = res.data?.data ?? {};
+      if (d.skipped) {
+        alert(`VoIP refresh skipped: ${d.reason ?? 'real-time priority not seeded on this NAS'}`);
+        return;
+      }
+      alert(`VoIP ranges reconciled\nAdded: ${d.added ?? 0}\nRemoved: ${d.removed ?? 0}\nKept: ${d.kept ?? 0}\nTotal ranges: ${d.ranges ?? 0}`);
+    } catch {
+      alert('VoIP refresh failed: request error.');
+    } finally {
+      setVoipRefreshingId(null);
     }
   }
 
@@ -1165,6 +1190,14 @@ export function NasList() {
                           title="Seed RADIUS, PPP AAA, CoA + optional QoS/walled-garden onto this MikroTik"
                         >
                           Seed
+                        </button>
+                        <button
+                          style={styles.actionBtn}
+                          onClick={() => handleVoipRefresh(n.id)}
+                          disabled={voipRefreshingId === n.id}
+                          title="Refresh the fireisp-voip RTC/VoIP address-list from provider ranges"
+                        >
+                          {voipRefreshingId === n.id ? 'VoIP…' : 'VoIP'}
                         </button>
                         <button
                           style={styles.actionBtn}

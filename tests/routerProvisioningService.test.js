@@ -27,6 +27,7 @@ const {
   testConnection,
   pushSubscriber,
   seedDevice,
+  syncVoipAddressList,
 } = require('../src/services/routerProvisioningService');
 
 // The real DEFAULT_PORT constant the service falls back to.
@@ -854,5 +855,102 @@ describe('seedDevice', () => {
     await expect(seedDevice(SEED_NAS, { radiusAddress: '203.0.113.10' }))
       .rejects.toThrow('RouterOS connection closed');
     expect(client.close).toHaveBeenCalledTimes(1); // finally still closed the client
+  });
+});
+
+// =============================================================================
+// syncVoipAddressList
+// =============================================================================
+describe('syncVoipAddressList', () => {
+  function realParseAttrs(words) {
+    const obj = {};
+    for (const w of words) {
+      if (typeof w !== 'string') continue;
+      const eq = w.indexOf('=', 1);
+      if (w.startsWith('=') && eq !== -1) obj[w.slice(1, eq)] = w.slice(eq + 1);
+    }
+    return obj;
+  }
+
+  beforeEach(() => {
+    ros.parseAttrs.mockImplementation(realParseAttrs);
+  });
+
+  test('skips a NAS that has not seeded real-time priority', async () => {
+    ros.findId.mockResolvedValue(null); // neither queue-tree nor mangle marker present
+    const client = { run: jest.fn(async () => [['!done']]), close: jest.fn().mockResolvedValue(undefined) };
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await syncVoipAddressList({ ...BASE_NAS }, ['8.8.8.0/24']);
+
+    expect(result).toEqual({ skipped: true, reason: 'real-time priority not seeded on this NAS' });
+    expect(client.run).not.toHaveBeenCalledWith(expect.arrayContaining(['/ip/firewall/address-list/add']));
+    expect(client.close).toHaveBeenCalledTimes(1);
+  });
+
+  test('adds missing CIDRs, removes stale auto entries, and leaves operator entries alone', async () => {
+    // Real-time IS seeded (queue-tree marker present).
+    ros.findId.mockImplementation(async (_client, basePath) => (basePath === '/queue/tree' ? '*rt' : null));
+
+    const calls = [];
+    const client = {
+      run: jest.fn(async (words) => {
+        calls.push(words);
+        if (words[0] === '/ip/firewall/address-list/print') {
+          return [
+            ['!re', '=.id=*1', '=list=fireisp-voip', '=address=8.8.8.0/24', '=comment=fireisp-voip-auto'],
+            ['!re', '=.id=*2', '=list=fireisp-voip', '=address=1.1.1.0/24', '=comment=fireisp-voip-auto'],
+            // operator-added entry (comment fireisp-voip, NOT -auto) → must be left alone
+            ['!re', '=.id=*9', '=list=fireisp-voip', '=address=157.240.0.0/16', '=comment=fireisp-voip'],
+            ['!done'],
+          ];
+        }
+        return [['!done']];
+      }),
+      close: jest.fn().mockResolvedValue(undefined),
+    };
+    ros.createClient.mockResolvedValue(client);
+
+    // desired: keep 8.8.8.0/24, drop 1.1.1.0/24, add 9.9.9.0/24
+    const result = await syncVoipAddressList({ ...BASE_NAS }, ['8.8.8.0/24', '9.9.9.0/24']);
+
+    expect(result).toEqual({ added: 1, removed: 1, kept: 1, desired: 2 });
+    const add = calls.find((c) => c[0] === '/ip/firewall/address-list/add');
+    expect(add).toEqual(expect.arrayContaining(['=list=fireisp-voip', '=address=9.9.9.0/24', '=comment=fireisp-voip-auto']));
+    // 8.8.8.0/24 already present → not re-added
+    expect(calls.some((c) => c[0] === '/ip/firewall/address-list/add' && c.includes('=address=8.8.8.0/24'))).toBe(false);
+    // only the stale auto entry *2 is removed; operator entry *9 is untouched
+    const removes = calls.filter((c) => c[0] === '/ip/firewall/address-list/remove');
+    expect(removes).toHaveLength(1);
+    expect(removes[0]).toContain('=.id=*2');
+    expect(client.close).toHaveBeenCalledTimes(1);
+  });
+
+  test('does NOT re-add a desired CIDR already present under the operator comment (no duplicate add)', async () => {
+    ros.findId.mockImplementation(async (_client, basePath) => (basePath === '/queue/tree' ? '*rt' : null));
+
+    const calls = [];
+    const client = {
+      run: jest.fn(async (words) => {
+        calls.push(words);
+        if (words[0] === '/ip/firewall/address-list/print') {
+          // Operator seeded 149.137.0.0/17 (comment fireisp-voip); it's also in `desired`.
+          return [['!re', '=.id=*9', '=list=fireisp-voip', '=address=149.137.0.0/17', '=comment=fireisp-voip'], ['!done']];
+        }
+        return [['!done']];
+      }),
+      close: jest.fn().mockResolvedValue(undefined),
+    };
+    ros.createClient.mockResolvedValue(client);
+
+    const result = await syncVoipAddressList({ ...BASE_NAS }, ['149.137.0.0/17', '8.8.8.0/24']);
+
+    // 149.137.0.0/17 already on the list (operator) → NOT re-added; only 8.8.8.0/24 added.
+    expect(result).toEqual({ added: 1, removed: 0, kept: 1, desired: 2 });
+    const adds = calls.filter((c) => c[0] === '/ip/firewall/address-list/add');
+    expect(adds).toHaveLength(1);
+    expect(adds[0]).toContain('=address=8.8.8.0/24');
+    // operator entry is never removed
+    expect(calls.some((c) => c[0] === '/ip/firewall/address-list/remove')).toBe(false);
   });
 });

@@ -92,6 +92,22 @@ const config = {
     keyDir:           process.env.WG_KEY_DIR || '/etc/wireguard', // persistent dir for auto-generated server keypairs (mount a volume here)
   },
 
+  // VoIP/RTC address-list auto-updater (voipRangesService). Refreshes the
+  // fireisp-voip address-list on managed NAS from provider IP-range endpoints so
+  // the §VoIP realtime-priority mangle keeps matching current RTC media servers.
+  // Disabled by default — enable per deployment once realtime priority is seeded.
+  voipRanges: {
+    enabled:        parseBoolEnv('VOIP_RANGES_ENABLED', false),
+    // Comma-separated source URLs; each returns CIDRs as plain lines or Google-style
+    // JSON ({prefixes:[{ipv4Prefix}]}). Default = Zoom's published RTC ranges (Zoom is
+    // a real-time-only service, so prioritising all of it is safe — unlike all-of-Meta/
+    // Google, which over-match bulk traffic and are intentionally NOT defaulted).
+    sourceUrls: (process.env.VOIP_RANGES_SOURCE_URLS || 'https://assets.zoom.us/docs/ipranges/Zoom.txt')
+      .split(',').map((s) => s.trim()).filter(Boolean),
+    maxEntries:     parseIntEnv('VOIP_RANGES_MAX_ENTRIES', 4000),
+    fetchTimeoutMs: parseIntEnv('VOIP_RANGES_FETCH_TIMEOUT_MS', 10000),
+  },
+
   // Feature flags — set FEATURE_*=true to enable
   features: {
     cfdi: parseBoolEnv('FEATURE_CFDI', true),
