@@ -33,7 +33,7 @@ function generateAttributes(plan) {
 
   switch (plan.radius_vendor) {
     case 'mikrotik':
-      return generateMikrotikAttributes(dl, ul, burstDl, burstUl, burstThreshDl, burstThreshUl, burstTime);
+      return generateMikrotikAttributes(dl, ul, burstDl, burstUl, burstThreshDl, burstThreshUl, burstTime, plan.priority);
     case 'cisco':
       return generateCiscoAttributes(dl, ul);
     case 'juniper':
@@ -44,16 +44,26 @@ function generateAttributes(plan) {
 }
 
 /**
- * MikroTik Mikrotik-Rate-Limit format (full 7-field form):
- *   rx/tx burst-rx/burst-tx burst-threshold-rx/burst-threshold-tx burst-time priority queue-type-rx/queue-type-tx
- * Simplified to: "CIR-DL/CIR-UL burst-DL/burst-UL threshold-DL/threshold-UL burst-time"
+ * MikroTik Mikrotik-Rate-Limit format (full form):
+ *   rx/tx burst-rx/burst-tx burst-threshold-rx/burst-threshold-tx burst-time priority min-rx/min-tx
+ * Emitted as: "CIR-DL/CIR-UL burst-DL/burst-UL threshold-DL/threshold-UL burst-time [priority]"
+ *
+ * The optional 5th field is the queue PRIORITY (1 = highest … 8 = lowest). When the
+ * plan sets one it is appended so the session's dynamic queue carries it — this is
+ * how "business (low number) out-prioritises residential" reaches the device, since
+ * RouterOS has no RADIUS attribute to assign a session to a specific parent queue.
+ * Omitted when the plan has no priority, keeping the legacy 4-field string intact.
  *
  * Reference: https://wiki.mikrotik.com/wiki/Queues#Burst_Parameters
+ *
+ * @param {number|string|null|undefined} [priority] Plan queue priority 1-8
  */
-function generateMikrotikAttributes(dl, ul, burstDl, burstUl, burstThreshDl, burstThreshUl, burstTime) {
-  return {
-    'Mikrotik-Rate-Limit': `${dl}M/${ul}M ${burstDl}M/${burstUl}M ${burstThreshDl}M/${burstThreshUl}M ${burstTime}`,
-  };
+function generateMikrotikAttributes(dl, ul, burstDl, burstUl, burstThreshDl, burstThreshUl, burstTime, priority) {
+  let rateLimit = `${dl}M/${ul}M ${burstDl}M/${burstUl}M ${burstThreshDl}M/${burstThreshUl}M ${burstTime}`;
+  if (priority !== null && priority !== undefined && priority !== '') {
+    rateLimit += ` ${priority}`;
+  }
+  return { 'Mikrotik-Rate-Limit': rateLimit };
 }
 
 /**

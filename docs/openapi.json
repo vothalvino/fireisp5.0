@@ -8942,7 +8942,7 @@
         "tags": [
           "NAS"
         ],
-        "summary": "Seed a MikroTik NAS: configure FireISP RADIUS client, PPP AAA, CoA incoming, and optional queue-tree skeleton + suspended walled garden (idempotent, non-destructive)",
+        "summary": "Seed a MikroTik NAS: configure FireISP RADIUS client, PPP AAA, CoA incoming, and optionally fq-codel queue types, a queue-tree skeleton, Business/Residential priority simple queues, a PPPoE server + base profile, a suspended-subscriber walled garden, and real-time/VoIP traffic prioritisation (idempotent, non-destructive)",
         "operationId": "seedNasDevice",
         "security": [
           {
@@ -57187,6 +57187,35 @@
             "minimum": 0,
             "maximum": 1000000
           },
+          "seedQueueTypes": {
+            "type": "boolean"
+          },
+          "seedPriorityQueues": {
+            "type": "boolean"
+          },
+          "seedPppoeServer": {
+            "type": "boolean"
+          },
+          "pppoeInterface": {
+            "type": "string",
+            "maximum": 64
+          },
+          "pppoeServiceName": {
+            "type": "string",
+            "maximum": 64
+          },
+          "pppoeProfileName": {
+            "type": "string",
+            "maximum": 64
+          },
+          "pppoeLocalAddress": {
+            "type": "string",
+            "maximum": 45
+          },
+          "pppoeParentQueue": {
+            "type": "string",
+            "maximum": 64
+          },
           "seedWalledGarden": {
             "type": "boolean"
           },
@@ -57197,6 +57226,41 @@
           "portalAddress": {
             "type": "string",
             "maximum": 255
+          },
+          "redirectPorts": {
+            "type": "string",
+            "maximum": 64
+          },
+          "redirectToPort": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "redirectEnabled": {
+            "type": "boolean"
+          },
+          "seedRealtimePriority": {
+            "type": "boolean"
+          },
+          "sipRtpPorts": {
+            "type": "string",
+            "maximum": 128
+          },
+          "voipNetworks": {
+            "type": "string",
+            "maximum": 2000
+          },
+          "trustClientDscp": {
+            "type": "boolean"
+          },
+          "realtimeParent": {
+            "type": "string",
+            "maximum": 64
+          },
+          "realtimeMaxMbps": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000
           }
         },
         "required": [

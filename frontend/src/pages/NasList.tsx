@@ -111,9 +111,26 @@ interface SeedBody {
   queueParent?: string;
   totalDownloadMbps?: number;
   totalUploadMbps?: number;
+  seedQueueTypes?: boolean;
+  seedPriorityQueues?: boolean;
+  seedPppoeServer?: boolean;
+  pppoeInterface?: string;
+  pppoeServiceName?: string;
+  pppoeProfileName?: string;
+  pppoeLocalAddress?: string;
+  pppoeParentQueue?: string;
   seedWalledGarden?: boolean;
   suspendedListName?: string;
   portalAddress?: string;
+  redirectPorts?: string;
+  redirectToPort?: number;
+  redirectEnabled?: boolean;
+  seedRealtimePriority?: boolean;
+  sipRtpPorts?: string;
+  voipNetworks?: string;
+  trustClientDscp?: boolean;
+  realtimeParent?: string;
+  realtimeMaxMbps?: number;
 }
 
 interface SeedStep {
@@ -613,9 +630,26 @@ function SeedModal({ nas, onClose }: SeedModalProps) {
     queueParent: 'global',
     totalDownloadMbps: '',
     totalUploadMbps: '',
+    seedQueueTypes: false,
+    seedPriorityQueues: false,
+    seedPppoeServer: false,
+    pppoeInterface: '',
+    pppoeServiceName: 'FireISP-Internet',
+    pppoeProfileName: 'fireisp-pppoe',
+    pppoeLocalAddress: '',
+    pppoeParentQueue: '',
     seedWalledGarden: false,
     suspendedListName: 'fireisp-suspended',
     portalAddress: '',
+    redirectPorts: '80,443',
+    redirectToPort: '80',
+    redirectEnabled: true,
+    seedRealtimePriority: false,
+    sipRtpPorts: '5060,5061,10000-20000',
+    voipNetworks: '',
+    trustClientDscp: false,
+    realtimeParent: 'global',
+    realtimeMaxMbps: '',
   });
   const [error, setError] = useState('');
   const [result, setResult] = useState<SeedResult | null>(null);
@@ -632,15 +666,37 @@ function SeedModal({ nas, onClose }: SeedModalProps) {
       if (form.coaPort) body.coaPort = Number(form.coaPort);
       if (form.interimUpdate) body.interimUpdate = form.interimUpdate.trim();
       body.seedQueueTree = form.seedQueueTree;
-      if (form.seedQueueTree) {
-        if (form.queueParent) body.queueParent = form.queueParent.trim();
+      if (form.seedQueueTree && form.queueParent) body.queueParent = form.queueParent.trim();
+      body.seedQueueTypes = form.seedQueueTypes;
+      body.seedPriorityQueues = form.seedPriorityQueues;
+      // Total down/up feed both the queue-tree skeleton and the §4 POP-limit classes.
+      if (form.seedQueueTree || form.seedPriorityQueues) {
         if (form.totalDownloadMbps) body.totalDownloadMbps = Number(form.totalDownloadMbps);
         if (form.totalUploadMbps) body.totalUploadMbps = Number(form.totalUploadMbps);
+      }
+      body.seedPppoeServer = form.seedPppoeServer;
+      if (form.seedPppoeServer) {
+        if (form.pppoeInterface) body.pppoeInterface = form.pppoeInterface.trim();
+        if (form.pppoeServiceName) body.pppoeServiceName = form.pppoeServiceName.trim();
+        if (form.pppoeProfileName) body.pppoeProfileName = form.pppoeProfileName.trim();
+        if (form.pppoeLocalAddress) body.pppoeLocalAddress = form.pppoeLocalAddress.trim();
+        if (form.pppoeParentQueue) body.pppoeParentQueue = form.pppoeParentQueue.trim();
       }
       body.seedWalledGarden = form.seedWalledGarden;
       if (form.seedWalledGarden) {
         if (form.suspendedListName) body.suspendedListName = form.suspendedListName.trim();
         if (form.portalAddress) body.portalAddress = form.portalAddress.trim();
+        if (form.redirectPorts) body.redirectPorts = form.redirectPorts.trim();
+        if (form.redirectToPort) body.redirectToPort = Number(form.redirectToPort);
+        body.redirectEnabled = form.redirectEnabled;
+      }
+      body.seedRealtimePriority = form.seedRealtimePriority;
+      if (form.seedRealtimePriority) {
+        if (form.sipRtpPorts) body.sipRtpPorts = form.sipRtpPorts.trim();
+        if (form.voipNetworks) body.voipNetworks = form.voipNetworks.trim();
+        body.trustClientDscp = form.trustClientDscp;
+        if (form.realtimeParent) body.realtimeParent = form.realtimeParent.trim();
+        if (form.realtimeMaxMbps) body.realtimeMaxMbps = Number(form.realtimeMaxMbps);
       }
       return seedNasDevice(nas.id, body);
     },
@@ -715,7 +771,9 @@ function SeedModal({ nas, onClose }: SeedModalProps) {
           <form onSubmit={handleSubmit} style={modalStyles.form}>
             <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
               Pushes the FireISP RADIUS client, PPP AAA and CoA listener to this MikroTik over its
-              RouterOS API. Idempotent — safe to re-run. The NAS shared secret is used automatically.
+              RouterOS API, plus optional fq-codel queue types, priority queues, a PPPoE server, a
+              walled garden and real-time/VoIP prioritisation. Idempotent — safe to re-run. The NAS
+              shared secret is used automatically.
             </p>
 
             <label style={modalStyles.label}>
@@ -759,26 +817,41 @@ function SeedModal({ nas, onClose }: SeedModalProps) {
             </div>
 
             <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={form.seedQueueTypes}
+                onChange={e => setField('seedQueueTypes', e.target.checked)} aria-label="Seed fq-codel queue types" />
+              Enable fq-codel queue types (bufferbloat prevention)
+            </label>
+
+            <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" checked={form.seedQueueTree}
                 onChange={e => setField('seedQueueTree', e.target.checked)} aria-label="Seed queue tree" />
               Seed global queue-tree skeleton
             </label>
             {form.seedQueueTree && (
+              <label style={{ ...modalStyles.label }}>
+                Queue-tree Parent
+                <input style={modalStyles.input} type="text" maxLength={64}
+                  value={form.queueParent} onChange={e => setField('queueParent', e.target.value)}
+                  placeholder="global" aria-label="Queue parent" />
+              </label>
+            )}
+
+            <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={form.seedPriorityQueues}
+                onChange={e => setField('seedPriorityQueues', e.target.checked)} aria-label="Seed priority queues" />
+              Seed Business / Residential priority queues
+            </label>
+
+            {(form.seedQueueTree || form.seedPriorityQueues) && (
               <div style={{ display: 'flex', gap: 10 }}>
                 <label style={{ ...modalStyles.label, flex: 1 }}>
-                  Parent
-                  <input style={modalStyles.input} type="text" maxLength={64}
-                    value={form.queueParent} onChange={e => setField('queueParent', e.target.value)}
-                    placeholder="global" aria-label="Queue parent" />
-                </label>
-                <label style={{ ...modalStyles.label, flex: 1 }}>
-                  Total Down (Mbps)
+                  POP Total Down (Mbps)
                   <input style={modalStyles.input} type="number" min={0}
                     value={form.totalDownloadMbps} onChange={e => setField('totalDownloadMbps', e.target.value)}
                     aria-label="Total download Mbps" />
                 </label>
                 <label style={{ ...modalStyles.label, flex: 1 }}>
-                  Total Up (Mbps)
+                  POP Total Up (Mbps)
                   <input style={modalStyles.input} type="number" min={0}
                     value={form.totalUploadMbps} onChange={e => setField('totalUploadMbps', e.target.value)}
                     aria-label="Total upload Mbps" />
@@ -787,25 +860,146 @@ function SeedModal({ nas, onClose }: SeedModalProps) {
             )}
 
             <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={form.seedPppoeServer}
+                onChange={e => setField('seedPppoeServer', e.target.checked)} aria-label="Seed PPPoE server" />
+              Seed PPPoE server + base profile
+            </label>
+            {form.seedPppoeServer && (
+              <>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <label style={{ ...modalStyles.label, flex: 1 }}>
+                    Interface <RequiredMark />
+                    <input style={modalStyles.input} type="text" maxLength={64}
+                      value={form.pppoeInterface} onChange={e => setField('pppoeInterface', e.target.value)}
+                      placeholder="ether2" aria-label="PPPoE interface" />
+                  </label>
+                  <label style={{ ...modalStyles.label, flex: 1 }}>
+                    Service Name
+                    <input style={modalStyles.input} type="text" maxLength={64}
+                      value={form.pppoeServiceName} onChange={e => setField('pppoeServiceName', e.target.value)}
+                      placeholder="FireISP-Internet" aria-label="PPPoE service name" />
+                  </label>
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <label style={{ ...modalStyles.label, flex: 1 }}>
+                    Profile Name
+                    <input style={modalStyles.input} type="text" maxLength={64}
+                      value={form.pppoeProfileName} onChange={e => setField('pppoeProfileName', e.target.value)}
+                      placeholder="fireisp-pppoe" aria-label="PPPoE profile name" />
+                  </label>
+                  <label style={{ ...modalStyles.label, flex: 1 }}>
+                    Local Address
+                    <input style={modalStyles.input} type="text" maxLength={45}
+                      value={form.pppoeLocalAddress} onChange={e => setField('pppoeLocalAddress', e.target.value)}
+                      placeholder="10.0.0.1 (gateway)" aria-label="PPPoE local address" />
+                  </label>
+                  <label style={{ ...modalStyles.label, flex: 1 }}>
+                    Parent Queue
+                    <input style={modalStyles.input} type="text" maxLength={64}
+                      value={form.pppoeParentQueue} onChange={e => setField('pppoeParentQueue', e.target.value)}
+                      placeholder={form.seedPriorityQueues ? '01-GLOBAL-POP-LIMIT' : '(none)'} aria-label="PPPoE parent queue" />
+                  </label>
+                </div>
+              </>
+            )}
+
+            <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" checked={form.seedWalledGarden}
                 onChange={e => setField('seedWalledGarden', e.target.checked)} aria-label="Seed walled garden" />
               Seed suspended-user walled garden
             </label>
             {form.seedWalledGarden && (
-              <div style={{ display: 'flex', gap: 10 }}>
-                <label style={{ ...modalStyles.label, flex: 1 }}>
-                  Suspended Address-List
-                  <input style={modalStyles.input} type="text" maxLength={64}
-                    value={form.suspendedListName} onChange={e => setField('suspendedListName', e.target.value)}
-                    placeholder="fireisp-suspended" aria-label="Suspended address list" />
+              <>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <label style={{ ...modalStyles.label, flex: 1 }}>
+                    Suspended Address-List
+                    <input style={modalStyles.input} type="text" maxLength={64}
+                      value={form.suspendedListName} onChange={e => setField('suspendedListName', e.target.value)}
+                      placeholder="fireisp-suspended" aria-label="Suspended address list" />
+                  </label>
+                  <label style={{ ...modalStyles.label, flex: 1 }}>
+                    Portal Address (optional)
+                    <input style={modalStyles.input} type="text" maxLength={255}
+                      value={form.portalAddress} onChange={e => setField('portalAddress', e.target.value)}
+                      placeholder="redirect target IP" aria-label="Portal address" />
+                  </label>
+                </div>
+                {form.portalAddress && (
+                  <>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <label style={{ ...modalStyles.label, flex: 1 }}>
+                        Redirect Ports
+                        <input style={modalStyles.input} type="text" maxLength={64}
+                          value={form.redirectPorts} onChange={e => setField('redirectPorts', e.target.value)}
+                          placeholder="80,443" aria-label="Redirect ports" />
+                      </label>
+                      <label style={{ ...modalStyles.label, flex: 1 }}>
+                        Portal Listen Port
+                        <input style={modalStyles.input} type="number" min={1} max={65535}
+                          value={form.redirectToPort} onChange={e => setField('redirectToPort', e.target.value)}
+                          placeholder="80" aria-label="Portal listen port" />
+                      </label>
+                    </div>
+                    <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <input type="checkbox" checked={form.redirectEnabled}
+                        onChange={e => setField('redirectEnabled', e.target.checked)} aria-label="Enable redirect on create" />
+                      Lay the redirect down enabled (permanent). Uncheck to create it disabled for manual ordering.
+                    </label>
+                    {form.redirectEnabled && form.redirectPorts.includes('443') && (
+                      <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        Note: redirecting 443 to a plaintext portal triggers a browser TLS warning before the portal loads.
+                      </p>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+
+            <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={form.seedRealtimePriority}
+                onChange={e => setField('seedRealtimePriority', e.target.checked)} aria-label="Seed realtime priority" />
+              Prioritise real-time / VoIP & calling traffic
+            </label>
+            {form.seedRealtimePriority && (
+              <>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <label style={{ ...modalStyles.label, flex: 1 }}>
+                    SIP/RTP Ports (UDP)
+                    <input style={modalStyles.input} type="text" maxLength={128}
+                      value={form.sipRtpPorts} onChange={e => setField('sipRtpPorts', e.target.value)}
+                      placeholder="5060,5061,10000-20000" aria-label="SIP RTP ports" />
+                  </label>
+                  <label style={{ ...modalStyles.label, flex: 1 }}>
+                    Realtime Queue Parent
+                    <input style={modalStyles.input} type="text" maxLength={64}
+                      value={form.realtimeParent} onChange={e => setField('realtimeParent', e.target.value)}
+                      placeholder="global" aria-label="Realtime queue parent" />
+                  </label>
+                  <label style={{ ...modalStyles.label, flex: 1 }}>
+                    Cap (Mbps, optional)
+                    <input style={modalStyles.input} type="number" min={0}
+                      value={form.realtimeMaxMbps} onChange={e => setField('realtimeMaxMbps', e.target.value)}
+                      aria-label="Realtime cap Mbps" />
+                  </label>
+                </div>
+                <label style={{ ...modalStyles.label }}>
+                  OTT Provider Networks (fireisp-voip list)
+                  <textarea style={{ ...modalStyles.input, minHeight: 44, fontFamily: 'monospace' }}
+                    maxLength={2000}
+                    value={form.voipNetworks} onChange={e => setField('voipNetworks', e.target.value)}
+                    placeholder="CIDRs for WhatsApp/Meet/Zoom media, e.g. 157.240.0.0/16, 142.250.0.0/15"
+                    aria-label="VoIP networks" />
                 </label>
-                <label style={{ ...modalStyles.label, flex: 1 }}>
-                  Portal Address (optional)
-                  <input style={modalStyles.input} type="text" maxLength={255}
-                    value={form.portalAddress} onChange={e => setField('portalAddress', e.target.value)}
-                    placeholder="redirect target (disabled rule)" aria-label="Portal address" />
+                <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <input type="checkbox" checked={form.trustClientDscp}
+                    onChange={e => setField('trustClientDscp', e.target.checked)} aria-label="Trust client DSCP" />
+                  Trust client-set DSCP EF (spoofable — recommend setting a cap above)
                 </label>
-              </div>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  SIP/RTP is matched by port; encrypted OTT calls (WhatsApp, FaceTime, Meet) can only be matched by
+                  the provider address-list above. fq-codel queue types are the foundation — enable them too.
+                </p>
+              </>
             )}
 
             {error && <p style={modalStyles.error}>{error}</p>}
