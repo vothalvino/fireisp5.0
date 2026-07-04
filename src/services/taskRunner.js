@@ -128,6 +128,10 @@ async function runTask(taskName, organizationId = null) {
       const nasHealthService = require('./nasHealthService');
       return nasHealthService.runHealthChecks(organizationId);
     }
+    case 'refresh_voip_ranges': {
+      const voipRangesService = require('./voipRangesService');
+      return voipRangesService.refreshAllNas(organizationId);
+    }
     case 'kick_duplicate_sessions':
       return radiusService.kickDuplicateSessions(organizationId);
     case 'check_pool_utilization': {

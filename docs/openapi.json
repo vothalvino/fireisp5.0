@@ -8983,6 +8983,42 @@
         }
       }
     },
+    "/nas/{id}/voip/refresh": {
+      "post": {
+        "tags": [
+          "NAS"
+        ],
+        "summary": "Reconcile the fireisp-voip RTC/VoIP address-list on this NAS from the configured provider ranges (voipRangesService). Idempotent; skips NAS without real-time priority seeded",
+        "operationId": "refreshNasVoipRanges",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reconcile result — added/removed/kept + sources",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/nas/{id}/wg": {
       "get": {
         "tags": [

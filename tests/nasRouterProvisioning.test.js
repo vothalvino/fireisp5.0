@@ -16,6 +16,7 @@ jest.mock('../src/config/database', () => ({
 
 jest.mock('../src/models/User');
 jest.mock('../src/services/routerProvisioningService');
+jest.mock('../src/services/voipRangesService');
 
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
@@ -23,6 +24,7 @@ const config = require('../src/config');
 const db = require('../src/config/database');
 const User = require('../src/models/User');
 const routerProvisioningService = require('../src/services/routerProvisioningService');
+const voipRangesService = require('../src/services/voipRangesService');
 const app = require('../src/app');
 
 // ---------------------------------------------------------------------------
@@ -293,6 +295,77 @@ describe('POST /api/nas/:id/seed', () => {
 
   test('returns 401 without auth header', async () => {
     const res = await request(app).post('/api/nas/7/seed').send({ radiusAddress: '203.0.113.10' });
+    expect(res.status).toBe(401);
+  });
+});
+
+// =============================================================================
+// POST /api/nas/:id/voip/refresh
+// =============================================================================
+describe('POST /api/nas/:id/voip/refresh', () => {
+  test('returns 200 with the reconcile result', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[mockNas]]); // Nas.findByIdOrFail
+    voipRangesService.resolveRanges.mockResolvedValue({
+      ranges: ['8.8.8.0/24', '1.1.1.0/24'], sources: [{ url: 'z', count: 2, ok: true }], capped: false,
+    });
+    routerProvisioningService.syncVoipAddressList.mockResolvedValue({ added: 2, removed: 0, kept: 0, desired: 2 });
+
+    const res = await request(app)
+      .post('/api/nas/7/voip/refresh')
+      .set('Authorization', `Bearer ${authToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.added).toBe(2);
+    expect(res.body.data.ranges).toBe(2);
+    expect(routerProvisioningService.syncVoipAddressList).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 7 }),
+      ['8.8.8.0/24', '1.1.1.0/24'],
+    );
+  });
+
+  test('returns 502 VOIP_RANGES_EMPTY when no ranges resolve', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[mockNas]]);
+    voipRangesService.resolveRanges.mockResolvedValue({ ranges: [], sources: [{ url: 'z', ok: false }], capped: false });
+
+    const res = await request(app)
+      .post('/api/nas/7/voip/refresh')
+      .set('Authorization', `Bearer ${authToken}`);
+
+    expect(res.status).toBe(502);
+    expect(res.body.error.code).toBe('VOIP_RANGES_EMPTY');
+    expect(routerProvisioningService.syncVoipAddressList).not.toHaveBeenCalled();
+  });
+
+  test('returns 502 ROUTER_UNREACHABLE when the device push errors', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[mockNas]]);
+    voipRangesService.resolveRanges.mockResolvedValue({ ranges: ['8.8.8.0/24'], sources: [], capped: false });
+    routerProvisioningService.syncVoipAddressList.mockRejectedValue(new Error('connect ETIMEDOUT'));
+
+    const res = await request(app)
+      .post('/api/nas/7/voip/refresh')
+      .set('Authorization', `Bearer ${authToken}`);
+
+    expect(res.status).toBe(502);
+    expect(res.body.error.code).toBe('ROUTER_UNREACHABLE');
+  });
+
+  test('returns 404 when the NAS does not exist', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[]]); // findByIdOrFail -> NotFound
+
+    const res = await request(app)
+      .post('/api/nas/999/voip/refresh')
+      .set('Authorization', `Bearer ${authToken}`);
+
+    expect(res.status).toBe(404);
+    expect(voipRangesService.resolveRanges).not.toHaveBeenCalled();
+  });
+
+  test('returns 401 without auth header', async () => {
+    const res = await request(app).post('/api/nas/7/voip/refresh');
     expect(res.status).toBe(401);
   });
 });
