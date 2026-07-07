@@ -73,8 +73,8 @@ router.get('/clave-prod-serv', requirePermission('cfdi_documents.view'), async (
     let sql = 'SELECT * FROM sat_clave_prod_serv';
     const params = [];
     if (search) {
-      sql += ' WHERE descripcion LIKE ?';
-      params.push(`%${search}%`);
+      sql += ' WHERE description LIKE ? OR code LIKE ?';
+      params.push(`%${search}%`, `%${search}%`);
     }
     const [rows] = await db.query(sql, params);
     res.json({ data: rows });
@@ -89,8 +89,8 @@ router.get('/clave-unidad', requirePermission('cfdi_documents.view'), async (req
     let sql = 'SELECT * FROM sat_clave_unidad';
     const params = [];
     if (search) {
-      sql += ' WHERE nombre LIKE ?';
-      params.push(`%${search}%`);
+      sql += ' WHERE description LIKE ? OR code LIKE ?';
+      params.push(`%${search}%`, `%${search}%`);
     }
     const [rows] = await db.query(sql, params);
     res.json({ data: rows });

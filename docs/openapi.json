@@ -55944,33 +55944,40 @@
       "inventory_createInventoryTransaction": {
         "type": "object",
         "properties": {
-          "item_id": {
-            "type": "number",
-            "minimum": 1
-          },
-          "warehouse_id": {
+          "stock_id": {
             "type": "number",
             "minimum": 1
           },
           "transaction_type": {
             "type": "string",
             "enum": [
-              "purchase",
-              "sale",
-              "transfer_in",
+              "receive",
+              "assign_to_job",
+              "sell_to_client",
               "transfer_out",
-              "adjustment",
-              "rma_return",
-              "rma_send",
-              "write_off"
+              "transfer_in",
+              "return",
+              "adjustment"
             ]
           },
           "quantity": {
             "type": "number"
           },
-          "unit_cost": {
+          "unit_price": {
             "type": "number",
             "minimum": 0
+          },
+          "job_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "invoice_id": {
+            "type": "number",
+            "minimum": 1
           },
           "reference": {
             "type": "string",
@@ -55982,8 +55989,7 @@
           }
         },
         "required": [
-          "item_id",
-          "warehouse_id",
+          "stock_id",
           "transaction_type",
           "quantity"
         ]

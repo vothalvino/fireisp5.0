@@ -33,11 +33,13 @@ const updateInventoryItem = {
 };
 
 const createInventoryTransaction = {
-  item_id: { type: 'number', required: true, min: 1 },
-  warehouse_id: { type: 'number', required: true, min: 1 },
-  transaction_type: { type: 'string', required: true, enum: ['purchase', 'sale', 'transfer_in', 'transfer_out', 'adjustment', 'rma_return', 'rma_send', 'write_off'] },
+  stock_id: { type: 'number', required: true, min: 1 },
+  transaction_type: { type: 'string', required: true, enum: ['receive', 'assign_to_job', 'sell_to_client', 'transfer_out', 'transfer_in', 'return', 'adjustment'] },
   quantity: { type: 'number', required: true },
-  unit_cost: { type: 'number', min: 0 },
+  unit_price: { type: 'number', min: 0 },
+  job_id: { type: 'number', min: 1 },
+  client_id: { type: 'number', min: 1 },
+  invoice_id: { type: 'number', min: 1 },
   reference: { type: 'string', max: 255 },
   notes: { type: 'string', max: 5000 },
 };

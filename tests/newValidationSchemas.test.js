@@ -368,20 +368,26 @@ describe('Inventory validation schemas', () => {
     }
   });
 
-  test('createInventoryTransaction requires item_id, warehouse_id, transaction_type, quantity', () => {
+  test('createInventoryTransaction requires stock_id, transaction_type, quantity', () => {
     const next = run(createInventoryTransaction, {});
     const fields = errorFields(next);
-    expect(fields).toContain('item_id');
-    expect(fields).toContain('warehouse_id');
+    expect(fields).toContain('stock_id');
     expect(fields).toContain('transaction_type');
     expect(fields).toContain('quantity');
   });
 
   test('createInventoryTransaction rejects invalid transaction_type', () => {
     const next = run(createInventoryTransaction, {
-      item_id: 1, warehouse_id: 1, transaction_type: 'borrow', quantity: 5,
+      stock_id: 1, transaction_type: 'borrow', quantity: 5,
     });
     expectReject(next);
+  });
+
+  test('createInventoryTransaction accepts a valid stock movement', () => {
+    const next = run(createInventoryTransaction, {
+      stock_id: 1, transaction_type: 'receive', quantity: 5, unit_price: 12.5,
+    });
+    expectPass(next);
   });
 
   test('updateInventoryItem allows partial updates', () => {
