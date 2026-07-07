@@ -333,13 +333,16 @@ router.post('/:id/send-email', requirePermission('invoices.view'), async (req, r
       items: itemRows,
     });
 
-    await emailTransport.sendEmail({
+    const result = await emailTransport.sendEmail({
       organizationId: invoice.organization_id,
       to: invoice.client_email,
       subject: template.subject,
       html: template.html,
       attachments: [{ filename: `invoice-${invoice.invoice_number || invoiceId}.pdf`, content: buffer }],
     });
+    if (!result.success) {
+      return res.status(502).json({ error: { code: 'EMAIL_FAILED', message: result.error || 'Failed to send email' } });
+    }
 
     res.json({ message: 'Invoice sent', to: invoice.client_email });
   } catch (err) {

@@ -163,7 +163,7 @@ function emitEvent(event, payload) {
  * @returns {Promise<{checked: number, up: number, down: number, transitions: Array<{id:number,from:string,to:string}>}>}
  */
 async function runHealthChecks(organizationId = null) {
-  const conditions = ['is_enabled = TRUE'];
+  const conditions = ["status = 'active'"];
   const params = [];
 
   if (organizationId !== null) {

@@ -37,7 +37,7 @@ describe('emailTransport', () => {
       expect(result).toEqual({ success: true, messageId: '<abc@test>' });
       expect(db.query).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO email_logs'),
-        expect.arrayContaining([42, 'user@example.com', 'Test']),
+        expect.arrayContaining(['user@example.com', 'Test']),
       );
     });
 

@@ -489,13 +489,16 @@ router.post('/:id/send-receipt', requirePermission('payments.view'), async (req,
         : undefined,
     });
 
-    await emailTransport.sendEmail({
+    const result = await emailTransport.sendEmail({
       organizationId: req.orgId,
       to: payment.client_email,
       subject: template.subject,
       html: template.html,
       attachments: [{ filename: `receipt-${paymentId}.pdf`, content: buffer }],
     });
+    if (!result.success) {
+      return res.status(502).json({ error: result.error || 'Failed to send receipt' });
+    }
 
     res.json({ message: 'Receipt sent', to: payment.client_email });
   } catch (err) {

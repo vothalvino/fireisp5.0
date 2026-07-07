@@ -121,15 +121,15 @@ router.post('/:id/receive', requirePermission('purchase_orders.receive'), valida
       const warehouseId = po.warehouse_id;
       if (warehouseId) {
         const [existing] = await db.query(
-          'SELECT id, quantity FROM inventory_stock WHERE item_id = ? AND warehouse_id = ? AND organization_id = ? AND deleted_at IS NULL',
-          [item.inventory_item_id, warehouseId, req.orgId],
+          'SELECT id, quantity FROM inventory_stock WHERE item_id = ? AND warehouse_id = ? AND deleted_at IS NULL',
+          [item.inventory_item_id, warehouseId],
         );
         if (existing.length > 0) {
           await db.query('UPDATE inventory_stock SET quantity = quantity + ? WHERE id = ?', [qty, existing[0].id]);
         } else {
           await db.query(
-            'INSERT INTO inventory_stock (item_id, warehouse_id, organization_id, quantity) VALUES (?, ?, ?, ?)',
-            [item.inventory_item_id, warehouseId, req.orgId, qty],
+            'INSERT INTO inventory_stock (item_id, warehouse_id, quantity) VALUES (?, ?, ?)',
+            [item.inventory_item_id, warehouseId, qty],
           );
         }
       }

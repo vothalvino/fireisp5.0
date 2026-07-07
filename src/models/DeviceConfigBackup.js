@@ -9,12 +9,17 @@ class DeviceConfigBackup extends BaseModel {
 
   static get fillable() {
     return [
-      'organization_id', 'device_id', 'config_data',
-      'checksum_sha256', 'version_label', 'capture_method', 'notes',
+      'device_id', 'version', 'config_type', 'content', 'file_size',
+      'checksum', 'change_summary', 'capture_method', 'captured_by_user_id',
+      'notes',
     ];
   }
 
-  static get hasOrgScope() { return true; }
+  // device_config_backups has no organization_id column — it is tenant-scoped
+  // through its parent device (fk_device_config_backups_device). Leaving org
+  // scope on makes BaseModel emit WHERE organization_id = ? against a
+  // non-existent column → 500 on every list/get.
+  static get hasOrgScope() { return false; }
 
   static get softDelete() { return true; }
 }

@@ -944,19 +944,19 @@ describe('DeviceConfigBackup validation schemas', () => {
     const next = run(createDeviceConfigBackup, {});
     const fields = errorFields(next);
     expect(fields).toContain('device_id');
-    expect(fields).toContain('config_data');
+    expect(fields).toContain('content');
   });
 
   test('createDeviceConfigBackup rejects invalid config_type', () => {
     const next = run(createDeviceConfigBackup, {
-      device_id: 1, config_data: '/ip address print', config_type: 'juniper_backup',
+      device_id: 1, content: '/ip address print', checksum: 'abc123', config_type: 'juniper_backup',
     });
     expectReject(next);
   });
 
   test('createDeviceConfigBackup accepts valid data', () => {
     const next = run(createDeviceConfigBackup, {
-      device_id: 1, config_data: '/ip address print', config_type: 'mikrotik_export',
+      device_id: 1, content: '/ip address print', checksum: 'abc123', config_type: 'mikrotik_export',
       capture_method: 'scheduled',
     });
     expectPass(next);

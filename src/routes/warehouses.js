@@ -32,7 +32,7 @@ router.get('/:id/stock', requirePermission('inventory.view'), async (req, res, n
       `SELECT s.*, i.name AS item_name, i.sku, i.category
        FROM inventory_stock s
        JOIN inventory_items i ON i.id = s.item_id
-       WHERE s.warehouse_id = ? AND s.organization_id = ?`,
+       WHERE s.warehouse_id = ? AND i.organization_id = ?`,
       [req.params.id, req.orgId],
     );
     res.json({ data: rows });
