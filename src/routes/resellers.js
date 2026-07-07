@@ -472,11 +472,11 @@ router.get('/:id/olt-ports', requirePermission('reseller_olt_port_assignments.vi
   try {
     await getResellerOrThrow(req.params.id, req.orgId);
     const [rows] = await db.query(
-      `SELECT a.*, p.port_number, p.port_type
+      `SELECT a.*, p.port_name, p.port_no, p.port_type
        FROM reseller_olt_port_assignments a
        JOIN olt_ports p ON a.olt_port_id = p.id
        WHERE a.reseller_id = ?
-       ORDER BY p.port_number ASC`,
+       ORDER BY p.port_index ASC`,
       [req.params.id],
     );
     res.json({ data: rows });

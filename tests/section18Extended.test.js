@@ -135,12 +135,12 @@ describe('taskRunner — §18 scheduled task dispatch', () => {
     });
 
     it('detects anomalies when z-score exceeds threshold', async () => {
-      // combos = one metric/device combo
+      // one device with a wide-format cpu_usage column → one metric combo
       // Use 48 samples: latest=200, rest=50 → mean≈53, stddev≈21, z≈6.8 > 2.5
-      const baseline = Array(47).fill({ value: '50' });
-      const samples = [{ value: '200' }, ...baseline];
+      const baseline = Array(47).fill({ cpu_usage: '50' });
+      const samples = [{ cpu_usage: '200' }, ...baseline];
       db.query
-        .mockResolvedValueOnce(mockRows([{ metric: 'cpu_usage', device_id: 5 }]))
+        .mockResolvedValueOnce(mockRows([{ device_id: 5 }]))
         .mockResolvedValueOnce(mockRows(samples))
         .mockResolvedValueOnce(mockInsert(10)); // INSERT analytics_anomalies
 
@@ -922,16 +922,16 @@ describe('analyticsService', () => {
 
     it('skips combo with fewer than MIN_SAMPLES (6)', async () => {
       db.query
-        .mockResolvedValueOnce([[{ metric: 'cpu', device_id: 1 }], []])
-        .mockResolvedValueOnce([[{ value: '50' }, { value: '60' }], []]);  // only 2 samples
+        .mockResolvedValueOnce([[{ device_id: 1 }], []])
+        .mockResolvedValueOnce([[{ cpu_usage: '50' }, { cpu_usage: '60' }], []]);  // only 2 samples
       const result = await svc.detectAnomalies(1);
       expect(result.anomalies_detected).toBe(0);
     });
 
     it('skips combo with stddev=0 (constant metric)', async () => {
-      const samples = Array(8).fill({ value: '50' });
+      const samples = Array(8).fill({ cpu_usage: '50' });
       db.query
-        .mockResolvedValueOnce([[{ metric: 'cpu', device_id: 1 }], []])
+        .mockResolvedValueOnce([[{ device_id: 1 }], []])
         .mockResolvedValueOnce([samples, []]);
       const result = await svc.detectAnomalies(1);
       expect(result.anomalies_detected).toBe(0);
@@ -939,10 +939,10 @@ describe('analyticsService', () => {
 
     it('detects critical anomaly (|z| > 4)', async () => {
       // 48 samples: latest=200, 47 stable at 50 → z≈6.85 > 4 → critical severity
-      const baseline = Array(47).fill({ value: '50' });
-      const samples = [{ value: '200' }, ...baseline];
+      const baseline = Array(47).fill({ cpu_usage: '50' });
+      const samples = [{ cpu_usage: '200' }, ...baseline];
       db.query
-        .mockResolvedValueOnce([[{ metric: 'cpu', device_id: 1 }], []])
+        .mockResolvedValueOnce([[{ device_id: 1 }], []])
         .mockResolvedValueOnce([samples, []])
         .mockResolvedValueOnce([{ insertId: 1 }]);  // INSERT anomaly
       const result = await svc.detectAnomalies(1);
@@ -953,10 +953,10 @@ describe('analyticsService', () => {
 
     it('detects high severity anomaly (|z| between 3 and 4)', async () => {
       // 12 samples: latest=500, 11 stable at 50 → z≈3.32 (>3 but <4) → high severity
-      const baseline12 = Array(11).fill({ value: '50' });
-      const samples = [{ value: '500' }, ...baseline12];
+      const baseline12 = Array(11).fill({ memory_usage: '50' });
+      const samples = [{ memory_usage: '500' }, ...baseline12];
       db.query
-        .mockResolvedValueOnce([[{ metric: 'mem', device_id: 2 }], []])
+        .mockResolvedValueOnce([[{ device_id: 2 }], []])
         .mockResolvedValueOnce([samples, []])
         .mockResolvedValueOnce([{ insertId: 2 }]);
       const result = await svc.detectAnomalies(1);
@@ -968,7 +968,7 @@ describe('analyticsService', () => {
     it('returns sfp_degradation and onu_offline arrays', async () => {
       db.query
         .mockResolvedValueOnce([[{ device_id: 1, rx_power_dbm: '-35', device_name: 'OLT-1' }], []])
-        .mockResolvedValueOnce([[{ id: 2, name: 'ONU-A', ip_address: '10.0.0.1', last_seen_at: new Date(Date.now() - 10 * 60 * 1000) }], []]);
+        .mockResolvedValueOnce([[{ id: 2, name: 'ONU-A', ip_address: '10.0.0.1', last_polled_at: new Date(Date.now() - 10 * 60 * 1000) }], []]);
       const result = await svc.predictiveFailure(1);
       expect(result).toHaveProperty('sfp_degradation');
       expect(result).toHaveProperty('onu_offline');
