@@ -775,7 +775,7 @@ describe('Device Routes — /api/devices', () => {
     site_id: 2,
     contract_id: 3,
     name: 'CPE-001',
-    type: 'cpe',
+    type: 'router',
     manufacturer: 'MikroTik',
     model: 'hAP ac2',
     serial_number: 'SN12345',
@@ -848,7 +848,7 @@ describe('Device Routes — /api/devices', () => {
       const res = await request(app)
         .post('/api/devices')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'CPE-001', type: 'cpe' });
+        .send({ name: 'CPE-001', type: 'router' });
 
       expect(res.status).toBe(201);
       expect(res.body.data.id).toBe(2);
@@ -1736,7 +1736,7 @@ describe('Cross-cutting — auth and 404 edge cases', () => {
     });
 
     test('POST /api/devices returns 401 without auth', async () => {
-      const res = await request(app).post('/api/devices').send({ name: 'Device', type: 'cpe' });
+      const res = await request(app).post('/api/devices').send({ name: 'Device', type: 'router' });
       expect(res.status).toBe(401);
     });
   });

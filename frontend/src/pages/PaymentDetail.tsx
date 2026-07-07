@@ -284,7 +284,7 @@ function toRestPayment(p: Payment): RestPayment {
     amount: p.amount,
     currency: p.currency,
     payment_method: p.paymentMethod || null,
-    reference: p.reference,
+    reference_number: p.reference,
     status: p.status,
     payment_date: p.paymentDate,
     created_at: p.createdAt,

@@ -26,7 +26,7 @@ export interface Payment {
   amount: string;
   currency: string;
   payment_method: string | null;
-  reference: string | null;
+  reference_number: string | null;
   status: string;
   payment_date: string | null;
   created_at: string;
@@ -56,7 +56,7 @@ interface UpdatePaymentBody {
   amount?: number;
   currency?: string;
   payment_method?: string;
-  reference?: string;
+  reference_number?: string;
   status?: string;
 }
 
@@ -303,7 +303,7 @@ function EditPaymentModal({ payment, onClose, onSaved }: EditPaymentModalProps) 
     amount: payment.amount,
     currency: payment.currency,
     payment_method: payment.payment_method || 'cash',
-    reference: payment.reference || '',
+    reference_number: payment.reference_number || '',
     status: payment.status,
   });
 
@@ -312,7 +312,7 @@ function EditPaymentModal({ payment, onClose, onSaved }: EditPaymentModalProps) 
       amount: parseFloat(form.amount),
       currency: form.currency,
       payment_method: form.payment_method,
-      reference: form.reference,
+      reference_number: form.reference_number,
       status: form.status,
     }),
     onSuccess: () => { onSaved(); onClose(); },
@@ -384,8 +384,8 @@ function EditPaymentModal({ payment, onClose, onSaved }: EditPaymentModalProps) 
           <label style={labelStyle}>Reference / Folio (optional)</label>
           <input
             type="text" style={inputStyle}
-            value={form.reference}
-            onChange={e => setField('reference', e.target.value)}
+            value={form.reference_number}
+            onChange={e => setField('reference_number', e.target.value)}
             placeholder="e.g. transfer ID, check number"
           />
 

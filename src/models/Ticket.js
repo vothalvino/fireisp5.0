@@ -11,6 +11,9 @@ class Ticket extends BaseModel {
     return [
       'organization_id', 'client_id', 'contract_id', 'assigned_to',
       'subject', 'description', 'priority', 'category', 'status', 'notes',
+      // Server-managed: stamped/cleared by the tickets route beforeUpdate hook on
+      // status transitions. Fillable so the hook's value reaches Model.update.
+      'resolved_at',
     ];
   }
 

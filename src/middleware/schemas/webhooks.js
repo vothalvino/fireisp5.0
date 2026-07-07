@@ -8,7 +8,7 @@ const createWebhook = {
   secret: { type: 'string', max: 255 },
   max_retries: { type: 'number', min: 0, max: 10 },
   timeout_seconds: { type: 'number', min: 1, max: 60 },
-  is_enabled: { type: 'boolean' },
+  is_active: { type: 'boolean' },
 };
 
 const updateWebhook = {
@@ -17,7 +17,7 @@ const updateWebhook = {
   secret: { type: 'string', max: 255 },
   max_retries: { type: 'number', min: 0, max: 10 },
   timeout_seconds: { type: 'number', min: 1, max: 60 },
-  is_enabled: { type: 'boolean' },
+  is_active: { type: 'boolean' },
 };
 
 module.exports = { createWebhook, updateWebhook };

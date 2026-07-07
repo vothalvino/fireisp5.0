@@ -9,7 +9,7 @@ class CsdCertificate extends BaseModel {
 
   static get fillable() {
     return [
-      'organization_id', 'certificate_pem', 'private_key_encrypted',
+      'organization_id', 'cer_pem', 'key_pem_encrypted',
       'passphrase_encrypted', 'fingerprint_sha256', 'certificate_number',
       'rfc', 'valid_from', 'valid_to', 'status',
     ];

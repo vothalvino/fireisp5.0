@@ -51167,6 +51167,13 @@
               "inactive",
               "suspended"
             ]
+          },
+          "suspension_exempt": {
+            "type": "boolean"
+          },
+          "suspension_exempt_reason": {
+            "type": "string",
+            "maximum": 500
           }
         }
       },
@@ -51269,6 +51276,13 @@
               "inactive",
               "suspended"
             ]
+          },
+          "suspension_exempt": {
+            "type": "boolean"
+          },
+          "suspension_exempt_reason": {
+            "type": "string",
+            "maximum": 500
           }
         }
       },
@@ -51553,14 +51567,21 @@
             "type": "string",
             "maximum": 5000
           },
+          "geographic_scope": {
+            "type": "string",
+            "maximum": 10000
+          },
           "spectrum_bands": {
             "type": "string",
             "maximum": 1000
           },
-          "valid_from": {
+          "granted_date": {
             "type": "string"
           },
-          "valid_to": {
+          "expiration_date": {
+            "type": "string"
+          },
+          "renewal_filed_at": {
             "type": "string"
           },
           "regulatory_body": {
@@ -51569,6 +51590,10 @@
               "IFT",
               "CRT"
             ]
+          },
+          "document_file_id": {
+            "type": "number",
+            "minimum": 1
           },
           "notes": {
             "type": "string",
@@ -51585,7 +51610,9 @@
           }
         },
         "required": [
-          "title_number"
+          "title_number",
+          "services_authorized",
+          "granted_date"
         ]
       },
       "concessionTitles_updateConcessionTitle": {
@@ -51610,14 +51637,21 @@
             "type": "string",
             "maximum": 5000
           },
+          "geographic_scope": {
+            "type": "string",
+            "maximum": 10000
+          },
           "spectrum_bands": {
             "type": "string",
             "maximum": 1000
           },
-          "valid_from": {
+          "granted_date": {
             "type": "string"
           },
-          "valid_to": {
+          "expiration_date": {
+            "type": "string"
+          },
+          "renewal_filed_at": {
             "type": "string"
           },
           "regulatory_body": {
@@ -51626,6 +51660,10 @@
               "IFT",
               "CRT"
             ]
+          },
+          "document_file_id": {
+            "type": "number",
+            "minimum": 1
           },
           "notes": {
             "type": "string",
@@ -52938,10 +52976,10 @@
             "type": "string",
             "maximum": 20
           },
-          "certificate_pem": {
+          "cer_pem": {
             "type": "string"
           },
-          "private_key_encrypted": {
+          "key_pem_encrypted": {
             "type": "string"
           },
           "valid_from": {
@@ -52961,17 +52999,17 @@
         },
         "required": [
           "rfc",
-          "certificate_pem",
-          "private_key_encrypted"
+          "cer_pem",
+          "key_pem_encrypted"
         ]
       },
       "csdCertificates_updateCsdCertificate": {
         "type": "object",
         "properties": {
-          "certificate_pem": {
+          "cer_pem": {
             "type": "string"
           },
-          "private_key_encrypted": {
+          "key_pem_encrypted": {
             "type": "string"
           },
           "valid_from": {
@@ -53366,14 +53404,14 @@
           "type": {
             "type": "string",
             "enum": [
+              "outdoor_cpe",
+              "indoor_cpe",
+              "ptp",
+              "ptmp_ap",
+              "olt",
               "router",
               "switch",
-              "olt",
               "onu",
-              "ap",
-              "antenna",
-              "server",
-              "cpe",
               "other"
             ]
           },
@@ -53425,17 +53463,16 @@
             "type": "number",
             "minimum": 1
           },
-          "firmware_version": {
+          "firmware": {
             "type": "string",
             "maximum": 100
           },
           "status": {
             "type": "string",
             "enum": [
-              "active",
-              "inactive",
-              "maintenance",
-              "decommissioned"
+              "online",
+              "offline",
+              "maintenance"
             ]
           }
         },
@@ -53463,14 +53500,14 @@
           "type": {
             "type": "string",
             "enum": [
+              "outdoor_cpe",
+              "indoor_cpe",
+              "ptp",
+              "ptmp_ap",
+              "olt",
               "router",
               "switch",
-              "olt",
               "onu",
-              "ap",
-              "antenna",
-              "server",
-              "cpe",
               "other"
             ]
           },
@@ -53522,17 +53559,16 @@
             "type": "number",
             "minimum": 1
           },
-          "firmware_version": {
+          "firmware": {
             "type": "string",
             "maximum": 100
           },
           "status": {
             "type": "string",
             "enum": [
-              "active",
-              "inactive",
-              "maintenance",
-              "decommissioned"
+              "online",
+              "offline",
+              "maintenance"
             ]
           }
         }
@@ -53556,14 +53592,14 @@
           "type": {
             "type": "string",
             "enum": [
+              "outdoor_cpe",
+              "indoor_cpe",
+              "ptp",
+              "ptmp_ap",
+              "olt",
               "router",
               "switch",
-              "olt",
               "onu",
-              "ap",
-              "antenna",
-              "server",
-              "cpe",
               "other"
             ]
           },
@@ -53615,17 +53651,16 @@
             "type": "number",
             "minimum": 1
           },
-          "firmware_version": {
+          "firmware": {
             "type": "string",
             "maximum": 100
           },
           "status": {
             "type": "string",
             "enum": [
-              "active",
-              "inactive",
-              "maintenance",
-              "decommissioned"
+              "online",
+              "offline",
+              "maintenance"
             ]
           }
         }
@@ -54134,10 +54169,6 @@
             "type": "string",
             "maximum": 3
           },
-          "vendor": {
-            "type": "string",
-            "maximum": 255
-          },
           "receipt_url": {
             "type": "string",
             "maximum": 500
@@ -54181,10 +54212,6 @@
           "currency": {
             "type": "string",
             "maximum": 3
-          },
-          "vendor": {
-            "type": "string",
-            "maximum": 255
           },
           "receipt_url": {
             "type": "string",
@@ -59968,7 +59995,7 @@
           },
           "label": {
             "type": "string",
-            "maximum": 255
+            "maximum": 100
           },
           "environment": {
             "type": "string",
@@ -59977,9 +60004,9 @@
               "production"
             ]
           },
-          "username": {
+          "username_encrypted": {
             "type": "string",
-            "maximum": 255
+            "maximum": 500
           },
           "password_encrypted": {
             "type": "string",
@@ -60017,7 +60044,7 @@
           },
           "label": {
             "type": "string",
-            "maximum": 255
+            "maximum": 100
           },
           "environment": {
             "type": "string",
@@ -60026,9 +60053,9 @@
               "production"
             ]
           },
-          "username": {
+          "username_encrypted": {
             "type": "string",
-            "maximum": 255
+            "maximum": 500
           },
           "password_encrypted": {
             "type": "string",
@@ -60050,6 +60077,10 @@
       "paymentGateways_createPaymentGateway": {
         "type": "object",
         "properties": {
+          "name": {
+            "type": "string",
+            "maximum": 100
+          },
           "provider": {
             "type": "string",
             "enum": [
@@ -60061,10 +60092,6 @@
               "manual",
               "other"
             ]
-          },
-          "label": {
-            "type": "string",
-            "maximum": 255
           },
           "environment": {
             "type": "string",
@@ -60081,11 +60108,14 @@
             "type": "string",
             "maximum": 2000
           },
-          "webhook_secret": {
+          "webhook_secret_encrypted": {
             "type": "string",
-            "maximum": 500
+            "maximum": 2000
           },
-          "config": {
+          "is_default": {
+            "type": "boolean"
+          },
+          "config_json": {
             "type": "string",
             "maximum": 5000
           },
@@ -60098,12 +60128,17 @@
           }
         },
         "required": [
+          "name",
           "provider"
         ]
       },
       "paymentGateways_updatePaymentGateway": {
         "type": "object",
         "properties": {
+          "name": {
+            "type": "string",
+            "maximum": 100
+          },
           "provider": {
             "type": "string",
             "enum": [
@@ -60115,10 +60150,6 @@
               "manual",
               "other"
             ]
-          },
-          "label": {
-            "type": "string",
-            "maximum": 255
           },
           "environment": {
             "type": "string",
@@ -60135,11 +60166,14 @@
             "type": "string",
             "maximum": 2000
           },
-          "webhook_secret": {
+          "webhook_secret_encrypted": {
             "type": "string",
-            "maximum": 500
+            "maximum": 2000
           },
-          "config": {
+          "is_default": {
+            "type": "boolean"
+          },
+          "config_json": {
             "type": "string",
             "maximum": 5000
           },
@@ -62946,13 +62980,11 @@
             "type": "string",
             "enum": [
               "annual_report",
-              "quarterly_report",
-              "spectrum_fee",
+              "quarterly_stats",
+              "tariff_registration",
+              "qos_report",
               "coverage_report",
-              "quality_report",
-              "tariff_update",
-              "infrastructure_report",
-              "service_modification",
+              "spectrum_usage",
               "other"
             ]
           },
@@ -62962,8 +62994,16 @@
           "period_end": {
             "type": "string"
           },
-          "submitted_at": {
+          "filed_at": {
             "type": "string"
+          },
+          "acknowledgement_number": {
+            "type": "string",
+            "maximum": 100
+          },
+          "document_file_id": {
+            "type": "number",
+            "minimum": 1
           },
           "notes": {
             "type": "string",
@@ -62995,13 +63035,11 @@
             "type": "string",
             "enum": [
               "annual_report",
-              "quarterly_report",
-              "spectrum_fee",
+              "quarterly_stats",
+              "tariff_registration",
+              "qos_report",
               "coverage_report",
-              "quality_report",
-              "tariff_update",
-              "infrastructure_report",
-              "service_modification",
+              "spectrum_usage",
               "other"
             ]
           },
@@ -63011,8 +63049,16 @@
           "period_end": {
             "type": "string"
           },
-          "submitted_at": {
+          "filed_at": {
             "type": "string"
+          },
+          "acknowledgement_number": {
+            "type": "string",
+            "maximum": 100
+          },
+          "document_file_id": {
+            "type": "number",
+            "minimum": 1
           },
           "notes": {
             "type": "string",
@@ -66405,7 +66451,7 @@
             "minimum": 1,
             "maximum": 60
           },
-          "is_enabled": {
+          "is_active": {
             "type": "boolean"
           }
         },
@@ -66440,7 +66486,7 @@
             "minimum": 1,
             "maximum": 60
           },
-          "is_enabled": {
+          "is_active": {
             "type": "boolean"
           }
         }

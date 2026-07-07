@@ -190,7 +190,7 @@ describe('Device validation schemas', () => {
   });
 
   test('createDevice accepts valid device types', () => {
-    const types = ['router', 'switch', 'olt', 'onu', 'ap', 'antenna', 'server', 'cpe', 'other'];
+    const types = ['outdoor_cpe', 'indoor_cpe', 'ptp', 'ptmp_ap', 'olt', 'router', 'switch', 'onu', 'other'];
     for (const type of types) {
       const next = run(createDevice, { name: 'Dev-01', type });
       expect(next).toHaveBeenCalledWith();

@@ -37,7 +37,7 @@ interface WebhookBody {
   secret?: string;
   max_retries?: number;
   timeout_seconds?: number;
-  is_enabled?: boolean;
+  is_active?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +123,7 @@ function WebhookModal({ webhook, onClose, onSaved }: WebhookModalProps) {
     secret: '',
     max_retries: webhook?.max_retries != null ? String(webhook.max_retries) : '5',
     timeout_seconds: webhook?.timeout_seconds != null ? String(webhook.timeout_seconds) : '30',
-    is_enabled: webhook ? isEnabled(webhook) : true,
+    is_active: webhook ? isEnabled(webhook) : true,
   });
   const [error, setError] = useState('');
 
@@ -136,7 +136,7 @@ function WebhookModal({ webhook, onClose, onSaved }: WebhookModalProps) {
       const body: WebhookBody = {
         url: form.url.trim(),
         events: form.events.trim(),
-        is_enabled: form.is_enabled,
+        is_active: form.is_active,
       };
       if (form.secret) body.secret = form.secret;
       if (form.max_retries) body.max_retries = Number(form.max_retries);
@@ -244,8 +244,8 @@ function WebhookModal({ webhook, onClose, onSaved }: WebhookModalProps) {
           <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <input
               type="checkbox"
-              checked={form.is_enabled}
-              onChange={e => setField('is_enabled', e.target.checked)}
+              checked={form.is_active}
+              onChange={e => setField('is_active', e.target.checked)}
             />
             Enabled
           </label>

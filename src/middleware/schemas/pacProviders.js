@@ -4,9 +4,9 @@
 
 const createPacProvider = {
   provider_name: { type: 'string', required: true, enum: ['finkok', 'sw_sapien', 'digicel', 'comercio_digital', 'facturapi', 'other'] },
-  label: { type: 'string', max: 255 },
+  label: { type: 'string', max: 100 },
   environment: { type: 'string', enum: ['sandbox', 'production'] },
-  username: { type: 'string', max: 255 },
+  username_encrypted: { type: 'string', max: 500 },
   password_encrypted: { type: 'string', max: 500 },
   api_url: { type: 'string', max: 500 },
   status: { type: 'string', enum: ['active', 'inactive'] },
@@ -14,9 +14,9 @@ const createPacProvider = {
 
 const updatePacProvider = {
   provider_name: { type: 'string', enum: ['finkok', 'sw_sapien', 'digicel', 'comercio_digital', 'facturapi', 'other'] },
-  label: { type: 'string', max: 255 },
+  label: { type: 'string', max: 100 },
   environment: { type: 'string', enum: ['sandbox', 'production'] },
-  username: { type: 'string', max: 255 },
+  username_encrypted: { type: 'string', max: 500 },
   password_encrypted: { type: 'string', max: 500 },
   api_url: { type: 'string', max: 500 },
   status: { type: 'string', enum: ['active', 'inactive'] },
