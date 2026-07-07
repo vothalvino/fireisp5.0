@@ -62,7 +62,8 @@ interface PaymentGateway {
 const API_BASE = '/api/v1';
 const METRICS = ['bandwidth_in', 'bandwidth_out', 'cpu', 'memory', 'signal', 'latency', 'uptime'];
 const OPERATORS = ['>', '>=', '<', '<=', '='];
-const SEVERITIES = ['critical', 'major', 'minor', 'warning'];
+// Must match the alert_rules.severity DB enum (migration 134): info/warning/major/critical.
+const SEVERITIES = ['critical', 'major', 'warning', 'info'];
 const PROVIDERS = ['stripe', 'conekta', 'openpay', 'mercadopago', 'paypal', 'manual', 'other'];
 const ENVIRONMENTS = ['sandbox', 'production'];
 
@@ -584,7 +585,7 @@ function channelBadge(label: string) {
 
 function severityBadge(level: string) {
   const colours: Record<string, string> = {
-    critical: '#dc2626', major: '#ea580c', minor: '#d97706', warning: '#ca8a04',
+    critical: '#dc2626', major: '#ea580c', warning: '#ca8a04', info: '#0284c7',
   };
   return {
     padding: '2px 8px', borderRadius: 10, fontSize: '0.75rem', fontWeight: 600,

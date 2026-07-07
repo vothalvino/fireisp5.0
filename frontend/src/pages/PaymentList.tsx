@@ -299,7 +299,7 @@ function RecordPaymentModal({ clients, onClose, onRecorded }: RecordPaymentModal
             onChange={e => setField('payment_method', e.target.value)}
           >
             {PAYMENT_METHODS.map(m => (
-              <option key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>
+              <option key={m} value={m}>{m.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase())}</option>
             ))}
           </select>
 

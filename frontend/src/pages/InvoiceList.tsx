@@ -162,7 +162,8 @@ function StatusBadge({ status }: { status: string }) {
 // Main Component
 // ---------------------------------------------------------------------------
 
-const STATUS_OPTIONS = ['', 'draft', 'issued', 'pending', 'sent', 'paid', 'overdue', 'cancelled', 'void'];
+// Must match the invoices.status DB enum: 'pending' is not a value (was a no-op filter).
+const STATUS_OPTIONS = ['', 'draft', 'issued', 'sent', 'paid', 'overdue', 'cancelled', 'void'];
 
 // Only terminal statuses are excluded from voiding:
 //   'void'      — already void; re-voiding is a no-op, not useful to surface.

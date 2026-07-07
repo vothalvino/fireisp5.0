@@ -64,7 +64,9 @@ interface UpdatePaymentBody {
 // Constants
 // ---------------------------------------------------------------------------
 
-export const PAYMENT_METHODS = ['cash', 'card', 'transfer', 'check', 'online', 'other'];
+// Must match the backend payment_method enum (src/middleware/schemas/payments.js
+// + the DB ENUM): card/transfer/online are NOT valid and 422'd on submit.
+export const PAYMENT_METHODS = ['cash', 'credit_card', 'debit_card', 'bank_transfer', 'check', 'other'];
 export const NON_PAYABLE_STATUSES = new Set(['void', 'cancelled', 'paid', 'draft']);
 const API_BASE = '/api/v1';
 
@@ -366,7 +368,7 @@ function EditPaymentModal({ payment, onClose, onSaved }: EditPaymentModalProps) 
             onChange={e => setField('payment_method', e.target.value)}
           >
             {PAYMENT_METHODS.map(m => (
-              <option key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>
+              <option key={m} value={m}>{m.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase())}</option>
             ))}
           </select>
 
