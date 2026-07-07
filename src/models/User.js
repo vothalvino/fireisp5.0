@@ -111,15 +111,24 @@ class User extends BaseModel {
   }
 
   /**
-   * SQL predicate: does the user (aliased `u`, optionally with an
-   * `organization_users` row aliased `ou`) hold `permissionSlug` in
-   * `organizationId`? Mirrors requirePermission() in rbac.js exactly:
-   *   - a legacy `users.role = 'admin'` bypasses RBAC, so is always authorized;
-   *   - otherwise the user's EFFECTIVE role (their org-membership role when one
-   *     exists, else the legacy users.role — same precedence as getPermissions)
-   *     must be granted the permission via role_permissions.
-   * The single `?` placeholder binds the permission slug. Callers supply the
-   * `u`/`ou` join and any per-user or org-wide WHERE conditions.
+   * SQL predicate: is the user (aliased `u`, LEFT-JOINed to their
+   * `organization_users` row FOR THE TARGET ORG as `ou`) authorized for a
+   * permission in that org? Mirrors requirePermission() + getPermissions():
+   *   1. a legacy `users.role = 'admin'` bypasses RBAC;
+   *   2. else the org-membership role, when it resolves to a live role that
+   *      grants at least one permission, is authoritative (getPermissions'
+   *      primary path);
+   *   3. else — membership missing, its role soft-deleted, or granting nothing —
+   *      fall back to the legacy users.role, but only for users homed in the
+   *      target org (getPermissions' fallback queries WHERE u.organization_id).
+   * Callers must LEFT JOIN ou ON the TARGET org (not the user's home org) so
+   * cross-org memberships (SSO-provisioned or switch-organization users) are
+   * honoured, and must additionally scope to users connected to the org:
+   * `(u.organization_id = ? OR ou.id IS NOT NULL)`. That scoping deliberately
+   * excludes membership-less legacy admins homed in OTHER orgs — they could
+   * technically pass requirePermission anywhere, but tenant isolation must win
+   * for assignment/listing purposes.
+   * Bind order inside the predicate: [permissionSlug, organizationId, permissionSlug].
    */
   static get #EFFECTIVE_PERMISSION_PREDICATE() {
     return `(
@@ -128,18 +137,36 @@ class User extends BaseModel {
         SELECT 1 FROM roles r
         JOIN role_permissions rp ON rp.role_id = r.id
         JOIN permissions p ON p.id = rp.permission_id
-        WHERE r.name = COALESCE(ou.role, u.role)
+        WHERE r.name = ou.role
           AND r.deleted_at IS NULL
           AND p.name = ?
+      )
+      OR (
+        u.organization_id = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM roles r2
+          JOIN role_permissions rp2 ON rp2.role_id = r2.id
+          WHERE r2.name = ou.role AND r2.deleted_at IS NULL
+        )
+        AND EXISTS (
+          SELECT 1 FROM roles r3
+          JOIN role_permissions rp3 ON rp3.role_id = r3.id
+          JOIN permissions p3 ON p3.id = rp3.permission_id
+          WHERE r3.name = u.role
+            AND r3.deleted_at IS NULL
+            AND p3.name = ?
+        )
       )
     )`;
   }
 
   /**
-   * List active users in an organization who are authorized for `permissionSlug`
+   * List active users authorized for `permissionSlug` in an organization: users
+   * homed in the org plus cross-org members with a live organization_users row
    * (see #EFFECTIVE_PERMISSION_PREDICATE). Used to populate "assignable user"
    * pickers — e.g. only staff who can actually work with work orders should be
    * selectable as a work order's assignee.
+   * Bind order: [orgId (ou join), orgId (connected), slug, orgId, slug].
    */
   static async getUsersWithPermission(organizationId, permissionSlug) {
     const db = require('../config/database');
@@ -147,22 +174,24 @@ class User extends BaseModel {
       SELECT DISTINCT u.id, u.first_name, u.last_name, u.email
       FROM users u
       LEFT JOIN organization_users ou
-        ON ou.user_id = u.id AND ou.organization_id = u.organization_id AND ou.deleted_at IS NULL
-      WHERE u.organization_id = ?
-        AND u.deleted_at IS NULL
+        ON ou.user_id = u.id AND ou.organization_id = ? AND ou.deleted_at IS NULL
+      WHERE u.deleted_at IS NULL
         AND u.status = 'active'
+        AND (u.organization_id = ? OR ou.id IS NOT NULL)
         AND ${User.#EFFECTIVE_PERMISSION_PREDICATE}
       ORDER BY u.first_name, u.last_name
-    `, [organizationId, permissionSlug]);
+    `, [organizationId, organizationId, permissionSlug, organizationId, permissionSlug]);
     return rows;
   }
 
   /**
    * Whether a single user is authorized for `permissionSlug` in an organization
-   * (see #EFFECTIVE_PERMISSION_PREDICATE). Used to validate an assignee before it
-   * is written to a record. Deliberately does NOT require status = 'active' so
-   * that editing an existing record whose assignee was later deactivated does not
-   * spuriously fail; the picker filters to active users for new assignments.
+   * (see #EFFECTIVE_PERMISSION_PREDICATE — includes cross-org members). Used to
+   * validate an assignee before it is written to a record. Deliberately does NOT
+   * require status = 'active' so that editing an existing record whose assignee
+   * was later deactivated does not spuriously fail; the picker filters to active
+   * users for new assignments.
+   * Bind order: [orgId (ou join), userId, orgId (connected), slug, orgId, slug].
    */
   static async hasEffectivePermission(userId, organizationId, permissionSlug) {
     if (!userId) return false;
@@ -171,11 +200,12 @@ class User extends BaseModel {
       SELECT 1
       FROM users u
       LEFT JOIN organization_users ou
-        ON ou.user_id = u.id AND ou.organization_id = u.organization_id AND ou.deleted_at IS NULL
-      WHERE u.id = ? AND u.organization_id = ? AND u.deleted_at IS NULL
+        ON ou.user_id = u.id AND ou.organization_id = ? AND ou.deleted_at IS NULL
+      WHERE u.id = ? AND u.deleted_at IS NULL
+        AND (u.organization_id = ? OR ou.id IS NOT NULL)
         AND ${User.#EFFECTIVE_PERMISSION_PREDICATE}
       LIMIT 1
-    `, [userId, organizationId, permissionSlug]);
+    `, [organizationId, userId, organizationId, permissionSlug, organizationId, permissionSlug]);
     return rows.length > 0;
   }
 

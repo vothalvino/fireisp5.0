@@ -328,7 +328,10 @@ export function WorkOrders() {
   const [statusFilter, setStatusFilter] = useState('');
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [showModal, setShowModal] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  // Row being edited (null = create mode) plus the prefill snapshot the PATCH
+  // body is diffed against, so only user-touched fields are ever sent.
+  const [editingRow, setEditingRow] = useState<WorkOrder | null>(null);
+  const [initialForm, setInitialForm] = useState<Partial<WorkOrderBody>>({});
   const [form, setForm] = useState<Partial<WorkOrderBody>>({});
   const [formErr, setFormErr] = useState('');
   const sort = useTableSort('created_at', 'DESC');
@@ -344,33 +347,46 @@ export function WorkOrders() {
   const devicesQ = useQuery({ queryKey: ['workOrders', 'deviceOptions'], queryFn: () => fetchOptions('/devices') });
   const usersQ = useQuery({ queryKey: ['workOrders', 'assignableUsers'], queryFn: fetchAssignableUsers });
 
+  // 'YYYY-MM-DDTHH:mm' (datetime-local input) → 'YYYY-MM-DD HH:mm:00' for the API.
+  const toSqlDateTime = (v: string): string => v.replace('T', ' ') + (v.length === 16 ? ':00' : '');
+
+  // PATCH only what the user actually changed. Untouched columns keep their
+  // stored values (incl. seconds on timestamps and entity links), and an
+  // assignee who has since lost authorization no longer blocks unrelated edits.
+  const buildPatchBody = (): WorkOrderPatchBody => {
+    const body: WorkOrderPatchBody = {};
+    if ((form.title ?? '') !== (initialForm.title ?? '')) body.title = form.title;
+    if ((form.description ?? '') !== (initialForm.description ?? '')) body.description = form.description || null;
+    if ((form.status ?? 'pending') !== (initialForm.status ?? 'pending')) body.status = form.status ?? 'pending';
+    if ((form.priority ?? 'medium') !== (initialForm.priority ?? 'medium')) body.priority = form.priority ?? 'medium';
+    if ((form.work_type ?? 'other') !== (initialForm.work_type ?? 'other')) body.work_type = form.work_type ?? 'other';
+    if ((form.scheduled_at ?? '') !== (initialForm.scheduled_at ?? '')) body.scheduled_at = form.scheduled_at ? toSqlDateTime(form.scheduled_at) : null;
+    if ((form.client_id ?? null) !== (initialForm.client_id ?? null)) body.client_id = form.client_id ?? null;
+    if ((form.site_id ?? null) !== (initialForm.site_id ?? null)) body.site_id = form.site_id ?? null;
+    if ((form.device_id ?? null) !== (initialForm.device_id ?? null)) body.device_id = form.device_id ?? null;
+    if ((form.assigned_to ?? null) !== (initialForm.assigned_to ?? null)) body.assigned_to = form.assigned_to ?? null;
+    return body;
+  };
+
   const saveMut = useMutation({
     mutationFn: (): Promise<void> => {
-      if (editingId !== null) {
-        // PATCH the editable fields only; explicit nulls clear description /
-        // schedule / assignee, while untouched columns (lat/long, started/
-        // completed timestamps, entity links) are preserved since PATCH does not
-        // replace the whole row.
-        return patchWorkOrder(editingId, {
-          title: form.title,
-          description: form.description ?? null,
-          status: form.status ?? 'pending',
-          priority: form.priority ?? 'medium',
-          work_type: form.work_type ?? 'other',
-          scheduled_at: form.scheduled_at || null,
-          client_id: form.client_id ?? null,
-          site_id: form.site_id ?? null,
-          device_id: form.device_id ?? null,
-          assigned_to: form.assigned_to ?? null,
-        });
+      if (editingRow !== null) {
+        const body = buildPatchBody();
+        // Nothing changed — close as a no-op instead of tripping the backend's
+        // "No valid fields to update" 422.
+        if (Object.keys(body).length === 0) return Promise.resolve();
+        return patchWorkOrder(editingRow.id, body);
       }
-      return createWorkOrder(form as WorkOrderBody).then(() => undefined);
+      const createBody = { ...form } as WorkOrderBody;
+      if (form.scheduled_at) createBody.scheduled_at = toSqlDateTime(form.scheduled_at);
+      return createWorkOrder(createBody).then(() => undefined);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['workOrders'] });
       setShowModal(false);
       setForm({});
-      setEditingId(null);
+      setInitialForm({});
+      setEditingRow(null);
     },
     onError: (e: unknown) => setFormErr((e as { message?: string })?.message ?? 'Failed'),
   });
@@ -407,26 +423,32 @@ export function WorkOrders() {
   const hasTarget = Boolean(form.client_id || form.site_id || form.device_id);
 
   const openCreate = () => {
-    setEditingId(null);
+    setEditingRow(null);
+    setInitialForm({});
     setForm({});
     setFormErr('');
     setShowModal(true);
   };
 
   const openEdit = (wo: WorkOrder) => {
-    setEditingId(wo.id);
-    setForm({
+    // scheduled_at keeps its time-of-day: slice to the 'YYYY-MM-DDTHH:mm' shape
+    // datetime-local expects (a date-only slice would reset schedules to
+    // midnight on save).
+    const prefill: Partial<WorkOrderBody> = {
       title: wo.title,
       description: wo.description ?? undefined,
       status: wo.status,
       priority: wo.priority ?? 'medium',
       work_type: wo.work_type ?? 'other',
-      scheduled_at: wo.scheduled_at ? wo.scheduled_at.slice(0, 10) : undefined,
+      scheduled_at: wo.scheduled_at ? wo.scheduled_at.slice(0, 16) : undefined,
       client_id: wo.client_id ?? undefined,
       site_id: wo.site_id ?? undefined,
       device_id: wo.device_id ?? undefined,
       assigned_to: wo.assigned_to ?? undefined,
-    });
+    };
+    setEditingRow(wo);
+    setInitialForm(prefill);
+    setForm(prefill);
     setFormErr('');
     setShowModal(true);
   };
@@ -565,7 +587,7 @@ export function WorkOrders() {
           <div style={modalStyles.panel} onClick={e => e.stopPropagation()}>
             <div style={modalStyles.header}>
               <h2 style={modalStyles.title}>
-                {editingId !== null ? t('workOrders.edit', 'Edit Work Order') : t('workOrders.new')}
+                {editingRow !== null ? t('workOrders.edit', 'Edit Work Order') : t('workOrders.new')}
               </h2>
             </div>
             <div style={modalStyles.form}>
@@ -627,6 +649,7 @@ export function WorkOrders() {
               <ClientPicker
                 required={false}
                 value={form.client_id ?? ''}
+                initialName={editingRow?.client_name ?? ''}
                 onChange={(id) => setForm(f => ({ ...f, client_id: id || undefined }))}
               />
               <label style={modalStyles.label}>
@@ -637,6 +660,11 @@ export function WorkOrders() {
                   onChange={e => setForm(f => ({ ...f, site_id: e.target.value ? Number(e.target.value) : undefined }))}
                 >
                   <option value="">{t('workOrders.none')}</option>
+                  {/* Keep the row's current site selectable even when it falls
+                      outside the 200-row options fetch */}
+                  {editingRow && form.site_id != null && !(sitesQ.data ?? []).some(s => s.id === form.site_id) && (
+                    <option value={form.site_id}>{editingRow.site_name ?? `#${form.site_id}`}</option>
+                  )}
                   {(sitesQ.data ?? []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </label>
@@ -648,6 +676,9 @@ export function WorkOrders() {
                   onChange={e => setForm(f => ({ ...f, device_id: e.target.value ? Number(e.target.value) : undefined }))}
                 >
                   <option value="">{t('workOrders.none')}</option>
+                  {editingRow && form.device_id != null && !(devicesQ.data ?? []).some(d => d.id === form.device_id) && (
+                    <option value={form.device_id}>{editingRow.device_name ?? `#${form.device_id}`}</option>
+                  )}
                   {(devicesQ.data ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </label>
@@ -655,7 +686,7 @@ export function WorkOrders() {
               <label style={modalStyles.label}>
                 Scheduled
                 <input
-                  type="date"
+                  type="datetime-local"
                   style={modalStyles.input}
                   value={form.scheduled_at ?? ''}
                   onChange={e => setForm(f => ({ ...f, scheduled_at: e.target.value || undefined }))}
@@ -670,6 +701,14 @@ export function WorkOrders() {
                   onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value ? Number(e.target.value) : undefined }))}
                 >
                   <option value="">Unassigned</option>
+                  {/* The row's current assignee may no longer be authorized (or
+                      active) and thus absent from the options — keep them
+                      visible and selectable rather than misrendering as
+                      Unassigned. The diff-based PATCH means leaving them in
+                      place never trips the backend's assignee guard. */}
+                  {editingRow && form.assigned_to != null && !(usersQ.data ?? []).some(u => u.id === form.assigned_to) && (
+                    <option value={form.assigned_to}>{assigneeName(editingRow)} ({t('workOrders.current', 'current')})</option>
+                  )}
                   {(usersQ.data ?? []).map(u => <option key={u.id} value={u.id}>{u.first_name} {u.last_name}</option>)}
                 </select>
               </label>

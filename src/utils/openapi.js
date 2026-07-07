@@ -2017,6 +2017,9 @@ function generateSpec() {
       '/work-orders/stats': {
         get: { tags: ['Work Orders'], summary: 'Work order counts grouped by status', operationId: 'getWorkOrderStats', security: [{ bearerAuth: [] }], responses: r200('StatusCount[]') },
       },
+      '/work-orders/assignable-users': {
+        get: { tags: ['Work Orders'], summary: 'Active users authorized to be assigned work orders (holders of work_orders.update)', operationId: 'listAssignableWorkOrderUsers', security: [{ bearerAuth: [] }], responses: r200('UserSummary[]') },
+      },
       ...crudPaths('work-orders', 'Work Orders', 'WorkOrder'),
       // Override list to document ticket_id + service_order_id query filters
       '/work-orders': {
