@@ -419,7 +419,7 @@ async function escalate({ conversationId, reason, orgId }) {
          ?,
          'open',
          'medium',
-         'ai_support'
+         'ai_escalated'
        FROM support_conversations sc
        WHERE sc.id = ? AND sc.organization_id = ?`,
       [
