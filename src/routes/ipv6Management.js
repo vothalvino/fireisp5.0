@@ -11,6 +11,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
+const { buildInsert, buildUpdate } = require('../utils/sqlBuild');
 const subnetPlannerService = require('../services/subnetPlannerService');
 const { createRaGuardPolicy, updateRaGuardPolicy } = require('../middleware/schemas/raGuardPolicies');
 
@@ -57,9 +58,10 @@ router.get('/ra-guard/:id', requirePermission('ra_guard.view'), async (req, res,
 router.post('/ra-guard', requirePermission('ra_guard.create'), validate(createRaGuardPolicy), async (req, res, next) => {
   try {
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...fields } = req.body;
+    const { columns, placeholders, values } = buildInsert({ organization_id: req.orgId, ...fields });
     const [result] = await db.query(
-      'INSERT INTO ra_guard_policies SET ?',
-      [{ organization_id: req.orgId, ...fields }],
+      `INSERT INTO ra_guard_policies (${columns}) VALUES (${placeholders})`,
+      values,
     );
     const [rows] = await db.query('SELECT * FROM ra_guard_policies WHERE id = ?', [result.insertId]);
     res.status(201).json({ data: rows[0] });
@@ -74,9 +76,11 @@ router.put('/ra-guard/:id', requirePermission('ra_guard.update'), validate(updat
     );
     if (!check.length) return res.status(404).json({ error: 'Not found' });
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...updateData } = req.body;
+    const { assignments, values } = buildUpdate(updateData);
+    const setClause = assignments ? `${assignments}, updated_at = NOW()` : 'updated_at = NOW()';
     await db.query(
-      'UPDATE ra_guard_policies SET ?, updated_at = NOW() WHERE id = ? AND organization_id = ?',
-      [updateData, req.params.id, req.orgId],
+      `UPDATE ra_guard_policies SET ${setClause} WHERE id = ? AND organization_id = ?`,
+      [...values, req.params.id, req.orgId],
     );
     const [rows] = await db.query('SELECT * FROM ra_guard_policies WHERE id = ?', [req.params.id]);
     res.json({ data: rows[0] });

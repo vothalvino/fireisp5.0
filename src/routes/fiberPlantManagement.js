@@ -26,6 +26,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
+const { buildInsert, buildUpdate } = require('../utils/sqlBuild');
 const {
   createFiberRoute, updateFiberRoute, patchFiberRoute,
 } = require('../middleware/schemas/fiberRoutes');
@@ -131,9 +132,10 @@ router.get('/fiber-routes/onu/:onuDetailId/path', requirePermission('fiber_route
 router.post('/fiber-routes', requirePermission('fiber_routes.create'), validate(createFiberRoute), async (req, res, next) => {
   try {
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...fields } = req.body;
+    const { columns, placeholders, values } = buildInsert({ organization_id: req.orgId, ...fields });
     const [result] = await db.query(
-      'INSERT INTO fiber_routes SET ?',
-      [{ organization_id: req.orgId, ...fields }],
+      `INSERT INTO fiber_routes (${columns}) VALUES (${placeholders})`,
+      values,
     );
     const [rows] = await db.query(
       'SELECT * FROM fiber_routes WHERE id = ?',
@@ -154,7 +156,9 @@ router.put('/fiber-routes/:id', requirePermission('fiber_routes.update'), valida
     );
     if (!check.length) return res.status(404).json({ error: 'Not found' });
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...updateData } = req.body;
-    await db.query('UPDATE fiber_routes SET ?, updated_at = NOW() WHERE id = ?', [updateData, req.params.id]);
+    const { assignments, values } = buildUpdate(updateData);
+    const setClause = assignments ? `${assignments}, updated_at = NOW()` : 'updated_at = NOW()';
+    await db.query(`UPDATE fiber_routes SET ${setClause} WHERE id = ?`, [...values, req.params.id]);
     const [rows] = await db.query('SELECT * FROM fiber_routes WHERE id = ?', [req.params.id]);
     res.json({ data: rows[0] });
   } catch (err) { next(err); }
@@ -172,7 +176,8 @@ router.patch('/fiber-routes/:id', requirePermission('fiber_routes.update'), vali
     if (!check.length) return res.status(404).json({ error: 'Not found' });
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...updateData } = req.body;
     if (!Object.keys(updateData).length) return res.status(400).json({ error: 'No fields to update' });
-    await db.query('UPDATE fiber_routes SET ?, updated_at = NOW() WHERE id = ?', [updateData, req.params.id]);
+    const { assignments, values } = buildUpdate(updateData);
+    await db.query(`UPDATE fiber_routes SET ${assignments}, updated_at = NOW() WHERE id = ?`, [...values, req.params.id]);
     const [rows] = await db.query('SELECT * FROM fiber_routes WHERE id = ?', [req.params.id]);
     res.json({ data: rows[0] });
   } catch (err) { next(err); }
@@ -239,7 +244,8 @@ router.get('/odf/frames/:id', requirePermission('odf_frames.view'), async (req, 
 router.post('/odf/frames', requirePermission('odf_frames.create'), validate(createOdfFrame), async (req, res, next) => {
   try {
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...fields } = req.body;
-    const [result] = await db.query('INSERT INTO odf_frames SET ?', [{ organization_id: req.orgId, ...fields }]);
+    const { columns, placeholders, values } = buildInsert({ organization_id: req.orgId, ...fields });
+    const [result] = await db.query(`INSERT INTO odf_frames (${columns}) VALUES (${placeholders})`, values);
     const [rows] = await db.query('SELECT * FROM odf_frames WHERE id = ?', [result.insertId]);
     res.status(201).json({ data: rows[0] });
   } catch (err) { next(err); }
@@ -256,7 +262,9 @@ router.put('/odf/frames/:id', requirePermission('odf_frames.update'), validate(u
     );
     if (!check.length) return res.status(404).json({ error: 'Not found' });
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...updateData } = req.body;
-    await db.query('UPDATE odf_frames SET ?, updated_at = NOW() WHERE id = ?', [updateData, req.params.id]);
+    const { assignments, values } = buildUpdate(updateData);
+    const setClause = assignments ? `${assignments}, updated_at = NOW()` : 'updated_at = NOW()';
+    await db.query(`UPDATE odf_frames SET ${setClause} WHERE id = ?`, [...values, req.params.id]);
     const [rows] = await db.query('SELECT * FROM odf_frames WHERE id = ?', [req.params.id]);
     res.json({ data: rows[0] });
   } catch (err) { next(err); }
@@ -274,7 +282,8 @@ router.patch('/odf/frames/:id', requirePermission('odf_frames.update'), validate
     if (!check.length) return res.status(404).json({ error: 'Not found' });
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...updateData } = req.body;
     if (!Object.keys(updateData).length) return res.status(400).json({ error: 'No fields to update' });
-    await db.query('UPDATE odf_frames SET ?, updated_at = NOW() WHERE id = ?', [updateData, req.params.id]);
+    const { assignments, values } = buildUpdate(updateData);
+    await db.query(`UPDATE odf_frames SET ${assignments}, updated_at = NOW() WHERE id = ?`, [...values, req.params.id]);
     const [rows] = await db.query('SELECT * FROM odf_frames WHERE id = ?', [req.params.id]);
     res.json({ data: rows[0] });
   } catch (err) { next(err); }
@@ -344,7 +353,8 @@ router.get('/odf/ports/:id', requirePermission('odf_ports.view'), async (req, re
 router.post('/odf/ports', requirePermission('odf_ports.create'), validate(createOdfPort), async (req, res, next) => {
   try {
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...fields } = req.body;
-    const [result] = await db.query('INSERT INTO odf_ports SET ?', [{ organization_id: req.orgId, ...fields }]);
+    const { columns, placeholders, values } = buildInsert({ organization_id: req.orgId, ...fields });
+    const [result] = await db.query(`INSERT INTO odf_ports (${columns}) VALUES (${placeholders})`, values);
     const [rows] = await db.query('SELECT * FROM odf_ports WHERE id = ?', [result.insertId]);
     res.status(201).json({ data: rows[0] });
   } catch (err) { next(err); }
@@ -362,7 +372,8 @@ router.patch('/odf/ports/:id', requirePermission('odf_ports.update'), validate(p
     if (!check.length) return res.status(404).json({ error: 'Not found' });
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, odf_frame_id: _____, ...updateData } = req.body;
     if (!Object.keys(updateData).length) return res.status(400).json({ error: 'No fields to update' });
-    await db.query('UPDATE odf_ports SET ?, updated_at = NOW() WHERE id = ?', [updateData, req.params.id]);
+    const { assignments, values } = buildUpdate(updateData);
+    await db.query(`UPDATE odf_ports SET ${assignments}, updated_at = NOW() WHERE id = ?`, [...values, req.params.id]);
     const [rows] = await db.query('SELECT * FROM odf_ports WHERE id = ?', [req.params.id]);
     res.json({ data: rows[0] });
   } catch (err) { next(err); }
@@ -434,7 +445,8 @@ router.post('/odf/cross-connects', requirePermission('odf_cross_connects.create'
       return res.status(400).json({ error: 'port_a_id and port_b_id must differ' });
     }
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...fields } = req.body;
-    const [result] = await db.query('INSERT INTO odf_cross_connects SET ?', [{ organization_id: req.orgId, ...fields }]);
+    const { columns, placeholders, values } = buildInsert({ organization_id: req.orgId, ...fields });
+    const [result] = await db.query(`INSERT INTO odf_cross_connects (${columns}) VALUES (${placeholders})`, values);
     const [rows] = await db.query('SELECT * FROM odf_cross_connects WHERE id = ?', [result.insertId]);
     res.status(201).json({ data: rows[0] });
   } catch (err) { next(err); }
@@ -452,7 +464,8 @@ router.patch('/odf/cross-connects/:id', requirePermission('odf_cross_connects.up
     if (!check.length) return res.status(404).json({ error: 'Not found' });
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...updateData } = req.body;
     if (!Object.keys(updateData).length) return res.status(400).json({ error: 'No fields to update' });
-    await db.query('UPDATE odf_cross_connects SET ?, updated_at = NOW() WHERE id = ?', [updateData, req.params.id]);
+    const { assignments, values } = buildUpdate(updateData);
+    await db.query(`UPDATE odf_cross_connects SET ${assignments}, updated_at = NOW() WHERE id = ?`, [...values, req.params.id]);
     const [rows] = await db.query('SELECT * FROM odf_cross_connects WHERE id = ?', [req.params.id]);
     res.json({ data: rows[0] });
   } catch (err) { next(err); }
@@ -559,7 +572,8 @@ router.patch('/otdr/tests/:id', requirePermission('otdr_tests.update'), validate
     if (!check.length) return res.status(404).json({ error: 'Not found' });
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...updateData } = req.body;
     if (!Object.keys(updateData).length) return res.status(400).json({ error: 'No fields to update' });
-    await db.query('UPDATE otdr_test_results SET ?, updated_at = NOW() WHERE id = ?', [updateData, req.params.id]);
+    const { assignments, values } = buildUpdate(updateData);
+    await db.query(`UPDATE otdr_test_results SET ${assignments}, updated_at = NOW() WHERE id = ?`, [...values, req.params.id]);
     const [rows] = await db.query('SELECT * FROM otdr_test_results WHERE id = ?', [req.params.id]);
     res.json({ data: rows[0] });
   } catch (err) { next(err); }
@@ -648,7 +662,8 @@ router.get('/sfp/:id/diagnostics', requirePermission('sfp_inventory.view'), asyn
 router.post('/sfp', requirePermission('sfp_inventory.create'), validate(createSfpInventory), async (req, res, next) => {
   try {
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...fields } = req.body;
-    const [result] = await db.query('INSERT INTO sfp_inventory SET ?', [{ organization_id: req.orgId, ...fields }]);
+    const { columns, placeholders, values } = buildInsert({ organization_id: req.orgId, ...fields });
+    const [result] = await db.query(`INSERT INTO sfp_inventory (${columns}) VALUES (${placeholders})`, values);
     const [rows] = await db.query('SELECT * FROM sfp_inventory WHERE id = ?', [result.insertId]);
     res.status(201).json({ data: rows[0] });
   } catch (err) { next(err); }
@@ -665,7 +680,9 @@ router.put('/sfp/:id', requirePermission('sfp_inventory.update'), validate(updat
     );
     if (!check.length) return res.status(404).json({ error: 'Not found' });
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...updateData } = req.body;
-    await db.query('UPDATE sfp_inventory SET ?, updated_at = NOW() WHERE id = ?', [updateData, req.params.id]);
+    const { assignments, values } = buildUpdate(updateData);
+    const setClause = assignments ? `${assignments}, updated_at = NOW()` : 'updated_at = NOW()';
+    await db.query(`UPDATE sfp_inventory SET ${setClause} WHERE id = ?`, [...values, req.params.id]);
     const [rows] = await db.query('SELECT * FROM sfp_inventory WHERE id = ?', [req.params.id]);
     res.json({ data: rows[0] });
   } catch (err) { next(err); }
@@ -683,7 +700,8 @@ router.patch('/sfp/:id', requirePermission('sfp_inventory.update'), validate(pat
     if (!check.length) return res.status(404).json({ error: 'Not found' });
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...updateData } = req.body;
     if (!Object.keys(updateData).length) return res.status(400).json({ error: 'No fields to update' });
-    await db.query('UPDATE sfp_inventory SET ?, updated_at = NOW() WHERE id = ?', [updateData, req.params.id]);
+    const { assignments, values } = buildUpdate(updateData);
+    await db.query(`UPDATE sfp_inventory SET ${assignments}, updated_at = NOW() WHERE id = ?`, [...values, req.params.id]);
     const [rows] = await db.query('SELECT * FROM sfp_inventory WHERE id = ?', [req.params.id]);
     res.json({ data: rows[0] });
   } catch (err) { next(err); }
