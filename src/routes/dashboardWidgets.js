@@ -108,7 +108,7 @@ router.put('/:id', requirePermission('dashboard_widgets.manage'), async (req, re
            is_visible = COALESCE(?, is_visible),
            updated_at = NOW()
        WHERE id = ?`,
-      [title, position_x, position_y, width, height,
+      [title ?? null, position_x ?? null, position_y ?? null, width ?? null, height ?? null,
         config !== undefined ? JSON.stringify(config) : null,
         is_visible !== undefined ? (is_visible ? 1 : 0) : null,
         req.params.id],
