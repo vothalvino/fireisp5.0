@@ -81,7 +81,7 @@ router.get('/tax-reports',
                   cd.uuid AS cfdi_uuid
            FROM credit_notes cn
            LEFT JOIN clients cl ON cl.id = cn.client_id
-           LEFT JOIN cfdi_documents cd ON cd.credit_note_id = cn.id AND cd.deleted_at IS NULL
+           LEFT JOIN cfdi_documents cd ON cd.credit_note_id = cn.id
            WHERE cn.organization_id = ?
              AND cn.deleted_at IS NULL
              ${from ? 'AND DATE(cn.created_at) >= ?' : ''}
@@ -100,7 +100,7 @@ router.get('/tax-reports',
                   cd.uuid AS cfdi_uuid
            FROM invoices i
            LEFT JOIN clients cl ON cl.id = i.client_id
-           LEFT JOIN cfdi_documents cd ON cd.invoice_id = i.id AND cd.deleted_at IS NULL
+           LEFT JOIN cfdi_documents cd ON cd.invoice_id = i.id
            WHERE i.organization_id = ?
              AND i.deleted_at IS NULL
              ${from ? 'AND DATE(i.created_at) >= ?' : ''}

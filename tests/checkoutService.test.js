@@ -32,6 +32,7 @@ describe('checkoutService', () => {
 
       db.query
         .mockResolvedValueOnce([[invoice]])  // SELECT invoice
+        .mockResolvedValueOnce([[{ id: 5 }]])  // SELECT payment gateway
         .mockResolvedValueOnce([{ insertId: 100 }]);  // INSERT transaction
 
       const result = await checkoutService.createCheckoutSession({
@@ -43,6 +44,30 @@ describe('checkoutService', () => {
       expect(result.token).toBeTruthy();
       expect(result.amount).toBe('500.00');
       expect(result.payment_url).toContain('/pay/');
+
+      // The INSERT must use only real payment_transactions columns and supply
+      // the NOT NULL payment_gateway_id + gateway_reference_id.
+      const insertSql = db.query.mock.calls[2][0];
+      const insertParams = db.query.mock.calls[2][1];
+      expect(insertSql).not.toMatch(/description/);
+      expect(insertSql).toMatch(/payment_gateway_id/);
+      expect(insertSql).toMatch(/gateway_reference_id/);
+      expect(insertParams).toContain(5); // resolved payment_gateway_id
+    });
+
+    test('throws a validation error when no active gateway is configured', async () => {
+      const invoice = {
+        id: 1, invoice_number: 'INV-000001', total: '500.00',
+        currency: 'MXN', status: 'issued', client_id: 10,
+      };
+
+      db.query
+        .mockResolvedValueOnce([[invoice]])  // SELECT invoice
+        .mockResolvedValueOnce([[]]);  // SELECT payment gateway — none
+
+      await expect(
+        checkoutService.createCheckoutSession({ organizationId: 1, invoiceId: 1 }),
+      ).rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
     });
 
     test('throws when invoice not found', async () => {
@@ -71,6 +96,7 @@ describe('checkoutService', () => {
       db.query
         .mockResolvedValueOnce([[invoice]])  // generatePaymentLink SELECT
         .mockResolvedValueOnce([[invoice]])  // createCheckoutSession SELECT
+        .mockResolvedValueOnce([[{ id: 5 }]])  // SELECT payment gateway
         .mockResolvedValueOnce([{ insertId: 100 }]);  // INSERT transaction
 
       const result = await checkoutService.generatePaymentLink({

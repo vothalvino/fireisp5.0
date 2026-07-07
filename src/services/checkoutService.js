@@ -10,6 +10,7 @@ const db = require('../config/database');
 const paymentGatewayService = require('./paymentGatewayService');
 const paymentRetryService = require('./paymentRetryService');
 const logger = require('../utils/logger');
+const { ValidationError } = require('../utils/errors');
 
 /**
  * Create a checkout session for a specific invoice.
@@ -26,17 +27,35 @@ async function createCheckoutSession({ organizationId, invoiceId, clientId, retu
   const invoice = invoices[0];
   if (invoice.status === 'paid') throw new Error('Invoice already paid');
 
-  // Generate a unique checkout token
+  // Resolve the organization's payment gateway: prefer the default, otherwise
+  // fall back to the first active gateway. payment_transactions.payment_gateway_id
+  // is NOT NULL, so a missing gateway is a client-fixable configuration error (422),
+  // not a 500.
+  const [gateways] = await db.query(
+    `SELECT id FROM payment_gateways
+     WHERE organization_id = ? AND status = 'active'
+     ORDER BY is_default DESC, id ASC
+     LIMIT 1`,
+    [organizationId],
+  );
+  if (gateways.length === 0) {
+    throw new ValidationError('No active payment gateway is configured for this organization');
+  }
+  const paymentGatewayId = gateways[0].id;
+
+  // Generate a unique checkout token and a gateway reference for this attempt.
   const token = crypto.randomBytes(32).toString('hex');
+  const gatewayReferenceId = `chk_${token.slice(0, 32)}`;
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
   // Store the session in payment_transactions as 'pending'
   const [result] = await db.query(
     `INSERT INTO payment_transactions
-     (organization_id, client_id, amount, currency, description, gateway_status, idempotency_key)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-    [organizationId, clientId || invoice.client_id, invoice.total,
-      invoice.currency, `Payment for invoice ${invoice.invoice_number}`, token],
+     (organization_id, client_id, payment_gateway_id, gateway_reference_id,
+      amount, currency, gateway_status, gateway_response_message, idempotency_key)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+    [organizationId, clientId || invoice.client_id, paymentGatewayId, gatewayReferenceId,
+      invoice.total, invoice.currency, `Payment for invoice ${invoice.invoice_number}`, token],
   );
 
   return {

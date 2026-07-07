@@ -19,13 +19,10 @@ router.use(authenticate);
 router.use(orgScope);
 
 router.get('/', requirePermission('webhooks.view'), ctrl.list);
-router.get('/:id', requirePermission('webhooks.view'), ctrl.get);
-router.post('/', requirePermission('webhooks.create'), validate(createWebhook), ctrl.create);
-router.put('/:id', requirePermission('webhooks.update'), validate(updateWebhook), ctrl.update);
-router.delete('/:id', requirePermission('webhooks.delete'), ctrl.destroy);
-router.post('/:id/restore', requirePermission('webhooks.update'), ctrl.restore);
 
 // List dead-letter deliveries for this organization
+// NOTE: static GET paths must be registered before GET /:id so they are not
+// captured as an :id param.
 router.get('/dead-letters', requirePermission('webhooks.view'), async (req, res, next) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
@@ -35,6 +32,12 @@ router.get('/dead-letters', requirePermission('webhooks.view'), async (req, res,
     next(err);
   }
 });
+
+router.get('/:id', requirePermission('webhooks.view'), ctrl.get);
+router.post('/', requirePermission('webhooks.create'), validate(createWebhook), ctrl.create);
+router.put('/:id', requirePermission('webhooks.update'), validate(updateWebhook), ctrl.update);
+router.delete('/:id', requirePermission('webhooks.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('webhooks.update'), ctrl.restore);
 
 // Re-deliver a dead-letter delivery by its ID
 router.post('/deliveries/:deliveryId/redeliver', requirePermission('webhooks.update'), async (req, res, next) => {
