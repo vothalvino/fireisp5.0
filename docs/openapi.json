@@ -38387,6 +38387,32 @@
         }
       }
     },
+    "/work-orders/assignable-users": {
+      "get": {
+        "tags": [
+          "Work Orders"
+        ],
+        "summary": "Active users authorized to be assigned work orders (holders of work_orders.update)",
+        "operationId": "listAssignableWorkOrderUsers",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "UserSummary[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/work-orders": {
       "get": {
         "tags": [
@@ -67199,6 +67225,9 @@
             "type": "string",
             "maximum": 255
           },
+          "description": {
+            "type": "string"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -67220,6 +67249,10 @@
           },
           "assigned_to": {
             "type": "number"
+          },
+          "scheduled_at": {
+            "type": "string",
+            "format": "date-time"
           },
           "notes": {
             "type": "string"

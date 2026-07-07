@@ -2556,6 +2556,8 @@
   "workOrders": {
     "title": "Work Orders",
     "new": "New Work Order",
+    "edit": "Edit Work Order",
+    "current": "current",
     "noOrders": "No work orders found",
     "materials": "Materials",
     "addMaterial": "Add Material",

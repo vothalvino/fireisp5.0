@@ -22,6 +22,7 @@ interface WorkOrder {
   ticket_id: number | null;
   assigned_to: number | null;
   status: string;
+  priority: string | null;
   title: string;
   description: string | null;
   scheduled_at: string | null;
@@ -48,6 +49,7 @@ interface WorkOrderBody {
   ticket_id?: number;
   assigned_to?: number;
   status?: string;
+  priority?: string;
   scheduled_at?: string;
   client_id?: number;
   site_id?: number;
@@ -55,6 +57,21 @@ interface WorkOrderBody {
   contract_id?: number;
   service_order_id?: number;
   work_type?: string;
+}
+
+// PATCH accepts a subset of fields, and (unlike create) allows explicit null to
+// clear description / schedule / target links / assignee.
+interface WorkOrderPatchBody {
+  title?: string;
+  description?: string | null;
+  status?: string;
+  priority?: string;
+  work_type?: string;
+  scheduled_at?: string | null;
+  client_id?: number | null;
+  site_id?: number | null;
+  device_id?: number | null;
+  assigned_to?: number | null;
 }
 
 interface Option { id: number; name: string }
@@ -86,6 +103,7 @@ interface ListResponse<T> {
 const PAGE_SIZE = 25;
 const STATUSES = ['pending', 'assigned', 'in_progress', 'completed', 'cancelled'];
 const WORK_TYPES = ['installation', 'maintenance', 'repair', 'survey', 'other'];
+const PRIORITIES = ['low', 'medium', 'high', 'critical'];
 
 // ---------------------------------------------------------------------------
 // API helpers
@@ -107,10 +125,23 @@ async function fetchOptions(pathname: '/sites' | '/devices'): Promise<Option[]> 
   return (((res as { data: unknown }).data as { data: Option[] }).data) ?? [];
 }
 
-async function fetchUsers(): Promise<UserOption[]> {
-  const res = await api.GET('/users' as never, { params: { query: { limit: 200 } as never } } as never);
+// Only users authorized to work with work orders (server-side: holders of
+// work_orders.update) are assignable, so the picker is populated from the
+// dedicated endpoint rather than the full /users list.
+async function fetchAssignableUsers(): Promise<UserOption[]> {
+  const res = await api.GET('/work-orders/assignable-users' as never, {} as never);
   if ((res as { error?: unknown }).error) return [];
   return (((res as { data: unknown }).data as { data: UserOption[] }).data) ?? [];
+}
+
+// Surface the server's error message (e.g. an unauthorized-assignee 422) instead
+// of a generic string, so form validation failures are actionable.
+async function errorMessage(resp: Response, fallback: string): Promise<string> {
+  try {
+    const j = await resp.json() as { error?: string };
+    if (j && typeof j.error === 'string') return j.error;
+  } catch { /* non-JSON / empty body */ }
+  return fallback;
 }
 
 async function createWorkOrder(body: WorkOrderBody): Promise<WorkOrder> {
@@ -119,18 +150,18 @@ async function createWorkOrder(body: WorkOrderBody): Promise<WorkOrder> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!resp.ok) throw new Error('Failed to create work order');
+  if (!resp.ok) throw new Error(await errorMessage(resp, 'Failed to create work order'));
   const json = await resp.json() as { data: WorkOrder };
   return json.data;
 }
 
-async function patchWorkOrder(id: number, body: Partial<WorkOrderBody>): Promise<void> {
+async function patchWorkOrder(id: number, body: WorkOrderPatchBody): Promise<void> {
   const resp = await authedFetch(`/api/v1/work-orders/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!resp.ok) throw new Error('Failed to update work order');
+  if (!resp.ok) throw new Error(await errorMessage(resp, 'Failed to update work order'));
 }
 
 async function fetchMaterials(workOrderId: number): Promise<WorkOrderMaterial[]> {
@@ -297,6 +328,10 @@ export function WorkOrders() {
   const [statusFilter, setStatusFilter] = useState('');
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [showModal, setShowModal] = useState(false);
+  // Row being edited (null = create mode) plus the prefill snapshot the PATCH
+  // body is diffed against, so only user-touched fields are ever sent.
+  const [editingRow, setEditingRow] = useState<WorkOrder | null>(null);
+  const [initialForm, setInitialForm] = useState<Partial<WorkOrderBody>>({});
   const [form, setForm] = useState<Partial<WorkOrderBody>>({});
   const [formErr, setFormErr] = useState('');
   const sort = useTableSort('created_at', 'DESC');
@@ -310,20 +345,54 @@ export function WorkOrders() {
 
   const sitesQ = useQuery({ queryKey: ['workOrders', 'siteOptions'], queryFn: () => fetchOptions('/sites') });
   const devicesQ = useQuery({ queryKey: ['workOrders', 'deviceOptions'], queryFn: () => fetchOptions('/devices') });
-  const usersQ = useQuery({ queryKey: ['workOrders', 'userOptions'], queryFn: fetchUsers });
+  const usersQ = useQuery({ queryKey: ['workOrders', 'assignableUsers'], queryFn: fetchAssignableUsers });
 
-  const createMut = useMutation({
-    mutationFn: () => createWorkOrder(form as WorkOrderBody),
+  // 'YYYY-MM-DDTHH:mm' (datetime-local input) → 'YYYY-MM-DD HH:mm:00' for the API.
+  const toSqlDateTime = (v: string): string => v.replace('T', ' ') + (v.length === 16 ? ':00' : '');
+
+  // PATCH only what the user actually changed. Untouched columns keep their
+  // stored values (incl. seconds on timestamps and entity links), and an
+  // assignee who has since lost authorization no longer blocks unrelated edits.
+  const buildPatchBody = (): WorkOrderPatchBody => {
+    const body: WorkOrderPatchBody = {};
+    if ((form.title ?? '') !== (initialForm.title ?? '')) body.title = form.title;
+    if ((form.description ?? '') !== (initialForm.description ?? '')) body.description = form.description || null;
+    if ((form.status ?? 'pending') !== (initialForm.status ?? 'pending')) body.status = form.status ?? 'pending';
+    if ((form.priority ?? 'medium') !== (initialForm.priority ?? 'medium')) body.priority = form.priority ?? 'medium';
+    if ((form.work_type ?? 'other') !== (initialForm.work_type ?? 'other')) body.work_type = form.work_type ?? 'other';
+    if ((form.scheduled_at ?? '') !== (initialForm.scheduled_at ?? '')) body.scheduled_at = form.scheduled_at ? toSqlDateTime(form.scheduled_at) : null;
+    if ((form.client_id ?? null) !== (initialForm.client_id ?? null)) body.client_id = form.client_id ?? null;
+    if ((form.site_id ?? null) !== (initialForm.site_id ?? null)) body.site_id = form.site_id ?? null;
+    if ((form.device_id ?? null) !== (initialForm.device_id ?? null)) body.device_id = form.device_id ?? null;
+    if ((form.assigned_to ?? null) !== (initialForm.assigned_to ?? null)) body.assigned_to = form.assigned_to ?? null;
+    return body;
+  };
+
+  const saveMut = useMutation({
+    mutationFn: (): Promise<void> => {
+      if (editingRow !== null) {
+        const body = buildPatchBody();
+        // Nothing changed — close as a no-op instead of tripping the backend's
+        // "No valid fields to update" 422.
+        if (Object.keys(body).length === 0) return Promise.resolve();
+        return patchWorkOrder(editingRow.id, body);
+      }
+      const createBody = { ...form } as WorkOrderBody;
+      if (form.scheduled_at) createBody.scheduled_at = toSqlDateTime(form.scheduled_at);
+      return createWorkOrder(createBody).then(() => undefined);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['workOrders'] });
       setShowModal(false);
       setForm({});
+      setInitialForm({});
+      setEditingRow(null);
     },
     onError: (e: unknown) => setFormErr((e as { message?: string })?.message ?? 'Failed'),
   });
 
   const patchMut = useMutation({
-    mutationFn: ({ id, body }: { id: number; body: Partial<WorkOrderBody> }) => patchWorkOrder(id, body),
+    mutationFn: ({ id, body }: { id: number; body: WorkOrderPatchBody }) => patchWorkOrder(id, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['workOrders'] }),
   });
 
@@ -353,11 +422,42 @@ export function WorkOrders() {
 
   const hasTarget = Boolean(form.client_id || form.site_id || form.device_id);
 
+  const openCreate = () => {
+    setEditingRow(null);
+    setInitialForm({});
+    setForm({});
+    setFormErr('');
+    setShowModal(true);
+  };
+
+  const openEdit = (wo: WorkOrder) => {
+    // scheduled_at keeps its time-of-day: slice to the 'YYYY-MM-DDTHH:mm' shape
+    // datetime-local expects (a date-only slice would reset schedules to
+    // midnight on save).
+    const prefill: Partial<WorkOrderBody> = {
+      title: wo.title,
+      description: wo.description ?? undefined,
+      status: wo.status,
+      priority: wo.priority ?? 'medium',
+      work_type: wo.work_type ?? 'other',
+      scheduled_at: wo.scheduled_at ? wo.scheduled_at.slice(0, 16) : undefined,
+      client_id: wo.client_id ?? undefined,
+      site_id: wo.site_id ?? undefined,
+      device_id: wo.device_id ?? undefined,
+      assigned_to: wo.assigned_to ?? undefined,
+    };
+    setEditingRow(wo);
+    setInitialForm(prefill);
+    setForm(prefill);
+    setFormErr('');
+    setShowModal(true);
+  };
+
   return (
     <div style={styles.page}>
       <div style={styles.header}>
         <h1 style={styles.pageTitle}>{t('workOrders.title')}</h1>
-        <button style={styles.btnPrimary} onClick={() => { setForm({}); setFormErr(''); setShowModal(true); }}>
+        <button style={styles.btnPrimary} onClick={openCreate}>
           {t('workOrders.new')}
         </button>
       </div>
@@ -414,6 +514,12 @@ export function WorkOrders() {
                         <td style={styles.td}><StatusBadge status={wo.status} /></td>
                         <td style={styles.td}>{wo.scheduled_at ? wo.scheduled_at.slice(0, 10) : t('common.na')}</td>
                         <td style={styles.td} onClick={e => e.stopPropagation()}>
+                          <button
+                            style={{ ...styles.btnSecondary, marginRight: 4 }}
+                            onClick={() => openEdit(wo)}
+                          >
+                            {t('common.edit', 'Edit')}
+                          </button>
                           {wo.status === 'pending' && (
                             <button
                               style={{ ...styles.btnPrimary, marginRight: 4 }}
@@ -480,7 +586,9 @@ export function WorkOrders() {
         <div style={modalStyles.backdrop} onClick={() => setShowModal(false)}>
           <div style={modalStyles.panel} onClick={e => e.stopPropagation()}>
             <div style={modalStyles.header}>
-              <h2 style={modalStyles.title}>{t('workOrders.new')}</h2>
+              <h2 style={modalStyles.title}>
+                {editingRow !== null ? t('workOrders.edit', 'Edit Work Order') : t('workOrders.new')}
+              </h2>
             </div>
             <div style={modalStyles.form}>
               <label style={modalStyles.label}>
@@ -510,6 +618,18 @@ export function WorkOrders() {
                 </select>
               </label>
               <label style={modalStyles.label}>
+                Priority
+                <select
+                  style={modalStyles.select}
+                  value={form.priority ?? 'medium'}
+                  onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
+                >
+                  {PRIORITIES.map(p => (
+                    <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+                  ))}
+                </select>
+              </label>
+              <label style={modalStyles.label}>
                 {t('workOrders.type')}
                 <select
                   style={modalStyles.select}
@@ -529,6 +649,7 @@ export function WorkOrders() {
               <ClientPicker
                 required={false}
                 value={form.client_id ?? ''}
+                initialName={editingRow?.client_name ?? ''}
                 onChange={(id) => setForm(f => ({ ...f, client_id: id || undefined }))}
               />
               <label style={modalStyles.label}>
@@ -539,6 +660,11 @@ export function WorkOrders() {
                   onChange={e => setForm(f => ({ ...f, site_id: e.target.value ? Number(e.target.value) : undefined }))}
                 >
                   <option value="">{t('workOrders.none')}</option>
+                  {/* Keep the row's current site selectable even when it falls
+                      outside the 200-row options fetch */}
+                  {editingRow && form.site_id != null && !(sitesQ.data ?? []).some(s => s.id === form.site_id) && (
+                    <option value={form.site_id}>{editingRow.site_name ?? `#${form.site_id}`}</option>
+                  )}
                   {(sitesQ.data ?? []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </label>
@@ -550,8 +676,21 @@ export function WorkOrders() {
                   onChange={e => setForm(f => ({ ...f, device_id: e.target.value ? Number(e.target.value) : undefined }))}
                 >
                   <option value="">{t('workOrders.none')}</option>
+                  {editingRow && form.device_id != null && !(devicesQ.data ?? []).some(d => d.id === form.device_id) && (
+                    <option value={form.device_id}>{editingRow.device_name ?? `#${form.device_id}`}</option>
+                  )}
                   {(devicesQ.data ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
+              </label>
+
+              <label style={modalStyles.label}>
+                Scheduled
+                <input
+                  type="datetime-local"
+                  style={modalStyles.input}
+                  value={form.scheduled_at ?? ''}
+                  onChange={e => setForm(f => ({ ...f, scheduled_at: e.target.value || undefined }))}
+                />
               </label>
 
               <label style={modalStyles.label}>
@@ -562,6 +701,14 @@ export function WorkOrders() {
                   onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value ? Number(e.target.value) : undefined }))}
                 >
                   <option value="">Unassigned</option>
+                  {/* The row's current assignee may no longer be authorized (or
+                      active) and thus absent from the options — keep them
+                      visible and selectable rather than misrendering as
+                      Unassigned. The diff-based PATCH means leaving them in
+                      place never trips the backend's assignee guard. */}
+                  {editingRow && form.assigned_to != null && !(usersQ.data ?? []).some(u => u.id === form.assigned_to) && (
+                    <option value={form.assigned_to}>{assigneeName(editingRow)} ({t('workOrders.current', 'current')})</option>
+                  )}
                   {(usersQ.data ?? []).map(u => <option key={u.id} value={u.id}>{u.first_name} {u.last_name}</option>)}
                 </select>
               </label>
@@ -570,10 +717,10 @@ export function WorkOrders() {
                 <button style={styles.btnSecondary} onClick={() => setShowModal(false)}>{t('common.cancel')}</button>
                 <button
                   style={styles.btnPrimary}
-                  disabled={!form.title || !hasTarget || createMut.isPending}
-                  onClick={() => { setFormErr(''); createMut.mutate(); }}
+                  disabled={!form.title || !hasTarget || saveMut.isPending}
+                  onClick={() => { setFormErr(''); saveMut.mutate(); }}
                 >
-                  {createMut.isPending ? t('common.saving') : t('common.save')}
+                  {saveMut.isPending ? t('common.saving') : t('common.save')}
                 </button>
               </div>
             </div>

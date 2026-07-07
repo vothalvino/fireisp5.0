@@ -12,6 +12,24 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createWorkOrder, updateWorkOrder, patchWorkOrder } = require('../middleware/schemas/workOrders');
 const db = require('../config/database');
+const User = require('../models/User');
+
+// A work order may only be assigned to someone who could actually work it, i.e.
+// a user authorized to update work orders (`work_orders.update`). This is the
+// same gate the mutation routes enforce via requirePermission, so an assignee is
+// always someone who can progress/complete the order they are handed.
+const WORK_ORDER_ASSIGN_PERMISSION = 'work_orders.update';
+
+/**
+ * Guard for the `assigned_to` field on create/update/patch. Resolves to an error
+ * string when the target user may not be assigned, or null when assignment is
+ * allowed (including the unassigned case). Falsy `assignedTo` = unassign/no-op.
+ */
+async function assigneeAuthError(assignedTo, orgId) {
+  if (!assignedTo) return null;
+  const ok = await User.hasEffectivePermission(assignedTo, orgId, WORK_ORDER_ASSIGN_PERMISSION);
+  return ok ? null : 'Assigned user is not authorized to work with work orders';
+}
 
 // ---------------------------------------------------------------------------
 // Multer — work order attachments (disk storage, 20 MB limit)
@@ -53,6 +71,17 @@ router.get('/stats', requirePermission('work_orders.view'), async (req, res, nex
       [req.orgId],
     );
     res.json({ data: rows });
+  } catch (err) { next(err); }
+});
+
+// GET /work-orders/assignable-users — MUST be before /:id.
+// The set of users a work order may be assigned to: staff authorized to work
+// with work orders (see WORK_ORDER_ASSIGN_PERMISSION). Gated by view so any
+// dispatcher building an order can populate the assignee picker.
+router.get('/assignable-users', requirePermission('work_orders.view'), async (req, res, next) => {
+  try {
+    const users = await User.getUsersWithPermission(req.orgId, WORK_ORDER_ASSIGN_PERMISSION);
+    res.json({ data: users });
   } catch (err) { next(err); }
 });
 
@@ -126,6 +155,8 @@ router.post('/', requirePermission('work_orders.create'), validate(createWorkOrd
     if (!client_id && !site_id && !device_id) {
       return res.status(422).json({ error: 'A work order must target at least one of client, site, or device' });
     }
+    const assignErr = await assigneeAuthError(assigned_to, req.orgId);
+    if (assignErr) return res.status(422).json({ error: assignErr });
     const [result] = await db.query(
       `INSERT INTO work_orders
          (organization_id, client_id, site_id, device_id, contract_id, service_order_id, ticket_id, assigned_to, created_by,
@@ -149,6 +180,8 @@ router.put('/:id', requirePermission('work_orders.update'), validate(updateWorkO
     if (!client_id && !site_id && !device_id) {
       return res.status(422).json({ error: 'A work order must target at least one of client, site, or device' });
     }
+    const assignErr = await assigneeAuthError(assigned_to, req.orgId);
+    if (assignErr) return res.status(422).json({ error: assignErr });
     const [result] = await db.query(
       `UPDATE work_orders SET
          client_id=?, site_id=?, device_id=?, contract_id=?, service_order_id=?,
@@ -173,6 +206,13 @@ router.patch('/:id', requirePermission('work_orders.update'), validate(patchWork
     const allowed = ['ticket_id','assigned_to','title','description','status','priority','scheduled_at','started_at','completed_at','latitude','longitude','address','notes','client_id','site_id','device_id','contract_id','service_order_id','work_type'];
     const fields = Object.keys(req.body).filter(k => allowed.includes(k));
     if (fields.length === 0) return res.status(422).json({ error: 'No valid fields to update' });
+    // Only re-check authorization when this patch actually sets an assignee; a
+    // patch that leaves assigned_to untouched (e.g. a status transition) or that
+    // clears it must still pass.
+    if ('assigned_to' in req.body) {
+      const assignErr = await assigneeAuthError(req.body.assigned_to, req.orgId);
+      if (assignErr) return res.status(422).json({ error: assignErr });
+    }
     // If the patch touches any target field, ensure the work order still targets
     // at least one of client/site/device once the change is applied.
     const targetKeys = ['client_id', 'site_id', 'device_id'];

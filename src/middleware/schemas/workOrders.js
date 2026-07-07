@@ -52,9 +52,11 @@ const updateWorkOrder = {
 
 const patchWorkOrder = {
   title: { type: 'string', required: false, max: 255 },
+  description: { type: 'string', required: false },
   status: { type: 'string', required: false, enum: ['pending','assigned','in_progress','completed','cancelled'] },
   priority: { type: 'string', required: false, enum: ['low','medium','high','critical'] },
   assigned_to: { type: 'number', required: false },
+  scheduled_at: { type: 'string', required: false, format: 'date-time' },
   notes: { type: 'string', required: false },
   ...TARGET_FIELDS,
 };
