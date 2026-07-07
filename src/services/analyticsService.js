@@ -18,6 +18,9 @@ const logger = require('../utils/logger').child({ service: 'analyticsService' })
 const Z_SCORE_THRESHOLD = 2.5;
 // Min samples required for z-score calculation
 const MIN_SAMPLES = 6;
+// Wide-format snmp_metrics gauge columns analyzed for z-score anomalies (migration 025).
+// snmp_metrics has one column per metric — there is no metric/value EAV pair.
+const METRIC_COLUMNS = ['cpu_usage', 'memory_usage', 'signal_strength', 'latency_ms'];
 
 // Churn signal weights (sum of weighted signals → 0-100 score)
 const CHURN_WEIGHTS = {
@@ -42,9 +45,11 @@ const CHURN_WEIGHTS = {
  */
 async function detectAnomalies(organizationId, { window: windowSize = 48 } = {}) {
   const safeWindow = Math.max(1, parseInt(windowSize, 10) || 48);
-  // Get distinct metric + device combinations
-  const [combos] = await db.query(
-    `SELECT DISTINCT m.metric, m.device_id
+  // Get distinct devices with SNMP metrics for this org. snmp_metrics is WIDE-format
+  // (one column per metric), so we analyze each real metric column per device instead
+  // of a nonexistent metric/value EAV pair.
+  const [devices] = await db.query(
+    `SELECT DISTINCT m.device_id
      FROM snmp_metrics m
      JOIN devices d ON d.id = m.device_id
      WHERE d.organization_id = ?
@@ -53,44 +58,54 @@ async function detectAnomalies(organizationId, { window: windowSize = 48 } = {})
   );
 
   let detected = 0;
+  let combosChecked = 0;
 
-  for (const { metric, device_id } of combos) {
+  for (const { device_id } of devices) {
+    // One fetch per device: each row carries every metric column, newest first.
     const [samples] = await db.query(
-      `SELECT value FROM snmp_metrics
-       WHERE device_id = ? AND metric = ?
-       ORDER BY recorded_at DESC LIMIT ${safeWindow}`,
-      [device_id, metric],
+      `SELECT ${METRIC_COLUMNS.join(', ')} FROM snmp_metrics
+       WHERE device_id = ?
+       ORDER BY polled_at DESC LIMIT ${safeWindow}`,
+      [device_id],
     );
 
-    if (samples.length < MIN_SAMPLES) continue;
+    for (const metric of METRIC_COLUMNS) {
+      // Keep numeric, non-null readings (columns are nullable in the wide table);
+      // parseFloat(null|undefined) → NaN, so gaps are dropped by the filter.
+      const values = samples
+        .map(s => parseFloat(s[metric]))
+        .filter(v => !Number.isNaN(v));
 
-    const values = samples.map(s => parseFloat(s.value));
-    const mean = values.reduce((a, b) => a + b, 0) / values.length;
-    const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
-    const stddev = Math.sqrt(variance);
+      if (values.length < MIN_SAMPLES) continue;
+      combosChecked++;
 
-    if (stddev === 0) continue; // constant metric, no anomaly possible
+      const mean = values.reduce((a, b) => a + b, 0) / values.length;
+      const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
+      const stddev = Math.sqrt(variance);
 
-    const latest = values[0]; // most recent value
-    const zScore = (latest - mean) / stddev;
+      if (stddev === 0) continue; // constant metric, no anomaly possible
 
-    if (Math.abs(zScore) > Z_SCORE_THRESHOLD) {
-      const severity = Math.abs(zScore) > 4 ? 'critical' : Math.abs(zScore) > 3 ? 'high' : 'medium';
+      const latest = values[0]; // most recent value
+      const zScore = (latest - mean) / stddev;
 
-      await db.query(
-        `INSERT INTO analytics_anomalies
-           (organization_id, device_id, metric, detected_value, baseline_mean,
-            baseline_stddev, z_score, severity, anomaly_type, description)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'z_score', ?)`,
-        [organizationId, device_id, metric, latest, mean, stddev, zScore, severity,
-          `z-score ${zScore.toFixed(2)} exceeds threshold ±${Z_SCORE_THRESHOLD} (heuristic)`],
-      );
-      detected++;
+      if (Math.abs(zScore) > Z_SCORE_THRESHOLD) {
+        const severity = Math.abs(zScore) > 4 ? 'critical' : Math.abs(zScore) > 3 ? 'high' : 'medium';
+
+        await db.query(
+          `INSERT INTO analytics_anomalies
+             (organization_id, device_id, metric, detected_value, baseline_mean,
+              baseline_stddev, z_score, severity, anomaly_type, description)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'z_score', ?)`,
+          [organizationId, device_id, metric, latest, mean, stddev, zScore, severity,
+            `z-score ${zScore.toFixed(2)} exceeds threshold ±${Z_SCORE_THRESHOLD} (heuristic)`],
+        );
+        detected++;
+      }
     }
   }
 
-  logger.info({ organizationId, combos: combos.length, detected }, 'Anomaly detection complete (heuristic z-score)');
-  return { combos_checked: combos.length, anomalies_detected: detected };
+  logger.info({ organizationId, devices: devices.length, combos: combosChecked, detected }, 'Anomaly detection complete (heuristic z-score)');
+  return { combos_checked: combosChecked, anomalies_detected: detected };
 }
 
 /**
@@ -98,26 +113,26 @@ async function detectAnomalies(organizationId, { window: windowSize = 48 } = {})
  * Heuristic thresholds: sfp_rx_power_dbm < -30 dBm = degraded.
  */
 async function predictiveFailure(organizationId) {
-  // SFP degradation: rx power < -30 dBm
+  // SFP/optical degradation: signal_strength (dBm, wide-format column) < -30 dBm
   const [sfpRows] = await db.query(
-    `SELECT m.device_id, m.value AS rx_power_dbm, d.name AS device_name
+    `SELECT m.device_id, m.signal_strength AS rx_power_dbm, d.name AS device_name
      FROM snmp_metrics m
      JOIN devices d ON d.id = m.device_id
      WHERE d.organization_id = ?
-       AND m.metric = 'sfp_rx_power_dbm'
-       AND m.value < -30
-     ORDER BY m.value ASC LIMIT 50`,
+       AND m.signal_strength IS NOT NULL
+       AND m.signal_strength < -30
+     ORDER BY m.signal_strength ASC LIMIT 50`,
     [organizationId],
   );
 
-  // ONU offline > 5 min (via last_seen threshold)
+  // ONU offline > 5 min (via last successful SNMP poll threshold)
   const [onuRows] = await db.query(
-    `SELECT id, name, ip_address, last_seen_at
+    `SELECT id, name, ip_address, last_polled_at
      FROM devices
      WHERE organization_id = ?
-       AND device_type = 'onu'
-       AND last_seen_at IS NOT NULL
-       AND last_seen_at < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+       AND type = 'onu'
+       AND last_polled_at IS NOT NULL
+       AND last_polled_at < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
      LIMIT 100`,
     [organizationId],
   );
@@ -129,13 +144,13 @@ async function predictiveFailure(organizationId) {
       rx_power_dbm: parseFloat(r.rx_power_dbm),
       threshold_dbm: -30,
       risk: 'high',
-      note: 'HEURISTIC: rx_power < -30 dBm indicates SFP degradation',
+      note: 'HEURISTIC: signal_strength < -30 dBm indicates optical/RF degradation',
     })),
     onu_offline: onuRows.map(r => ({
       device_id: r.id,
       device_name: r.name,
-      last_seen_at: r.last_seen_at,
-      offline_minutes: Math.floor((Date.now() - new Date(r.last_seen_at).getTime()) / 60000),
+      last_seen_at: r.last_polled_at,
+      offline_minutes: Math.floor((Date.now() - new Date(r.last_polled_at).getTime()) / 60000),
       risk: 'high',
     })),
     generated_at: new Date().toISOString(),
@@ -150,18 +165,18 @@ async function predictiveFailure(organizationId) {
 async function alertCorrelation(organizationId, { window_minutes = 30 } = {}) {
   const [groups] = await db.query(
     `SELECT
-       rule_id,
+       ae.alert_rule_id AS rule_id,
        ar.name AS rule_name,
        ar.metric,
        ar.severity,
        COUNT(*) AS event_count,
-       MIN(ae.triggered_at) AS first_at,
-       MAX(ae.triggered_at) AS last_at
+       MIN(ae.created_at) AS first_at,
+       MAX(ae.created_at) AS last_at
      FROM alert_events ae
-     JOIN alert_rules ar ON ar.id = ae.rule_id
+     JOIN alert_rules ar ON ar.id = ae.alert_rule_id
      WHERE ae.organization_id = ?
-       AND ae.triggered_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)
-     GROUP BY ae.rule_id, ar.name, ar.metric, ar.severity
+       AND ae.created_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)
+     GROUP BY ae.alert_rule_id, ar.name, ar.metric, ar.severity
      HAVING event_count > 1
      ORDER BY event_count DESC`,
     [organizationId, window_minutes],

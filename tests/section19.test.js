@@ -241,7 +241,7 @@ function mockDb() {
 
     // OLT port assignments
     if (s.includes('FROM reseller_olt_port_assignments a')) {
-      return Promise.resolve([[{ id: 1, reseller_id: 1, olt_port_id: 3, port_number: 1, port_type: 'gpon' }]]);
+      return Promise.resolve([[{ id: 1, reseller_id: 1, olt_port_id: 3, port_name: 'GPON 0/1/1', port_no: 1, port_type: 'gpon' }]]);
     }
     if (s.includes('INSERT') && s.includes('reseller_olt_port_assignments')) {
       return Promise.resolve([{ insertId: 1 }]);

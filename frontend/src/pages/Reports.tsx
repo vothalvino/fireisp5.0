@@ -525,6 +525,36 @@ interface IftFormState {
   status: string;
 }
 
+// The `ift_statistical_reports` table stores period_start/period_end (DATE NOT
+// NULL) alongside the human-readable report_period, and the create schema
+// requires both as YYYY-MM-DD strings. Derive them from the period identifier
+// (YYYY-Qn quarterly or YYYY-MM monthly) so the operator only enters it once.
+// Returns null when report_period is malformed — the schema's report_period
+// pattern surfaces that error on submit.
+function derivePeriodBounds(reportPeriod: string): { start: string; end: string } | null {
+  const quarter = /^(\d{4})-Q([1-4])$/.exec(reportPeriod);
+  if (quarter) {
+    const year = quarter[1];
+    const q = Number(quarter[2]);
+    const startMonth = (q - 1) * 3 + 1;
+    const endMonth = q * 3;
+    const endDay = endMonth === 3 || endMonth === 12 ? 31 : 30; // Mar/Dec have 31 days
+    return {
+      start: `${year}-${String(startMonth).padStart(2, '0')}-01`,
+      end: `${year}-${String(endMonth).padStart(2, '0')}-${endDay}`,
+    };
+  }
+  const month = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(reportPeriod);
+  if (month) {
+    const lastDay = new Date(Number(month[1]), Number(month[2]), 0).getDate();
+    return {
+      start: `${month[1]}-${month[2]}-01`,
+      end: `${month[1]}-${month[2]}-${String(lastDay).padStart(2, '0')}`,
+    };
+  }
+  return null;
+}
+
 function IftTab() {
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
@@ -559,8 +589,16 @@ function IftTab() {
 
   function handleCreate(e: FormEvent) {
     e.preventDefault();
+    const bounds = derivePeriodBounds(form.report_period.trim());
+    if (!bounds) {
+      setCreateError('Report period must be a quarter (e.g. 2025-Q1) or a month (e.g. 2025-06).');
+      return;
+    }
+    setCreateError('');
     createMut.mutate({
-      report_period: form.report_period || undefined,
+      report_period: form.report_period.trim(),
+      period_start: bounds.start,
+      period_end: bounds.end,
       avg_download_speed: form.avg_download_speed ? Number(form.avg_download_speed) : undefined,
       avg_upload_speed: form.avg_upload_speed ? Number(form.avg_upload_speed) : undefined,
       coverage_municipalities: form.coverage_municipalities ? Number(form.coverage_municipalities) : undefined,

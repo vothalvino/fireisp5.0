@@ -304,6 +304,35 @@ router.get('/pon-utilization', requirePermission('reports.view'), async (req, re
   } catch (err) { next(err); }
 });
 
+// GET /api/reports/network — composed network overview for the Reports page
+router.get('/network', requirePermission('reports.view'), async (req, res, next) => {
+  try {
+    const days = parseInt(req.query.days, 10) || 30;
+    const months = parseInt(req.query.months, 10) || 6;
+
+    const [reboots, forecast, pon] = await Promise.all([
+      reportService.deviceReboots(req.orgId, { days }),
+      reportService.capacityForecast(req.orgId, { months }),
+      reportService.ponUtilization(req.orgId),
+    ]);
+
+    const data = {
+      generated_at: new Date().toISOString(),
+      device_reboots: reboots.rows.reduce((sum, r) => sum + Number(r.reboot_count), 0),
+      capacity_forecast: forecast.forecast.map(r => ({
+        month: r.month,
+        predicted_subscribers: r.projected_subscribers,
+      })),
+      pon_utilization: pon.rows.map(r => ({
+        olt_id: r.olt_device_id,
+        olt_name: r.port_name,
+        utilization_pct: Number(r.utilization_pct),
+      })),
+    };
+    res.json({ data });
+  } catch (err) { next(err); }
+});
+
 // ============================================================================
 // §15.4 Compliance Reports
 // ============================================================================
@@ -312,6 +341,23 @@ router.get('/pon-utilization', requirePermission('reports.view'), async (req, re
 router.get('/data-retention-compliance', requirePermission('reports.view'), async (req, res, next) => {
   try {
     const data = await reportService.dataRetentionCompliance(req.orgId);
+    res.json({ data });
+  } catch (err) { next(err); }
+});
+
+// GET /api/reports/compliance — composed compliance overview for the Reports page
+router.get('/compliance', requirePermission('reports.view'), async (req, res, next) => {
+  try {
+    const [retention, readiness] = await Promise.all([
+      reportService.dataRetentionCompliance(req.orgId),
+      reportService.interceptionReadiness(req.orgId),
+    ]);
+
+    const data = {
+      generated_at: new Date().toISOString(),
+      data_retention: retention.rows,
+      interception_readiness: readiness,
+    };
     res.json({ data });
   } catch (err) { next(err); }
 });
