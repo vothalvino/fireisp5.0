@@ -158,6 +158,8 @@ function ChatTab() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [input, setInput] = useState('');
+  const [newClientId, setNewClientId] = useState('');
+  const [newMessage, setNewMessage] = useState('');
 
   const loadConversations = useCallback(async () => {
     setLoading(true);
@@ -177,8 +179,9 @@ function ChatTab() {
   const loadMessages = useCallback(async (conv: SupportConversation) => {
     setMsgLoading(true);
     try {
-      const data = await apiFetch<{ data: SupportMessage[] }>(`/support/conversations/${conv.id}/messages`);
-      setMessages(data.data);
+      // The thread lives on GET /conversations/:id, which returns { conversation, messages }.
+      const data = await apiFetch<{ data: { messages: SupportMessage[] } }>(`/support/conversations/${conv.id}`);
+      setMessages(data.data.messages);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -192,13 +195,19 @@ function ChatTab() {
   };
 
   const handleNewConversation = async () => {
+    const clientId = Number(newClientId);
+    if (!clientId || !newMessage.trim()) return;
     try {
-      const data = await apiFetch<{ data: SupportConversation }>('/support/conversations', {
+      // The create endpoint requires clientId + an opening message and returns
+      // { conversation, messages }, so select the nested conversation row.
+      const data = await apiFetch<{ data: { conversation: SupportConversation; messages: SupportMessage[] } }>('/support/conversations', {
         method: 'POST',
-        body: JSON.stringify({ channel: 'web' }),
+        body: JSON.stringify({ clientId, channel: 'web', message: newMessage.trim() }),
       });
+      setNewClientId('');
+      setNewMessage('');
       await loadConversations();
-      handleSelect(data.data);
+      handleSelect(data.data.conversation);
     } catch (e) {
       setError(String(e));
     }
@@ -237,8 +246,25 @@ function ChatTab() {
     <div style={{ display: 'flex', gap: 16, height: 480 }}>
       {/* Conversation list */}
       <div style={{ width: 240, borderRight: '1px solid #e5e7eb', overflowY: 'auto' }}>
-        <div style={{ padding: '8px 0' }}>
-          <ActionButton onClick={handleNewConversation} label={t('aiSupport.chat.newConversation')} />
+        <div style={{ padding: '8px 0', display: 'grid', gap: 4 }}>
+          <input
+            type="number"
+            value={newClientId}
+            onChange={e => setNewClientId(e.target.value)}
+            placeholder="Client ID"
+            style={{ padding: '4px 8px', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 13 }}
+          />
+          <input
+            value={newMessage}
+            onChange={e => setNewMessage(e.target.value)}
+            placeholder={t('aiSupport.chat.send')}
+            style={{ padding: '4px 8px', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 13 }}
+          />
+          <ActionButton
+            onClick={handleNewConversation}
+            label={t('aiSupport.chat.newConversation')}
+            disabled={!newClientId.trim() || !newMessage.trim()}
+          />
         </div>
         {error && <div style={{ color: '#dc2626', fontSize: 12, padding: '0 4px' }}>{error}</div>}
         {loading ? (
@@ -697,7 +723,7 @@ function NocInsightsTab() {
 
   const handleExplainAlert = () => {
     if (!alertId.trim()) return;
-    runAction('alert-explain', { alert_id: Number(alertId) });
+    runAction('alert-explain', { alertId: Number(alertId) });
   };
 
   return (

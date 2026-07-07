@@ -38,7 +38,6 @@ const {
   createKbArticle: createKbSchema,
   updateKbArticle: updateKbSchema,
   kbFeedback: kbFeedbackSchema,
-  kbSearch: kbSearchSchema,
 } = require('../middleware/schemas/supportConversations');
 
 const supportConversationService = require('../services/supportConversationService');
@@ -62,8 +61,38 @@ router.get(
   requirePermission('support.metrics.view'),
   async (req, res, next) => {
     try {
-      const { date_from, date_to } = req.query;
-      const data = await aiSupportMetricsService.getMetrics(req.orgId, date_from, date_to);
+      // The UI sends `from`/`to`; default the range server-side (last 30 days).
+      const dateTo = req.query.to || new Date().toISOString().slice(0, 10);
+      const dateFrom = req.query.from
+        || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+
+      const rows = await aiSupportMetricsService.getMetrics(req.orgId, dateFrom, dateTo);
+
+      // Aggregate the per-day rollup rows into the single KPI object the UI reads.
+      const totalConversations = rows.reduce((s, r) => s + Number(r.total_conversations || 0), 0);
+      const totalEscalations = rows.reduce((s, r) => s + Number(r.total_escalations || 0), 0);
+      const handleTimeWeighted = rows.reduce(
+        (s, r) => s + Number(r.avg_handle_time_sec || 0) * Number(r.total_conversations || 0),
+        0,
+      );
+      const csatRows = rows.filter((r) => r.csat_avg !== null && r.csat_avg !== undefined);
+      const csat = csatRows.length > 0
+        ? csatRows.reduce((s, r) => s + Number(r.csat_avg), 0) / csatRows.length
+        : null;
+
+      const data = {
+        // Rates are returned as fractions (0–1); the UI multiplies by 100.
+        resolution_rate: totalConversations > 0
+          ? (totalConversations - totalEscalations) / totalConversations
+          : null,
+        escalation_rate: totalConversations > 0 ? totalEscalations / totalConversations : null,
+        avg_handle_time_seconds: totalConversations > 0
+          ? handleTimeWeighted / totalConversations
+          : null,
+        csat,
+        total_conversations: totalConversations,
+        total_escalations: totalEscalations,
+      };
       res.json({ data });
     } catch (err) {
       next(err);
@@ -143,11 +172,15 @@ router.put(
 router.get(
   '/kb/search',
   requirePermission('support.kb.view'),
-  validate(kbSearchSchema),
   async (req, res, next) => {
     try {
+      // Search input arrives in the query string, not the body, so validate here
+      // rather than with the body-reading validate() middleware.
       const { q, locale, limit = 20 } = req.query;
-      const results = await kbService.searchArticles(req.orgId, q, { locale, limit: Number(limit) });
+      if (!q || typeof q !== 'string' || q.trim() === '') {
+        return res.status(422).json({ error: 'Search query "q" is required' });
+      }
+      const results = await kbService.searchArticles(req.orgId, q, locale || null, Number(limit));
       res.json({ data: results, total: results.length });
     } catch (err) {
       next(err);
@@ -177,16 +210,18 @@ router.post(
   validate(createKbSchema),
   async (req, res, next) => {
     try {
-      const { title, body, category, locale = 'es', tags, isPublished = false } = req.body;
+      // The UI sends is_published (snake_case). category is NOT NULL in the DB,
+      // so default it to 'general' when omitted.
+      const { title, body, category, locale = 'es', tags, is_published = false } = req.body;
       const article = await kbService.createArticle({
         orgId: req.orgId,
         title,
         body,
-        category: category || null,
+        category: category || 'general',
         locale,
         tags: tags || null,
-        isPublished,
-        authorId: req.user?.id || null,
+        isPublished: is_published,
+        createdBy: req.user?.id || null,
       });
       res.status(201).json({ data: article });
     } catch (err) {
@@ -201,7 +236,21 @@ router.post(
   requirePermission('support.kb.manage'),
   async (req, res, next) => {
     try {
-      const result = await kbService.embedArticle(req.params.id, req.orgId);
+      // Org-scope the article lookup so one org can't embed another's article.
+      const article = await kbService.getArticle(req.params.id, req.orgId);
+      if (!article) return res.status(404).json({ error: 'KB article not found' });
+
+      // Resolve the org's embedding provider (first enabled provider by priority).
+      const [providerRows] = await db.query(
+        'SELECT id FROM ai_providers WHERE organization_id = ? AND enabled = 1 ORDER BY priority ASC LIMIT 1',
+        [req.orgId],
+      );
+      const providerId = providerRows[0]?.id;
+      if (!providerId) {
+        return res.status(422).json({ error: 'No enabled AI provider configured for embeddings' });
+      }
+
+      const result = await kbService.embedArticle(req.params.id, providerId);
       res.json({ data: result });
     } catch (err) {
       if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
@@ -311,11 +360,11 @@ router.get(
   async (req, res, next) => {
     try {
       const { status, client_id, limit = 50, offset = 0 } = req.query;
-      const conversations = await supportConversationService.listConversations(
+      const result = await supportConversationService.listConversations(
         req.orgId,
         { status, clientId: client_id, limit: Number(limit), offset: Number(offset) },
       );
-      res.json({ data: conversations, total: conversations.length });
+      res.json({ data: result.conversations, total: result.total });
     } catch (err) {
       next(err);
     }

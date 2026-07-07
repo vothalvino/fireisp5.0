@@ -47,10 +47,10 @@ interface AiProvider {
   name: string;
   kind: string;
   model: string | null;
-  endpoint: string | null;
-  deployment: string | null;
+  endpoint_url: string | null;
+  extra_config: { deployment?: string | null } | null;
   priority: number;
-  is_enabled: boolean;
+  enabled: boolean;
   status: string;
   created_at: string;
 }
@@ -59,26 +59,28 @@ interface AiPhrase {
   id: number;
   category: string;
   locale: string;
-  phrase: string;
-  variables: string | null;
+  text: string;
   created_at: string;
 }
 
 interface AiForbiddenTerm {
   id: number;
   term: string;
-  locale: string | null;
+  locale: string;
   created_at: string;
 }
 
 interface AiMetrics {
-  total_drafts: number;
-  total_sent: number;
-  total_discarded: number;
-  total_auto_sent: number;
-  avg_confidence: number | null;
-  total_cost_usd: number | null;
-  month: string;
+  drafts_total: number;
+  auto_sent: number;
+  sent_or_edited: number;
+  discarded: number;
+  edit_rate: number;
+  auto_send_rate: number;
+  cost_usd_total: number;
+  avg_duration_ms: number;
+  date_from: string;
+  date_to: string | null;
 }
 
 interface AiReplyLog {
@@ -100,7 +102,7 @@ const API_BASE = '/api/v1/ai';
 
 const PROVIDER_KINDS = ['openai', 'azure_openai', 'anthropic', 'gemini', 'ollama', 'custom'];
 const AI_MODES = ['draft_only', 'suggest', 'auto_send'];
-const TONES = ['professional', 'friendly', 'formal', 'empathetic', 'concise'];
+const TONES = ['formal', 'friendly', 'technical', 'empathetic'];
 const LOCALES = ['en', 'es', 'pt-BR'];
 const LOG_ACTIONS = ['proposed', 'edited', 'sent', 'auto_sent', 'discarded', 'failed'];
 
@@ -148,7 +150,7 @@ const EMPTY_POLICY: Partial<AiPolicy> = {
   enabled_channels: { portal: true, email: true, whatsapp: false, sms: false },
   auto_send_confidence: 90,
   default_locale: 'en',
-  tone: 'professional',
+  tone: 'formal',
   redact_pii_before_llm: true,
 };
 
@@ -175,7 +177,8 @@ function GeneralTab() {
         enabled: p.enabled,
         mode: p.mode,
         enabled_channels: { ...p.enabled_channels },
-        auto_send_confidence: p.auto_send_confidence,
+        // Backend stores confidence as a 0–1 fraction; the slider works in whole percent.
+        auto_send_confidence: Math.round(Number(p.auto_send_confidence) * 100),
         default_locale: p.default_locale,
         tone: p.tone,
         redact_pii_before_llm: p.redact_pii_before_llm,
@@ -205,7 +208,8 @@ function GeneralTab() {
       enabled: current.enabled,
       mode: current.mode,
       enabled_channels: current.enabled_channels,
-      auto_send_confidence: Number(current.auto_send_confidence),
+      // Convert the whole-percent slider value back to the 0–1 fraction the API expects.
+      auto_send_confidence: Number((Number(current.auto_send_confidence) / 100).toFixed(2)),
       default_locale: current.default_locale,
       tone: current.tone,
       redact_pii_before_llm: current.redact_pii_before_llm,
@@ -313,7 +317,7 @@ function GeneralTab() {
             <select
               style={sty.select}
               aria-label={t('aiAssistantSettings.general.tone')}
-              value={current.tone ?? 'professional'}
+              value={current.tone ?? 'formal'}
               onChange={e => setForm(f => ({ ...f, tone: e.target.value }))}
             >
               {TONES.map(tone => <option key={tone} value={tone} style={{ textTransform: 'capitalize' }}>{tone}</option>)}
@@ -428,8 +432,8 @@ function ProvidersTab() {
     setEditing(p);
     setForm({
       name: p.name, kind: p.kind, model: p.model ?? '',
-      endpoint: p.endpoint ?? '', deployment: p.deployment ?? '',
-      api_key: '', priority: p.priority, is_enabled: p.is_enabled,
+      endpoint: p.endpoint_url ?? '', deployment: p.extra_config?.deployment ?? '',
+      api_key: '', priority: p.priority, is_enabled: !!p.enabled,
     });
     setFormError('');
     setShowModal(true);
@@ -444,11 +448,11 @@ function ProvidersTab() {
     const body: Record<string, unknown> = {
       name: form.name, kind: form.kind,
       priority: Number(form.priority),
-      is_enabled: form.is_enabled,
+      enabled: form.is_enabled,
     };
     if (form.model) body.model = form.model;
-    if (form.endpoint) body.endpoint = form.endpoint;
-    if (form.deployment) body.deployment = form.deployment;
+    if (form.endpoint) body.endpoint_url = form.endpoint;
+    if (form.deployment) body.extra_config = { deployment: form.deployment };
     if (form.api_key) body.api_key = form.api_key;
     saveMutation.mutate(body);
   }
@@ -457,10 +461,15 @@ function ProvidersTab() {
     setVerifyingId(id);
     setVerifyResult(null);
     try {
-      const res = await apiFetch<{ success: boolean; message?: string; error?: string }>(
+      const res = await apiFetch<{ data: { ok: boolean; model?: string; latency_ms?: number } }>(
         `${API_BASE}/providers/${id}/verify`, { method: 'POST' },
       );
-      setVerifyResult({ id, ok: !!res.success, msg: res.message ?? (res.success ? 'Connection OK' : (res.error ?? 'Failed')) });
+      const ok = !!res.data.ok;
+      setVerifyResult({
+        id,
+        ok,
+        msg: ok ? `Connection OK${res.data.latency_ms != null ? ` (${res.data.latency_ms} ms)` : ''}` : 'Failed',
+      });
     } catch (err) {
       setVerifyResult({ id, ok: false, msg: err instanceof Error ? err.message : 'Verify failed' });
     } finally {
@@ -544,8 +553,8 @@ function ProvidersTab() {
                 <td style={sty.td}><span style={sty.kindBadge}>{p.kind}</span></td>
                 <td style={sty.td}><code style={sty.code}>{p.model ?? '—'}</code></td>
                 <td style={sty.td}>
-                  <span style={{ ...sty.pill, background: p.is_enabled ? '#16a34a' : '#888' }}>
-                    {p.is_enabled ? 'on' : 'off'}
+                  <span style={{ ...sty.pill, background: p.enabled ? '#16a34a' : '#888' }}>
+                    {p.enabled ? 'on' : 'off'}
                   </span>
                 </td>
                 <td style={sty.td}>
@@ -667,7 +676,7 @@ function ProvidersTab() {
 // ---------------------------------------------------------------------------
 
 const PHRASE_CATEGORIES = ['greeting', 'closing', 'apology', 'escalation', 'resolution', 'follow_up', 'other'];
-const EMPTY_PHRASE = { category: 'greeting', locale: 'en', phrase: '', variables: '' };
+const EMPTY_PHRASE = { category: 'greeting', locale: 'en', text: '' };
 
 function PhrasesTab() {
   const { t } = useTranslation();
@@ -710,7 +719,7 @@ function PhrasesTab() {
 
   function openEdit(p: AiPhrase) {
     setEditing(p);
-    setForm({ category: p.category, locale: p.locale, phrase: p.phrase, variables: p.variables ?? '' });
+    setForm({ category: p.category, locale: p.locale, text: p.text });
     setFormError('');
     setShowModal(true);
   }
@@ -720,11 +729,10 @@ function PhrasesTab() {
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError('');
-    if (!form.phrase.trim()) { setFormError(t('aiAssistantSettings.errors.phraseRequired')); return; }
+    if (!form.text.trim()) { setFormError(t('aiAssistantSettings.errors.phraseRequired')); return; }
     saveMutation.mutate({
       category: form.category, locale: form.locale,
-      phrase: form.phrase,
-      variables: form.variables || undefined,
+      text: form.text,
     });
   }
 
@@ -763,17 +771,12 @@ function PhrasesTab() {
             <h4 style={sty.catTitle}>{cat.replace(/_/g, ' ')}</h4>
             <table style={sty.table}>
               <thead>
-                <tr>{[t('aiAssistantSettings.phrases.cols.phrase'), t('aiAssistantSettings.phrases.cols.variables'), ''].map(h => <th key={h} style={sty.th}>{h}</th>)}</tr>
+                <tr>{[t('aiAssistantSettings.phrases.cols.phrase'), ''].map(h => <th key={h} style={sty.th}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {catPhrases.map(p => (
                   <tr key={p.id}>
-                    <td style={{ ...sty.td, maxWidth: 360 }}>{p.phrase}</td>
-                    <td style={sty.td}>
-                      {p.variables
-                        ? <code style={sty.code}>{p.variables}</code>
-                        : <em style={sty.muted}>—</em>}
-                    </td>
+                    <td style={{ ...sty.td, maxWidth: 360 }}>{p.text}</td>
                     <td style={sty.td}>
                       <span style={sty.rowActions}>
                         <button style={sty.btnGhost} onClick={() => openEdit(p)}>{t('common.edit')}</button>
@@ -809,15 +812,10 @@ function PhrasesTab() {
               {t('aiAssistantSettings.phrases.form.phrase')} * <span style={sty.hint}>(use {'{{variable}}'} placeholders)</span>
               <textarea
                 style={{ ...sty.input, height: 100, resize: 'vertical' }}
-                value={form.phrase}
-                onChange={e => setForm(f => ({ ...f, phrase: e.target.value }))}
+                value={form.text}
+                onChange={e => setForm(f => ({ ...f, text: e.target.value }))}
                 required
               />
-            </label>
-            <label style={sty.label}>{t('aiAssistantSettings.phrases.form.variables')}
-              <input style={sty.input} value={form.variables}
-                placeholder="e.g. client_name, ticket_id"
-                onChange={e => setForm(f => ({ ...f, variables: e.target.value }))} />
             </label>
             {formError && <p style={sty.errorText}>{formError}</p>}
             <div style={sty.modalFooter}>
@@ -852,7 +850,7 @@ function PhrasesTab() {
 // Forbidden Terms tab
 // ---------------------------------------------------------------------------
 
-const EMPTY_TERM = { term: '', locale: '' };
+const EMPTY_TERM = { term: '', locale: 'en' };
 
 function ForbiddenTermsTab() {
   const { t } = useTranslation();
@@ -887,7 +885,8 @@ function ForbiddenTermsTab() {
     e.preventDefault();
     setFormError('');
     if (!form.term.trim()) { setFormError(t('aiAssistantSettings.errors.termRequired')); return; }
-    addMutation.mutate({ term: form.term, locale: form.locale || undefined });
+    // locale is NOT NULL in the DB and required by the API, so always send a concrete value.
+    addMutation.mutate({ term: form.term, locale: form.locale });
   }
 
   const terms = data?.data ?? [];
@@ -923,7 +922,7 @@ function ForbiddenTermsTab() {
             {terms.map(term => (
               <tr key={term.id}>
                 <td style={sty.td}><code style={sty.code}>{term.term}</code></td>
-                <td style={sty.td}>{term.locale ?? <em style={sty.muted}>all</em>}</td>
+                <td style={sty.td}>{term.locale}</td>
                 <td style={sty.td}>{term.created_at.slice(0, 10)}</td>
                 <td style={sty.td}>
                   <button style={sty.btnDanger} onClick={() => setDeleteId(term.id)}>{t('common.delete')}</button>
@@ -942,10 +941,9 @@ function ForbiddenTermsTab() {
                 onChange={e => setForm(f => ({ ...f, term: e.target.value }))} required />
             </label>
             <label style={sty.label}>
-              {t('aiAssistantSettings.forbiddenTerms.form.locale')} <span style={sty.hint}>{t('aiAssistantSettings.forbiddenTerms.form.localeHint')}</span>
+              {t('aiAssistantSettings.forbiddenTerms.form.locale')} *
               <select style={sty.select} value={form.locale}
                 onChange={e => setForm(f => ({ ...f, locale: e.target.value }))}>
-                <option value="">{t('aiAssistantSettings.forbiddenTerms.allLocales')}</option>
                 {LOCALES.map(l => <option key={l} value={l}>{l}</option>)}
               </select>
             </label>
@@ -990,7 +988,16 @@ function AuditTab() {
 
   const { data: metricsData, isLoading: metricsLoading } = useQuery({
     queryKey: ['ai-metrics', month],
-    queryFn: () => apiFetch<{ data: AiMetrics }>(`${API_BASE}/metrics?month=${month}`),
+    queryFn: () => {
+      // Backend takes date_from/date_to (inclusive lower bound), not a month string.
+      // Translate the YYYY-MM picker into [first-of-month, first-of-next-month].
+      const [y, mo] = month.split('-').map(Number);
+      const params = new URLSearchParams({
+        date_from: `${month}-01`,
+        date_to: new Date(Date.UTC(y, mo, 1)).toISOString().slice(0, 10),
+      });
+      return apiFetch<{ data: AiMetrics }>(`${API_BASE}/metrics?${params}`);
+    },
   });
 
   const { data: logsData, isLoading: logsLoading } = useQuery({
@@ -1027,17 +1034,13 @@ function AuditTab() {
       {metricsLoading && <p style={sty.muted}>{t('aiAssistantSettings.audit.metricsLoading')}</p>}
       {m && (
         <div style={sty.metricsGrid}>
-          <MetricCard label={t('aiAssistantSettings.audit.metrics.drafts')} value={m.total_drafts} />
-          <MetricCard label={t('aiAssistantSettings.audit.metrics.sent')} value={m.total_sent} />
-          <MetricCard label={t('aiAssistantSettings.audit.metrics.autoSent')} value={m.total_auto_sent} />
-          <MetricCard label={t('aiAssistantSettings.audit.metrics.discarded')} value={m.total_discarded} />
-          <MetricCard
-            label={t('aiAssistantSettings.audit.metrics.avgConfidence')}
-            value={m.avg_confidence !== null ? `${Math.round(m.avg_confidence)}%` : '—'}
-          />
+          <MetricCard label={t('aiAssistantSettings.audit.metrics.drafts')} value={m.drafts_total ?? 0} />
+          <MetricCard label={t('aiAssistantSettings.audit.metrics.sent')} value={m.sent_or_edited ?? 0} />
+          <MetricCard label={t('aiAssistantSettings.audit.metrics.autoSent')} value={m.auto_sent ?? 0} />
+          <MetricCard label={t('aiAssistantSettings.audit.metrics.discarded')} value={m.discarded ?? 0} />
           <MetricCard
             label={t('aiAssistantSettings.audit.metrics.cost')}
-            value={m.total_cost_usd !== null ? `$${m.total_cost_usd.toFixed(4)}` : '—'}
+            value={m.cost_usd_total != null ? `$${m.cost_usd_total.toFixed(4)}` : '—'}
           />
         </div>
       )}

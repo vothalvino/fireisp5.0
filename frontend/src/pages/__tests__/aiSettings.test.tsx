@@ -36,33 +36,33 @@ const defaultPolicy = {
   mode: 'draft_only',
   active_provider_id: null,
   enabled_channels: { portal: true, email: true, whatsapp: false, sms: false },
-  auto_send_confidence: 90,
+  auto_send_confidence: 0.9,
   default_locale: 'en',
-  tone: 'professional',
+  tone: 'formal',
   redact_pii_before_llm: true,
   updated_at: '2025-01-01T00:00:00Z',
 };
 
 const provider1 = {
   id: 1, name: 'OpenAI Main', kind: 'openai', model: 'gpt-4o',
-  endpoint: null, deployment: null, priority: 10,
-  is_enabled: true, status: 'verified', created_at: '2025-01-01',
+  endpoint_url: null, extra_config: null, priority: 10,
+  enabled: true, status: 'verified', created_at: '2025-01-01',
 };
 
 const phrase1 = {
   id: 1, category: 'greeting', locale: 'en',
-  phrase: 'Hello {{client_name}}, how can I help?',
-  variables: 'client_name', created_at: '2025-01-01',
+  text: 'Hello {{client_name}}, how can I help?',
+  created_at: '2025-01-01',
 };
 
 const term1 = {
-  id: 1, term: 'cancel', locale: null, created_at: '2025-01-01',
+  id: 1, term: 'cancel', locale: 'en', created_at: '2025-01-01',
 };
 
 const metrics = {
-  total_drafts: 42, total_sent: 30, total_discarded: 5,
-  total_auto_sent: 7, avg_confidence: 87.3, total_cost_usd: 0.0234,
-  month: '2025-01',
+  drafts_total: 42, auto_sent: 7, sent_or_edited: 30, discarded: 5,
+  edit_rate: 0.71, auto_send_rate: 0.17, cost_usd_total: 0.0234,
+  avg_duration_ms: 1200, date_from: '2025-01-01', date_to: null,
 };
 
 const logEntry = {
@@ -93,7 +93,7 @@ function setup() {
     if (path.endsWith('/ai/policy') && method === 'PUT')
       return Promise.resolve(makeJsonResponse({ data: { ...defaultPolicy } }));
     if (path.match(/\/ai\/providers\/\d+\/verify/) && method === 'POST')
-      return Promise.resolve(makeJsonResponse({ success: true, message: 'Connection OK' }));
+      return Promise.resolve(makeJsonResponse({ data: { ok: true, model: 'gpt-4o', latency_ms: 42 } }));
     if (path.endsWith('/ai/providers') && method === 'GET')
       return Promise.resolve(makeJsonResponse({ data: [provider1] }));
     if (path.endsWith('/ai/providers') && method === 'POST')
@@ -252,7 +252,7 @@ describe('AIAssistantSettings page', () => {
       mockFetch.mockImplementation((url: string, init?: RequestInit) => {
         const method = (init?.method ?? 'GET').toUpperCase();
         if (url.includes('/ai/providers/1/verify') && method === 'POST')
-          return Promise.resolve(makeJsonResponse({ success: false, error: 'Invalid API key' }));
+          return Promise.resolve(makeJsonResponse({ error: 'Invalid API key' }, false));
         if (url.includes('/ai/providers') && method === 'GET')
           return Promise.resolve(makeJsonResponse({ data: [provider1] }));
         if (url.endsWith('/ai/policy'))
@@ -337,10 +337,11 @@ describe('AIAssistantSettings page', () => {
       await waitFor(() => expect(screen.getByText('cancel')).toBeInTheDocument());
     });
 
-    it('shows empty locale as "all"', async () => {
+    it('shows the term locale', async () => {
       setup();
       fireEvent.click(screen.getByText(/🚫 Forbidden Terms/i));
-      await waitFor(() => expect(screen.getByText('all')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('cancel')).toBeInTheDocument());
+      expect(screen.getByText('en')).toBeInTheDocument();
     });
 
     it('opens add term modal', async () => {
@@ -359,9 +360,8 @@ describe('AIAssistantSettings page', () => {
       setup();
       fireEvent.click(screen.getByText(/📊 Audit/i));
       await waitFor(() => {
-        expect(screen.getByText('42')).toBeInTheDocument(); // total_drafts
-        expect(screen.getByText('30')).toBeInTheDocument(); // total_sent
-        expect(screen.getByText('87%')).toBeInTheDocument(); // avg_confidence rounded
+        expect(screen.getByText('42')).toBeInTheDocument(); // drafts_total
+        expect(screen.getByText('30')).toBeInTheDocument(); // sent_or_edited
       });
     });
 

@@ -1090,12 +1090,11 @@ describe('Support Conversations API', () => {
       expect(res.status).toBe(422);
     });
 
-    test('validate middleware reads body not query — GET with only query param returns 422', async () => {
-      // The validate(kbSearchSchema) middleware reads req.body, not req.query.
-      // GET requests have empty body so required field 'q' fails validation.
-      // This is the current production behavior.
+    test('reads q from the query string and returns 200', async () => {
+      // The handler validates req.query (not req.body), so a GET with ?q=… works.
       const res = await request(app).get('/api/v1/support/kb/search?q=wifi').set('x-org-id', '1');
-      expect(res.status).toBe(422);
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('data');
     });
   });
 

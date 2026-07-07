@@ -190,6 +190,10 @@ describe('AiSupportPage', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'New Conversation' })).toBeInTheDocument(),
     );
+    // The create endpoint requires a client + opening message, so the button is
+    // disabled until both are provided — fill them, then click.
+    await user.type(screen.getByPlaceholderText('Client ID'), '10');
+    await user.type(screen.getAllByPlaceholderText('Send')[0], 'Hola, necesito ayuda');
     await user.click(screen.getByRole('button', { name: 'New Conversation' }));
     await waitFor(() => {
       const postCalls = (mockFetch.mock.calls as Array<[string, RequestInit]>).filter(
