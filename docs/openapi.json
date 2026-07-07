@@ -67199,6 +67199,9 @@
             "type": "string",
             "maximum": 255
           },
+          "description": {
+            "type": "string"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -67220,6 +67223,10 @@
           },
           "assigned_to": {
             "type": "number"
+          },
+          "scheduled_at": {
+            "type": "string",
+            "format": "date-time"
           },
           "notes": {
             "type": "string"

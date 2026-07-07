@@ -2556,6 +2556,7 @@
   "workOrders": {
     "title": "Ordens de Trabalho",
     "new": "Nova Ordem de Trabalho",
+    "edit": "Editar Ordem de Trabalho",
     "noOrders": "Nenhuma ordem de trabalho encontrada",
     "materials": "Materiais",
     "addMaterial": "Adicionar Material",

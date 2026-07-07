@@ -111,6 +111,75 @@ class User extends BaseModel {
   }
 
   /**
+   * SQL predicate: does the user (aliased `u`, optionally with an
+   * `organization_users` row aliased `ou`) hold `permissionSlug` in
+   * `organizationId`? Mirrors requirePermission() in rbac.js exactly:
+   *   - a legacy `users.role = 'admin'` bypasses RBAC, so is always authorized;
+   *   - otherwise the user's EFFECTIVE role (their org-membership role when one
+   *     exists, else the legacy users.role — same precedence as getPermissions)
+   *     must be granted the permission via role_permissions.
+   * The single `?` placeholder binds the permission slug. Callers supply the
+   * `u`/`ou` join and any per-user or org-wide WHERE conditions.
+   */
+  static get #EFFECTIVE_PERMISSION_PREDICATE() {
+    return `(
+      u.role = 'admin'
+      OR EXISTS (
+        SELECT 1 FROM roles r
+        JOIN role_permissions rp ON rp.role_id = r.id
+        JOIN permissions p ON p.id = rp.permission_id
+        WHERE r.name = COALESCE(ou.role, u.role)
+          AND r.deleted_at IS NULL
+          AND p.name = ?
+      )
+    )`;
+  }
+
+  /**
+   * List active users in an organization who are authorized for `permissionSlug`
+   * (see #EFFECTIVE_PERMISSION_PREDICATE). Used to populate "assignable user"
+   * pickers — e.g. only staff who can actually work with work orders should be
+   * selectable as a work order's assignee.
+   */
+  static async getUsersWithPermission(organizationId, permissionSlug) {
+    const db = require('../config/database');
+    const [rows] = await db.query(`
+      SELECT DISTINCT u.id, u.first_name, u.last_name, u.email
+      FROM users u
+      LEFT JOIN organization_users ou
+        ON ou.user_id = u.id AND ou.organization_id = u.organization_id AND ou.deleted_at IS NULL
+      WHERE u.organization_id = ?
+        AND u.deleted_at IS NULL
+        AND u.status = 'active'
+        AND ${User.#EFFECTIVE_PERMISSION_PREDICATE}
+      ORDER BY u.first_name, u.last_name
+    `, [organizationId, permissionSlug]);
+    return rows;
+  }
+
+  /**
+   * Whether a single user is authorized for `permissionSlug` in an organization
+   * (see #EFFECTIVE_PERMISSION_PREDICATE). Used to validate an assignee before it
+   * is written to a record. Deliberately does NOT require status = 'active' so
+   * that editing an existing record whose assignee was later deactivated does not
+   * spuriously fail; the picker filters to active users for new assignments.
+   */
+  static async hasEffectivePermission(userId, organizationId, permissionSlug) {
+    if (!userId) return false;
+    const db = require('../config/database');
+    const [rows] = await db.query(`
+      SELECT 1
+      FROM users u
+      LEFT JOIN organization_users ou
+        ON ou.user_id = u.id AND ou.organization_id = u.organization_id AND ou.deleted_at IS NULL
+      WHERE u.id = ? AND u.organization_id = ? AND u.deleted_at IS NULL
+        AND ${User.#EFFECTIVE_PERMISSION_PREDICATE}
+      LIMIT 1
+    `, [userId, organizationId, permissionSlug]);
+    return rows.length > 0;
+  }
+
+  /**
    * Get the user's role for a specific organization. Falls back to the legacy
    * users.role when there is no organization_users membership row (see
    * getPermissions for the rationale).
