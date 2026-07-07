@@ -93,10 +93,10 @@ router.put('/:id', requirePermission('reports.schedule'), async (req, res, next)
            is_enabled = COALESCE(?, is_enabled),
            updated_at = NOW()
        WHERE id = ?`,
-      [format,
+      [format ?? null,
         parameters !== undefined ? JSON.stringify(parameters) : null,
         recipients !== undefined ? JSON.stringify(recipients) : null,
-        cron_expression,
+        cron_expression ?? null,
         is_enabled !== undefined ? (is_enabled ? 1 : 0) : null,
         req.params.id],
     );

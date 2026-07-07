@@ -223,9 +223,13 @@ router.put('/:id', requirePermission('resellers.update'), validate(updateReselle
         portal_domain = COALESCE(?, portal_domain), portal_name = COALESCE(?, portal_name),
         notes = COALESCE(?, notes)
        WHERE id = ?`,
-      [name, email, phone, contact_name, commission_rate, status,
-        brand_logo_url, brand_primary_color, brand_accent_color,
-        portal_domain, portal_name, notes, req.params.id],
+      // Coalesce each optional field to null: an omitted key is `undefined`,
+      // which mysql2's execute() rejects ("Bind parameters must not contain
+      // undefined"); null lets COALESCE(?, col) keep the existing value.
+      [name ?? null, email ?? null, phone ?? null, contact_name ?? null,
+        commission_rate ?? null, status ?? null, brand_logo_url ?? null,
+        brand_primary_color ?? null, brand_accent_color ?? null,
+        portal_domain ?? null, portal_name ?? null, notes ?? null, req.params.id],
     );
     const [[row]] = await db.query('SELECT * FROM resellers WHERE id = ?', [req.params.id]);
     res.json({ data: row });

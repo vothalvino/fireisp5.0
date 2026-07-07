@@ -119,7 +119,7 @@ router.put('/:id', requirePermission('custom_reports.manage'), async (req, res, 
            is_public = COALESCE(?, is_public),
            updated_at = NOW()
        WHERE id = ?`,
-      [name, description, sql_query,
+      [name ?? null, description ?? null, sql_query ?? null,
         visual_config !== undefined ? JSON.stringify(visual_config) : null,
         is_public !== undefined ? (is_public ? 1 : 0) : null,
         req.params.id],
