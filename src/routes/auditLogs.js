@@ -17,16 +17,20 @@ router.use(orgScope);
 router.get('/', requirePermission('audit_logs.view'), async (req, res, next) => {
   try {
     const {
-      user_id, action, table_name, date_from, date_to,
+      user_id, action, table_name, entity_type, date_from, date_to,
       page = 1, limit = 50,
     } = req.query;
 
+    // audit_logs is scoped by organization_id and records the affected record as
+    // entity_type/entity_id (there is no table_name column — see migration 374).
+    // Accept the legacy `table_name` query alias so existing callers keep working.
+    const entityFilter = entity_type || table_name;
     const conditions = ['organization_id = ?'];
     const params = [req.orgId];
 
     if (user_id) { conditions.push('user_id = ?'); params.push(user_id); }
     if (action) { conditions.push('action = ?'); params.push(action); }
-    if (table_name) { conditions.push('table_name = ?'); params.push(table_name); }
+    if (entityFilter) { conditions.push('entity_type = ?'); params.push(entityFilter); }
     if (date_from) { conditions.push('created_at >= ?'); params.push(date_from); }
     if (date_to) { conditions.push('created_at <= ?'); params.push(date_to); }
 
@@ -58,7 +62,7 @@ router.get('/export', requirePermission('audit_export.view'), async (req, res, n
     const params = [req.orgId];
 
     if (action) { conditions.push('action = ?'); params.push(action); }
-    if (entity_type) { conditions.push('table_name = ?'); params.push(entity_type); }
+    if (entity_type) { conditions.push('entity_type = ?'); params.push(entity_type); }
     if (date_from) { conditions.push('created_at >= ?'); params.push(date_from); }
     if (date_to) { conditions.push('created_at <= ?'); params.push(date_to); }
 

@@ -1313,7 +1313,8 @@ CREATE TABLE IF NOT EXISTS ip_assignments (
 CREATE TABLE IF NOT EXISTS audit_logs (
     id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id     BIGINT UNSIGNED NULL     COMMENT 'User who performed the action; NULL for system actions',
-    action      ENUM('create', 'update', 'delete', 'login', 'logout', 'export', 'other') NOT NULL,
+    organization_id BIGINT UNSIGNED NULL COMMENT 'Org context of the audited action; NULL for system actions (migration 374)',
+    action      VARCHAR(40)     NOT NULL COMMENT 'Action verb, e.g. create/update/partial_update/soft_delete/terminate/void (migration 374 widened from ENUM)',
     entity_type VARCHAR(50)     NOT NULL COMMENT 'Table or resource name e.g. clients, invoices',
     entity_id   BIGINT UNSIGNED NULL     COMMENT 'ID of the affected record',
     summary     VARCHAR(500)    NULL     COMMENT 'Human-readable description of the change',
@@ -1325,12 +1326,15 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
     PRIMARY KEY (id),
     KEY idx_audit_logs_user_id (user_id),
+    KEY idx_audit_logs_org (organization_id, created_at DESC),
     KEY idx_audit_logs_entity (entity_type, entity_id),
     KEY idx_audit_logs_entity_type_id (entity_type, entity_id, created_at DESC),
     KEY idx_audit_logs_action (action),
     KEY idx_audit_logs_created_at (created_at),
     CONSTRAINT fk_audit_logs_user FOREIGN KEY (user_id)
-        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_audit_logs_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
