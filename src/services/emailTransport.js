@@ -27,26 +27,26 @@ function init() {
 /**
  * Send a single email and log it to email_logs.
  */
-async function sendEmail({ organizationId, to, subject, html, text }) {
+async function sendEmail({ to, subject, html, text, attachments }) {
   if (!transporter) init();
 
   const from = process.env.SMTP_FROM || 'noreply@fireisp.local';
 
   try {
-    const info = await transporter.sendMail({ from, to, subject, html, text });
+    const info = await transporter.sendMail({ from, to, subject, html, text, attachments });
 
     await db.query(
-      `INSERT INTO email_logs (organization_id, recipient, subject, channel, status, sent_at)
-       VALUES (?, ?, ?, 'email', 'sent', NOW())`,
-      [organizationId, to, subject],
+      `INSERT INTO email_logs (recipient, subject, channel, status, sent_at)
+       VALUES (?, ?, 'email', 'sent', NOW())`,
+      [to, subject],
     );
 
     return { success: true, messageId: info.messageId };
   } catch (err) {
     await db.query(
-      `INSERT INTO email_logs (organization_id, recipient, subject, channel, status, error_message)
-       VALUES (?, ?, ?, 'email', 'failed', ?)`,
-      [organizationId, to, subject, err.message],
+      `INSERT INTO email_logs (recipient, subject, channel, status, error_message)
+       VALUES (?, ?, 'email', 'failed', ?)`,
+      [to, subject, err.message],
     );
 
     return { success: false, error: err.message };

@@ -53114,20 +53114,23 @@
               "mikrotik_export",
               "mikrotik_compact",
               "mikrotik_backup",
-              "cisco_running",
-              "cisco_startup",
-              "ubiquiti_backup",
-              "generic_text",
+              "running_config",
+              "startup_config",
+              "full_backup",
               "other"
             ]
           },
-          "config_data": {
+          "content": {
             "type": "string",
             "minimum": 1
           },
-          "version_label": {
+          "checksum": {
             "type": "string",
-            "maximum": 100
+            "maximum": 64
+          },
+          "change_summary": {
+            "type": "string",
+            "maximum": 5000
           },
           "capture_method": {
             "type": "string",
@@ -53145,15 +53148,16 @@
         },
         "required": [
           "device_id",
-          "config_data"
+          "content",
+          "checksum"
         ]
       },
       "deviceConfigBackups_updateDeviceConfigBackup": {
         "type": "object",
         "properties": {
-          "version_label": {
+          "change_summary": {
             "type": "string",
-            "maximum": 100
+            "maximum": 5000
           },
           "notes": {
             "type": "string",

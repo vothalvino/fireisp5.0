@@ -22,11 +22,12 @@ router.use(authenticate);
 router.use(orgScope);
 
 router.get('/', requirePermission('device_config_backups.view'), ctrl.list);
-router.get('/:id', requirePermission('device_config_backups.view'), ctrl.get);
-router.post('/', requirePermission('device_config_backups.create'), validate(createDeviceConfigBackup), ctrl.create);
-router.put('/:id', requirePermission('device_config_backups.update'), validate(updateDeviceConfigBackup), ctrl.update);
-router.delete('/:id', requirePermission('device_config_backups.delete'), ctrl.destroy);
-router.post('/:id/restore', requirePermission('device_config_backups.update'), ctrl.restore);
+
+// ---------------------------------------------------------------------------
+// NOTE: static / multi-segment routes MUST be registered before the parametric
+// GET /:id below — otherwise Express matches '/:id' first and shadows e.g.
+// GET /compliance-results (treating "compliance-results" as an :id).
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // GET /api/device-config-backups/diff/:id — get diff from previous version
@@ -81,6 +82,15 @@ router.get('/compliance-results', requirePermission('config_compliance.view'), a
     res.json({ data: rows, meta: { total, page, limit } });
   } catch (err) { next(err); }
 });
+
+// ---------------------------------------------------------------------------
+// Generic CRUD (parametric routes registered after the static ones above)
+// ---------------------------------------------------------------------------
+router.get('/:id', requirePermission('device_config_backups.view'), ctrl.get);
+router.post('/', requirePermission('device_config_backups.create'), validate(createDeviceConfigBackup), ctrl.create);
+router.put('/:id', requirePermission('device_config_backups.update'), validate(updateDeviceConfigBackup), ctrl.update);
+router.delete('/:id', requirePermission('device_config_backups.delete'), ctrl.destroy);
+router.post('/:id/restore', requirePermission('device_config_backups.update'), ctrl.restore);
 
 // ---------------------------------------------------------------------------
 // POST /api/device-config-backups/pull

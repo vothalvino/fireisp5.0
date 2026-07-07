@@ -4203,6 +4203,7 @@ CREATE TABLE IF NOT EXISTS service_areas (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS coverage_zones (
     id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED  NULL     COMMENT 'Tenant organization this coverage zone belongs to; NULL = single-tenant deployment (migration 375)',
     service_area_id BIGINT UNSIGNED  NOT NULL COMMENT 'Parent service area this zone belongs to',
     name            VARCHAR(150)     NOT NULL COMMENT 'Label, e.g. "FTTH Zone A", "Fixed-Wireless Sector 3"',
     description     TEXT             NULL     COMMENT 'Additional notes (equipment used, limitations, etc.)',
@@ -4223,10 +4224,13 @@ CREATE TABLE IF NOT EXISTS coverage_zones (
 
     PRIMARY KEY (id),
     SPATIAL KEY spx_coverage_zones_boundary (boundary),
+    KEY idx_coverage_zones_organization_id (organization_id),
     KEY idx_coverage_zones_service_area_id (service_area_id),
     KEY idx_coverage_zones_zone_type (zone_type),
     KEY idx_coverage_zones_status (status),
     KEY idx_coverage_zones_deleted_at (deleted_at),
+    CONSTRAINT fk_coverage_zones_organization FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_coverage_zones_service_area FOREIGN KEY (service_area_id)
         REFERENCES service_areas (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

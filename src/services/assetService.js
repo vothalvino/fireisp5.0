@@ -86,14 +86,13 @@ async function getLowStockItems(orgId) {
             COALESCE(SUM(s.quantity), 0) AS total_stock
      FROM inventory_items i
      LEFT JOIN inventory_stock s ON s.item_id = i.id
-       AND (? IS NULL OR s.organization_id = ?)
      WHERE i.deleted_at IS NULL
        AND (? IS NULL OR i.organization_id = ?)
        AND i.reorder_level > 0
      GROUP BY i.id, i.name, i.sku, i.reorder_level
      HAVING total_stock < i.reorder_level
      ORDER BY (i.reorder_level - total_stock) DESC`,
-    [orgId, orgId, orgId, orgId],
+    [orgId, orgId],
   );
   return rows;
 }

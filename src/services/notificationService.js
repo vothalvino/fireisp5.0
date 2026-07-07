@@ -37,9 +37,10 @@ async function sendNotification({ organizationId, clientId, channel, templateId,
   if (channel === 'email') {
     // Log to email_logs (actual sending would use SMTP transport)
     await db.query(
-      `INSERT INTO email_logs (organization_id, client_id, template_id, recipient, subject, body, channel, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'email', 'queued')`,
-      [organizationId, clientId, templateId, recipientEmail, subject, body],
+      // email_logs is tenant-scoped via client_id (there is no organization_id column).
+      `INSERT INTO email_logs (client_id, template_id, recipient, subject, body, channel, status)
+       VALUES (?, ?, ?, ?, ?, 'email', 'queued')`,
+      [clientId, templateId, recipientEmail, subject, body],
     );
   } else if (channel === 'sms' || channel === 'whatsapp') {
     // Attempt to send via Twilio, fall back to queuing
