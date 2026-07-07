@@ -990,7 +990,7 @@ describe('PaymentGateway validation schemas', () => {
 
   test('createPaymentGateway accepts valid data', () => {
     const next = run(createPaymentGateway, {
-      provider: 'conekta', environment: 'sandbox', label: 'Conekta Test',
+      name: 'Conekta Test', provider: 'conekta', environment: 'sandbox',
     });
     expectPass(next);
   });
@@ -1091,36 +1091,36 @@ describe('SuspensionRule validation schemas', () => {
 describe('CsdCertificate validation schemas', () => {
   const { createCsdCertificate, updateCsdCertificate } = require('../src/middleware/schemas/csdCertificates');
 
-  test('createCsdCertificate requires rfc, certificate_pem, private_key_encrypted', () => {
+  test('createCsdCertificate requires rfc, cer_pem, key_pem_encrypted', () => {
     const next = run(createCsdCertificate, {});
     const fields = errorFields(next);
     expect(fields).toContain('rfc');
-    expect(fields).toContain('certificate_pem');
-    expect(fields).toContain('private_key_encrypted');
+    expect(fields).toContain('cer_pem');
+    expect(fields).toContain('key_pem_encrypted');
   });
 
   test('createCsdCertificate rejects rfc < 12 chars', () => {
     const next = run(createCsdCertificate, {
-      rfc: 'SHORT', certificate_pem: 'pem-data', private_key_encrypted: 'key-data',
+      rfc: 'SHORT', cer_pem: 'pem-data', key_pem_encrypted: 'key-data',
     });
     expectReject(next);
   });
 
   test('createCsdCertificate rejects rfc > 13 chars', () => {
     const next = run(createCsdCertificate, {
-      rfc: 'TOOLONGSTRING14', certificate_pem: 'pem-data', private_key_encrypted: 'key-data',
+      rfc: 'TOOLONGSTRING14', cer_pem: 'pem-data', key_pem_encrypted: 'key-data',
     });
     expectReject(next);
   });
 
   test('createCsdCertificate accepts valid 12/13 char rfc', () => {
     const next = run(createCsdCertificate, {
-      rfc: 'XAXX010101AA', certificate_pem: 'pem-data', private_key_encrypted: 'key-data',
+      rfc: 'XAXX010101AA', cer_pem: 'pem-data', key_pem_encrypted: 'key-data',
     });
     expectPass(next);
 
     const next13 = run(createCsdCertificate, {
-      rfc: 'XAXX0101010A0', certificate_pem: 'pem-data', private_key_encrypted: 'key-data',
+      rfc: 'XAXX0101010A0', cer_pem: 'pem-data', key_pem_encrypted: 'key-data',
     });
     expectPass(next13);
   });
@@ -1260,8 +1260,9 @@ describe('ConcessionTitle validation schemas', () => {
 
   test('createConcessionTitle accepts valid data', () => {
     const next = run(createConcessionTitle, {
-      title_number: 'CT-2024-001', concession_type: 'commercial', regulatory_body: 'IFT',
-      status: 'active',
+      title_number: 'CT-2024-001', concession_type: 'commercial',
+      services_authorized: 'Internet fijo, telefonía', granted_date: '2024-01-15',
+      regulatory_body: 'IFT', status: 'active',
     });
     expectPass(next);
   });

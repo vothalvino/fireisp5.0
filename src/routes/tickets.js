@@ -44,7 +44,36 @@ function uploadAttachment(req, res, next) {
 }
 
 const router = Router();
-const ctrl = crudController(Ticket);
+
+// Ticket statuses in which a ticket is still being worked (i.e. NOT resolved or
+// closed). Reopening from a terminal state into one of these clears resolved_at.
+const ACTIVE_STATUSES = ['open', 'in_progress', 'waiting'];
+
+// resolved_at is server-managed and drives downstream CSAT dispatch, so it is
+// stamped/cleared here on the actual status transition rather than trusted from
+// the request body:
+//   * entering 'resolved'                       -> stamp resolved_at = now
+//   * reopening a resolved/closed ticket into an -> clear resolved_at = NULL
+//     active state (open / in_progress / waiting)
+// Any other transition (e.g. resolved -> closed) leaves resolved_at untouched.
+const ctrl = crudController(Ticket, {
+  beforeUpdate: (old, req) => {
+    // Never accept a client-supplied resolved_at — the hook is the sole authority.
+    delete req.body.resolved_at;
+
+    const nextStatus = req.body.status;
+    if (nextStatus === undefined || nextStatus === old.status) return;
+
+    if (nextStatus === 'resolved') {
+      req.body.resolved_at = new Date();
+    } else if (
+      (old.status === 'resolved' || old.status === 'closed')
+      && ACTIVE_STATUSES.includes(nextStatus)
+    ) {
+      req.body.resolved_at = null;
+    }
+  },
+});
 
 router.use(authenticate);
 router.use(orgScope);

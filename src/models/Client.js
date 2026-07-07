@@ -13,6 +13,7 @@ class Client extends BaseModel {
       'locale', 'tax_id', 'curp', 'address', 'city', 'state', 'zip_code',
       'country', 'latitude', 'longitude', 'geocoded_at', 'credit_score',
       'risk_rating', 'notes', 'status',
+      'suspension_exempt', 'suspension_exempt_reason',
     ];
   }
 

@@ -19,7 +19,11 @@ router.use(orgScope);
 
 router.get('/', requirePermission('expenses.view'), ctrl.list);
 router.get('/:id', requirePermission('expenses.view'), ctrl.get);
-router.post('/', requirePermission('expenses.create'), validate(createExpense), ctrl.create);
+router.post('/', requirePermission('expenses.create'), validate(createExpense), (req, res, next) => {
+  // Default the incurring employee to the logged-in staff member (expenses.user_id is NOT NULL).
+  if (req.body.user_id === undefined && req.user?.id) req.body.user_id = req.user.id;
+  return ctrl.create(req, res, next);
+});
 router.put('/:id', requirePermission('expenses.update'), validate(updateExpense), ctrl.update);
 router.delete('/:id', requirePermission('expenses.delete'), ctrl.destroy);
 router.post('/:id/restore', requirePermission('expenses.update'), ctrl.restore);

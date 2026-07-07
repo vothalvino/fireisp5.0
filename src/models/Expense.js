@@ -9,8 +9,8 @@ class Expense extends BaseModel {
 
   static get fillable() {
     return [
-      'organization_id', 'job_id', 'category', 'description', 'amount',
-      'currency', 'vendor', 'receipt_url', 'expense_date', 'status', 'notes',
+      'organization_id', 'user_id', 'job_id', 'category', 'description', 'amount',
+      'currency', 'receipt_url', 'expense_date', 'status', 'notes',
     ];
   }
 

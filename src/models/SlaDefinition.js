@@ -12,7 +12,7 @@ class SlaDefinition extends BaseModel {
       'plan_id', 'name', 'description', 'uptime_pct',
       'max_response_minutes', 'max_resolution_minutes',
       'measurement_period', 'compensation_type', 'compensation_value',
-      'exclude_maintenance', 'priority',
+      'exclude_maintenance', 'priority', 'status',
     ];
   }
 

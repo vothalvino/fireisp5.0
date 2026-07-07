@@ -9,8 +9,9 @@ class RegulatoryFiling extends BaseModel {
 
   static get fillable() {
     return [
-      'organization_id', 'filing_type', 'period_start', 'period_end',
-      'due_date', 'submitted_at', 'status', 'notes',
+      'organization_id', 'concession_title_id', 'filing_type',
+      'period_start', 'period_end', 'filed_at', 'acknowledgement_number',
+      'document_file_id', 'status', 'notes',
     ];
   }
 

@@ -45,6 +45,8 @@ const updateClient = {
   credit_score: { type: 'number', min: 0, max: 1000 },
   risk_rating: { type: 'string', enum: RISK_RATINGS },
   status: { type: 'string', enum: ['active', 'inactive', 'suspended'] },
+  suspension_exempt: { type: 'boolean' },
+  suspension_exempt_reason: { type: 'string', max: 500 },
 };
 
 const createContact = {

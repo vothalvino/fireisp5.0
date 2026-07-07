@@ -48,6 +48,27 @@ function nextRetryAt(delayMs) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Normalize a stored `events` value into an array of event names. The column is
+ * JSON (persisted as a JSON-array string), but tolerate an already-parsed array
+ * and a legacy comma-separated string so matching is robust either way.
+ * @param {string|string[]|null} raw
+ * @returns {string[]}
+ */
+function parseEventList(raw) {
+  if (Array.isArray(raw)) return raw.map(e => String(e).trim()).filter(Boolean);
+  if (raw === null || raw === undefined) return [];
+  const str = String(raw).trim();
+  if (!str) return [];
+  if (str.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed)) return parsed.map(e => String(e).trim()).filter(Boolean);
+    } catch (_e) { /* fall through to CSV parsing */ }
+  }
+  return str.split(',').map(e => e.trim()).filter(Boolean);
+}
+
+/**
  * Dispatch an event to all matching webhooks for an organization.
  *
  * When REDIS_URL is set (BullMQ available): each webhook delivery is enqueued
@@ -58,12 +79,12 @@ function nextRetryAt(delayMs) {
  */
 async function dispatch(organizationId, event, payload) {
   const [webhooks] = await db.query(
-    'SELECT * FROM webhooks WHERE organization_id = ? AND is_enabled = 1',
+    'SELECT * FROM webhooks WHERE organization_id = ? AND is_active = 1',
     [organizationId],
   );
 
   const matching = webhooks.filter(w => {
-    const events = (w.events || '').split(',').map(e => e.trim());
+    const events = parseEventList(w.events);
     return events.includes(event) || events.includes('*');
   });
 
@@ -229,7 +250,7 @@ async function deliverForWorker(job) {
   const isFinalAttempt = attemptNumber >= maxAttempts;
 
   const [webhooks] = await db.query(
-    'SELECT * FROM webhooks WHERE id = ? AND is_enabled = 1',
+    'SELECT * FROM webhooks WHERE id = ? AND is_active = 1',
     [webhookId],
   );
 
@@ -349,7 +370,7 @@ async function processRetries() {
             w.id AS webhook_id, w.url, w.secret_encrypted,
             w.max_retries, w.timeout_seconds
      FROM webhook_deliveries wd
-     JOIN webhooks w ON w.id = wd.webhook_id AND w.is_enabled = 1
+     JOIN webhooks w ON w.id = wd.webhook_id AND w.is_active = 1
      WHERE wd.status = 'retrying'
        AND wd.next_retry_at <= NOW()
      ORDER BY wd.next_retry_at ASC

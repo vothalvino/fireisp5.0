@@ -3,7 +3,7 @@
 // =============================================================================
 // Standalone page at /expenses. Lists operational expenses with:
 //   • Status filter
-//   • Paginated table (date, category, vendor, amount, status)
+//   • Paginated table (date, category, amount, status)
 //   • "New Expense" create modal, per-row Edit and Delete (soft-delete).
 // All mutations go through the typed `api` client + React Query.
 // =============================================================================
@@ -30,7 +30,6 @@ interface Expense {
   description: string | null;
   amount: string | number | null;
   currency: string | null;
-  vendor: string | null;
   receipt_url: string | null;
   expense_date: string | null;
   notes: string | null;
@@ -47,7 +46,6 @@ interface ExpenseBody {
   description?: string;
   amount: number;
   currency?: string;
-  vendor?: string;
   receipt_url?: string;
   expense_date?: string;
   notes?: string;
@@ -128,7 +126,6 @@ function ExpenseModal({ expense, onClose, onSaved }: ExpenseModalProps) {
     description: expense?.description ?? '',
     amount: expense?.amount != null ? String(expense.amount) : '',
     currency: expense?.currency ?? 'MXN',
-    vendor: expense?.vendor ?? '',
     receipt_url: expense?.receipt_url ?? '',
     expense_date: expense?.expense_date ? expense.expense_date.split('T')[0] : TODAY,
     notes: expense?.notes ?? '',
@@ -149,7 +146,6 @@ function ExpenseModal({ expense, onClose, onSaved }: ExpenseModalProps) {
         status: form.status,
       };
       if (form.description) body.description = form.description;
-      if (form.vendor) body.vendor = form.vendor;
       if (form.receipt_url) body.receipt_url = form.receipt_url;
       if (form.expense_date) body.expense_date = form.expense_date;
       if (form.notes) body.notes = form.notes;
@@ -205,11 +201,6 @@ function ExpenseModal({ expense, onClose, onSaved }: ExpenseModalProps) {
           <label style={modalStyles.label}>
             Currency
             <input style={modalStyles.input} type="text" maxLength={3} value={form.currency} onChange={e => setField('currency', e.target.value.toUpperCase())} placeholder="e.g. MXN" />
-          </label>
-
-          <label style={modalStyles.label}>
-            Vendor
-            <input style={modalStyles.input} type="text" maxLength={255} value={form.vendor} onChange={e => setField('vendor', e.target.value)} />
           </label>
 
           <label style={modalStyles.label}>
@@ -343,7 +334,7 @@ export function ExpenseList() {
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    {['ID', 'Date', 'Category', 'Vendor', 'Amount', 'Status', 'Actions'].map(h => <th key={h} style={styles.th}>{h}</th>)}
+                    {['ID', 'Date', 'Category', 'Amount', 'Status', 'Actions'].map(h => <th key={h} style={styles.th}>{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
@@ -352,7 +343,6 @@ export function ExpenseList() {
                       <td style={styles.td}>#{x.id}</td>
                       <td style={styles.td}>{fmtDate(x.expense_date)}</td>
                       <td style={{ ...styles.td, fontWeight: 500, textTransform: 'capitalize' }}>{x.category}</td>
-                      <td style={styles.td}>{x.vendor || '—'}</td>
                       <td style={styles.td}>{fmtMoney(x.amount, x.currency ?? 'USD')}</td>
                       <td style={styles.td}><StatusBadge status={x.status} /></td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>

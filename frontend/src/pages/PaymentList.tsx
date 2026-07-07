@@ -46,7 +46,7 @@ interface RecordPaymentBody {
   currency: string;
   payment_method: string;
   payment_date?: string;
-  reference?: string;
+  reference_number?: string;
   status: string;
   invoice_id?: number;
 }
@@ -205,7 +205,7 @@ function RecordPaymentModal({ clients, onClose, onRecorded }: RecordPaymentModal
     amount: '',
     currency: 'MXN',
     payment_method: 'cash',
-    reference: '',
+    reference_number: '',
     status: 'completed',
     payment_date: TODAY,
   });
@@ -239,7 +239,7 @@ function RecordPaymentModal({ clients, onClose, onRecorded }: RecordPaymentModal
         currency: form.currency,
         payment_method: form.payment_method,
         payment_date: form.payment_date,
-        ...(form.reference ? { reference: form.reference } : {}),
+        ...(form.reference_number ? { reference_number: form.reference_number } : {}),
         status: form.status,
         ...(invoiceId ? { invoice_id: Number(invoiceId) } : {}),
       });
@@ -325,8 +325,8 @@ function RecordPaymentModal({ clients, onClose, onRecorded }: RecordPaymentModal
           <label style={labelStyle}>Reference / Folio (optional)</label>
           <input
             type="text" style={inputStyle}
-            value={form.reference}
-            onChange={e => setField('reference', e.target.value)}
+            value={form.reference_number}
+            onChange={e => setField('reference_number', e.target.value)}
             placeholder="e.g. transfer ID, check number"
           />
 
@@ -548,7 +548,7 @@ function PaymentRow({ payment, idx, clientName, onChanged }: PaymentRowProps) {
         </td>
         {/* Reference */}
         <td style={{ padding: '10px 14px', color: '#9ca3af', fontSize: '0.8rem', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {payment.reference || '—'}
+          {payment.reference_number || '—'}
         </td>
         {/* Actions */}
         <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
