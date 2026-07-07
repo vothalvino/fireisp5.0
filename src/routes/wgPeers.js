@@ -115,7 +115,9 @@ router.get('/admin/all', requirePermission('wireguard.peers.admin'), async (req,
       };
     });
 
-    res.json({ data, meta: { total, page, limit } });
+    // Include totalPages so the admin peer list's pagination control renders
+    // (the UI reads meta.totalPages; without it the control stayed hidden).
+    res.json({ data, meta: { total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) } });
   } catch (err) { next(err); }
 });
 
