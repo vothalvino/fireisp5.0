@@ -922,7 +922,10 @@ async function postAiSummary(ticketId: number): Promise<string> {
     method: 'POST',
   });
   if (!res.ok) throw new Error('Failed to generate summary');
-  const body = await res.json() as { data?: { summary?: string }; summary?: string };
+  const body = await res.json() as { data?: { summary?: string; skipped?: boolean; reason?: string }; summary?: string };
+  // When AI is disabled by policy the endpoint returns 200 { skipped, reason }.
+  // Surface it instead of silently coercing to an empty summary.
+  if (body.data?.skipped) throw new Error(body.data.reason ?? 'AI summaries are disabled by policy');
   return body.data?.summary ?? (body as { summary?: string }).summary ?? '';
 }
 
