@@ -191,9 +191,11 @@ describe('Transition Mechanism routes — mass-assignment guard', () => {
   });
 
   test('POST /6rd strips protected columns (id, organization_id, deleted_at, updated_at)', async () => {
+    let capturedSql = null;
     let capturedParams = null;
     db.query.mockImplementation((sql, params) => {
       if (sql && sql.includes('INSERT INTO tunnel_6rd_configs')) {
+        capturedSql = sql;
         capturedParams = params;
         return Promise.resolve([{ insertId: 1 }]);
       }
@@ -226,21 +228,24 @@ describe('Transition Mechanism routes — mass-assignment guard', () => {
       });
 
     expect(res.status).toBe(201);
-    // The object passed to SET ? must not contain any protected key
-    expect(capturedParams).not.toBeNull();
-    const insertObj = capturedParams[0];
-    expect(insertObj).not.toHaveProperty('id');
-    expect(insertObj).not.toHaveProperty('deleted_at');
-    expect(insertObj).not.toHaveProperty('updated_at');
-    expect(insertObj).not.toHaveProperty('created_at');
-    // organization_id must be 10 (from req.orgId), not the injected 42
-    expect(insertObj.organization_id).toBe(10);
+    // The INSERT column list must not contain any protected key
+    expect(capturedSql).not.toBeNull();
+    expect(capturedSql).not.toContain('`id`');
+    expect(capturedSql).not.toContain('`deleted_at`');
+    expect(capturedSql).not.toContain('`updated_at`');
+    expect(capturedSql).not.toContain('`created_at`');
+    // organization_id must be present and bound to 10 (from req.orgId), not 42
+    expect(capturedSql).toContain('`organization_id`');
+    expect(capturedParams).toContain(10);
+    expect(capturedParams).not.toContain(42);
   });
 
   test('PUT /6rd/:id strips protected columns (organization_id, deleted_at, updated_at)', async () => {
+    let capturedUpdateSql = null;
     let capturedUpdateParams = null;
     db.query.mockImplementation((sql, params) => {
       if (sql && sql.includes('UPDATE tunnel_6rd_configs')) {
+        capturedUpdateSql = sql;
         capturedUpdateParams = params;
         return Promise.resolve([{ affectedRows: 1 }]);
       }
@@ -273,12 +278,15 @@ describe('Transition Mechanism routes — mass-assignment guard', () => {
       });
 
     expect(res.status).toBe(200);
-    expect(capturedUpdateParams).not.toBeNull();
-    const updateObj = capturedUpdateParams[0];
-    expect(updateObj).not.toHaveProperty('id');
-    expect(updateObj).not.toHaveProperty('organization_id');
-    expect(updateObj).not.toHaveProperty('deleted_at');
-    expect(updateObj).not.toHaveProperty('updated_at');
-    expect(updateObj).not.toHaveProperty('created_at');
+    // The UPDATE SET clause must not assign any protected key
+    expect(capturedUpdateSql).not.toBeNull();
+    expect(capturedUpdateSql).not.toContain('`id` =');
+    expect(capturedUpdateSql).not.toContain('`organization_id` =');
+    expect(capturedUpdateSql).not.toContain('`deleted_at` =');
+    expect(capturedUpdateSql).not.toContain('`updated_at` =');
+    expect(capturedUpdateSql).not.toContain('`created_at` =');
+    // the only permitted field, mtu, must be assigned and its value bound
+    expect(capturedUpdateSql).toContain('`mtu` =');
+    expect(capturedUpdateParams).toContain(1460);
   });
 });

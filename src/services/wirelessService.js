@@ -16,6 +16,7 @@
 // =============================================================================
 
 const db = require('../config/database');
+const { buildInsert, buildUpdate } = require('../utils/sqlBuild');
 const logger = require('../utils/logger').child({ service: 'wirelessService' });
 
 // ---------------------------------------------------------------------------
@@ -94,9 +95,10 @@ async function createApSectorConfig(orgId, data) {
   }
 
   const { organization_id: _o, id: _i, created_at: _c, updated_at: _u, deleted_at: _d, ...fields } = data;
+  const { columns, placeholders, values } = buildInsert({ organization_id: orgId, ...fields });
   const [result] = await db.query(
-    'INSERT INTO ap_sector_configs SET ?',
-    [{ organization_id: orgId, ...fields }],
+    `INSERT INTO ap_sector_configs (${columns}) VALUES (${placeholders})`,
+    values,
   );
   return getApSectorConfig(result.insertId, orgId);
 }
@@ -113,9 +115,11 @@ async function updateApSectorConfig(id, orgId, data) {
   }
 
   const { organization_id: _o, id: _i, created_at: _c, deleted_at: _d, ...fields } = data;
+  const { assignments, values } = buildUpdate(fields);
+  const setClause = assignments ? `${assignments}, updated_at = NOW()` : 'updated_at = NOW()';
   await db.query(
-    'UPDATE ap_sector_configs SET ? WHERE id = ? AND (organization_id = ? OR organization_id IS NULL)',
-    [{ ...fields, updated_at: new Date() }, id, orgId],
+    `UPDATE ap_sector_configs SET ${setClause} WHERE id = ? AND (organization_id = ? OR organization_id IS NULL)`,
+    [...values, id, orgId],
   );
   return getApSectorConfig(id, orgId);
 }
@@ -199,9 +203,10 @@ async function getApChannelPlan(id, orgId) {
  */
 async function createApChannelPlan(orgId, data) {
   const { organization_id: _o, id: _i, created_at: _c, updated_at: _u, deleted_at: _d, ...fields } = data;
+  const { columns, placeholders, values } = buildInsert({ organization_id: orgId, ...fields });
   const [result] = await db.query(
-    'INSERT INTO ap_channel_plans SET ?',
-    [{ organization_id: orgId, ...fields }],
+    `INSERT INTO ap_channel_plans (${columns}) VALUES (${placeholders})`,
+    values,
   );
   return getApChannelPlan(result.insertId, orgId);
 }
@@ -218,9 +223,11 @@ async function updateApChannelPlan(id, orgId, data) {
   }
 
   const { organization_id: _o, id: _i, created_at: _c, deleted_at: _d, ...fields } = data;
+  const { assignments, values } = buildUpdate(fields);
+  const setClause = assignments ? `${assignments}, updated_at = NOW()` : 'updated_at = NOW()';
   await db.query(
-    'UPDATE ap_channel_plans SET ? WHERE id = ? AND (organization_id = ? OR organization_id IS NULL)',
-    [{ ...fields, updated_at: new Date() }, id, orgId],
+    `UPDATE ap_channel_plans SET ${setClause} WHERE id = ? AND (organization_id = ? OR organization_id IS NULL)`,
+    [...values, id, orgId],
   );
   return getApChannelPlan(id, orgId);
 }
@@ -390,9 +397,10 @@ async function listChannelInterference(orgId, { siteId, level, since, limit = 10
  */
 async function createChannelInterference(orgId, data) {
   const { organization_id: _o, id: _i, created_at: _c, updated_at: _u, deleted_at: _d, ...fields } = data;
+  const { columns, placeholders, values } = buildInsert({ organization_id: orgId, ...fields });
   const [result] = await db.query(
-    'INSERT INTO wireless_channel_interference SET ?',
-    [{ organization_id: orgId, ...fields }],
+    `INSERT INTO wireless_channel_interference (${columns}) VALUES (${placeholders})`,
+    values,
   );
   const [rows] = await db.query('SELECT * FROM wireless_channel_interference WHERE id = ?', [result.insertId]);
   return rows[0];
@@ -413,9 +421,11 @@ async function updateChannelInterference(id, orgId, data) {
   }
 
   const { organization_id: _o, id: _i, created_at: _c, deleted_at: _d, ...fields } = data;
+  const { assignments, values } = buildUpdate(fields);
+  const setClause = assignments ? `${assignments}, updated_at = NOW()` : 'updated_at = NOW()';
   await db.query(
-    'UPDATE wireless_channel_interference SET ? WHERE id = ? AND (organization_id = ? OR organization_id IS NULL)',
-    [{ ...fields, updated_at: new Date() }, id, orgId],
+    `UPDATE wireless_channel_interference SET ${setClause} WHERE id = ? AND (organization_id = ? OR organization_id IS NULL)`,
+    [...values, id, orgId],
   );
   const [rows] = await db.query('SELECT * FROM wireless_channel_interference WHERE id = ?', [id]);
   return rows[0];
@@ -498,9 +508,10 @@ async function createApCommandJob(orgId, userId, data) {
   }
 
   const { organization_id: _o, id: _i, created_at: _c, updated_at: _u, deleted_at: _d, ...fields } = data;
+  const { columns, placeholders, values } = buildInsert({ organization_id: orgId, created_by: userId || null, status: 'pending', ...fields });
   const [result] = await db.query(
-    'INSERT INTO ap_command_jobs SET ?',
-    [{ organization_id: orgId, created_by: userId || null, status: 'pending', ...fields }],
+    `INSERT INTO ap_command_jobs (${columns}) VALUES (${placeholders})`,
+    values,
   );
   return getApCommandJob(result.insertId, orgId);
 }
@@ -684,7 +695,8 @@ async function saveCalc(body, orgId) {
     ...computed,
   };
 
-  const [result] = await db.query('INSERT INTO link_planning_calcs SET ?', [row]);
+  const { columns, placeholders, values } = buildInsert(row);
+  const [result] = await db.query(`INSERT INTO link_planning_calcs (${columns}) VALUES (${placeholders})`, values);
   return getCalc(result.insertId, orgId);
 }
 
@@ -758,9 +770,11 @@ async function updateCalc(id, orgId, body) {
   });
 
   const { organization_id: _o, id: _i, created_at: _c, deleted_at: _d, ...fields } = body;
+  const { assignments, values } = buildUpdate({ ...fields, ...computed });
+  const setClause = assignments ? `${assignments}, updated_at = NOW()` : 'updated_at = NOW()';
   await db.query(
-    'UPDATE link_planning_calcs SET ? WHERE id = ? AND (organization_id = ? OR organization_id IS NULL)',
-    [{ ...fields, ...computed, updated_at: new Date() }, id, orgId],
+    `UPDATE link_planning_calcs SET ${setClause} WHERE id = ? AND (organization_id = ? OR organization_id IS NULL)`,
+    [...values, id, orgId],
   );
   return getCalc(id, orgId);
 }
@@ -982,14 +996,18 @@ async function createSpectrumScan(body, orgId) {
     organization_id: orgId,
     ...fields,
     status: 'completed',
-    started_at: new Date(),
-    completed_at: new Date(),
     scan_data: null,
     notes: (fields.notes ? fields.notes + ' | ' : '') +
       'Live spectrum scanning requires hardware support — scan_data populated by AP firmware integration',
   };
 
-  const [result] = await db.query('INSERT INTO spectrum_scan_results SET ?', [row]);
+  // started_at / completed_at are set to the current time via SQL NOW() rather
+  // than bound Date objects (the SQL builder JSON-encodes JS Dates).
+  const { columns, placeholders, values } = buildInsert(row);
+  const [result] = await db.query(
+    `INSERT INTO spectrum_scan_results (${columns}, started_at, completed_at) VALUES (${placeholders}, NOW(), NOW())`,
+    values,
+  );
   logger.info({ orgId, scanId: result.insertId, deviceId: body.device_id }, 'spectrum scan record created (stub)');
   return getSpectrumScan(result.insertId, orgId);
 }

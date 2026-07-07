@@ -28,6 +28,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
+const { buildInsert, buildUpdate } = require('../utils/sqlBuild');
 const {
   createOltPort, updateOltPort, patchOltPort,
 } = require('../middleware/schemas/oltPorts');
@@ -71,9 +72,10 @@ router.post('/:id/ports', requirePermission('olt_ports.create'), validate(create
     if (devRows[0].type !== 'olt') return res.status(400).json({ error: 'Device is not an OLT' });
 
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...fields } = req.body;
+    const { columns, placeholders, values } = buildInsert({ organization_id: req.orgId, olt_device_id: req.params.id, ...fields });
     const [result] = await db.query(
-      'INSERT INTO olt_ports SET ?',
-      [{ organization_id: req.orgId, olt_device_id: req.params.id, ...fields }],
+      `INSERT INTO olt_ports (${columns}) VALUES (${placeholders})`,
+      values,
     );
     const [rows] = await db.query('SELECT * FROM olt_ports WHERE id = ?', [result.insertId]);
     res.status(201).json({ data: rows[0] });
@@ -177,7 +179,9 @@ router.put('/ports/:portId', requirePermission('olt_ports.update'), validate(upd
     );
     if (!check.length) return res.status(404).json({ error: 'Not found' });
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, olt_device_id: _____, ...updateData } = req.body;
-    await db.query('UPDATE olt_ports SET ?, updated_at = NOW() WHERE id = ?', [updateData, req.params.portId]);
+    const { assignments, values } = buildUpdate(updateData);
+    const setClause = assignments ? `${assignments}, updated_at = NOW()` : 'updated_at = NOW()';
+    await db.query(`UPDATE olt_ports SET ${setClause} WHERE id = ?`, [...values, req.params.portId]);
     const [rows] = await db.query('SELECT * FROM olt_ports WHERE id = ?', [req.params.portId]);
     res.json({ data: rows[0] });
   } catch (err) { next(err); }
@@ -195,7 +199,8 @@ router.patch('/ports/:portId', requirePermission('olt_ports.update'), validate(p
     if (!check.length) return res.status(404).json({ error: 'Not found' });
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, olt_device_id: _____, ...updateData } = req.body;
     if (!Object.keys(updateData).length) return res.status(400).json({ error: 'No fields to update' });
-    await db.query('UPDATE olt_ports SET ?, updated_at = NOW() WHERE id = ?', [updateData, req.params.portId]);
+    const { assignments, values } = buildUpdate(updateData);
+    await db.query(`UPDATE olt_ports SET ${assignments}, updated_at = NOW() WHERE id = ?`, [...values, req.params.portId]);
     const [rows] = await db.query('SELECT * FROM olt_ports WHERE id = ?', [req.params.portId]);
     res.json({ data: rows[0] });
   } catch (err) { next(err); }
@@ -265,9 +270,10 @@ router.get('/splitters/:splitterId', requirePermission('olt_splitters.view'), as
 router.post('/splitters', requirePermission('olt_splitters.create'), validate(createOltSplitter), async (req, res, next) => {
   try {
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...fields } = req.body;
+    const { columns, placeholders, values } = buildInsert({ organization_id: req.orgId, ...fields });
     const [result] = await db.query(
-      'INSERT INTO olt_splitters SET ?',
-      [{ organization_id: req.orgId, ...fields }],
+      `INSERT INTO olt_splitters (${columns}) VALUES (${placeholders})`,
+      values,
     );
     const [rows] = await db.query('SELECT * FROM olt_splitters WHERE id = ?', [result.insertId]);
     res.status(201).json({ data: rows[0] });
@@ -285,7 +291,9 @@ router.put('/splitters/:splitterId', requirePermission('olt_splitters.update'), 
     );
     if (!check.length) return res.status(404).json({ error: 'Not found' });
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...updateData } = req.body;
-    await db.query('UPDATE olt_splitters SET ?, updated_at = NOW() WHERE id = ?', [updateData, req.params.splitterId]);
+    const { assignments, values } = buildUpdate(updateData);
+    const setClause = assignments ? `${assignments}, updated_at = NOW()` : 'updated_at = NOW()';
+    await db.query(`UPDATE olt_splitters SET ${setClause} WHERE id = ?`, [...values, req.params.splitterId]);
     const [rows] = await db.query('SELECT * FROM olt_splitters WHERE id = ?', [req.params.splitterId]);
     res.json({ data: rows[0] });
   } catch (err) { next(err); }
@@ -303,7 +311,8 @@ router.patch('/splitters/:splitterId', requirePermission('olt_splitters.update')
     if (!check.length) return res.status(404).json({ error: 'Not found' });
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...updateData } = req.body;
     if (!Object.keys(updateData).length) return res.status(400).json({ error: 'No fields to update' });
-    await db.query('UPDATE olt_splitters SET ?, updated_at = NOW() WHERE id = ?', [updateData, req.params.splitterId]);
+    const { assignments, values } = buildUpdate(updateData);
+    await db.query(`UPDATE olt_splitters SET ${assignments}, updated_at = NOW() WHERE id = ?`, [...values, req.params.splitterId]);
     const [rows] = await db.query('SELECT * FROM olt_splitters WHERE id = ?', [req.params.splitterId]);
     res.json({ data: rows[0] });
   } catch (err) { next(err); }
@@ -511,7 +520,8 @@ router.patch('/onu-migrations/:jobId', requirePermission('onu_migration_jobs.upd
     }
     const { organization_id: _, id: __, created_at: ___, deleted_at: ____, ...updateData } = req.body;
     if (!Object.keys(updateData).length) return res.status(400).json({ error: 'No fields to update' });
-    await db.query('UPDATE onu_migration_jobs SET ?, updated_at = NOW() WHERE id = ?', [updateData, req.params.jobId]);
+    const { assignments, values } = buildUpdate(updateData);
+    await db.query(`UPDATE onu_migration_jobs SET ${assignments}, updated_at = NOW() WHERE id = ?`, [...values, req.params.jobId]);
     const [rows] = await db.query('SELECT * FROM onu_migration_jobs WHERE id = ?', [req.params.jobId]);
     res.json({ data: rows[0] });
   } catch (err) { next(err); }
