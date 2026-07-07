@@ -19,7 +19,7 @@ vi.mock('@/api/client', () => ({
 
 const payment1 = {
   id: 1, client_id: 10, amount: '580', currency: 'MXN',
-  payment_method: 'cash', reference: 'REF-001', status: 'completed',
+  payment_method: 'cash', reference_number: 'REF-001', status: 'completed',
   payment_date: '2024-01-15', created_at: '2024-01-15',
 };
 

@@ -15,7 +15,7 @@ vi.mock('@/api/client', () => ({
 
 const expense1 = {
   id: 1, category: 'fuel', description: null, amount: '350.00',
-  currency: 'MXN', vendor: 'Pemex', receipt_url: null,
+  currency: 'MXN', receipt_url: null,
   expense_date: '2024-06-01', notes: null, status: 'pending',
 };
 
@@ -47,7 +47,6 @@ describe('ExpenseList page', () => {
 
   it('renders an expense row after data loads', async () => {
     renderExpenseList();
-    await waitFor(() => expect(screen.getByText('Pemex')).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText('fuel')).toBeInTheDocument());
   });
 
