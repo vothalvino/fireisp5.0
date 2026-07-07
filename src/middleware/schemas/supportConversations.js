@@ -27,8 +27,8 @@ const createKbArticle = {
   body: { type: 'string', required: true, min: 1 },
   category: { type: 'string', required: false, max: 100 },
   locale: { type: 'string', required: false, max: 10 },
-  tags: { type: 'string', required: false, max: 500 },
-  isPublished: { type: 'boolean', required: false },
+  tags: { type: 'array', required: false },
+  is_published: { type: 'boolean', required: false },
 };
 
 const updateKbArticle = {

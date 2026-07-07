@@ -65074,10 +65074,9 @@
             "maximum": 10
           },
           "tags": {
-            "type": "string",
-            "maximum": 500
+            "type": "string"
           },
-          "isPublished": {
+          "is_published": {
             "type": "boolean"
           }
         },
