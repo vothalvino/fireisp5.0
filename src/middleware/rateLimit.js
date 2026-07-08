@@ -25,16 +25,29 @@ const RATE_LIMITED_BODY = (msg) => ({
   },
 });
 
-const makeLimiter = (max, msg) => rateLimit({
+const makeLimiter = (max, msg, extra = {}) => rateLimit({
   windowMs: rl.windowMs,
   max,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: RATE_LIMITED_BODY(msg),
+  ...extra,
 });
 
-/** General API rate limiter — configurable via RATE_LIMIT_API (default 200). */
-const apiLimiter = makeLimiter(rl.api);
+// Session-keepalive endpoints. These are what keeps a logged-in user logged
+// in: the SPA re-bootstraps via /me + /refresh on every reload and silently
+// refreshes when the access token expires. They are carved OUT of the general
+// API bucket (see `skip` below) and given their own generous per-IP budget —
+// otherwise a chatty dashboard exhausts the shared budget and the resulting
+// 429 on /auth/refresh bounces an active user to the login screen.
+const SESSION_PATH_RE = /^\/api(?:\/v1)?\/auth\/(?:me|refresh|logout|switch-organization)\/?$/;
+const isSessionPath = (req) => SESSION_PATH_RE.test((req.originalUrl || req.url || '').split('?')[0]);
+
+/** General API rate limiter — configurable via RATE_LIMIT_API (default 1000). */
+const apiLimiter = makeLimiter(rl.api, undefined, { skip: isSessionPath });
+
+/** Session-keepalive endpoints — configurable via RATE_LIMIT_SESSION (default 240). */
+const sessionLimiter = makeLimiter(rl.session, 'Too many session requests, please try again later');
 
 /** Auth endpoints — configurable via RATE_LIMIT_AUTH (default 20). */
 const authLimiter = makeLimiter(rl.auth, 'Too many authentication attempts, please try again later');
@@ -157,6 +170,8 @@ const tenantApiLimiter = rateLimit({
 module.exports = {
   apiLimiter,
   authLimiter,
+  sessionLimiter,
+  isSessionPath,
   publicLimiter,
   uploadLimiter,
   exportLimiter,

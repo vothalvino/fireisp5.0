@@ -102,13 +102,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         const json = (await res.json()) as { data: AuthUser };
         setState({ user: json.data, loading: false, initialized: true });
-      } else {
+      } else if (res.status === 401 || res.status === 403) {
         tokenStore.clear();
         setState({ user: null, loading: false, initialized: true });
+      } else {
+        // Transient (429/5xx): the session is not dead, we just couldn't
+        // re-hydrate right now — keep the current user instead of logging out.
+        setState(s => ({ ...s, loading: false, initialized: true }));
       }
     } catch {
-      tokenStore.clear();
-      setState({ user: null, loading: false, initialized: true });
+      // Network blip — same as transient above: keep the session.
+      setState(s => ({ ...s, loading: false, initialized: true }));
     }
   }, []);
 
@@ -141,9 +145,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       tokenStore.clear();
       setState({ user: null, loading: false, initialized: true });
     };
+    // When rate-limited, the server says how long to wait — waiting a fixed
+    // 400ms against a multi-minute window guaranteed a bounce to /login.
+    const retryAfterMs = (res: Response): number | null => {
+      const raw = typeof res.headers?.get === 'function' ? res.headers.get('retry-after') : null;
+      const seconds = Number(raw);
+      return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : null;
+    };
 
     (async () => {
-      for (let attempt = 0; attempt < 3; attempt++) {
+      // Refresh tokens are one-shot: if another tab redeemed the same cookie a
+      // moment before us (parallel mount race), our /refresh 401s — but the
+      // winner's rotated cookies are already in the browser jar, so ONE more
+      // loop recovers the session via them. Only a second denial is real.
+      let refreshDenied = false;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        let waitHint: number | null = null;
         try {
           // 1. Fetch /auth/me — via the Bearer token if we minted one this loop,
           //    otherwise via the httpOnly access cookie.
@@ -175,20 +192,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               // 429/5xx on the post-refresh /me retries instead of logging out.
               continue;
             }
-            // Definitive "no session" → logged out; transient → retry the loop.
-            if (!isTransient(refreshRes.status)) {
+            if (refreshRes.status === 401 || refreshRes.status === 403) {
+              // Denied — either truly logged out, or we lost the rotation race
+              // to a sibling tab. Allow one full re-loop (see refreshDenied).
+              if (refreshDenied) {
+                settleLoggedOut();
+                return;
+              }
+              refreshDenied = true;
+            } else if (!isTransient(refreshRes.status)) {
               settleLoggedOut();
               return;
+            } else {
+              waitHint = retryAfterMs(refreshRes);
             }
           } else if (!isTransient(meRes.status)) {
             settleLoggedOut();
             return;
+          } else {
+            waitHint = retryAfterMs(meRes);
           }
           // Transient on /me or /refresh → fall through to back off and retry.
         } catch {
           // Network error → transient, retry.
         }
-        await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+        const backoff = waitHint ?? 400 * (attempt + 1);
+        await new Promise((resolve) => setTimeout(resolve, Math.min(backoff, 8000)));
       }
       // Exhausted retries against transient errors. We can't render the app without a
       // user, so settle logged-out as a last resort — but only after retrying, so a

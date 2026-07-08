@@ -34,6 +34,7 @@ jest.mock('../src/middleware/orgScope', () => ({
 
 jest.mock('../src/middleware/rateLimit', () => ({
   apiLimiter: (req, res, next) => next(),
+  sessionLimiter: (req, res, next) => next(),
   authLimiter: (req, res, next) => next(),
   exportLimiter: (req, res, next) => next(),
   sseLimiter: (req, res, next) => next(),

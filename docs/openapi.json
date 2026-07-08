@@ -725,13 +725,18 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Logout (invalidate session)",
+        "summary": "Logout — revokes the presented refresh token (cookie or body) and clears auth cookies; no bearer required, so it still works after the access token expires",
         "operationId": "logout",
-        "security": [
-          {
-            "bearerAuth": []
+        "requestBody": {
+          "description": "auth_refreshToken",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
           }
-        ],
+        },
         "responses": {
           "200": {
             "description": "Message",

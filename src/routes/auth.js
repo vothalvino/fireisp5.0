@@ -127,7 +127,14 @@ router.post('/login',
 );
 
 // POST /api/auth/logout
-router.post('/logout', authenticate, async (req, res, next) => {
+// Deliberately NOT authenticate-gated: after the 60-minute access token
+// expires, a token-gated logout 401s without revoking anything — the
+// still-valid 7-day refresh cookie then silently re-authenticates the user
+// on the next visit, making logout a no-op exactly when it matters most.
+// The refresh token itself is the credential here: we only revoke a session
+// the caller can present, and clearing cookies affects only their browser.
+// CSRF still applies while a live fireisp_access cookie is present.
+router.post('/logout', async (req, res, next) => {
   try {
     // Accept refresh token from cookie (browser SPA) or body (API clients)
     const refreshToken = req.cookies?.fireisp_refresh || req.body?.refreshToken;

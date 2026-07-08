@@ -566,6 +566,57 @@ describe('authService', () => {
       const newHash = crypto.createHash('sha256').update(result.refreshToken).digest('hex');
       expect(insertCall[1]).toContain(newHash);
     });
+
+    test('loses the concurrent-redeem race cleanly: DELETE claims 0 rows → 401, no second session minted', async () => {
+      // Two requests redeem the same one-shot token; the other one's DELETE
+      // already consumed the row. This request must NOT insert a session pair
+      // from the stale read — that would mint two live sessions from one token.
+      const refreshTokenValue = crypto.randomBytes(32).toString('hex');
+      const refreshHash = crypto.createHash('sha256').update(refreshTokenValue).digest('hex');
+      const futureDate = new Date(Date.now() + 86400000).toISOString();
+
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, token_hash: refreshHash, user_id: 1, token_family: 'fam-1', expires_at: futureDate }]])  // stale SELECT (row still visible)
+        .mockResolvedValueOnce([[{ id: 1, email: 'john@example.com', role: 'admin', status: 'active', organization_id: 42 }]])  // findById
+        .mockResolvedValueOnce([[{ id: 42 }]])          // getOrganizations
+        .mockResolvedValueOnce([{ affectedRows: 0 }]);  // DELETE — the other request won
+
+      await expect(
+        authService.refreshToken(refreshTokenValue),
+      ).rejects.toThrow('Invalid or expired refresh token');
+
+      const insertCall = db.query.mock.calls.find(c =>
+        typeof c[0] === 'string' && c[0].includes('INSERT INTO user_sessions'),
+      );
+      expect(insertCall).toBeUndefined();
+    });
+  });
+
+  // =========================================================================
+  // switchOrganization — refresh-token rotation shares the atomic claim
+  // =========================================================================
+  describe('switchOrganization', () => {
+    test('loses the concurrent-redeem race cleanly: DELETE claims 0 rows → 401, no second session minted', async () => {
+      const refreshTokenValue = crypto.randomBytes(32).toString('hex');
+      const refreshHash = crypto.createHash('sha256').update(refreshTokenValue).digest('hex');
+      const futureDate = new Date(Date.now() + 86400000).toISOString();
+
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, email: 'a@b.com', role: 'admin', status: 'active', organization_id: 1 }]])  // findById
+        .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]])  // target org exists
+        .mockResolvedValueOnce([[{ membership_role: 'admin' }]])  // membership
+        .mockResolvedValueOnce([[{ id: 3, token_hash: refreshHash, user_id: 1, token_family: 'fam-1', expires_at: futureDate }]])  // session SELECT
+        .mockResolvedValueOnce([{ affectedRows: 0 }]);  // DELETE — concurrent redeem won
+
+      await expect(
+        authService.switchOrganization(1, 7, refreshTokenValue),
+      ).rejects.toThrow('Invalid or expired refresh token');
+
+      const insertCall = db.query.mock.calls.find(c =>
+        typeof c[0] === 'string' && c[0].includes('INSERT INTO user_sessions'),
+      );
+      expect(insertCall).toBeUndefined();
+    });
   });
 
   // =========================================================================

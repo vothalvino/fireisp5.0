@@ -33,41 +33,61 @@ export const tokenStore = {
 let _refreshPromise: Promise<boolean> | null = null;
 
 async function doRefresh(): Promise<boolean> {
-  try {
-    // No body needed — the browser sends the httpOnly `fireisp_refresh` cookie
-    // automatically.  `credentials: 'include'` is required for same-origin
-    // cookie delivery on fetch calls.
-    //
-    // The CSRF middleware enforces X-CSRF-Token for cookie-authenticated POSTs.
-    // Read the non-httpOnly `fireisp_csrf` cookie and echo it back as the header.
-    const csrfToken = readCsrfCookie();
-    const res = await fetch('/api/v1/auth/refresh', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
-      },
-      credentials: 'include',
-    });
+  // No body needed — the browser sends the httpOnly `fireisp_refresh` cookie
+  // automatically.  `credentials: 'include'` is required for same-origin
+  // cookie delivery on fetch calls.
+  //
+  // The CSRF middleware enforces X-CSRF-Token for cookie-authenticated POSTs.
+  // Read the non-httpOnly `fireisp_csrf` cookie and echo it back as the header.
+  const post = async (): Promise<Response | null> => {
+    try {
+      const csrfToken = readCsrfCookie();
+      return await fetch('/api/v1/auth/refresh', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+        },
+        credentials: 'include',
+      });
+    } catch {
+      return null; // network error — transient, not a dead session
+    }
+  };
 
-    if (!res.ok) {
+  let res = await post();
+
+  // A 401/403 here can be the multi-tab rotation race, not a dead session:
+  // refresh tokens are one-shot, so if another tab redeemed the same cookie a
+  // moment earlier, its rotated cookie is already in the browser jar and a
+  // single delayed retry rides it. Only a SECOND 401/403 means the session is
+  // genuinely gone and the user must log in again.
+  if (res && (res.status === 401 || res.status === 403)) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    res = await post();
+    if (res && (res.status === 401 || res.status === 403)) {
       tokenStore.clear();
       return false;
     }
+  }
 
-    const json = (await res.json()) as {
-      data: { accessToken: string; refreshToken: string };
-    };
-
-    // Keep the new access token in memory for the Authorization header path
-    // (used by API clients and programmatic test code).  The server has already
-    // rotated the httpOnly refresh cookie in its Set-Cookie response header.
-    tokenStore.setAccess(json.data.accessToken);
-    return true;
-  } catch {
-    tokenStore.clear();
+  // Transient failure (429 rate-limited, 5xx, network): the refresh cookie is
+  // still valid, so do NOT clear the session — the next 401 simply triggers
+  // another refresh attempt. Clearing here turned every rate-limit blip into
+  // a forced re-login.
+  if (!res || !res.ok) {
     return false;
   }
+
+  const json = (await res.json()) as {
+    data: { accessToken: string; refreshToken: string };
+  };
+
+  // Keep the new access token in memory for the Authorization header path
+  // (used by API clients and programmatic test code).  The server has already
+  // rotated the httpOnly refresh cookie in its Set-Cookie response header.
+  tokenStore.setAccess(json.data.accessToken);
+  return true;
 }
 
 // Middleware: attach Authorization header to every request.

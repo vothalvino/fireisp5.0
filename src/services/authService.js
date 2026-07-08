@@ -265,8 +265,16 @@ async function refreshToken(currentRefreshToken, requestedActiveOrgId = null) {
   const newRefreshHash = crypto.createHash('sha256').update(newRefreshValue).digest('hex');
   const family = session.token_family;
 
-  // Rotate: delete old session, insert new one with same family
-  await db.query('DELETE FROM user_sessions WHERE id = ?', [session.id]);
+  // Rotate: consume the old session, insert new one with same family.
+  // The DELETE is the atomic claim — when two concurrent requests redeem the
+  // same token (e.g. two tabs refreshing together), exactly one deletes the
+  // row; the other sees affectedRows 0 and must NOT mint a second session
+  // pair from an already-consumed token. The loser's client retries and
+  // succeeds with the winner's rotated cookie.
+  const [claim] = await db.query('DELETE FROM user_sessions WHERE id = ?', [session.id]);
+  if (!claim || claim.affectedRows === 0) {
+    throw new UnauthorizedError('Invalid or expired refresh token');
+  }
   await db.query(
     `INSERT INTO user_sessions (user_id, token_hash, token_family, ip_address, user_agent, expires_at)
      VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
@@ -480,10 +488,15 @@ async function switchOrganization(userId, organizationId, currentRefreshToken) {
     { expiresIn: config.jwt.accessExpiresIn, algorithm: config.jwt.algorithm },
   );
 
-  // Rotate refresh token within the same family.
+  // Rotate refresh token within the same family. As in refreshToken(), the
+  // DELETE is the atomic claim: a concurrent redeem of the same token loses
+  // (affectedRows 0) instead of minting a duplicate session pair.
   const newRefreshValue = generateRefreshToken();
   const newRefreshHash = crypto.createHash('sha256').update(newRefreshValue).digest('hex');
-  await db.query('DELETE FROM user_sessions WHERE id = ?', [session.id]);
+  const [claim] = await db.query('DELETE FROM user_sessions WHERE id = ?', [session.id]);
+  if (!claim || claim.affectedRows === 0) {
+    throw new UnauthorizedError('Invalid or expired refresh token');
+  }
   await db.query(
     `INSERT INTO user_sessions (user_id, token_hash, token_family, ip_address, user_agent, expires_at)
      VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,

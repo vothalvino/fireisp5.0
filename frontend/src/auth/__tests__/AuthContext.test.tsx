@@ -15,7 +15,7 @@ function wrapper({ children }: { children: ReactNode }) {
   return <AuthProvider>{children}</AuthProvider>;
 }
 
-function mockFetch(responses: Array<{ ok: boolean; json?: object; status?: number }>) {
+function mockFetch(responses: Array<{ ok: boolean; json?: object; status?: number; headers?: Record<string, string> }>) {
   let callIndex = 0;
   return vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
     const resp = responses[callIndex] ?? responses[responses.length - 1];
@@ -23,6 +23,7 @@ function mockFetch(responses: Array<{ ok: boolean; json?: object; status?: numbe
     return Promise.resolve({
       ok: resp.ok,
       status: resp.status ?? (resp.ok ? 200 : 401),
+      headers: new Headers(resp.headers ?? {}),
       json: () => Promise.resolve(resp.json ?? {}),
     } as Response);
   });
@@ -42,18 +43,53 @@ describe('AuthContext', () => {
   });
 
   it('settles logged-out when neither the access cookie nor refresh cookie is valid', async () => {
-    // Cookie-first bootstrap: GET /auth/me (access cookie) → 401, then a single
-    // POST /auth/refresh → 401 → settle as logged-out.
+    // Cookie-first bootstrap: GET /auth/me (access cookie) → 401, then
+    // POST /auth/refresh → 401. Refresh tokens are one-shot, so a lone 401 can
+    // be a lost rotation race against a sibling tab — the flow re-loops ONCE
+    // (me → refresh again); only the second refresh denial settles logged-out.
     mockFetch([
       { ok: false, status: 401, json: { error: { message: 'No session' } } }, // GET /auth/me
       { ok: false, status: 401, json: { error: { message: 'No session' } } }, // POST /auth/refresh
+      { ok: false, status: 401, json: { error: { message: 'No session' } } }, // GET /auth/me (race re-check)
+      { ok: false, status: 401, json: { error: { message: 'No session' } } }, // POST /auth/refresh → second denial
     ]);
 
     const { result } = renderHook(() => useAuth(), { wrapper });
 
-    await waitFor(() => expect(result.current.initialized).toBe(true));
+    await waitFor(() => expect(result.current.initialized).toBe(true), { timeout: 3000 });
     expect(result.current.user).toBeNull();
     expect(result.current.loading).toBe(false);
+  });
+
+  it('recovers the session when a sibling tab won the refresh race', async () => {
+    // Two tabs mount together; the other tab redeems the shared one-shot
+    // refresh cookie first, so OUR /refresh 401s — but the winner's rotated
+    // access cookie is already in the jar, so the re-loop /me succeeds. The
+    // user must NOT be bounced to the login screen.
+    const user = { id: 1, email: 'admin@test.com', name: 'Admin', role: 'admin', organization_id: 1, is_active: true, email_verified: true, twofa_enabled: false };
+    mockFetch([
+      { ok: false, status: 401 },         // GET /auth/me → expired access cookie
+      { ok: false, status: 401 },         // POST /auth/refresh → lost the rotation race
+      { ok: true, json: { data: user } }, // GET /auth/me → winner's cookie restores us
+    ]);
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.initialized).toBe(true), { timeout: 3000 });
+    expect(result.current.user).toMatchObject({ id: 1, email: 'admin@test.com' });
+  });
+
+  it('honors Retry-After when the bootstrap is rate-limited', async () => {
+    const user = { id: 1, email: 'admin@test.com', name: 'Admin', role: 'admin', organization_id: 1, is_active: true, email_verified: true, twofa_enabled: false };
+    mockFetch([
+      { ok: false, status: 429, headers: { 'retry-after': '1' } }, // GET /auth/me → rate-limited with a hint
+      { ok: true, json: { data: user } },                          // retry after ~1s → 200
+    ]);
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.initialized).toBe(true), { timeout: 4000 });
+    expect(result.current.user).toMatchObject({ id: 1 });
   });
 
   it('restores the session from the access cookie alone — no /refresh, no rotation', async () => {
@@ -110,11 +146,13 @@ describe('AuthContext', () => {
     mockFetch([
       { ok: false, status: 401 }, // GET /auth/me
       { ok: false, status: 401 }, // POST /auth/refresh
+      { ok: false, status: 401 }, // GET /auth/me (race re-check)
+      { ok: false, status: 401 }, // POST /auth/refresh → second denial settles
     ]);
 
     const { result } = renderHook(() => useAuth(), { wrapper });
 
-    await waitFor(() => expect(result.current.initialized).toBe(true));
+    await waitFor(() => expect(result.current.initialized).toBe(true), { timeout: 3000 });
     expect(result.current.user).toBeNull();
     expect(tokenStore.getAccess()).toBeNull();
     expect(localStorage.getItem('fireisp_refresh_token')).toBeNull();
@@ -126,6 +164,8 @@ describe('AuthContext', () => {
     mockFetch([
       { ok: false, status: 401 }, // mount GET /auth/me → 401
       { ok: false, status: 401 }, // mount POST /auth/refresh → 401 (no session yet)
+      { ok: false, status: 401 }, // mount GET /auth/me (race re-check)
+      { ok: false, status: 401 }, // mount POST /auth/refresh → second denial settles
       { ok: true, json: { data: { accessToken: 'acc', refreshToken: 'ref', expiresIn: 900, user } } }, // POST /auth/login
     ]);
 
@@ -145,6 +185,8 @@ describe('AuthContext', () => {
     mockFetch([
       { ok: false, status: 401 }, // mount GET /auth/me → 401
       { ok: false, status: 401 }, // mount POST /auth/refresh → 401
+      { ok: false, status: 401 }, // mount GET /auth/me (race re-check)
+      { ok: false, status: 401 }, // mount POST /auth/refresh → second denial settles
       { ok: false, status: 401, json: { error: { message: 'Invalid credentials' } } }, // POST /auth/login
     ]);
 
@@ -162,6 +204,8 @@ describe('AuthContext', () => {
     mockFetch([
       { ok: false, status: 401 }, // mount GET /auth/me → 401
       { ok: false, status: 401 }, // mount POST /auth/refresh → 401
+      { ok: false, status: 401 }, // mount GET /auth/me (race re-check)
+      { ok: false, status: 401 }, // mount POST /auth/refresh → second denial settles
       { ok: true, json: { data: { accessToken: 'a', refreshToken: 'r', expiresIn: 900, user } } }, // login
       { ok: true, json: {} }, // logout
     ]);
