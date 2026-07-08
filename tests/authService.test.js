@@ -20,6 +20,21 @@ const db = require('../src/config/database');
 const bcrypt = require('bcryptjs');
 const authService = require('../src/services/authService');
 
+// Session rotation (consume old + insert successor) runs in a transaction on
+// a dedicated connection (authService.consumeAndReplaceSession) — mock it.
+function mockSessionTxn(...executeResults) {
+  const conn = {
+    execute: jest.fn(),
+    beginTransaction: jest.fn(),
+    commit: jest.fn(),
+    rollback: jest.fn(),
+    release: jest.fn(),
+  };
+  for (const r of executeResults) conn.execute.mockResolvedValueOnce(r);
+  db.getConnection.mockResolvedValue(conn);
+  return conn;
+}
+
 describe('authService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -445,9 +460,8 @@ describe('authService', () => {
       db.query
         .mockResolvedValueOnce([[{ id: 1, token_hash: refreshHash, user_id: 1, token_family: 'fam-1', expires_at: futureDate }]])  // session exists
         .mockResolvedValueOnce([[{ id: 1, email: 'john@example.com', role: 'admin', status: 'active', organization_id: 42 }]])  // findById
-        .mockResolvedValueOnce([[{ id: 42 }]])  // getOrganizations
-        .mockResolvedValueOnce([{ affectedRows: 1 }])  // DELETE old session
-        .mockResolvedValueOnce([{ insertId: 2 }]);  // INSERT new session
+        .mockResolvedValueOnce([[{ id: 42 }]]);  // getOrganizations
+      const conn = mockSessionTxn([{ affectedRows: 1 }], [{ insertId: 2 }]);  // DELETE claim + INSERT new
 
       const result = await authService.refreshToken(refreshTokenValue);
 
@@ -455,6 +469,8 @@ describe('authService', () => {
       expect(result.refreshToken).toBeDefined();
       expect(result.refreshToken).not.toBe(refreshTokenValue); // new refresh token
       expect(result.expiresIn).toBe(3600); // 60-minute access token
+      expect(conn.commit).toHaveBeenCalled();
+      expect(conn.release).toHaveBeenCalled();
     });
 
     test('preserves a valid requested active org across refresh (admin → non-membership org)', async () => {
@@ -467,9 +483,8 @@ describe('authService', () => {
         .mockResolvedValueOnce([[{ id: 1, email: 'a@b.com', role: 'admin', status: 'active', organization_id: 1 }]]) // findById
         .mockResolvedValueOnce([[{ id: 1 }]])               // getOrganizations → primary org 1
         .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]]) // resolveActiveOrg: org 7 exists
-        .mockResolvedValueOnce([[]])                        // resolveActiveOrg: not a member (admin allowed anyway)
-        .mockResolvedValueOnce([{ affectedRows: 1 }])       // DELETE old
-        .mockResolvedValueOnce([{ insertId: 2 }]);          // INSERT new
+        .mockResolvedValueOnce([[]]);                       // resolveActiveOrg: not a member (admin allowed anyway)
+      mockSessionTxn([{ affectedRows: 1 }], [{ insertId: 2 }]);  // DELETE claim + INSERT new
 
       const result = await authService.refreshToken(refreshTokenValue, '7');
 
@@ -486,9 +501,8 @@ describe('authService', () => {
         .mockResolvedValueOnce([[{ id: 1, email: 'a@b.com', role: 'support', status: 'active', organization_id: 1 }]]) // findById (non-admin)
         .mockResolvedValueOnce([[{ id: 1 }]])               // getOrganizations → primary org 1
         .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]]) // resolveActiveOrg: org 7 exists
-        .mockResolvedValueOnce([[]])                        // resolveActiveOrg: not a member → null (non-admin)
-        .mockResolvedValueOnce([{ affectedRows: 1 }])       // DELETE old
-        .mockResolvedValueOnce([{ insertId: 2 }]);          // INSERT new
+        .mockResolvedValueOnce([[]]);                       // resolveActiveOrg: not a member → null (non-admin)
+      mockSessionTxn([{ affectedRows: 1 }], [{ insertId: 2 }]);  // DELETE claim + INSERT new
 
       // Not an admin and not a member of org 7 → the switch is rejected on refresh.
       const result = await authService.refreshToken(refreshTokenValue, '7');
@@ -542,21 +556,20 @@ describe('authService', () => {
       db.query
         .mockResolvedValueOnce([[{ id: 10, token_hash: refreshHash, user_id: 1, token_family: 'fam-abc', expires_at: futureDate }]])
         .mockResolvedValueOnce([[{ id: 1, email: 'john@example.com', role: 'admin', status: 'active', organization_id: 42 }]])
-        .mockResolvedValueOnce([[{ id: 42 }]])  // getOrganizations
-        .mockResolvedValueOnce([{ affectedRows: 1 }])   // DELETE old
-        .mockResolvedValueOnce([{ insertId: 11 }]);      // INSERT new
+        .mockResolvedValueOnce([[{ id: 42 }]]);  // getOrganizations
+      const conn = mockSessionTxn([{ affectedRows: 1 }], [{ insertId: 11 }]);
 
       const result = await authService.refreshToken(refreshTokenValue);
 
-      // Verify DELETE was called with old session id
-      const deleteCall = db.query.mock.calls.find(c =>
+      // Rotation runs inside a transaction: DELETE claim then INSERT successor.
+      const deleteCall = conn.execute.mock.calls.find(c =>
         typeof c[0] === 'string' && c[0].includes('DELETE FROM user_sessions WHERE id'),
       );
       expect(deleteCall).toBeDefined();
       expect(deleteCall[1]).toContain(10);
 
       // Verify INSERT carries the same token_family
-      const insertCall = db.query.mock.calls.find(c =>
+      const insertCall = conn.execute.mock.calls.find(c =>
         typeof c[0] === 'string' && c[0].includes('INSERT INTO user_sessions'),
       );
       expect(insertCall).toBeDefined();
@@ -565,6 +578,79 @@ describe('authService', () => {
       // New refresh token hash should be stored
       const newHash = crypto.createHash('sha256').update(result.refreshToken).digest('hex');
       expect(insertCall[1]).toContain(newHash);
+      expect(conn.beginTransaction).toHaveBeenCalled();
+      expect(conn.commit).toHaveBeenCalled();
+    });
+
+    test('loses the concurrent-redeem race cleanly: DELETE claims 0 rows → 401, no second session minted', async () => {
+      // Two requests redeem the same one-shot token; the other one's DELETE
+      // already consumed the row. This request must NOT insert a session pair
+      // from the stale read — that would mint two live sessions from one token.
+      const refreshTokenValue = crypto.randomBytes(32).toString('hex');
+      const refreshHash = crypto.createHash('sha256').update(refreshTokenValue).digest('hex');
+      const futureDate = new Date(Date.now() + 86400000).toISOString();
+
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, token_hash: refreshHash, user_id: 1, token_family: 'fam-1', expires_at: futureDate }]])  // stale SELECT (row still visible)
+        .mockResolvedValueOnce([[{ id: 1, email: 'john@example.com', role: 'admin', status: 'active', organization_id: 42 }]])  // findById
+        .mockResolvedValueOnce([[{ id: 42 }]]);         // getOrganizations
+      const conn = mockSessionTxn([{ affectedRows: 0 }]);  // DELETE — the other request won
+
+      await expect(
+        authService.refreshToken(refreshTokenValue),
+      ).rejects.toThrow('Invalid or expired refresh token');
+
+      expect(conn.execute).toHaveBeenCalledTimes(1);  // no INSERT after a lost claim
+      expect(conn.commit).not.toHaveBeenCalled();
+      expect(conn.rollback).toHaveBeenCalled();
+      expect(conn.release).toHaveBeenCalled();
+    });
+
+    test('rolls the claim back when the successor INSERT fails, so the session survives a DB blip', async () => {
+      const refreshTokenValue = crypto.randomBytes(32).toString('hex');
+      const refreshHash = crypto.createHash('sha256').update(refreshTokenValue).digest('hex');
+      const futureDate = new Date(Date.now() + 86400000).toISOString();
+
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, token_hash: refreshHash, user_id: 1, token_family: 'fam-1', expires_at: futureDate }]])
+        .mockResolvedValueOnce([[{ id: 1, email: 'john@example.com', role: 'admin', status: 'active', organization_id: 42 }]])
+        .mockResolvedValueOnce([[{ id: 42 }]]);
+      const conn = mockSessionTxn([{ affectedRows: 1 }]);  // DELETE claim succeeds…
+      conn.execute.mockRejectedValueOnce(new Error('deadlock'));  // …INSERT fails
+
+      await expect(authService.refreshToken(refreshTokenValue)).rejects.toThrow('deadlock');
+
+      // Rollback restores the consumed session row — the user keeps a valid
+      // refresh token and the next attempt succeeds, instead of being
+      // force-logged-out by a transient DB error.
+      expect(conn.commit).not.toHaveBeenCalled();
+      expect(conn.rollback).toHaveBeenCalled();
+      expect(conn.release).toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
+  // switchOrganization — refresh-token rotation shares the atomic claim
+  // =========================================================================
+  describe('switchOrganization', () => {
+    test('loses the concurrent-redeem race cleanly: DELETE claims 0 rows → 401, no second session minted', async () => {
+      const refreshTokenValue = crypto.randomBytes(32).toString('hex');
+      const refreshHash = crypto.createHash('sha256').update(refreshTokenValue).digest('hex');
+      const futureDate = new Date(Date.now() + 86400000).toISOString();
+
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, email: 'a@b.com', role: 'admin', status: 'active', organization_id: 1 }]])  // findById
+        .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]])  // target org exists
+        .mockResolvedValueOnce([[{ membership_role: 'admin' }]])  // membership
+        .mockResolvedValueOnce([[{ id: 3, token_hash: refreshHash, user_id: 1, token_family: 'fam-1', expires_at: futureDate }]]);  // session SELECT
+      const conn = mockSessionTxn([{ affectedRows: 0 }]);  // DELETE — concurrent redeem won
+
+      await expect(
+        authService.switchOrganization(1, 7, refreshTokenValue),
+      ).rejects.toThrow('Invalid or expired refresh token');
+
+      expect(conn.execute).toHaveBeenCalledTimes(1);  // no INSERT after a lost claim
+      expect(conn.rollback).toHaveBeenCalled();
     });
   });
 

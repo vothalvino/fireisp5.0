@@ -64,9 +64,17 @@ describe('Auth Service — refreshToken', () => {
     db.query
       .mockResolvedValueOnce([[{ id: 1, user_id: 1, token_hash: tokenHash, token_family: 'fam-1', expires_at: futureDate }]])  // SELECT session
       .mockResolvedValueOnce([[{ id: 1, email: 'test@example.com', role: 'admin', status: 'active', organization_id: 1 }]])  // User.findById
-      .mockResolvedValueOnce([[{ id: 1 }]])  // getOrganizations
-      .mockResolvedValueOnce([{ affectedRows: 1 }])  // DELETE old session
-      .mockResolvedValueOnce([{ insertId: 2 }]);  // INSERT new session
+      .mockResolvedValueOnce([[{ id: 1 }]]);  // getOrganizations
+    // Rotation (DELETE claim + INSERT successor) runs in a transaction.
+    db.getConnection.mockResolvedValue({
+      execute: jest.fn()
+        .mockResolvedValueOnce([{ affectedRows: 1 }])   // DELETE old session
+        .mockResolvedValueOnce([{ insertId: 2 }]),       // INSERT new session
+      beginTransaction: jest.fn(),
+      commit: jest.fn(),
+      rollback: jest.fn(),
+      release: jest.fn(),
+    });
 
     // Mock User.findById
     jest.spyOn(User, 'findById').mockResolvedValue({

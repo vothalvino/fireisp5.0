@@ -59,8 +59,9 @@ interface AuthState {
 interface AuthContextValue extends AuthState {
   login: (email: string, password: string, totpCode?: string) => Promise<void>;
   logout: () => Promise<void>;
-  /** Call after an external token change (e.g., impersonation) to re-hydrate user */
-  refresh: () => Promise<void>;
+  /** Call after an external token change (e.g., impersonation) to re-hydrate user.
+   *  Resolves true when the profile was refreshed, false on failure. */
+  refresh: () => Promise<boolean>;
   /** Switch the active organization for a multi-tenant user */
   switchOrganization: (organizationId: number) => Promise<void>;
 }
@@ -90,7 +91,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   // Fetch /auth/me with the current access token.
-  const hydrateUser = useCallback(async () => {
+  // Returns true when the profile was (re-)hydrated, false otherwise — callers
+  // that NEED fresh data (e.g. after an org switch) use this to retry.
+  const hydrateUser = useCallback(async (): Promise<boolean> => {
     setState(s => ({ ...s, loading: true }));
     try {
       const res = await fetch('/api/v1/auth/me', {
@@ -102,14 +105,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         const json = (await res.json()) as { data: AuthUser };
         setState({ user: json.data, loading: false, initialized: true });
-      } else {
+        return true;
+      }
+      if (res.status === 401 || res.status === 403) {
         tokenStore.clear();
         setState({ user: null, loading: false, initialized: true });
+        return false;
       }
+      // Transient (429/5xx): the session is not dead, we just couldn't
+      // re-hydrate right now — keep the current user instead of logging out.
+      setState(s => ({ ...s, loading: false, initialized: true }));
+      return false;
     } catch {
+      // Network blip — same as transient above: keep the session.
+      setState(s => ({ ...s, loading: false, initialized: true }));
+      return false;
+    }
+  }, []);
+
+  // Mid-session dead-session signal: doRefresh (api/client.ts) dispatches
+  // this after a definitive double-401 on /auth/refresh. Without it nothing
+  // ever sets user=null mid-session, so the user would sit in a rendered app
+  // where every API call 401s until they manually reloaded.
+  useEffect(() => {
+    const onSessionExpired = () => {
       tokenStore.clear();
       setState({ user: null, loading: false, initialized: true });
-    }
+    };
+    window.addEventListener('fireisp:session-expired', onSessionExpired);
+    return () => window.removeEventListener('fireisp:session-expired', onSessionExpired);
   }, []);
 
   // On mount: attempt silent session restore by calling the refresh endpoint.
@@ -141,9 +165,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       tokenStore.clear();
       setState({ user: null, loading: false, initialized: true });
     };
+    // When rate-limited, the server says how long to wait — waiting a fixed
+    // 400ms against a multi-minute window guaranteed a bounce to /login.
+    const retryAfterMs = (res: Response): number | null => {
+      const raw = typeof res.headers?.get === 'function' ? res.headers.get('retry-after') : null;
+      const seconds = Number(raw);
+      return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : null;
+    };
 
     (async () => {
-      for (let attempt = 0; attempt < 3; attempt++) {
+      // Refresh tokens are one-shot: if another tab redeemed the same cookie a
+      // moment before us (parallel mount race), our /refresh 401s — but the
+      // winner's rotated cookies are already in the browser jar, so ONE more
+      // loop recovers the session via them. Only a second denial is real.
+      let refreshDenied = false;
+      for (let attempt = 0; attempt < 6; attempt++) {
+        // Default backoff for 5xx/network; a 429 overrides it below with the
+        // server's Retry-After (much larger cap — waiting out a rate-limit
+        // window beats bouncing a valid session to the login screen, which is
+        // the exact defect this flow exists to prevent).
+        let wait = Math.min(400 * (attempt + 1), 8000);
         try {
           // 1. Fetch /auth/me — via the Bearer token if we minted one this loop,
           //    otherwise via the httpOnly access cookie.
@@ -175,11 +216,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               // 429/5xx on the post-refresh /me retries instead of logging out.
               continue;
             }
-            // Definitive "no session" → logged out; transient → retry the loop.
-            if (!isTransient(refreshRes.status)) {
+            if (refreshRes.status === 401 || refreshRes.status === 403) {
+              // Denied — either truly logged out, or we lost the rotation race
+              // to a sibling tab. Allow one full re-loop (see refreshDenied).
+              if (refreshDenied) {
+                settleLoggedOut();
+                return;
+              }
+              refreshDenied = true;
+            } else if (refreshRes.status === 429) {
+              // Trust an explicit Retry-After (up to 30s per wait — riding out
+              // a rate-limit window beats bouncing a valid session to /login);
+              // without the header keep the default escalating backoff.
+              const hint = retryAfterMs(refreshRes);
+              if (hint !== null) wait = Math.min(hint, 30000);
+            } else if (!isTransient(refreshRes.status)) {
               settleLoggedOut();
               return;
             }
+          } else if (meRes.status === 429) {
+            const hint = retryAfterMs(meRes);
+            if (hint !== null) wait = Math.min(hint, 30000);
           } else if (!isTransient(meRes.status)) {
             settleLoggedOut();
             return;
@@ -188,7 +245,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch {
           // Network error → transient, retry.
         }
-        await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+        await new Promise((resolve) => setTimeout(resolve, wait));
       }
       // Exhausted retries against transient errors. We can't render the app without a
       // user, so settle logged-out as a last resort — but only after retrying, so a
@@ -235,7 +292,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // CSRF token; Bearer is added only when an in-memory token is present.
       const accessToken = tokenStore.getAccess();
       const csrf = readCsrfCookie();
-      await fetch('/api/v1/auth/logout', {
+      const post = () => fetch('/api/v1/auth/logout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -244,6 +301,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
         credentials: 'include',
       });
+      const res = await post();
+      // A failed logout (429/5xx) means the server did NOT revoke the refresh
+      // token or clear the httpOnly cookies — on a shared computer the next
+      // visitor would silently resume this session. One retry is cheap; if it
+      // fails too we still clear local state (the user asked to log out), and
+      // the residual risk is bounded by the refresh token's expiry.
+      if (!res.ok) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await post();
+      }
     } catch {
       // Ignore network errors — local state is cleared regardless below.
     } finally {
@@ -281,14 +348,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const json = (await res.json()) as {
-        data: { accessToken: string; refreshToken: string };
+        data: { accessToken: string; refreshToken: string; organization?: { id: number } };
       };
       // Server rotates the httpOnly refresh cookie in the response headers.
       tokenStore.setAccess(json.data.accessToken);
 
-      // Re-hydrate user profile so `organization_id` and any org-scoped state
-      // reflects the new context.
-      await hydrateUser();
+      // Re-hydrate the user profile so `organization_id` and org-scoped state
+      // reflect the new context. hydrateUser tolerates transient failures by
+      // KEEPING the previous user — which right after an org switch would
+      // leave the whole UI (switcher, currency) on org A while every API call
+      // runs against org B. Retry briefly; as a last resort patch the active
+      // org locally so the UI tracks reality (currency etc. self-heal on the
+      // next successful /me).
+      for (let i = 0; i < 3; i++) {
+        if (await hydrateUser()) return;
+        await new Promise((resolve) => setTimeout(resolve, 600 * (i + 1)));
+      }
+      const switchedOrgId = json.data.organization?.id ?? organizationId;
+      setState(s => (s.user ? { ...s, user: { ...s.user, organization_id: switchedOrgId } } : s));
     },
     [hydrateUser],
   );

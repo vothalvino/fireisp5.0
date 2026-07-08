@@ -24,6 +24,16 @@ const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   appUrl: process.env.APP_URL || 'http://localhost:3000',
 
+  // Number of reverse-proxy hops in front of the app (Express `trust proxy`).
+  // Without this, `req.ip` is the proxy's address for every client, which
+  // collapses all per-IP rate limiting into ONE shared bucket — active users
+  // exhaust it and get bounced to the login screen when /auth/refresh 429s.
+  // Production deploys (docker-compose.prod, install.sh, host-nginx) all put
+  // exactly one Nginx in front of the app, hence the production default of 1.
+  // Set TRUST_PROXY to the real hop count for other topologies (e.g. 2 behind
+  // an LB + Nginx); 0 disables (direct exposure, no proxy).
+  trustProxy: parseIntEnv('TRUST_PROXY', (process.env.NODE_ENV || 'development') === 'production' ? 1 : 0),
+
   jwt: {
     secret: process.env.JWT_SECRET || DEFAULT_JWT_SECRET,
     expiresIn: process.env.JWT_EXPIRES_IN || '24h',
@@ -47,8 +57,14 @@ const config = {
   // Rate limit overrides (requests per window)
   rateLimit: {
     windowMs: parseIntEnv('RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000),
-    api: parseIntEnv('RATE_LIMIT_API', 200),
+    // Per-IP general API budget. The SPA fires dozens of calls per page view,
+    // and office NATs put many staff behind one IP — 200 starved real usage.
+    api: parseIntEnv('RATE_LIMIT_API', 1000),
     auth: parseIntEnv('RATE_LIMIT_AUTH', 20),
+    // Session-keepalive endpoints (/auth/me, /auth/refresh, /auth/logout,
+    // /auth/switch-organization) get their own per-IP bucket so a busy
+    // dashboard can never starve its own session and force a re-login.
+    session: parseIntEnv('RATE_LIMIT_SESSION', 240),
     public: parseIntEnv('RATE_LIMIT_PUBLIC', 60),
     upload: parseIntEnv('RATE_LIMIT_UPLOAD', 30),
     export: parseIntEnv('RATE_LIMIT_EXPORT', 20),
@@ -56,7 +72,7 @@ const config = {
     webhook: parseIntEnv('RATE_LIMIT_WEBHOOK', 100),
     // Per-tenant limits — apply to all authenticated/org-scoped requests
     tenantWindowMs: parseIntEnv('RATE_LIMIT_TENANT_WINDOW_MS', 15 * 60 * 1000),
-    tenantApi: parseIntEnv('RATE_LIMIT_TENANT_API', 500),
+    tenantApi: parseIntEnv('RATE_LIMIT_TENANT_API', 2000),
   },
 
   // Request timeout in milliseconds (0 = disabled)

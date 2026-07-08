@@ -46,6 +46,42 @@ function generateRefreshToken() {
 }
 
 /**
+ * Atomically consume a session row and insert its rotated successor.
+ *
+ * One transaction, two guarantees:
+ *  - The DELETE is the claim: of N concurrent redeems of the same one-shot
+ *    refresh token, exactly one sees affectedRows 1; the rest get 401 instead
+ *    of minting extra live session pairs (token-reuse hardening).
+ *  - Rollback on a failed INSERT restores the old session row, so a DB blip
+ *    mid-rotation degrades to "retry works" instead of "user force-logged-out
+ *    with zero valid refresh tokens".
+ *
+ * @param {number} sessionId  Row id of the session being consumed.
+ * @param {Array} insertParams  [user_id, token_hash, token_family, ip, ua, refreshSeconds]
+ */
+async function consumeAndReplaceSession(sessionId, insertParams) {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [claim] = await conn.execute('DELETE FROM user_sessions WHERE id = ?', [sessionId]);
+    if (!claim || claim.affectedRows === 0) {
+      throw new UnauthorizedError('Invalid or expired refresh token');
+    }
+    await conn.execute(
+      `INSERT INTO user_sessions (user_id, token_hash, token_family, ip_address, user_agent, expires_at)
+       VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
+      insertParams,
+    );
+    await conn.commit();
+  } catch (err) {
+    try { await conn.rollback(); } catch { /* connection already unusable */ }
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+/**
  * Register a new user.
  */
 async function register({ firstName, lastName, email, password, organizationId, role }) {
@@ -265,13 +301,16 @@ async function refreshToken(currentRefreshToken, requestedActiveOrgId = null) {
   const newRefreshHash = crypto.createHash('sha256').update(newRefreshValue).digest('hex');
   const family = session.token_family;
 
-  // Rotate: delete old session, insert new one with same family
-  await db.query('DELETE FROM user_sessions WHERE id = ?', [session.id]);
-  await db.query(
-    `INSERT INTO user_sessions (user_id, token_hash, token_family, ip_address, user_agent, expires_at)
-     VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
-    [user.id, newRefreshHash, family, null, null, REFRESH_SECONDS],
-  );
+  // Rotate: consume the old session and insert its successor in ONE
+  // transaction. The DELETE is the atomic claim — when two concurrent
+  // requests redeem the same token (e.g. two tabs refreshing together),
+  // exactly one deletes the row; the other sees affectedRows 0 and must NOT
+  // mint a second session pair from an already-consumed token (the loser's
+  // client retries and succeeds with the winner's rotated cookie). The
+  // transaction ensures a failed INSERT rolls the claim back — otherwise a
+  // single DB blip mid-rotation would destroy the session outright, leaving
+  // the user with zero valid refresh tokens.
+  await consumeAndReplaceSession(session.id, [user.id, newRefreshHash, family, null, null, REFRESH_SECONDS]);
 
   return {
     accessToken: newAccessToken,
@@ -480,15 +519,13 @@ async function switchOrganization(userId, organizationId, currentRefreshToken) {
     { expiresIn: config.jwt.accessExpiresIn, algorithm: config.jwt.algorithm },
   );
 
-  // Rotate refresh token within the same family.
+  // Rotate refresh token within the same family. As in refreshToken(): the
+  // DELETE is the atomic claim (a concurrent redeem loses instead of minting
+  // a duplicate pair) and the transaction rolls the claim back if the INSERT
+  // fails, so a DB blip can't destroy the session.
   const newRefreshValue = generateRefreshToken();
   const newRefreshHash = crypto.createHash('sha256').update(newRefreshValue).digest('hex');
-  await db.query('DELETE FROM user_sessions WHERE id = ?', [session.id]);
-  await db.query(
-    `INSERT INTO user_sessions (user_id, token_hash, token_family, ip_address, user_agent, expires_at)
-     VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
-    [user.id, newRefreshHash, session.token_family, null, null, REFRESH_SECONDS],
-  );
+  await consumeAndReplaceSession(session.id, [user.id, newRefreshHash, session.token_family, null, null, REFRESH_SECONDS]);
 
   return {
     accessToken: newAccessToken,

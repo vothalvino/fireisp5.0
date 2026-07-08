@@ -153,12 +153,6 @@ async function refreshToken(token) {
     throw new UnauthorizedError('Account is not active');
   }
 
-  // Rotate: revoke old, issue new
-  await db.query(
-    'UPDATE portal_refresh_tokens SET revoked_at = NOW() WHERE id = ?',
-    [row.id],
-  );
-
   const newAccessToken = jwt.sign(
     { sub: row.client_id, orgId: row.organization_id, type: 'portal' },
     config.jwt.secret,
@@ -169,10 +163,34 @@ async function refreshToken(token) {
   const newHash = crypto.createHash('sha256').update(newRefreshToken).digest('hex');
   const expiresAt = new Date(Date.now() + REFRESH_SECONDS * 1000);
 
-  await db.query(
-    'INSERT INTO portal_refresh_tokens (client_id, token_hash, expires_at) VALUES (?, ?, ?)',
-    [row.client_id, newHash, expiresAt],
-  );
+  // Rotate: revoke old, issue new — one transaction, mirroring the staff-side
+  // authService rotation. The `revoked_at IS NULL` guard + affectedRows check
+  // is the atomic claim: two concurrent redeems of the same one-shot token
+  // (portal open in two tabs, both bootstrapping) can no longer BOTH pass the
+  // SELECT above and mint two live token pairs. The transaction also rolls
+  // the revocation back if the INSERT fails, so a DB blip mid-rotation
+  // doesn't leave the subscriber with zero valid refresh tokens.
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [claim] = await conn.execute(
+      'UPDATE portal_refresh_tokens SET revoked_at = NOW() WHERE id = ? AND revoked_at IS NULL',
+      [row.id],
+    );
+    if (!claim || claim.affectedRows === 0) {
+      throw new UnauthorizedError('Invalid or expired refresh token');
+    }
+    await conn.execute(
+      'INSERT INTO portal_refresh_tokens (client_id, token_hash, expires_at) VALUES (?, ?, ?)',
+      [row.client_id, newHash, expiresAt],
+    );
+    await conn.commit();
+  } catch (err) {
+    try { await conn.rollback(); } catch { /* connection already unusable */ }
+    throw err;
+  } finally {
+    conn.release();
+  }
 
   return {
     accessToken: newAccessToken,

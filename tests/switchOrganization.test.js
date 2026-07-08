@@ -6,8 +6,8 @@
 //   2. organizations exists      → [[{id,name}]]
 //   3. organization_users member → [[{membership_role}]] or [[]]
 //   4. user_sessions lookup      → [[session]]
-//   5. DELETE old session        → [{}]
-//   6. INSERT new session        → [{}]
+// The rotation itself (DELETE claim + INSERT successor) runs in a transaction
+// on a dedicated connection — see mockSessionTxn below.
 
 jest.mock('../src/config/database', () => ({
   query: jest.fn(),
@@ -23,6 +23,22 @@ const db = require('../src/config/database');
 const config = require('../src/config');
 const authService = require('../src/services/authService');
 
+
+// Rotation (consume old + insert successor) runs in a transaction on a
+// dedicated connection (authService.consumeAndReplaceSession) — mock it.
+function mockSessionTxn(...executeResults) {
+  const conn = {
+    execute: jest.fn(),
+    beginTransaction: jest.fn(),
+    commit: jest.fn(),
+    rollback: jest.fn(),
+    release: jest.fn(),
+  };
+  for (const r of executeResults) conn.execute.mockResolvedValueOnce(r);
+  db.getConnection.mockResolvedValue(conn);
+  return conn;
+}
+
 const FUTURE = () => new Date(Date.now() + 86400000).toISOString();
 const PAST = () => new Date(Date.now() - 60000).toISOString();
 
@@ -37,9 +53,8 @@ describe('authService.switchOrganization', () => {
       .mockResolvedValueOnce([[{ id: 1, email: 'jane@acme.test', role: 'support', status: 'active', organization_id: 1 }]]) // findById
       .mockResolvedValueOnce([[{ id: 7, name: 'Acme ISP' }]]) // org exists
       .mockResolvedValueOnce([[{ membership_role: 'support' }]]) // membership
-      .mockResolvedValueOnce([[{ id: 99, token_hash: rtHash, user_id: 1, token_family: 'fam-xyz', expires_at: FUTURE() }]]) // session
-      .mockResolvedValueOnce([{ affectedRows: 1 }]) // DELETE
-      .mockResolvedValueOnce([{ insertId: 100 }]); // INSERT
+      .mockResolvedValueOnce([[{ id: 99, token_hash: rtHash, user_id: 1, token_family: 'fam-xyz', expires_at: FUTURE() }]]); // session
+    mockSessionTxn([{ affectedRows: 1 }], [{ insertId: 100 }]);
 
     const result = await authService.switchOrganization(1, 7, rt);
 
@@ -62,9 +77,8 @@ describe('authService.switchOrganization', () => {
       .mockResolvedValueOnce([[{ id: 1, email: 'admin@x', role: 'admin', status: 'active', organization_id: 1 }]]) // findById
       .mockResolvedValueOnce([[{ id: 42, name: 'Other ISP' }]]) // org exists
       .mockResolvedValueOnce([[]]) // NO membership
-      .mockResolvedValueOnce([[{ id: 5, token_hash: rtHash, user_id: 1, token_family: 'fam', expires_at: FUTURE() }]])
-      .mockResolvedValueOnce([{ affectedRows: 1 }])
-      .mockResolvedValueOnce([{ insertId: 6 }]);
+      .mockResolvedValueOnce([[{ id: 5, token_hash: rtHash, user_id: 1, token_family: 'fam', expires_at: FUTURE() }]]);
+    mockSessionTxn([{ affectedRows: 1 }], [{ insertId: 6 }]);
 
     const result = await authService.switchOrganization(1, 42, rt);
 
@@ -170,13 +184,12 @@ describe('authService.switchOrganization', () => {
       .mockResolvedValueOnce([[{ id: 2, email: 'b@b.c', role: 'billing', status: 'active', organization_id: 1 }]]) // findById
       .mockResolvedValueOnce([[{ id: 5, name: 'Beta ISP' }]]) // org
       .mockResolvedValueOnce([[{ membership_role: 'billing' }]]) // membership
-      .mockResolvedValueOnce([[{ id: 80, token_hash: rtHash, user_id: 2, token_family: 'fam-rotate', expires_at: FUTURE() }]])
-      .mockResolvedValueOnce([{ affectedRows: 1 }]) // DELETE old
-      .mockResolvedValueOnce([{ insertId: 81 }]); // INSERT new
+      .mockResolvedValueOnce([[{ id: 80, token_hash: rtHash, user_id: 2, token_family: 'fam-rotate', expires_at: FUTURE() }]]);
+    const conn = mockSessionTxn([{ affectedRows: 1 }], [{ insertId: 81 }]);
 
     const result = await authService.switchOrganization(2, 5, rt);
 
-    const insertCall = db.query.mock.calls.find(c =>
+    const insertCall = conn.execute.mock.calls.find(c =>
       typeof c[0] === 'string' && c[0].includes('INSERT INTO user_sessions'));
     expect(insertCall).toBeDefined();
     expect(insertCall[1]).toContain('fam-rotate'); // same family

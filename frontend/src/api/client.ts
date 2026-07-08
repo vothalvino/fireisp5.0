@@ -33,39 +33,71 @@ export const tokenStore = {
 let _refreshPromise: Promise<boolean> | null = null;
 
 async function doRefresh(): Promise<boolean> {
-  try {
-    // No body needed — the browser sends the httpOnly `fireisp_refresh` cookie
-    // automatically.  `credentials: 'include'` is required for same-origin
-    // cookie delivery on fetch calls.
-    //
-    // The CSRF middleware enforces X-CSRF-Token for cookie-authenticated POSTs.
-    // Read the non-httpOnly `fireisp_csrf` cookie and echo it back as the header.
-    const csrfToken = readCsrfCookie();
-    const res = await fetch('/api/v1/auth/refresh', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
-      },
-      credentials: 'include',
-    });
+  // No body needed — the browser sends the httpOnly `fireisp_refresh` cookie
+  // automatically.  `credentials: 'include'` is required for same-origin
+  // cookie delivery on fetch calls.
+  //
+  // The CSRF middleware enforces X-CSRF-Token for cookie-authenticated POSTs.
+  // Read the non-httpOnly `fireisp_csrf` cookie and echo it back as the header.
+  const post = async (): Promise<Response | null> => {
+    try {
+      const csrfToken = readCsrfCookie();
+      return await fetch('/api/v1/auth/refresh', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+        },
+        credentials: 'include',
+      });
+    } catch {
+      return null; // network error — transient, not a dead session
+    }
+  };
 
-    if (!res.ok) {
+  let res = await post();
+
+  // A 401/403 here can be the multi-tab rotation race, not a dead session:
+  // refresh tokens are one-shot, so if another tab redeemed the same cookie a
+  // moment earlier, its rotated cookie is already in the browser jar and a
+  // single delayed retry rides it. Only a SECOND 401/403 means the session is
+  // genuinely gone and the user must log in again.
+  if (res && (res.status === 401 || res.status === 403)) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    res = await post();
+    if (res && (res.status === 401 || res.status === 403)) {
       tokenStore.clear();
+      // Tell AuthContext the session is dead so it can settle logged-out and
+      // PrivateRoute can redirect to /login. Without this the user is stuck
+      // in a rendered app where every call 401s until they manually reload.
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('fireisp:session-expired'));
+      }
       return false;
     }
+  }
 
+  // Transient failure (429 rate-limited, 5xx, network): the refresh cookie is
+  // still valid, so do NOT clear the session — the next 401 simply triggers
+  // another refresh attempt. Clearing here turned every rate-limit blip into
+  // a forced re-login.
+  if (!res || !res.ok) {
+    return false;
+  }
+
+  try {
     const json = (await res.json()) as {
       data: { accessToken: string; refreshToken: string };
     };
-
     // Keep the new access token in memory for the Authorization header path
     // (used by API clients and programmatic test code).  The server has already
     // rotated the httpOnly refresh cookie in its Set-Cookie response header.
     tokenStore.setAccess(json.data.accessToken);
     return true;
   } catch {
-    tokenStore.clear();
+    // 200 with an unparsable body (proxy error page, truncated response):
+    // treat as transient. Throwing here would reject the shared
+    // _refreshPromise and explode out of every deduped await site.
     return false;
   }
 }
@@ -100,7 +132,10 @@ const refreshMiddleware: Middleware = {
       _refreshPromise = doRefresh().finally(() => { _refreshPromise = null; });
     }
     const ok = await _refreshPromise;
-    if (!ok) return response; // caller sees 401 — AuthContext will logout
+    // Caller sees the original 401. If the session is genuinely dead,
+    // doRefresh has dispatched 'fireisp:session-expired' and AuthContext
+    // settles logged-out; on transient failures the session stays intact.
+    if (!ok) return response;
 
     // Retry original request with new token.
     const token = tokenStore.getAccess();
