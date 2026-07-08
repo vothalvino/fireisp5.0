@@ -317,12 +317,16 @@ for (const sub of ['/login', '/register', '/password-reset', '/change-password',
   app.use(`/api/v1/auth${sub}`, authLimiter);
 }
 // Session-keepalive endpoints get their own per-IP bucket (RATE_LIMIT_SESSION,
-// default 240/window) and are skipped by apiLimiter above (see isSessionPath).
-// Sharing the general bucket meant a busy dashboard could exhaust it and the
-// resulting 429 on /auth/me + /auth/refresh logged active users out.
+// default 240/window, failures-only counting) and are skipped by apiLimiter
+// above (see isSessionPath). Sharing the general bucket meant a busy dashboard
+// could exhaust it and the resulting 429 on /auth/me + /auth/refresh logged
+// active users out. The subscriber portal gets the same carve-out — CGNAT'd
+// residential subscribers share public IPs far more than office staff do.
 for (const sub of ['/me', '/refresh', '/logout', '/switch-organization']) {
   app.use(`/api/auth${sub}`, sessionLimiter);
   app.use(`/api/v1/auth${sub}`, sessionLimiter);
+  app.use(`/api/portal/auth${sub}`, sessionLimiter);
+  app.use(`/api/v1/portal/auth${sub}`, sessionLimiter);
 }
 app.use('/api/export', exportLimiter);
 app.use('/api/v1/export', exportLimiter);

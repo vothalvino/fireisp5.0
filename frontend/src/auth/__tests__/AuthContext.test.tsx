@@ -79,6 +79,25 @@ describe('AuthContext', () => {
     expect(result.current.user).toMatchObject({ id: 1, email: 'admin@test.com' });
   });
 
+  it('settles logged-out when the API client signals a dead session mid-use', async () => {
+    // doRefresh (api/client.ts) dispatches 'fireisp:session-expired' after a
+    // definitive double-401 on /auth/refresh. AuthContext must react by
+    // clearing the user so PrivateRoute redirects — otherwise the user is
+    // stuck in a rendered app where every call 401s until a manual reload.
+    const user = { id: 1, email: 'admin@test.com', name: 'Admin', role: 'admin', organization_id: 1, is_active: true, email_verified: true, twofa_enabled: false };
+    mockFetch([{ ok: true, json: { data: user } }]);
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.user).not.toBeNull());
+
+    act(() => {
+      window.dispatchEvent(new Event('fireisp:session-expired'));
+    });
+
+    await waitFor(() => expect(result.current.user).toBeNull());
+    expect(tokenStore.getAccess()).toBeNull();
+  });
+
   it('honors Retry-After when the bootstrap is rate-limited', async () => {
     const user = { id: 1, email: 'admin@test.com', name: 'Admin', role: 'admin', organization_id: 1, is_active: true, email_verified: true, twofa_enabled: false };
     mockFetch([

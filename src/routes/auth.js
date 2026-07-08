@@ -132,16 +132,31 @@ router.post('/login',
 // still-valid 7-day refresh cookie then silently re-authenticates the user
 // on the next visit, making logout a no-op exactly when it matters most.
 // The refresh token itself is the credential here: we only revoke a session
-// the caller can present, and clearing cookies affects only their browser.
-// CSRF still applies while a live fireisp_access cookie is present.
-router.post('/logout', async (req, res, next) => {
+// the caller can present.
+//
+// Cookie clearing is gated on browser-bound session context (an auth cookie
+// or a Bearer header — neither can be attached by a cross-site form POST,
+// since the cookies are SameSite=Strict and custom headers need CORS). A
+// bare cross-site POST therefore gets a 200 with NO Set-Cookie headers;
+// without this gate, an attacker page could force-logout a victim, because
+// browsers APPLY Set-Cookie from cross-site responses even though they
+// don't SEND SameSite=Strict cookies with the request. A body refreshToken
+// (attacker-suppliable via cross-site form) revokes only the session it
+// itself names — self-harm — and never triggers cookie clearing.
+router.post('/logout', validate(authSchemas.refreshToken), async (req, res, next) => {
   try {
     // Accept refresh token from cookie (browser SPA) or body (API clients)
-    const refreshToken = req.cookies?.fireisp_refresh || req.body?.refreshToken;
+    const cookieToken = req.cookies?.fireisp_refresh;
+    const bodyToken = typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : undefined;
+    const refreshToken = cookieToken || bodyToken;
     if (refreshToken) {
       await authService.logout(refreshToken);
     }
-    clearAuthCookies(res);
+    const hasBearer = typeof req.headers?.authorization === 'string' &&
+      req.headers.authorization.startsWith('Bearer ');
+    if (cookieToken || req.cookies?.fireisp_access || hasBearer) {
+      clearAuthCookies(res);
+    }
     res.json({ message: 'Logged out' });
   } catch (err) {
     next(err);

@@ -154,20 +154,55 @@ describe('portalAuthService.refreshToken()', () => {
   });
 
   test('rotates refresh token and returns new access token', async () => {
-    db.query
-      .mockResolvedValueOnce([[{
-        id: 10, client_id: 1, organization_id: 1, name: 'Alice',
-        email: 'alice@example.com', status: 'active',
-      }]])  // SELECT valid token
-      .mockResolvedValueOnce([{}])  // revoke old
-      .mockResolvedValueOnce([{ insertId: 11 }]);  // insert new
+    db.query.mockResolvedValueOnce([[{
+      id: 10, client_id: 1, organization_id: 1, name: 'Alice',
+      email: 'alice@example.com', status: 'active',
+    }]]);  // SELECT valid token
+
+    // Rotation (revoke + insert) runs in a transaction on a dedicated connection.
+    const conn = {
+      execute: jest.fn()
+        .mockResolvedValueOnce([{ affectedRows: 1 }])   // atomic revoke claim
+        .mockResolvedValueOnce([{ insertId: 11 }]),      // insert new
+      beginTransaction: jest.fn(),
+      commit: jest.fn(),
+      rollback: jest.fn(),
+      release: jest.fn(),
+    };
+    db.getConnection.mockResolvedValue(conn);
 
     const result = await portalAuthService.refreshToken('validtoken');
 
     expect(result.accessToken).toBe('mock.access.token');
     expect(result.refreshToken).toBeTruthy();
-    // Ensure old token was revoked
-    expect(db.query.mock.calls[1][0]).toContain('revoked_at');
+    // The revoke is the atomic claim: guarded on revoked_at IS NULL.
+    expect(conn.execute.mock.calls[0][0]).toContain('revoked_at IS NULL');
+    expect(conn.commit).toHaveBeenCalled();
+    expect(conn.release).toHaveBeenCalled();
+  });
+
+  test('loses the concurrent-redeem race cleanly: revoke claims 0 rows → 401, no second pair minted, txn rolled back', async () => {
+    db.query.mockResolvedValueOnce([[{
+      id: 10, client_id: 1, organization_id: 1, name: 'Alice',
+      email: 'alice@example.com', status: 'active',
+    }]]);  // stale SELECT — row still visible to this request
+
+    const conn = {
+      execute: jest.fn().mockResolvedValueOnce([{ affectedRows: 0 }]),  // other request won the claim
+      beginTransaction: jest.fn(),
+      commit: jest.fn(),
+      rollback: jest.fn(),
+      release: jest.fn(),
+    };
+    db.getConnection.mockResolvedValue(conn);
+
+    await expect(portalAuthService.refreshToken('validtoken'))
+      .rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+
+    expect(conn.execute).toHaveBeenCalledTimes(1);  // no INSERT after a lost claim
+    expect(conn.commit).not.toHaveBeenCalled();
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.release).toHaveBeenCalled();
   });
 });
 

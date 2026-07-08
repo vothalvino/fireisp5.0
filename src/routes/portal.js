@@ -57,7 +57,12 @@
 const { Router } = require('express');
 const { portalAuthenticate } = require('../middleware/portalAuth');
 const { validate } = require('../middleware/validate');
-const { authLimiter, apiLimiter } = require('../middleware/rateLimit');
+// authLimiter guards the credential endpoint (/auth/login) only. Route-level
+// apiLimiter was REMOVED everywhere else: app.js already applies apiLimiter to
+// all of /api/, so a second router-level pass double-counted every portal
+// request against the same per-IP bucket (and /auth/refresh + /auth/me now
+// live in the dedicated sessionLimiter carve-out — see middleware/rateLimit.js).
+const { authLimiter } = require('../middleware/rateLimit');
 const portalAuthService = require('../services/portalAuthService');
 const checkoutService = require('../services/checkoutService');
 const db = require('../config/database');
@@ -140,11 +145,11 @@ router.post('/auth/login', authLimiter, validate(portalLoginSchema), async (req,
 });
 
 // POST /portal/auth/refresh
-// Uses the general apiLimiter, NOT the strict authLimiter: the portal SPA keeps its
+// Uses the general NOT the strict authLimiter: the portal SPA keeps its
 // access token in memory and re-exchanges the (localStorage) refresh token on every
 // page load, so the strict 20/window limiter would 429 a frequently-reloaded session
 // and bounce the customer to the login screen. /auth/login stays on authLimiter.
-router.post('/auth/refresh', apiLimiter, validate(portalRefreshSchema), async (req, res, next) => {
+router.post('/auth/refresh', validate(portalRefreshSchema), async (req, res, next) => {
   try {
     const result = await portalAuthService.refreshToken(req.body.refreshToken);
     res.json({ data: result });
@@ -205,7 +210,7 @@ router.put('/auth/password', validate(portalPasswordSchema), async (req, res, ne
 // ---------------------------------------------------------------------------
 
 // GET /portal/invoices — list own invoices (paginated)
-router.get('/invoices', apiLimiter, async (req, res, next) => {
+router.get('/invoices', async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page || '1', 10));
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || '20', 10)));
@@ -302,7 +307,7 @@ router.post('/invoices/:id/pay', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 
 // GET /portal/tickets — list own tickets (paginated)
-router.get('/tickets', apiLimiter, async (req, res, next) => {
+router.get('/tickets', async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page || '1', 10));
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || '20', 10)));
@@ -423,7 +428,7 @@ router.post('/tickets/:id/comments', validate(createCommentSchema), async (req, 
 // ---------------------------------------------------------------------------
 
 // GET /portal/data-packs — list available packs for this org
-router.get('/data-packs', apiLimiter, async (req, res, next) => {
+router.get('/data-packs', async (req, res, next) => {
   try {
     const packs = await dataPackService.listPacks(req.client.organizationId);
     res.json({ data: packs });
@@ -433,7 +438,7 @@ router.get('/data-packs', apiLimiter, async (req, res, next) => {
 });
 
 // POST /portal/data-packs/:packId/purchase — self-service purchase
-router.post('/data-packs/:packId/purchase', apiLimiter, async (req, res, next) => {
+router.post('/data-packs/:packId/purchase', async (req, res, next) => {
   try {
     // Resolve the subscriber's active contract
     const [contracts] = await db.query(
@@ -457,7 +462,7 @@ router.post('/data-packs/:packId/purchase', apiLimiter, async (req, res, next) =
 });
 
 // GET /portal/data-packs/my-purchases — list this client's purchases
-router.get('/data-packs/my-purchases', apiLimiter, async (req, res, next) => {
+router.get('/data-packs/my-purchases', async (req, res, next) => {
   try {
     const [contracts] = await db.query(
       `SELECT id FROM contracts
@@ -478,7 +483,7 @@ router.get('/data-packs/my-purchases', apiLimiter, async (req, res, next) => {
 });
 
 // GET /portal/usage/allowance — effective total data allowance
-router.get('/usage/allowance', apiLimiter, async (req, res, next) => {
+router.get('/usage/allowance', async (req, res, next) => {
   try {
     const [contracts] = await db.query(
       `SELECT id FROM contracts
@@ -500,7 +505,7 @@ router.get('/usage/allowance', apiLimiter, async (req, res, next) => {
 // ---------------------------------------------------------------------------
 
 // GET /portal/dashboard — account overview (plan, balance, session, speed tier)
-router.get('/dashboard', apiLimiter, async (req, res, next) => {
+router.get('/dashboard', async (req, res, next) => {
   try {
     const clientId = req.client.id;
 
@@ -621,7 +626,7 @@ router.get('/dashboard', apiLimiter, async (req, res, next) => {
 });
 
 // GET /portal/usage/current-month — daily usage breakdown for chart
-router.get('/usage/current-month', apiLimiter, async (req, res, next) => {
+router.get('/usage/current-month', async (req, res, next) => {
   try {
     const [contracts] = await db.query(
       `SELECT id FROM contracts
@@ -713,7 +718,7 @@ router.get('/invoices/:id/cfdi', async (req, res, next) => {
 });
 
 // GET /portal/payments — payment history
-router.get('/payments', apiLimiter, async (req, res, next) => {
+router.get('/payments', async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page || '1', 10));
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || '20', 10)));
@@ -748,7 +753,7 @@ router.get('/payments', apiLimiter, async (req, res, next) => {
 // ---------------------------------------------------------------------------
 
 // GET /portal/service-requests — list own requests
-router.get('/service-requests', apiLimiter, async (req, res, next) => {
+router.get('/service-requests', async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page || '1', 10));
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || '20', 10)));
@@ -768,7 +773,7 @@ router.get('/service-requests', apiLimiter, async (req, res, next) => {
 });
 
 // POST /portal/service-requests — create a new request
-router.post('/service-requests', apiLimiter, validate(createServiceRequestSchema), async (req, res, next) => {
+router.post('/service-requests', validate(createServiceRequestSchema), async (req, res, next) => {
   try {
     const { request_type, payload } = req.body;
     const request = await portalServiceRequestService.createRequest({
@@ -801,7 +806,7 @@ router.post('/service-requests/:id/cancel', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 
 // GET /portal/kb — list KB articles (public within portal)
-router.get('/kb', apiLimiter, async (req, res, next) => {
+router.get('/kb', async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page || '1', 10));
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || '20', 10)));
@@ -848,7 +853,7 @@ router.post('/kb/:slugOrId/rate', validate(kbRateSchema), async (req, res, next)
 });
 
 // POST /portal/speed-test — queue a speed test job for this client
-router.post('/speed-test', apiLimiter, async (req, res, next) => {
+router.post('/speed-test', async (req, res, next) => {
   try {
     const [contracts] = await db.query(
       `SELECT id, organization_id FROM contracts
@@ -891,7 +896,7 @@ router.post('/speed-test', apiLimiter, async (req, res, next) => {
 });
 
 // GET /portal/speed-test/results — list speed test results for this client
-router.get('/speed-test/results', apiLimiter, async (req, res, next) => {
+router.get('/speed-test/results', async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page || '1', 10));
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || '20', 10)));
@@ -931,7 +936,7 @@ router.get('/speed-test/results', apiLimiter, async (req, res, next) => {
 });
 
 // POST /portal/chat/start — start a new AI chat session
-router.post('/chat/start', apiLimiter, async (req, res, next) => {
+router.post('/chat/start', async (req, res, next) => {
   try {
     const token = portalServiceRequestService.generateChatToken();
     const [result] = await db.query(
@@ -953,7 +958,7 @@ router.post('/chat/start', apiLimiter, async (req, res, next) => {
 });
 
 // POST /portal/chat/:token/message — send a chat message, get AI reply
-router.post('/chat/:token/message', apiLimiter, validate(chatMessageSchema), async (req, res, next) => {
+router.post('/chat/:token/message', validate(chatMessageSchema), async (req, res, next) => {
   try {
     const { token } = req.params;
     const { message } = req.body;
@@ -1050,7 +1055,7 @@ router.post('/chat/:token/message', apiLimiter, validate(chatMessageSchema), asy
 });
 
 // POST /portal/callback-request — create a callback request ticket
-router.post('/callback-request', apiLimiter, async (req, res, next) => {
+router.post('/callback-request', async (req, res, next) => {
   try {
     const { preferred_time, phone, notes } = req.body || {};
     const description = [

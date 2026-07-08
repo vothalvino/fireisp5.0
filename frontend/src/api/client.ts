@@ -67,6 +67,12 @@ async function doRefresh(): Promise<boolean> {
     res = await post();
     if (res && (res.status === 401 || res.status === 403)) {
       tokenStore.clear();
+      // Tell AuthContext the session is dead so it can settle logged-out and
+      // PrivateRoute can redirect to /login. Without this the user is stuck
+      // in a rendered app where every call 401s until they manually reload.
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('fireisp:session-expired'));
+      }
       return false;
     }
   }
@@ -79,15 +85,21 @@ async function doRefresh(): Promise<boolean> {
     return false;
   }
 
-  const json = (await res.json()) as {
-    data: { accessToken: string; refreshToken: string };
-  };
-
-  // Keep the new access token in memory for the Authorization header path
-  // (used by API clients and programmatic test code).  The server has already
-  // rotated the httpOnly refresh cookie in its Set-Cookie response header.
-  tokenStore.setAccess(json.data.accessToken);
-  return true;
+  try {
+    const json = (await res.json()) as {
+      data: { accessToken: string; refreshToken: string };
+    };
+    // Keep the new access token in memory for the Authorization header path
+    // (used by API clients and programmatic test code).  The server has already
+    // rotated the httpOnly refresh cookie in its Set-Cookie response header.
+    tokenStore.setAccess(json.data.accessToken);
+    return true;
+  } catch {
+    // 200 with an unparsable body (proxy error page, truncated response):
+    // treat as transient. Throwing here would reject the shared
+    // _refreshPromise and explode out of every deduped await site.
+    return false;
+  }
 }
 
 // Middleware: attach Authorization header to every request.
@@ -120,7 +132,10 @@ const refreshMiddleware: Middleware = {
       _refreshPromise = doRefresh().finally(() => { _refreshPromise = null; });
     }
     const ok = await _refreshPromise;
-    if (!ok) return response; // caller sees 401 — AuthContext will logout
+    // Caller sees the original 401. If the session is genuinely dead,
+    // doRefresh has dispatched 'fireisp:session-expired' and AuthContext
+    // settles logged-out; on transient failures the session stays intact.
+    if (!ok) return response;
 
     // Retry original request with new token.
     const token = tokenStore.getAccess();
