@@ -7,17 +7,26 @@
 const { Router } = require('express');
 const db = require('../config/database');
 const { authenticate } = require('../middleware/auth');
+const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const bulkSchemas = require('../middleware/schemas/bulk');
 const logger = require('../utils/logger');
 const eventBus = require('../services/eventBus');
 const billingService = require('../services/billingService');
+const suspensionService = require('../services/suspensionService');
 
 const router = Router();
 
-// All bulk routes require authentication
+// All bulk routes require authentication AND an org context. `orgScope` was
+// missing here entirely — every `req.orgId` reference below was `undefined`,
+// so any org-scoped query bound `undefined` as a parameter, which mysql2
+// rejects at the driver level ("Bind parameters must not contain undefined").
+// That only surfaces against a real MySQL connection — this test suite mocks
+// db.query, which happily returns whatever value is queued regardless of the
+// (broken) params it was called with, so the bug was invisible to `pnpm test`.
 router.use(authenticate);
+router.use(orgScope);
 
 // ---------------------------------------------------------------------------
 // POST /bulk/invoices/void — Mass-void invoices
@@ -115,16 +124,43 @@ router.post('/suspend', requirePermission('contracts.update'), validate(bulkSche
     for (const contractId of contract_ids) {
       try {
         const [rows] = await db.query(
-          'UPDATE contracts SET status = ? WHERE id = ? AND organization_id = ? AND status = ?',
-          ['suspended', contractId, orgId, 'active'],
+          'SELECT id, status FROM contracts WHERE id = ? AND organization_id = ?',
+          [contractId, orgId],
         );
-        if (rows.affectedRows > 0) {
-          results.success++;
-          eventBus.emit('contract.suspended', { organizationId: orgId, contractId, reason });
-        } else {
+        const contract = rows[0];
+        if (!contract) {
           results.failed++;
-          results.errors.push({ contract_id: contractId, error: 'Not found or already suspended' });
+          results.errors.push({ contract_id: contractId, error: 'Not found' });
+          continue;
         }
+        // Only an 'active' contract is suspendable — the FSM trigger
+        // (trg_contracts_status_fsm_bu) only permits active -> suspended.
+        // Attempting suspendContract on a pending/cancelled/terminated/
+        // expired/already-suspended row would fail with the trigger's raw
+        // 'Invalid contract status transition' SQLSTATE 45000 error instead
+        // of a clear per-row message, so filter those out here.
+        if (contract.status !== 'active') {
+          results.failed++;
+          results.errors.push({ contract_id: contractId, error: `Cannot suspend a '${contract.status}' contract` });
+          continue;
+        }
+
+        // Route through suspensionService.suspendContract — same as
+        // POST /contracts/:id/suspend — so a bulk suspension gets the same
+        // suspension-exemption check, RADIUS Disconnect-Request, and
+        // radius.status flip (fix/network-authz-hardening, PR #388). The
+        // previous raw UPDATE here silently skipped all three: exempt
+        // clients could be bulk-suspended, no session was kicked, and the
+        // subscriber's PPPoE credentials kept authenticating.
+        const result = await suspensionService.suspendContract(contractId, null, req.user?.id, null);
+        if (result && result.skipped) {
+          results.failed++;
+          results.errors.push({ contract_id: contractId, error: `Suspension-exempt client: ${result.reason || 'exempt'}` });
+          continue;
+        }
+
+        results.success++;
+        eventBus.emit('contract.suspended', { organizationId: orgId, contractId, reason });
       } catch (err) {
         results.failed++;
         results.errors.push({ contract_id: contractId, error: err.message });

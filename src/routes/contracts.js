@@ -11,30 +11,17 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createContract, updateContract, patchContract, createContractAddon } = require('../middleware/schemas/contracts');
 const db = require('../config/database');
-const { AppError } = require('../utils/errors');
 const suspensionService = require('../services/suspensionService');
 const topologyContextService = require('../services/topologyContextService');
 const provisioningService = require('../services/subscriberProvisioningService');
 const routerProvisioningService = require('../services/routerProvisioningService');
+const { assertPlanSelectable } = require('../services/planAvailability');
 const Nas = require('../models/Nas');
 const auditLog = require('../services/auditLog');
 const logger = require('../utils/logger').child({ service: 'routes/contracts' });
 
 const router = Router();
 const ctrl = crudController(Contract);
-
-// A new or changed plan assignment may only target a LIVE plan. Archived
-// (soft-deleted) plans keep billing their EXISTING contracts but cannot take on
-// new ones. `executor` is the pool or a transaction connection (both expose .query).
-async function assertPlanSelectable(executor, planId) {
-  const [rows] = await executor.query(
-    'SELECT id FROM plans WHERE id = ? AND deleted_at IS NULL',
-    [planId],
-  );
-  if (!rows[0]) {
-    throw new AppError('This plan is archived or unavailable; a contract cannot be assigned to it.', 422, 'PLAN_ARCHIVED');
-  }
-}
 
 router.use(authenticate);
 router.use(orgScope);
@@ -57,13 +44,59 @@ async function updateContractHandler(req, res, next) {
       });
     }
 
-    // Block MOVING a contract onto an archived plan. Keeping its current plan is
-    // always fine — even if that plan has since been archived.
+    // Block MOVING a contract onto an archived plan, or one belonging to a
+    // different organization. Keeping its current plan is always fine — even
+    // if that plan has since been archived.
     if (req.body.plan_id !== undefined && Number(req.body.plan_id) !== Number(old.plan_id)) {
-      await assertPlanSelectable(db, req.body.plan_id);
+      await assertPlanSelectable(db, req.body.plan_id, req.orgId);
     }
 
     const record = await Contract.update(req.params.id, req.body, req.orgId);
+
+    // A direct PATCH/PUT status change bypasses the dedicated /suspend,
+    // /unsuspend, /terminate, and /renew routes' RADIUS sync entirely — e.g.
+    // the Edit Contract modal (ContractList.tsx EDIT_STATUSES) always PUTs a
+    // `status` field and legally drives active<->suspended (the FSM trigger
+    // permits both, and Contract.fillable + this route's own schema enum
+    // allow them), and the frontend's Cancel action is a plain
+    // PATCH {status:'cancelled'} (ContractList.tsx patchContractStatus).
+    // Sync radius.status for EVERY status transition the FSM lets through
+    // this handler, mirroring each dedicated route's own radius handling so
+    // a subscriber's live/dead PPPoE state never diverges from
+    // contracts.status regardless of which endpoint drove the change:
+    //   -> suspended                     : radius active -> suspended (+ CoA disconnect)
+    //   -> active                        : radius suspended/inactive -> active (+ CoA
+    //                                       reconnect) — mirrors /renew's reactivation;
+    //                                       the FSM also allows
+    //                                       terminated/cancelled/expired -> active
+    //                                       through this same handler, so an inactive
+    //                                       account must be resurrected here too or a
+    //                                       contract edited back to 'active' would stay
+    //                                       silently offline (same failure mode /renew
+    //                                       fixes for its own endpoint).
+    //   -> terminated/cancelled/expired  : radius -> inactive (+ CoA disconnect)
+    if (req.body.status !== undefined && req.body.status !== old.status) {
+      const newStatus = req.body.status;
+      if (newStatus === 'suspended') {
+        await db.query(
+          "UPDATE radius SET status = 'suspended' WHERE contract_id = ? AND deleted_at IS NULL AND status = 'active'",
+          [record.id],
+        );
+        suspensionService.sendRadiusDisconnect(record.id).catch(() => {});
+      } else if (newStatus === 'active') {
+        await db.query(
+          "UPDATE radius SET status = 'active' WHERE contract_id = ? AND deleted_at IS NULL AND status IN ('suspended', 'inactive')",
+          [record.id],
+        );
+        suspensionService.sendRadiusCoA(record.id, 'reconnect').catch(() => {});
+      } else if (['terminated', 'cancelled', 'expired'].includes(newStatus)) {
+        await db.query(
+          "UPDATE radius SET status = 'inactive' WHERE contract_id = ? AND deleted_at IS NULL",
+          [record.id],
+        );
+        suspensionService.sendRadiusDisconnect(record.id).catch(() => {});
+      }
+    }
 
     await auditLog.log({
       userId: req.user?.id,
@@ -111,8 +144,9 @@ router.post('/', requirePermission('contracts.create'), validate(createContract)
       });
     }
 
-    // A new contract may only run on a live (non-archived) plan.
-    await assertPlanSelectable(conn, filtered.plan_id);
+    // A new contract may only run on a live (non-archived) plan that belongs
+    // to this organization, or a global plan (organization_id IS NULL).
+    await assertPlanSelectable(conn, filtered.plan_id, req.orgId);
 
     const cols = Object.keys(filtered);
     const [ins] = await conn.query(
@@ -256,10 +290,11 @@ router.post('/:id/renew', requirePermission('contracts.update'), async (req, res
     const updates = { status: 'active' };
     if (req.body.end_date !== undefined) updates.end_date = req.body.end_date || null;
     if (req.body.plan_id) updates.plan_id = req.body.plan_id;
-    // A renewal may not move the contract onto an archived plan (keeping the
-    // current plan, archived or not, is fine).
+    // A renewal may not move the contract onto an archived plan, or one
+    // belonging to a different organization (keeping the current plan,
+    // archived or not, is fine).
     if (req.body.plan_id && Number(req.body.plan_id) !== Number(contract.plan_id)) {
-      await assertPlanSelectable(db, req.body.plan_id);
+      await assertPlanSelectable(db, req.body.plan_id, req.orgId);
     }
 
     // PPPoE re-provisioning: a pppoe/pppoe_dual contract cannot be activated
@@ -273,6 +308,19 @@ router.post('/:id/renew', requirePermission('contracts.update'), async (req, res
       const [radRows] = await db.query('SELECT COUNT(*) AS cnt FROM radius WHERE contract_id = ?', [contract.id]);
       if (radRows[0].cnt === 0) {
         provisioning = await provisioningService.provisionNewContract(db, contract);
+      } else {
+        // An existing account may have been deactivated by a prior
+        // terminate/cancel (radius.status='inactive' — see suspendContract/
+        // routes/contracts.js updateContractHandler/lifecycleService.cancelOrder).
+        // A renew is an explicit staff decision to reinstate service, so
+        // reactivate it here rather than leaving the contract 'active' but
+        // offline. Unlike suspensionService.reconnectContract (billing-driven,
+        // automatic — see its "never resurrect inactive" guard), this
+        // intentionally CAN resurrect a deactivated account.
+        await db.query(
+          "UPDATE radius SET status = 'active' WHERE contract_id = ? AND deleted_at IS NULL AND status = 'inactive'",
+          [contract.id],
+        );
       }
     }
 
@@ -385,13 +433,22 @@ router.post('/:id/terminate', requirePermission('contracts.update'), async (req,
         error: { code: 'NOT_TERMINABLE', message: `Cannot terminate a contract with status '${contract.status}'` },
       });
     }
-    // Fire RADIUS disconnect best-effort (don't fail the terminate if CoA fails)
-    if (contract.status === 'active' || contract.status === 'suspended') {
-      suspensionService.suspendContract(
-        parseInt(req.params.id, 10), null, req.user.id, null,
-      ).catch(() => {});
-    }
     const record = await Contract.update(req.params.id, { status: 'terminated' }, req.orgId);
+    // Termination is a permanent end of service — deactivate any RADIUS
+    // account tied to this contract so it stops authenticating NEW PPPoE
+    // sessions (mirrors lifecycleService.cancelOrder's pending->cancelled
+    // flip). Unconditional (not guarded by current radius status), same as
+    // cancelOrder. Previously this route reused suspensionService.suspendContract
+    // purely for its CoA-disconnect side effect, which incorrectly also set
+    // contracts.status back to 'suspended' (immediately overwritten below) and
+    // logged a misleading 'suspend' suspension_logs entry for what is actually
+    // a terminate — replaced with a direct radius flip + CoA disconnect.
+    await db.query(
+      "UPDATE radius SET status = 'inactive' WHERE contract_id = ? AND deleted_at IS NULL",
+      [req.params.id],
+    );
+    // Fire RADIUS disconnect best-effort (don't fail the terminate if CoA fails)
+    suspensionService.sendRadiusDisconnect(parseInt(req.params.id, 10)).catch(() => {});
     await auditLog.log({
       userId: req.user?.id,
       organizationId: req.orgId,

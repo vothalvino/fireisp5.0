@@ -11,12 +11,23 @@ const BaseModel = require('./BaseModel');
 class ServiceOrder extends BaseModel {
   static get tableName() { return 'service_orders'; }
 
+  // `status` and every lifecycle timestamp/approval column (approved_at,
+  // approved_by, activated_at, cancelled_at, started_at, completed_at) are
+  // deliberately EXCLUDED here. None of the schemas in
+  // middleware/schemas/serviceOrders.js declare them, but validate() doesn't
+  // strip undeclared fields — so with them fillable, a raw
+  // PUT/PATCH /service-orders/:id {status:'done'} could write the column
+  // directly and bypass lifecycleService's entire FSM (row locking, contract
+  // activation, invoicing). The only legitimate writers are the raw SQL in
+  // lifecycleService.js#startOrder/completeOrder/cancelOrder (status,
+  // started_at, completed_at, cancelled_at) and the schema's own DEFAULT
+  // 'new' on create (approved_at/approved_by/activated_at are pre-migration-380
+  // columns kept only for historical/audit purposes — see migration 380's
+  // comment — and are no longer written by anything).
   static get fillable() {
     return [
       'organization_id', 'order_number', 'client_id', 'lead_id', 'plan_id',
-      'contract_id', 'order_type', 'status', 'assigned_to', 'address', 'notes',
-      'approved_at', 'approved_by', 'activated_at', 'cancelled_at',
-      'started_at', 'completed_at',
+      'contract_id', 'order_type', 'assigned_to', 'address', 'notes',
     ];
   }
 
