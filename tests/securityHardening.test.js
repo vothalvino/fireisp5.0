@@ -103,7 +103,7 @@ describe('security hardening — integration', () => {
       .send({ first_name: 'X', last_name: 'Y', email: 'x@test.com', password: 'longpassword123', role: 'admin' });
 
     expect(res.status).toBe(403);
-    expect(JSON.stringify(res.body)).toMatch(/administrator may assign or change a user'?s? (group, role, or organization access|role)/i);
+    expect(JSON.stringify(res.body)).toMatch(/administrator may (assign or )?change a user/i);
   });
 
   test('users CRUD still lets an admin assign a role', async () => {
@@ -111,6 +111,27 @@ describe('security hardening — integration', () => {
     const res = await request(app)
       .post('/api/v1/users')
       .send({ first_name: 'A', last_name: 'B', email: 'a@test.com', password: 'longpassword123', role: 'support' });
+    expect(res.status).not.toBe(403);
+  });
+
+  test('users CRUD blocks a non-admin from resetting another user\'s password (account takeover)', async () => {
+    mockCurrentUser = { id: 5, role: 'support', organizationId: 1 };
+    const res = await request(app).patch('/api/v1/users/1').send({ password: 'attacker-chosen-pw' });
+    expect(res.status).toBe(403);
+    expect(JSON.stringify(res.body)).toMatch(/password/i);
+  });
+
+  test('users CRUD blocks a non-admin from changing another user\'s email or status on update', async () => {
+    mockCurrentUser = { id: 5, role: 'support', organizationId: 1 };
+    const emailRes = await request(app).patch('/api/v1/users/1').send({ email: 'attacker@evil.test' });
+    expect(emailRes.status).toBe(403);
+    const statusRes = await request(app).patch('/api/v1/users/1').send({ status: 'active' });
+    expect(statusRes.status).toBe(403);
+  });
+
+  test('but a non-admin CAN still edit non-privileged fields (name, phone) on update', async () => {
+    mockCurrentUser = { id: 5, role: 'support', organizationId: 1 };
+    const res = await request(app).patch('/api/v1/users/1').send({ first_name: 'Renamed', phone: '5550001' });
     expect(res.status).not.toBe(403);
   });
 
@@ -168,7 +189,7 @@ describe('restrictRoleAssignment', () => {
   test('blocks a non-admin from setting role', () => {
     let err; restrictRoleAssignment({ user: { role: 'support' }, body: { role: 'admin' } }, {}, (e) => { err = e; });
     expect(err).toBeTruthy();
-    expect(err.message).toMatch(/administrator may assign or change a user'?s? (group, role, or organization access|role)/i);
+    expect(err.message).toMatch(/administrator may (assign or )?change a user/i);
   });
 
   test('allows an admin to set role', () => {
@@ -179,6 +200,33 @@ describe('restrictRoleAssignment', () => {
   test('allows requests that do not touch role', () => {
     let called = false; restrictRoleAssignment({ user: { role: 'support' }, body: { first_name: 'X' } }, {}, () => { called = true; });
     expect(called).toBe(true);
+  });
+
+  test('blocks a non-admin from changing password/email/status on UPDATE', () => {
+    for (const field of ['password', 'email', 'status']) {
+      for (const method of ['PUT', 'PATCH']) {
+        let err;
+        restrictRoleAssignment({ method, user: { role: 'support' }, body: { [field]: 'x' } }, {}, (e) => { err = e; });
+        expect(err).toBeTruthy();
+      }
+    }
+  });
+
+  test('ALLOWS a non-admin to set password/email/status as INITIAL values on CREATE (POST)', () => {
+    let called = false;
+    restrictRoleAssignment(
+      { method: 'POST', user: { role: 'support' }, body: { email: 'new@x.test', password: 'longpassword123', status: 'active' } },
+      {}, () => { called = true; },
+    );
+    expect(called).toBe(true);
+  });
+
+  test('still blocks role/group_id/organization_ids even on CREATE', () => {
+    for (const field of [['role', 'admin'], ['group_id', 1], ['organization_ids', [1, 2]]]) {
+      let err;
+      restrictRoleAssignment({ method: 'POST', user: { role: 'support' }, body: { [field[0]]: field[1] } }, {}, (e) => { err = e; });
+      expect(err).toBeTruthy();
+    }
   });
 });
 
