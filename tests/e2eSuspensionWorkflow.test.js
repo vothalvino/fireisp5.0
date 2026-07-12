@@ -70,29 +70,32 @@ describe('E2E Workflow: Suspension Lifecycle', () => {
     expect(result[0].contract.id).toBe(100);
   });
 
-  test('suspendContract changes status and sends RADIUS disconnect', async () => {
+  test('suspendContract changes status, deactivates RADIUS, and sends RADIUS disconnect', async () => {
     // Mock: no RADIUS account found (simplifies test — CoA returns gracefully)
     db.query.mockResolvedValueOnce([[]]);  // sendRadiusDisconnect query returns no rows
 
     mockConnection.execute
       .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE contracts → suspended
+      .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE radius → suspended (Bug 2)
       .mockResolvedValueOnce([{ insertId: 1 }]);      // INSERT suspension_log
 
     await suspensionService.suspendContract(100, 1, 999, 500);
 
     // Verify transaction flow
     expect(mockConnection.beginTransaction).toHaveBeenCalled();
-    expect(mockConnection.execute).toHaveBeenCalledTimes(2);
+    expect(mockConnection.execute).toHaveBeenCalledTimes(3);
+    expect(mockConnection.execute.mock.calls[1][0]).toContain('UPDATE radius SET status');
     expect(mockConnection.commit).toHaveBeenCalled();
     expect(mockConnection.release).toHaveBeenCalled();
   });
 
-  test('reconnectContract restores active status', async () => {
+  test('reconnectContract restores active status and RADIUS access', async () => {
     // Mock: no RADIUS account
     db.query.mockResolvedValueOnce([[]]);
 
     mockConnection.execute
       .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE contracts → active
+      .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE radius → active (Bug 2, guarded)
       .mockResolvedValueOnce([{ insertId: 2 }]);      // INSERT suspension_log (unsuspend)
 
     // Walled-garden check after transaction (no open walled garden)
@@ -101,7 +104,8 @@ describe('E2E Workflow: Suspension Lifecycle', () => {
     await suspensionService.reconnectContract(100, 999, 500);
 
     expect(mockConnection.beginTransaction).toHaveBeenCalled();
-    expect(mockConnection.execute).toHaveBeenCalledTimes(2);
+    expect(mockConnection.execute).toHaveBeenCalledTimes(3);
+    expect(mockConnection.execute.mock.calls[1][0]).toContain('UPDATE radius SET status');
     expect(mockConnection.commit).toHaveBeenCalled();
   });
 
@@ -147,6 +151,7 @@ describe('E2E Workflow: Full Suspension → Reconnect cycle', () => {
     db.query.mockResolvedValueOnce([[]]);  // sendRadiusDisconnect — no RADIUS rows
     mockConnection.execute
       .mockResolvedValueOnce([{ affectedRows: 1 }])   // UPDATE contracts → suspended
+      .mockResolvedValueOnce([{ affectedRows: 1 }])   // UPDATE radius → suspended (Bug 2)
       .mockResolvedValueOnce([{ insertId: 1 }]);       // INSERT suspension_log
 
     await suspensionService.suspendContract(100, 1, 999, 500);
@@ -156,6 +161,7 @@ describe('E2E Workflow: Full Suspension → Reconnect cycle', () => {
     db.query.mockResolvedValueOnce([[]]);  // sendRadiusCoA — no RADIUS rows
     mockConnection.execute
       .mockResolvedValueOnce([{ affectedRows: 1 }])   // UPDATE contracts → active
+      .mockResolvedValueOnce([{ affectedRows: 1 }])   // UPDATE radius → active (Bug 2, guarded)
       .mockResolvedValueOnce([{ insertId: 2 }]);       // INSERT suspension_log
     db.query.mockResolvedValueOnce([[]]);              // walled-garden check — no open restriction
 

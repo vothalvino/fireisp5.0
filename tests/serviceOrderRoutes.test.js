@@ -94,6 +94,145 @@ describe('Service order routes (§1.2)', () => {
     expect(res.status).toBe(422);
   });
 
+  // ===========================================================================
+  // Bug 3 (security hardening): FK org-scoping on create/update
+  // ===========================================================================
+  describe('FK org-scoping (client_id/lead_id/plan_id/contract_id)', () => {
+    test('POST /service-orders rejects a client_id from a different organization', async () => {
+      const conn = {
+        beginTransaction: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn(),
+        commit: jest.fn().mockResolvedValue(undefined),
+        rollback: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn(),
+      };
+      db.getConnection.mockResolvedValue(conn);
+      db.query.mockImplementation((sql) => {
+        if (typeof sql === 'string' && sql.includes('clients') && sql.includes('WHERE id = ?')) {
+          return Promise.resolve([[]]); // Client.findById — no row in this org
+        }
+        if (typeof sql === 'string' && sql.includes('WHERE id = ?')) {
+          return Promise.resolve([[{ id: 1, email: 'admin@example.com', role: 'admin', status: 'active', organization_id: 42 }]]);
+        }
+        return Promise.resolve([[]]);
+      });
+
+      const res = await request(app)
+        .post('/api/v1/service-orders')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ client_id: 999, order_type: 'new_install' });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(conn.rollback).toHaveBeenCalled();
+      expect(lifecycleService.generateOrderNumber).not.toHaveBeenCalled();
+    });
+
+    test('POST /service-orders rejects a lead_id from a different organization', async () => {
+      const conn = {
+        beginTransaction: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn(),
+        commit: jest.fn().mockResolvedValue(undefined),
+        rollback: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn(),
+      };
+      db.getConnection.mockResolvedValue(conn);
+      db.query.mockImplementation((sql) => {
+        if (typeof sql === 'string' && sql.includes('leads') && sql.includes('WHERE id = ?')) {
+          return Promise.resolve([[]]); // Lead.findById — no row in this org
+        }
+        if (typeof sql === 'string' && sql.includes('WHERE id = ?')) {
+          return Promise.resolve([[{ id: 1, email: 'admin@example.com', role: 'admin', status: 'active', organization_id: 42 }]]);
+        }
+        return Promise.resolve([[]]);
+      });
+
+      const res = await request(app)
+        .post('/api/v1/service-orders')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ lead_id: 999, order_type: 'new_install' });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(conn.rollback).toHaveBeenCalled();
+    });
+
+    test('POST /service-orders rejects a plan_id belonging to a different organization with 422 PLAN_ARCHIVED', async () => {
+      const conn = {
+        beginTransaction: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn(),
+        commit: jest.fn().mockResolvedValue(undefined),
+        rollback: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn(),
+      };
+      db.getConnection.mockResolvedValue(conn);
+      db.query.mockImplementation((sql) => {
+        if (typeof sql === 'string' && sql.includes('FROM plans')) {
+          return Promise.resolve([[]]); // assertPlanSelectable — no live plan in this org (or global)
+        }
+        if (typeof sql === 'string' && sql.includes('WHERE id = ?')) {
+          return Promise.resolve([[{ id: 1, email: 'admin@example.com', role: 'admin', status: 'active', organization_id: 42 }]]);
+        }
+        return Promise.resolve([[]]);
+      });
+
+      const res = await request(app)
+        .post('/api/v1/service-orders')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ plan_id: 999, order_type: 'new_install' });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('PLAN_ARCHIVED');
+      expect(conn.rollback).toHaveBeenCalled();
+    });
+
+    test('PATCH /service-orders/:id rejects a contract_id from a different organization', async () => {
+      db.query.mockImplementation((sql) => {
+        if (typeof sql === 'string' && sql.includes('contracts') && sql.includes('WHERE id = ?')) {
+          return Promise.resolve([[]]); // Contract.findById — no row in this org
+        }
+        if (typeof sql === 'string' && sql.includes('service_orders') && sql.includes('WHERE id = ?')) {
+          return Promise.resolve([[{ id: 10, status: 'in_process', organization_id: 42, deleted_at: null }]]);
+        }
+        if (typeof sql === 'string' && sql.includes('WHERE id = ?')) {
+          return Promise.resolve([[{ id: 1, email: 'admin@example.com', role: 'admin', status: 'active', organization_id: 42 }]]);
+        }
+        return Promise.resolve([[]]);
+      });
+
+      const res = await request(app)
+        .patch('/api/v1/service-orders/10')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ contract_id: 999 });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    test('PUT /service-orders/:id rejects a client_id from a different organization', async () => {
+      db.query.mockImplementation((sql) => {
+        if (typeof sql === 'string' && sql.includes('clients') && sql.includes('WHERE id = ?')) {
+          return Promise.resolve([[]]); // Client.findById — no row in this org
+        }
+        if (typeof sql === 'string' && sql.includes('service_orders') && sql.includes('WHERE id = ?')) {
+          return Promise.resolve([[{ id: 10, status: 'new', organization_id: 42, deleted_at: null }]]);
+        }
+        if (typeof sql === 'string' && sql.includes('WHERE id = ?')) {
+          return Promise.resolve([[{ id: 1, email: 'admin@example.com', role: 'admin', status: 'active', organization_id: 42 }]]);
+        }
+        return Promise.resolve([[]]);
+      });
+
+      const res = await request(app)
+        .put('/api/v1/service-orders/10')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ client_id: 999, order_type: 'new_install' });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+  });
+
   test('POST /service-orders/:id/start transitions the order and surfaces the auto-created contract', async () => {
     lifecycleService.startOrder.mockResolvedValue({
       order: { id: 10, status: 'in_process', contract_id: 77 },

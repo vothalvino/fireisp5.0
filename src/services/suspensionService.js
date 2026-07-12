@@ -67,6 +67,17 @@ async function suspendContract(contractId, ruleId, userId, invoiceId) {
       ['suspended', contractId],
     );
 
+    // Deactivate the RADIUS account so it stops authenticating NEW PPPoE
+    // sessions — radiusServerService.findSubscriber only authenticates
+    // status='active' rows, so without this a suspended subscriber could
+    // simply re-dial and be back online. Only flips a currently-active row
+    // (never touches an already-'inactive' — i.e. terminated/cancelled —
+    // account, and is a no-op if there is no RADIUS account at all).
+    await conn.execute(
+      "UPDATE radius SET status = 'suspended' WHERE contract_id = ? AND deleted_at IS NULL AND status = 'active'",
+      [contractId],
+    );
+
     // Send RADIUS CoA to disconnect the subscriber
     let coaSent = false;
     let coaResponse = null;
@@ -106,6 +117,20 @@ async function reconnectContract(contractId, userId, invoiceId) {
     await conn.execute(
       'UPDATE contracts SET status = ? WHERE id = ?',
       ['active', contractId],
+    );
+
+    // Restore the RADIUS account so it can authenticate again. Guarded to
+    // ONLY flip an account that is currently 'suspended' — this function is
+    // billing/rule-driven (called by suspension_rules evaluation and the
+    // /unsuspend route) and must NEVER resurrect an 'inactive' (terminated or
+    // cancelled) account; reinstating a fully terminated/cancelled contract
+    // is a deliberate staff action handled separately by POST /:id/renew. If
+    // the account is already 'active' (e.g. reconnecting after a
+    // softSuspendContract walled-garden restriction, which never touches
+    // radius.status), this UPDATE simply matches 0 rows — harmless.
+    await conn.execute(
+      "UPDATE radius SET status = 'active' WHERE contract_id = ? AND deleted_at IS NULL AND status = 'suspended'",
+      [contractId],
     );
 
     // Send RADIUS CoA to re-enable the subscriber
@@ -149,6 +174,15 @@ async function reconnectContract(contractId, userId, invoiceId) {
 /**
  * Soft-suspend a contract: send RADIUS CoA with throttled speeds but leave the
  * contract status as 'active'. Records a 'soft_suspend' entry in suspension_logs.
+ *
+ * Deliberately does NOT touch contracts.status or radius.status (unlike
+ * suspendContract/reconnectContract above): a walled-garden / rate-limited
+ * subscriber must KEEP authenticating — that's the whole point of the walled
+ * garden (restricted address list / payment-redirect) — so radius.status
+ * stays 'active' throughout. Consequently, reconnectContract's guarded
+ * 'suspended'->'active' UPDATE simply matches 0 rows when lifting a soft
+ * suspension (the account was never flipped away from 'active'), which is
+ * harmless — see the comment on that UPDATE.
  */
 async function softSuspendContract(contractId, ruleId, userId, invoiceId, downloadKbps, uploadKbps) {
   const exemptCheck = await isClientSuspensionExempt(contractId);

@@ -99,15 +99,21 @@ describe('suspensionService', () => {
       await suspensionService.suspendContract(10, 1, 5, 50);
 
       expect(mockConnection.beginTransaction).toHaveBeenCalled();
-      expect(mockConnection.execute).toHaveBeenCalledTimes(2);
+      expect(mockConnection.execute).toHaveBeenCalledTimes(3);
 
       // First call: UPDATE contracts
       expect(mockConnection.execute.mock.calls[0][0]).toContain('UPDATE contracts SET status');
       expect(mockConnection.execute.mock.calls[0][1]).toEqual(['suspended', 10]);
 
-      // Second call: INSERT suspension_logs (includes coa_sent and coa_response columns)
-      expect(mockConnection.execute.mock.calls[1][0]).toContain('INSERT INTO suspension_logs');
-      expect(mockConnection.execute.mock.calls[1][1]).toContain(10);
+      // Second call: deactivate the RADIUS account (Bug 2 — a suspended
+      // contract's PPPoE credentials must stop authenticating NEW sessions)
+      expect(mockConnection.execute.mock.calls[1][0]).toContain('UPDATE radius SET status');
+      expect(mockConnection.execute.mock.calls[1][0]).toContain("'suspended'");
+      expect(mockConnection.execute.mock.calls[1][1]).toEqual([10]);
+
+      // Third call: INSERT suspension_logs (includes coa_sent and coa_response columns)
+      expect(mockConnection.execute.mock.calls[2][0]).toContain('INSERT INTO suspension_logs');
+      expect(mockConnection.execute.mock.calls[2][1]).toContain(10);
 
       expect(mockConnection.commit).toHaveBeenCalled();
       expect(mockConnection.release).toHaveBeenCalled();
@@ -146,8 +152,15 @@ describe('suspensionService', () => {
       expect(mockConnection.execute.mock.calls[0][0]).toContain('UPDATE contracts SET status');
       expect(mockConnection.execute.mock.calls[0][1]).toEqual(['active', 10]);
 
+      // Restore the RADIUS account — guarded to only flip a 'suspended' row
+      // (Bug 2 — must never resurrect an 'inactive' terminated/cancelled account)
+      expect(mockConnection.execute.mock.calls[1][0]).toContain('UPDATE radius SET status');
+      expect(mockConnection.execute.mock.calls[1][0]).toContain("'active'");
+      expect(mockConnection.execute.mock.calls[1][0]).toContain("status = 'suspended'");
+      expect(mockConnection.execute.mock.calls[1][1]).toEqual([10]);
+
       // INSERT suspension_logs with 'unsuspend' (includes coa_sent/coa_response)
-      expect(mockConnection.execute.mock.calls[1][0]).toContain('INSERT INTO suspension_logs');
+      expect(mockConnection.execute.mock.calls[2][0]).toContain('INSERT INTO suspension_logs');
 
       expect(mockConnection.commit).toHaveBeenCalled();
       expect(mockConnection.release).toHaveBeenCalled();
@@ -173,7 +186,8 @@ describe('suspensionService', () => {
 
     test('rolls back on error', async () => {
       mockConnection.execute
-        .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE contracts
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE radius
         .mockRejectedValueOnce(new Error('Log fail'));  // INSERT
       // RADIUS lookup
       db.query.mockResolvedValueOnce([[]]);

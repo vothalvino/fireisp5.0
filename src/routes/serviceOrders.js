@@ -10,6 +10,9 @@
 
 const { Router } = require('express');
 const ServiceOrder = require('../models/ServiceOrder');
+const Client = require('../models/Client');
+const Lead = require('../models/Lead');
+const Contract = require('../models/Contract');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
@@ -20,12 +23,47 @@ const {
   createServiceOrderTask, updateServiceOrderTask,
 } = require('../middleware/schemas/serviceOrders');
 const lifecycleService = require('../services/lifecycleService');
+const { assertPlanSelectable } = require('../services/planAvailability');
 const auditLog = require('../services/auditLog');
 const db = require('../config/database');
-const { NotFoundError } = require('../utils/errors');
+const { NotFoundError, ValidationError } = require('../utils/errors');
 
 const router = Router();
-const ctrl = crudController(ServiceOrder, { cacheResource: 'service-orders' });
+
+// A service order's client_id/lead_id/plan_id/contract_id are all foreign
+// keys into other org-scoped tables. The validate() DSL only checks type/min
+// (see middleware/schemas/serviceOrders.js) — without this, a cross-org id
+// would be accepted and stored verbatim on create, and PATCH could link an
+// arbitrary OTHER organization's contract onto this order (lifecycleService's
+// startOrder/completeOrder re-verify the client at start/complete time, but
+// the write path itself must reject a cross-org id up front). Only checks
+// whichever of the four FK fields is actually present in `body`.
+async function assertServiceOrderFks(body, orgId) {
+  if (body.client_id !== undefined) {
+    const client = await Client.findById(body.client_id, orgId);
+    if (!client) throw new ValidationError('client_id does not belong to this organization');
+  }
+  if (body.lead_id !== undefined) {
+    const lead = await Lead.findById(body.lead_id, orgId);
+    if (!lead) throw new ValidationError('lead_id does not belong to this organization');
+  }
+  if (body.plan_id !== undefined) {
+    // Same org-or-global live-plan check as routes/contracts.js — a service
+    // order may only be linked to a live plan (a fresh AppError so its
+    // PLAN_ARCHIVED code is preserved rather than being flattened to
+    // VALIDATION_ERROR).
+    await assertPlanSelectable(db, body.plan_id, orgId);
+  }
+  if (body.contract_id !== undefined) {
+    const contract = await Contract.findById(body.contract_id, orgId);
+    if (!contract) throw new ValidationError('contract_id does not belong to this organization');
+  }
+}
+
+const ctrl = crudController(ServiceOrder, {
+  cacheResource: 'service-orders',
+  beforeUpdate: (_old, req) => assertServiceOrderFks(req.body, req.orgId),
+});
 
 router.use(authenticate);
 router.use(orgScope);
@@ -95,6 +133,9 @@ router.post('/', requirePermission('service_orders.create'), validate(createServ
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
+
+    // Reject a cross-org client/lead/plan/contract before writing anything.
+    await assertServiceOrderFks(req.body, req.orgId);
 
     const orderNumber = req.body.order_number || await lifecycleService.generateOrderNumber(conn, req.orgId);
 

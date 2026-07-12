@@ -13,6 +13,7 @@ jest.mock('../src/config/database', () => ({
 jest.mock('../src/services/suspensionService', () => ({
   suspendContract: jest.fn().mockResolvedValue(undefined),
   reconnectContract: jest.fn().mockResolvedValue(undefined),
+  sendRadiusDisconnect: jest.fn().mockResolvedValue({ sent: false, response: 'mocked' }),
 }));
 
 jest.mock('../src/services/eventBus', () => ({ emit: jest.fn(), on: jest.fn(), removeListener: jest.fn() }));
@@ -124,13 +125,14 @@ describe('POST /contracts/:id/renew', () => {
     expect(res.body.provisioning.pppoe.username).toBe('sub_ada');  // fresh creds surfaced
   });
 
-  test('renew of a PPPoE contract that still has a radius account does NOT re-provision', async () => {
+  test('renew of a PPPoE contract that still has a radius account does NOT re-provision, but reactivates it', async () => {
     const provisioningService = require('../src/services/subscriberProvisioningService');
     db.query
       .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
       .mockResolvedValueOnce([[{ id: 8, status: 'terminated', connection_type: 'pppoe', client_id: 3, organization_id: 1 }]])
       .mockResolvedValueOnce([[{ cnt: 1 }]])                       // radius account already exists
-      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])                // Bug 2 companion fix: reactivate inactive radius row
+      .mockResolvedValueOnce([{ affectedRows: 1 }])                // Contract.update UPDATE
       .mockResolvedValueOnce([[{ id: 8, status: 'active', organization_id: 1 }]]);
 
     const res = await request(app)
@@ -140,6 +142,18 @@ describe('POST /contracts/:id/renew', () => {
 
     expect(res.status).toBe(200);
     expect(provisioningService.provisionNewContract).not.toHaveBeenCalled();
+
+    // Bug 2 companion fix: a renew is an explicit staff decision to reinstate
+    // service, so any existing radius account left 'inactive' by a prior
+    // terminate/cancel must be reactivated — otherwise the contract ends up
+    // 'active' but the subscriber still can't authenticate.
+    const reactivateCall = db.query.mock.calls.find(
+      c => typeof c[0] === 'string' && /UPDATE radius SET status/.test(c[0]),
+    );
+    expect(reactivateCall).toBeTruthy();
+    expect(reactivateCall[0]).toContain("'active'");
+    expect(reactivateCall[0]).toContain("status = 'inactive'");
+    expect(reactivateCall[1]).toEqual([8]);
   });
 
   test('returns 422 for an already active contract', async () => {
@@ -245,12 +259,13 @@ describe('POST /contracts/:id/regenerate-pppoe', () => {
 });
 
 describe('POST /contracts/:id/terminate', () => {
-  test('terminates an active contract and fires RADIUS disconnect', async () => {
+  test('terminates an active contract, deactivates RADIUS, and fires RADIUS disconnect', async () => {
     db.query
       .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
       .mockResolvedValueOnce([[{ id: 5, status: 'active', organization_id: 1 }]])
       .mockResolvedValueOnce([{ affectedRows: 1 }])
-      .mockResolvedValueOnce([[{ id: 5, status: 'terminated', organization_id: 1 }]]);
+      .mockResolvedValueOnce([[{ id: 5, status: 'terminated', organization_id: 1 }]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE radius -> inactive
 
     const res = await request(app)
       .post('/api/v1/contracts/5/terminate')
@@ -258,8 +273,21 @@ describe('POST /contracts/:id/terminate', () => {
       .send({});
 
     expect(res.status).toBe(200);
-    // suspensionService is called fire-and-forget so may or may not have completed
-    // We just verify the response is correct
+
+    // Bug 2: termination is a permanent end of service — the RADIUS account
+    // must be deactivated so it stops authenticating new PPPoE sessions.
+    const radiusCall = db.query.mock.calls.find(
+      c => typeof c[0] === 'string' && /UPDATE radius SET status/.test(c[0]),
+    );
+    expect(radiusCall).toBeTruthy();
+    expect(radiusCall[0]).toContain("'inactive'");
+    expect(radiusCall[1]).toEqual(['5']);
+
+    // Fires the best-effort CoA disconnect directly (no longer reuses
+    // suspensionService.suspendContract, which incorrectly left
+    // contracts.status transiently 'suspended' and logged a misleading
+    // 'suspend' suspension_logs entry for what is actually a terminate).
+    expect(suspensionService.sendRadiusDisconnect).toHaveBeenCalledWith(5);
   });
 
   test('returns 422 for a cancelled (non-terminable) contract', async () => {

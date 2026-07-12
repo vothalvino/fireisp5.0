@@ -246,6 +246,7 @@ describe('suspensionService — soft suspend & exemption', () => {
 
       mockConnection.execute
         .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE contracts
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE radius (Bug 2)
         .mockResolvedValueOnce([{ affectedRows: 1 }]); // INSERT suspension_logs
 
       await suspensionService.suspendContract(10, 1, 5, 50);
