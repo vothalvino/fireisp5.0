@@ -52,8 +52,13 @@ describe('Integration Workflow: Billing → CFDI → Suspension', () => {
       expect(period.status).toBe('pending');
 
       // Step 2: Generate invoice
+      // rate = 0.1600 (16%) — DECIMAL(5,4) FRACTION per schema/migration 121,
+      // not the whole-percent '16.00' an earlier version of this test used
+      // (which coincidentally matched the pre-fix formula's output and masked
+      // a 100x tax-amount bug).
       mockConnection.execute
-        .mockResolvedValueOnce([[{ id: 1, rate: '16.00', is_default: true }]])  // tax rate
+        .mockResolvedValueOnce([[{ id: 10, status: 'pending' }]])  // FOR UPDATE lock
+        .mockResolvedValueOnce([[{ id: 1, rate: '0.1600', is_default: true }]])  // tax rate
         .mockResolvedValueOnce([[{ cnt: 0 }]])  // invoice count
         .mockResolvedValueOnce([{ insertId: 50 }])  // INSERT invoice
         .mockResolvedValueOnce([])  // INSERT line item
@@ -66,6 +71,13 @@ describe('Integration Workflow: Billing → CFDI → Suspension', () => {
       const invoice = await billingService.generateInvoice(period, contract, plan, 42);
       expect(invoice.status).toBe('issued');
       expect(invoice.total).toBe('580.00');
+
+      // 500 subtotal @ 16% -> 80.00 tax, 580.00 total. Assert directly on the
+      // INSERT INTO invoices params so this fails if the tax formula regresses.
+      const invoiceInsert = mockConnection.execute.mock.calls[3][1];
+      expect(invoiceInsert[4]).toBe(500);   // subtotal
+      expect(invoiceInsert[5]).toBe(80);    // tax_amount
+      expect(invoiceInsert[6]).toBe(580);   // total
 
       // Step 3: Record payment credit
       db.query.mockResolvedValueOnce([{ insertId: 1 }]);
