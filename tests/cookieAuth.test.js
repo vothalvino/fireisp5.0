@@ -38,6 +38,7 @@ jest.mock('../src/middleware/auth', () => ({
 jest.mock('../src/models/User', () => ({
   findById: jest.fn(),
   getOrganizations: jest.fn(),
+  getPermissions: jest.fn().mockResolvedValue([]),
 }));
 
 jest.mock('../src/models/Organization', () => ({

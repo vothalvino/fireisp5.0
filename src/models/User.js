@@ -5,10 +5,9 @@
 const BaseModel = require('./BaseModel');
 
 // Roles that are valid values for the `organization_users.role` ENUM
-// (owner, admin, manager, technician, billing, readonly). The legacy
-// `users.role` ENUM also includes 'support', which has no membership-role
-// equivalent — those users rely on the users.role permission fallback below.
-const ORG_MEMBERSHIP_ROLES = new Set(['owner', 'admin', 'manager', 'technician', 'billing', 'readonly']);
+// (owner, admin, manager, technician, billing, readonly, support — 'support'
+// added by migration 378 so support-kind groups can be mirrored).
+const ORG_MEMBERSHIP_ROLES = new Set(['owner', 'admin', 'manager', 'technician', 'billing', 'readonly', 'support']);
 
 class User extends BaseModel {
   static get tableName() { return 'users'; }
@@ -16,7 +15,7 @@ class User extends BaseModel {
   static get fillable() {
     return [
       'organization_id', 'first_name', 'last_name', 'email',
-      'password_hash', 'role', 'phone', 'status',
+      'password_hash', 'role', 'group_id', 'phone', 'status',
     ];
   }
 
@@ -34,9 +33,46 @@ class User extends BaseModel {
    * unique key, and only for roles valid in the organization_users.role ENUM.
    */
   static async create(data) {
+    await User.resolveGroupMirror(data);
     const user = await super.create(data);
     await User.syncOrgMembership(user);
     return user;
+  }
+
+  /**
+   * Keep users.group_id (authoritative, migration 378) and the legacy
+   * users.role mirror in sync, whichever the caller supplied:
+   *   - group_id given → role is forced to the group's kind (the legacy name
+   *     ~40 backend and ~35 frontend call sites still key on);
+   *   - only role given (legacy API callers, seeds) → group_id resolves to the
+   *     same-named system group so permissions flow through the group path.
+   * Throws ValidationError for a missing/deleted group or one without a kind
+   * (pre-378 custom rows must be given a kind before they become assignable).
+   * Mutates and returns `data`.
+   */
+  static async resolveGroupMirror(data) {
+    if (!data) return data;
+    const db = require('../config/database');
+    const { ValidationError } = require('../utils/errors');
+
+    if (data.group_id !== undefined && data.group_id !== null) {
+      const [[group]] = await db.query(
+        'SELECT id, name, kind FROM roles WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        [data.group_id],
+      );
+      if (!group) throw new ValidationError('group_id does not reference an existing user group');
+      if (!group.kind) {
+        throw new ValidationError(`User group "${group.name}" has no kind — set its base persona before assigning it`);
+      }
+      data.role = group.kind;
+    } else if (data.role) {
+      const [[group]] = await db.query(
+        'SELECT id FROM roles WHERE name = ? AND is_system = TRUE AND deleted_at IS NULL LIMIT 1',
+        [data.role],
+      );
+      if (group) data.group_id = group.id;
+    }
+    return data;
   }
 
   /**
@@ -75,10 +111,42 @@ class User extends BaseModel {
   }
 
   /**
-   * Get all permissions for a user via organization_users → roles → role_permissions → permissions.
+   * Get all permissions for a user in an organization.
+   *
+   * Resolution order (migration 378):
+   *   1. users.group_id — AUTHORITATIVE when the user has a live group and can
+   *      access the org (homed there or holding a membership row). An empty
+   *      group deliberately yields [] — it does NOT fall through, so a custom
+   *      group that denies everything really denies everything.
+   *   2. organization_users membership role → roles-by-name (pre-378 path).
+   *   3. Legacy users.role, only for users homed in the org.
    */
   static async getPermissions(userId, organizationId) {
     const db = require('../config/database');
+
+    // 1. Group path — resolve access + live group first so an empty permission
+    //    set is authoritative rather than falling through to legacy grants.
+    const [[groupUser]] = await db.query(`
+      SELECT g.id AS group_id,
+             (u.organization_id = ? OR EXISTS (
+               SELECT 1 FROM organization_users ou
+               WHERE ou.user_id = u.id AND ou.organization_id = ? AND ou.deleted_at IS NULL
+             )) AS has_access
+      FROM users u
+      JOIN roles g ON g.id = u.group_id AND g.deleted_at IS NULL
+      WHERE u.id = ? AND u.deleted_at IS NULL
+      LIMIT 1
+    `, [organizationId, organizationId, userId]);
+    if (groupUser && Number(groupUser.has_access)) {
+      const [groupPerms] = await db.query(`
+        SELECT DISTINCT p.name AS slug
+        FROM role_permissions rp
+        JOIN permissions p ON p.id = rp.permission_id
+        WHERE rp.role_id = ?
+      `, [groupUser.group_id]);
+      return groupPerms.map(r => r.slug);
+    }
+
     const [rows] = await db.query(`
       SELECT DISTINCT p.name AS slug
       FROM organization_users ou
@@ -114,13 +182,15 @@ class User extends BaseModel {
    * SQL predicate: is the user (aliased `u`, LEFT-JOINed to their
    * `organization_users` row FOR THE TARGET ORG as `ou`) authorized for a
    * permission in that org? Mirrors requirePermission() + getPermissions():
-   *   1. a legacy `users.role = 'admin'` bypasses RBAC;
-   *   2. else the org-membership role, when it resolves to a live role that
-   *      grants at least one permission, is authoritative (getPermissions'
-   *      primary path);
-   *   3. else — membership missing, its role soft-deleted, or granting nothing —
-   *      fall back to the legacy users.role, but only for users homed in the
-   *      target org (getPermissions' fallback queries WHERE u.organization_id).
+   *   1. a legacy `users.role = 'admin'` bypasses RBAC (the 378 mirror keeps
+   *      this equivalent to "member of an admin-kind group or legacy admin");
+   *   2. else the user's GROUP (users.group_id, migration 378) is authoritative
+   *      when it is live — including when it grants nothing, so the legacy
+   *      branches below only apply to users with no live group;
+   *   3. else the org-membership role, when it resolves to a live role that
+   *      grants at least one permission (getPermissions' pre-378 path);
+   *   4. else fall back to the legacy users.role, but only for users homed in
+   *      the target org (getPermissions' fallback queries WHERE u.organization_id).
    * Callers must LEFT JOIN ou ON the TARGET org (not the user's home org) so
    * cross-org memberships (SSO-provisioned or switch-organization users) are
    * honoured, and must additionally scope to users connected to the org:
@@ -128,33 +198,49 @@ class User extends BaseModel {
    * excludes membership-less legacy admins homed in OTHER orgs — they could
    * technically pass requirePermission anywhere, but tenant isolation must win
    * for assignment/listing purposes.
-   * Bind order inside the predicate: [permissionSlug, organizationId, permissionSlug].
+   * Bind order inside the predicate:
+   * [permissionSlug (group), permissionSlug (membership), organizationId, permissionSlug (legacy)].
    */
   static get #EFFECTIVE_PERMISSION_PREDICATE() {
     return `(
       u.role = 'admin'
       OR EXISTS (
-        SELECT 1 FROM roles r
-        JOIN role_permissions rp ON rp.role_id = r.id
-        JOIN permissions p ON p.id = rp.permission_id
-        WHERE r.name = ou.role
-          AND r.deleted_at IS NULL
-          AND p.name = ?
+        SELECT 1 FROM roles g
+        JOIN role_permissions rpg ON rpg.role_id = g.id
+        JOIN permissions pg ON pg.id = rpg.permission_id
+        WHERE g.id = u.group_id
+          AND g.deleted_at IS NULL
+          AND pg.name = ?
       )
       OR (
-        u.organization_id = ?
-        AND NOT EXISTS (
-          SELECT 1 FROM roles r2
-          JOIN role_permissions rp2 ON rp2.role_id = r2.id
-          WHERE r2.name = ou.role AND r2.deleted_at IS NULL
+        NOT EXISTS (
+          SELECT 1 FROM roles g2 WHERE g2.id = u.group_id AND g2.deleted_at IS NULL
         )
-        AND EXISTS (
-          SELECT 1 FROM roles r3
-          JOIN role_permissions rp3 ON rp3.role_id = r3.id
-          JOIN permissions p3 ON p3.id = rp3.permission_id
-          WHERE r3.name = u.role
-            AND r3.deleted_at IS NULL
-            AND p3.name = ?
+        AND (
+          EXISTS (
+            SELECT 1 FROM roles r
+            JOIN role_permissions rp ON rp.role_id = r.id
+            JOIN permissions p ON p.id = rp.permission_id
+            WHERE r.name = ou.role
+              AND r.deleted_at IS NULL
+              AND p.name = ?
+          )
+          OR (
+            u.organization_id = ?
+            AND NOT EXISTS (
+              SELECT 1 FROM roles r2
+              JOIN role_permissions rp2 ON rp2.role_id = r2.id
+              WHERE r2.name = ou.role AND r2.deleted_at IS NULL
+            )
+            AND EXISTS (
+              SELECT 1 FROM roles r3
+              JOIN role_permissions rp3 ON rp3.role_id = r3.id
+              JOIN permissions p3 ON p3.id = rp3.permission_id
+              WHERE r3.name = u.role
+                AND r3.deleted_at IS NULL
+                AND p3.name = ?
+            )
+          )
         )
       )
     )`;
@@ -166,7 +252,7 @@ class User extends BaseModel {
    * (see #EFFECTIVE_PERMISSION_PREDICATE). Used to populate "assignable user"
    * pickers — e.g. only staff who can actually work with work orders should be
    * selectable as a work order's assignee.
-   * Bind order: [orgId (ou join), orgId (connected), slug, orgId, slug].
+   * Bind order: [orgId (ou join), orgId (connected), slug, slug, orgId, slug].
    */
   static async getUsersWithPermission(organizationId, permissionSlug) {
     const db = require('../config/database');
@@ -180,7 +266,7 @@ class User extends BaseModel {
         AND (u.organization_id = ? OR ou.id IS NOT NULL)
         AND ${User.#EFFECTIVE_PERMISSION_PREDICATE}
       ORDER BY u.first_name, u.last_name
-    `, [organizationId, organizationId, permissionSlug, organizationId, permissionSlug]);
+    `, [organizationId, organizationId, permissionSlug, permissionSlug, organizationId, permissionSlug]);
     return rows;
   }
 
@@ -191,7 +277,7 @@ class User extends BaseModel {
    * require status = 'active' so that editing an existing record whose assignee
    * was later deactivated does not spuriously fail; the picker filters to active
    * users for new assignments.
-   * Bind order: [orgId (ou join), userId, orgId (connected), slug, orgId, slug].
+   * Bind order: [orgId (ou join), userId, orgId (connected), slug, slug, orgId, slug].
    */
   static async hasEffectivePermission(userId, organizationId, permissionSlug) {
     if (!userId) return false;
@@ -205,7 +291,7 @@ class User extends BaseModel {
         AND (u.organization_id = ? OR ou.id IS NOT NULL)
         AND ${User.#EFFECTIVE_PERMISSION_PREDICATE}
       LIMIT 1
-    `, [organizationId, userId, organizationId, permissionSlug, organizationId, permissionSlug]);
+    `, [organizationId, userId, organizationId, permissionSlug, permissionSlug, organizationId, permissionSlug]);
     return rows.length > 0;
   }
 
@@ -227,6 +313,92 @@ class User extends BaseModel {
       [userId, organizationId],
     );
     return fallback[0]?.role || null;
+  }
+
+  /**
+   * Replace the set of organizations a staff user may access. Target orgs get
+   * an active membership row (resurrecting soft-deleted ones); memberships not
+   * in the list are soft-deleted. 'owner' rows are never overwritten or removed
+   * here — org ownership changes must be explicit, not a side effect of the
+   * user form. Ensures users.organization_id (home org) stays within the list.
+   * @param {number} userId
+   * @param {number[]} orgIds     non-empty list of organization ids
+   * @param {string}   membershipRole  role to stamp on rows (the group's kind)
+   */
+  static async setUserOrganizations(userId, orgIds, membershipRole) {
+    const db = require('../config/database');
+    const { ValidationError } = require('../utils/errors');
+    const ids = [...new Set((orgIds || []).map(Number).filter(Number.isInteger))];
+    if (ids.length === 0) {
+      throw new ValidationError('organization_ids must contain at least one organization');
+    }
+    const role = ORG_MEMBERSHIP_ROLES.has(membershipRole) ? membershipRole : 'readonly';
+
+    // One upsert per org: the soft-delete-aware unique key (org, user,
+    // active_flag) only collides with an ACTIVE row, so this creates a fresh
+    // row when none is active and re-stamps the role (never demoting 'owner')
+    // when one is. Soft-deleted history rows are left untouched.
+    for (const orgId of ids) {
+      await db.query(
+        `INSERT INTO organization_users (organization_id, user_id, role)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           role = IF(organization_users.role = 'owner', organization_users.role, VALUES(role))`,
+        [orgId, userId, role],
+      );
+    }
+
+    await db.query(
+      `UPDATE organization_users
+       SET deleted_at = NOW()
+       WHERE user_id = ? AND deleted_at IS NULL AND role != 'owner'
+         AND organization_id NOT IN (${ids.map(() => '?').join(',')})`,
+      [userId, ...ids],
+    );
+
+    // Home org must remain accessible; repoint it if it was deselected.
+    const [[u]] = await db.query(
+      'SELECT organization_id FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+      [userId],
+    );
+    if (u && !ids.includes(Number(u.organization_id))) {
+      await db.query('UPDATE users SET organization_id = ? WHERE id = ?', [ids[0], userId]);
+    }
+  }
+
+  /**
+   * Re-stamp the user's active membership rows with their group's kind after a
+   * group change, so getOrgRole()/requireRole()/WG scoping (which read the
+   * membership role) agree with the new group. 'owner' rows are preserved.
+   */
+  static async refreshMembershipRoles(userId, kind) {
+    if (!ORG_MEMBERSHIP_ROLES.has(kind)) return;
+    const db = require('../config/database');
+    await db.query(
+      `UPDATE organization_users SET role = ?
+       WHERE user_id = ? AND deleted_at IS NULL AND role != 'owner'`,
+      [kind, userId],
+    );
+  }
+
+  /**
+   * Count ACTIVE admin-kind users of an org other than `excludeUserId` — the
+   * last-admin lockout guard for group changes and deletions.
+   */
+  static async countOtherAdminKindUsers(organizationId, excludeUserId) {
+    const db = require('../config/database');
+    const [[row]] = await db.query(
+      `SELECT COUNT(*) AS cnt
+       FROM users u
+       WHERE u.deleted_at IS NULL AND u.status = 'active' AND u.role = 'admin'
+         AND u.id != ?
+         AND (u.organization_id = ? OR EXISTS (
+           SELECT 1 FROM organization_users ou
+           WHERE ou.user_id = u.id AND ou.organization_id = ? AND ou.deleted_at IS NULL
+         ))`,
+      [excludeUserId, organizationId, organizationId],
+    );
+    return Number(row.cnt);
   }
 
   /**

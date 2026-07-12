@@ -230,6 +230,12 @@ function generateSpec() {
 
       // ---- Users ----
       ...crudPaths('users', 'Users', 'User'),
+      '/users/{id}/permissions': {
+        get: { tags: ['Users'], summary: "Resolved permission slugs for the user's active org", operationId: 'getUserPermissions', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('string[]') },
+      },
+      '/users/{id}/organizations': {
+        get: { tags: ['Users'], summary: 'Organizations the user can access (memberships)', operationId: 'getUserOrganizations', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('UserOrganization[]') },
+      },
 
       // ---- Roles ----
       '/roles': {
@@ -246,6 +252,7 @@ function generateSpec() {
       },
       '/roles/{id}/permissions': {
         post: { tags: ['Roles'], summary: 'Assign a permission to a role', operationId: 'assignPermission', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('permission_id'), responses: r201('Permission[]') },
+        put: { tags: ['Roles'], summary: "Bulk-replace a role's entire permission set", operationId: 'setRolePermissions', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('roles_setPermissions'), responses: r200('Permission[]') },
       },
       '/roles/{id}/permissions/{permissionId}': {
         delete: { tags: ['Roles'], summary: 'Remove a permission from a role', operationId: 'removePermission', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'permissionId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },

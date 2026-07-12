@@ -505,7 +505,7 @@ describe('Role Routes — /api/roles', () => {
       const res = await request(app)
         .post('/api/roles')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'New Role', description: 'A new role' });
+        .send({ name: 'New Role', description: 'A new role', kind: 'support' });
 
       expect(res.status).toBe(201);
       expect(res.body.data.id).toBe(5);
@@ -516,6 +516,7 @@ describe('Role Routes — /api/roles', () => {
     test('success — updates a role', async () => {
       mockAuthUser();
       db.query
+        .mockResolvedValueOnce([[{ id: 1, name: 'Old', kind: 'support', is_system: 0 }]])  // pre-fetch (378 guard)
         .mockResolvedValueOnce([{ affectedRows: 1 }])
         .mockResolvedValueOnce([[{ id: 1, name: 'Updated' }]]);
 
@@ -530,8 +531,7 @@ describe('Role Routes — /api/roles', () => {
     test('returns 404 when role not found', async () => {
       mockAuthUser();
       db.query
-        .mockResolvedValueOnce([{ affectedRows: 0 }])
-        .mockResolvedValueOnce([[]]);
+        .mockResolvedValueOnce([[]]);  // pre-fetch — not found (378 guard runs first)
 
       const res = await request(app)
         .put('/api/roles/999')
@@ -546,7 +546,8 @@ describe('Role Routes — /api/roles', () => {
     test('success — deletes a role', async () => {
       mockAuthUser();
       db.query
-        .mockResolvedValueOnce([[{ id: 1, name: 'test' }]])
+        .mockResolvedValueOnce([[{ id: 1, name: 'test', is_system: 0 }]])
+        .mockResolvedValueOnce([[{ cnt: 0 }]])          // COUNT assigned users (378 guard)
         .mockResolvedValueOnce([{ affectedRows: 1 }]);
 
       const res = await request(app)

@@ -87,6 +87,20 @@ When tests use BOTH `mockImplementation()` and `mockResolvedValueOnce()` in the 
 
 **How to apply:** In test files that mix `mockImplementation` (in beforeEach) with `mockResolvedValueOnce` (in individual tests), always use `jest.resetAllMocks()` at the top of `beforeEach`, then reinstall the `mockImplementation` after.
 
+## Modal header ✕ button + a footer text button can share an accessible name
+
+A common modal pattern in this codebase is a header close button with
+`aria-label="Close"` (rendered as "✕") plus, conditionally, a footer button
+whose *text content* is also "Close" (e.g. a read-only view that swaps
+"Cancel"/"Save" for a single "Close"). `aria-label` wins for accessible-name
+computation, so both elements compute to the same accessible name and
+`getByRole('button', { name: 'Close' })` throws "multiple elements found."
+
+**How to apply:** Use `getAllByRole('button', { name: 'Close' })` and index
+into the result (footer action is typically the last one in DOM order) when
+a test needs to click the footer close/cancel button specifically. Seen in
+`RoleList.test.tsx`'s admin-kind read-only permission matrix test.
+
 ## react-leaflet components require mocking in vitest
 
 `react-leaflet`'s `MapContainer` and other components try to access DOM canvas/SVG which jsdom doesn't support. Any test for a page that imports from `react-leaflet` must mock the module:

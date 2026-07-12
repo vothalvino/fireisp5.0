@@ -175,9 +175,9 @@ export function LeadList() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  const canCreate = can(user?.role, 'leads.create');
-  const canUpdate = can(user?.role, 'leads.update');
-  const canConvert = can(user?.role, 'clients.create');
+  const canCreate = can(user, 'leads.create');
+  const canUpdate = can(user, 'leads.update');
+  const canConvert = can(user, 'clients.create');
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['leads', page, pageSize],

@@ -389,7 +389,7 @@ export function BillingDisputeList() {
   const [transitioningId, setTransitioningId] = useState<number | null>(null);
   const [evidenceId, setEvidenceId] = useState<number | null>(null);
 
-  const canUpdate = can(user?.role, 'billing_disputes.update');
+  const canUpdate = can(user, 'billing_disputes.update');
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['billing-disputes', page, statusFilter],

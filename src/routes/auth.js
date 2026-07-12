@@ -112,21 +112,45 @@ router.post('/register',
 );
 
 // POST /api/auth/login
+/**
+ * Attach the org- and group-derived fields the SPA needs on first paint:
+ * currency, compliance locale, the user's group {id, name, kind}, and the
+ * resolved permission list (drives action-button visibility via can()).
+ * Shared by /auth/login and /auth/me so both responses stay in lockstep —
+ * a field present only in /me hides UI until a manual refresh (see the
+ * organization_locale regression fixed in #378's review).
+ */
+async function enrichAuthUser(user, activeOrgId) {
+  const db = require('../config/database');
+  let group = null;
+  if (user.group_id) {
+    const [[row]] = await db.query(
+      'SELECT id, name, kind FROM roles WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+      [user.group_id],
+    );
+    group = row || null;
+  }
+  return {
+    ...user,
+    organization_currency: activeOrgId ? await Organization.getCurrency(activeOrgId) : 'MXN',
+    organization_locale: activeOrgId ? await Organization.getLocale(activeOrgId) : 'global',
+    group,
+    permissions: activeOrgId ? await User.getPermissions(user.id, activeOrgId) : [],
+  };
+}
+
 router.post('/login',
   validate(authSchemas.login),
   async (req, res, next) => {
     try {
       const result = await authService.login(req.body);
-      // Mirror GET /auth/me's org enrichment so the SPA renders correctly on the
-      // very first paint after login — without this, locale-gated MX nav items
-      // stay hidden until a manual refresh re-hydrates via /auth/me.
-      const loginOrgId = result.user?.organization_id;
       if (result.user) {
-        result.user = {
-          ...result.user,
-          organization_currency: loginOrgId ? await Organization.getCurrency(loginOrgId) : 'MXN',
-          organization_locale: loginOrgId ? await Organization.getLocale(loginOrgId) : 'global',
-        };
+        // Enrich for the org the JWT was minted for (primary membership org,
+        // falling back to the home org) — NOT blindly the home org, which can
+        // differ for membership-only users and would show the wrong
+        // currency/locale/permissions until the first /auth/me.
+        const activeOrgId = result.activeOrganizationId ?? result.user.organization_id;
+        result.user = await enrichAuthUser(result.user, activeOrgId);
       }
       // Set httpOnly cookies for the browser SPA; JSON tokens remain for API clients
       setAuthCookies(res, result.accessToken, result.refreshToken);
@@ -187,15 +211,11 @@ router.get('/me', authenticate, async (req, res, next) => {
     // (which lists only the user's memberships): a super-admin can switch to an org
     // they are not a member of, and its currency would otherwise be unavailable —
     // making every such org fall back to the default currency in the UI.
-    const organizationCurrency = activeOrgId ? await Organization.getCurrency(activeOrgId) : 'MXN';
-    // Same reasoning for the compliance locale — it drives the MX (SAT/IFT) nav.
-    const organizationLocale = activeOrgId ? await Organization.getLocale(activeOrgId) : 'global';
+    const enriched = await enrichAuthUser(safeUser, activeOrgId);
     res.json({
       data: {
-        ...safeUser,
+        ...enriched,
         organization_id: activeOrgId,
-        organization_currency: organizationCurrency,
-        organization_locale: organizationLocale,
         organizations,
       },
     });

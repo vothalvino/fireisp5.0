@@ -209,7 +209,7 @@ export function ClientCommunicationPrefs({ clientId }: { clientId: number }) {
   const { t } = useTranslation();
   const { user } = useAuth();
   const qc = useQueryClient();
-  const canEdit = can(user?.role, 'dnd.update');
+  const canEdit = can(user, 'dnd.update');
 
   const dndQ = useQuery({
     queryKey: ['client-dnd', clientId],

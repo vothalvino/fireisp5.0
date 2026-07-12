@@ -450,8 +450,8 @@ export function ServiceOrderList() {
   const [workOrdersFor, setWorkOrdersFor] = useState<ServiceOrder | null>(null);
   const [contractFor, setContractFor] = useState<ServiceOrder | null>(null);
 
-  const canCreate = can(user?.role, 'service_orders.create');
-  const canUpdate = can(user?.role, 'service_orders.update');
+  const canCreate = can(user, 'service_orders.create');
+  const canUpdate = can(user, 'service_orders.update');
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['service-orders', page, pageSize],

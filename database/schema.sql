@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS users (
     last_name       VARCHAR(100)    NOT NULL,
     email           VARCHAR(255)    NOT NULL,
     password_hash   VARCHAR(255)    NOT NULL,
-    role            ENUM('admin', 'billing', 'support', 'technician') NOT NULL DEFAULT 'support',
+    role            ENUM('admin', 'billing', 'support', 'technician', 'readonly') NOT NULL DEFAULT 'support',
+    group_id        BIGINT UNSIGNED NULL DEFAULT NULL COMMENT 'FK to roles: the user group whose permission set governs this staff account',
     phone           VARCHAR(30)     NULL,
     status          ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     totp_secret     VARCHAR(255)    NULL     COMMENT 'TOTP shared secret (encrypted/base32 at app layer)',
@@ -40,7 +41,9 @@ CREATE TABLE IF NOT EXISTS users (
     KEY idx_users_organization_id (organization_id),
     KEY idx_users_deleted_at (deleted_at),
     CONSTRAINT fk_users_organization FOREIGN KEY (organization_id)
-        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_users_group FOREIGN KEY (group_id)
+        REFERENCES roles (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -3888,6 +3891,7 @@ CREATE TABLE IF NOT EXISTS roles (
     id          BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     name        VARCHAR(50)      NOT NULL,
     description VARCHAR(255)     NULL,
+    kind        ENUM('admin','billing','support','technician','readonly') NULL DEFAULT NULL COMMENT 'Persona this group is based on: coarse UI surface + users.role mirror; NULL only for pre-378 rows',
     is_system   BOOLEAN          NOT NULL DEFAULT FALSE COMMENT 'System roles cannot be deleted',
     created_at  TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -6510,7 +6514,7 @@ CREATE TABLE IF NOT EXISTS organization_users (
     id               BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     organization_id  BIGINT UNSIGNED  NOT NULL                                    COMMENT 'Organization this membership record belongs to',
     user_id          BIGINT UNSIGNED  NOT NULL                                    COMMENT 'User who is a member of this organization',
-    role             ENUM('owner','admin','manager','technician','billing','readonly')
+    role             ENUM('owner','admin','manager','technician','billing','readonly','support')
                                       NOT NULL DEFAULT 'readonly'                 COMMENT 'User role within this specific organization',
     is_primary_org   TINYINT(1)       NOT NULL DEFAULT 0                          COMMENT 'TRUE = this is the user''s primary/home organization',
     joined_at        TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP          COMMENT 'When the user was added to the organization',

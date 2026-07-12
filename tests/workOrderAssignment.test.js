@@ -70,7 +70,7 @@ describe('POST /work-orders — assignee authorization', () => {
     // Bind contract (see User.hasEffectivePermission):
     // [orgId (ou join), userId, orgId (connected), slug, orgId, slug]
     const checkCall = db.query.mock.calls.find((c) => isAssigneeCheck(c[0]));
-    expect(checkCall[1]).toEqual([42, 8, 42, 'work_orders.update', 42, 'work_orders.update']);
+    expect(checkCall[1]).toEqual([42, 8, 42, 'work_orders.update', 'work_orders.update', 42, 'work_orders.update']);
   });
 
   test('accepts an authorized assignee and creates the work order', async () => {
@@ -91,7 +91,7 @@ describe('POST /work-orders — assignee authorization', () => {
     expect(res.body.data.id).toBe(10);
     expect(called(isWoInsert)).toBe(true);
     const checkCall = db.query.mock.calls.find((c) => isAssigneeCheck(c[0]));
-    expect(checkCall[1]).toEqual([42, 7, 42, 'work_orders.update', 42, 'work_orders.update']);
+    expect(checkCall[1]).toEqual([42, 7, 42, 'work_orders.update', 'work_orders.update', 42, 'work_orders.update']);
   });
 
   test('skips the authorization check when no assignee is provided', async () => {
@@ -194,6 +194,6 @@ describe('GET /work-orders/assignable-users', () => {
     // [orgId (ou join), orgId (connected), slug, orgId, slug]
     const listCall = db.query.mock.calls.find((c) => isAssignableList(c[0]));
     expect(listCall).toBeTruthy();
-    expect(listCall[1]).toEqual([42, 42, 'work_orders.update', 42, 'work_orders.update']);
+    expect(listCall[1]).toEqual([42, 42, 'work_orders.update', 'work_orders.update', 42, 'work_orders.update']);
   });
 });

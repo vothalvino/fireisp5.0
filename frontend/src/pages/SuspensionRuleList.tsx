@@ -272,9 +272,9 @@ export function SuspensionRuleList() {
   const [editRule, setEditRule] = useState<SuspensionRule | null>(null);
   const [deleteRule, setDeleteRule] = useState<SuspensionRule | null>(null);
 
-  const canCreate = can(user?.role, 'suspension_rules.create');
-  const canUpdate = can(user?.role, 'suspension_rules.update');
-  const canDelete = can(user?.role, 'suspension_rules.delete');
+  const canCreate = can(user, 'suspension_rules.create');
+  const canUpdate = can(user, 'suspension_rules.update');
+  const canDelete = can(user, 'suspension_rules.delete');
 
   const rulesQ = useQuery({ queryKey: ['suspension-rules', page], queryFn: () => fetchRules(page) });
   const rules = rulesQ.data?.data ?? [];

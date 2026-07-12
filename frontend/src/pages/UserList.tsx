@@ -2,14 +2,21 @@
 // FireISP 5.0 — User Management
 // =============================================================================
 // Admin-only page at /users. Provides:
-//   • Paginated user table with role and status filters
-//   • "New User" button → modal form (name, email, password, role, phone, status)
-//   • Edit button per row → update name/email/role/phone/status
+//   • Paginated user table with group and status filters
+//   • "New User" button → modal form (name, email, password, group, org
+//     access, phone, status)
+//   • Edit button per row → update name/email/group/org access/phone/status
 //   • 2FA setup wizard for the currently logged-in user (POST /2fa/setup → QR →
 //     enter TOTP code → POST /2fa/verify) and disable (POST /2fa/disable)
+//
+// Users belong to a "group" (roles.id, migration 378) which governs their
+// permission set; the legacy `role` field is a server-maintained mirror of
+// the group's `kind` and is never sent from this page — only `group_id` is.
+// Each user also has explicit organization access (`organization_ids`),
+// synced via POST/PUT/PATCH /users and prefilled via GET /users/:id/organizations.
 // =============================================================================
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { authedFetch, tokenStore } from '@/api/client';
@@ -26,6 +33,7 @@ interface User {
   last_name: string;
   email: string;
   role: string;
+  group_id: number | null;
   phone: string | null;
   status: string;
   totp_enabled: boolean | number;
@@ -38,12 +46,43 @@ interface UsersResponse {
   meta: { total: number; page: number; limit: number; totalPages: number };
 }
 
+interface Group {
+  id: number;
+  name: string;
+  description: string | null;
+  kind: string | null;
+  is_system: number | boolean;
+}
+
+interface GroupsResponse {
+  data: Group[];
+  meta: { total: number; page: number; limit: number; totalPages: number };
+}
+
+interface Organization {
+  id: number;
+  name: string;
+}
+
+interface OrganizationsResponse {
+  data: Organization[];
+}
+
+interface UserOrganization {
+  id: number;
+  name: string;
+  membership_role: string;
+}
+
+interface UserOrganizationsResponse {
+  data: UserOrganization[];
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 const API_BASE = '/api/v1';
-const ROLES = ['admin', 'billing', 'support', 'technician'];
 const STATUSES = ['active', 'inactive'];
 
 // ---------------------------------------------------------------------------
@@ -55,13 +94,34 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function fetchUsers(page: number, pageSize: number, roleFilter: string, statusFilter: string): Promise<UsersResponse> {
+async function fetchUsers(page: number, pageSize: number, groupFilter: string, statusFilter: string): Promise<UsersResponse> {
   const params = new URLSearchParams({ page: String(page), limit: String(pageSize) });
-  if (roleFilter) params.set('role', roleFilter);
+  if (groupFilter) params.set('group_id', groupFilter);
   if (statusFilter) params.set('status', statusFilter);
   const res = await fetch(`${API_BASE}/users?${params}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to load users');
   return res.json() as Promise<UsersResponse>;
+}
+
+async function fetchGroups(): Promise<Group[]> {
+  const res = await fetch(`${API_BASE}/roles?limit=100`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to load groups');
+  const json = (await res.json()) as GroupsResponse;
+  return json.data;
+}
+
+async function fetchOrganizations(): Promise<Organization[]> {
+  const res = await fetch(`${API_BASE}/organizations?limit=500`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to load organizations');
+  const json = (await res.json()) as OrganizationsResponse;
+  return json.data;
+}
+
+async function fetchUserOrganizations(id: number): Promise<UserOrganization[]> {
+  const res = await fetch(`${API_BASE}/users/${id}/organizations`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to load organization access');
+  const json = (await res.json()) as UserOrganizationsResponse;
+  return json.data;
 }
 
 interface CreateUserBody {
@@ -69,7 +129,8 @@ interface CreateUserBody {
   last_name: string;
   email: string;
   password: string;
-  role: string;
+  group_id: number;
+  organization_ids: number[];
   phone?: string;
   status?: string;
 }
@@ -98,8 +159,9 @@ interface UpdateUserBody {
   first_name?: string;
   last_name?: string;
   email?: string;
-  role?: string;
-  phone?: string;
+  group_id?: number;
+  organization_ids?: number[];
+  phone?: string | null;
   status?: string;
 }
 
@@ -164,6 +226,31 @@ function fmt(dateStr: string | null | undefined): string {
   });
 }
 
+// System groups first (alphabetical among themselves), then custom groups
+// alphabetically — keeps the built-in personas at the top of the picker.
+function sortGroups(groups: Group[]): Group[] {
+  return [...groups].sort((a, b) => {
+    const aSys = a.is_system ? 0 : 1;
+    const bSys = b.is_system ? 0 : 1;
+    if (aSys !== bSys) return aSys - bSys;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function groupsById(groups: Group[]): Map<number, string> {
+  return new Map(groups.map(g => [g.id, g.name]));
+}
+
+// Resolve the table's Group cell: prefer the group name, but fall back to the
+// raw `role` mirror text if the id is unknown (e.g. group deleted, or the
+// groups list hasn't loaded yet).
+function groupLabel(user: User, names: Map<number, string>): string {
+  if (user.group_id !== null && names.has(user.group_id)) {
+    return names.get(user.group_id) as string;
+  }
+  return user.role;
+}
+
 function roleBg(role: string): { bg: string; color: string } {
   const map: Record<string, { bg: string; color: string }> = {
     admin:      { bg: '#fee2e2', color: '#991b1b' },
@@ -174,15 +261,17 @@ function roleBg(role: string): { bg: string; color: string } {
   return map[role] ?? { bg: '#f3f4f6', color: '#374151' };
 }
 
-function RoleBadge({ role }: { role: string }) {
+// `role` drives the badge color (the kind mirror); `label` is the text shown
+// (the resolved group name, falling back to the raw role mirror).
+function RoleBadge({ role, label }: { role: string; label: string }) {
   const s = roleBg(role);
   return (
     <span style={{
       background: s.bg, color: s.color,
       padding: '2px 8px', borderRadius: 12,
-      fontSize: '0.72rem', fontWeight: 600, textTransform: 'capitalize',
+      fontSize: '0.72rem', fontWeight: 600,
     }}>
-      {role}
+      {label}
     </span>
   );
 }
@@ -202,26 +291,93 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Organization access checklist (shared by create + edit modals)
+// ---------------------------------------------------------------------------
+
+interface OrgCheckboxListProps {
+  organizations: Organization[];
+  selected: Set<number>;
+  onToggle: (id: number) => void;
+  loading?: boolean;
+  disabled?: boolean;
+}
+
+function OrgCheckboxList({ organizations, selected, onToggle, loading, disabled }: OrgCheckboxListProps) {
+  const { t } = useTranslation();
+  return (
+    <div>
+      <div style={{
+        border: '1px solid var(--input-border)', borderRadius: 6,
+        maxHeight: 160, overflowY: 'auto', padding: '6px 10px',
+      }}>
+        {loading ? (
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t('userList.newUserModal.orgLoading')}</span>
+        ) : organizations.length === 0 ? (
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t('userList.newUserModal.noOrgs')}</span>
+        ) : (
+          organizations.map(org => (
+            <label key={org.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: '0.85rem' }}>
+              <input
+                type="checkbox"
+                checked={selected.has(org.id)}
+                disabled={disabled}
+                onChange={() => onToggle(org.id)}
+              />
+              {org.name}
+            </label>
+          ))
+        )}
+      </div>
+      {!loading && selected.size === 0 && (
+        <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: 4 }}>
+          {t('userList.newUserModal.orgHint')}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // New User Modal
 // ---------------------------------------------------------------------------
 
 interface NewUserModalProps {
   onClose: () => void;
   onCreated: () => void;
+  groups: Group[];
+  organizations: Organization[];
+  currentOrgId: number | null;
 }
 
-function NewUserModal({ onClose, onCreated }: NewUserModalProps) {
+function NewUserModal({ onClose, onCreated, groups, organizations, currentOrgId }: NewUserModalProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
     first_name: '',
     last_name: '',
     email: '',
     password: '',
-    role: 'support',
     phone: '',
     status: 'active',
   });
+  const [groupId, setGroupId] = useState<number | null>(null);
+  const [orgIds, setOrgIds] = useState<Set<number>>(() => new Set(currentOrgId ? [currentOrgId] : []));
   const [err, setErr] = useState('');
+
+  // Default the group to the system "support" group once the groups list loads.
+  useEffect(() => {
+    if (groupId !== null || groups.length === 0) return;
+    const support = groups.find(g => g.is_system && g.name === 'support');
+    setGroupId(support ? support.id : groups[0].id);
+  }, [groups, groupId]);
+
+  const toggleOrg = (id: number) => {
+    setOrgIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -230,7 +386,8 @@ function NewUserModal({ onClose, onCreated }: NewUserModalProps) {
         last_name: form.last_name.trim(),
         email: form.email.trim(),
         password: form.password,
-        role: form.role,
+        group_id: Number(groupId),
+        organization_ids: Array.from(orgIds),
         status: form.status,
       };
       if (form.phone.trim()) body.phone = form.phone.trim();
@@ -248,7 +405,8 @@ function NewUserModal({ onClose, onCreated }: NewUserModalProps) {
   ) => setForm(f => ({ ...f, [k]: e.target.value }));
 
   const valid = form.first_name.trim() && form.last_name.trim() &&
-                form.email.trim() && form.password.length >= 8;
+                form.email.trim() && form.password.length >= 8 &&
+                groupId !== null && orgIds.size > 0;
 
   return (
     <div style={modalOverlay}>
@@ -275,9 +433,15 @@ function NewUserModal({ onClose, onCreated }: NewUserModalProps) {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <div>
-            <label style={labelStyle}>Role</label>
-            <select style={inputStyle} value={form.role} onChange={set('role')}>
-              {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+            <label style={labelStyle}>{t('userList.newUserModal.group')}</label>
+            <select
+              aria-label={t('userList.newUserModal.group')}
+              style={inputStyle}
+              value={groupId ?? ''}
+              onChange={e => setGroupId(e.target.value ? Number(e.target.value) : null)}
+            >
+              {groupId === null && <option value="">{t('common.loading')}</option>}
+              {sortGroups(groups).map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
             </select>
           </div>
           <div>
@@ -290,6 +454,9 @@ function NewUserModal({ onClose, onCreated }: NewUserModalProps) {
 
         <label style={labelStyle}>Phone</label>
         <input style={inputStyle} value={form.phone} onChange={set('phone')} placeholder="+52 55 1234 5678 (optional)" />
+
+        <label style={labelStyle}>{t('userList.newUserModal.orgAccess')}</label>
+        <OrgCheckboxList organizations={organizations} selected={orgIds} onToggle={toggleOrg} />
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: '1rem' }}>
           <button style={btnSecondary} onClick={onClose}>Cancel</button>
@@ -314,19 +481,43 @@ interface EditUserModalProps {
   user: User;
   onClose: () => void;
   onSaved: () => void;
+  groups: Group[];
+  organizations: Organization[];
 }
 
-function EditUserModal({ user, onClose, onSaved }: EditUserModalProps) {
+function EditUserModal({ user, onClose, onSaved, groups, organizations }: EditUserModalProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
     first_name: user.first_name,
     last_name: user.last_name,
     email: user.email,
-    role: user.role,
     phone: user.phone ?? '',
     status: user.status,
   });
+  const [groupId, setGroupId] = useState<number | null>(user.group_id);
+  const [orgIds, setOrgIds] = useState<Set<number> | null>(null);
   const [err, setErr] = useState('');
+
+  const orgsQuery = useQuery({
+    queryKey: ['users', user.id, 'organizations'],
+    queryFn: () => fetchUserOrganizations(user.id),
+  });
+
+  // Prefill the checklist once the user's current org access loads.
+  useEffect(() => {
+    if (orgsQuery.data && orgIds === null) {
+      setOrgIds(new Set(orgsQuery.data.map(o => o.id)));
+    }
+  }, [orgsQuery.data, orgIds]);
+
+  const toggleOrg = (id: number) => {
+    setOrgIds(prev => {
+      const next = new Set(prev ?? []);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -334,10 +525,22 @@ function EditUserModal({ user, onClose, onSaved }: EditUserModalProps) {
       if (form.first_name.trim() !== user.first_name) body.first_name = form.first_name.trim() || user.first_name;
       if (form.last_name.trim() !== user.last_name) body.last_name = form.last_name.trim() || user.last_name;
       if (form.email.trim() !== user.email) body.email = form.email.trim() || user.email;
-      if (form.role !== user.role) body.role = form.role;
+      if (groupId !== null && groupId !== user.group_id) body.group_id = groupId;
       if (form.status !== user.status) body.status = form.status;
+      const trimmedPhone = form.phone.trim();
       const origPhone = user.phone ?? '';
-      if (form.phone.trim() !== origPhone) body.phone = form.phone.trim() || undefined;
+      if (trimmedPhone !== origPhone) {
+        // An explicitly cleared phone must be sent as `phone: null`, not
+        // omitted — `trimmedPhone || undefined` would drop the key entirely
+        // (JSON.stringify skips `undefined`), which the PATCH diff otherwise
+        // reads as "unchanged" and the backend silently keeps the old value.
+        // `null` passes validate() (optional fields skip further checks when
+        // null) and `users.phone` is a nullable column, so this actually clears it.
+        body.phone = trimmedPhone === '' ? null : trimmedPhone;
+      }
+      // Organization access always syncs on save — the backend replaces the
+      // set wholesale ('owner' rows are preserved server-side).
+      body.organization_ids = Array.from(orgIds ?? []);
       return updateUser(user.id, body);
     },
     onSuccess: () => {
@@ -350,6 +553,17 @@ function EditUserModal({ user, onClose, onSaved }: EditUserModalProps) {
   const set = (k: keyof typeof form) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => setForm(f => ({ ...f, [k]: e.target.value }));
+
+  // Org access must have successfully prefilled before Save is allowed — if
+  // GET /users/:id/organizations fails, `orgIds` stays null (see the effect
+  // above) *until the user interacts with the checklist*, at which point
+  // `toggleOrg` would otherwise seed a Set from an empty baseline and quietly
+  // make `valid` true again with only the toggled org(s), silently wiping
+  // every other organization the user actually had access to on save. Gate
+  // explicitly on `orgsQuery.isError` (independent of `orgIds`) so a Save is
+  // impossible until a prefill retry succeeds; the checklist is also
+  // disabled during the error state so `orgIds` can't leave `null` at all.
+  const valid = !orgsQuery.isError && orgIds !== null && orgIds.size > 0 && groupId !== null;
 
   return (
     <div style={modalOverlay}>
@@ -373,9 +587,15 @@ function EditUserModal({ user, onClose, onSaved }: EditUserModalProps) {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <div>
-            <label style={labelStyle}>Role</label>
-            <select style={inputStyle} value={form.role} onChange={set('role')}>
-              {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+            <label style={labelStyle}>{t('userList.editUserModal.group')}</label>
+            <select
+              aria-label={t('userList.editUserModal.group')}
+              style={inputStyle}
+              value={groupId ?? ''}
+              onChange={e => setGroupId(e.target.value ? Number(e.target.value) : null)}
+            >
+              {groupId === null && <option value="">{t('userList.editUserModal.selectGroupPlaceholder')}</option>}
+              {sortGroups(groups).map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
             </select>
           </div>
           <div>
@@ -389,12 +609,34 @@ function EditUserModal({ user, onClose, onSaved }: EditUserModalProps) {
         <label style={labelStyle}>Phone</label>
         <input style={inputStyle} value={form.phone} onChange={set('phone')} placeholder="+52 55 1234 5678 (optional)" />
 
+        <label style={labelStyle}>{t('userList.editUserModal.orgAccess')}</label>
+        {orgsQuery.isError && (
+          <div style={{ ...errStyle, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>{t('userList.editUserModal.orgPrefillError')}</span>
+            <button
+              type="button"
+              style={{ ...btnSecondary, padding: '2px 10px', fontSize: '0.78rem' }}
+              onClick={() => orgsQuery.refetch()}
+              disabled={orgsQuery.isFetching}
+            >
+              {orgsQuery.isFetching ? t('common.loading') : t('userList.editUserModal.retry')}
+            </button>
+          </div>
+        )}
+        <OrgCheckboxList
+          organizations={organizations}
+          selected={orgIds ?? new Set()}
+          onToggle={toggleOrg}
+          loading={orgsQuery.isLoading}
+          disabled={orgsQuery.isError}
+        />
+
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: '1rem' }}>
           <button style={btnSecondary} onClick={onClose}>Cancel</button>
           <button
             style={btnPrimary}
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending}
+            disabled={mutation.isPending || !valid}
           >
             {mutation.isPending ? 'Saving…' : 'Save Changes'}
           </button>
@@ -642,7 +884,7 @@ export function UserList() {
   const { user: currentUser } = useAuth();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [roleFilter, setRoleFilter] = useState('');
+  const [groupFilter, setGroupFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
@@ -650,9 +892,18 @@ export function UserList() {
   const [show2FADisable, setShow2FADisable] = useState(false);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['users', page, pageSize, roleFilter, statusFilter],
-    queryFn: () => fetchUsers(page, pageSize, roleFilter, statusFilter),
+    queryKey: ['users', page, pageSize, groupFilter, statusFilter],
+    queryFn: () => fetchUsers(page, pageSize, groupFilter, statusFilter),
   });
+
+  // Fetched once (React Query caches by key) and shared by the filter select
+  // and both modals, so the Group picker and table labels stay consistent.
+  const groupsQuery = useQuery({ queryKey: ['groups'], queryFn: fetchGroups });
+  const organizationsQuery = useQuery({ queryKey: ['organizations'], queryFn: fetchOrganizations });
+
+  const groups = groupsQuery.data ?? [];
+  const organizations = organizationsQuery.data ?? [];
+  const groupNames = groupsById(groups);
 
   const users = data?.data ?? [];
   const meta = data?.meta;
@@ -701,16 +952,16 @@ export function UserList() {
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', flexWrap: 'wrap' }}>
-        <select aria-label={t('userList.filterRole')} style={filterSelect} value={roleFilter} onChange={handleFilterChange(setRoleFilter)}>
-          <option value="">{t('userList.allRoles')}</option>
-          {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+        <select aria-label={t('userList.filterGroup')} style={filterSelect} value={groupFilter} onChange={handleFilterChange(setGroupFilter)}>
+          <option value="">{t('userList.allGroups')}</option>
+          {sortGroups(groups).map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
         </select>
         <select aria-label={t('userList.filterStatus')} style={filterSelect} value={statusFilter} onChange={handleFilterChange(setStatusFilter)}>
           <option value="">{t('userList.allStatuses')}</option>
           {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
-        {(roleFilter || statusFilter) && (
-          <button style={btnSecondary} onClick={() => { setRoleFilter(''); setStatusFilter(''); setPage(1); }}>
+        {(groupFilter || statusFilter) && (
+          <button style={btnSecondary} onClick={() => { setGroupFilter(''); setStatusFilter(''); setPage(1); }}>
             {t('userList.clearFilters')}
           </button>
         )}
@@ -727,7 +978,7 @@ export function UserList() {
                 <tr>
                   <th style={th}>{t('userList.table.name')}</th>
                   <th style={th}>{t('userList.table.email')}</th>
-                  <th style={th}>{t('userList.table.role')}</th>
+                  <th style={th}>{t('userList.table.group')}</th>
                   <th style={th}>{t('userList.table.status')}</th>
                   <th style={th}>{t('userList.table.twofa')}</th>
                   <th style={th}>{t('userList.table.lastLogin')}</th>
@@ -757,7 +1008,7 @@ export function UserList() {
                       )}
                     </td>
                     <td style={{ ...td, color: '#4b5563' }}>{u.email}</td>
-                    <td style={td}><RoleBadge role={u.role} /></td>
+                    <td style={td}><RoleBadge role={u.role} label={groupLabel(u, groupNames)} /></td>
                     <td style={td}><StatusBadge status={u.status} /></td>
                     <td style={td}>
                       <span style={{
@@ -799,10 +1050,22 @@ export function UserList() {
 
       {/* Modals */}
       {showNew && (
-        <NewUserModal onClose={() => setShowNew(false)} onCreated={() => setShowNew(false)} />
+        <NewUserModal
+          onClose={() => setShowNew(false)}
+          onCreated={() => setShowNew(false)}
+          groups={groups}
+          organizations={organizations}
+          currentOrgId={currentUser?.organization_id ?? null}
+        />
       )}
       {editUser && (
-        <EditUserModal user={editUser} onClose={() => setEditUser(null)} onSaved={() => setEditUser(null)} />
+        <EditUserModal
+          user={editUser}
+          onClose={() => setEditUser(null)}
+          onSaved={() => setEditUser(null)}
+          groups={groups}
+          organizations={organizations}
+        />
       )}
       {show2FASetup && (
         <TwoFASetupModal onClose={() => setShow2FASetup(false)} onEnabled={() => setShow2FASetup(false)} />

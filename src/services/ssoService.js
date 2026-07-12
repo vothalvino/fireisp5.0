@@ -473,8 +473,9 @@ async function findOrCreateSsoUser(orgId, profile, cfg, mappings) {
     // 2. Create user — generate a random unusable password (SSO users authenticate via IdP only)
     const randomPassword = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
     const [insertResult] = await db.query(
-      `INSERT INTO users (organization_id, first_name, last_name, email, password_hash, role, status)
-       VALUES (?, ?, ?, ?, ?, 'support', 'active')`,
+      `INSERT INTO users (organization_id, first_name, last_name, email, password_hash, role, group_id, status)
+       VALUES (?, ?, ?, ?, ?, 'support',
+               (SELECT id FROM roles WHERE name = 'support' AND deleted_at IS NULL LIMIT 1), 'active')`,
       [orgId, profile.firstName || '', profile.lastName || '', profile.email, randomPassword],
     );
     const [newUserRows] = await db.query(
@@ -502,6 +503,24 @@ async function findOrCreateSsoUser(orgId, profile, cfg, mappings) {
      VALUES (?, ?, ?)
      ON DUPLICATE KEY UPDATE role = VALUES(role), deleted_at = NULL`,
     [orgId, user.id, orgRole],
+  );
+
+  // 5. Keep the user's GROUP in step with the SSO mapping (migration 378 made
+  //    users.group_id the authoritative permission source, so leaving the
+  //    provisioning default in place would make group mappings / default_role
+  //    permission-inert). The mapped role names a same-named SYSTEM group;
+  //    'manager'/'owner' have no group row and leave the current group alone
+  //    (those memberships resolve via the legacy paths, exactly as pre-378).
+  //    A CUSTOM (non-system) group assigned by an admin is never overwritten —
+  //    SSO only manages users it left on system groups.
+  await db.query(
+    `UPDATE users u
+     LEFT JOIN roles cur ON cur.id = u.group_id AND cur.deleted_at IS NULL
+     JOIN roles target ON target.name = ? AND target.is_system = TRUE AND target.deleted_at IS NULL
+     SET u.group_id = target.id,
+         u.role = COALESCE(target.kind, u.role)
+     WHERE u.id = ? AND (cur.id IS NULL OR cur.is_system = TRUE)`,
+    [orgRole, user.id],
   );
 
   return { user, orgRole };

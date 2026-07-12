@@ -37,6 +37,13 @@ export interface AuthUser {
   organization_currency?: string;
   /** Compliance locale of the ACTIVE org — 'MX' unlocks the SAT/IFT nav modules. */
   organization_locale?: 'global' | 'MX';
+  /** The user's group (migration 378): reusable permission set replacing the
+   *  fixed user type. `kind` is the persona the group is based on and matches
+   *  what `role` mirrors. */
+  group?: { id: number; name: string; kind: string | null } | null;
+  /** Resolved permission slugs for the ACTIVE org — drives can() so custom
+   *  groups reflect accurately in action buttons. */
+  permissions?: string[];
   is_active: boolean;
   email_verified: boolean;
   twofa_enabled: boolean;

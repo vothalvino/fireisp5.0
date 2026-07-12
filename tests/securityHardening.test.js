@@ -103,7 +103,7 @@ describe('security hardening — integration', () => {
       .send({ first_name: 'X', last_name: 'Y', email: 'x@test.com', password: 'longpassword123', role: 'admin' });
 
     expect(res.status).toBe(403);
-    expect(JSON.stringify(res.body)).toMatch(/administrator may assign or change a user role/i);
+    expect(JSON.stringify(res.body)).toMatch(/administrator may assign or change a user'?s? (group, role, or organization access|role)/i);
   });
 
   test('users CRUD still lets an admin assign a role', async () => {
@@ -168,7 +168,7 @@ describe('restrictRoleAssignment', () => {
   test('blocks a non-admin from setting role', () => {
     let err; restrictRoleAssignment({ user: { role: 'support' }, body: { role: 'admin' } }, {}, (e) => { err = e; });
     expect(err).toBeTruthy();
-    expect(err.message).toMatch(/administrator may assign or change a user role/i);
+    expect(err.message).toMatch(/administrator may assign or change a user'?s? (group, role, or organization access|role)/i);
   });
 
   test('allows an admin to set role', () => {

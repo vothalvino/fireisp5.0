@@ -1584,7 +1584,7 @@ describe('Role Routes — /api/roles', () => {
   describe('POST /api/roles', () => {
     test('creates a role and returns 201', async () => {
       mockAuthUser();
-      const newRole = { id: 3, name: 'billing', description: 'Billing team' };
+      const newRole = { id: 3, name: 'billing', description: 'Billing team', kind: 'billing' };
       db.query
         .mockResolvedValueOnce([{ insertId: 3, affectedRows: 1 }])  // INSERT
         .mockResolvedValueOnce([[newRole]]);                          // SELECT
@@ -1592,7 +1592,7 @@ describe('Role Routes — /api/roles', () => {
       const res = await request(app)
         .post('/api/roles')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'billing', description: 'Billing team' });
+        .send({ name: 'billing', description: 'Billing team', kind: 'billing' });
 
       expect(res.status).toBe(201);
       expect(res.body.data.id).toBe(3);
@@ -1606,6 +1606,7 @@ describe('Role Routes — /api/roles', () => {
       mockAuthUser();
       const updatedRole = { id: 1, name: 'superadmin', description: 'Updated description' };
       db.query
+        .mockResolvedValueOnce([[{ id: 1, name: 'old-custom', kind: 'billing', is_system: 0 }]])  // pre-fetch (378 system-role guard)
         .mockResolvedValueOnce([{ affectedRows: 1 }])   // UPDATE
         .mockResolvedValueOnce([[updatedRole]]);          // SELECT
 
@@ -1621,8 +1622,7 @@ describe('Role Routes — /api/roles', () => {
     test('returns 404 when role not found for update', async () => {
       mockAuthUser();
       db.query
-        .mockResolvedValueOnce([{ affectedRows: 0 }])  // UPDATE
-        .mockResolvedValueOnce([[]]);                    // SELECT — not found
+        .mockResolvedValueOnce([[]]);  // pre-fetch — not found (378 guard runs first)
 
       const res = await request(app)
         .put('/api/roles/999')
@@ -1638,7 +1638,8 @@ describe('Role Routes — /api/roles', () => {
     test('deletes a role and returns 204', async () => {
       mockAuthUser();
       db.query
-        .mockResolvedValueOnce([[mockRole]])               // SELECT — exists
+        .mockResolvedValueOnce([[{ ...mockRole, name: 'custom', is_system: 0 }]])  // SELECT — exists, non-system (378 guard)
+        .mockResolvedValueOnce([[{ cnt: 0 }]])             // COUNT assigned users (378 guard)
         .mockResolvedValueOnce([{ affectedRows: 1 }]);     // DELETE
 
       const res = await request(app)

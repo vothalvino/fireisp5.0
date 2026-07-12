@@ -48,6 +48,19 @@ function crudController(Model, _options = {}) {
   // the error propagates to the error handler. Reuses the existing fetch, so it
   // adds no extra query. Useful for terminal-state guards (e.g. voided invoices).
   const beforeUpdateHook = typeof _options.beforeUpdate === 'function' ? _options.beforeUpdate : null;
+  // Optional post-update hook — called after the update succeeds (PUT and
+  // PATCH) with the updated record (and req). Same non-fatal contract as
+  // afterCreate by default: errors are caught and logged, never failing the
+  // response. Useful for dependent-row sync (e.g. a user's organization
+  // memberships).
+  const afterUpdateHook = typeof _options.afterUpdate === 'function' ? _options.afterUpdate : null;
+  // When true, afterCreate/afterUpdate errors PROPAGATE to the error handler
+  // instead of being swallowed. Use for hooks that maintain authorization-
+  // bearing state (e.g. organization access sync): a silent 200 with stale
+  // privileged state is worse than surfacing the failure to the caller.
+  // Note the primary row change has already been applied and audit-logged at
+  // hook time — the error tells the caller to retry the dependent sync.
+  const fatalAfterHooks = _options.fatalAfterHooks === true;
 
   return {
     /**
@@ -124,13 +137,17 @@ function crudController(Model, _options = {}) {
         // Run the optional post-create hook. Wrapped in try/catch so it can
         // NEVER fail the create response — side-effect errors are advisory.
         if (afterCreateHook) {
-          try {
+          if (fatalAfterHooks) {
             await afterCreateHook(record, req);
-          } catch (hookErr) {
-            logger.warn(
-              { err: hookErr.message, recordId: record.id, table: Model.tableName },
-              'crudController afterCreate hook failed (non-fatal)',
-            );
+          } else {
+            try {
+              await afterCreateHook(record, req);
+            } catch (hookErr) {
+              logger.warn(
+                { err: hookErr.message, recordId: record.id, table: Model.tableName },
+                'crudController afterCreate hook failed (non-fatal)',
+              );
+            }
           }
         }
 
@@ -160,6 +177,22 @@ function crudController(Model, _options = {}) {
         });
 
         if (cacheResource) await bustCache(req.orgId, cacheResource);
+
+        if (afterUpdateHook) {
+          if (fatalAfterHooks) {
+            await afterUpdateHook(record, req);
+          } else {
+            try {
+              await afterUpdateHook(record, req);
+            } catch (hookErr) {
+              logger.warn(
+                { err: hookErr.message, recordId: record.id, table: Model.tableName },
+                'crudController afterUpdate hook failed (non-fatal)',
+              );
+            }
+          }
+        }
+
         res.json({ data: serialize(record) });
       } catch (err) {
         next(err);
@@ -186,6 +219,22 @@ function crudController(Model, _options = {}) {
         });
 
         if (cacheResource) await bustCache(req.orgId, cacheResource);
+
+        if (afterUpdateHook) {
+          if (fatalAfterHooks) {
+            await afterUpdateHook(record, req);
+          } else {
+            try {
+              await afterUpdateHook(record, req);
+            } catch (hookErr) {
+              logger.warn(
+                { err: hookErr.message, recordId: record.id, table: Model.tableName },
+                'crudController afterUpdate hook failed (non-fatal)',
+              );
+            }
+          }
+        }
+
         res.json({ data: serialize(record) });
       } catch (err) {
         next(err);

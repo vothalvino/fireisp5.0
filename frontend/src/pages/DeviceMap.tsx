@@ -635,9 +635,9 @@ export function DeviceMap() {
   const [deleteTarget, setDeleteTarget] = useState<Device | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const canCreate = can(user?.role, 'devices.create');
-  const canEditDevice = can(user?.role, 'devices.update');
-  const canDeleteDevice = can(user?.role, 'devices.delete');
+  const canCreate = can(user, 'devices.create');
+  const canEditDevice = can(user, 'devices.update');
+  const canDeleteDevice = can(user, 'devices.delete');
 
   const sitesQuery = useQuery({ queryKey: ['sites'], queryFn: fetchSites });
   const devicesQuery = useQuery({

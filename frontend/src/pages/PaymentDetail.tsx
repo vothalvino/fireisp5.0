@@ -302,7 +302,7 @@ export function PaymentDetail() {
   const qc = useQueryClient();
 
   // Permission gate — same slug as REST route
-  const canView = can(user?.role, 'payments.view');
+  const canView = can(user, 'payments.view');
 
   const { data: payment, isLoading, error } = useQuery({
     queryKey: ['payment-detail-gql', id],

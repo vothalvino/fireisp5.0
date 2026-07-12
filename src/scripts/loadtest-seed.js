@@ -132,8 +132,9 @@ async function seedLoadTestFixture() {
 
     const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
     const [userResult] = await conn.execute(
-      `INSERT INTO users (organization_id, first_name, last_name, email, password_hash, role, status)
-       VALUES (?, 'Load', 'Tester', ?, ?, 'admin', 'active')`,
+      `INSERT INTO users (organization_id, first_name, last_name, email, password_hash, role, group_id, status)
+       VALUES (?, 'Load', 'Tester', ?, ?, 'admin',
+               (SELECT id FROM roles WHERE name = 'admin' AND deleted_at IS NULL LIMIT 1), 'active')`,
       [organizationId, ADMIN_EMAIL, passwordHash],
     );
     const adminUserId = userResult.insertId;

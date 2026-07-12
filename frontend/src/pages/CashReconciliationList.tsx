@@ -273,9 +273,9 @@ export function CashReconciliationList() {
   const [closingId, setClosingId] = useState<number | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  const canCreate = can(user?.role, 'cash_reconciliation.create');
-  const canUpdate = can(user?.role, 'cash_reconciliation.update');
-  const canApprove = can(user?.role, 'cash_reconciliation.approve');
+  const canCreate = can(user, 'cash_reconciliation.create');
+  const canUpdate = can(user, 'cash_reconciliation.update');
+  const canApprove = can(user, 'cash_reconciliation.approve');
 
   const approveMutation = useMutation({
     mutationFn: async (id: number) => {

@@ -339,9 +339,9 @@ export function WinbackCampaignList() {
   const [deleteCampaign, setDeleteCampaign] = useState<WinbackCampaign | null>(null);
   const [targetsCampaign, setTargetsCampaign] = useState<WinbackCampaign | null>(null);
 
-  const canCreate = can(user?.role, 'winback.create');
-  const canUpdate = can(user?.role, 'winback.update');
-  const canDelete = can(user?.role, 'winback.delete');
+  const canCreate = can(user, 'winback.create');
+  const canUpdate = can(user, 'winback.update');
+  const canDelete = can(user, 'winback.delete');
 
   const campaignsQ = useQuery({ queryKey: ['winback-campaigns', page], queryFn: () => fetchCampaigns(page) });
   const campaigns = campaignsQ.data?.data ?? [];
