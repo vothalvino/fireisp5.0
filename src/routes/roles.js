@@ -188,8 +188,8 @@ router.delete('/:id', requirePermission('roles.manage'), async (req, res, next) 
     if (Number(cnt) > 0) {
       return next(new ValidationError(
         `Cannot delete this group while ${cnt} user(s) still reference it — this count includes ARCHIVED users `
-        + '(Users page → Archived tab) and, since groups are global, users homed in other organizations. '
-        + 'Reassign or restore-and-reassign them first',
+        + '(reassign their group from the Users page → Archived tab, no restore needed). Groups are global, so '
+        + 'the count may also include users in other organizations; switch to that organization to reassign them',
       ));
     }
 

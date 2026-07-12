@@ -461,6 +461,10 @@
       "orgPrefillError": "Couldn't load this user's current organization access. Retry before saving — saving now could remove access they still have.",
       "retry": "Retry"
     },
+    "editGroupModal": {
+      "title": "Edit group",
+      "groupLabel": "Group"
+    },
     "tabs": {
       "users": "Users",
       "archived": "Archived"
@@ -483,7 +487,9 @@
       "restore": "Restore",
       "restoring": "Restoring…",
       "restoredNotice": "{{name}} was restored as inactive. Activate the account from the Users tab if needed.",
-      "dismissNotice": "Dismiss"
+      "dismissNotice": "Dismiss",
+      "editGroup": "Edit group",
+      "groupUpdatedNotice": "{{name}}'s group was updated to {{group}}."
     }
   },
   "userGroups": {

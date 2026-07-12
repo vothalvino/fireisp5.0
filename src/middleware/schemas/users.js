@@ -33,4 +33,9 @@ const patchUser = Object.fromEntries(
   Object.entries(updateUser).map(([k, v]) => [k, { ...v, required: false }]),
 );
 
-module.exports = { createUser, updateUser, patchUser };
+// PATCH /users/:id/group — reassign an ARCHIVED user's group without restoring.
+const setArchivedGroup = {
+  group_id: { type: 'number', required: true },
+};
+
+module.exports = { createUser, updateUser, patchUser, setArchivedGroup };

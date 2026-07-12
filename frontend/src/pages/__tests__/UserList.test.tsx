@@ -447,10 +447,12 @@ describe('UserList page', () => {
       // ARCHIVED_USER.group_id = 12 → GROUPS_RESPONSE id 12 = "support".
       expect(within(row).getByText('support')).toBeInTheDocument();
       expect(within(row).getByRole('button', { name: 'Restore' })).toBeInTheDocument();
+      expect(within(row).getByRole('button', { name: 'Edit group' })).toBeInTheDocument();
 
-      // No create/edit affordances in this tab.
+      // No full-edit affordances (name/email/status/org) in this tab — only
+      // the narrow "Edit group" action and Restore.
       expect(screen.queryByText('+ New User')).not.toBeInTheDocument();
-      expect(within(row).queryByText('Edit')).not.toBeInTheDocument();
+      expect(within(row).queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
     });
 
     it('shows the empty state when there are no archived users', async () => {
@@ -629,6 +631,116 @@ describe('UserList page', () => {
 
       await user.click(archiveBtn);
       expect(screen.queryByRole('dialog', { name: 'Archive user?' })).not.toBeInTheDocument();
+    });
+  });
+
+  // Edit group (Archived tab only): PATCH /users/:id/group reassigns an
+  // ARCHIVED user's group without restoring them. The modal deliberately
+  // exposes only the group select (name is shown read-only) — no
+  // name/email/status/org fields, since restoring is the path for a full edit.
+  describe('Edit group modal (Archived tab)', () => {
+    it('opens from the archived row and defaults the group select to the row\'s current group', async () => {
+      const user = userEvent.setup();
+      renderUserList();
+      await waitFor(() => expect(screen.getByText('bob@test.com')).toBeInTheDocument());
+      await user.click(screen.getByRole('tab', { name: /Archived/ }));
+      await waitFor(() => expect(screen.getByText('alice@test.com')).toBeInTheDocument());
+
+      const row = screen.getByText('alice@test.com').closest('tr') as HTMLElement;
+      await user.click(within(row).getByRole('button', { name: 'Edit group' }));
+
+      const dialog = await screen.findByRole('dialog', { name: 'Edit group' });
+      // The archived user's name is shown read-only — no input for it.
+      expect(within(dialog).getByText('Alice Retired')).toBeInTheDocument();
+
+      const groupSelect = within(dialog).getByLabelText('Group') as HTMLSelectElement;
+      // ARCHIVED_USER.group_id = 12 → GROUPS_RESPONSE id 12 = "support".
+      await waitFor(() => expect(groupSelect.value).toBe('12'));
+    });
+
+    it('saves via PATCH /users/:id/group with the chosen group_id, closes, shows a confirmation, and refetches the archived list', async () => {
+      const user = userEvent.setup();
+      const base = routeFetch();
+      const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        const method = init?.method ?? 'GET';
+        if (/\/users\/9\/group$/.test(url) && method === 'PATCH') {
+          return Promise.resolve(jsonResponse({ data: { ...ARCHIVED_USER, group_id: 20, role: 'technician' } }));
+        }
+        return base(input, init);
+      });
+      vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
+
+      renderUserList();
+      await waitFor(() => expect(screen.getByText('bob@test.com')).toBeInTheDocument());
+      await user.click(screen.getByRole('tab', { name: /Archived/ }));
+      await waitFor(() => expect(screen.getByText('alice@test.com')).toBeInTheDocument());
+
+      const countArchivedGets = () => fetchMock.mock.calls.filter(([input, init]) => {
+        const url = typeof input === 'string' ? input : (input as URL).toString();
+        const method = init?.method ?? 'GET';
+        return url.includes('only_deleted=true') && method === 'GET';
+      }).length;
+      const archivedGetsBefore = countArchivedGets();
+
+      const row = screen.getByText('alice@test.com').closest('tr') as HTMLElement;
+      await user.click(within(row).getByRole('button', { name: 'Edit group' }));
+
+      const groupSelect = await screen.findByLabelText('Group') as HTMLSelectElement;
+      await waitFor(() => expect(groupSelect.value).toBe('12'));
+      await user.selectOptions(groupSelect, '20'); // Custom NOC
+
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => {
+        const call = findCall(fetchMock, '/api/v1/users/9/group', 'PATCH');
+        expect(call).toBeDefined();
+        const body = JSON.parse(call![1]!.body as string);
+        expect(body).toEqual({ group_id: 20 });
+      });
+
+      // Modal closes and a brief inline confirmation appears.
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit group' })).not.toBeInTheDocument());
+      expect(screen.getByText('Alice Retired\'s group was updated to Custom NOC.')).toBeInTheDocument();
+
+      // The archived list refetches so the row's Group cell reflects the change.
+      await waitFor(() => expect(countArchivedGets()).toBeGreaterThan(archivedGetsBefore));
+    });
+
+    it('surfaces a 422 error from the backend verbatim and keeps the modal open', async () => {
+      const user = userEvent.setup();
+      const base = routeFetch();
+      vi.spyOn(globalThis, 'fetch').mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        const method = init?.method ?? 'GET';
+        if (/\/users\/9\/group$/.test(url) && method === 'PATCH') {
+          return Promise.resolve({
+            ok: false,
+            json: () => Promise.resolve({
+              error: { message: 'This endpoint reassigns ARCHIVED users only — edit active users through the user form' },
+            }),
+          } as Response);
+        }
+        return base(input, init);
+      });
+
+      renderUserList();
+      await waitFor(() => expect(screen.getByText('bob@test.com')).toBeInTheDocument());
+      await user.click(screen.getByRole('tab', { name: /Archived/ }));
+      await waitFor(() => expect(screen.getByText('alice@test.com')).toBeInTheDocument());
+
+      const row = screen.getByText('alice@test.com').closest('tr') as HTMLElement;
+      await user.click(within(row).getByRole('button', { name: 'Edit group' }));
+
+      const groupSelect = await screen.findByLabelText('Group') as HTMLSelectElement;
+      await waitFor(() => expect(groupSelect.value).toBe('12'));
+      await user.selectOptions(groupSelect, '20');
+
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(screen.getByText(/ARCHIVED users only/)).toBeInTheDocument());
+      // Modal stays open so the admin can see the error and retry.
+      expect(screen.getByRole('dialog', { name: 'Edit group' })).toBeInTheDocument();
     });
   });
 

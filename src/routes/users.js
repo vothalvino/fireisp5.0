@@ -11,9 +11,10 @@ const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { restrictRoleAssignment } = require('../middleware/restrictRoleAssignment');
 const { validate } = require('../middleware/validate');
-const { createUser, updateUser, patchUser } = require('../middleware/schemas/users');
+const { createUser, updateUser, patchUser, setArchivedGroup } = require('../middleware/schemas/users');
 const { hashPasswordField } = require('../middleware/hashPassword');
 const userTunnelService = require('../services/userTunnelService');
+const auditLog = require('../services/auditLog');
 const { ValidationError } = require('../utils/errors');
 
 const router = Router();
@@ -90,6 +91,62 @@ router.put('/:id', requirePermission('users.update'), restrictRoleAssignment, va
 router.patch('/:id', requirePermission('users.update'), restrictRoleAssignment, validate(patchUser, { strip: true }), hashPasswordField, ctrl.partialUpdate);
 router.delete('/:id', requirePermission('users.delete'), guardArchive, ctrl.destroy);
 router.post('/:id/restore', requirePermission('users.update'), ctrl.restore);
+
+// Reassign an ARCHIVED user's group without restoring them — the path the
+// group-delete guard points admins at ("restore-and-reassign" is no longer
+// required). Deliberately restricted to archived rows: live users must go
+// through the normal edit (which carries the last-admin/status guards), and
+// archived users are inactive by definition, so a group change here can never
+// affect the last-admin invariant. The normal update path can't reach
+// archived rows (BaseModel.update filters deleted_at IS NULL), hence the raw
+// UPDATE below.
+router.patch('/:id/group',
+  requirePermission('users.update'),
+  restrictRoleAssignment,
+  validate(setArchivedGroup, { strip: true }),
+  async (req, res, next) => {
+    try {
+      const target = await User.findByIdIncludingDeleted(req.params.id, req.orgId);
+      if (!target) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'User not found' } });
+      }
+      if (!target.deleted_at) {
+        throw new ValidationError('This endpoint reassigns ARCHIVED users only — edit active users through the user form');
+      }
+
+      const data = { group_id: req.body.group_id };
+      await User.resolveGroupMirror(data); // validates the group, derives the role mirror
+
+      const db = require('../config/database');
+      // Re-assert deleted_at IS NOT NULL in the WRITE (not just the earlier
+      // read): a concurrent restore between the check above and here must not
+      // let this archived-only endpoint mutate a now-active account. Zero
+      // affected rows means the row stopped being archived — treat as 404.
+      const [result] = await db.query(
+        'UPDATE users SET group_id = ?, role = ? WHERE id = ? AND deleted_at IS NOT NULL',
+        [data.group_id, data.role, target.id],
+      );
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Archived user not found' } });
+      }
+      await User.refreshMembershipRoles(target.id, data.role);
+
+      await auditLog.log({
+        userId: req.user?.id,
+        organizationId: req.orgId,
+        action: 'update',
+        tableName: 'users',
+        recordId: target.id,
+        oldValues: { group_id: target.group_id, role: target.role },
+        newValues: data,
+      });
+
+      const updated = await User.findByIdIncludingDeleted(target.id, req.orgId);
+      res.json({ data: sanitizeUser(updated) });
+    } catch (err) {
+      next(err);
+    }
+  });
 
 // Get user's permissions
 router.get('/:id/permissions', requirePermission('users.view'), async (req, res, next) => {

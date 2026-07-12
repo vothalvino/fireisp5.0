@@ -6,6 +6,10 @@
 //   • "New User" button → modal form (name, email, password, group, org
 //     access, phone, status)
 //   • Edit button per row → update name/email/group/org access/phone/status
+//   • Archived tab → Restore, or Edit group (PATCH /users/:id/group) to
+//     reassign an archived user's group without restoring them — deliberately
+//     narrow: no name/email/status/org fields, since restoring is the path
+//     for a full edit
 //   • 2FA setup wizard for the currently logged-in user (POST /2fa/setup → QR →
 //     enter TOTP code → POST /2fa/verify) and disable (POST /2fa/disable)
 //
@@ -204,6 +208,22 @@ async function restoreUser(id: number): Promise<void> {
   }
 }
 
+// Reassigns an ARCHIVED user's group without restoring them (PATCH
+// /users/:id/group). The backend 422s if the target is ACTIVE or the group
+// id is unknown — those messages are surfaced verbatim via apiErrorMessage.
+async function updateArchivedUserGroup(id: number, groupId: number): Promise<User> {
+  const res = await authedFetch(`${API_BASE}/users/${id}/group`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ group_id: groupId }),
+  });
+  if (!res.ok) {
+    throw new Error(apiErrorMessage(await res.json().catch(() => ({})), 'Failed to update group'));
+  }
+  const json = (await res.json()) as { data: User };
+  return json.data;
+}
+
 interface TwoFASetupData {
   otpauth_url: string;
   secret: string;
@@ -267,15 +287,21 @@ function useClampPage(totalPages: number | undefined, page: number, setPage: (p:
   }, [totalPages, page, setPage]);
 }
 
-// System groups first (alphabetical among themselves), then custom groups
-// alphabetically — keeps the built-in personas at the top of the picker.
-function sortGroups(groups: Group[]): Group[] {
-  return [...groups].sort((a, b) => {
-    const aSys = a.is_system ? 0 : 1;
-    const bSys = b.is_system ? 0 : 1;
-    if (aSys !== bSys) return aSys - bSys;
-    return a.name.localeCompare(b.name);
-  });
+// Assignable groups for a picker: system groups first (alphabetical among
+// themselves), then custom groups alphabetically. Groups with no `kind`
+// (pre-378 custom rows that never got a base persona) are EXCLUDED — the
+// backend rejects assigning them with a 422, so offering them is a dead
+// option. `keepId` re-includes one specific group even if kind-less, so an
+// existing archived user's current (legacy) group still shows as selected.
+function sortGroups(groups: Group[], keepId?: number | null): Group[] {
+  return [...groups]
+    .filter(g => g.kind != null || g.id === keepId)
+    .sort((a, b) => {
+      const aSys = a.is_system ? 0 : 1;
+      const bSys = b.is_system ? 0 : 1;
+      if (aSys !== bSys) return aSys - bSys;
+      return a.name.localeCompare(b.name);
+    });
 }
 
 function groupsById(groups: Group[]): Map<number, string> {
@@ -738,6 +764,78 @@ function ArchiveUserModal({ targetUser, onClose, onArchived }: ArchiveUserModalP
 }
 
 // ---------------------------------------------------------------------------
+// Edit Archived User Group Modal (PATCH /users/:id/group — reassigns an
+// ARCHIVED user's group without restoring them). Deliberately narrow: unlike
+// EditUserModal it exposes only the group select — name/email/status/org
+// access are not editable here; restoring is the path for a full edit.
+// ---------------------------------------------------------------------------
+
+interface EditArchivedGroupModalProps {
+  targetUser: User;
+  groups: Group[];
+  onClose: () => void;
+  onSaved: (message: string) => void;
+}
+
+function EditArchivedGroupModal({ targetUser, groups, onClose, onSaved }: EditArchivedGroupModalProps) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [groupId, setGroupId] = useState<number | null>(targetUser.group_id);
+  const [err, setErr] = useState('');
+
+  const mutation = useMutation({
+    mutationFn: () => updateArchivedUserGroup(targetUser.id, Number(groupId)),
+    onSuccess: () => {
+      // Prefix-matches both the main list and the Archived tab's query, same
+      // as archive/restore, so the row's Group cell reflects the change.
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      const name = `${targetUser.first_name} ${targetUser.last_name}`;
+      const groupName = groups.find(g => g.id === groupId)?.name ?? '';
+      onSaved(t('userList.archivedTab.groupUpdatedNotice', { name, group: groupName }));
+      onClose();
+    },
+    onError: (e: Error) => setErr(e.message),
+  });
+
+  const valid = groupId !== null;
+
+  return (
+    <div style={modalOverlay} role="dialog" aria-modal="true" aria-label={t('userList.editGroupModal.title')}>
+      <div style={{ ...modalBox, width: 420 }}>
+        <h3 style={{ margin: '0 0 0.75rem' }}>{t('userList.editGroupModal.title')}</h3>
+        {err && <div style={errStyle}>{err}</div>}
+
+        <div style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: 10 }}>
+          {targetUser.first_name} {targetUser.last_name}
+        </div>
+
+        <label style={labelStyle}>{t('userList.editGroupModal.groupLabel')}</label>
+        <select
+          aria-label={t('userList.editGroupModal.groupLabel')}
+          style={inputStyle}
+          value={groupId ?? ''}
+          onChange={e => setGroupId(e.target.value ? Number(e.target.value) : null)}
+        >
+          {groupId === null && <option value="">{t('userList.editUserModal.selectGroupPlaceholder')}</option>}
+          {sortGroups(groups, groupId).map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+        </select>
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: '1rem' }}>
+          <button style={btnSecondary} onClick={onClose}>{t('common.cancel')}</button>
+          <button
+            style={btnPrimary}
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending || !valid}
+          >
+            {mutation.isPending ? t('common.saving') : t('common.save')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Archived Tab — paginated table of archived (soft-deleted) users + Restore
 // ---------------------------------------------------------------------------
 
@@ -750,15 +848,17 @@ interface ArchivedUsersTabProps {
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
   groupNames: Map<number, string>;
+  groups: Group[];
 }
 
 function ArchivedUsersTab({
-  data, isLoading, error, page, pageSize, onPageChange, onPageSizeChange, groupNames,
+  data, isLoading, error, page, pageSize, onPageChange, onPageSizeChange, groupNames, groups,
 }: ArchivedUsersTabProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [notice, setNotice] = useState<string | null>(null);
   const [err, setErr] = useState('');
+  const [editGroupTarget, setEditGroupTarget] = useState<User | null>(null);
 
   const users = data?.data ?? [];
   const meta = data?.meta;
@@ -831,20 +931,29 @@ function ArchivedUsersTab({
                     <td style={td}>{groupLabel(u, groupNames)}</td>
                     <td style={td}>{fmt(u.deleted_at)}</td>
                     <td style={td}>
-                      {/* Only the row whose id matches the mutation's in-flight
-                          variables shows the busy state — restoreMutation is
-                          shared across every row, so gating on `isPending`
-                          alone would disable/relabel every Restore button
-                          while any single restore is running. */}
-                      <button
-                        style={{ ...btnSecondary, fontSize: '0.78rem', padding: '4px 10px' }}
-                        onClick={() => restoreMutation.mutate(u.id)}
-                        disabled={restoreMutation.isPending && restoreMutation.variables === u.id}
-                      >
-                        {restoreMutation.isPending && restoreMutation.variables === u.id
-                          ? t('userList.archivedTab.restoring')
-                          : t('userList.archivedTab.restore')}
-                      </button>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {/* Group-only edit — does not restore the account. */}
+                        <button
+                          style={{ ...btnSecondary, fontSize: '0.78rem', padding: '4px 10px' }}
+                          onClick={() => { setErr(''); setEditGroupTarget(u); }}
+                        >
+                          {t('userList.archivedTab.editGroup')}
+                        </button>
+                        {/* Only the row whose id matches the mutation's in-flight
+                            variables shows the busy state — restoreMutation is
+                            shared across every row, so gating on `isPending`
+                            alone would disable/relabel every Restore button
+                            while any single restore is running. */}
+                        <button
+                          style={{ ...btnSecondary, fontSize: '0.78rem', padding: '4px 10px' }}
+                          onClick={() => restoreMutation.mutate(u.id)}
+                          disabled={restoreMutation.isPending && restoreMutation.variables === u.id}
+                        >
+                          {restoreMutation.isPending && restoreMutation.variables === u.id
+                            ? t('userList.archivedTab.restoring')
+                            : t('userList.archivedTab.restore')}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -861,6 +970,15 @@ function ArchivedUsersTab({
             onPageSizeChange={onPageSizeChange}
           />
         </>
+      )}
+
+      {editGroupTarget && (
+        <EditArchivedGroupModal
+          targetUser={editGroupTarget}
+          groups={groups}
+          onClose={() => setEditGroupTarget(null)}
+          onSaved={(message) => { setErr(''); setNotice(message); }}
+        />
       )}
     </div>
   );
@@ -1228,6 +1346,7 @@ export function UserList() {
           onPageChange={setArchivedPage}
           onPageSizeChange={(size) => { setArchivedPageSize(size); setArchivedPage(1); }}
           groupNames={groupNames}
+          groups={groups}
         />
       ) : (
       <>
