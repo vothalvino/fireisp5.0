@@ -80,6 +80,26 @@ docker compose -f /opt/fireisp/docker-compose.prod.yml --env-file /opt/fireisp/.
 
 ### Updating to a new version
 
+For a standard redeploy, the repo ships **`redeploy.sh`** — it runs the whole
+flow (pull `main` → rebuild → migrate → verify) as one command and halts on the
+first failed step, so a rejected pull or a broken build never migrates a stale
+image. Install it once as a global command:
+
+```bash
+sudo install -m 0755 /opt/fireisp/redeploy.sh /usr/local/bin/redeploy
+```
+
+then redeploy any time, from any directory:
+
+```bash
+sudo redeploy
+```
+
+For a non-standard install path, set `FIREISP_DIR=/your/path redeploy`. The
+manual steps below are the same flow broken out — reach for them when a
+**frontend** change isn't showing (the image caches the compiled bundle; see the
+heads-up) or when you need finer control.
+
 > **Heads-up:** the `app` image bundles the **compiled React frontend**. A plain
 > `up -d` (no `--build`) reuses the existing image, and even `up -d --build` can
 > reuse a cached `frontend-build` layer — so a merged change may not actually
