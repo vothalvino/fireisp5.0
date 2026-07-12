@@ -1344,6 +1344,42 @@ describe('Invoice Routes — /api/invoices (extended)', () => {
       // columns: (organization_id, client_id, contract_id, …) → contract_id is param index 2
       expect(invInsert[1][2]).toBe(7);
     });
+
+    test('new format — computes tax correctly from a fraction tax_rates.rate', async () => {
+      mockAuthUser();
+      db.query.mockImplementation((sql) => {
+        if (/FROM clients/.test(sql)) return Promise.resolve([[{ id: 5 }]]);
+        if (/FROM contracts/.test(sql)) return Promise.resolve([[{ id: 7, plan_id: 5, price_override: null }]]);
+        if (/FROM plans/.test(sql)) return Promise.resolve([[{ id: 5, name: 'Basic', price: '500.00', currency: 'MXN' }]]);
+        // tax_rates.rate is a FRACTION (DECIMAL(5,4); 0.1600 = 16%) per
+        // schema/migration 121 — not a whole percent.
+        if (/FROM tax_rates/.test(sql)) return Promise.resolve([[{ id: 1, rate: '0.1600', is_default: true }]]);
+        return Promise.resolve([[]]);
+      });
+      billingService.generateBillingPeriod.mockResolvedValue({ id: 10, period_start: '2026-01-01', period_end: '2026-01-31' });
+      Invoice.findById.mockResolvedValue({ id: 21, contract_id: 7 });
+      const conn = mockConnection();
+      conn.execute.mockImplementation((sql) => {
+        if (/COUNT\(\*\)/.test(sql)) return Promise.resolve([[{ cnt: 0 }]]);
+        if (/INSERT INTO invoices/.test(sql)) return Promise.resolve([{ insertId: 21, affectedRows: 1 }]);
+        return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
+      });
+
+      const res = await request(app)
+        .post('/api/invoices/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, items: [{ type: 'contract', contract_id: 7 }] });
+
+      expect(res.status).toBe(201);
+      const invInsert = conn.execute.mock.calls.find(c => /INSERT INTO invoices/.test(c[0]));
+      expect(invInsert).toBeDefined();
+      // columns: (organization_id, client_id, contract_id, invoice_number,
+      // subtotal, tax_amount, total, …). 500 subtotal @ 16% -> 80.00 tax,
+      // 580.00 total — this fails if the formula regresses to `* taxPct) / 100`.
+      expect(invInsert[1][4]).toBe(500);   // subtotal
+      expect(invInsert[1][5]).toBe(80);    // tax_amount
+      expect(invInsert[1][6]).toBe(580);   // total
+    });
   });
 
   describe('GET /api/invoices/:id/payments', () => {

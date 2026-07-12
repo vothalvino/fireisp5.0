@@ -90,9 +90,14 @@ describe('billingService', () => {
 
     test('creates invoice with correct totals inside a transaction', async () => {
       // Billing period lock (FOR UPDATE) + Tax rate lookup
+      // rate = 0.1600 (16%) — DECIMAL(5,4) per schema/migration 121 seed; a
+      // realistic rate is essential here: an old test mocking rate '16.00'
+      // (a whole percent, impossible per the column's 0-1 validation range) let
+      // the pre-fix `subtotal * taxPct` formula coincidentally produce the
+      // same 80.00 this test expects, masking a 100x tax-amount bug.
       mockConnection.execute
         .mockResolvedValueOnce([[{ id: 10, status: 'pending' }]])  // FOR UPDATE lock
-        .mockResolvedValueOnce([[{ id: 1, rate: '16.00', is_default: true }]])  // tax rate
+        .mockResolvedValueOnce([[{ id: 1, rate: '0.1600', is_default: true }]])  // tax rate
         .mockResolvedValueOnce([[{ cnt: 5 }]])  // invoice count
         .mockResolvedValueOnce([{ insertId: 50 }])  // INSERT invoice
         .mockResolvedValueOnce([])  // INSERT line item
@@ -108,6 +113,14 @@ describe('billingService', () => {
       expect(mockConnection.commit).toHaveBeenCalled();
       expect(mockConnection.release).toHaveBeenCalled();
       expect(result).toEqual({ id: 50, total: '580.00', status: 'issued' });
+
+      // 500 subtotal @ 16% -> 80.00 tax, 580.00 total. Assert directly on the
+      // INSERT INTO invoices params (not just the separately-mocked findById
+      // return above) so this fails if the tax formula regresses.
+      const invoiceInsert = mockConnection.execute.mock.calls[3][1];
+      expect(invoiceInsert[4]).toBe(500);   // subtotal
+      expect(invoiceInsert[5]).toBe(80);    // tax_amount
+      expect(invoiceInsert[6]).toBe(580);   // total
     });
 
     test('rolls back transaction on error', async () => {

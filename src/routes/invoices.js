@@ -198,9 +198,13 @@ router.post('/generate', requirePermission('invoices.create'), async (req, res, 
       [req.orgId],
     );
     const taxRate = taxRates[0];
+    // tax_rates.rate is a FRACTION (DECIMAL(5,4); e.g. 0.1600 = 16%, seeded by
+    // migration 121 and rendered as rate*100 by the frontend) — NOT a whole
+    // percent, so the tax amount needs an extra *100 to land in the right
+    // units (500 subtotal @ 0.16 -> 80.00 tax, not 0.80).
     const taxPct = taxRate ? parseFloat(taxRate.rate) : 0;
     subtotal = Math.round(subtotal * 100) / 100;
-    const taxAmount = Math.round(subtotal * taxPct) / 100;
+    const taxAmount = Math.round(subtotal * taxPct * 100) / 100;
     const total = Math.round((subtotal + taxAmount) * 100) / 100;
 
     // Create invoice in a transaction

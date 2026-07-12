@@ -85,8 +85,13 @@ describe('E2E Workflow: Billing → Invoice → Payment', () => {
       status: 'issued', currency: 'MXN',
     };
 
+    // rate = 0.1600 (16%), a FRACTION per schema/migration 121 — NOT the
+    // whole-percent '16.00' an earlier version of this test used, which
+    // coincidentally produced the same 80.00 under the pre-fix formula and
+    // masked a 100x tax-amount bug.
     mockConnection.execute
-      .mockResolvedValueOnce([[{ id: 1, rate: '16.00', is_default: true }]])  // tax rate
+      .mockResolvedValueOnce([[{ id: 100, status: 'pending' }]])  // FOR UPDATE lock
+      .mockResolvedValueOnce([[{ id: 1, rate: '0.1600', is_default: true }]])  // tax rate
       .mockResolvedValueOnce([[{ cnt: 0 }]])  // invoice count
       .mockResolvedValueOnce([{ insertId: 200 }])  // INSERT invoice
       .mockResolvedValueOnce([])  // INSERT invoice item
@@ -102,6 +107,14 @@ describe('E2E Workflow: Billing → Invoice → Payment', () => {
     expect(invoice.id).toBe(200);
     expect(invoice.total).toBe('580.00');
     expect(invoice.status).toBe('issued');
+
+    // 500 subtotal @ 16% -> 80.00 tax, 580.00 total. Assert directly on the
+    // INSERT INTO invoices params (not just the separately-mocked findById
+    // return above) so this fails if the tax formula regresses.
+    const invoiceInsert = mockConnection.execute.mock.calls[3][1];
+    expect(invoiceInsert[4]).toBe(500);   // subtotal
+    expect(invoiceInsert[5]).toBe(80);    // tax_amount
+    expect(invoiceInsert[6]).toBe(580);   // total
   });
 
   // =========================================================================
@@ -146,9 +159,10 @@ describe('E2E Workflow: Billing → Invoice → Payment', () => {
     expect(period.id).toBe(100);
 
     // Step 2: invoice (uses connection mock for conn.execute, then db.query for findById)
+    // rate = 0.1600 (16%), a FRACTION — see comment in Step 2 test above.
     mockConnection.execute
       .mockResolvedValueOnce([[{ id: 100, status: 'pending' }]])  // FOR UPDATE lock
-      .mockResolvedValueOnce([[{ id: 1, rate: '16.00', is_default: true }]])
+      .mockResolvedValueOnce([[{ id: 1, rate: '0.1600', is_default: true }]])
       .mockResolvedValueOnce([[{ cnt: 0 }]])
       .mockResolvedValueOnce([{ insertId: 200 }])
       .mockResolvedValueOnce([])
@@ -161,6 +175,12 @@ describe('E2E Workflow: Billing → Invoice → Payment', () => {
     const plan = { id: 5, name: 'Basic', price: '500.00', currency: 'MXN' };
     const invoice = await billingService.generateInvoice(period, contract, plan, 1);
     expect(invoice.id).toBe(200);
+
+    // 500 subtotal @ 16% -> 80.00 tax, 580.00 total.
+    const invoiceInsert = mockConnection.execute.mock.calls[3][1];
+    expect(invoiceInsert[4]).toBe(500);   // subtotal
+    expect(invoiceInsert[5]).toBe(80);    // tax_amount
+    expect(invoiceInsert[6]).toBe(580);   // total
 
     // Step 3: record payment credit
     db.query.mockResolvedValueOnce([{ insertId: 1 }]);

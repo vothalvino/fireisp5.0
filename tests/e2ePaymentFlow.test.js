@@ -292,9 +292,13 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
         }]]);
 
       // billingService.generateInvoice (uses conn.execute inside transaction):
+      // rate = 0.1600 (16%) — DECIMAL(5,4) FRACTION per schema/migration 121,
+      // not the whole-percent '16.00' an earlier version of this test used
+      // (which coincidentally matched the pre-fix formula's output and masked
+      // a 100x tax-amount bug).
       conn.execute
         .mockResolvedValueOnce([[{ id: 100, status: 'pending' }]])             // FOR UPDATE lock
-        .mockResolvedValueOnce([[{ id: 1, rate: '16.00', is_default: true }]]) // tax rate
+        .mockResolvedValueOnce([[{ id: 1, rate: '0.1600', is_default: true }]]) // tax rate
         .mockResolvedValueOnce([[{ cnt: 0 }]])                                 // invoice count
         .mockResolvedValueOnce([{ insertId: 200 }])                            // INSERT invoice
         .mockResolvedValueOnce([{ affectedRows: 1 }])                          // INSERT line item
@@ -320,6 +324,15 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       expect(conn.beginTransaction).toHaveBeenCalled();
       expect(conn.commit).toHaveBeenCalled();
       expect(conn.release).toHaveBeenCalled();
+
+      // res.body.data comes from the separately-mocked Invoice.findById above,
+      // so also assert directly on the INSERT INTO invoices params (599
+      // subtotal @ 16% -> 95.84 tax, 694.84 total) — this fails if the tax
+      // formula regresses even though findById's mocked return wouldn't catch it.
+      const invoiceInsert = conn.execute.mock.calls[3][1];
+      expect(invoiceInsert[4]).toBe(599);     // subtotal
+      expect(invoiceInsert[5]).toBe(95.84);   // tax_amount
+      expect(invoiceInsert[6]).toBe(694.84);  // total
     });
 
     test('returns 404 when contract does not exist', async () => {
@@ -603,9 +616,13 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
         }]]);
 
       // billingService.generateInvoice: 8 conn.execute calls
+      // rate = 0.1600 (16%) — DECIMAL(5,4) FRACTION per schema/migration 121,
+      // not the whole-percent '16.00' an earlier version of this test used
+      // (which coincidentally matched the pre-fix formula's output and masked
+      // a 100x tax-amount bug).
       conn.execute
         .mockResolvedValueOnce([[{ id: 100, status: 'pending' }]])
-        .mockResolvedValueOnce([[{ id: 1, rate: '16.00', is_default: true }]])
+        .mockResolvedValueOnce([[{ id: 1, rate: '0.1600', is_default: true }]])
         .mockResolvedValueOnce([[{ cnt: 0 }]])
         .mockResolvedValueOnce([{ insertId: 200 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -630,6 +647,15 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       const invoiceId = invoiceRes.body.data.id;
       expect(invoiceId).toBe(200);
       expect(invoiceRes.body.data.total).toBe('694.84');
+
+      // res.body.data comes from the separately-mocked Invoice.findById above,
+      // so also assert directly on the INSERT INTO invoices params (599
+      // subtotal @ 16% -> 95.84 tax, 694.84 total) — this fails if the tax
+      // formula regresses even though findById's mocked return wouldn't catch it.
+      const invoiceInsert = conn.execute.mock.calls[3][1];
+      expect(invoiceInsert[4]).toBe(599);     // subtotal
+      expect(invoiceInsert[5]).toBe(95.84);   // tax_amount
+      expect(invoiceInsert[6]).toBe(694.84);  // total
 
       // --- Step 5: Record payment ---
       // Payment.create: INSERT → findByIdIncludingDeleted
