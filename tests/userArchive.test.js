@@ -9,11 +9,39 @@
 
 jest.mock('../src/config/database', () => ({
   query: jest.fn(),
+  queryReplica: jest.fn(),
+  execute: jest.fn(),
   getConnection: jest.fn(),
+  close: jest.fn(),
+  pool: { end: jest.fn() },
 }));
 
+// App-level mocks for the PATCH /users/:id/group endpoint tests. mockUser is
+// mutated in place so restrictRoleAssignment can be exercised for non-admins.
+const mockUser = { id: 1, email: 'admin@test.com', role: 'admin' };
+jest.mock('../src/middleware/auth', () => ({
+  authenticate: (req, _res, next) => { req.user = mockUser; req.userId = mockUser.id; next(); },
+}));
+jest.mock('../src/middleware/orgScope', () => ({
+  orgScope: (req, _res, next) => { req.orgId = 1; next(); },
+}));
+jest.mock('../src/middleware/rbac', () => ({
+  requirePermission: () => (_req, _res, next) => next(),
+  requireRole: () => (_req, _res, next) => next(),
+}));
+jest.mock('../src/middleware/orgLocale', () => ({
+  requireMxLocale: (_req, _res, next) => next(),
+}));
+jest.mock('../src/middleware/ipAllowlist', () => ({
+  createIpAllowlist: () => (_req, _res, next) => next(),
+  parseAllowlist: () => [],
+}));
+jest.mock('../src/services/auditLog', () => ({ log: jest.fn().mockResolvedValue(undefined) }));
+
+const request = require('supertest');
 const db = require('../src/config/database');
 const User = require('../src/models/User');
+const app = require('../src/app');
 
 beforeEach(() => jest.clearAllMocks());
 
@@ -79,5 +107,68 @@ describe('BaseModel onlyDeleted (Archived tab listing)', () => {
     expect(await HardDeleteModel.findAll({ onlyDeleted: true })).toEqual([]);
     expect(await HardDeleteModel.count({ onlyDeleted: true })).toBe(0);
     expect(db.query).not.toHaveBeenCalled();
+  });
+});
+
+describe('PATCH /users/:id/group — reassign an archived user without restoring', () => {
+  const ARCHIVED = { id: 9, organization_id: 1, role: 'billing', group_id: 2, status: 'inactive', deleted_at: '2026-07-12 10:00:00' };
+  const ACTIVE = { ...ARCHIVED, deleted_at: null };
+
+  beforeEach(() => { mockUser.role = 'admin'; });
+
+  test('changes group + role mirror and refreshes membership rows for an archived user', async () => {
+    db.query
+      .mockResolvedValueOnce([[ARCHIVED]])                               // findByIdIncludingDeleted
+      .mockResolvedValueOnce([[{ id: 4, name: 'technician', kind: 'technician' }]]) // resolveGroupMirror
+      .mockResolvedValueOnce([{ affectedRows: 1 }])                      // UPDATE users (archived-only, affectedRows checked)
+      .mockResolvedValueOnce([{ affectedRows: 1 }])                      // refreshMembershipRoles
+      .mockResolvedValueOnce([[{ ...ARCHIVED, group_id: 4, role: 'technician' }]]); // final fetch
+
+    const res = await request(app).patch('/api/v1/users/9/group').send({ group_id: 4 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.group_id).toBe(4);
+    expect(res.body.data.role).toBe('technician');
+    const updateCall = db.query.mock.calls[2];
+    expect(updateCall[0]).toMatch(/UPDATE users SET group_id = \?, role = \? WHERE id = \? AND deleted_at IS NOT NULL/);
+    expect(updateCall[1]).toEqual([4, 'technician', 9]);
+    const membershipCall = db.query.mock.calls[3];
+    expect(membershipCall[0]).toMatch(/UPDATE organization_users SET role/);
+  });
+
+  test('404s when the row stopped being archived between check and write (concurrent restore)', async () => {
+    db.query
+      .mockResolvedValueOnce([[ARCHIVED]])                               // findByIdIncludingDeleted (still archived)
+      .mockResolvedValueOnce([[{ id: 4, name: 'technician', kind: 'technician' }]]) // resolveGroupMirror
+      .mockResolvedValueOnce([{ affectedRows: 0 }]);                     // UPDATE ... AND deleted_at IS NOT NULL → restored mid-flight
+    const res = await request(app).patch('/api/v1/users/9/group').send({ group_id: 4 });
+    expect(res.status).toBe(404);
+  });
+
+  test('422s for an ACTIVE user — live accounts use the normal edit with its guards', async () => {
+    db.query.mockResolvedValueOnce([[ACTIVE]]);
+    const res = await request(app).patch('/api/v1/users/9/group').send({ group_id: 4 });
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(res.body)).toMatch(/ARCHIVED users only/);
+  });
+
+  test('404s when the user does not exist', async () => {
+    db.query.mockResolvedValueOnce([[]]);
+    const res = await request(app).patch('/api/v1/users/999/group').send({ group_id: 4 });
+    expect(res.status).toBe(404);
+  });
+
+  test('422s for an unknown group id', async () => {
+    db.query
+      .mockResolvedValueOnce([[ARCHIVED]])
+      .mockResolvedValueOnce([[]]); // resolveGroupMirror: no such group
+    const res = await request(app).patch('/api/v1/users/9/group').send({ group_id: 999 });
+    expect(res.status).toBe(422);
+  });
+
+  test('403s for a non-admin caller (restrictRoleAssignment covers group_id)', async () => {
+    mockUser.role = 'billing';
+    const res = await request(app).patch('/api/v1/users/9/group').send({ group_id: 4 });
+    expect(res.status).toBe(403);
   });
 });

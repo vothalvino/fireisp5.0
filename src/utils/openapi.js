@@ -236,6 +236,9 @@ function generateSpec() {
       '/users/{id}/organizations': {
         get: { tags: ['Users'], summary: 'Organizations the user can access (memberships)', operationId: 'getUserOrganizations', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('UserOrganization[]') },
       },
+      '/users/{id}/group': {
+        patch: { tags: ['Users'], summary: "Reassign an ARCHIVED user's group without restoring (422 for active users)", operationId: 'setArchivedUserGroup', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('users_setArchivedGroup'), responses: r200('User') },
+      },
 
       // ---- Roles ----
       '/roles': {

@@ -461,6 +461,10 @@
       "orgPrefillError": "No se pudo cargar el acceso a organizaciones actual de este usuario. Reintenta antes de guardar — guardar ahora podría quitarle acceso que aún tiene.",
       "retry": "Reintentar"
     },
+    "editGroupModal": {
+      "title": "Editar grupo",
+      "groupLabel": "Grupo"
+    },
     "tabs": {
       "users": "Usuarios",
       "archived": "Archivados"
@@ -483,7 +487,9 @@
       "restore": "Restaurar",
       "restoring": "Restaurando…",
       "restoredNotice": "{{name}} fue restaurado como inactivo. Activa la cuenta desde la pestaña Usuarios si es necesario.",
-      "dismissNotice": "Descartar"
+      "dismissNotice": "Descartar",
+      "editGroup": "Editar grupo",
+      "groupUpdatedNotice": "El grupo de {{name}} se actualizó a {{group}}."
     }
   },
   "userGroups": {

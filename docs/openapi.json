@@ -1588,6 +1588,52 @@
         }
       }
     },
+    "/users/{id}/group": {
+      "patch": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Reassign an ARCHIVED user's group without restoring (422 for active users)",
+        "operationId": "setArchivedUserGroup",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "users_setArchivedGroup",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "User",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/roles": {
       "get": {
         "tags": [
@@ -66351,6 +66397,17 @@
             ]
           }
         }
+      },
+      "users_setArchivedGroup": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "group_id"
+        ]
       },
       "vendors_createVendor": {
         "type": "object",
