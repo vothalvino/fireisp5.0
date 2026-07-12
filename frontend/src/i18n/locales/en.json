@@ -460,6 +460,30 @@
       "selectGroupPlaceholder": "Select a group…",
       "orgPrefillError": "Couldn't load this user's current organization access. Retry before saving — saving now could remove access they still have.",
       "retry": "Retry"
+    },
+    "tabs": {
+      "users": "Users",
+      "archived": "Archived"
+    },
+    "archiveAction": "Archive",
+    "archiveSelfDisabledTitle": "You cannot archive your own account",
+    "archiveModal": {
+      "title": "Archive user?",
+      "body": "{{name}} will be archived and deactivated. You can restore this account later from the Archived tab.",
+      "confirm": "Archive",
+      "archiving": "Archiving…"
+    },
+    "archivedTab": {
+      "loading": "Loading archived users…",
+      "error": "Failed to load archived users.",
+      "empty": "No archived users found.",
+      "table": {
+        "archived": "Archived"
+      },
+      "restore": "Restore",
+      "restoring": "Restoring…",
+      "restoredNotice": "{{name}} was restored as inactive. Activate the account from the Users tab if needed.",
+      "dismissNotice": "Dismiss"
     }
   },
   "userGroups": {

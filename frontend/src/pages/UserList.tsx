@@ -39,6 +39,7 @@ interface User {
   totp_enabled: boolean | number;
   last_login_at: string | null;
   created_at: string;
+  deleted_at?: string | null;
 }
 
 interface UsersResponse {
@@ -100,6 +101,15 @@ async function fetchUsers(page: number, pageSize: number, groupFilter: string, s
   if (statusFilter) params.set('status', statusFilter);
   const res = await fetch(`${API_BASE}/users?${params}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to load users');
+  return res.json() as Promise<UsersResponse>;
+}
+
+// Archived tab — lists ONLY soft-deleted (archived) users. Same paginated
+// shape as the normal list; rows carry `deleted_at`.
+async function fetchArchivedUsers(page: number, pageSize: number): Promise<UsersResponse> {
+  const params = new URLSearchParams({ page: String(page), limit: String(pageSize), only_deleted: 'true' });
+  const res = await fetch(`${API_BASE}/users?${params}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to load archived users');
   return res.json() as Promise<UsersResponse>;
 }
 
@@ -176,6 +186,24 @@ async function updateUser(id: number, body: UpdateUserBody): Promise<void> {
   }
 }
 
+// "Deleting" a staff user ARCHIVES it — soft-delete + forced status='inactive'
+// in one statement (see src/models/User.js). The account is not gone; it can
+// be brought back with restoreUser(), which returns INACTIVE and must be
+// re-activated explicitly.
+async function archiveUser(id: number): Promise<void> {
+  const res = await authedFetch(`${API_BASE}/users/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    throw new Error(apiErrorMessage(await res.json().catch(() => ({})), 'Failed to archive user'));
+  }
+}
+
+async function restoreUser(id: number): Promise<void> {
+  const res = await authedFetch(`${API_BASE}/users/${id}/restore`, { method: 'POST' });
+  if (!res.ok) {
+    throw new Error(apiErrorMessage(await res.json().catch(() => ({})), 'Failed to restore user'));
+  }
+}
+
 interface TwoFASetupData {
   otpauth_url: string;
   secret: string;
@@ -224,6 +252,19 @@ function fmt(dateStr: string | null | undefined): string {
   return new Date(dateStr).toLocaleDateString('es-MX', {
     year: 'numeric', month: 'short', day: 'numeric',
   });
+}
+
+// Archive/restore are list-shrinking mutations — the row that made a page's
+// last user disappear can strand `page` past the new `totalPages`, after
+// which the query returns `data: []` and <Pagination> hides its controls
+// (totalPages <= 1) with no way back. Generic guard for any paginated tab
+// here: once the query settles, clamp `page` back down to the last real page.
+function useClampPage(totalPages: number | undefined, page: number, setPage: (p: number) => void) {
+  useEffect(() => {
+    if (totalPages !== undefined && page > totalPages) {
+      setPage(Math.max(1, totalPages));
+    }
+  }, [totalPages, page, setPage]);
 }
 
 // System groups first (alphabetical among themselves), then custom groups
@@ -647,6 +688,185 @@ function EditUserModal({ user, onClose, onSaved, groups, organizations }: EditUs
 }
 
 // ---------------------------------------------------------------------------
+// Archive User Modal (soft-delete + forced 'inactive'; DELETE /users/:id)
+// ---------------------------------------------------------------------------
+
+interface ArchiveUserModalProps {
+  targetUser: User;
+  onClose: () => void;
+  onArchived: () => void;
+}
+
+function ArchiveUserModal({ targetUser, onClose, onArchived }: ArchiveUserModalProps) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [err, setErr] = useState('');
+
+  const mutation = useMutation({
+    mutationFn: () => archiveUser(targetUser.id),
+    onSuccess: () => {
+      // Prefix-matches both the main list (['users', ...]) and the Archived
+      // tab's query (['users', 'archived', ...]) so the row moves immediately.
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      onArchived();
+      onClose();
+    },
+    onError: (e: Error) => setErr(e.message),
+  });
+
+  return (
+    <div style={modalOverlay} role="dialog" aria-modal="true" aria-label={t('userList.archiveModal.title')}>
+      <div style={{ ...modalBox, width: 440 }}>
+        <h3 style={{ margin: '0 0 0.75rem' }}>{t('userList.archiveModal.title')}</h3>
+        {err && <div style={errStyle}>{err}</div>}
+        <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginTop: 0, lineHeight: 1.5 }}>
+          {t('userList.archiveModal.body', { name: `${targetUser.first_name} ${targetUser.last_name}` })}
+        </p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: '1rem' }}>
+          <button style={btnSecondary} onClick={onClose}>{t('common.cancel')}</button>
+          <button
+            style={{ ...btnPrimary, background: '#dc2626' }}
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
+          >
+            {mutation.isPending ? t('userList.archiveModal.archiving') : t('userList.archiveModal.confirm')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Archived Tab — paginated table of archived (soft-deleted) users + Restore
+// ---------------------------------------------------------------------------
+
+interface ArchivedUsersTabProps {
+  data?: UsersResponse;
+  isLoading: boolean;
+  error: Error | null;
+  page: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
+  groupNames: Map<number, string>;
+}
+
+function ArchivedUsersTab({
+  data, isLoading, error, page, pageSize, onPageChange, onPageSizeChange, groupNames,
+}: ArchivedUsersTabProps) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [notice, setNotice] = useState<string | null>(null);
+  const [err, setErr] = useState('');
+
+  const users = data?.data ?? [];
+  const meta = data?.meta;
+
+  const restoreMutation = useMutation({
+    mutationFn: (id: number) => restoreUser(id),
+    onSuccess: (_result, id) => {
+      // Same prefix-match invalidation as archiving — refetches both the
+      // Archived tab's own list and the main Users list, so the restored row
+      // (now visible again, status 'inactive') appears there right away.
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      const target = users.find(u => u.id === id);
+      const name = target ? `${target.first_name} ${target.last_name}` : '';
+      setErr('');
+      setNotice(t('userList.archivedTab.restoredNotice', { name }));
+    },
+    onError: (e: Error) => { setNotice(null); setErr(e.message); },
+  });
+
+  return (
+    <div>
+      {notice && (
+        <div style={{
+          background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af',
+          borderRadius: 6, padding: '8px 12px', marginBottom: '1rem',
+          fontSize: '0.83rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+        }}>
+          <span>{notice}</span>
+          <button
+            type="button"
+            aria-label={t('userList.archivedTab.dismissNotice')}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1e40af', fontWeight: 700, fontSize: '1rem', lineHeight: 1 }}
+            onClick={() => setNotice(null)}
+          >
+            ×
+          </button>
+        </div>
+      )}
+      {err && <div style={errStyle}>{err}</div>}
+
+      {isLoading && <p style={{ color: '#888' }}>{t('userList.archivedTab.loading')}</p>}
+      {error && <p style={{ color: '#e00' }}>{t('userList.archivedTab.error')}</p>}
+      {!isLoading && !error && (
+        <>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={th}>{t('userList.table.name')}</th>
+                  <th style={th}>{t('userList.table.email')}</th>
+                  <th style={th}>{t('userList.table.group')}</th>
+                  <th style={th}>{t('userList.archivedTab.table.archived')}</th>
+                  <th style={th}>{t('userList.table.actions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.length === 0 && (
+                  <tr>
+                    <td colSpan={5} style={{ ...td, textAlign: 'center', color: '#888', padding: '2rem' }}>
+                      {t('userList.archivedTab.empty')}
+                    </td>
+                  </tr>
+                )}
+                {users.map(u => (
+                  <tr key={u.id}>
+                    <td style={td}>
+                      <span style={{ fontWeight: 600 }}>{u.first_name} {u.last_name}</span>
+                    </td>
+                    <td style={{ ...td, color: '#4b5563' }}>{u.email}</td>
+                    <td style={td}>{groupLabel(u, groupNames)}</td>
+                    <td style={td}>{fmt(u.deleted_at)}</td>
+                    <td style={td}>
+                      {/* Only the row whose id matches the mutation's in-flight
+                          variables shows the busy state — restoreMutation is
+                          shared across every row, so gating on `isPending`
+                          alone would disable/relabel every Restore button
+                          while any single restore is running. */}
+                      <button
+                        style={{ ...btnSecondary, fontSize: '0.78rem', padding: '4px 10px' }}
+                        onClick={() => restoreMutation.mutate(u.id)}
+                        disabled={restoreMutation.isPending && restoreMutation.variables === u.id}
+                      >
+                        {restoreMutation.isPending && restoreMutation.variables === u.id
+                          ? t('userList.archivedTab.restoring')
+                          : t('userList.archivedTab.restore')}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <Pagination
+            page={page}
+            totalPages={meta?.totalPages ?? 1}
+            total={meta?.total}
+            pageSize={pageSize}
+            onPageChange={onPageChange}
+            onPageSizeChange={onPageSizeChange}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 2FA Setup Wizard (for the currently logged-in user)
 // ---------------------------------------------------------------------------
 
@@ -879,22 +1099,43 @@ function TwoFADisableModal({ onClose, onDisabled }: TwoFADisableModalProps) {
 // Main Page
 // ---------------------------------------------------------------------------
 
+type UserTab = 'users' | 'archived';
+
 export function UserList() {
   const { t } = useTranslation();
   const { user: currentUser } = useAuth();
+  const [tab, setTab] = useState<UserTab>('users');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [groupFilter, setGroupFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<User | null>(null);
   const [show2FASetup, setShow2FASetup] = useState(false);
   const [show2FADisable, setShow2FADisable] = useState(false);
+  const [archivedPage, setArchivedPage] = useState(1);
+  const [archivedPageSize, setArchivedPageSize] = useState(25);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['users', page, pageSize, groupFilter, statusFilter],
     queryFn: () => fetchUsers(page, pageSize, groupFilter, statusFilter),
   });
+
+  // Always fetched (not gated on the active tab) so the Archived tab's count
+  // badge is available without an extra round trip when the user switches —
+  // one small paginated request is cheap, and its query key still gets
+  // refetched by the archive/restore mutations' ['users'] invalidation.
+  const archivedQuery = useQuery({
+    queryKey: ['users', 'archived', archivedPage, archivedPageSize],
+    queryFn: () => fetchArchivedUsers(archivedPage, archivedPageSize),
+  });
+
+  // Clamp both tabs' page state after a list-shrinking mutation (archive on
+  // the last row of the last page, restore on the last archived page) would
+  // otherwise strand `page` past the new `totalPages` with no way back.
+  useClampPage(data?.meta.totalPages, page, setPage);
+  useClampPage(archivedQuery.data?.meta.totalPages, archivedPage, setArchivedPage);
 
   // Fetched once (React Query caches by key) and shared by the filter select
   // and both modals, so the Group picker and table labels stay consistent.
@@ -936,7 +1177,9 @@ export function UserList() {
               🔐 {t('userList.enableMyTwoFA')}
             </button>
           )}
-          <button style={btnPrimary} onClick={() => setShowNew(true)}>{t('userList.newUser')}</button>
+          {tab === 'users' && (
+            <button style={btnPrimary} onClick={() => setShowNew(true)}>{t('userList.newUser')}</button>
+          )}
         </div>
       </div>
 
@@ -950,6 +1193,44 @@ export function UserList() {
         Use the buttons above to manage 2FA for your account.
       </div>
 
+      {/* Sub-tabs */}
+      <div style={tabStrip} role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'users'}
+          style={tabBtnStyle(tab === 'users')}
+          onClick={() => setTab('users')}
+        >
+          {t('userList.tabs.users')}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'archived'}
+          style={tabBtnStyle(tab === 'archived')}
+          onClick={() => setTab('archived')}
+        >
+          {t('userList.tabs.archived')}
+          {archivedQuery.data?.meta && (
+            <span style={tabBadge}>{archivedQuery.data.meta.total}</span>
+          )}
+        </button>
+      </div>
+
+      {tab === 'archived' ? (
+        <ArchivedUsersTab
+          data={archivedQuery.data}
+          isLoading={archivedQuery.isLoading}
+          error={archivedQuery.error}
+          page={archivedPage}
+          pageSize={archivedPageSize}
+          onPageChange={setArchivedPage}
+          onPageSizeChange={(size) => { setArchivedPageSize(size); setArchivedPage(1); }}
+          groupNames={groupNames}
+        />
+      ) : (
+      <>
       {/* Filters */}
       <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', flexWrap: 'wrap' }}>
         <select aria-label={t('userList.filterGroup')} style={filterSelect} value={groupFilter} onChange={handleFilterChange(setGroupFilter)}>
@@ -1023,12 +1304,31 @@ export function UserList() {
                     <td style={td}>{fmt(u.last_login_at)}</td>
                     <td style={td}>{fmt(u.created_at)}</td>
                     <td style={td}>
-                      <button
-                        style={{ ...btnSecondary, fontSize: '0.78rem', padding: '4px 10px' }}
-                        onClick={() => setEditUser(u)}
-                      >
-                        {t('common.edit')}
-                      </button>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                          style={{ ...btnSecondary, fontSize: '0.78rem', padding: '4px 10px' }}
+                          onClick={() => setEditUser(u)}
+                        >
+                          {t('common.edit')}
+                        </button>
+                        {/* The backend rejects self-archive (422) — archiving
+                            your own account would lock you out instantly, with
+                            no admin left to restore it. Disable it client-side
+                            too rather than let the confirm dialog's "restore
+                            later" promise mislead the acting admin. */}
+                        <button
+                          style={{
+                            ...btnSecondary, fontSize: '0.78rem', padding: '4px 10px',
+                            borderColor: '#dc2626', color: '#dc2626',
+                            ...(u.id === currentUser?.id ? { opacity: 0.5, cursor: 'not-allowed' } : {}),
+                          }}
+                          onClick={() => setArchiveTarget(u)}
+                          disabled={u.id === currentUser?.id}
+                          title={u.id === currentUser?.id ? t('userList.archiveSelfDisabledTitle') : undefined}
+                        >
+                          {t('userList.archiveAction')}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1046,6 +1346,8 @@ export function UserList() {
             onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
           />
         </>
+      )}
+      </>
       )}
 
       {/* Modals */}
@@ -1065,6 +1367,13 @@ export function UserList() {
           onSaved={() => setEditUser(null)}
           groups={groups}
           organizations={organizations}
+        />
+      )}
+      {archiveTarget && (
+        <ArchiveUserModal
+          targetUser={archiveTarget}
+          onClose={() => setArchiveTarget(null)}
+          onArchived={() => setArchiveTarget(null)}
         />
       )}
       {show2FASetup && (
@@ -1093,6 +1402,22 @@ const btnSecondary: React.CSSProperties = {
 const filterSelect: React.CSSProperties = {
   padding: '6px 10px', borderRadius: 6, border: '1px solid var(--input-border)',
   fontSize: '0.85rem', background: 'var(--input-bg)',
+};
+const tabStrip: React.CSSProperties = {
+  display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', marginBottom: '1rem',
+};
+function tabBtnStyle(active: boolean): React.CSSProperties {
+  return {
+    padding: '8px 16px', border: 'none', background: 'transparent', cursor: 'pointer',
+    fontSize: '0.85rem', fontWeight: active ? 700 : 500,
+    color: active ? 'var(--accent)' : 'var(--text-muted)',
+    borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
+    marginBottom: -1,
+  };
+}
+const tabBadge: React.CSSProperties = {
+  marginLeft: 6, background: 'var(--bg-body)', color: 'var(--text-muted)',
+  borderRadius: 10, padding: '1px 7px', fontSize: '0.72rem', fontWeight: 700,
 };
 const tableStyle: React.CSSProperties = {
   width: '100%', borderCollapse: 'collapse', background: 'var(--bg-card)',

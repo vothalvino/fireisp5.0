@@ -68,9 +68,12 @@ function crudController(Model, _options = {}) {
      */
     async list(req, res, next) {
       try {
-        const { page = 1, limit = 50, order_by, order, include_deleted, ...filters } = req.query;
+        const { page = 1, limit = 50, order_by, order, include_deleted, only_deleted, ...filters } = req.query;
         const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
         const withDeleted = include_deleted === 'true';
+        // Archived-records view (e.g. the Users page's Archived tab): list
+        // ONLY soft-deleted rows. Wins over include_deleted.
+        const onlyDeleted = only_deleted === 'true';
 
         const [rows, total] = await Promise.all([
           Model.findAll({
@@ -81,8 +84,9 @@ function crudController(Model, _options = {}) {
             offset,
             orgId: req.orgId,
             withDeleted,
+            onlyDeleted,
           }),
-          Model.count({ where: filters, orgId: req.orgId, withDeleted }),
+          Model.count({ where: filters, orgId: req.orgId, withDeleted, onlyDeleted }),
         ]);
 
         res.json({

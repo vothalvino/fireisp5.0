@@ -460,6 +460,30 @@
       "selectGroupPlaceholder": "Selecciona un grupo…",
       "orgPrefillError": "No se pudo cargar el acceso a organizaciones actual de este usuario. Reintenta antes de guardar — guardar ahora podría quitarle acceso que aún tiene.",
       "retry": "Reintentar"
+    },
+    "tabs": {
+      "users": "Usuarios",
+      "archived": "Archivados"
+    },
+    "archiveAction": "Archivar",
+    "archiveSelfDisabledTitle": "No puedes archivar tu propia cuenta",
+    "archiveModal": {
+      "title": "¿Archivar usuario?",
+      "body": "{{name}} será archivado y desactivado. Puedes restaurar esta cuenta después desde la pestaña Archivados.",
+      "confirm": "Archivar",
+      "archiving": "Archivando…"
+    },
+    "archivedTab": {
+      "loading": "Cargando usuarios archivados…",
+      "error": "Error al cargar usuarios archivados.",
+      "empty": "No se encontraron usuarios archivados.",
+      "table": {
+        "archived": "Archivado"
+      },
+      "restore": "Restaurar",
+      "restoring": "Restaurando…",
+      "restoredNotice": "{{name}} fue restaurado como inactivo. Activa la cuenta desde la pestaña Usuarios si es necesario.",
+      "dismissNotice": "Descartar"
     }
   },
   "userGroups": {

@@ -460,6 +460,30 @@
       "selectGroupPlaceholder": "Selecione um grupo…",
       "orgPrefillError": "Não foi possível carregar o acesso a organizações atual deste usuário. Tente novamente antes de salvar — salvar agora pode remover acessos que ele ainda possui.",
       "retry": "Tentar novamente"
+    },
+    "tabs": {
+      "users": "Usuários",
+      "archived": "Arquivados"
+    },
+    "archiveAction": "Arquivar",
+    "archiveSelfDisabledTitle": "Você não pode arquivar sua própria conta",
+    "archiveModal": {
+      "title": "Arquivar usuário?",
+      "body": "{{name}} será arquivado e desativado. Você pode restaurar esta conta depois na aba Arquivados.",
+      "confirm": "Arquivar",
+      "archiving": "Arquivando…"
+    },
+    "archivedTab": {
+      "loading": "Carregando usuários arquivados…",
+      "error": "Falha ao carregar usuários arquivados.",
+      "empty": "Nenhum usuário arquivado encontrado.",
+      "table": {
+        "archived": "Arquivado"
+      },
+      "restore": "Restaurar",
+      "restoring": "Restaurando…",
+      "restoredNotice": "{{name}} foi restaurado como inativo. Ative a conta na aba Usuários se necessário.",
+      "dismissNotice": "Dispensar"
     }
   },
   "userGroups": {
