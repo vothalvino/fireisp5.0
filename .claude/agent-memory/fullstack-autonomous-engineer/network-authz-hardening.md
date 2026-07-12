@@ -39,11 +39,12 @@ Fixed three verified pre-existing defects (branch `fix/network-authz-hardening`)
    `/terminate` route. `updateContractHandler` (shared by PUT/PATCH) had ZERO
    radius handling. Added a targeted fix there: on a status transition INTO
    `terminated`/`cancelled`/`expired` via generic PATCH/PUT, deactivate radius
-   + best-effort CoA disconnect. Deliberately did NOT mirror the
-   REACTIVATION direction (suspended/terminal -> active) via generic PATCH —
-   the frontend never does that (uses `/renew` instead, per its own code
-   comment), and the dedicated `/suspend` route's exemption-check +
-   structured logging is the only sanctioned way to enter 'suspended'.
+   + best-effort CoA disconnect.
+   **CORRECTED in the adversarial-review round below** — the "PATCH
+   suspend/reactivate is never used by the frontend" assumption in this
+   paragraph was WRONG: the Edit Contract modal (`ContractList.tsx
+   EDIT_STATUSES`) is a PUT that legally drives active<->suspended too. See
+   item 6.
 
 3. **Service-order FK org-scoping** — `assertServiceOrderFks(body, orgId)`
    helper in `src/routes/serviceOrders.js` checks whichever of
@@ -100,6 +101,60 @@ shape doesn't fully generalize to other models; did not go audit every other
 `crudController`-backed model's `fillable` list for the same pattern (state
 columns writable via undeclared-but-fillable fields) — worth a follow-up pass
 if this class of bug matters project-wide.
+
+**Adversarial-review round (same day, 3 confirmed findings, 2/2 verifier
+votes each)**:
+
+6. **HIGH — `updateContractHandler`'s radius sync was incomplete.** Item 2's
+   PATCH/PUT fix above only covered transitions INTO
+   `terminated`/`cancelled`/`expired`, on the (wrong) assumption that
+   suspend/reactivate always go through the dedicated `/suspend`/`/renew`
+   routes. Actually checked the frontend this time: `ContractList.tsx`'s
+   `EditContractModal` (`EDIT_STATUSES = ['pending','active','suspended',
+   'cancelled','terminated']`) is a **PUT** whose mutation body always
+   includes `status: form.status` — the FSM trigger legally permits
+   `active->suspended` and `suspended/expired/cancelled/terminated->active`
+   through this same generic handler. Two live bugs: (a) editing a contract
+   to 'suspended' via this modal left radius `'active'` — subscriber just
+   re-dials, suspend is cosmetic through this path; (b) editing a suspended
+   (or previously-terminated/cancelled) contract back to 'active' left
+   radius `'suspended'`/`'inactive'` — contract shows active, service stays
+   dead. (b) was a **regression introduced by item 2 of this same PR** — before
+   PR #388, radius.status was never touched at all, so there was no
+   'suspended'/'inactive' state to strand a reactivated contract in.
+
+   Fix: replaced the single `terminated/cancelled/expired`-only branch with
+   a 3-way switch on the NEW status covering every transition the FSM lets
+   through this handler: `->suspended` (radius active->suspended + CoA
+   disconnect), `->active` (radius `suspended OR inactive` -> active in ONE
+   guarded UPDATE + CoA reconnect via `sendRadiusCoA(id,'reconnect')` —
+   deliberately mirrors `/renew`'s "may resurrect an inactive account"
+   behavior, since the FSM allows terminal-state -> active through this
+   generic handler too), `->terminated/cancelled/expired` (unchanged,
+   radius -> inactive + CoA disconnect). See `src/routes/contracts.js`
+   `updateContractHandler` for the full transition-table comment.
+
+   **Lesson for future scope decisions**: when reasoning "the frontend
+   never does X" to justify narrowing a fix, actually grep the frontend
+   for the relevant mutation/form before asserting it — I got this
+   specific claim wrong the first time and it took an adversarial review
+   pass to catch.
+
+7. **LOW — bulk-suspend pre-filter let non-suspendable statuses hit the FSM
+   trigger.** The pre-filter only skipped `status === 'suspended'`;
+   pending/cancelled/terminated/expired contracts fell through to
+   `suspendContract`, which has no status guard of its own, and failed with
+   the DB trigger's raw `'Invalid contract status transition'` message
+   instead of a clear per-row error. Changed the filter to require
+   `status === 'active'` and report every other status (including
+   `'suspended'` itself) as `` `Cannot suspend a '<status>' contract` ``
+   — `Not found` stays a distinct message for a missing/cross-org id.
+
+8. **Rebase onto main** after this PR's base moved twice (#387 CSV
+   contract import + ClientFormModal, #389 atomic invoice numbering +
+   payment-method enum) — no file overlap with this PR's product code;
+   only conflict was the `MEMORY.md` index (both branches appended lines) —
+   resolved by keeping both sides' new entries.
 
 See [[testing-conventions]] for the general test-mocking patterns; the key
 one exercised heavily in this PR: `jest.fn()` calls beyond queued

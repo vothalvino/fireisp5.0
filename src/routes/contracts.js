@@ -54,22 +54,48 @@ async function updateContractHandler(req, res, next) {
     const record = await Contract.update(req.params.id, req.body, req.orgId);
 
     // A direct PATCH/PUT status change bypasses the dedicated /suspend,
-    // /terminate, and /renew routes' RADIUS sync entirely — e.g. the
-    // frontend's own Cancel action is a plain PATCH {status:'cancelled'}
-    // (ContractList.tsx patchContractStatus). Deactivate any RADIUS account
-    // tied to this contract on a transition INTO a terminal/inactive status
-    // so it stops authenticating new PPPoE sessions, mirroring
-    // lifecycleService.cancelOrder's pending->cancelled flip. Reactivation
-    // (suspended/terminal -> active) is intentionally NOT mirrored here — the
-    // frontend always uses the dedicated /renew endpoint for that, which
-    // handles CoA reconnect and re-provisioning correctly.
-    if (req.body.status !== undefined && req.body.status !== old.status
-      && ['terminated', 'cancelled', 'expired'].includes(req.body.status)) {
-      await db.query(
-        "UPDATE radius SET status = 'inactive' WHERE contract_id = ? AND deleted_at IS NULL",
-        [record.id],
-      );
-      suspensionService.sendRadiusDisconnect(record.id).catch(() => {});
+    // /unsuspend, /terminate, and /renew routes' RADIUS sync entirely — e.g.
+    // the Edit Contract modal (ContractList.tsx EDIT_STATUSES) always PUTs a
+    // `status` field and legally drives active<->suspended (the FSM trigger
+    // permits both, and Contract.fillable + this route's own schema enum
+    // allow them), and the frontend's Cancel action is a plain
+    // PATCH {status:'cancelled'} (ContractList.tsx patchContractStatus).
+    // Sync radius.status for EVERY status transition the FSM lets through
+    // this handler, mirroring each dedicated route's own radius handling so
+    // a subscriber's live/dead PPPoE state never diverges from
+    // contracts.status regardless of which endpoint drove the change:
+    //   -> suspended                     : radius active -> suspended (+ CoA disconnect)
+    //   -> active                        : radius suspended/inactive -> active (+ CoA
+    //                                       reconnect) — mirrors /renew's reactivation;
+    //                                       the FSM also allows
+    //                                       terminated/cancelled/expired -> active
+    //                                       through this same handler, so an inactive
+    //                                       account must be resurrected here too or a
+    //                                       contract edited back to 'active' would stay
+    //                                       silently offline (same failure mode /renew
+    //                                       fixes for its own endpoint).
+    //   -> terminated/cancelled/expired  : radius -> inactive (+ CoA disconnect)
+    if (req.body.status !== undefined && req.body.status !== old.status) {
+      const newStatus = req.body.status;
+      if (newStatus === 'suspended') {
+        await db.query(
+          "UPDATE radius SET status = 'suspended' WHERE contract_id = ? AND deleted_at IS NULL AND status = 'active'",
+          [record.id],
+        );
+        suspensionService.sendRadiusDisconnect(record.id).catch(() => {});
+      } else if (newStatus === 'active') {
+        await db.query(
+          "UPDATE radius SET status = 'active' WHERE contract_id = ? AND deleted_at IS NULL AND status IN ('suspended', 'inactive')",
+          [record.id],
+        );
+        suspensionService.sendRadiusCoA(record.id, 'reconnect').catch(() => {});
+      } else if (['terminated', 'cancelled', 'expired'].includes(newStatus)) {
+        await db.query(
+          "UPDATE radius SET status = 'inactive' WHERE contract_id = ? AND deleted_at IS NULL",
+          [record.id],
+        );
+        suspensionService.sendRadiusDisconnect(record.id).catch(() => {});
+      }
     }
 
     await auditLog.log({

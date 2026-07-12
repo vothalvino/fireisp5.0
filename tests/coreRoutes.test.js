@@ -250,6 +250,82 @@ describe('Contract Routes — /api/contracts', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe('suspended');
     });
+
+    // Adversarial-review finding (HIGH, confirmed 2/2): the Edit Contract
+    // modal (ContractList.tsx EDIT_STATUSES) always PUTs a `status` field and
+    // legally drives active<->suspended — the FSM trigger permits both, and
+    // this route's own schema enum allows them. updateContractHandler's
+    // radius sync originally only covered terminated/cancelled/expired, so
+    // an Edit-modal suspend left radius 'active' (cosmetic suspend — the
+    // subscriber just re-dials) and an Edit-modal reactivation left radius
+    // 'suspended' (service dead despite contracts.status='active').
+    test('Edit-modal suspend (active -> suspended via PUT) deactivates the RADIUS account (Case A)', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[mockContract]])                              // findByIdOrFail (status: active)
+        .mockResolvedValueOnce([{ affectedRows: 1 }])                        // UPDATE contracts
+        .mockResolvedValueOnce([[{ ...mockContract, status: 'suspended' }]])  // findById (inside Contract.update)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);                       // UPDATE radius -> suspended
+
+      const res = await request(app)
+        .put('/api/contracts/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ status: 'suspended' });
+
+      expect(res.status).toBe(200);
+      const radiusCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && /UPDATE radius SET status/.test(c[0]),
+      );
+      expect(radiusCall).toBeTruthy();
+      expect(radiusCall[0]).toContain("'suspended'");
+      expect(radiusCall[0]).toContain("status = 'active'");
+      expect(radiusCall[1]).toEqual([1]);
+    });
+
+    test('Edit-modal reactivation (suspended -> active via PUT) reactivates the RADIUS account (Case B)', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[{ ...mockContract, status: 'suspended' }]])  // findByIdOrFail (status: suspended)
+        .mockResolvedValueOnce([{ affectedRows: 1 }])                        // UPDATE contracts
+        .mockResolvedValueOnce([[{ ...mockContract, status: 'active' }]])     // findById (inside Contract.update)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);                       // UPDATE radius -> active
+
+      const res = await request(app)
+        .put('/api/contracts/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ status: 'active' });
+
+      expect(res.status).toBe(200);
+      const radiusCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && /UPDATE radius SET status/.test(c[0]),
+      );
+      expect(radiusCall).toBeTruthy();
+      expect(radiusCall[0]).toContain("'active'");
+      expect(radiusCall[0]).toContain("IN ('suspended', 'inactive')");
+      expect(radiusCall[1]).toEqual([1]);
+    });
+
+    test('Edit-modal reactivation from a terminated contract (terminal -> active via PUT) reactivates RADIUS too', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[{ ...mockContract, status: 'terminated' }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([[{ ...mockContract, status: 'active' }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      const res = await request(app)
+        .put('/api/contracts/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ status: 'active' });
+
+      expect(res.status).toBe(200);
+      const radiusCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && /UPDATE radius SET status/.test(c[0]),
+      );
+      expect(radiusCall).toBeTruthy();
+      expect(radiusCall[0]).toContain("'active'");
+      expect(radiusCall[1]).toEqual([1]);
+    });
   });
 
   // Bug 2 (security hardening): a direct PATCH {status:'cancelled'} — the

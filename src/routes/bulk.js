@@ -128,9 +128,20 @@ router.post('/suspend', requirePermission('contracts.update'), validate(bulkSche
           [contractId, orgId],
         );
         const contract = rows[0];
-        if (!contract || contract.status === 'suspended') {
+        if (!contract) {
           results.failed++;
-          results.errors.push({ contract_id: contractId, error: 'Not found or already suspended' });
+          results.errors.push({ contract_id: contractId, error: 'Not found' });
+          continue;
+        }
+        // Only an 'active' contract is suspendable — the FSM trigger
+        // (trg_contracts_status_fsm_bu) only permits active -> suspended.
+        // Attempting suspendContract on a pending/cancelled/terminated/
+        // expired/already-suspended row would fail with the trigger's raw
+        // 'Invalid contract status transition' SQLSTATE 45000 error instead
+        // of a clear per-row message, so filter those out here.
+        if (contract.status !== 'active') {
+          results.failed++;
+          results.errors.push({ contract_id: contractId, error: `Cannot suspend a '${contract.status}' contract` });
           continue;
         }
 

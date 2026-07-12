@@ -179,8 +179,46 @@ describe('POST /api/bulk/suspend', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.failed).toBe(1);
+    expect(res.body.data.errors[0].error).toBe("Cannot suspend a 'suspended' contract");
     expect(suspensionService.suspendContract).not.toHaveBeenCalled();
   });
+
+  test('reports a not-found contract with a distinct message and does not call suspensionService', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValue([[]]);
+
+    const res = await request(app)
+      .post('/api/bulk/suspend')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ contract_ids: [999] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.failed).toBe(1);
+    expect(res.body.data.errors[0].error).toBe('Not found');
+    expect(suspensionService.suspendContract).not.toHaveBeenCalled();
+  });
+
+  // LOW finding (confirmed 2/2): the pre-filter only skipped status ===
+  // 'suspended' — pending/cancelled/terminated/expired rows fell through to
+  // suspendContract and failed with the FSM trigger's raw 'Invalid contract
+  // status transition' error instead of a clear per-row message.
+  test.each(['pending', 'cancelled', 'terminated', 'expired'])(
+    "reports a '%s' contract as a clear per-row error without calling suspensionService",
+    async (status) => {
+      mockAuthUser();
+      db.query.mockResolvedValue([[{ id: 10, status, organization_id: 1 }]]);
+
+      const res = await request(app)
+        .post('/api/bulk/suspend')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ contract_ids: [10] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.failed).toBe(1);
+      expect(res.body.data.errors[0].error).toBe(`Cannot suspend a '${status}' contract`);
+      expect(suspensionService.suspendContract).not.toHaveBeenCalled();
+    },
+  );
 });
 
 // =============================================================================
