@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS clients (
                         COMMENT 'Regional compliance switch: global = no country-specific requirements; MX = SAT CFDI 4.0 + IFT/CRT compliance required',
     tax_id          VARCHAR(50)     NULL,
     curp            VARCHAR(18)     NULL COMMENT 'Mexican personal ID (CURP) â€” personal clients only',
-    address         VARCHAR(255)    NULL,
+    address         VARCHAR(500)    NULL COMMENT 'Widened from VARCHAR(255) to match leads.address and the 500-char validation schemas (migration 380)',
     city            VARCHAR(100)    NULL,
     state           VARCHAR(100)    NULL,
     country         VARCHAR(100)    NULL DEFAULT NULL,
@@ -204,8 +204,12 @@ CREATE TABLE IF NOT EXISTS leads (
 
 -- ---------------------------------------------------------------------------
 -- Table: service_orders
--- Purpose: Service order workflow â€” requested â†’ approved â†’ provisioning â†’
---          activated (Â§1.2 Customer Lifecycle).
+-- Purpose: Simplified service order workflow - new -> in_process -> done, or
+--          cancelled (reachable from new/in_process) (section 1.2 Customer
+--          Lifecycle, simplified in migration 380). "Start" (new -> in_process)
+--          auto-creates + provisions the contract from the order's plan.
+--          "Complete" (in_process -> done) either marks the install already
+--          paid or raises an installation-fee invoice.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS service_orders (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -215,18 +219,21 @@ CREATE TABLE IF NOT EXISTS service_orders (
     client_id       BIGINT UNSIGNED NULL COMMENT 'Existing client this order is for (NULL for prospects)',
     lead_id         BIGINT UNSIGNED NULL COMMENT 'Originating lead, when the order came from the pipeline',
     plan_id         BIGINT UNSIGNED NULL COMMENT 'Requested service plan',
-    contract_id     BIGINT UNSIGNED NULL COMMENT 'Contract created/linked when the order is activated',
+    contract_id     BIGINT UNSIGNED NULL COMMENT 'Contract auto-created (new_install) or manually linked when the order is started',
     order_type      ENUM('new_install','upgrade','downgrade','relocation','reconnect')
                         NOT NULL DEFAULT 'new_install',
-    status          ENUM('requested','approved','provisioning','activated','cancelled')
-                        NOT NULL DEFAULT 'requested',
+    status          ENUM('new','in_process','done','cancelled')
+                        NOT NULL DEFAULT 'new'
+                        COMMENT 'Simplified 4-state flow (migration 380); requested/approved/provisioning/activated retired',
     assigned_to     BIGINT UNSIGNED NULL COMMENT 'Technician/agent (users.id) handling the order',
     address         VARCHAR(500)    NULL,
     notes           TEXT            NULL,
     requested_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    approved_at     DATETIME        NULL,
-    approved_by     BIGINT UNSIGNED NULL,
-    activated_at    DATETIME        NULL,
+    approved_at     DATETIME        NULL COMMENT 'Historical (pre-380) approval timestamp; no longer written',
+    approved_by     BIGINT UNSIGNED NULL COMMENT 'Historical (pre-380) approver; no longer written',
+    activated_at    DATETIME        NULL COMMENT 'Historical (pre-380) activation timestamp; no longer written',
+    started_at      DATETIME        NULL COMMENT 'When the order moved to in_process (contract auto-created/provisioned) (migration 380)',
+    completed_at    DATETIME        NULL COMMENT 'When the order moved to done (installation invoiced or marked already paid) (migration 380)',
     cancelled_at    DATETIME        NULL,
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

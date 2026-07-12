@@ -6,6 +6,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { Pagination } from '@/components/Pagination';
 import { useAuth } from '@/auth/AuthContext';
@@ -32,6 +33,10 @@ interface Lead {
   estimated_value: number | null;
   assigned_to: number | null;
   converted_client_id: number | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zip_code: string | null;
   created_at: string;
 }
 
@@ -48,7 +53,25 @@ interface LeadFormBody {
   source: string;
   status: string;
   estimated_value?: number;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
 }
+
+// The network payload allows `null` for the nullable string fields (an
+// explicit clear on edit — see handleSubmit) even though the controlled
+// <input>'s `value` prop (bound to LeadFormBody, always a plain string in
+// local form state) cannot.
+type LeadSubmitBody = Omit<LeadFormBody, 'email' | 'phone' | 'company' | 'address' | 'city' | 'state' | 'zip_code'> & {
+  email?: string | null;
+  phone?: string | null;
+  company?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip_code?: string | null;
+};
 
 const SOURCES = ['website', 'referral', 'phone', 'walk_in', 'social', 'campaign', 'other'];
 const STAGES = ['new', 'contacted', 'qualified', 'proposal', 'won', 'lost'];
@@ -76,6 +99,7 @@ function LeadFormModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation();
   const [form, setForm] = useState<LeadFormBody>({
     name: initial?.name ?? '',
     email: initial?.email ?? '',
@@ -84,11 +108,15 @@ function LeadFormModal({
     source: initial?.source ?? 'other',
     status: initial?.status ?? 'new',
     estimated_value: initial?.estimated_value ?? undefined,
+    address: initial?.address ?? '',
+    city: initial?.city ?? '',
+    state: initial?.state ?? '',
+    zip_code: initial?.zip_code ?? '',
   });
   const [error, setError] = useState('');
 
   const mutation = useMutation({
-    mutationFn: async (body: LeadFormBody) => {
+    mutationFn: async (body: LeadSubmitBody) => {
       if (mode === 'create') {
         const { error } = await api.POST('/leads', { body: body as never });
         if (error) throw new Error(extractApiError(error, 'Failed to create lead'));
@@ -107,10 +135,26 @@ function LeadFormModal({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim()) { setError('Name is required.'); return; }
-    const body: LeadFormBody = { name: form.name.trim(), source: form.source, status: form.status };
-    if (form.email && form.email.trim()) body.email = form.email.trim();
-    if (form.phone && form.phone.trim()) body.phone = form.phone.trim();
-    if (form.company && form.company.trim()) body.company = form.company.trim();
+    const body: LeadSubmitBody = { name: form.name.trim(), source: form.source, status: form.status };
+
+    // Optional string fields: on create there's nothing to clear yet, so a
+    // blank field is simply omitted. On edit, a field the technician just
+    // BLANKED (previously non-empty on `initial`, now empty) must be sent as
+    // an explicit `null` — validate() and BaseModel.update both treat an
+    // omitted key as "not part of this PATCH/PUT" (old value survives), while
+    // `null` is validation-safe for these optional/nullable columns and
+    // actually clears them (see .claude/agent-memory
+    // patch-diff-explicit-clear-vs-omit.md).
+    (['email', 'phone', 'company', 'address', 'city', 'state', 'zip_code'] as const).forEach(key => {
+      const value = (form[key] ?? '').trim();
+      const original = (initial?.[key] ?? '').toString().trim();
+      if (value) {
+        body[key] = value;
+      } else if (mode === 'edit' && original) {
+        body[key] = null;
+      }
+    });
+
     if (form.estimated_value !== undefined && !Number.isNaN(form.estimated_value)) body.estimated_value = Number(form.estimated_value);
     setError('');
     mutation.mutate(body);
@@ -138,6 +182,27 @@ function LeadFormModal({
           <label style={labelStyle}>Company</label>
           <input style={inputStyle} type="text" value={form.company}
             onChange={e => setForm(p => ({ ...p, company: e.target.value }))} />
+
+          <label style={labelStyle}>{t('leads.addressField', 'Address')}</label>
+          <input style={inputStyle} type="text" value={form.address}
+            onChange={e => setForm(p => ({ ...p, address: e.target.value }))} />
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={labelStyle}>{t('leads.cityField', 'City')}</label>
+              <input style={inputStyle} type="text" value={form.city}
+                onChange={e => setForm(p => ({ ...p, city: e.target.value }))} />
+            </div>
+            <div>
+              <label style={labelStyle}>{t('leads.stateField', 'State')}</label>
+              <input style={inputStyle} type="text" value={form.state}
+                onChange={e => setForm(p => ({ ...p, state: e.target.value }))} />
+            </div>
+          </div>
+
+          <label style={labelStyle}>{t('leads.zipCodeField', 'ZIP / Postal Code')}</label>
+          <input style={inputStyle} type="text" value={form.zip_code}
+            onChange={e => setForm(p => ({ ...p, zip_code: e.target.value }))} />
 
           <label style={labelStyle}>Source</label>
           <select style={inputStyle} value={form.source}

@@ -7,6 +7,7 @@
 
 const db = require('../config/database');
 const Invoice = require('../models/Invoice');
+const Organization = require('../models/Organization');
 const logger = require('../utils/logger').child({ service: 'billing' });
 const { InvoiceGenerationError } = require('../utils/errors');
 const auditLog = require('./auditLog');
@@ -265,6 +266,118 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
 }
 
 /**
+ * Create a one-off, single-line issued invoice outside the billing-period
+ * cycle — e.g. an installation fee raised when a service order is completed
+ * (src/services/lifecycleService.js#completeOrder). Mirrors the invoice
+ * number / due-date / tax-rate / client-balance-ledger idioms of
+ * generateInvoice() and the "custom" item path of POST /invoices/generate.
+ *
+ * Pass `conn` (an existing transaction connection) to fold this INSERT into a
+ * caller-owned transaction — e.g. completeOrder() commits the contract
+ * activation, the invoice, and the order's status transition all-or-nothing.
+ * When `conn` is omitted, this function manages its own connection/transaction
+ * exactly as before (self-contained, commits/rolls back/releases itself).
+ *
+ * @param {object} params
+ * @param {number|null} params.orgId
+ * @param {number} params.clientId
+ * @param {number|null} [params.contractId] - Linked contract, if any
+ * @param {string} params.description - Line-item description
+ * @param {number} params.amount - Line-item amount (subtotal before tax)
+ * @param {string|null} [params.currency] - ISO currency code. Defaults to the
+ *   organization's currency (Organization.getCurrency) when omitted.
+ * @param {object} [params.conn] - An existing transaction connection to reuse
+ *   instead of opening (and owning the commit/rollback/release of) a new one.
+ * @returns {Promise<object>} the created invoice
+ */
+async function createOneOffInvoice({ orgId, clientId, contractId = null, description, amount, currency: currencyOverride = null, conn: externalConn = null }) {
+  logger.info({ orgId, clientId, contractId, amount }, 'Creating one-off invoice');
+
+  const currency = currencyOverride || await Organization.getCurrency(orgId);
+  const ownsTransaction = !externalConn;
+  const conn = externalConn || await db.getConnection();
+
+  try {
+    if (ownsTransaction) await conn.beginTransaction();
+
+    // Org default tax rate (same lookup as POST /invoices/generate's flexible format).
+    const [taxRates] = await conn.execute(
+      'SELECT * FROM tax_rates WHERE organization_id = ? AND is_default = TRUE LIMIT 1',
+      [orgId],
+    );
+    const taxRate = taxRates[0];
+    // tax_rates.rate is a FRACTION (DECIMAL(5,4); e.g. 0.1600 = 16%, seeded by
+    // migration 121 and rendered as rate*100 by the frontend) — NOT a whole
+    // percent, so the tax amount needs an extra *100 to land in the right
+    // units (500 subtotal @ 0.16 -> 80.00 tax, not 0.80).
+    const taxPct = taxRate ? parseFloat(taxRate.rate) : 0;
+
+    const subtotal = Math.round(parseFloat(amount) * 100) / 100;
+    const taxAmount = Math.round(subtotal * taxPct * 100) / 100;
+    const total = Math.round((subtotal + taxAmount) * 100) / 100;
+
+    // Sequential invoice number — same COUNT(*)+1 algorithm used everywhere
+    // else in this file and in routes/invoices.js (collision-prone under
+    // concurrent writes; a known pre-existing limitation, kept for consistency).
+    const [countResult] = await conn.execute(
+      'SELECT COUNT(*) AS cnt FROM invoices WHERE organization_id = ?',
+      [orgId],
+    );
+    const invoiceNumber = `INV-${String(countResult[0].cnt + 1).padStart(6, '0')}`;
+
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + 15);
+
+    const [invResult] = await conn.execute(
+      `INSERT INTO invoices (organization_id, client_id, contract_id, invoice_number,
+       subtotal, tax_amount, total, currency, tax_rate, tax_rate_id, due_date, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued')`,
+      [orgId, clientId, contractId, invoiceNumber, subtotal, taxAmount, total,
+        currency, taxPct, taxRate?.id || null, dueDate],
+    );
+    const invoiceId = invResult.insertId;
+
+    await conn.execute(
+      `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, amount)
+       VALUES (?, ?, 1, ?, ?)`,
+      [invoiceId, description, subtotal, subtotal],
+    );
+
+    // Debit client balance ledger — identical shape to generateInvoice()/POST /invoices/generate.
+    await conn.execute(
+      `INSERT INTO client_balance_ledger (client_id, organization_id, entry_type, amount, currency, reference_type, reference_id, description)
+       VALUES (?, ?, 'debit', ?, ?, 'invoice', ?, ?)`,
+      [clientId, orgId, total, currency, invoiceId, `Invoice ${invoiceNumber}`],
+    );
+
+    let invoice;
+    if (ownsTransaction) {
+      await conn.commit();
+      invoice = await Invoice.findById(invoiceId);
+    } else {
+      // The caller owns the transaction and hasn't committed yet — read back
+      // through the SAME connection so the not-yet-committed row is visible
+      // (a separate pool connection wouldn't see it under any isolation level
+      // stricter than READ UNCOMMITTED).
+      const [rows] = await conn.query('SELECT * FROM invoices WHERE id = ?', [invoiceId]);
+      invoice = rows[0];
+    }
+
+    logger.info({ clientId, invoiceId, invoiceNumber, total }, 'One-off invoice created');
+    return invoice;
+  } catch (err) {
+    if (!ownsTransaction) throw err; // let the caller's own rollback/error-mapping handle it
+    await conn.rollback();
+    throw new InvoiceGenerationError(
+      `Failed to create one-off invoice for client ${clientId}: ${err.message}`,
+      { clientId, cause: err.message },
+    );
+  } finally {
+    if (ownsTransaction) conn.release();
+  }
+}
+
+/**
  * Calculate a prorated amount for a mid-cycle plan change.
  *
  * @param {object} params
@@ -469,7 +582,7 @@ async function voidInvoiceById(invoiceId, orgId, userId) {
 }
 
 module.exports = {
-  generateBillingPeriod, generateInvoice, calculateProration,
+  generateBillingPeriod, generateInvoice, createOneOffInvoice, calculateProration,
   recordPaymentCredit, reversePaymentCredit,
   reversePaymentAllocations, restorePaymentAllocations, refreshInvoicePaidStatus,
   releaseInvoiceAllocations,
