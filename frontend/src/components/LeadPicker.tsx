@@ -1,11 +1,16 @@
 // =============================================================================
-// FireISP 5.0 — Client typeahead picker
+// FireISP 5.0 — Lead typeahead picker
 // =============================================================================
-// Reusable, dependency-free typeahead for choosing a client by name instead of
-// guessing a raw client_id. As the user types, it debounces (~250ms) and hits
-// the server-side client search (GET /clients?search=<term>), showing matching
-// {id, name, email} in a dropdown. Selecting an entry reports the id + name back
-// to the parent and shows the chosen name with a "change" affordance.
+// Reusable, dependency-free typeahead for choosing a lead by name instead of
+// guessing a raw lead_id. Modeled closely on ClientPicker.tsx: debounces
+// (~250ms) and hits the server-side lead search (GET /leads?search=<term>),
+// showing matching {id, name, email} in a dropdown. Won/lost leads are
+// excluded client-side (a won lead has already been converted to a client —
+// see ClientPicker/the client select — and a lost lead is a dead end).
+//
+// Before the user types anything (on focus), browses the newest 100 leads
+// (GET /leads?order_by=id&order=DESC) instead of showing nothing, so the
+// picker is usable without knowing the lead's name.
 //
 // Styling reuses the shared inputStyle/labelStyle from ClientFormModal so the
 // picker matches the surrounding form fields exactly.
@@ -20,92 +25,78 @@ import { inputStyle, labelStyle } from '@/components/ClientFormModal';
 // Types
 // ---------------------------------------------------------------------------
 
-interface ClientOption {
+interface LeadOption {
   id: number;
   name: string;
   email: string | null;
+  status: string;
 }
 
-interface ClientsSearchResponse {
-  data: ClientOption[];
+interface LeadsSearchResponse {
+  data: LeadOption[];
 }
 
-export interface ClientPickerProps {
-  /** Currently selected client id (empty string when nothing is chosen). */
+export interface LeadPickerProps {
+  /** Currently selected lead id (empty string when nothing is chosen). */
   value: number | '';
-  /** Fired when a client is selected (or cleared with id 0 + empty name). */
+  /** Fired when a lead is selected (or cleared with id 0 + empty name). */
   onChange: (id: number, name: string) => void;
-  /** Name to display for the already-selected client (e.g. when editing). */
+  /** Name to display for the already-selected lead (e.g. when editing). */
   initialName?: string;
-  /** Whether the client is mandatory. Shows a "*" on the label. Default true. */
+  /** Whether the lead is mandatory. Shows a "*" on the label. Default false. */
   required?: boolean;
 }
+
+const EXCLUDED_STATUSES = ['won', 'lost'];
 
 // ---------------------------------------------------------------------------
 // Search
 // ---------------------------------------------------------------------------
 
-async function searchClients(term: string, limit = 20): Promise<ClientOption[]> {
-  // The clients list endpoint is typed loosely in the generated schema, so the
-  // query is cast through `never` and the response is read via an unknown cast.
-  // An empty term (the "browse" state, before the user types anything) omits
-  // the search filter entirely — GET /clients already defaults to newest-first
-  // (order_by=created_at, order=DESC) in that case, so this doubles as the
-  // "fetch newest N as the initial list" behaviour below.
-  const res = await api.GET('/clients', {
-    params: { query: { search: term, limit } as never },
-  });
+async function searchLeads(term: string): Promise<LeadOption[]> {
+  const query = term
+    ? { search: term, limit: 20 }
+    : { order_by: 'id', order: 'DESC', limit: 100 }; // browse state: newest first
+  const res = await api.GET('/leads', { params: { query: query as never } });
   if (res.error) return [];
-  return (res.data as unknown as ClientsSearchResponse).data ?? [];
+  const rows = (res.data as unknown as LeadsSearchResponse).data ?? [];
+  return rows.filter(l => !EXCLUDED_STATUSES.includes(l.status));
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function ClientPicker({ value, onChange, initialName, required = true }: ClientPickerProps) {
+export function LeadPicker({ value, onChange, initialName, required = false }: LeadPickerProps) {
   const { t } = useTranslation();
-  // The picker is "resolved" once a client is selected. Until then we show the
-  // search input; afterwards we show the chosen name + a Change button.
   const [selectedName, setSelectedName] = useState(initialName ?? '');
   const [term, setTerm] = useState('');
-  const [results, setResults] = useState<ClientOption[]>([]);
+  const [results, setResults] = useState<LeadOption[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  // The "browse newest" fetch only fires once the input actually has focus —
-  // not on mount — so pages that render a picker but the user never opens it
-  // don't pay for an unsolicited GET /clients.
   const [focused, setFocused] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Keep the displayed name in sync if the parent seeds a different initialName
-  // (e.g. when the same modal instance is reused for a different row).
   useEffect(() => {
     setSelectedName(initialName ?? '');
   }, [initialName]);
 
   const isSelected = value !== '' && selectedName !== '';
 
-  // Debounced search (~250ms) whenever the term changes and nothing is
-  // selected. An empty term (once the field has focus) fetches the newest
-  // 100 clients instead of showing nothing, so the picker is browsable
-  // without typing — no debounce needed for that fetch since there's no
-  // keystroke to wait out.
   useEffect(() => {
     if (isSelected || !focused) return;
     const q = term.trim();
     setLoading(true);
     let cancelled = false;
     const handle = setTimeout(async () => {
-      const rows = await searchClients(q, q ? 20 : 100);
-      if (cancelled) return; // a newer term superseded this run — drop stale results
+      const rows = await searchLeads(q);
+      if (cancelled) return;
       setResults(rows);
       setLoading(false);
     }, q ? 250 : 0);
     return () => { cancelled = true; clearTimeout(handle); };
   }, [term, isSelected, focused]);
 
-  // Close the dropdown when clicking outside the picker.
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -116,7 +107,7 @@ export function ClientPicker({ value, onChange, initialName, required = true }: 
     return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
 
-  function handleSelect(opt: ClientOption) {
+  function handleSelect(opt: LeadOption) {
     setSelectedName(opt.name);
     setTerm('');
     setResults([]);
@@ -134,13 +125,13 @@ export function ClientPicker({ value, onChange, initialName, required = true }: 
 
   return (
     <div ref={containerRef} style={{ position: 'relative' }}>
-      <label style={labelStyle}>{t('clientPicker.label')}{required ? ' *' : ''}</label>
+      <label style={labelStyle}>{t('leadPicker.label', 'Lead')}{required ? ' *' : ''}</label>
 
       {isSelected ? (
         <div style={selectedRow}>
           <span style={selectedName_}>{selectedName}</span>
           <button type="button" style={changeBtn} onClick={handleClear}>
-            {t('clientPicker.change')}
+            {t('leadPicker.change', 'Change')}
           </button>
         </div>
       ) : (
@@ -149,16 +140,16 @@ export function ClientPicker({ value, onChange, initialName, required = true }: 
             style={inputStyle}
             type="text"
             value={term}
-            placeholder={t('clientPicker.placeholder')}
+            placeholder={t('leadPicker.placeholder', 'Search leads by name, email, phone, or company…')}
             autoComplete="off"
             onChange={e => setTerm(e.target.value)}
             onFocus={() => { setFocused(true); setOpen(true); }}
           />
           {open && (term.trim() || loading || results.length > 0) && (
             <ul style={dropdown} role="listbox">
-              {loading && <li style={hintItem}>{t('clientPicker.searching')}</li>}
+              {loading && <li style={hintItem}>{t('leadPicker.searching', 'Searching…')}</li>}
               {!loading && results.length === 0 && (
-                <li style={hintItem}>{t('clientPicker.noMatches')}</li>
+                <li style={hintItem}>{t('leadPicker.noMatches', 'No matching leads.')}</li>
               )}
               {!loading &&
                 results.map(opt => (
@@ -186,7 +177,7 @@ export function ClientPicker({ value, onChange, initialName, required = true }: 
 }
 
 // ---------------------------------------------------------------------------
-// Styles (local — the picker-specific bits not covered by ClientFormModal)
+// Styles (local — identical values to ClientPicker's picker-specific bits)
 // ---------------------------------------------------------------------------
 
 const selectedRow: React.CSSProperties = {

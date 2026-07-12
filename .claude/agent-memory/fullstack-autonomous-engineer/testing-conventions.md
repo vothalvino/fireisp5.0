@@ -48,6 +48,22 @@ They were present before any §1.x work began.
 
 **Frontend tests have ZERO pre-existing failures.** During §13 ~20 frontend test failures (i18n.test.ts, Login.test.tsx, Layout.test.tsx, aiSettings.test.tsx) were misdiagnosed as "pre-existing" — they were actually caused by cp1252 mojibake that the §13 work itself introduced into the locale files (repaired before merge; main is clean and CI green). If frontend tests fail on a branch, the branch caused it: first check for mojibake (`grep -l "â€\|Ã©\|ðŸ" $(git diff --name-only origin/main..HEAD)`) and verify the same test passes on origin/main before calling anything pre-existing.
 
+## `database/schema.sql` already contains pre-existing mojibake — editing near it can silently double-encode NEW text too
+
+`database/schema.sql` has had corrupted em-dash/arrow/section-sign bytes (`â€"`, `â†'`, `Â§` — double-encoded UTF-8) in table-comment prose since long before any of this work (confirmed via `git show <old-commit>:database/schema.sql`, not something any recent PR introduced). During the service-order simplified-flow migration (380), an `Edit` call whose `old_string` matched existing corrupted comment text ended up producing corruption in the *newly written* comment sentences too (same double-encoding pattern), even though the new text was intended to use plain "—"/"→" characters — `git diff`'s terminal rendering looked identical to the pre-existing corruption, so it was easy to mistake as "already there."
+
+**How to apply:** After editing any comment/prose near already-mojibake'd text in `schema.sql` (or any file with known historical encoding damage), verify with a byte-level check, not just the Read/diff rendering — the mojibake round-trips through UTF-8 as *valid* text, so it displays as itself, not as an error:
+```python
+python3 -c "
+import subprocess
+diff = subprocess.check_output(['git','diff','--','database/schema.sql']).decode()
+added = [l for l in diff.splitlines() if l.startswith('+')]
+bad = [l for l in added if any(m in l for m in ['â€','Â§','â†’','Ã©'])]
+print(bad or 'clean')
+"
+```
+If it flags any `+` lines, rewrite that specific comment using plain ASCII (`->` instead of `→`, `-` instead of `—`, spell out "section 1.2" instead of `§1.2`) rather than retyping the Unicode glyph — it avoids the whole class of encoding round-trip risk in this file.
+
 ## snmpPoller: mock queue depth must account for UPDATE calls
 
 `snmpPoller.poll()` fires `db.query(...).catch(() => {})` after each device result:

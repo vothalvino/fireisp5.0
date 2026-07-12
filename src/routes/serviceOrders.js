@@ -1,8 +1,11 @@
 // =============================================================================
 // FireISP 5.0 — Service Order Routes (workflow) — §1.2
 // =============================================================================
-// Lifecycle: requested → approved → provisioning → activated (or cancelled).
-// Each new order is seeded with a default onboarding checklist.
+// Simplified lifecycle (migration 380): new → in_process → done, or cancelled
+// (reachable from new/in_process). Each new order is seeded with a default
+// onboarding checklist. "Start" auto-creates + provisions the contract for
+// new_install orders; "Complete" activates it and optionally raises an
+// installation-fee invoice.
 // =============================================================================
 
 const { Router } = require('express');
@@ -13,7 +16,7 @@ const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const {
-  createServiceOrder, updateServiceOrder, patchServiceOrder, activateServiceOrder,
+  createServiceOrder, updateServiceOrder, patchServiceOrder, completeServiceOrder,
   createServiceOrderTask, updateServiceOrderTask,
 } = require('../middleware/schemas/serviceOrders');
 const lifecycleService = require('../services/lifecycleService');
@@ -27,7 +30,63 @@ const ctrl = crudController(ServiceOrder, { cacheResource: 'service-orders' });
 router.use(authenticate);
 router.use(orgScope);
 
-router.get('/', requirePermission('service_orders.view'), ctrl.list);
+// List service orders with the same pagination/meta/filters/include_deleted
+// semantics as crudController.list (see BaseModel.findAll/count), but LEFT
+// JOINs clients/leads so the response carries client_name/lead_name directly
+// — the frontend table used to depend on a separate, page-capped client
+// lookup just to resolve a name for the client column (and had no way at all
+// to identify a lead-sourced order); this removes that dependency.
+router.get('/', requirePermission('service_orders.view'), async (req, res, next) => {
+  try {
+    const { page = 1, limit = 50, order_by, order, include_deleted, only_deleted, ...filters } = req.query;
+    const conditions = [];
+    const params = [];
+
+    if (req.orgId) { conditions.push('so.organization_id = ?'); params.push(req.orgId); }
+
+    const withDeleted = include_deleted === 'true';
+    const onlyDeleted = only_deleted === 'true';
+    if (onlyDeleted) {
+      conditions.push('so.deleted_at IS NOT NULL');
+    } else if (!withDeleted) {
+      conditions.push('so.deleted_at IS NULL');
+    }
+
+    // Generic column filters — same allowlist crudController/BaseModel.findAll
+    // uses (fillable columns, plus id/status/organization_id).
+    for (const [col, val] of Object.entries(filters)) {
+      if (ServiceOrder.fillable.includes(col) || col === 'id' || col === 'status' || col === 'organization_id') {
+        conditions.push(`so.\`${col}\` = ?`);
+        params.push(val);
+      }
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const safeLimit = Math.min(Math.max(1, parseInt(limit, 10) || 50), 100);
+    const safePage = Math.max(1, parseInt(page, 10) || 1);
+    const safeOffset = (safePage - 1) * safeLimit;
+    const safeOrderBy = ServiceOrder.sortable.includes(order_by) ? order_by : 'id';
+    const safeOrder = order === 'DESC' ? 'DESC' : 'ASC';
+
+    const [rows] = await db.query(
+      `SELECT so.*, c.name AS client_name, l.name AS lead_name
+         FROM service_orders so
+         LEFT JOIN clients c ON c.id = so.client_id
+         LEFT JOIN leads l ON l.id = so.lead_id
+         ${where} ORDER BY so.${safeOrderBy} ${safeOrder} LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      params,
+    );
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM service_orders so ${where}`,
+      params,
+    );
+
+    res.json({
+      data: rows,
+      meta: { total, page: safePage, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) },
+    });
+  } catch (err) { next(err); }
+});
 router.get('/:id', requirePermission('service_orders.view'), ctrl.get);
 
 // Create a service order: generate an order number and seed the onboarding
@@ -84,31 +143,71 @@ router.post('/:id/restore', requirePermission('service_orders.update'), ctrl.res
 // ---------------------------------------------------------------------------
 // Status transitions
 // ---------------------------------------------------------------------------
-function transitionRoute(toStatus, extractContractId = false) {
-  return async (req, res, next) => {
-    try {
-      const order = await lifecycleService.transitionOrder(req.params.id, toStatus, {
-        orgId: req.orgId,
-        userId: req.user?.id,
-        contractId: extractContractId ? (req.body?.contract_id || null) : null,
-      });
-      await auditLog.log({
-        userId: req.user?.id,
-        organizationId: req.orgId,
-        action: `transition:${toStatus}`,
-        tableName: ServiceOrder.tableName,
-        recordId: parseInt(req.params.id, 10),
-        newValues: { status: toStatus },
-      }).catch(() => {});
-      res.json({ data: order });
-    } catch (err) { next(err); }
-  };
-}
 
-router.post('/:id/approve', requirePermission('service_orders.update'), transitionRoute('approved'));
-router.post('/:id/provision', requirePermission('service_orders.update'), transitionRoute('provisioning'));
-router.post('/:id/activate', requirePermission('service_orders.update'), validate(activateServiceOrder), transitionRoute('activated', true));
-router.post('/:id/cancel', requirePermission('service_orders.update'), transitionRoute('cancelled'));
+// Start: new -> in_process. Auto-creates + provisions the contract for
+// new_install orders (and auto-converts an unconverted lead, if needed).
+router.post('/:id/start', requirePermission('service_orders.update'), async (req, res, next) => {
+  try {
+    const { order, contract, provisioning } = await lifecycleService.startOrder(req.params.id, {
+      orgId: req.orgId,
+      userId: req.user?.id,
+    });
+    await auditLog.log({
+      userId: req.user?.id,
+      organizationId: req.orgId,
+      action: 'transition:in_process',
+      tableName: ServiceOrder.tableName,
+      recordId: parseInt(req.params.id, 10),
+      newValues: { status: 'in_process', contract_id: contract?.id || order.contract_id || null },
+    }).catch(() => {});
+    res.json({ data: { ...order, contract: contract || undefined, provisioning: provisioning || undefined } });
+  } catch (err) { next(err); }
+});
+
+// Complete: in_process -> done. Activates the linked contract and either
+// leaves the install as already-paid or raises an installation-fee invoice.
+router.post('/:id/complete', requirePermission('service_orders.update'), validate(completeServiceOrder), async (req, res, next) => {
+  try {
+    const { billing, installation_fee: installationFee, description } = req.body;
+    const { order, invoice } = await lifecycleService.completeOrder(req.params.id, {
+      orgId: req.orgId,
+      userId: req.user?.id,
+      billing,
+      installationFee,
+      description,
+    });
+    await auditLog.log({
+      userId: req.user?.id,
+      organizationId: req.orgId,
+      action: 'transition:done',
+      tableName: ServiceOrder.tableName,
+      recordId: parseInt(req.params.id, 10),
+      newValues: { status: 'done', billing, invoice_id: invoice?.id || null },
+    }).catch(() => {});
+    res.json({ data: { ...order, invoice: invoice || undefined } });
+  } catch (err) { next(err); }
+});
+
+// Cancel: new/in_process -> cancelled. Deprovisions (cancels + deactivates
+// RADIUS on) a still-pending auto-created contract; leaves a manually-linked
+// contract in any other status untouched.
+router.post('/:id/cancel', requirePermission('service_orders.update'), async (req, res, next) => {
+  try {
+    const { order, contractCancelled } = await lifecycleService.cancelOrder(req.params.id, {
+      orgId: req.orgId,
+      userId: req.user?.id,
+    });
+    await auditLog.log({
+      userId: req.user?.id,
+      organizationId: req.orgId,
+      action: 'transition:cancelled',
+      tableName: ServiceOrder.tableName,
+      recordId: parseInt(req.params.id, 10),
+      newValues: { status: 'cancelled', contract_cancelled: contractCancelled },
+    }).catch(() => {});
+    res.json({ data: order });
+  } catch (err) { next(err); }
+});
 
 // ---------------------------------------------------------------------------
 // Onboarding checklist tasks

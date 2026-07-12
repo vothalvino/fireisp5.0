@@ -28,9 +28,14 @@ const updateServiceOrder = {
 
 const patchServiceOrder = updateServiceOrder;
 
-// Status transition request body (approve / start-provisioning / activate / cancel)
-const activateServiceOrder = {
-  contract_id: { type: 'number', min: 1 },
+// Completion request body (POST /service-orders/:id/complete). Whether
+// installation_fee is actually required (only when billing = 'create_invoice')
+// is enforced in lifecycleService.completeOrder — the validate() DSL has no
+// conditional-required support.
+const completeServiceOrder = {
+  billing: { type: 'string', required: true, enum: ['already_paid', 'create_invoice'] },
+  installation_fee: { type: 'number', min: 0.01 },
+  description: { type: 'string', max: 255 },
 };
 
 const createServiceOrderTask = {
@@ -48,6 +53,6 @@ const updateServiceOrderTask = {
 };
 
 module.exports = {
-  createServiceOrder, updateServiceOrder, patchServiceOrder, activateServiceOrder,
+  createServiceOrder, updateServiceOrder, patchServiceOrder, completeServiceOrder,
   createServiceOrderTask, updateServiceOrderTask, ORDER_TYPES,
 };

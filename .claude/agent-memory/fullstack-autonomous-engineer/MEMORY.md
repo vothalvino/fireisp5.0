@@ -21,3 +21,4 @@
 - [Section 21 AI Customer Support](section21-ai-customer-support.md) — migrations 351-358 complete (LAST SECTION); 9 new tables (322 total), 14 perms, 11 services, 25 endpoints, 4-tab frontend page; 858 OpenAPI paths; coverage 72.16%
 - [User groups / roles.js hardening](user-groups-roles-hardening.md) — migration 378 roles.kind + users.group_id; roles.js kind/is_system/bulk-permissions guards; coreRoutes/routesCoverage tests need follow-up updates
 - [User groups frontend matrix](user-groups-frontend-matrix.md) — RoleList.tsx UCRM-style group editor; CRUD/special split, Denied/View/Edit/Custom derivation, admin-kind read-only; fully i18n'd under userGroups.*
+- [Service order simplified flow](service-order-simplified-flow.md) — migration 380: new/in_process/done/cancelled FSM; start/complete/cancel are atomic row-locked transactions (do not regress); tax_rates.rate is a fraction not a %; next migration: 381

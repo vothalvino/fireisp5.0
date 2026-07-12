@@ -170,6 +170,148 @@ describe('billingService', () => {
   });
 
   // =========================================================================
+  // createOneOffInvoice
+  // =========================================================================
+  describe('createOneOffInvoice', () => {
+    test('creates a one-off issued invoice inside a transaction (tax_rates.rate is a FRACTION, not a whole percent)', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ currency: 'MXN' }]])  // Organization.getCurrency
+        .mockResolvedValueOnce([[{ id: 60, total: '580.00', status: 'issued' }]]);  // Invoice.findById
+
+      mockConnection.execute
+        // rate = 0.1600 (16%) — DECIMAL(5,4) per schema/migration 121 seed; a
+        // realistic rate is essential here: an old test mocking rate '16.00'
+        // (an impossible 1600%, DECIMAL(5,4) tops out at 9.9999) combined with
+        // the pre-fix `subtotal * taxPct` formula coincidentally produced the
+        // same 80.00 this test expects, masking a 100x tax-amount bug.
+        .mockResolvedValueOnce([[{ id: 1, rate: '0.1600', is_default: true }]])  // tax rate
+        .mockResolvedValueOnce([[{ cnt: 5 }]])  // invoice count
+        .mockResolvedValueOnce([{ insertId: 60 }])  // INSERT invoice
+        .mockResolvedValueOnce([])  // INSERT invoice_items
+        .mockResolvedValueOnce([]);  // INSERT ledger debit
+
+      const result = await billingService.createOneOffInvoice({
+        orgId: 42, clientId: 100, contractId: 900, description: 'Installation fee', amount: 500,
+      });
+
+      expect(mockConnection.beginTransaction).toHaveBeenCalled();
+      expect(mockConnection.commit).toHaveBeenCalled();
+      expect(mockConnection.release).toHaveBeenCalled();
+      expect(result).toEqual({ id: 60, total: '580.00', status: 'issued' });
+
+      const invoiceInsert = mockConnection.execute.mock.calls[2];
+      expect(invoiceInsert[0]).toContain('INSERT INTO invoices');
+      // 500 subtotal @ 16% -> 80.00 tax, 580.00 total. tax_rate column stores
+      // the fraction (0.16), matching what the frontend renders as rate*100.
+      expect(invoiceInsert[1]).toEqual([42, 100, 900, 'INV-000006', 500, 80, 580, 'MXN', 0.16, 1, expect.any(Date)]);
+
+      const itemInsert = mockConnection.execute.mock.calls[3];
+      expect(itemInsert[0]).toContain('INSERT INTO invoice_items');
+      expect(itemInsert[1]).toEqual([60, 'Installation fee', 500, 500]);
+    });
+
+    test('defaults contract_id to null and 0% tax when the org has no default tax rate', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ currency: 'USD' }]])
+        .mockResolvedValueOnce([[{ id: 61, total: '500.00' }]]);
+
+      mockConnection.execute
+        .mockResolvedValueOnce([[]])  // no default tax rate
+        .mockResolvedValueOnce([[{ cnt: 0 }]])
+        .mockResolvedValueOnce([{ insertId: 61 }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      await billingService.createOneOffInvoice({
+        orgId: 7, clientId: 200, description: 'Installation fee', amount: 500,
+      });
+
+      const invoiceInsert = mockConnection.execute.mock.calls[2];
+      expect(invoiceInsert[1]).toEqual([7, 200, null, 'INV-000001', 500, 0, 500, 'USD', 0, null, expect.any(Date)]);
+    });
+
+    test('uses the currency override instead of Organization.getCurrency when provided', async () => {
+      db.query.mockResolvedValueOnce([[{ id: 62, total: '116.00' }]]);  // Invoice.findById (no getCurrency call expected)
+
+      mockConnection.execute
+        .mockResolvedValueOnce([[{ id: 1, rate: '0.1600' }]])
+        .mockResolvedValueOnce([[{ cnt: 0 }]])
+        .mockResolvedValueOnce([{ insertId: 62 }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      await billingService.createOneOffInvoice({
+        orgId: 7, clientId: 200, description: 'Installation fee', amount: 100, currency: 'GTQ',
+      });
+
+      // Only ONE db.query call (Invoice.findById) — Organization.getCurrency
+      // was never invoked because a currency override was supplied.
+      expect(db.query).toHaveBeenCalledTimes(1);
+      const invoiceInsert = mockConnection.execute.mock.calls[2];
+      expect(invoiceInsert[1]).toEqual([7, 200, null, 'INV-000001', 100, 16, 116, 'GTQ', 0.16, 1, expect.any(Date)]);
+    });
+
+    test('external-conn mode reuses the caller-owned connection: no begin/commit/release, reads back via the same conn', async () => {
+      const externalConn = {
+        beginTransaction: jest.fn(),
+        execute: jest.fn()
+          .mockResolvedValueOnce([[{ id: 1, rate: '0.1600' }]])
+          .mockResolvedValueOnce([[{ cnt: 0 }]])
+          .mockResolvedValueOnce([{ insertId: 70 }])
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([]),
+        query: jest.fn().mockResolvedValueOnce([[{ id: 70, total: '580.00', status: 'issued' }]]),
+        commit: jest.fn(),
+        rollback: jest.fn(),
+        release: jest.fn(),
+      };
+
+      const result = await billingService.createOneOffInvoice({
+        orgId: 42, clientId: 100, description: 'Installation fee', amount: 500, currency: 'MXN', conn: externalConn,
+      });
+
+      expect(db.getConnection).not.toHaveBeenCalled();
+      expect(externalConn.beginTransaction).not.toHaveBeenCalled();
+      expect(externalConn.commit).not.toHaveBeenCalled();
+      expect(externalConn.release).not.toHaveBeenCalled();
+      // Read back through the SAME connection (not db.query/Invoice.findById)
+      // so an uncommitted row the caller hasn't committed yet is visible.
+      expect(externalConn.query).toHaveBeenCalledWith('SELECT * FROM invoices WHERE id = ?', [70]);
+      expect(result).toEqual({ id: 70, total: '580.00', status: 'issued' });
+    });
+
+    test('external-conn mode propagates the raw error without rollback/release (caller owns the transaction)', async () => {
+      const externalConn = {
+        beginTransaction: jest.fn(),
+        execute: jest.fn().mockRejectedValueOnce(new Error('trigger SIGNAL 45000')),
+        query: jest.fn(),
+        commit: jest.fn(),
+        rollback: jest.fn(),
+        release: jest.fn(),
+      };
+
+      await expect(billingService.createOneOffInvoice({
+        orgId: 42, clientId: 100, description: 'fee', amount: 100, currency: 'MXN', conn: externalConn,
+      })).rejects.toThrow('trigger SIGNAL 45000'); // raw error, NOT wrapped in InvoiceGenerationError
+
+      expect(externalConn.rollback).not.toHaveBeenCalled();
+      expect(externalConn.release).not.toHaveBeenCalled();
+    });
+
+    test('rolls back and wraps the error on failure (own-connection mode)', async () => {
+      db.query.mockResolvedValueOnce([[{ currency: 'MXN' }]]);
+      mockConnection.execute.mockRejectedValueOnce(new Error('DB error'));
+
+      await expect(billingService.createOneOffInvoice({
+        orgId: 42, clientId: 100, description: 'Installation fee', amount: 100,
+      })).rejects.toThrow(/Failed to create one-off invoice/);
+
+      expect(mockConnection.rollback).toHaveBeenCalled();
+      expect(mockConnection.release).toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
   // recordPaymentCredit
   // =========================================================================
   describe('recordPaymentCredit', () => {

@@ -5,11 +5,25 @@
 //   • convertLead          — materialise a won lead into a client record
 //   • generateOrderNumber  — sequential, org-scoped service-order references
 //   • seedDefaultTasks     — onboarding checklist for a new service order
-//   • transitionOrder      — enforce the service-order state machine and emit a
-//                            welcome notification when an order is activated
+//   • startOrder           — new -> in_process, one transaction: locks the
+//                            order row, auto-creates + provisions the contract
+//                            for new_install orders (migration 380)
+//   • completeOrder        — in_process -> done, one transaction: activates a
+//                            pending contract and/or raises an installation
+//                            invoice, THEN emits the welcome notification
+//                            after commit (migration 380)
+//   • cancelOrder          — new/in_process -> cancelled, one transaction:
+//                            cancels + deprovisions a still-pending
+//                            auto-created contract (migration 380)
 //   • churnReport          — monthly churn rate from contract status changes
 //   • atRiskClients        — predictive churn alerts (overdue / suspended)
 //   • winbackTargets       — cancelled-customer cohorts for a win-back campaign
+//
+// startOrder/completeOrder/cancelOrder all lock the service_orders row with
+// SELECT ... FOR UPDATE and guard their final status UPDATE with a
+// WHERE status = '<expected>' clause, so two concurrent calls on the same
+// order can never both succeed (the loser's guarded UPDATE affects 0 rows and
+// raises a ValidationError instead of double-provisioning/double-invoicing).
 // =============================================================================
 
 const db = require('../config/database');
@@ -17,8 +31,10 @@ const Lead = require('../models/Lead');
 const Client = require('../models/Client');
 const ServiceOrder = require('../models/ServiceOrder');
 const eventBus = require('./eventBus');
+const provisioningService = require('./subscriberProvisioningService');
+const billingService = require('./billingService');
 const logger = require('../utils/logger').child({ service: 'lifecycle' });
-const { ValidationError, NotFoundError } = require('../utils/errors');
+const { ValidationError, NotFoundError, AppError } = require('../utils/errors');
 
 // Default onboarding checklist applied to every new service order.
 const DEFAULT_ONBOARDING_TASKS = [
@@ -123,52 +139,9 @@ async function convertLead(leadId, orgId = null, overrides = {}) {
 }
 
 /**
- * Transition a service order to a new status, enforcing the finite state machine
- * (ServiceOrder.TRANSITIONS). Sets the appropriate timestamp columns and emits
- * `service_order.activated` (welcome notification) when the order is activated.
- *
- * @param {number} orderId
- * @param {string} toStatus - approved | provisioning | activated | cancelled
- * @param {object} [options]
- * @param {number|null} [options.orgId]
- * @param {number|null} [options.userId]
- * @param {number|null} [options.contractId] - Contract to link on activation
- * @returns {Promise<object>} the updated service order
- */
-async function transitionOrder(orderId, toStatus, { orgId = null, userId = null, contractId = null } = {}) {
-  const order = await ServiceOrder.findById(orderId, orgId);
-  if (!order) throw new NotFoundError('Service order');
-
-  const allowed = ServiceOrder.TRANSITIONS[order.status] || [];
-  if (!allowed.includes(toStatus)) {
-    throw new ValidationError(
-      `Invalid service order transition: ${order.status} → ${toStatus}`,
-    );
-  }
-
-  const updates = { status: toStatus };
-  if (toStatus === 'approved') {
-    updates.approved_at = new Date();
-    updates.approved_by = userId;
-  } else if (toStatus === 'activated') {
-    updates.activated_at = new Date();
-    if (contractId) updates.contract_id = contractId;
-  } else if (toStatus === 'cancelled') {
-    updates.cancelled_at = new Date();
-  }
-
-  const updated = await ServiceOrder.update(orderId, updates, orgId);
-
-  if (toStatus === 'activated') {
-    await emitActivation(updated, orgId).catch(err =>
-      logger.warn({ err: err.message, orderId }, 'Failed to emit service_order.activated'));
-  }
-
-  return updated;
-}
-
-/**
  * Emit the `service_order.activated` event (welcome email/SMS) with client context.
+ * Always called AFTER the owning transaction has committed, so a notification
+ * hook failure can never roll back a billing/provisioning change.
  */
 async function emitActivation(order, orgId) {
   let client = null;
@@ -180,6 +153,399 @@ async function emitActivation(order, orgId) {
     order,
     client,
   });
+}
+
+/**
+ * Build the `AND organization_id = ?` fragment BaseModel itself uses (skip the
+ * filter entirely when orgId is null — single-tenant/no active-org context —
+ * rather than a NULL-safe `<=>` match, so behaviour matches every other
+ * `Model.findById(id, orgId)` call in this codebase).
+ */
+function appendOrgFilter(sql, params, orgId, column = 'organization_id') {
+  if (orgId !== null) {
+    return { sql: `${sql} AND ${column} = ?`, params: [...params, orgId] };
+  }
+  return { sql, params };
+}
+
+/**
+ * Start a service order: new -> in_process (migration 380). For `new_install`
+ * orders with no contract linked yet, this auto-creates and provisions a
+ * `pending` contract from the order's resolved client + plan in the SAME
+ * transaction as the status transition — the normal flow no longer needs a
+ * manual "create contract" step, and a partial failure (e.g. an archived
+ * plan) never leaves an order half-started. Auto-converts an unconverted lead
+ * so the order always ends up with a client_id.
+ *
+ * Concurrency: the order row is locked (`SELECT ... FOR UPDATE`) and the final
+ * status transition is a guarded `UPDATE ... WHERE status = 'new'`, so two
+ * concurrent /start calls on the same order can never both provision a
+ * contract — the loser's guarded UPDATE affects 0 rows and raises a
+ * ValidationError instead of committing a duplicate active RADIUS account.
+ *
+ * @param {number} orderId
+ * @param {object} [options]
+ * @param {number|null} [options.orgId]
+ * @param {number|null} [options.userId] - Accepted for call-site symmetry with
+ *   the route's own auditLog.log call; no column on service_orders records it.
+ * @returns {Promise<{ order: object, contract: object|null, provisioning: object|undefined }>}
+ */
+async function startOrder(orderId, { orgId = null } = {}) {
+  // ---- Pre-checks that don't need to hold the row lock ----
+  const preOrder = await ServiceOrder.findById(orderId, orgId);
+  if (!preOrder) throw new NotFoundError('Service order');
+  if (preOrder.status !== 'new') {
+    throw new ValidationError(`Invalid service order transition: ${preOrder.status} → in_process`);
+  }
+  if (!preOrder.plan_id) {
+    throw new ValidationError('Service order has no plan — set a plan before starting');
+  }
+
+  // Resolve the client: prefer an already-linked client, otherwise resolve
+  // (and if needed convert) the linked lead. convertLead runs its own
+  // transaction and guards against double-conversion (its "already converted"
+  // check), so calling it here — outside the row lock taken below — is safe
+  // even under a rare concurrent double /start.
+  let clientId = preOrder.client_id || null;
+  if (!clientId) {
+    if (!preOrder.lead_id) {
+      throw new ValidationError('Service order has no client or lead — link one before starting');
+    }
+    const lead = await Lead.findById(preOrder.lead_id, orgId);
+    if (!lead) throw new NotFoundError('Lead');
+    if (lead.converted_client_id) {
+      clientId = lead.converted_client_id;
+    } else {
+      const { client } = await convertLead(preOrder.lead_id, orgId);
+      clientId = client.id;
+    }
+  }
+
+  // Defect-hardening: never trust a client_id carried on the order row (it may
+  // have been set on create/PATCH without an org check) — confirm it belongs
+  // to THIS organization before provisioning anything against it.
+  const client = await Client.findById(clientId, orgId);
+  if (!client) throw new ValidationError('Client not found in this organization');
+
+  // ---- Single transaction: lock the order row, create + provision the
+  // contract (new_install only), and transition the order atomically. ----
+  const conn = await db.getConnection();
+  let contract = null;
+  let provisioning;
+  let updatedOrder;
+  try {
+    await conn.beginTransaction();
+
+    const lockQuery = appendOrgFilter('SELECT * FROM service_orders WHERE id = ?', [orderId], orgId);
+    const [lockedRows] = await conn.query(`${lockQuery.sql} FOR UPDATE`, lockQuery.params);
+    const order = lockedRows[0];
+    if (!order) throw new NotFoundError('Service order');
+    if (order.status !== 'new') {
+      throw new ValidationError(`Invalid service order transition: ${order.status} → in_process`);
+    }
+
+    let contractIdToLink = order.contract_id || null;
+
+    if (order.order_type === 'new_install' && !order.contract_id) {
+      // A new contract may only run on a live (non-archived) plan that
+      // belongs to this org, or a global plan (organization_id IS NULL) —
+      // mirrors AND org-scopes routes/contracts.js#assertPlanSelectable
+      // (that helper itself has no org filter; duplicated here rather than
+      // imported to avoid a route->service import cycle and to close the
+      // cross-org gap for this new code path specifically). The org branch is
+      // skipped entirely when orgId is null (single-tenant/no active-org
+      // context), matching every other org-scoped lookup in this file.
+      let planSql = 'SELECT id FROM plans WHERE id = ? AND deleted_at IS NULL';
+      const planParams = [order.plan_id];
+      if (orgId !== null) {
+        planSql += ' AND (organization_id = ? OR organization_id IS NULL)';
+        planParams.push(orgId);
+      }
+      const [planRows] = await conn.query(planSql, planParams);
+      if (!planRows[0]) {
+        throw new AppError(
+          'This plan is archived, unavailable, or belongs to a different organization; a contract cannot be assigned to it.',
+          422, 'PLAN_ARCHIVED',
+        );
+      }
+
+      const contractData = {
+        organization_id: orgId,
+        client_id: clientId,
+        plan_id: order.plan_id,
+        connection_type: 'pppoe',
+        start_date: new Date().toISOString().slice(0, 10),
+        status: 'pending',
+      };
+      const cols = Object.keys(contractData);
+      const [ins] = await conn.query(
+        `INSERT INTO contracts (${cols.map(c => `\`${c}\``).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+        Object.values(contractData),
+      );
+      const contractId = ins.insertId;
+
+      const [clientRows] = await conn.query('SELECT name FROM clients WHERE id = ? LIMIT 1', [clientId]);
+      const seed = clientRows[0] && clientRows[0].name;
+
+      provisioning = await provisioningService.provisionNewContract(
+        conn,
+        { id: contractId, ...contractData },
+        { seed },
+      );
+
+      const [contractRows] = await conn.query('SELECT * FROM contracts WHERE id = ?', [contractId]);
+      contract = contractRows[0];
+      contractIdToLink = contractId;
+    }
+
+    const setClauses = ['status = ?', 'started_at = NOW()'];
+    const setParams = ['in_process'];
+    if (clientId !== order.client_id) { setClauses.push('client_id = ?'); setParams.push(clientId); }
+    if (contractIdToLink && contractIdToLink !== order.contract_id) { setClauses.push('contract_id = ?'); setParams.push(contractIdToLink); }
+    setParams.push(orderId);
+
+    const [result] = await conn.query(
+      `UPDATE service_orders SET ${setClauses.join(', ')} WHERE id = ? AND status = 'new'`,
+      setParams,
+    );
+    if (result.affectedRows === 0) {
+      // Lost a concurrency race (another /start already transitioned this
+      // order between our lock and this UPDATE — shouldn't happen given the
+      // row lock above, but guarded defensively rather than trusting it).
+      throw new ValidationError('Service order was modified concurrently — please retry');
+    }
+
+    await conn.commit();
+
+    const [rows] = await db.query('SELECT * FROM service_orders WHERE id = ?', [orderId]);
+    updatedOrder = rows[0];
+    logger.info({ orderId, contractId: contract?.id || null }, 'Service order started');
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  return { order: updatedOrder, contract, provisioning };
+}
+
+/**
+ * Complete a service order: in_process -> done (migration 380). Activates the
+ * linked `pending` contract (if any) and, when `billing === 'create_invoice'`,
+ * raises a one-off issued invoice for the installation fee
+ * (billingService.createOneOffInvoice, on the SAME connection so it commits
+ * or rolls back atomically with the contract activation and the status
+ * transition). `billing === 'already_paid'` skips invoicing entirely.
+ *
+ * All `create_invoice` input validation runs BEFORE any write (before the
+ * contract is touched), so a 422 (e.g. a missing/invalid installation_fee)
+ * never leaves the contract activated with the order stuck in_process.
+ *
+ * @param {number} orderId
+ * @param {object} options
+ * @param {number|null} [options.orgId]
+ * @param {string} options.billing - already_paid | create_invoice
+ * @param {number|null} [options.installationFee] - Required when billing = create_invoice
+ * @param {string|null} [options.description]
+ * @returns {Promise<{ order: object, invoice: object|null }>}
+ */
+async function completeOrder(orderId, { orgId = null, billing, installationFee = null, description = null } = {}) {
+  // ---- Validate FIRST, before any write ----
+  const preOrder = await ServiceOrder.findById(orderId, orgId);
+  if (!preOrder) throw new NotFoundError('Service order');
+  if (preOrder.status !== 'in_process') {
+    throw new ValidationError(`Invalid service order transition: ${preOrder.status} → done`);
+  }
+
+  let fee = null;
+  let invoiceDescription = null;
+  let invoiceCurrency = null;
+  if (billing === 'create_invoice') {
+    if (!preOrder.client_id) {
+      throw new ValidationError('Service order has no client — cannot raise an installation invoice');
+    }
+    // Defect-hardening: confirm the client actually belongs to this org
+    // before raising an invoice against it.
+    const client = await Client.findById(preOrder.client_id, orgId);
+    if (!client) throw new ValidationError('Client not found in this organization');
+
+    fee = parseFloat(installationFee);
+    if (!(fee > 0)) {
+      throw new ValidationError('installation_fee must be greater than 0 to create an invoice');
+    }
+    invoiceDescription = description && description.trim() ? description.trim() : 'Installation fee';
+
+    // Resolve currency from the order's plan (matches the currency the
+    // contract's OWN recurring invoices use) so the installation invoice
+    // doesn't land in a different currency than the rest of that client's
+    // ledger; falls back to the org default when there's no plan.
+    if (preOrder.plan_id) {
+      const [planRows] = await db.query('SELECT currency FROM plans WHERE id = ?', [preOrder.plan_id]);
+      invoiceCurrency = planRows[0]?.currency || null;
+    }
+  }
+
+  // ---- Single transaction: lock the order row, activate the contract,
+  // create the invoice, and transition the order — all-or-nothing. ----
+  const conn = await db.getConnection();
+  let updatedOrder;
+  let invoice = null;
+  try {
+    await conn.beginTransaction();
+
+    const lockQuery = appendOrgFilter('SELECT * FROM service_orders WHERE id = ?', [orderId], orgId);
+    const [lockedRows] = await conn.query(`${lockQuery.sql} FOR UPDATE`, lockQuery.params);
+    const order = lockedRows[0];
+    if (!order) throw new NotFoundError('Service order');
+    if (order.status !== 'in_process') {
+      throw new ValidationError(`Invalid service order transition: ${order.status} → done`);
+    }
+
+    if (order.contract_id) {
+      // Guarded UPDATE: only a still-pending contract is activated here. If
+      // the row IS pending but the RADIUS-consistency trigger rejects the
+      // activation (trg_contracts_radius_consistency_bu, e.g. the RADIUS
+      // account was somehow removed after start), the SIGNAL 45000 throws
+      // here and rolls back the whole transaction — app.js's global error
+      // handler already maps ER_SIGNAL_EXCEPTION/errno 1644 to a 422
+      // (src/app.js:732-737), so it propagates as a client error, not a 500.
+      await conn.query(
+        "UPDATE contracts SET status = 'active' WHERE id = ? AND status = 'pending'",
+        [order.contract_id],
+      );
+    }
+
+    if (billing === 'create_invoice') {
+      invoice = await billingService.createOneOffInvoice({
+        orgId,
+        clientId: order.client_id,
+        contractId: order.contract_id || null,
+        description: invoiceDescription,
+        amount: fee,
+        currency: invoiceCurrency,
+        conn,
+      });
+    }
+
+    const [result] = await conn.query(
+      "UPDATE service_orders SET status = 'done', completed_at = NOW() WHERE id = ? AND status = 'in_process'",
+      [orderId],
+    );
+    if (result.affectedRows === 0) {
+      throw new ValidationError('Service order was modified concurrently — please retry');
+    }
+
+    await conn.commit();
+
+    const [rows] = await db.query('SELECT * FROM service_orders WHERE id = ?', [orderId]);
+    updatedOrder = rows[0];
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  // Emit AFTER commit so a notification-hook failure can never roll back the
+  // billing/contract-activation transaction above.
+  await emitActivation(updatedOrder, orgId).catch(err =>
+    logger.warn({ err: err.message, orderId }, 'Failed to emit service_order.activated'));
+
+  return { order: updatedOrder, invoice };
+}
+
+/**
+ * Cancel a service order: allowed from new or in_process (migration 380). If
+ * a `pending` contract was auto-created by startOrder, cancel it too (the FSM
+ * trigger permits pending -> cancelled) and deactivate its RADIUS account —
+ * `radiusServerService.findSubscriber` only authenticates `status = 'active'`
+ * rows, so the PPPoE credentials that were already displayed to the
+ * technician would otherwise still authenticate on the NAS after the order is
+ * cancelled. A contract in any OTHER status (active, already terminated, …)
+ * is left completely untouched — cancelling a service order must never
+ * cancel a contract that predates it or that a technician deliberately kept
+ * in service (upgrade/relocation/etc. orders manually link an existing
+ * contract via PATCH, not via startOrder).
+ *
+ * @param {number} orderId
+ * @param {object} [options]
+ * @param {number|null} [options.orgId]
+ * @returns {Promise<{ order: object, contractCancelled: boolean }>}
+ */
+async function cancelOrder(orderId, { orgId = null } = {}) {
+  const conn = await db.getConnection();
+  let updatedOrder;
+  let contractCancelled = false;
+  let contractIdForDisconnect = null;
+  try {
+    await conn.beginTransaction();
+
+    const lockQuery = appendOrgFilter('SELECT * FROM service_orders WHERE id = ?', [orderId], orgId);
+    const [lockedRows] = await conn.query(`${lockQuery.sql} FOR UPDATE`, lockQuery.params);
+    const order = lockedRows[0];
+    if (!order) throw new NotFoundError('Service order');
+
+    const allowed = ['new', 'in_process'];
+    if (!allowed.includes(order.status)) {
+      throw new ValidationError(`Invalid service order transition: ${order.status} → cancelled`);
+    }
+
+    if (order.contract_id) {
+      const [contractRows] = await conn.query('SELECT * FROM contracts WHERE id = ? FOR UPDATE', [order.contract_id]);
+      const contract = contractRows[0];
+      if (contract && contract.status === 'pending') {
+        await conn.query(
+          "UPDATE contracts SET status = 'cancelled' WHERE id = ? AND status = 'pending'",
+          [order.contract_id],
+        );
+        // Deactivate any RADIUS account tied to this contract so it stops
+        // authenticating new PPPoE sessions (radius.status is a separate
+        // column from contracts.status — see radiusServerService#findSubscriber).
+        await conn.query(
+          "UPDATE radius SET status = 'inactive' WHERE contract_id = ? AND deleted_at IS NULL",
+          [order.contract_id],
+        );
+        contractCancelled = true;
+        contractIdForDisconnect = order.contract_id;
+      }
+      // Any other contract status (active, terminated, already cancelled, …)
+      // is left untouched — see function doc.
+    }
+
+    const [result] = await conn.query(
+      "UPDATE service_orders SET status = 'cancelled', cancelled_at = NOW() WHERE id = ? AND status IN ('new','in_process')",
+      [orderId],
+    );
+    if (result.affectedRows === 0) {
+      throw new ValidationError('Service order was modified concurrently — please retry');
+    }
+
+    await conn.commit();
+
+    const [rows] = await db.query('SELECT * FROM service_orders WHERE id = ?', [orderId]);
+    updatedOrder = rows[0];
+    logger.info({ orderId, contractCancelled }, 'Service order cancelled');
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  if (contractIdForDisconnect) {
+    // Best-effort CoA Disconnect-Request for any currently-live session —
+    // never blocks or rolls back the cancel itself (mirrors the non-fatal CoA
+    // pattern already used by suspensionService.suspendContract/terminate).
+    try {
+      const suspensionService = require('./suspensionService');
+      await suspensionService.sendRadiusDisconnect(contractIdForDisconnect);
+    } catch (err) {
+      logger.warn({ err: err.message, orderId }, 'Failed to send RADIUS disconnect on service-order cancel');
+    }
+  }
+
+  return { order: updatedOrder, contractCancelled };
 }
 
 /**
@@ -318,7 +684,9 @@ module.exports = {
   generateOrderNumber,
   seedDefaultTasks,
   convertLead,
-  transitionOrder,
+  startOrder,
+  completeOrder,
+  cancelOrder,
   churnReport,
   atRiskClients,
   winbackTargets,

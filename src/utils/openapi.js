@@ -49,7 +49,7 @@ function generateSpec() {
       { name: 'Clients', description: 'Client management' },
       { name: 'Client Groups', description: 'Family/account grouping (shared billing)' },
       { name: 'Leads', description: 'Lead capture and prospect pipeline' },
-      { name: 'Service Orders', description: 'Service order workflow — request → approval → provisioning → activation' },
+      { name: 'Service Orders', description: 'Service order workflow — new → in_process → done, or cancelled' },
       { name: 'Win-back Campaigns', description: 'Win-back campaigns for cancelled customers' },
       { name: 'Lifecycle', description: 'Customer lifecycle analytics — churn and at-risk' },
       { name: 'Contracts', description: 'Contract management' },
@@ -316,16 +316,29 @@ function generateSpec() {
 
       // ---- Leads (prospect pipeline) ----
       ...crudPaths('leads', 'Leads', 'Lead'),
+      // Override the crudPaths-generated GET to document the optional `search`
+      // query param (partial name/email/phone/company + exact id match — see
+      // routes/leads.js); falls through to the generic list when omitted.
+      '/leads': {
+        get: { tags: ['Leads'], summary: 'List leads (optional free-text search)', operationId: 'listLeads', security: [{ bearerAuth: [] }], parameters: [searchParam()], responses: r200('Lead[]') },
+        post: { tags: ['Leads'], summary: 'Create a Lead', operationId: 'createLead', security: [{ bearerAuth: [] }], requestBody: jsonBody('Lead'), responses: r201('Lead') },
+      },
       '/leads/pipeline': { get: { tags: ['Leads'], summary: 'Lead counts grouped by pipeline stage', operationId: 'getLeadPipeline', security: [{ bearerAuth: [] }], responses: r200('Pipeline counts') } },
       '/leads/{id}/restore': { post: { tags: ['Leads'], summary: 'Restore a soft-deleted lead', operationId: 'restoreLead', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Lead') } },
       '/leads/{id}/convert': { post: { tags: ['Leads'], summary: 'Convert a lead into a client', operationId: 'convertLead', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('leads_convertLead'), responses: r201('Lead + Client') } },
 
       // ---- Service Orders (workflow) ----
       ...crudPaths('service-orders', 'Service Orders', 'ServiceOrder'),
+      // Override the crudPaths-generated GET (list is a dedicated JOIN handler
+      // in routes/serviceOrders.js — carries client_name/lead_name — not the
+      // generic crudController.list); POST stays exactly as crudPaths defines it.
+      '/service-orders': {
+        get: { tags: ['Service Orders'], summary: 'List service orders (includes client_name/lead_name from a LEFT JOIN)', operationId: 'listServiceOrders', security: [{ bearerAuth: [] }], responses: r200('ServiceOrder[]') },
+        post: { tags: ['Service Orders'], summary: 'Create a ServiceOrder', operationId: 'createServiceOrder', security: [{ bearerAuth: [] }], requestBody: jsonBody('ServiceOrder'), responses: r201('ServiceOrder') },
+      },
       '/service-orders/{id}/restore': { post: { tags: ['Service Orders'], summary: 'Restore a soft-deleted service order', operationId: 'restoreServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
-      '/service-orders/{id}/approve': { post: { tags: ['Service Orders'], summary: 'Approve a requested service order', operationId: 'approveServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
-      '/service-orders/{id}/provision': { post: { tags: ['Service Orders'], summary: 'Move an approved order into provisioning', operationId: 'provisionServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
-      '/service-orders/{id}/activate': { post: { tags: ['Service Orders'], summary: 'Activate a provisioning order (sends welcome notification)', operationId: 'activateServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('serviceOrders_activateServiceOrder'), responses: r200('ServiceOrder') } },
+      '/service-orders/{id}/start': { post: { tags: ['Service Orders'], summary: 'Start a service order (new -> in_process); auto-creates + provisions the contract for new_install orders', operationId: 'startServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
+      '/service-orders/{id}/complete': { post: { tags: ['Service Orders'], summary: 'Complete a service order (in_process -> done); already-paid or raises an installation-fee invoice (sends welcome notification)', operationId: 'completeServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('serviceOrders_completeServiceOrder'), responses: r200('ServiceOrder') } },
       '/service-orders/{id}/cancel': { post: { tags: ['Service Orders'], summary: 'Cancel a service order', operationId: 'cancelServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
       '/service-orders/{id}/tasks': {
         get: { tags: ['Service Orders'], summary: 'List onboarding checklist tasks', operationId: 'listServiceOrderTasks', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrderTask[]') },

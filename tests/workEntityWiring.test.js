@@ -18,7 +18,9 @@ jest.mock('../src/config/database', () => ({
 jest.mock('../src/services/lifecycleService', () => ({
   generateOrderNumber: jest.fn(),
   seedDefaultTasks: jest.fn(),
-  transitionOrder: jest.fn(),
+  startOrder: jest.fn(),
+  completeOrder: jest.fn(),
+  cancelOrder: jest.fn(),
 }));
 
 const request = require('supertest');
@@ -143,7 +145,7 @@ describe('POST /work-orders — ticket_id wiring', () => {
 // ---------------------------------------------------------------------------
 describe('PATCH /service-orders/:id — contract_id linking', () => {
   test('sets contract_id on the service order', async () => {
-    const existing = { id: 10, status: 'provisioning', client_id: 3, organization_id: 42, deleted_at: null };
+    const existing = { id: 10, status: 'in_process', client_id: 3, organization_id: 42, deleted_at: null };
     const updated  = { ...existing, contract_id: 77 };
 
     db.query

@@ -1,8 +1,9 @@
 // =============================================================================
 // FireISP 5.0 — ServiceOrder Model
 // =============================================================================
-// Service order workflow — requested → approved → provisioning → activated
-// (§1.2 Customer Lifecycle). See migration 193.
+// Simplified service order workflow — new → in_process → done, or cancelled
+// (reachable from new/in_process) (§1.2 Customer Lifecycle). See migration
+// 193, simplified in migration 380.
 // =============================================================================
 
 const BaseModel = require('./BaseModel');
@@ -15,6 +16,7 @@ class ServiceOrder extends BaseModel {
       'organization_id', 'order_number', 'client_id', 'lead_id', 'plan_id',
       'contract_id', 'order_type', 'status', 'assigned_to', 'address', 'notes',
       'approved_at', 'approved_by', 'activated_at', 'cancelled_at',
+      'started_at', 'completed_at',
     ];
   }
 
@@ -28,11 +30,10 @@ class ServiceOrder extends BaseModel {
    */
   static get TRANSITIONS() {
     return {
-      requested:    ['approved', 'cancelled'],
-      approved:     ['provisioning', 'cancelled'],
-      provisioning: ['activated', 'cancelled'],
-      activated:    [],
-      cancelled:    [],
+      new:        ['in_process', 'cancelled'],
+      in_process: ['done', 'cancelled'],
+      done:       [],
+      cancelled:  [],
     };
   }
 

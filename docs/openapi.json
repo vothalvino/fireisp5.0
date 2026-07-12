@@ -54,7 +54,7 @@
     },
     {
       "name": "Service Orders",
-      "description": "Service order workflow — request → approval → provisioning → activation"
+      "description": "Service order workflow — new → in_process → done, or cancelled"
     },
     {
       "name": "Win-back Campaigns",
@@ -3549,11 +3549,22 @@
         "tags": [
           "Leads"
         ],
-        "summary": "List leads",
+        "summary": "List leads (optional free-text search)",
         "operationId": "listLeads",
         "security": [
           {
             "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Search filter"
           }
         ],
         "responses": {
@@ -3824,7 +3835,7 @@
         "tags": [
           "Service Orders"
         ],
-        "summary": "List service-orders",
+        "summary": "List service orders (includes client_name/lead_name from a LEFT JOIN)",
         "operationId": "listServiceOrders",
         "security": [
           {
@@ -4022,13 +4033,13 @@
         }
       }
     },
-    "/service-orders/{id}/approve": {
+    "/service-orders/{id}/start": {
       "post": {
         "tags": [
           "Service Orders"
         ],
-        "summary": "Approve a requested service order",
-        "operationId": "approveServiceOrder",
+        "summary": "Start a service order (new -> in_process); auto-creates + provisions the contract for new_install orders",
+        "operationId": "startServiceOrder",
         "security": [
           {
             "bearerAuth": []
@@ -4058,49 +4069,13 @@
         }
       }
     },
-    "/service-orders/{id}/provision": {
+    "/service-orders/{id}/complete": {
       "post": {
         "tags": [
           "Service Orders"
         ],
-        "summary": "Move an approved order into provisioning",
-        "operationId": "provisionServiceOrder",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "ServiceOrder",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/service-orders/{id}/activate": {
-      "post": {
-        "tags": [
-          "Service Orders"
-        ],
-        "summary": "Activate a provisioning order (sends welcome notification)",
-        "operationId": "activateServiceOrder",
+        "summary": "Complete a service order (in_process -> done); already-paid or raises an installation-fee invoice (sends welcome notification)",
+        "operationId": "completeServiceOrder",
         "security": [
           {
             "bearerAuth": []
@@ -4117,7 +4092,7 @@
           }
         ],
         "requestBody": {
-          "description": "serviceOrders_activateServiceOrder",
+          "description": "serviceOrders_completeServiceOrder",
           "content": {
             "application/json": {
               "schema": {
@@ -64011,14 +63986,28 @@
           }
         }
       },
-      "serviceOrders_activateServiceOrder": {
+      "serviceOrders_completeServiceOrder": {
         "type": "object",
         "properties": {
-          "contract_id": {
+          "billing": {
+            "type": "string",
+            "enum": [
+              "already_paid",
+              "create_invoice"
+            ]
+          },
+          "installation_fee": {
             "type": "number",
-            "minimum": 1
+            "minimum": 0.01
+          },
+          "description": {
+            "type": "string",
+            "maximum": 255
           }
-        }
+        },
+        "required": [
+          "billing"
+        ]
       },
       "serviceOrders_createServiceOrderTask": {
         "type": "object",
