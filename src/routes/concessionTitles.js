@@ -7,6 +7,7 @@ const ConcessionTitle = require('../models/ConcessionTitle');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
+const { requireMxLocale } = require('../middleware/orgLocale');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createConcessionTitle, updateConcessionTitle } = require('../middleware/schemas/concessionTitles');
@@ -16,6 +17,7 @@ const ctrl = crudController(ConcessionTitle);
 
 router.use(authenticate);
 router.use(orgScope);
+router.use(requireMxLocale);
 
 router.get('/', requirePermission('concession_titles.view'), ctrl.list);
 router.get('/:id', requirePermission('concession_titles.view'), ctrl.get);

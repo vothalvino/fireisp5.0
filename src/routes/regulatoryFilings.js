@@ -7,6 +7,7 @@ const RegulatoryFiling = require('../models/RegulatoryFiling');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
+const { requireMxLocale } = require('../middleware/orgLocale');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createRegulatoryFiling, updateRegulatoryFiling } = require('../middleware/schemas/regulatoryFilings');
@@ -16,6 +17,7 @@ const ctrl = crudController(RegulatoryFiling);
 
 router.use(authenticate);
 router.use(orgScope);
+router.use(requireMxLocale);
 
 router.get('/', requirePermission('regulatory_filings.view'), ctrl.list);
 router.get('/:id', requirePermission('regulatory_filings.view'), ctrl.get);

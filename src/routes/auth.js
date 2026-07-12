@@ -117,6 +117,17 @@ router.post('/login',
   async (req, res, next) => {
     try {
       const result = await authService.login(req.body);
+      // Mirror GET /auth/me's org enrichment so the SPA renders correctly on the
+      // very first paint after login — without this, locale-gated MX nav items
+      // stay hidden until a manual refresh re-hydrates via /auth/me.
+      const loginOrgId = result.user?.organization_id;
+      if (result.user) {
+        result.user = {
+          ...result.user,
+          organization_currency: loginOrgId ? await Organization.getCurrency(loginOrgId) : 'MXN',
+          organization_locale: loginOrgId ? await Organization.getLocale(loginOrgId) : 'global',
+        };
+      }
       // Set httpOnly cookies for the browser SPA; JSON tokens remain for API clients
       setAuthCookies(res, result.accessToken, result.refreshToken);
       res.json({ data: result });
@@ -177,11 +188,14 @@ router.get('/me', authenticate, async (req, res, next) => {
     // they are not a member of, and its currency would otherwise be unavailable —
     // making every such org fall back to the default currency in the UI.
     const organizationCurrency = activeOrgId ? await Organization.getCurrency(activeOrgId) : 'MXN';
+    // Same reasoning for the compliance locale — it drives the MX (SAT/IFT) nav.
+    const organizationLocale = activeOrgId ? await Organization.getLocale(activeOrgId) : 'global';
     res.json({
       data: {
         ...safeUser,
         organization_id: activeOrgId,
         organization_currency: organizationCurrency,
+        organization_locale: organizationLocale,
         organizations,
       },
     });

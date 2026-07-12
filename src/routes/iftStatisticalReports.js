@@ -7,6 +7,7 @@ const IftStatisticalReport = require('../models/IftStatisticalReport');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
+const { requireMxLocale } = require('../middleware/orgLocale');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createIftStatisticalReport, updateIftStatisticalReport } = require('../middleware/schemas/iftStatisticalReports');
@@ -16,6 +17,7 @@ const ctrl = crudController(IftStatisticalReport);
 
 router.use(authenticate);
 router.use(orgScope);
+router.use(requireMxLocale);
 
 router.get('/', requirePermission('ift_statistical_reports.view'), ctrl.list);
 router.get('/:id', requirePermission('ift_statistical_reports.view'), ctrl.get);

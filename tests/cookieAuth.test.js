@@ -42,6 +42,7 @@ jest.mock('../src/models/User', () => ({
 
 jest.mock('../src/models/Organization', () => ({
   getCurrency: jest.fn().mockResolvedValue('MXN'),
+  getLocale: jest.fn().mockResolvedValue('global'),
 }));
 
 jest.mock('../src/config', () => ({

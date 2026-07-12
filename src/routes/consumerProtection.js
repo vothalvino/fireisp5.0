@@ -7,6 +7,7 @@ const { Router } = require('express');
 const db = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
+const { requireMxLocale } = require('../middleware/orgLocale');
 const { requirePermission } = require('../middleware/rbac');
 const ContractTemplateMx = require('../models/ContractTemplateMx');
 const { crudController } = require('../controllers/crudController');
@@ -16,6 +17,7 @@ const ctrl = crudController(ContractTemplateMx);
 
 router.use(authenticate);
 router.use(orgScope);
+router.use(requireMxLocale);
 
 // =============================================================================
 // Service Modification Notices — /service-modifications

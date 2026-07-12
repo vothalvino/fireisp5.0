@@ -37,6 +37,7 @@ const topologyContextService = require('./topologyContextService');
 const serviceHealthService   = require('./serviceHealthService');
 const phraseLibraryService   = require('./phraseLibraryService');
 const llmProviderService     = require('./llmProviderService');
+const kbService              = require('./kbService');
 
 const logger = require('../utils/logger').child({ service: 'aiReplyService' });
 
@@ -287,6 +288,55 @@ function _validateOutput(text, { phraseValidation, contextSnapshot = null, allow
 }
 
 // ---------------------------------------------------------------------------
+// Triage persistence
+// ---------------------------------------------------------------------------
+
+// Classifier emits 'urgent'; the ticket_ai_triage enum tops out at 'critical'.
+const TRIAGE_PRIORITY_MAP = { low: 'low', medium: 'medium', high: 'high', urgent: 'critical' };
+
+/**
+ * Upsert the per-ticket AI triage suggestion (one row per ticket via
+ * uq_ticket_ai_triage_ticket). Best-effort: a triage failure must never fail
+ * the reply pipeline, so errors are logged and swallowed.
+ */
+async function _persistTriage({ ticketId, orgId, classification, suggestedResolution, contextSnapshot, inboundText, locale }) {
+  const db = require('../config/database');
+  try {
+    let kbArticleIds = [];
+    try {
+      const articles = await kbService.searchArticles(orgId, inboundText, locale || null, 5);
+      kbArticleIds = (articles || []).map((a) => a.id).filter(Boolean);
+    } catch (err) {
+      logger.warn({ orgId, ticketId, err: err.message }, 'aiReplyService: KB search for triage failed');
+    }
+
+    await db.query(
+      `INSERT INTO ticket_ai_triage
+         (ticket_id, suggested_category, suggested_priority, suggested_resolution,
+          kb_article_ids, context_snapshot, processed_at)
+       VALUES (?, ?, ?, ?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE
+         suggested_category   = VALUES(suggested_category),
+         suggested_priority   = VALUES(suggested_priority),
+         suggested_resolution = VALUES(suggested_resolution),
+         kb_article_ids       = VALUES(kb_article_ids),
+         context_snapshot     = VALUES(context_snapshot),
+         processed_at         = NOW()`,
+      [
+        ticketId,
+        classification.category || null,
+        TRIAGE_PRIORITY_MAP[classification.priority] || null,
+        suggestedResolution,
+        JSON.stringify(kbArticleIds),
+        contextSnapshot,
+      ],
+    );
+  } catch (err) {
+    logger.warn({ orgId, ticketId, err: err.message }, 'aiReplyService: failed to persist ticket_ai_triage row');
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public API — generate
 // ---------------------------------------------------------------------------
 
@@ -453,6 +503,19 @@ async function generate({ orgId, ticketId, channel = 'portal', inboundText, cont
     error:             succeeded ? null : lastErrors.join('; '),
   });
 
+  // ── Step 9b: Persist triage suggestion ──────────────────────────────────────
+  // One row per ticket (uq_ticket_ai_triage_ticket) — re-triage on each new
+  // inbound message. Feeds GET /tickets/:id/ai-triage and the AiTriagePanel.
+  await _persistTriage({
+    ticketId,
+    orgId,
+    classification,
+    suggestedResolution: succeeded ? finalText : null,
+    contextSnapshot: workingContextStr, // already redacted
+    inboundText: workingInbound,
+    locale,
+  });
+
   if (!succeeded) {
     logger.error({ orgId, ticketId, errors: lastErrors }, 'aiReplyService: all generation attempts failed');
     return { skipped: false, logId: logEntry.id, draftText: null, action: 'failed' };
@@ -553,4 +616,5 @@ module.exports = {
   _classifyMessage,
   _renderSystemPrompt,
   _validateOutput,
+  _persistTriage,
 };

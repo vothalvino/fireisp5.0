@@ -37,6 +37,12 @@ jest.mock('../src/middleware/orgScope', () => ({
   },
 }));
 
+// The MX-locale gate (migration-377 era) is unit-tested in orgLocale.test.js;
+// here we bypass it so gated MX routes stay reachable with the generic db mock.
+jest.mock('../src/middleware/orgLocale', () => ({
+  requireMxLocale: (_req, _res, next) => next(),
+}));
+
 jest.mock('../src/middleware/rbac', () => ({
   requirePermission: () => (_req, _res, next) => next(),
   requireRole:       () => (_req, _res, next) => next(),

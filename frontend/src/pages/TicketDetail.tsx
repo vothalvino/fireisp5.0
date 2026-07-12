@@ -904,7 +904,21 @@ interface AiTriageData {
   suggested_category: string | null;
   suggested_priority: string | null;
   suggested_resolution: string | null;
-  kb_article_ids: string | null;
+  /** JSON column — mysql2 returns a parsed array, but tolerate a raw string too. */
+  kb_article_ids: number[] | string | null;
+}
+
+/** Normalize kb_article_ids (JSON array, JSON string, or legacy CSV) to number[]. */
+export function parseKbArticleIds(raw: AiTriageData['kb_article_ids']): number[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map(Number).filter(Boolean);
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) return parsed.map(Number).filter(Boolean);
+  } catch {
+    // not JSON — fall through to CSV
+  }
+  return raw.split(',').map(Number).filter(Boolean);
 }
 
 async function fetchAiTriage(ticketId: number): Promise<AiTriageData | null> {
@@ -917,16 +931,24 @@ async function fetchAiTriage(ticketId: number): Promise<AiTriageData | null> {
   return body.data ?? null;
 }
 
-async function postAiSummary(ticketId: number): Promise<string> {
+export async function postAiSummary(ticketId: number): Promise<string> {
   const res = await authedFetch(`${API_BASE}/tickets/${ticketId}/ai-summary`, {
     method: 'POST',
   });
   if (!res.ok) throw new Error('Failed to generate summary');
-  const body = await res.json() as { data?: { summary?: string; skipped?: boolean; reason?: string }; summary?: string };
+  // Backend contract (aiReplyService.generate): { skipped, reason } on a policy
+  // gate, otherwise { skipped: false, logId, draftText, action } — the generated
+  // text is `draftText`; there is no `summary` field.
+  const body = await res.json() as {
+    data?: { skipped?: boolean; reason?: string; logId?: number; draftText?: string | null; action?: string };
+  };
   // When AI is disabled by policy the endpoint returns 200 { skipped, reason }.
   // Surface it instead of silently coercing to an empty summary.
   if (body.data?.skipped) throw new Error(body.data.reason ?? 'AI summaries are disabled by policy');
-  return body.data?.summary ?? (body as { summary?: string }).summary ?? '';
+  if (body.data?.action === 'failed' || !body.data?.draftText) {
+    throw new Error('AI generation failed — no draft was produced');
+  }
+  return body.data.draftText;
 }
 
 function AiTriagePanel({ ticketId }: { ticketId: number }) {
@@ -953,9 +975,7 @@ function AiTriagePanel({ ticketId }: { ticketId: number }) {
     }
   }
 
-  const kbIds: number[] = triage?.kb_article_ids
-    ? (triage.kb_article_ids.split(',').map(Number).filter(Boolean))
-    : [];
+  const kbIds: number[] = parseKbArticleIds(triage?.kb_article_ids ?? null);
 
   return (
     <div style={{ ...card, marginTop: '1.5rem', border: '1px solid #e0e7ff', background: 'var(--bg-card)' }}>

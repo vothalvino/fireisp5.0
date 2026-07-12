@@ -35,6 +35,22 @@ class Organization extends BaseModel {
   }
 
   /**
+   * Return the regional-compliance locale for the given organization.
+   * 'MX' enables the SAT/IFT compliance surface; anything else means global.
+   * Falls back to 'global' if the org is not found or has no locale set.
+   * @param {number|string} orgId
+   * @returns {Promise<'global'|'MX'>}
+   */
+  static async getLocale(orgId) {
+    const db = require('../config/database');
+    const [rows] = await db.query(
+      'SELECT locale FROM organizations WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+      [orgId],
+    );
+    return rows[0]?.locale || 'global';
+  }
+
+  /**
    * Get settings for this organization from the settings table.
    */
   static async getSettings(_organizationId) {
