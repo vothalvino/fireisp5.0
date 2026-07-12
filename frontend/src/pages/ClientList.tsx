@@ -204,9 +204,9 @@ export function ClientList() {
 
   useEffect(() => { setPage(1); }, [sort.sortBy, sort.sortDir]);
 
-  const canCreate = can(user?.role, 'clients.create');
-  const canUpdate = can(user?.role, 'clients.update');
-  const canDelete = can(user?.role, 'clients.delete');
+  const canCreate = can(user, 'clients.create');
+  const canUpdate = can(user, 'clients.update');
+  const canDelete = can(user, 'clients.delete');
 
   const { data: groupOptions } = useQuery({
     queryKey: ['client-groups-options'],

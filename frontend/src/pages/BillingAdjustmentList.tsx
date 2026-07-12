@@ -176,7 +176,7 @@ export function BillingAdjustmentList() {
   const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
 
-  const canCreate = can(user?.role, 'billing_adjustments.create');
+  const canCreate = can(user, 'billing_adjustments.create');
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['billing-adjustments', page],

@@ -569,7 +569,7 @@ export function ContractDetail() {
   const [activeTab, setActiveTab] = useState<TabId>('invoices');
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const canEdit = can(user?.role, 'contracts.update');
+  const canEdit = can(user, 'contracts.update');
 
   const { data: contract, isLoading, error } = useQuery({
     queryKey: ['contract-detail-gql', id],

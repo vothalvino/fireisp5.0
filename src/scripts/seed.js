@@ -46,8 +46,9 @@ async function seed() {
     }
     const passwordHash = await bcrypt.hash(adminPassword, 12);
     await conn.execute(`
-      INSERT IGNORE INTO users (id, first_name, last_name, email, password_hash, role, organization_id, status)
-      VALUES (1, 'Admin', 'User', 'admin@demo-isp.com', ?, 'admin', 1, 'active')
+      INSERT IGNORE INTO users (id, first_name, last_name, email, password_hash, role, group_id, organization_id, status)
+      VALUES (1, 'Admin', 'User', 'admin@demo-isp.com', ?, 'admin',
+              (SELECT id FROM roles WHERE name = 'admin' AND deleted_at IS NULL LIMIT 1), 1, 'active')
     `, [passwordHash]);
 
     // Organization-user membership

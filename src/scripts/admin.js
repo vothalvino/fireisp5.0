@@ -70,9 +70,9 @@ async function createUser(args) {
 
   const passwordHash = await bcrypt.hash(args.password, SALT_ROUNDS);
   const [result] = await db.query(
-    `INSERT INTO users (first_name, last_name, email, password_hash, role, status)
-     VALUES (?, ?, ?, ?, ?, 'active')`,
-    [args['first-name'] || 'Admin', args['last-name'] || 'User', args.email, passwordHash, role],
+    `INSERT INTO users (first_name, last_name, email, password_hash, role, group_id, status)
+     VALUES (?, ?, ?, ?, ?, (SELECT id FROM roles WHERE name = ? AND deleted_at IS NULL LIMIT 1), 'active')`,
+    [args['first-name'] || 'Admin', args['last-name'] || 'User', args.email, passwordHash, role, role],
   );
 
   logger.info({ id: result.insertId, email: args.email, role }, 'User created successfully');

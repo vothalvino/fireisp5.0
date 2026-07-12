@@ -373,7 +373,7 @@ export function PaymentPlanList() {
   const [showCreate, setShowCreate] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  const canCreate = can(user?.role, 'payment_plans.create');
+  const canCreate = can(user, 'payment_plans.create');
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['payment-plans', page],

@@ -110,7 +110,7 @@
     "dsar": "🔐 DSAR",
     "drDrill": "🛟 DR Drill",
     "slaDefinitions": "📐 SLA Definitions",
-    "roles": "🛡️ Roles",
+    "roles": "🛡️ User groups",
     "apiTokens": "🔑 API Tokens",
     "webhooks": "🔗 Webhooks",
     "auditLogs": "📜 Audit Logs",
@@ -427,14 +427,17 @@
     "disableMyTwoFA": "Disable My 2FA",
     "filterRole": "Filter by role",
     "filterStatus": "Filter by status",
+    "filterGroup": "Filter by group",
     "allRoles": "All roles",
     "allStatuses": "All statuses",
+    "allGroups": "All Groups",
     "clearFilters": "Clear filters",
     "all": "All",
     "table": {
       "name": "Name",
       "email": "Email",
       "role": "Role",
+      "group": "Group",
       "status": "Status",
       "twofa": "2FA",
       "lastLogin": "Last Login",
@@ -443,7 +446,87 @@
     },
     "noUsers": "No users found.",
     "loading": "Loading users…",
-    "error": "Failed to load users."
+    "error": "Failed to load users.",
+    "newUserModal": {
+      "group": "Group",
+      "orgAccess": "Organization Access *",
+      "orgHint": "Select at least one organization",
+      "orgLoading": "Loading organizations…",
+      "noOrgs": "No organizations found"
+    },
+    "editUserModal": {
+      "group": "Group",
+      "orgAccess": "Organization Access *",
+      "selectGroupPlaceholder": "Select a group…",
+      "orgPrefillError": "Couldn't load this user's current organization access. Retry before saving — saving now could remove access they still have.",
+      "retry": "Retry"
+    }
+  },
+  "userGroups": {
+    "pageTitle": "User Groups",
+    "newGroup": "+ New Group",
+    "totalBadge": "{{count}} total",
+    "table": {
+      "name": "Name",
+      "kind": "Based on",
+      "description": "Description",
+      "system": "System",
+      "actions": "Actions"
+    },
+    "kind": {
+      "admin": "Admin",
+      "billing": "Billing",
+      "support": "Support",
+      "technician": "Technician",
+      "readonly": "Readonly"
+    },
+    "action": {
+      "permissions": "Permissions",
+      "editTitle": "Edit this group",
+      "permissionsTitle": "Manage permissions",
+      "deleteTitle": "Delete this group"
+    },
+    "empty": "No user groups found.",
+    "loadError": "Failed to load groups.",
+    "deleteConfirm": "Delete this user group? It will be soft-deleted and removed from the list.",
+    "deleteConfirmYes": "Yes, confirm",
+    "deleteConfirmNo": "No, go back",
+    "deleteConfirmAriaLabel": "Confirm action",
+    "deleteFailedGeneric": "Failed to delete group.",
+    "modal": {
+      "createTitle": "New User Group",
+      "editTitle": "Edit Group — {{name}}",
+      "createAriaLabel": "New user group",
+      "editAriaLabel": "Edit group {{name}}",
+      "close": "Close",
+      "nameLabel": "Name",
+      "namePlaceholder": "e.g. \"Field Technicians\"",
+      "descriptionLabel": "Description",
+      "basedOnLabel": "Based on",
+      "startFromLabel": "Start from (optional)",
+      "startFromNone": "— None (start with no permissions) —",
+      "systemNotice": "System groups cannot be renamed or re-based — only the description can be changed here.",
+      "createSubmit": "Create Group",
+      "saveChanges": "Save Changes",
+      "nameRequiredError": "Name is required.",
+      "saveFailedGeneric": "Failed to save group."
+    },
+    "permissions": {
+      "title": "Permissions — {{name}}",
+      "ariaLabel": "Permissions for {{name}}",
+      "loadError": "Failed to load permissions.",
+      "empty": "No permissions are defined.",
+      "readOnlyNotice": "This group's permissions are not editable — its access comes from the legacy admin bypass, and this list is never consulted. Shown here read-only for reference only.",
+      "columnModule": "Module",
+      "stateDenied": "Denied",
+      "stateView": "View",
+      "stateEdit": "Edit",
+      "stateCustom": "Custom",
+      "specialsHeading": "Special permissions",
+      "close": "Close",
+      "saveChanges": "Save Changes",
+      "saveFailedGeneric": "Failed to save permissions."
+    }
   },
   "darkMode": {
     "switchToDark": "Switch to dark mode",

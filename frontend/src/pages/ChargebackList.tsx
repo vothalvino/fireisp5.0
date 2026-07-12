@@ -277,8 +277,8 @@ export function ChargebackList() {
   const [showCreate, setShowCreate] = useState(false);
   const [updatingItem, setUpdatingItem] = useState<Chargeback | null>(null);
 
-  const canCreate = can(user?.role, 'chargebacks.create');
-  const canUpdate = can(user?.role, 'chargebacks.update');
+  const canCreate = can(user, 'chargebacks.create');
+  const canUpdate = can(user, 'chargebacks.update');
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['chargebacks', page, statusFilter],

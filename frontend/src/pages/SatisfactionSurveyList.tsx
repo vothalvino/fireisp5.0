@@ -204,8 +204,8 @@ export function SatisfactionSurveyList() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  const canCreate = can(user?.role, 'surveys.create');
-  const canUpdate = can(user?.role, 'surveys.update');
+  const canCreate = can(user, 'surveys.create');
+  const canUpdate = can(user, 'surveys.update');
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['satisfaction-surveys', page, pageSize],

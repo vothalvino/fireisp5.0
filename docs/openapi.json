@@ -1516,6 +1516,78 @@
         }
       }
     },
+    "/users/{id}/permissions": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Resolved permission slugs for the user's active org",
+        "operationId": "getUserPermissions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "string[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/{id}/organizations": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Organizations the user can access (memberships)",
+        "operationId": "getUserOrganizations",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "UserOrganization[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/roles": {
       "get": {
         "tags": [
@@ -1743,6 +1815,50 @@
         },
         "responses": {
           "201": {
+            "description": "Permission[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Roles"
+        ],
+        "summary": "Bulk-replace a role's entire permission set",
+        "operationId": "setRolePermissions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "roles_setPermissions",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
             "description": "Permission[]",
             "content": {
               "application/json": {
@@ -63232,10 +63348,20 @@
           "description": {
             "type": "string",
             "maximum": 500
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "billing",
+              "support",
+              "technician",
+              "readonly"
+            ]
           }
         },
         "required": [
-          "name"
+          "name",
+          "kind"
         ]
       },
       "roles_updateRole": {
@@ -63249,6 +63375,15 @@
           "description": {
             "type": "string",
             "maximum": 500
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "billing",
+              "support",
+              "technician",
+              "readonly"
+            ]
           }
         }
       },
@@ -63262,6 +63397,17 @@
         },
         "required": [
           "permission_id"
+        ]
+      },
+      "roles_setPermissions": {
+        "type": "object",
+        "properties": {
+          "permission_ids": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "permission_ids"
         ]
       },
       "satCatalogs_catalogSearch": {
@@ -66075,8 +66221,15 @@
               "admin",
               "billing",
               "support",
-              "technician"
+              "technician",
+              "readonly"
             ]
+          },
+          "group_id": {
+            "type": "number"
+          },
+          "organization_ids": {
+            "type": "string"
           },
           "phone": {
             "type": "string",
@@ -66125,8 +66278,15 @@
               "admin",
               "billing",
               "support",
-              "technician"
+              "technician",
+              "readonly"
             ]
+          },
+          "group_id": {
+            "type": "number"
+          },
+          "organization_ids": {
+            "type": "string"
           },
           "phone": {
             "type": "string",
@@ -66169,8 +66329,15 @@
               "admin",
               "billing",
               "support",
-              "technician"
+              "technician",
+              "readonly"
             ]
+          },
+          "group_id": {
+            "type": "number"
+          },
+          "organization_ids": {
+            "type": "string"
           },
           "phone": {
             "type": "string",

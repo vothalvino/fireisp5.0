@@ -142,10 +142,10 @@ export function NasDetail() {
 
   // Mirror the backend route guards: health-check requires nas.health,
   // seed/test/voip/edit require devices.update, delete requires devices.delete.
-  const canHealthCheck = can(user?.role, 'nas.health');
-  const canTestConn = can(user?.role, 'devices.update');
-  const canManage = can(user?.role, 'devices.update');
-  const canDelete = can(user?.role, 'devices.delete');
+  const canHealthCheck = can(user, 'nas.health');
+  const canTestConn = can(user, 'devices.update');
+  const canManage = can(user, 'devices.update');
+  const canDelete = can(user, 'devices.delete');
 
   const TABS: { id: TabId; label: string }[] = [
     { id: 'overview',   label: t('nasDetail.tabs.overview') },
@@ -469,7 +469,7 @@ export function NasDetail() {
                   <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
                     {t('nasDetail.tunnel.notProvisioned')}
                   </p>
-                  {can(user?.role, 'devices.update') && (
+                  {can(user, 'devices.update') && (
                     <button style={styles.actionBtn} onClick={() => setShowWgModal(true)}>
                       {t('nasDetail.tunnel.configure')}
                     </button>
@@ -481,7 +481,7 @@ export function NasDetail() {
                   {/* State + actions row */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' as const }}>
                     <WgStateBadge state={wgTunnel.state} />
-                    {can(user?.role, 'devices.update') && (
+                    {can(user, 'devices.update') && (
                       <button style={styles.actionBtn} onClick={() => setShowWgModal(true)}>
                         {t('nasDetail.tunnel.rebootstrap')}
                       </button>

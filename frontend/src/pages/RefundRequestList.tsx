@@ -314,8 +314,8 @@ export function RefundRequestList() {
   const [reviewingId, setReviewingId] = useState<number | null>(null);
   const [processingId, setProcessingId] = useState<number | null>(null);
 
-  const canReview = can(user?.role, 'refund_requests.review');
-  const canProcess = can(user?.role, 'refund_requests.process');
+  const canReview = can(user, 'refund_requests.review');
+  const canProcess = can(user, 'refund_requests.process');
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['refund-requests', page, statusFilter],

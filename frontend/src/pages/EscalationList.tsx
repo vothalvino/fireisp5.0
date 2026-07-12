@@ -131,8 +131,8 @@ export function EscalationList() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  const canCreate = can(user?.role, 'escalations.create');
-  const canUpdate = can(user?.role, 'escalations.update');
+  const canCreate = can(user, 'escalations.create');
+  const canUpdate = can(user, 'escalations.update');
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['escalations', page, pageSize],

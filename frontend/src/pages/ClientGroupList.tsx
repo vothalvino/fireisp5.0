@@ -210,9 +210,9 @@ export function ClientGroupList() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  const canCreate = can(user?.role, 'clients.create');
-  const canUpdate = can(user?.role, 'clients.update');
-  const canDelete = can(user?.role, 'clients.delete');
+  const canCreate = can(user, 'clients.create');
+  const canUpdate = can(user, 'clients.update');
+  const canDelete = can(user, 'clients.delete');
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['client-groups', page, pageSize],

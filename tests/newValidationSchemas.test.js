@@ -507,8 +507,14 @@ describe('Role validation schemas', () => {
   });
 
   test('createRole accepts valid data', () => {
-    const next = run(createRole, { name: 'Network Admin', description: 'Manages network devices' });
+    // kind is required since 378 (custom groups must be based on a persona)
+    const next = run(createRole, { name: 'Network Admin', description: 'Manages network devices', kind: 'technician' });
     expectPass(next);
+  });
+
+  test('createRole rejects a missing or admin kind', () => {
+    expectReject(run(createRole, { name: 'No Kind' }));
+    expectReject(run(createRole, { name: 'Sneaky', kind: 'admin' }));
   });
 
   test('assignPermission requires permission_id', () => {

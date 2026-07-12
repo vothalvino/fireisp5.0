@@ -1008,11 +1008,11 @@ export function ClientDetail() {
   const [showNewTicket, setShowNewTicket] = useState(false);
   const [showNewContract, setShowNewContract] = useState(false);
 
-  const canEdit = can(user?.role, 'clients.update');
-  const canCreateInvoice = can(user?.role, 'invoices.create');
-  const canRecordPayment = can(user?.role, 'payments.create');
-  const canCreateTicket = can(user?.role, 'tickets.create');
-  const canCreateContract = can(user?.role, 'contracts.create');
+  const canEdit = can(user, 'clients.update');
+  const canCreateInvoice = can(user, 'invoices.create');
+  const canRecordPayment = can(user, 'payments.create');
+  const canCreateTicket = can(user, 'tickets.create');
+  const canCreateContract = can(user, 'contracts.create');
 
   const { data: client, isLoading, error } = useQuery({
     queryKey: ['client-detail-gql', id],

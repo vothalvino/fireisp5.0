@@ -200,6 +200,10 @@ async function login({ email, password }) {
     expiresIn: ACCESS_SECONDS,
     user: sanitizeUser(user),
     organizations: orgs,
+    // The org the JWT was minted for — the login route enriches the user
+    // (currency/locale/group/permissions) for THIS org so the first-paint UI
+    // matches what every subsequent request will be authorized against.
+    activeOrganizationId: primaryOrg?.id || user.organization_id,
   };
 }
 

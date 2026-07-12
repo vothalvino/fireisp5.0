@@ -517,9 +517,9 @@ export function CommunicationCampaignList() {
   const [dispatchCampaign, setDispatchCampaign] = useState<Campaign | null>(null);
   const [messagesCampaign, setMessagesCampaign] = useState<Campaign | null>(null);
 
-  const canCreate = can(user?.role, 'campaigns.create');
-  const canUpdate = can(user?.role, 'campaigns.update');
-  const canDelete = can(user?.role, 'campaigns.delete');
+  const canCreate = can(user, 'campaigns.create');
+  const canUpdate = can(user, 'campaigns.update');
+  const canDelete = can(user, 'campaigns.delete');
 
   const campaignsQ = useQuery({
     queryKey: ['communication-campaigns', page],

@@ -181,8 +181,8 @@ export function FollowUpReminderList() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  const canCreate = can(user?.role, 'follow_ups.create');
-  const canUpdate = can(user?.role, 'follow_ups.update');
+  const canCreate = can(user, 'follow_ups.create');
+  const canUpdate = can(user, 'follow_ups.update');
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['follow-up-reminders', page, pageSize, statusFilter],

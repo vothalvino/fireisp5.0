@@ -110,7 +110,7 @@
     "dsar": "🔐 DSAR",
     "drDrill": "🛟 Simulação DR",
     "slaDefinitions": "📐 Definições de SLA",
-    "roles": "🛡️ Funções",
+    "roles": "🛡️ Grupos de usuários",
     "apiTokens": "🔑 Tokens de API",
     "webhooks": "🔗 Webhooks",
     "auditLogs": "📜 Registros de Auditoria",
@@ -427,14 +427,17 @@
     "disableMyTwoFA": "Desativar meu 2FA",
     "filterRole": "Filtrar por função",
     "filterStatus": "Filtrar por status",
+    "filterGroup": "Filtrar por grupo",
     "allRoles": "Todas as funções",
     "allStatuses": "Todos os status",
+    "allGroups": "Todos os grupos",
     "clearFilters": "Limpar filtros",
     "all": "Todos",
     "table": {
       "name": "Nome",
       "email": "E-mail",
       "role": "Função",
+      "group": "Grupo",
       "status": "Status",
       "twofa": "2FA",
       "lastLogin": "Último acesso",
@@ -443,7 +446,87 @@
     },
     "noUsers": "Nenhum usuário encontrado.",
     "loading": "Carregando usuários…",
-    "error": "Falha ao carregar usuários."
+    "error": "Falha ao carregar usuários.",
+    "newUserModal": {
+      "group": "Grupo",
+      "orgAccess": "Acesso a organizações *",
+      "orgHint": "Selecione ao menos uma organização",
+      "orgLoading": "Carregando organizações…",
+      "noOrgs": "Nenhuma organização encontrada"
+    },
+    "editUserModal": {
+      "group": "Grupo",
+      "orgAccess": "Acesso a organizações *",
+      "selectGroupPlaceholder": "Selecione um grupo…",
+      "orgPrefillError": "Não foi possível carregar o acesso a organizações atual deste usuário. Tente novamente antes de salvar — salvar agora pode remover acessos que ele ainda possui.",
+      "retry": "Tentar novamente"
+    }
+  },
+  "userGroups": {
+    "pageTitle": "Grupos de usuários",
+    "newGroup": "+ Novo grupo",
+    "totalBadge": "{{count}} no total",
+    "table": {
+      "name": "Nome",
+      "kind": "Baseado em",
+      "description": "Descrição",
+      "system": "Sistema",
+      "actions": "Ações"
+    },
+    "kind": {
+      "admin": "Administrador",
+      "billing": "Faturamento",
+      "support": "Suporte",
+      "technician": "Técnico",
+      "readonly": "Somente leitura"
+    },
+    "action": {
+      "permissions": "Permissões",
+      "editTitle": "Editar este grupo",
+      "permissionsTitle": "Gerenciar permissões",
+      "deleteTitle": "Excluir este grupo"
+    },
+    "empty": "Nenhum grupo de usuários encontrado.",
+    "loadError": "Falha ao carregar os grupos.",
+    "deleteConfirm": "Excluir este grupo de usuários? Ele será excluído de forma lógica e removido da lista.",
+    "deleteConfirmYes": "Sim, confirmar",
+    "deleteConfirmNo": "Não, voltar",
+    "deleteConfirmAriaLabel": "Confirmar ação",
+    "deleteFailedGeneric": "Falha ao excluir o grupo.",
+    "modal": {
+      "createTitle": "Novo grupo de usuários",
+      "editTitle": "Editar grupo — {{name}}",
+      "createAriaLabel": "Novo grupo de usuários",
+      "editAriaLabel": "Editar grupo {{name}}",
+      "close": "Fechar",
+      "nameLabel": "Nome",
+      "namePlaceholder": "ex.: \"Técnicos de campo\"",
+      "descriptionLabel": "Descrição",
+      "basedOnLabel": "Baseado em",
+      "startFromLabel": "Basear em (opcional)",
+      "startFromNone": "— Nenhum (começar sem permissões) —",
+      "systemNotice": "Grupos do sistema não podem ser renomeados nem ter a base alterada — aqui só é possível alterar a descrição.",
+      "createSubmit": "Criar grupo",
+      "saveChanges": "Salvar alterações",
+      "nameRequiredError": "O nome é obrigatório.",
+      "saveFailedGeneric": "Falha ao salvar o grupo."
+    },
+    "permissions": {
+      "title": "Permissões — {{name}}",
+      "ariaLabel": "Permissões de {{name}}",
+      "loadError": "Falha ao carregar as permissões.",
+      "empty": "Nenhuma permissão definida.",
+      "readOnlyNotice": "As permissões deste grupo não podem ser editadas — o acesso vem do bypass herdado de administrador, e esta lista nunca é consultada. Exibida aqui apenas como referência, em modo somente leitura.",
+      "columnModule": "Módulo",
+      "stateDenied": "Negado",
+      "stateView": "Visualizar",
+      "stateEdit": "Editar",
+      "stateCustom": "Personalizado",
+      "specialsHeading": "Permissões especiais",
+      "close": "Fechar",
+      "saveChanges": "Salvar alterações",
+      "saveFailedGeneric": "Falha ao salvar as permissões."
+    }
   },
   "darkMode": {
     "switchToDark": "Mudar para modo escuro",

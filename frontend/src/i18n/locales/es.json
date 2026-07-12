@@ -110,7 +110,7 @@
     "dsar": "🔐 DSAR",
     "drDrill": "🛟 Simulacro DR",
     "slaDefinitions": "📐 Definiciones de SLA",
-    "roles": "🛡️ Roles",
+    "roles": "🛡️ Grupos de usuarios",
     "apiTokens": "🔑 Tokens de API",
     "webhooks": "🔗 Webhooks",
     "auditLogs": "📜 Registros de Auditoría",
@@ -427,14 +427,17 @@
     "disableMyTwoFA": "Desactivar mi 2FA",
     "filterRole": "Filtrar por rol",
     "filterStatus": "Filtrar por estado",
+    "filterGroup": "Filtrar por grupo",
     "allRoles": "Todos los roles",
     "allStatuses": "Todos los estados",
+    "allGroups": "Todos los grupos",
     "clearFilters": "Limpiar filtros",
     "all": "Todos",
     "table": {
       "name": "Nombre",
       "email": "Correo electrónico",
       "role": "Rol",
+      "group": "Grupo",
       "status": "Estado",
       "twofa": "2FA",
       "lastLogin": "Último acceso",
@@ -443,7 +446,87 @@
     },
     "noUsers": "No se encontraron usuarios.",
     "loading": "Cargando usuarios…",
-    "error": "Error al cargar usuarios."
+    "error": "Error al cargar usuarios.",
+    "newUserModal": {
+      "group": "Grupo",
+      "orgAccess": "Acceso a organizaciones *",
+      "orgHint": "Selecciona al menos una organización",
+      "orgLoading": "Cargando organizaciones…",
+      "noOrgs": "No se encontraron organizaciones"
+    },
+    "editUserModal": {
+      "group": "Grupo",
+      "orgAccess": "Acceso a organizaciones *",
+      "selectGroupPlaceholder": "Selecciona un grupo…",
+      "orgPrefillError": "No se pudo cargar el acceso a organizaciones actual de este usuario. Reintenta antes de guardar — guardar ahora podría quitarle acceso que aún tiene.",
+      "retry": "Reintentar"
+    }
+  },
+  "userGroups": {
+    "pageTitle": "Grupos de usuarios",
+    "newGroup": "+ Nuevo grupo",
+    "totalBadge": "{{count}} en total",
+    "table": {
+      "name": "Nombre",
+      "kind": "Basado en",
+      "description": "Descripción",
+      "system": "Sistema",
+      "actions": "Acciones"
+    },
+    "kind": {
+      "admin": "Administrador",
+      "billing": "Facturación",
+      "support": "Soporte",
+      "technician": "Técnico",
+      "readonly": "Solo lectura"
+    },
+    "action": {
+      "permissions": "Permisos",
+      "editTitle": "Editar este grupo",
+      "permissionsTitle": "Gestionar permisos",
+      "deleteTitle": "Eliminar este grupo"
+    },
+    "empty": "No se encontraron grupos de usuarios.",
+    "loadError": "Error al cargar los grupos.",
+    "deleteConfirm": "¿Eliminar este grupo de usuarios? Se eliminará de forma lógica y se quitará de la lista.",
+    "deleteConfirmYes": "Sí, confirmar",
+    "deleteConfirmNo": "No, volver",
+    "deleteConfirmAriaLabel": "Confirmar acción",
+    "deleteFailedGeneric": "Error al eliminar el grupo.",
+    "modal": {
+      "createTitle": "Nuevo grupo de usuarios",
+      "editTitle": "Editar grupo — {{name}}",
+      "createAriaLabel": "Nuevo grupo de usuarios",
+      "editAriaLabel": "Editar grupo {{name}}",
+      "close": "Cerrar",
+      "nameLabel": "Nombre",
+      "namePlaceholder": "p. ej. \"Técnicos de campo\"",
+      "descriptionLabel": "Descripción",
+      "basedOnLabel": "Basado en",
+      "startFromLabel": "Basar en (opcional)",
+      "startFromNone": "— Ninguno (comenzar sin permisos) —",
+      "systemNotice": "Los grupos del sistema no se pueden renombrar ni cambiar de base — aquí solo se puede modificar la descripción.",
+      "createSubmit": "Crear grupo",
+      "saveChanges": "Guardar cambios",
+      "nameRequiredError": "El nombre es obligatorio.",
+      "saveFailedGeneric": "Error al guardar el grupo."
+    },
+    "permissions": {
+      "title": "Permisos — {{name}}",
+      "ariaLabel": "Permisos de {{name}}",
+      "loadError": "Error al cargar los permisos.",
+      "empty": "No hay permisos definidos.",
+      "readOnlyNotice": "Los permisos de este grupo no se pueden editar — su acceso proviene del bypass heredado de administrador, y esta lista nunca se consulta. Se muestra aquí solo de referencia, en modo lectura.",
+      "columnModule": "Módulo",
+      "stateDenied": "Denegado",
+      "stateView": "Ver",
+      "stateEdit": "Editar",
+      "stateCustom": "Personalizado",
+      "specialsHeading": "Permisos especiales",
+      "close": "Cerrar",
+      "saveChanges": "Guardar cambios",
+      "saveFailedGeneric": "Error al guardar los permisos."
+    }
   },
   "darkMode": {
     "switchToDark": "Cambiar a modo oscuro",

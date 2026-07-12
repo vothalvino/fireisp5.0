@@ -140,7 +140,7 @@ export function ActivityTimelineTab({ clientId }: { clientId: number }) {
   const qc = useQueryClient();
   const [showLog, setShowLog] = useState(false);
 
-  const canLog = can(user?.role, 'interactions.create');
+  const canLog = can(user, 'interactions.create');
 
   const { data: events, isLoading, error } = useQuery({
     queryKey: ['client-timeline', clientId],

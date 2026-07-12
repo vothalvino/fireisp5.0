@@ -321,7 +321,8 @@ export function Layout() {
           {user && (
             <>
               <div style={styles.userName}>{user.name || user.email}</div>
-              <div style={styles.userRole}>{user.role}</div>
+              {/* Show the user's group name (378); the raw role mirror is the fallback */}
+              <div style={styles.userRole}>{user.group?.name ?? user.role}</div>
               {showOrgSwitcher && (
                 <select
                   aria-label={t('layout.orgSwitcherLabel')}

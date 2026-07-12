@@ -50,6 +50,7 @@ describe('authService', () => {
       // findByEmail returns null (no existing user)
       db.query
         .mockResolvedValueOnce([[]])  // findByEmail
+        .mockResolvedValueOnce([[{ id: 3 }]])  // User.resolveGroupMirror: role → system group (378)
         .mockResolvedValueOnce([{ insertId: 1 }])  // User.create INSERT
         .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]]);  // User.create findById
 
@@ -108,6 +109,7 @@ describe('authService', () => {
 
       db.query
         .mockResolvedValueOnce([[]])  // findByEmail
+        .mockResolvedValueOnce([[{ id: 3 }]])  // User.resolveGroupMirror: role → system group (378)
         .mockResolvedValueOnce([{ insertId: 5 }])  // INSERT user
         .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]])  // findById
         .mockResolvedValueOnce([{ insertId: 1 }]);  // register → INSERT IGNORE organization_users
@@ -137,6 +139,7 @@ describe('authService', () => {
 
       db.query
         .mockResolvedValueOnce([[]])   // findByEmail
+        .mockResolvedValueOnce([[{ id: 3 }]])  // User.resolveGroupMirror: role → system group (378)
         .mockResolvedValueOnce([{ insertId: 6 }])  // INSERT
         .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]]);
 
@@ -146,7 +149,8 @@ describe('authService', () => {
       });
 
       // Verify the INSERT was called with 'support' as default role
-      const insertCall = db.query.mock.calls[1];
+      // (calls[1] is the 378 group-mirror lookup; the INSERT is calls[2])
+      const insertCall = db.query.mock.calls[2];
       expect(insertCall[1]).toContain('support');
     });
 
@@ -155,6 +159,7 @@ describe('authService', () => {
 
       db.query
         .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[{ id: 3 }]])  // User.resolveGroupMirror: role → system group (378)
         .mockResolvedValueOnce([{ insertId: 7 }])
         .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]]);
 
@@ -163,8 +168,8 @@ describe('authService', () => {
         email: 'no@org.com', password: 'password123',
       });
 
-      // Should only be 3 db.query calls (findByEmail, INSERT user, findById)
-      expect(db.query).toHaveBeenCalledTimes(3);
+      // findByEmail, group-mirror lookup (378), INSERT user, findById
+      expect(db.query).toHaveBeenCalledTimes(4);
     });
 
     test('uses "readonly" role for org membership when role not provided', async () => {
@@ -172,6 +177,7 @@ describe('authService', () => {
 
       db.query
         .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[{ id: 3 }]])  // User.resolveGroupMirror: role → system group (378)
         .mockResolvedValueOnce([{ insertId: 8 }])
         .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]])
         .mockResolvedValueOnce([{ insertId: 1 }]);  // org_users INSERT
