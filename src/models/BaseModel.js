@@ -73,8 +73,16 @@ class BaseModel {
    * List records with optional filters, pagination, and org scoping.
    * @param {object} [options]
    * @param {boolean} [options.withDeleted=false] Include soft-deleted records
+   * @param {boolean} [options.onlyDeleted=false] ONLY soft-deleted records (an
+   *   archived-records view, e.g. the Users page's Archived tab). Wins over
+   *   withDeleted.
    */
-  static async findAll({ where = {}, orderBy = 'id', order = 'ASC', limit = 50, offset = 0, orgId = null, withDeleted = false } = {}) {
+  static async findAll({ where = {}, orderBy = 'id', order = 'ASC', limit = 50, offset = 0, orgId = null, withDeleted = false, onlyDeleted = false } = {}) {
+    // An archived-records view of a hard-delete model is by definition empty.
+    // Without this, onlyDeleted would silently no-op and present the full
+    // ACTIVE list as "archived" — inverted semantics, worse than an error.
+    if (onlyDeleted && !this.softDelete) return [];
+
     const conditions = [];
     const params = [];
 
@@ -83,7 +91,9 @@ class BaseModel {
       params.push(orgId);
     }
 
-    if (this.softDelete && !withDeleted) {
+    if (this.softDelete && onlyDeleted) {
+      conditions.push('deleted_at IS NOT NULL');
+    } else if (this.softDelete && !withDeleted) {
       conditions.push('deleted_at IS NULL');
     }
 
@@ -115,8 +125,11 @@ class BaseModel {
    * Count records matching filters.
    * @param {object} [options]
    * @param {boolean} [options.withDeleted=false] Include soft-deleted records
+   * @param {boolean} [options.onlyDeleted=false] ONLY soft-deleted records (wins over withDeleted)
    */
-  static async count({ where = {}, orgId = null, withDeleted = false } = {}) {
+  static async count({ where = {}, orgId = null, withDeleted = false, onlyDeleted = false } = {}) {
+    if (onlyDeleted && !this.softDelete) return 0;
+
     const conditions = [];
     const params = [];
 
@@ -125,7 +138,9 @@ class BaseModel {
       params.push(orgId);
     }
 
-    if (this.softDelete && !withDeleted) {
+    if (this.softDelete && onlyDeleted) {
+      conditions.push('deleted_at IS NOT NULL');
+    } else if (this.softDelete && !withDeleted) {
       conditions.push('deleted_at IS NULL');
     }
 

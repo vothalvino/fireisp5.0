@@ -64,13 +64,18 @@ const ctrl = crudController(User, {
 router.use(authenticate);
 router.use(orgScope);
 
-// Last-admin lockout guard for hard removal (delete has no before-hook).
-async function guardLastAdminDelete(req, res, next) {
+// Archive guards (delete has no before-hook): no self-archive — the actor
+// would lock themselves out instantly with nobody guaranteed able to restore
+// them — and no archiving the org's last active admin.
+async function guardArchive(req, res, next) {
   try {
+    if (Number(req.params.id) === Number(req.user?.id)) {
+      throw new ValidationError('You cannot archive your own account');
+    }
     const target = await User.findById(req.params.id, req.orgId);
     if (target && target.role === 'admin' && target.status === 'active'
         && (await User.countOtherAdminKindUsers(req.orgId, target.id)) === 0) {
-      throw new ValidationError('Cannot delete the last administrator of the organization');
+      throw new ValidationError('Cannot archive the last administrator of the organization');
     }
     next();
   } catch (err) {
@@ -83,7 +88,7 @@ router.get('/:id', requirePermission('users.view'), ctrl.get);
 router.post('/', requirePermission('users.create'), restrictRoleAssignment, validate(createUser, { strip: true }), hashPasswordField, ctrl.create);
 router.put('/:id', requirePermission('users.update'), restrictRoleAssignment, validate(updateUser, { strip: true }), hashPasswordField, ctrl.update);
 router.patch('/:id', requirePermission('users.update'), restrictRoleAssignment, validate(patchUser, { strip: true }), hashPasswordField, ctrl.partialUpdate);
-router.delete('/:id', requirePermission('users.delete'), guardLastAdminDelete, ctrl.destroy);
+router.delete('/:id', requirePermission('users.delete'), guardArchive, ctrl.destroy);
 router.post('/:id/restore', requirePermission('users.update'), ctrl.restore);
 
 // Get user's permissions

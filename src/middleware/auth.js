@@ -29,7 +29,7 @@ async function authenticateApiToken(req) {
   const [rows] = await db.query(
     `SELECT at.*, u.email, u.role, u.status, u.organization_id
      FROM api_tokens at
-     JOIN users u ON u.id = at.user_id
+     JOIN users u ON u.id = at.user_id AND u.deleted_at IS NULL
      WHERE at.token_hash = ?
        AND at.revoked_at IS NULL
        AND (at.expires_at IS NULL OR at.expires_at > NOW())`,

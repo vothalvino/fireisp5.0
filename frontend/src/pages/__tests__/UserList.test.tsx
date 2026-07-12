@@ -75,19 +75,33 @@ const USERS_RESPONSE = {
   meta: { total: 1, page: 1, limit: 25, totalPages: 1 },
 };
 
+// GET /users?only_deleted=true — the Archived tab's list. Distinct from
+// USERS_RESPONSE so tests can tell the two queries apart.
+const ARCHIVED_USER = {
+  id: 9, first_name: 'Alice', last_name: 'Retired', email: 'alice@test.com',
+  role: 'support', group_id: 12, phone: null, status: 'inactive', totp_enabled: false,
+  last_login_at: null, created_at: '2023-06-01', deleted_at: '2024-03-15T10:00:00Z',
+};
+const ARCHIVED_USERS_RESPONSE = {
+  data: [ARCHIVED_USER],
+  meta: { total: 1, page: 1, limit: 25, totalPages: 1 },
+};
+
 function jsonResponse(body: unknown): Response {
   return { ok: true, json: () => Promise.resolve(body) } as Response;
 }
 
 // Dispatches the mocked global fetch by URL so GET /users, GET /roles,
-// GET /organizations, and GET /users/:id/organizations can all be served
-// from a single spy — and POST/PATCH to /users fall through to the users
-// response so create/update flows re-render without erroring.
+// GET /organizations, GET /users/:id/organizations, GET /users?only_deleted,
+// DELETE /users/:id, and POST /users/:id/restore can all be served from a
+// single spy — POST/PATCH/DELETE to /users fall through to the users
+// response so create/update/archive/restore flows re-render without erroring.
 function routeFetch(overrides: {
   users?: unknown;
   groups?: unknown;
   organizations?: unknown;
   userOrganizations?: unknown;
+  archivedUsers?: unknown;
 } = {}) {
   return vi.fn().mockImplementation((input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input.toString();
@@ -99,6 +113,9 @@ function routeFetch(overrides: {
     }
     if (url.includes('/organizations')) {
       return Promise.resolve(jsonResponse(overrides.organizations ?? ORGANIZATIONS_RESPONSE));
+    }
+    if (url.includes('only_deleted=true')) {
+      return Promise.resolve(jsonResponse(overrides.archivedUsers ?? ARCHIVED_USERS_RESPONSE));
     }
     if (url.includes('/users')) {
       return Promise.resolve(jsonResponse(overrides.users ?? USERS_RESPONSE));
@@ -381,6 +398,237 @@ describe('UserList page', () => {
       await waitFor(() => expect(screen.getByText('Save Changes')).not.toBeDisabled());
       expect(screen.queryByText(/couldn't load/i)).not.toBeInTheDocument();
       await waitFor(() => expect((screen.getByLabelText('Org One') as HTMLInputElement).checked).toBe(true));
+    });
+  });
+
+  // "Delete" for staff users is ARCHIVING (soft-delete + forced status
+  // 'inactive'): DELETE /users/:id, listed back via GET /users?only_deleted=true,
+  // and reversible via POST /users/:id/restore.
+  describe('Archive action (main tab) + Archived tab', () => {
+    it('shows a count badge on the Archived tab from meta.total', async () => {
+      renderUserList();
+      await waitFor(() => expect(screen.getByText('bob@test.com')).toBeInTheDocument());
+      const archivedTabBtn = await screen.findByRole('tab', { name: /Archived/ });
+      await waitFor(() => expect(within(archivedTabBtn).getByText('1')).toBeInTheDocument());
+    });
+
+    it('archive confirm dialog shows the archive/deactivate language, then DELETEs /users/:id', async () => {
+      const user = userEvent.setup();
+      renderUserList();
+      await waitFor(() => expect(screen.getByText('bob@test.com')).toBeInTheDocument());
+
+      // Exactly one "Archive" trigger exists before the modal opens.
+      await user.click(screen.getByText('Archive'));
+
+      const dialog = await screen.findByRole('dialog', { name: 'Archive user?' });
+      expect(within(dialog).getByText(/Bob Tech will be archived and deactivated/)).toBeInTheDocument();
+      expect(within(dialog).getByText(/restore this account later from the Archived tab/)).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Archive' }));
+
+      await waitFor(() => {
+        const call = findCall(globalThis.fetch as ReturnType<typeof vi.fn>, '/api/v1/users/2', 'DELETE');
+        expect(call).toBeDefined();
+      });
+      // Modal closes after a successful archive.
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Archive user?' })).not.toBeInTheDocument());
+    });
+
+    it('renders archived rows (name, email, group, archived date) from GET /users?only_deleted=true', async () => {
+      const user = userEvent.setup();
+      renderUserList();
+      await waitFor(() => expect(screen.getByText('bob@test.com')).toBeInTheDocument());
+
+      await user.click(screen.getByRole('tab', { name: /Archived/ }));
+
+      await waitFor(() => expect(screen.getByText('alice@test.com')).toBeInTheDocument());
+      const row = screen.getByText('alice@test.com').closest('tr') as HTMLElement;
+      expect(within(row).getByText('Alice Retired')).toBeInTheDocument();
+      // ARCHIVED_USER.group_id = 12 → GROUPS_RESPONSE id 12 = "support".
+      expect(within(row).getByText('support')).toBeInTheDocument();
+      expect(within(row).getByRole('button', { name: 'Restore' })).toBeInTheDocument();
+
+      // No create/edit affordances in this tab.
+      expect(screen.queryByText('+ New User')).not.toBeInTheDocument();
+      expect(within(row).queryByText('Edit')).not.toBeInTheDocument();
+    });
+
+    it('shows the empty state when there are no archived users', async () => {
+      const user = userEvent.setup();
+      vi.spyOn(globalThis, 'fetch').mockImplementation(routeFetch({
+        archivedUsers: { data: [], meta: { total: 0, page: 1, limit: 25, totalPages: 0 } },
+      }));
+      renderUserList();
+      await waitFor(() => expect(screen.getByText('bob@test.com')).toBeInTheDocument());
+
+      await user.click(screen.getByRole('tab', { name: /Archived/ }));
+      await waitFor(() => expect(screen.getByText('No archived users found.')).toBeInTheDocument());
+    });
+
+    it('Restore POSTs to /users/:id/restore, refetches both lists, and shows an inactive-restore notice', async () => {
+      const user = userEvent.setup();
+      renderUserList();
+      await waitFor(() => expect(screen.getByText('bob@test.com')).toBeInTheDocument());
+
+      await user.click(screen.getByRole('tab', { name: /Archived/ }));
+      await waitFor(() => expect(screen.getByText('alice@test.com')).toBeInTheDocument());
+
+      const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+      // The main list and the archived list share the `/api/v1/users?` prefix
+      // (archived just adds `only_deleted=true`) — exclude/require it so each
+      // counter isolates its own query.
+      const countGetCalls = (urlSubstr: string, exclude?: string) => fetchMock.mock.calls.filter(([input, init]) => {
+        const url = typeof input === 'string' ? input : (input as URL).toString();
+        const method = init?.method ?? 'GET';
+        return url.includes(urlSubstr) && method === 'GET' && (!exclude || !url.includes(exclude));
+      }).length;
+      const archivedGetsBefore = countGetCalls('only_deleted=true');
+      const mainListGetsBefore = countGetCalls('/api/v1/users?', 'only_deleted=true');
+
+      await user.click(screen.getByRole('button', { name: 'Restore' }));
+
+      await waitFor(() => {
+        const call = findCall(fetchMock, '/api/v1/users/9/restore', 'POST');
+        expect(call).toBeDefined();
+      });
+
+      // Inline notice explains the restored account comes back INACTIVE.
+      await waitFor(() => expect(screen.getByText(
+        'Alice Retired was restored as inactive. Activate the account from the Users tab if needed.',
+      )).toBeInTheDocument());
+
+      // Both the archived list and the main users list refetch after restore
+      // — invalidateQueries({queryKey:['users']}) prefix-matches both keys.
+      await waitFor(() => {
+        expect(countGetCalls('only_deleted=true')).toBeGreaterThan(archivedGetsBefore);
+        expect(countGetCalls('/api/v1/users?', 'only_deleted=true')).toBeGreaterThan(mainListGetsBefore);
+      });
+    });
+
+    // Defect: Restore/Archive are the page's first list-shrinking mutations.
+    // Neither tab used to clamp its page state, so restoring the last row on
+    // a later page left `archivedPage` stranded past the new totalPages —
+    // the refetch returns `data: []` and <Pagination> hides its controls
+    // (totalPages <= 1), with no way back to page 1.
+    it('clamps the Archived tab back to page 1 after Restore empties the stranded last page', async () => {
+      const user = userEvent.setup();
+      const page1Rows = Array.from({ length: 25 }, (_, i) => ({
+        ...ARCHIVED_USER, id: 100 + i, first_name: `Arch${i}`, last_name: 'User', email: `arch${i}@test.com`,
+      }));
+      const lastRow = { ...ARCHIVED_USER, id: 200, first_name: 'Last', last_name: 'Row', email: 'lastrow@test.com' };
+      let restored = false;
+
+      vi.spyOn(globalThis, 'fetch').mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        const method = init?.method ?? 'GET';
+        if (url.includes('/users/200/restore') && method === 'POST') {
+          restored = true;
+          return Promise.resolve(jsonResponse({}));
+        }
+        if (url.includes('only_deleted=true')) {
+          const page = new URLSearchParams(url.split('?')[1]).get('page');
+          if (page === '2') {
+            return Promise.resolve(jsonResponse(
+              restored
+                ? { data: [], meta: { total: 25, page: 2, limit: 25, totalPages: 1 } }
+                : { data: [lastRow], meta: { total: 26, page: 2, limit: 25, totalPages: 2 } },
+            ));
+          }
+          return Promise.resolve(jsonResponse({
+            data: page1Rows,
+            meta: restored ? { total: 25, page: 1, limit: 25, totalPages: 1 } : { total: 26, page: 1, limit: 25, totalPages: 2 },
+          }));
+        }
+        if (/\/users\/\d+\/organizations/.test(url)) return Promise.resolve(jsonResponse(USER_ORGANIZATIONS_RESPONSE));
+        if (url.includes('/roles')) return Promise.resolve(jsonResponse(GROUPS_RESPONSE));
+        if (url.includes('/organizations')) return Promise.resolve(jsonResponse(ORGANIZATIONS_RESPONSE));
+        if (url.includes('/users')) return Promise.resolve(jsonResponse(USERS_RESPONSE));
+        return Promise.resolve(jsonResponse({}));
+      });
+
+      renderUserList();
+      await waitFor(() => expect(screen.getByText('bob@test.com')).toBeInTheDocument());
+      await user.click(screen.getByRole('tab', { name: /Archived/ }));
+      await waitFor(() => expect(screen.getByText('arch0@test.com')).toBeInTheDocument());
+
+      await user.click(screen.getByRole('button', { name: 'Next →' }));
+      await waitFor(() => expect(screen.getByText('lastrow@test.com')).toBeInTheDocument());
+
+      await user.click(screen.getByRole('button', { name: 'Restore' }));
+
+      // Stranded-page repro: without the clamp this would show the empty
+      // state forever with no pagination control to get back to page 1.
+      await waitFor(() => expect(screen.getByText('arch0@test.com')).toBeInTheDocument());
+      expect(screen.queryByText('lastrow@test.com')).not.toBeInTheDocument();
+      expect(screen.queryByText('No archived users found.')).not.toBeInTheDocument();
+    });
+
+    // Defect: restoreMutation is one shared mutation for every row in the
+    // table, so gating the busy state on `isPending` alone disabled/relabeled
+    // every row's Restore button while any single restore was in flight.
+    it('only disables/relabels the clicked row while its restore is in flight — other rows stay enabled', async () => {
+      const user = userEvent.setup();
+      const secondArchived = { ...ARCHIVED_USER, id: 15, first_name: 'Second', last_name: 'Row', email: 'second@test.com' };
+      let resolveRestore: (() => void) | undefined;
+      const restorePending = new Promise<void>((resolve) => { resolveRestore = resolve; });
+
+      vi.spyOn(globalThis, 'fetch').mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        const method = init?.method ?? 'GET';
+        if (url.includes('/users/9/restore') && method === 'POST') {
+          return restorePending.then(() => jsonResponse({}));
+        }
+        if (url.includes('only_deleted=true')) {
+          return Promise.resolve(jsonResponse({
+            data: [ARCHIVED_USER, secondArchived],
+            meta: { total: 2, page: 1, limit: 25, totalPages: 1 },
+          }));
+        }
+        if (/\/users\/\d+\/organizations/.test(url)) return Promise.resolve(jsonResponse(USER_ORGANIZATIONS_RESPONSE));
+        if (url.includes('/roles')) return Promise.resolve(jsonResponse(GROUPS_RESPONSE));
+        if (url.includes('/organizations')) return Promise.resolve(jsonResponse(ORGANIZATIONS_RESPONSE));
+        if (url.includes('/users')) return Promise.resolve(jsonResponse(USERS_RESPONSE));
+        return Promise.resolve(jsonResponse({}));
+      });
+
+      renderUserList();
+      await waitFor(() => expect(screen.getByText('bob@test.com')).toBeInTheDocument());
+      await user.click(screen.getByRole('tab', { name: /Archived/ }));
+      await waitFor(() => expect(screen.getByText('alice@test.com')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('second@test.com')).toBeInTheDocument());
+
+      const row1 = screen.getByText('alice@test.com').closest('tr') as HTMLElement;
+      const row2 = screen.getByText('second@test.com').closest('tr') as HTMLElement;
+
+      await user.click(within(row1).getByRole('button', { name: 'Restore' }));
+
+      // row1 (clicked) shows the busy state while its restore is pending...
+      await waitFor(() => expect(within(row1).getByRole('button', { name: 'Restoring…' })).toBeDisabled());
+      // ...but row2 is untouched: still labeled "Restore" and still enabled.
+      expect(within(row2).getByRole('button', { name: 'Restore' })).not.toBeDisabled();
+
+      resolveRestore?.();
+      await waitFor(() => expect(within(row1).getByRole('button', { name: 'Restore' })).toBeInTheDocument());
+    });
+
+    // Defect: archiving yourself locks you out instantly (no admin left to
+    // restore the account) — the backend rejects it with 422, and the UI
+    // must not offer an Archive action on the acting admin's own row.
+    it('disables the Archive action on the current admin\'s own row', async () => {
+      const user = userEvent.setup();
+      vi.spyOn(globalThis, 'fetch').mockImplementation(routeFetch({
+        users: { data: [{ ...user1, id: adminUser.id }], meta: USERS_RESPONSE.meta },
+      }));
+      renderUserList();
+      await waitFor(() => expect(screen.getByText('bob@test.com')).toBeInTheDocument());
+
+      const row = screen.getByText('bob@test.com').closest('tr') as HTMLElement;
+      const archiveBtn = within(row).getByRole('button', { name: 'Archive' });
+      expect(archiveBtn).toBeDisabled();
+      expect(archiveBtn).toHaveAttribute('title', 'You cannot archive your own account');
+
+      await user.click(archiveBtn);
+      expect(screen.queryByRole('dialog', { name: 'Archive user?' })).not.toBeInTheDocument();
     });
   });
 

@@ -93,6 +93,28 @@ class User extends BaseModel {
   }
 
   /**
+   * ARCHIVE a staff account (the users API's DELETE): soft-delete PLUS forcing
+   * status='inactive' in the same statement, so a later restore never revives
+   * a login-able account — restored users come back inactive and must be
+   * re-activated explicitly. Archived users cannot authenticate twice over:
+   * findByEmail/findById exclude soft-deleted rows, and every auth path also
+   * checks status === 'active'.
+   */
+  static async delete(id, orgId = null) {
+    const db = require('../config/database');
+    const { NotFoundError } = require('../utils/errors');
+    let sql = "UPDATE users SET deleted_at = NOW(), status = 'inactive' WHERE id = ? AND deleted_at IS NULL";
+    const params = [id];
+    if (orgId !== null && this.hasOrgScope) {
+      sql += ' AND organization_id = ?';
+      params.push(orgId);
+    }
+    const [result] = await db.query(sql, params);
+    if (result.affectedRows === 0) throw new NotFoundError(this.tableName);
+    return true;
+  }
+
+  /**
    * Strip sensitive / internal columns from a user row before returning it in
    * any API response.  Delegates to src/utils/userSanitize so the logic still
    * works when test suites auto-mock the User model.
