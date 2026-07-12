@@ -16,12 +16,14 @@ jest.mock('../src/services/eventBus', () => ({
   on: jest.fn(),
   removeListener: jest.fn(),
 }));
+jest.mock('../src/services/suspensionService');
 
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const config = require('../src/config');
 const db = require('../src/config/database');
 const User = require('../src/models/User');
+const suspensionService = require('../src/services/suspensionService');
 const app = require('../src/app');
 
 // ---------------------------------------------------------------------------
@@ -120,7 +122,9 @@ describe('POST /api/bulk/suspend', () => {
 
   test('valid body → 200', async () => {
     mockAuthUser();
-    db.query.mockResolvedValue([{ affectedRows: 1 }]);
+    // SELECT id, status FROM contracts — each contract exists and is active
+    db.query.mockResolvedValue([[{ id: 10, status: 'active', organization_id: 1 }]]);
+    suspensionService.suspendContract.mockResolvedValue(undefined);
 
     const res = await request(app)
       .post('/api/bulk/suspend')
@@ -129,6 +133,53 @@ describe('POST /api/bulk/suspend', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.success).toBe(2);
+    expect(suspensionService.suspendContract).toHaveBeenCalledTimes(2);
+  });
+
+  // Bug fix (fold-in requested by coordinator, 2026-07-12): bulk suspend
+  // previously ran a raw UPDATE that bypassed suspensionService entirely —
+  // no CoA disconnect, no radius.status flip, no suspension-exemption check.
+  test('routes each contract through suspensionService.suspendContract (CoA + radius + exemption checks apply)', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValue([[{ id: 10, status: 'active', organization_id: 1 }]]);
+    suspensionService.suspendContract.mockResolvedValue(undefined);
+
+    await request(app)
+      .post('/api/bulk/suspend')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ contract_ids: [10], reason: 'Non-payment' });
+
+    expect(suspensionService.suspendContract).toHaveBeenCalledWith(10, null, 1, null);
+  });
+
+  test('reports a suspension-exempt client as failed, not success', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValue([[{ id: 10, status: 'active', organization_id: 1 }]]);
+    suspensionService.suspendContract.mockResolvedValue({ skipped: true, reason: 'VIP' });
+
+    const res = await request(app)
+      .post('/api/bulk/suspend')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ contract_ids: [10] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.success).toBe(0);
+    expect(res.body.data.failed).toBe(1);
+    expect(res.body.data.errors[0].error).toMatch(/exempt/i);
+  });
+
+  test('reports an already-suspended contract as failed without calling suspensionService', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValue([[{ id: 10, status: 'suspended', organization_id: 1 }]]);
+
+    const res = await request(app)
+      .post('/api/bulk/suspend')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ contract_ids: [10] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.failed).toBe(1);
+    expect(suspensionService.suspendContract).not.toHaveBeenCalled();
   });
 });
 

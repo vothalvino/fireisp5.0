@@ -165,7 +165,9 @@ describe('Bulk Routes — /api/bulk', () => {
   describe('POST /api/bulk/suspend', () => {
     test('success — suspends contracts', async () => {
       mockAuthUser();
-      db.query.mockResolvedValue([{ affectedRows: 1 }]);
+      // SELECT id, status FROM contracts — each contract exists and is active
+      db.query.mockResolvedValue([[{ id: 10, status: 'active', organization_id: 1 }]]);
+      suspensionService.suspendContract.mockResolvedValue(undefined);
 
       const res = await request(app)
         .post('/api/bulk/suspend')
@@ -174,6 +176,7 @@ describe('Bulk Routes — /api/bulk', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.success).toBe(2);
+      expect(suspensionService.suspendContract).toHaveBeenCalledTimes(2);
     });
 
     test('validation — rejects missing contract_ids', async () => {
@@ -199,7 +202,7 @@ describe('Bulk Routes — /api/bulk', () => {
 
     test('reports not found contracts as failed', async () => {
       mockAuthUser();
-      db.query.mockResolvedValue([{ affectedRows: 0 }]);
+      db.query.mockResolvedValue([[]]); // SELECT finds no matching contract
 
       const res = await request(app)
         .post('/api/bulk/suspend')
@@ -208,6 +211,7 @@ describe('Bulk Routes — /api/bulk', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.failed).toBe(1);
+      expect(suspensionService.suspendContract).not.toHaveBeenCalled();
     });
   });
 
