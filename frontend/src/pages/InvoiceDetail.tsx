@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api, tokenStore, authedFetch } from '@/api/client';
 import { extractApiError } from '@/components/ClientFormModal';
 
@@ -195,7 +196,15 @@ function StatusBadge({ status }: { status: string }) {
 // Record Payment Modal
 // ---------------------------------------------------------------------------
 
-const PAYMENT_METHODS = ['cash', 'check', 'credit_card', 'debit_card', 'bank_transfer', 'other'];
+// Must match the backend payment_method enum exactly (src/middleware/schemas/payments.js
+// + the DB ENUM, database/schema.sql) — a value here that isn't accepted
+// there 422s on submit with no client-side warning.
+const PAYMENT_METHODS = [
+  'cash', 'check', 'card', 'transfer', 'online',
+  'credit_card', 'debit_card', 'bank_transfer',
+  'oxxo_pay', 'spei', 'codi', 'convenience_store',
+  'digital_wallet', 'other',
+];
 const TODAY = new Date().toISOString().split('T')[0];
 
 interface RecordPaymentModalProps {
@@ -206,6 +215,7 @@ interface RecordPaymentModalProps {
 }
 
 function RecordPaymentModal({ invoice, clientId, onClose, onRecorded }: RecordPaymentModalProps) {
+  const { t } = useTranslation();
   const [form, setForm] = useState({
     amount: invoice.total,
     currency: invoice.currency || 'MXN',
@@ -285,7 +295,7 @@ function RecordPaymentModal({ invoice, clientId, onClose, onRecorded }: RecordPa
             onChange={e => setField('payment_method', e.target.value)}
           >
             {PAYMENT_METHODS.map(m => (
-              <option key={m} value={m}>{m.replace('_', ' ')}</option>
+              <option key={m} value={m}>{t(`paymentMethods.${m}`)}</option>
             ))}
           </select>
 

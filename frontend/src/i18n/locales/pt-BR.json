@@ -387,6 +387,22 @@
     "loading": "Carregando…",
     "error": "Falha ao carregar faturas."
   },
+  "paymentMethods": {
+    "cash": "Dinheiro",
+    "check": "Cheque",
+    "card": "Cartão",
+    "transfer": "Transferência",
+    "online": "Online",
+    "credit_card": "Cartão de crédito",
+    "debit_card": "Cartão de débito",
+    "bank_transfer": "Transferência bancária",
+    "oxxo_pay": "OXXO Pay",
+    "spei": "SPEI",
+    "codi": "CoDi",
+    "convenience_store": "Loja de conveniência",
+    "digital_wallet": "Carteira digital",
+    "other": "Outro"
+  },
   "paymentList": {
     "title": "Pagamentos",
     "recordPayment": "+ Registrar pagamento",

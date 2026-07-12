@@ -25,6 +25,9 @@ describe('Integration Workflow: Billing → CFDI → Suspension', () => {
     mockConnection = {
       beginTransaction: jest.fn(),
       execute: jest.fn(),
+      // nextInvoiceNumber() reads back LAST_INSERT_ID() via conn.query()
+      // (a plain query, not a prepared .execute()).
+      query: jest.fn().mockResolvedValue([[{ id: 1 }]]),
       commit: jest.fn(),
       rollback: jest.fn(),
       release: jest.fn(),
@@ -59,12 +62,14 @@ describe('Integration Workflow: Billing → CFDI → Suspension', () => {
       mockConnection.execute
         .mockResolvedValueOnce([[{ id: 10, status: 'pending' }]])  // FOR UPDATE lock
         .mockResolvedValueOnce([[{ id: 1, rate: '0.1600', is_default: true }]])  // tax rate
-        .mockResolvedValueOnce([[{ cnt: 0 }]])  // invoice count
+        .mockResolvedValueOnce([{ affectedRows: 0 }])  // nextInvoiceNumber: INSERT IGNORE
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // nextInvoiceNumber: UPDATE next_number
         .mockResolvedValueOnce([{ insertId: 50 }])  // INSERT invoice
         .mockResolvedValueOnce([])  // INSERT line item
         .mockResolvedValueOnce([[]])  // no addons
         .mockResolvedValueOnce([])  // UPDATE billing period
         .mockResolvedValueOnce([]);  // INSERT ledger debit
+      mockConnection.query.mockResolvedValueOnce([[{ id: 1 }]]);  // nextInvoiceNumber: SELECT LAST_INSERT_ID()
 
       db.query.mockResolvedValueOnce([[{ id: 50, invoice_number: 'INV-000001', total: '580.00', status: 'issued' }]]);
 
@@ -74,7 +79,7 @@ describe('Integration Workflow: Billing → CFDI → Suspension', () => {
 
       // 500 subtotal @ 16% -> 80.00 tax, 580.00 total. Assert directly on the
       // INSERT INTO invoices params so this fails if the tax formula regresses.
-      const invoiceInsert = mockConnection.execute.mock.calls[3][1];
+      const invoiceInsert = mockConnection.execute.mock.calls[4][1];
       expect(invoiceInsert[4]).toBe(500);   // subtotal
       expect(invoiceInsert[5]).toBe(80);    // tax_amount
       expect(invoiceInsert[6]).toBe(580);   // total

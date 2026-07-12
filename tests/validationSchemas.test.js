@@ -147,7 +147,7 @@ describe('Invoice validation schemas', () => {
 });
 
 describe('Payment validation schemas', () => {
-  const { createPayment, allocatePayment } = require('../src/middleware/schemas/payments');
+  const { createPayment, updatePayment, allocatePayment } = require('../src/middleware/schemas/payments');
 
   test('createPayment requires client_id and amount', () => {
     const next = run(createPayment, {});
@@ -163,6 +163,23 @@ describe('Payment validation schemas', () => {
 
   test('createPayment accepts valid payment', () => {
     const next = run(createPayment, { client_id: 1, amount: 500, payment_method: 'cash' });
+    expect(next).toHaveBeenCalledWith();
+  });
+
+  // Regression test: the DB `payments.payment_method` ENUM (migrations 012,
+  // 074, 180) supports 14 values, but this schema's enum previously listed
+  // only 6 — every Mexico-specific method (plus the generic card/transfer/
+  // online) 422'd on submit even though MySQL would have accepted the row.
+  test.each(['spei', 'oxxo_pay', 'codi', 'convenience_store', 'digital_wallet', 'card', 'transfer', 'online'])(
+    'createPayment accepts payment_method=%s (previously 422, now matches the DB ENUM)',
+    (payment_method) => {
+      const next = run(createPayment, { client_id: 1, amount: 500, payment_method });
+      expect(next).toHaveBeenCalledWith();
+    },
+  );
+
+  test.each(['spei', 'oxxo_pay'])('updatePayment accepts payment_method=%s', (payment_method) => {
+    const next = run(updatePayment, { payment_method });
     expect(next).toHaveBeenCalledWith();
   });
 

@@ -12,6 +12,7 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createQuote, updateQuote, createQuoteItem } = require('../middleware/schemas/quotes');
 const db = require('../config/database');
+const billingService = require('../services/billingService');
 
 const router = Router();
 const ctrl = crudController(Quote);
@@ -62,12 +63,10 @@ router.post('/:id/convert-to-invoice', requirePermission('quotes.create'), requi
     try {
       await conn.beginTransaction();
 
-      // Generate a unique invoice number within the transaction
-      const [countResult] = await conn.execute(
-        'SELECT COUNT(*) AS cnt FROM invoices WHERE organization_id = ?',
-        [req.orgId],
-      );
-      const invoiceNumber = `INV-${String(countResult[0].cnt + 1).padStart(6, '0')}`;
+      // Generate a unique invoice number within the transaction — atomic
+      // per-org sequence (migration 381), race-free under concurrent
+      // invoice generation for the same org.
+      const invoiceNumber = await billingService.nextInvoiceNumber(conn, req.orgId);
 
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 15);

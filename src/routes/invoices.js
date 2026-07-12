@@ -212,11 +212,9 @@ router.post('/generate', requirePermission('invoices.create'), async (req, res, 
     try {
       await conn.beginTransaction();
 
-      const [countResult] = await conn.execute(
-        'SELECT COUNT(*) AS cnt FROM invoices WHERE organization_id = ?',
-        [req.orgId],
-      );
-      const invoiceNumber = `INV-${String(countResult[0].cnt + 1).padStart(6, '0')}`;
+      // Atomic per-org sequence (migration 381) — race-free under concurrent
+      // invoice generation for the same org.
+      const invoiceNumber = await billingService.nextInvoiceNumber(conn, req.orgId);
 
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 15);

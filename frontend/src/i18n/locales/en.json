@@ -387,6 +387,22 @@
     "loading": "Loading…",
     "error": "Failed to load invoices."
   },
+  "paymentMethods": {
+    "cash": "Cash",
+    "check": "Check",
+    "card": "Card",
+    "transfer": "Transfer",
+    "online": "Online",
+    "credit_card": "Credit Card",
+    "debit_card": "Debit Card",
+    "bank_transfer": "Bank Transfer",
+    "oxxo_pay": "OXXO Pay",
+    "spei": "SPEI",
+    "codi": "CoDi",
+    "convenience_store": "Convenience Store",
+    "digital_wallet": "Digital Wallet",
+    "other": "Other"
+  },
   "paymentList": {
     "title": "Payments",
     "recordPayment": "+ Record Payment",

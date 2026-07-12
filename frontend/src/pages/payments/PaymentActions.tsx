@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
 import { readCsrfCookie } from '@/api/csrf';
 import { extractApiError } from '@/components/ClientFormModal';
@@ -64,9 +65,15 @@ interface UpdatePaymentBody {
 // Constants
 // ---------------------------------------------------------------------------
 
-// Must match the backend payment_method enum (src/middleware/schemas/payments.js
-// + the DB ENUM): card/transfer/online are NOT valid and 422'd on submit.
-export const PAYMENT_METHODS = ['cash', 'credit_card', 'debit_card', 'bank_transfer', 'check', 'other'];
+// Must match the backend payment_method enum exactly (src/middleware/schemas/payments.js
+// + the DB ENUM, database/schema.sql) — a value here that isn't accepted
+// there 422s on submit with no client-side warning.
+export const PAYMENT_METHODS = [
+  'cash', 'check', 'card', 'transfer', 'online',
+  'credit_card', 'debit_card', 'bank_transfer',
+  'oxxo_pay', 'spei', 'codi', 'convenience_store',
+  'digital_wallet', 'other',
+];
 export const NON_PAYABLE_STATUSES = new Set(['void', 'cancelled', 'paid', 'draft']);
 const API_BASE = '/api/v1';
 
@@ -301,6 +308,7 @@ interface EditPaymentModalProps {
 }
 
 function EditPaymentModal({ payment, onClose, onSaved }: EditPaymentModalProps) {
+  const { t } = useTranslation();
   const [form, setForm] = useState({
     amount: payment.amount,
     currency: payment.currency,
@@ -368,7 +376,7 @@ function EditPaymentModal({ payment, onClose, onSaved }: EditPaymentModalProps) 
             onChange={e => setField('payment_method', e.target.value)}
           >
             {PAYMENT_METHODS.map(m => (
-              <option key={m} value={m}>{m.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase())}</option>
+              <option key={m} value={m}>{t(`paymentMethods.${m}`)}</option>
             ))}
           </select>
 
