@@ -60483,9 +60483,17 @@
             "enum": [
               "cash",
               "check",
+              "card",
+              "transfer",
+              "online",
               "credit_card",
               "debit_card",
               "bank_transfer",
+              "oxxo_pay",
+              "spei",
+              "codi",
+              "convenience_store",
+              "digital_wallet",
               "other"
             ]
           },
@@ -60541,9 +60549,17 @@
             "enum": [
               "cash",
               "check",
+              "card",
+              "transfer",
+              "online",
               "credit_card",
               "debit_card",
               "bank_transfer",
+              "oxxo_pay",
+              "spei",
+              "codi",
+              "convenience_store",
+              "digital_wallet",
               "other"
             ]
           },
@@ -60579,9 +60595,17 @@
             "enum": [
               "cash",
               "check",
+              "card",
+              "transfer",
+              "online",
               "credit_card",
               "debit_card",
               "bank_transfer",
+              "oxxo_pay",
+              "spei",
+              "codi",
+              "convenience_store",
+              "digital_wallet",
               "other"
             ]
           },

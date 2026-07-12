@@ -13629,4 +13629,21 @@ CREATE TABLE IF NOT EXISTS noc_ai_insights (
   CONSTRAINT fk_nai_provider FOREIGN KEY (provider_id)     REFERENCES ai_providers  (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ---------------------------------------------------------------------------
+-- Table: organization_invoice_sequences (migration 381)
+-- Purpose: Atomic per-organization INV-###### counter, replacing the
+--          collision-prone COUNT(*)+1 invoice-numbering pattern. Keyed
+--          directly on organization_id (sentinel 0 = NULL/single-tenant
+--          bucket) so nextInvoiceNumber() can advance it in one atomic
+--          INSERT ... ON DUPLICATE KEY UPDATE round trip.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS organization_invoice_sequences (
+    organization_id BIGINT UNSIGNED NOT NULL COMMENT 'Owning tenant organisation; sentinel 0 = the NULL/single-tenant-deployment bucket (invoices.organization_id IS NULL) since primary keys cannot de-duplicate NULL',
+    next_number     BIGINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Next INV-###### sequence value to hand out; advanced atomically by billingService.nextInvoiceNumber()',
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (organization_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Atomic per-organization invoice-number counter (migration 381) — replaces the collision-prone COUNT(*)+1 pattern';
+
 SET FOREIGN_KEY_CHECKS = 1;

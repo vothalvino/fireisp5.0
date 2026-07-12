@@ -199,6 +199,7 @@ interface RecordPaymentModalProps {
 }
 
 function RecordPaymentModal({ clients, onClose, onRecorded }: RecordPaymentModalProps) {
+  const { t } = useTranslation();
   const TODAY = new Date().toISOString().split('T')[0];
   const [form, setForm] = useState({
     client_id: '',
@@ -299,7 +300,7 @@ function RecordPaymentModal({ clients, onClose, onRecorded }: RecordPaymentModal
             onChange={e => setField('payment_method', e.target.value)}
           >
             {PAYMENT_METHODS.map(m => (
-              <option key={m} value={m}>{m.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase())}</option>
+              <option key={m} value={m}>{t(`paymentMethods.${m}`)}</option>
             ))}
           </select>
 

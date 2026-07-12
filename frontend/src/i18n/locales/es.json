@@ -387,6 +387,22 @@
     "loading": "Cargando…",
     "error": "Error al cargar facturas."
   },
+  "paymentMethods": {
+    "cash": "Efectivo",
+    "check": "Cheque",
+    "card": "Tarjeta",
+    "transfer": "Transferencia",
+    "online": "En línea",
+    "credit_card": "Tarjeta de crédito",
+    "debit_card": "Tarjeta de débito",
+    "bank_transfer": "Transferencia bancaria",
+    "oxxo_pay": "OXXO Pay",
+    "spei": "SPEI",
+    "codi": "CoDi",
+    "convenience_store": "Tienda de conveniencia",
+    "digital_wallet": "Monedero digital",
+    "other": "Otro"
+  },
   "paymentList": {
     "title": "Pagos",
     "recordPayment": "+ Registrar pago",

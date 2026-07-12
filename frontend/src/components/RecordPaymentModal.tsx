@@ -12,13 +12,22 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api, authedFetch } from '@/api/client';
 import {
   overlay, modalBox, errorBox, labelStyle, inputStyle, submitBtn, cancelBtn,
 } from '@/components/ClientFormModal';
 
 const API_BASE = '/api/v1';
-const PAYMENT_METHODS = ['cash', 'check', 'credit_card', 'debit_card', 'bank_transfer', 'other'];
+// Must match the backend payment_method enum exactly (src/middleware/schemas/payments.js
+// + the DB ENUM, database/schema.sql) — a value here that isn't accepted
+// there 422s on submit with no client-side warning.
+const PAYMENT_METHODS = [
+  'cash', 'check', 'card', 'transfer', 'online',
+  'credit_card', 'debit_card', 'bank_transfer',
+  'oxxo_pay', 'spei', 'codi', 'convenience_store',
+  'digital_wallet', 'other',
+];
 const STATUSES = ['completed', 'pending', 'failed', 'refunded', 'cancelled'];
 
 interface OpenInvoice { id: number; invoice_number: string | null; total: string; currency: string; status: string; }
@@ -79,6 +88,7 @@ export interface RecordPaymentModalProps {
 }
 
 export function RecordPaymentModal({ lockedClientId, lockedClientName, onClose, onRecorded }: RecordPaymentModalProps) {
+  const { t } = useTranslation();
   const TODAY = new Date().toISOString().split('T')[0];
   const [form, setForm] = useState({
     amount: '', currency: 'MXN', payment_method: 'cash', status: 'completed',
@@ -158,7 +168,7 @@ export function RecordPaymentModal({ lockedClientId, lockedClientName, onClose, 
 
           <label style={labelStyle}>Payment Method</label>
           <select style={inputStyle} value={form.payment_method} onChange={e => setField('payment_method', e.target.value)}>
-            {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+            {PAYMENT_METHODS.map(m => <option key={m} value={m}>{t(`paymentMethods.${m}`)}</option>)}
           </select>
 
           <label style={labelStyle}>Status</label>

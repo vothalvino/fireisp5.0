@@ -13,6 +13,71 @@ const { InvoiceGenerationError } = require('../utils/errors');
 const auditLog = require('./auditLog');
 
 /**
+ * Atomically allocate the next sequential invoice number for an organization,
+ * e.g. INV-000123. Backed by `organization_invoice_sequences` (migration 381)
+ * — a one-row-per-org atomic counter — instead of the old
+ * `SELECT COUNT(*) FROM invoices ...` + 1 pattern, which is a non-locking
+ * read: two concurrent callers for the same org could read the same count
+ * and both attempt to INSERT the same invoice_number, hitting the
+ * uq_invoices_org_number unique-key 500.
+ *
+ * `organization_id` is NULL for single-tenant deployments; the sequence
+ * table uses sentinel `0` as its primary key for that bucket (a nullable PK
+ * column wouldn't work — MySQL doesn't de-duplicate NULL against itself).
+ *
+ * Two statements, deliberately NOT collapsed into a single
+ * `INSERT ... ON DUPLICATE KEY UPDATE ... LAST_INSERT_ID(...)`:
+ *
+ *   1. `INSERT IGNORE` guarantees a row exists for this org — a no-op when
+ *      one already does (every org that had invoices before migration 381
+ *      was seeded; this only actually inserts for a brand-new org's very
+ *      first invoice).
+ *   2. `UPDATE ... SET next_number = LAST_INSERT_ID(next_number) + 1` is the
+ *      documented MySQL idiom for simulating a sequence with a plain
+ *      UPDATE (it works without an AUTO_INCREMENT column): `LAST_INSERT_ID(expr)`
+ *      evaluates `expr` against the row's PRE-update value and remembers it
+ *      as the connection's last-insert-id, and *always* runs — a bare UPDATE
+ *      has no conditional branch the way `ON DUPLICATE KEY UPDATE` does, so
+ *      `SELECT LAST_INSERT_ID()` afterward reliably reflects this call's
+ *      pre-update `next_number` (the number to hand out) every time.
+ *      (A single upsert statement can't offer this guarantee: on a fresh,
+ *      non-conflicting INSERT into a table with no AUTO_INCREMENT column,
+ *      the `ON DUPLICATE KEY UPDATE` clause — and therefore any
+ *      `LAST_INSERT_ID(expr)` inside it — never executes, so
+ *      `LAST_INSERT_ID()` would return a stale value from whatever this
+ *      pooled connection last set it to.)
+ *
+ * The UPDATE takes an exclusive row lock for its duration under InnoDB, so
+ * two concurrent callers for the same org serialize on step 2: the second
+ * transaction's UPDATE blocks until the first commits (writes always read
+ * the latest row, not a snapshot), then increments from the first caller's
+ * already-advanced value — distinct, gapless numbers, no race window.
+ *
+ * @param {object} conn - An active connection/transaction (must expose
+ *   `.query`/`.execute`) — this call is meant to run inside the caller's own
+ *   transaction so the invoice INSERT and the counter advance commit or
+ *   roll back together.
+ * @param {number|null} orgId
+ * @returns {Promise<string>} e.g. "INV-000123"
+ */
+async function nextInvoiceNumber(conn, orgId) {
+  const bucket = orgId ?? 0;
+  await conn.execute(
+    'INSERT IGNORE INTO organization_invoice_sequences (organization_id, next_number) VALUES (?, 1)',
+    [bucket],
+  );
+  await conn.execute(
+    `UPDATE organization_invoice_sequences
+        SET next_number = LAST_INSERT_ID(next_number) + 1
+      WHERE organization_id = ?`,
+    [bucket],
+  );
+  const [[{ id }]] = await conn.query('SELECT LAST_INSERT_ID() AS id');
+  const next = Number(id);
+  return `INV-${String(next).padStart(6, '0')}`;
+}
+
+/**
  * Check if a contract is currently within its free trial period.
  *
  * @param {object} contract - Contract row with start_date
@@ -172,12 +237,9 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
     const taxAmount = Math.round(subtotal * taxPct * 100) / 100;
     const total = subtotal + taxAmount;
 
-    // Generate invoice number
-    const [countResult] = await conn.execute(
-      'SELECT COUNT(*) AS cnt FROM invoices WHERE organization_id = ?',
-      [orgId],
-    );
-    const invoiceNumber = `INV-${String(countResult[0].cnt + 1).padStart(6, '0')}`;
+    // Generate invoice number — atomic per-org sequence (migration 381),
+    // race-free under concurrent invoice generation for the same org.
+    const invoiceNumber = await nextInvoiceNumber(conn, orgId);
 
     // Due date = period end + 15 days
     const dueDate = new Date(billingPeriod.period_end);
@@ -321,14 +383,9 @@ async function createOneOffInvoice({ orgId, clientId, contractId = null, descrip
     const taxAmount = Math.round(subtotal * taxPct * 100) / 100;
     const total = Math.round((subtotal + taxAmount) * 100) / 100;
 
-    // Sequential invoice number — same COUNT(*)+1 algorithm used everywhere
-    // else in this file and in routes/invoices.js (collision-prone under
-    // concurrent writes; a known pre-existing limitation, kept for consistency).
-    const [countResult] = await conn.execute(
-      'SELECT COUNT(*) AS cnt FROM invoices WHERE organization_id = ?',
-      [orgId],
-    );
-    const invoiceNumber = `INV-${String(countResult[0].cnt + 1).padStart(6, '0')}`;
+    // Sequential invoice number — atomic per-org sequence (migration 381),
+    // race-free under concurrent invoice generation for the same org.
+    const invoiceNumber = await nextInvoiceNumber(conn, orgId);
 
     const dueDate = new Date();
     dueDate.setDate(dueDate.getDate() + 15);
@@ -593,4 +650,5 @@ module.exports = {
   releaseInvoiceAllocations,
   voidInvoiceById,
   isContractInTrial, calculateOverageCharges,
+  nextInvoiceNumber,
 };

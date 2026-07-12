@@ -58,6 +58,9 @@ function mockAuthUser() {
 function mockConnection() {
   const conn = {
     execute: jest.fn().mockResolvedValue([{ insertId: 1, affectedRows: 1 }]),
+    // nextInvoiceNumber() reads back LAST_INSERT_ID() via conn.query() (not
+    // conn.execute) — default fallback of 1, overridden per-test as needed.
+    query: jest.fn().mockResolvedValue([[{ id: 1 }]]),
     beginTransaction: jest.fn().mockResolvedValue(undefined),
     commit: jest.fn().mockResolvedValue(undefined),
     rollback: jest.fn().mockResolvedValue(undefined),
@@ -377,8 +380,9 @@ describe('Billing Routes — /api/billing', () => {
         .mockResolvedValueOnce([[{ id: 101, status: 'pending' }]])
         // tax_rates query
         .mockResolvedValueOnce([[]])
-        // count invoices
-        .mockResolvedValueOnce([[{ cnt: 5 }]])
+        // nextInvoiceNumber: INSERT IGNORE + UPDATE next_number
+        .mockResolvedValueOnce([{ affectedRows: 0 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
         // insert invoice
         .mockResolvedValueOnce([{ insertId: 200 }])
         // insert line item (plan)
@@ -389,6 +393,7 @@ describe('Billing Routes — /api/billing', () => {
         .mockResolvedValueOnce([{ affectedRows: 1 }])
         // insert ledger debit
         .mockResolvedValueOnce([{ affectedRows: 1 }]);
+      conn.query.mockResolvedValueOnce([[{ id: 6 }]]); // nextInvoiceNumber: SELECT LAST_INSERT_ID()
 
       // Invoice.findById after conn.commit (uses db.query)
       db.query.mockResolvedValueOnce([[{ id: 200, invoice_number: 'INV-000006', total: 499.00, status: 'issued' }]]);
@@ -417,7 +422,8 @@ describe('Billing Routes — /api/billing', () => {
       conn.execute
         .mockResolvedValueOnce([[{ id: 50, status: 'pending' }]])  // FOR UPDATE lock
         .mockResolvedValueOnce([[]])           // tax_rates
-        .mockResolvedValueOnce([[{ cnt: 0 }]]) // count invoices
+        .mockResolvedValueOnce([{ affectedRows: 0 }]) // nextInvoiceNumber: INSERT IGNORE
+        .mockResolvedValueOnce([{ affectedRows: 1 }]) // nextInvoiceNumber: UPDATE next_number
         .mockResolvedValueOnce([{ insertId: 1 }]) // insert invoice
         .mockResolvedValueOnce([{ insertId: 1 }]) // insert line item
         .mockResolvedValueOnce([[]])              // addons

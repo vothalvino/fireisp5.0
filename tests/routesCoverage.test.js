@@ -1046,8 +1046,10 @@ describe('Quote Routes — /api/quotes', () => {
     test('success — converts quote to invoice', async () => {
       mockAuthUser();
       const conn = mockConnection();
+      // billingService is jest.mock()'d whole-module in this file, so
+      // nextInvoiceNumber() never actually touches conn — mock it directly.
+      billingService.nextInvoiceNumber.mockResolvedValue('INV-000001');
       conn.execute
-        .mockResolvedValueOnce([[{ cnt: 0 }]]) // invoice number count
         .mockResolvedValueOnce([{ insertId: 50, affectedRows: 1 }]) // insert invoice
         .mockResolvedValueOnce([[{ description: 'Item 1', quantity: 1, unit_price: 100, total: 100, tax_rate_id: 1 }]]) // select quote items
         .mockResolvedValue([{ insertId: 1, affectedRows: 1 }]); // item insert + quote update
@@ -1066,8 +1068,10 @@ describe('Quote Routes — /api/quotes', () => {
     test('rolls back without orphaning the invoice when a later write fails', async () => {
       mockAuthUser();
       const conn = mockConnection();
+      // billingService is jest.mock()'d whole-module in this file, so
+      // nextInvoiceNumber() never actually touches conn — mock it directly.
+      billingService.nextInvoiceNumber.mockResolvedValue('INV-000001');
       conn.execute
-        .mockResolvedValueOnce([[{ cnt: 0 }]]) // invoice number count
         .mockResolvedValueOnce([{ insertId: 50, affectedRows: 1 }]) // insert invoice
         .mockResolvedValueOnce([[{ description: 'Item 1', quantity: 1, unit_price: 100, total: 100, tax_rate_id: 1 }]]) // select quote items
         .mockResolvedValueOnce([{ insertId: 1, affectedRows: 1 }]) // item insert
@@ -1117,6 +1121,24 @@ describe('Payment Routes — /api/payments', () => {
 
       expect(res.status).toBe(201);
       expect(billingService.recordPaymentCredit).toHaveBeenCalled();
+    });
+
+    // Regression: the DB `payments.payment_method` ENUM supports these
+    // Mexico-specific instruments (migration 074), but the validation
+    // schema previously only allowed 6 of the 14 values — 'spei' and
+    // 'oxxo_pay' 422'd before the schema was aligned to the DB ENUM.
+    test.each(['spei', 'oxxo_pay'])('success — accepts payment_method=%s (previously 422)', async (payment_method) => {
+      mockAuthUser();
+      Payment.create.mockResolvedValue({ id: 2, amount: '500.00', client_id: 10, payment_method });
+      billingService.recordPaymentCredit.mockResolvedValue(true);
+
+      const res = await request(app)
+        .post('/api/payments')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 10, amount: 500, payment_method, payment_date: '2024-01-01' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data).toMatchObject({ payment_method });
     });
   });
 
@@ -1325,10 +1347,12 @@ describe('Invoice Routes — /api/invoices (extended)', () => {
         return Promise.resolve([[]]); // tax_rates (no default) etc.
       });
       billingService.generateBillingPeriod.mockResolvedValue({ id: 10, period_start: '2026-01-01', period_end: '2026-01-31' });
+      // billingService is jest.mock()'d whole-module in this file, so
+      // nextInvoiceNumber() never actually touches conn — mock it directly.
+      billingService.nextInvoiceNumber.mockResolvedValue('INV-000020');
       Invoice.findById.mockResolvedValue({ id: 20, contract_id: 7 });
       const conn = mockConnection();
       conn.execute.mockImplementation((sql) => {
-        if (/COUNT\(\*\)/.test(sql)) return Promise.resolve([[{ cnt: 0 }]]);
         if (/INSERT INTO invoices/.test(sql)) return Promise.resolve([{ insertId: 20, affectedRows: 1 }]);
         return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
       });
@@ -1357,10 +1381,12 @@ describe('Invoice Routes — /api/invoices (extended)', () => {
         return Promise.resolve([[]]);
       });
       billingService.generateBillingPeriod.mockResolvedValue({ id: 10, period_start: '2026-01-01', period_end: '2026-01-31' });
+      // billingService is jest.mock()'d whole-module in this file, so
+      // nextInvoiceNumber() never actually touches conn — mock it directly.
+      billingService.nextInvoiceNumber.mockResolvedValue('INV-000021');
       Invoice.findById.mockResolvedValue({ id: 21, contract_id: 7 });
       const conn = mockConnection();
       conn.execute.mockImplementation((sql) => {
-        if (/COUNT\(\*\)/.test(sql)) return Promise.resolve([[{ cnt: 0 }]]);
         if (/INSERT INTO invoices/.test(sql)) return Promise.resolve([{ insertId: 21, affectedRows: 1 }]);
         return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
       });

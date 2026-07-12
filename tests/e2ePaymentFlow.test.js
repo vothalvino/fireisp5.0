@@ -55,6 +55,8 @@ function mockConnection() {
       if (/INSERT INTO contracts/i.test(sql)) return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
       if (/INSERT INTO radius/i.test(sql)) return Promise.resolve([{ insertId: 50, affectedRows: 1 }]);
       if (/FROM plans/i.test(sql)) return Promise.resolve([[{ id: 1 }]]); // plan is live (assertPlanSelectable)
+      // nextInvoiceNumber()'s read-back after the atomic UPDATE.
+      if (/LAST_INSERT_ID/i.test(sql)) return Promise.resolve([[{ id: 1 }]]);
       if (/^\s*SELECT/i.test(sql)) return Promise.resolve([[]]);
       return Promise.resolve([{ affectedRows: 1 }]);
     }),
@@ -299,7 +301,8 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       conn.execute
         .mockResolvedValueOnce([[{ id: 100, status: 'pending' }]])             // FOR UPDATE lock
         .mockResolvedValueOnce([[{ id: 1, rate: '0.1600', is_default: true }]]) // tax rate
-        .mockResolvedValueOnce([[{ cnt: 0 }]])                                 // invoice count
+        .mockResolvedValueOnce([{ affectedRows: 0 }])                          // nextInvoiceNumber: INSERT IGNORE
+        .mockResolvedValueOnce([{ affectedRows: 1 }])                          // nextInvoiceNumber: UPDATE next_number
         .mockResolvedValueOnce([{ insertId: 200 }])                            // INSERT invoice
         .mockResolvedValueOnce([{ affectedRows: 1 }])                          // INSERT line item
         .mockResolvedValueOnce([[]])                                            // contract addons
@@ -329,7 +332,7 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       // so also assert directly on the INSERT INTO invoices params (599
       // subtotal @ 16% -> 95.84 tax, 694.84 total) — this fails if the tax
       // formula regresses even though findById's mocked return wouldn't catch it.
-      const invoiceInsert = conn.execute.mock.calls[3][1];
+      const invoiceInsert = conn.execute.mock.calls[4][1];
       expect(invoiceInsert[4]).toBe(599);     // subtotal
       expect(invoiceInsert[5]).toBe(95.84);   // tax_amount
       expect(invoiceInsert[6]).toBe(694.84);  // total
@@ -623,7 +626,8 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       conn.execute
         .mockResolvedValueOnce([[{ id: 100, status: 'pending' }]])
         .mockResolvedValueOnce([[{ id: 1, rate: '0.1600', is_default: true }]])
-        .mockResolvedValueOnce([[{ cnt: 0 }]])
+        .mockResolvedValueOnce([{ affectedRows: 0 }])  // nextInvoiceNumber: INSERT IGNORE
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // nextInvoiceNumber: UPDATE next_number
         .mockResolvedValueOnce([{ insertId: 200 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
         .mockResolvedValueOnce([[]])
@@ -652,7 +656,7 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       // so also assert directly on the INSERT INTO invoices params (599
       // subtotal @ 16% -> 95.84 tax, 694.84 total) — this fails if the tax
       // formula regresses even though findById's mocked return wouldn't catch it.
-      const invoiceInsert = conn.execute.mock.calls[3][1];
+      const invoiceInsert = conn.execute.mock.calls[4][1];
       expect(invoiceInsert[4]).toBe(599);     // subtotal
       expect(invoiceInsert[5]).toBe(95.84);   // tax_amount
       expect(invoiceInsert[6]).toBe(694.84);  // total

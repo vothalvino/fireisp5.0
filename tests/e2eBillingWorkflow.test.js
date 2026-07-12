@@ -27,6 +27,9 @@ describe('E2E Workflow: Billing → Invoice → Payment', () => {
     mockConnection = {
       beginTransaction: jest.fn(),
       execute: jest.fn(),
+      // nextInvoiceNumber() reads back LAST_INSERT_ID() via conn.query()
+      // (a plain query, not a prepared .execute()).
+      query: jest.fn().mockResolvedValue([[{ id: 1 }]]),
       commit: jest.fn(),
       rollback: jest.fn(),
       release: jest.fn(),
@@ -92,12 +95,14 @@ describe('E2E Workflow: Billing → Invoice → Payment', () => {
     mockConnection.execute
       .mockResolvedValueOnce([[{ id: 100, status: 'pending' }]])  // FOR UPDATE lock
       .mockResolvedValueOnce([[{ id: 1, rate: '0.1600', is_default: true }]])  // tax rate
-      .mockResolvedValueOnce([[{ cnt: 0 }]])  // invoice count
+      .mockResolvedValueOnce([{ affectedRows: 0 }])  // nextInvoiceNumber: INSERT IGNORE
+      .mockResolvedValueOnce([{ affectedRows: 1 }])  // nextInvoiceNumber: UPDATE next_number
       .mockResolvedValueOnce([{ insertId: 200 }])  // INSERT invoice
       .mockResolvedValueOnce([])  // INSERT invoice item
       .mockResolvedValueOnce([[]])  // no plan addons
       .mockResolvedValueOnce([])   // UPDATE billing_period → invoiced
       .mockResolvedValueOnce([]);  // INSERT client_balance_ledger
+    mockConnection.query.mockResolvedValueOnce([[{ id: 1 }]]);  // nextInvoiceNumber: SELECT LAST_INSERT_ID()
 
     // Invoice.findById uses db.query (not conn.execute)
     db.query.mockResolvedValueOnce([[createdInvoice]]);
@@ -111,7 +116,7 @@ describe('E2E Workflow: Billing → Invoice → Payment', () => {
     // 500 subtotal @ 16% -> 80.00 tax, 580.00 total. Assert directly on the
     // INSERT INTO invoices params (not just the separately-mocked findById
     // return above) so this fails if the tax formula regresses.
-    const invoiceInsert = mockConnection.execute.mock.calls[3][1];
+    const invoiceInsert = mockConnection.execute.mock.calls[4][1];
     expect(invoiceInsert[4]).toBe(500);   // subtotal
     expect(invoiceInsert[5]).toBe(80);    // tax_amount
     expect(invoiceInsert[6]).toBe(580);   // total
@@ -163,12 +168,14 @@ describe('E2E Workflow: Billing → Invoice → Payment', () => {
     mockConnection.execute
       .mockResolvedValueOnce([[{ id: 100, status: 'pending' }]])  // FOR UPDATE lock
       .mockResolvedValueOnce([[{ id: 1, rate: '0.1600', is_default: true }]])
-      .mockResolvedValueOnce([[{ cnt: 0 }]])
+      .mockResolvedValueOnce([{ affectedRows: 0 }])  // nextInvoiceNumber: INSERT IGNORE
+      .mockResolvedValueOnce([{ affectedRows: 1 }])  // nextInvoiceNumber: UPDATE next_number
       .mockResolvedValueOnce([{ insertId: 200 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
+    mockConnection.query.mockResolvedValueOnce([[{ id: 1 }]]);  // nextInvoiceNumber: SELECT LAST_INSERT_ID()
 
     db.query.mockResolvedValueOnce([[{ id: 200, invoice_number: 'INV-000001', total: '580.00', status: 'issued' }]]);
 
@@ -177,7 +184,7 @@ describe('E2E Workflow: Billing → Invoice → Payment', () => {
     expect(invoice.id).toBe(200);
 
     // 500 subtotal @ 16% -> 80.00 tax, 580.00 total.
-    const invoiceInsert = mockConnection.execute.mock.calls[3][1];
+    const invoiceInsert = mockConnection.execute.mock.calls[4][1];
     expect(invoiceInsert[4]).toBe(500);   // subtotal
     expect(invoiceInsert[5]).toBe(80);    // tax_amount
     expect(invoiceInsert[6]).toBe(580);   // total
