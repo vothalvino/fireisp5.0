@@ -8,6 +8,7 @@
 // =============================================================================
 
 const db = require('../config/database');
+const provisioningService = require('../services/subscriberProvisioningService');
 
 /**
  * Parse CSV string into rows of objects.
@@ -155,10 +156,90 @@ async function importDevices(req, res, next) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Contract import helpers
+// ---------------------------------------------------------------------------
+
+const CONNECTION_TYPES = new Set(['pppoe', 'pppoe_dual', 'static', 'dual']);
+
+/**
+ * Insert one contract row from a parsed row object.
+ *
+ * Mirrors lifecycleService.startOrder's new-contract path: the contract is
+ * created `pending`, network resources are provisioned on the SAME
+ * transaction (which creates a RADIUS account for pppoe/pppoe_dual rows so
+ * the subscriber can actually authenticate), and only then is the contract
+ * flipped to `active`. This keeps every imported row consistent with the
+ * trg_contracts_radius_consistency_bu trigger (migration 128), which only
+ * fires on UPDATE — a single-statement INSERT with status='active' bypasses
+ * it entirely and can leave a PPPoE contract that can never authenticate.
+ * static/dual rows have no RADIUS account (provisionNewContract only tracks
+ * their `ip_address` for duplicates, and this CSV import has no ip_address
+ * column yet), so they go through the same pending → active flow as a no-op
+ * provisioning step.
+ *
+ * Returns `{ error }` on failure (validation or DB, already rolled back), or
+ * `{ contractId, pppoeUsername }` on success — `pppoeUsername` is only set
+ * for pppoe/pppoe_dual rows so the operator can export the generated
+ * credentials.
+ */
+async function insertContractRow(row, orgId) {
+  if (!row.client_id || !row.plan_id) return { error: 'client_id and plan_id are required' };
+
+  const connectionType = row.connection_type || 'pppoe';
+  if (!CONNECTION_TYPES.has(connectionType)) {
+    return { error: `connection_type must be one of: ${[...CONNECTION_TYPES].join(', ')}` };
+  }
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const contractData = {
+      organization_id: orgId,
+      client_id: row.client_id,
+      plan_id: row.plan_id,
+      start_date: row.start_date || new Date().toISOString().slice(0, 10),
+      connection_type: connectionType,
+      status: 'pending',
+    };
+    const cols = Object.keys(contractData);
+    const [ins] = await conn.query(
+      `INSERT INTO contracts (${cols.map(c => `\`${c}\``).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+      Object.values(contractData),
+    );
+    const contractId = ins.insertId;
+
+    const [clientRows] = await conn.query('SELECT name FROM clients WHERE id = ? LIMIT 1', [row.client_id]);
+    const seed = clientRows[0] && clientRows[0].name;
+
+    const provisioning = await provisioningService.provisionNewContract(
+      conn,
+      { id: contractId, ...contractData },
+      { seed },
+    );
+
+    await conn.query("UPDATE contracts SET status = 'active' WHERE id = ?", [contractId]);
+
+    await conn.commit();
+    return { contractId, pppoeUsername: provisioning.pppoe ? provisioning.pppoe.username : undefined };
+  } catch (err) {
+    await conn.rollback();
+    return { error: err.message };
+  } finally {
+    conn.release();
+  }
+}
+
 /**
  * POST /api/import/contracts
  * Import contracts from CSV.
  * Expected columns: client_id, plan_id, start_date, connection_type
+ * connection_type must be one of pppoe, pppoe_dual, static, dual (defaults
+ * to pppoe when omitted); pppoe/pppoe_dual rows get a RADIUS account
+ * provisioned automatically — see the `credentials` array in the response.
+ * Credential import (pre-existing username/password) is not supported by
+ * this CSV shape; a future enhancement could add optional columns for it.
  */
 async function importContracts(req, res, next) {
   try {
@@ -169,28 +250,26 @@ async function importContracts(req, res, next) {
     const rows = parseCsv(req.body.csv);
     let imported = 0;
     const errors = [];
+    const credentials = [];
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       try {
-        if (!row.client_id || !row.plan_id) {
-          errors.push({ row: i + 2, error: 'client_id and plan_id are required' });
-          continue;
+        const result = await insertContractRow(row, req.orgId);
+        if (result.error) {
+          errors.push({ row: i + 2, error: result.error });
+        } else {
+          imported++;
+          if (result.pppoeUsername) {
+            credentials.push({ row: i + 2, contract_id: result.contractId, username: result.pppoeUsername });
+          }
         }
-        await db.query(
-          `INSERT INTO contracts (organization_id, client_id, plan_id, start_date, connection_type, status)
-           VALUES (?, ?, ?, ?, ?, 'active')`,
-          [req.orgId, row.client_id, row.plan_id,
-            row.start_date || new Date().toISOString().slice(0, 10),
-            row.connection_type || 'fiber'],
-        );
-        imported++;
       } catch (err) {
         errors.push({ row: i + 2, error: err.message });
       }
     }
 
-    res.json({ data: { imported, total: rows.length, errors } });
+    res.json({ data: { imported, total: rows.length, errors, credentials } });
   } catch (err) {
     next(err);
   }
@@ -289,6 +368,8 @@ async function importDevicesFile(req, res, next) {
 /**
  * POST /api/import/contracts/upload
  * Import contracts from an uploaded CSV file.
+ * Same column contract and RADIUS-provisioning behavior as importContracts
+ * — see insertContractRow.
  */
 async function importContractsFile(req, res, next) {
   try {
@@ -299,28 +380,26 @@ async function importContractsFile(req, res, next) {
     const rows = parseUploadedFile(req.file.buffer);
     let imported = 0;
     const errors = [];
+    const credentials = [];
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       try {
-        if (!row.client_id || !row.plan_id) {
-          errors.push({ row: i + 2, error: 'client_id and plan_id are required' });
-          continue;
+        const result = await insertContractRow(row, req.orgId);
+        if (result.error) {
+          errors.push({ row: i + 2, error: result.error });
+        } else {
+          imported++;
+          if (result.pppoeUsername) {
+            credentials.push({ row: i + 2, contract_id: result.contractId, username: result.pppoeUsername });
+          }
         }
-        await db.query(
-          `INSERT INTO contracts (organization_id, client_id, plan_id, start_date, connection_type, status)
-           VALUES (?, ?, ?, ?, ?, 'active')`,
-          [req.orgId, row.client_id, row.plan_id,
-            row.start_date || new Date().toISOString().slice(0, 10),
-            row.connection_type || 'fiber'],
-        );
-        imported++;
       } catch (err) {
         errors.push({ row: i + 2, error: err.message });
       }
     }
 
-    res.json({ data: { imported, total: rows.length, errors } });
+    res.json({ data: { imported, total: rows.length, errors, credentials } });
   } catch (err) {
     next(err);
   }

@@ -2,7 +2,7 @@
 // FireISP 5.0 — Import Controller Tests
 // =============================================================================
 
-jest.mock('../src/config/database', () => ({ query: jest.fn() }));
+jest.mock('../src/config/database', () => ({ query: jest.fn(), getConnection: jest.fn() }));
 
 const db = require('../src/config/database');
 const {
@@ -31,6 +31,34 @@ function mockReqRes(overrides = {}) {
   };
   const next = jest.fn();
   return { req, res, next };
+}
+
+/**
+ * Fresh mock transaction connection for importContracts/importContractsFile,
+ * matching the shape db.getConnection() resolves to. `query` is SQL-pattern
+ * matched (rather than a positional mockResolvedValueOnce chain) because
+ * insertContractRow issues a different number of queries depending on
+ * connection_type (pppoe/pppoe_dual provision a RADIUS account; static/dual
+ * do not).
+ */
+function makeContractConn({ insertId = 10, radiusUsernameTaken = false, ipPoolId = null } = {}) {
+  return {
+    beginTransaction: jest.fn().mockResolvedValue(undefined),
+    query: jest.fn().mockImplementation((sql) => {
+      if (/^INSERT INTO contracts/.test(sql)) return Promise.resolve([{ insertId }]);
+      if (/^SELECT name FROM clients/.test(sql)) return Promise.resolve([[{ name: 'Alice' }]]);
+      if (/^SELECT id FROM radius WHERE username/.test(sql)) {
+        return Promise.resolve([radiusUsernameTaken ? [{ id: 1 }] : []]);
+      }
+      if (/^SELECT id FROM ip_pools/.test(sql)) return Promise.resolve([ipPoolId ? [{ id: ipPoolId }] : []]);
+      if (/^INSERT INTO radius/.test(sql)) return Promise.resolve([{ insertId: 55 }]);
+      if (/^UPDATE contracts SET status/.test(sql)) return Promise.resolve([{ affectedRows: 1 }]);
+      return Promise.resolve([[]]);
+    }),
+    commit: jest.fn().mockResolvedValue(undefined),
+    rollback: jest.fn().mockResolvedValue(undefined),
+    release: jest.fn(),
+  };
 }
 
 describe('importController', () => {
@@ -187,24 +215,83 @@ describe('importController', () => {
       expect(res.status).toHaveBeenCalledWith(422);
     });
 
-    test('imports valid rows', async () => {
-      db.query.mockResolvedValue([{ insertId: 1 }]);
+    test('imports a pppoe row, defaults connection_type, provisions RADIUS, and activates the contract', async () => {
+      const conn = makeContractConn({ insertId: 7 });
+      db.getConnection.mockResolvedValue(conn);
       const csv = 'client_id,plan_id,start_date\n1,2,2024-01-01';
       const { req, res, next } = mockReqRes({ body: { csv } });
       await importContracts(req, res, next);
-      expect(res.json).toHaveBeenCalledWith({
-        data: { imported: 1, total: 1, errors: [] },
+
+      const result = res.json.mock.calls[0][0].data;
+      expect(result).toEqual({
+        imported: 1,
+        total: 1,
+        errors: [],
+        credentials: [{ row: 2, contract_id: 7, username: expect.any(String) }],
       });
+      // Insert as 'pending', provision RADIUS, then flip to 'active' — never
+      // a single-statement INSERT with status='active' (see migration 128:
+      // trg_contracts_radius_consistency_bu only fires on UPDATE).
+      expect(conn.query).toHaveBeenCalledWith(expect.stringMatching(/^INSERT INTO contracts/), expect.arrayContaining(['pending']));
+      expect(conn.query).toHaveBeenCalledWith(expect.stringMatching(/^INSERT INTO radius/), expect.any(Array));
+      expect(conn.query).toHaveBeenCalledWith(expect.stringMatching(/^UPDATE contracts SET status = 'active'/), [7]);
+      expect(conn.commit).toHaveBeenCalledTimes(1);
+      expect(conn.rollback).not.toHaveBeenCalled();
+      expect(conn.release).toHaveBeenCalledTimes(1);
+    });
+
+    test('imports a static row without provisioning a RADIUS account', async () => {
+      const conn = makeContractConn({ insertId: 8 });
+      db.getConnection.mockResolvedValue(conn);
+      const csv = 'client_id,plan_id,connection_type\n1,2,static';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importContracts(req, res, next);
+
+      const result = res.json.mock.calls[0][0].data;
+      expect(result).toEqual({ imported: 1, total: 1, errors: [], credentials: [] });
+      expect(conn.query).not.toHaveBeenCalledWith(expect.stringMatching(/^INSERT INTO radius/), expect.anything());
+      expect(conn.commit).toHaveBeenCalledTimes(1);
+    });
+
+    test('rejects an invalid connection_type as a per-row error, without touching the DB', async () => {
+      const { req, res, next } = mockReqRes({ body: { csv: 'client_id,plan_id,connection_type\n1,2,fiber' } });
+      await importContracts(req, res, next);
+      const result = res.json.mock.calls[0][0].data;
+      expect(result.imported).toBe(0);
+      expect(result.errors[0]).toEqual(
+        expect.objectContaining({ row: 2, error: expect.stringMatching(/connection_type must be one of/) }),
+      );
+      expect(db.getConnection).not.toHaveBeenCalled();
     });
 
     test('validates required fields client_id and plan_id', async () => {
-      db.query.mockResolvedValue([{ insertId: 1 }]);
       const csv = 'client_id,plan_id\n,2\n1,';
       const { req, res, next } = mockReqRes({ body: { csv } });
       await importContracts(req, res, next);
       const result = res.json.mock.calls[0][0].data;
       expect(result.imported).toBe(0);
       expect(result.errors.length).toBe(2);
+      expect(db.getConnection).not.toHaveBeenCalled();
+    });
+
+    test('rolls back the transaction and reports the error when provisioning fails', async () => {
+      const conn = makeContractConn({ insertId: 9 });
+      conn.query.mockImplementation((sql) => {
+        if (/^INSERT INTO contracts/.test(sql)) return Promise.resolve([{ insertId: 9 }]);
+        if (/^SELECT name FROM clients/.test(sql)) return Promise.reject(new Error('connection lost'));
+        return Promise.resolve([[]]);
+      });
+      db.getConnection.mockResolvedValue(conn);
+      const csv = 'client_id,plan_id\n1,2';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importContracts(req, res, next);
+
+      const result = res.json.mock.calls[0][0].data;
+      expect(result.imported).toBe(0);
+      expect(result.errors[0]).toEqual(expect.objectContaining({ row: 2, error: 'connection lost' }));
+      expect(conn.rollback).toHaveBeenCalledTimes(1);
+      expect(conn.commit).not.toHaveBeenCalled();
+      expect(conn.release).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -306,18 +393,25 @@ describe('importController', () => {
       expect(res.status).toHaveBeenCalledWith(422);
     });
 
-    test('imports contracts from a CSV file buffer', async () => {
-      db.query.mockResolvedValue([{ insertId: 1 }]);
-      const csv = 'client_id,plan_id,start_date\n1,2,2024-01-01';
+    test('imports a pppoe_dual contract from a CSV file buffer, provisioning RADIUS', async () => {
+      const conn = makeContractConn({ insertId: 3 });
+      db.getConnection.mockResolvedValue(conn);
+      const csv = 'client_id,plan_id,start_date,connection_type\n1,2,2024-01-01,pppoe_dual';
       const { req, res, next } = mockReqRes({
         file: { buffer: Buffer.from(csv), originalname: 'contracts.csv' },
       });
       await importContractsFile(req, res, next);
-      expect(res.json).toHaveBeenCalledWith({ data: { imported: 1, total: 1, errors: [] } });
+      const result = res.json.mock.calls[0][0].data;
+      expect(result).toEqual({
+        imported: 1,
+        total: 1,
+        errors: [],
+        credentials: [{ row: 2, contract_id: 3, username: expect.any(String) }],
+      });
+      expect(conn.commit).toHaveBeenCalledTimes(1);
     });
 
     test('validates required fields client_id and plan_id', async () => {
-      db.query.mockResolvedValue([{ insertId: 1 }]);
       const csv = 'client_id,plan_id\n,2\n1,';
       const { req, res, next } = mockReqRes({
         file: { buffer: Buffer.from(csv), originalname: 'contracts.csv' },
@@ -326,6 +420,18 @@ describe('importController', () => {
       const result = res.json.mock.calls[0][0].data;
       expect(result.imported).toBe(0);
       expect(result.errors.length).toBe(2);
+      expect(db.getConnection).not.toHaveBeenCalled();
+    });
+
+    test('rejects an invalid connection_type as a per-row error', async () => {
+      const csv = 'client_id,plan_id,connection_type\n1,2,cable';
+      const { req, res, next } = mockReqRes({
+        file: { buffer: Buffer.from(csv), originalname: 'contracts.csv' },
+      });
+      await importContractsFile(req, res, next);
+      const result = res.json.mock.calls[0][0].data;
+      expect(result.imported).toBe(0);
+      expect(result.errors[0].error).toMatch(/connection_type must be one of/);
     });
   });
 

@@ -34,6 +34,22 @@ export interface ClientFormBody {
   risk_rating?: string;
 }
 
+// The network payload allows `null` for the nullable optional string fields
+// (an explicit clear on edit — see handleSubmit) even though the controlled
+// <input>'s `value` prop (bound to ClientFormBody, always a plain string in
+// local form state) cannot.
+type ClientSubmitBody = Omit<ClientFormBody, 'email' | 'phone' | 'tax_id' | 'curp' | 'address' | 'city' | 'state' | 'zip_code' | 'country'> & {
+  email?: string | null;
+  phone?: string | null;
+  tax_id?: string | null;
+  curp?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip_code?: string | null;
+  country?: string | null;
+};
+
 /** Minimal shape needed to pre-fill the edit form (nullable to match API rows). */
 export interface ClientFormInitial {
   id: number;
@@ -65,12 +81,12 @@ export function extractApiError(err: unknown, fallback: string): string {
   return e?.error?.message || e?.message || fallback;
 }
 
-async function createClient(body: ClientFormBody): Promise<void> {
+async function createClient(body: ClientSubmitBody): Promise<void> {
   const { error } = await api.POST('/clients', { body: body as never });
   if (error) throw new Error(extractApiError(error, 'Failed to create client'));
 }
 
-async function updateClient(id: number, body: ClientFormBody): Promise<void> {
+async function updateClient(id: number, body: ClientSubmitBody): Promise<void> {
   const { error } = await api.PUT('/clients/{id}', {
     params: { path: { id } },
     body: body as never,
@@ -120,7 +136,7 @@ export function ClientFormModal({ mode, initial, onClose, onSaved }: ClientFormM
   const [error, setError] = useState('');
 
   const mutation = useMutation({
-    mutationFn: (body: ClientFormBody) =>
+    mutationFn: (body: ClientSubmitBody) =>
       mode === 'create' ? createClient(body) : updateClient(initial!.id, body),
     onSuccess: () => {
       onSaved();
@@ -141,13 +157,26 @@ export function ClientFormModal({ mode, initial, onClose, onSaved }: ClientFormM
       return;
     }
     // Drop empty optional strings so they are not sent as "" (which can fail
-    // email/enum validation). Always send name and the select values.
-    const body: ClientFormBody = { name: form.name.trim() };
+    // email/enum validation) on create — there's nothing to clear yet. On
+    // edit, a field the user just BLANKED (previously non-empty on `initial`,
+    // now empty) must be sent as an explicit `null` — validate() and
+    // BaseModel.update both treat an omitted key as "not part of this
+    // PUT" (old value survives), while `null` is validation-safe for these
+    // optional/nullable columns and actually clears them (see
+    // frontend/.claude/agent-memory/fullstack-autonomous-engineer/
+    // patch-diff-explicit-clear-vs-omit.md). Always send name and the select
+    // values.
+    const body: ClientSubmitBody = { name: form.name.trim() };
     (
       ['email', 'phone', 'tax_id', 'curp', 'address', 'city', 'state', 'zip_code', 'country'] as const
     ).forEach(k => {
       const v = (form[k] ?? '').trim();
-      if (v) body[k] = v;
+      const original = (initial?.[k] ?? '').toString().trim();
+      if (v) {
+        body[k] = v;
+      } else if (mode === 'edit' && original) {
+        body[k] = null;
+      }
     });
     body.client_type = form.client_type;
     body.status = form.status;

@@ -186,13 +186,20 @@ Contracts link a client to a service plan. The `client_id` and `plan_id` must al
 
 ```csv
 client_id,plan_id,start_date,connection_type
-101,5,2025-01-01,fiber
-102,3,2025-02-15,cable
-103,5,2025-03-01,wireless
+101,5,2025-01-01,pppoe
+102,3,2025-02-15,static
+103,5,2025-03-01,pppoe_dual
 ```
 
 Required columns: `client_id`, `plan_id`  
-Optional columns: `start_date` (default today), `connection_type` (default `fiber`)
+Optional columns: `start_date` (default today), `connection_type` (default `pppoe`; must be one
+of `pppoe`, `pppoe_dual`, `static`, `dual` — any other value is rejected as a row-level error)
+
+`pppoe`/`pppoe_dual` rows automatically get a RADIUS account provisioned (generated username +
+password) in the same transaction as the contract insert, exactly like creating a contract
+through a service order — the response's `credentials` array lists the generated username per
+row so you can retrieve/distribute it. Importing a pre-existing username/password pair is not
+currently supported by this CSV shape. `static`/`dual` rows need no RADIUS account.
 
 ### Import
 
@@ -409,7 +416,7 @@ SET GLOBAL event_scheduler = ON;
 | `client_id` | ✅ | integer | Must match an existing client |
 | `plan_id` | ✅ | integer | Must match an existing plan |
 | `start_date` | — | date (`YYYY-MM-DD`) | Default: today |
-| `connection_type` | — | string | Default `fiber`. Common values: `fiber`, `cable`, `wireless`, `dsl`, `dedicated` |
+| `connection_type` | — | string | Default `pppoe`. Must be one of `pppoe`, `pppoe_dual`, `static`, `dual` |
 
 ### Invoices
 
@@ -471,6 +478,12 @@ A client with that email already exists. If you are re-running a partial import,
 ### Row-level error: `client_id and plan_id are required` (contracts)
 
 The row is missing a `client_id` or `plan_id`. Ensure clients and plans were imported before contracts.
+
+### Row-level error: `connection_type must be one of: pppoe, pppoe_dual, static, dual` (contracts)
+
+The `connection_type` column contains a value not in the allowed set (e.g. a legacy label like
+`fiber` or `cable`). Map your source system's connection types to one of the four FireISP values
+before importing.
 
 ### Row-level error: `status must be one of: ...`
 
