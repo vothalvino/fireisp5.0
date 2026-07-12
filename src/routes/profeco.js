@@ -21,6 +21,7 @@ const ProfecoComplaint = require('../models/ProfecoComplaint');
 const { crudController } = require('../controllers/crudController');
 const { authenticate }   = require('../middleware/auth');
 const { orgScope }       = require('../middleware/orgScope');
+const { requireMxLocale } = require('../middleware/orgLocale');
 const { requirePermission } = require('../middleware/rbac');
 const { validate }       = require('../middleware/validate');
 const { createProfecoComplaint, updateProfecoComplaint, patchProfecoComplaint } = require('../middleware/schemas/profeco');
@@ -31,6 +32,7 @@ const ctrl   = crudController(ProfecoComplaint);
 
 router.use(authenticate);
 router.use(orgScope);
+router.use(requireMxLocale);
 
 // ---------------------------------------------------------------------------
 // Export endpoint — must be declared before /:id to avoid routing conflicts

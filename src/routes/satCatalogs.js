@@ -5,6 +5,7 @@
 const { Router } = require('express');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
+const { requireMxLocale } = require('../middleware/orgLocale');
 const { requirePermission } = require('../middleware/rbac');
 const db = require('../config/database');
 
@@ -12,6 +13,7 @@ const router = Router();
 
 router.use(authenticate);
 router.use(orgScope);
+router.use(requireMxLocale);
 
 router.get('/regimen-fiscal', requirePermission('cfdi_documents.view'), async (req, res, next) => {
   try {

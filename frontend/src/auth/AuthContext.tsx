@@ -35,6 +35,8 @@ export interface AuthUser {
   /** Currency of the ACTIVE org, resolved server-side (works even for an org the
    *  user is not a member of, e.g. a super-admin switched into another tenant). */
   organization_currency?: string;
+  /** Compliance locale of the ACTIVE org — 'MX' unlocks the SAT/IFT nav modules. */
+  organization_locale?: 'global' | 'MX';
   is_active: boolean;
   email_verified: boolean;
   twofa_enabled: boolean;

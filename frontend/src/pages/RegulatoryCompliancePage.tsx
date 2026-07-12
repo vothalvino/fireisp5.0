@@ -19,6 +19,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { readCsrfCookie } from '@/api/csrf';
+import { useAuth } from '@/auth/AuthContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -119,13 +120,20 @@ const TABS: Tab[] = ['consent', 'dsar', 'identity', 'numbering', 'uso', 'consume
 
 export default function RegulatoryCompliancePage() {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('consent');
+
+  // /consumer-protection/* is MX-locale-gated (404 REGION_DISABLED otherwise) —
+  // hide its tab for global-locale orgs instead of rendering it as forever-empty.
+  const visibleTabs = user?.organization_locale === 'MX'
+    ? TABS
+    : TABS.filter(tab => tab !== 'consumer');
 
   return (
     <div style={{ padding: '20px' }}>
       <h1 style={{ marginBottom: 16 }}>{t('regulatoryCompliance.title')}</h1>
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-        {TABS.map(tab => (
+        {visibleTabs.map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}

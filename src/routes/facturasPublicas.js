@@ -5,6 +5,7 @@
 const { Router } = require('express');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
+const { requireMxLocale } = require('../middleware/orgLocale');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createFacturaPublica, updateFacturaPublica, addFacturaPublicaItem } = require('../middleware/schemas/facturasPublicas');
@@ -23,6 +24,7 @@ const ALLOWED_ITEM_COLUMNS = [
 
 router.use(authenticate);
 router.use(orgScope);
+router.use(requireMxLocale);
 
 // List facturas públicas
 router.get('/', requirePermission('facturas_publicas.view'), async (req, res, next) => {

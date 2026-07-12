@@ -314,9 +314,14 @@ router.delete('/:id/time-logs/:logId', requirePermission('ticket_time_logs.manag
 // ---------------------------------------------------------------------------
 router.get('/:id/ai-triage', requirePermission('tickets.view'), async (req, res, next) => {
   try {
+    // ticket_ai_triage has no organization_id column — scope through the ticket
+    // so one tenant can never read another tenant's triage (suggested_resolution
+    // carries the PII-rehydrated reply text).
     const [[row]] = await db.query(
-      'SELECT * FROM ticket_ai_triage WHERE ticket_id = ?',
-      [req.params.id],
+      `SELECT tat.* FROM ticket_ai_triage tat
+       JOIN tickets t ON t.id = tat.ticket_id
+       WHERE tat.ticket_id = ? AND t.organization_id = ? AND t.deleted_at IS NULL`,
+      [req.params.id, req.orgId],
     );
     if (!row) return res.status(404).json({ error: 'No triage result found for this ticket' });
     res.json({ data: row });
@@ -329,8 +334,8 @@ router.get('/:id/ai-triage', requirePermission('tickets.view'), async (req, res,
 router.post('/:id/ai-summary', requirePermission('tickets.view'), async (req, res, next) => {
   try {
     const [[ticket]] = await db.query(
-      'SELECT id, subject, description, organization_id, contract_id FROM tickets WHERE id = ? AND deleted_at IS NULL',
-      [req.params.id],
+      'SELECT id, subject, description, organization_id, contract_id FROM tickets WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [req.params.id, req.orgId],
     );
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
     const result = await aiReplyService.generate({

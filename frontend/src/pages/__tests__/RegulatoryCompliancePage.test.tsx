@@ -12,6 +12,13 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+// The consumer-protection tab is MX-locale-gated; default the mocked org to MX
+// so the full 8-tab layout renders, and flip per-test for the global case.
+const mockUser = vi.hoisted(() => ({ current: { organization_locale: 'MX' } as { organization_locale?: string } }));
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({ user: mockUser.current }),
+}));
+
 vi.stubGlobal('fetch', vi.fn(() =>
   Promise.resolve({
     ok: true,
@@ -54,5 +61,16 @@ describe('RegulatoryCompliancePage', () => {
     // once in the tab strip and once as the h2)
     const matches = screen.getAllByText('regulatoryCompliance.tabs.consent');
     expect(matches.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('hides the MX-gated consumer-protection tab for global-locale orgs', () => {
+    mockUser.current = { organization_locale: 'global' };
+    try {
+      render(<RegulatoryCompliancePage />);
+      expect(screen.queryByText('regulatoryCompliance.tabs.consumer')).toBeNull();
+      expect(screen.getAllByText('regulatoryCompliance.tabs.dsar').length).toBeGreaterThanOrEqual(1);
+    } finally {
+      mockUser.current = { organization_locale: 'MX' };
+    }
   });
 });

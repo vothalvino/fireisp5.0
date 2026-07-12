@@ -26,6 +26,7 @@ import type { CSSProperties, FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, authedFetch } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1661,11 +1662,15 @@ function WidgetsTab() {
 
 function ReportsTabBar({ tab, onTabChange }: { tab: Tab; onTabChange: (t: Tab) => void }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const TABS: { key: Tab; label: string }[] = [
     { key: 'revenue', label: '💰 Revenue' },
     { key: 'growth', label: '📈 Subscriber Growth' },
     { key: 'aging', label: '⏳ AR Aging' },
-    { key: 'ift', label: '🏛️ IFT Statistical' },
+    // GET /ift-statistical-reports is MX-locale-gated (404 REGION_DISABLED otherwise)
+    ...(user?.organization_locale === 'MX'
+      ? [{ key: 'ift' as Tab, label: '🏛️ IFT Statistical' }]
+      : []),
     { key: 'technicians', label: '🔧 Technicians' },
     { key: 'exports', label: '⬇ Export' },
     { key: 'network', label: t('reports.networkTab') },

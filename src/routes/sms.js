@@ -19,7 +19,7 @@ router.use(authenticate, orgScope);
 // ---------------------------------------------------------------------------
 // GET /sms/logs — paginated SMS delivery log
 // ---------------------------------------------------------------------------
-router.get('/logs', requirePermission('read'), async (req, res) => {
+router.get('/logs', requirePermission('sms.view'), async (req, res) => {
   const {
     page     = 1,
     pageSize = 20,
@@ -72,7 +72,7 @@ const sendSchema = {
   templateId: { type: 'number' },
 };
 
-router.post('/send', requirePermission('write'), validate(sendSchema), async (req, res) => {
+router.post('/send', requirePermission('sms.send'), validate(sendSchema), async (req, res) => {
   const { to, body, channel = 'sms', clientId = null, templateId = null } = req.body;
 
   const result = await smsTransport.sendSms({
@@ -93,7 +93,7 @@ router.post('/send', requirePermission('write'), validate(sendSchema), async (re
 // ---------------------------------------------------------------------------
 // POST /sms/logs/:id/retry — retry a failed SMS
 // ---------------------------------------------------------------------------
-router.post('/logs/:id/retry', requirePermission('write'), async (req, res) => {
+router.post('/logs/:id/retry', requirePermission('sms.send'), async (req, res) => {
   const logId = parseInt(req.params.id, 10);
 
   // Verify the log belongs to this org

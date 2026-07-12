@@ -7,6 +7,7 @@ const PacProvider = require('../models/PacProvider');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
+const { requireMxLocale } = require('../middleware/orgLocale');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createPacProvider, updatePacProvider } = require('../middleware/schemas/pacProviders');
@@ -16,6 +17,7 @@ const ctrl = crudController(PacProvider);
 
 router.use(authenticate);
 router.use(orgScope);
+router.use(requireMxLocale);
 
 router.get('/', requirePermission('pac_providers.view'), ctrl.list);
 router.get('/:id', requirePermission('pac_providers.view'), ctrl.get);

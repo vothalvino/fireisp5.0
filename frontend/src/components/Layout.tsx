@@ -18,6 +18,8 @@ interface NavItem {
   to: string;
   labelKey: string;
   requiredRole?: string;
+  /** Only show when the active org's compliance locale matches (e.g. 'MX' for SAT/IFT modules). */
+  requiredLocale?: 'MX';
 }
 
 interface NavGroup {
@@ -52,7 +54,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/invoices', labelKey: 'nav.invoices' },
       { to: '/payments', labelKey: 'nav.payments' },
-      { to: '/cfdi', labelKey: 'nav.cfdi', requiredRole: 'billing' },
+      { to: '/cfdi', labelKey: 'nav.cfdi', requiredRole: 'billing', requiredLocale: 'MX' },
       { to: '/plans', labelKey: 'nav.plans', requiredRole: 'billing' },
       { to: '/quotes', labelKey: 'nav.quotes', requiredRole: 'billing' },
       { to: '/credit-notes', labelKey: 'nav.creditNotes', requiredRole: 'billing' },
@@ -113,14 +115,14 @@ const NAV_GROUPS: NavGroup[] = [
   {
     titleKey: 'nav.sections.compliance',
     items: [
-      { to: '/csd-certificates', labelKey: 'nav.csdCertificates', requiredRole: 'billing' },
-      { to: '/pac-providers', labelKey: 'nav.pacProviders', requiredRole: 'billing' },
-      { to: '/sat-catalogs', labelKey: 'nav.satCatalogs', requiredRole: 'billing' },
-      { to: '/regulatory-filings', labelKey: 'nav.regulatoryFilings', requiredRole: 'billing' },
-      { to: '/concession-titles', labelKey: 'nav.concessionTitles', requiredRole: 'billing' },
-      { to: '/ift-statistical-reports', labelKey: 'nav.iftStatisticalReports', requiredRole: 'billing' },
-      { to: '/facturas-publicas', labelKey: 'nav.facturasPublicas', requiredRole: 'billing' },
-      { to: '/profeco-complaints', labelKey: 'nav.profecoComplaints', requiredRole: 'billing' },
+      { to: '/csd-certificates', labelKey: 'nav.csdCertificates', requiredRole: 'billing', requiredLocale: 'MX' },
+      { to: '/pac-providers', labelKey: 'nav.pacProviders', requiredRole: 'billing', requiredLocale: 'MX' },
+      { to: '/sat-catalogs', labelKey: 'nav.satCatalogs', requiredRole: 'billing', requiredLocale: 'MX' },
+      { to: '/regulatory-filings', labelKey: 'nav.regulatoryFilings', requiredRole: 'billing', requiredLocale: 'MX' },
+      { to: '/concession-titles', labelKey: 'nav.concessionTitles', requiredRole: 'billing', requiredLocale: 'MX' },
+      { to: '/ift-statistical-reports', labelKey: 'nav.iftStatisticalReports', requiredRole: 'billing', requiredLocale: 'MX' },
+      { to: '/facturas-publicas', labelKey: 'nav.facturasPublicas', requiredRole: 'billing', requiredLocale: 'MX' },
+      { to: '/profeco-complaints', labelKey: 'nav.profecoComplaints', requiredRole: 'billing', requiredLocale: 'MX' },
       { to: '/regulatory-compliance', labelKey: 'nav.regulatoryCompliance', requiredRole: 'billing' },
     ],
   },
@@ -285,7 +287,9 @@ export function Layout() {
         <nav style={styles.nav}>
           {navGroups.map((group, idx) => {
             const visibleItems = group.items.filter(
-              item => !item.requiredRole || (user && hasRole(user.role, item.requiredRole)),
+              item =>
+                (!item.requiredRole || (user && hasRole(user.role, item.requiredRole))) &&
+                (!item.requiredLocale || user?.organization_locale === item.requiredLocale),
             );
             if (visibleItems.length === 0) return null;
             return (

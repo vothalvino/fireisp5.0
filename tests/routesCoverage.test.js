@@ -15,6 +15,9 @@ jest.mock('../src/config/database', () => ({
 }));
 
 jest.mock('../src/models/User');
+jest.mock('../src/middleware/orgLocale', () => ({
+  requireMxLocale: (_req, _res, next) => next(),
+}));
 jest.mock('../src/models/Quote');
 jest.mock('../src/models/Invoice');
 jest.mock('../src/models/Payment');

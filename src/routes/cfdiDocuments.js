@@ -7,6 +7,7 @@ const CfdiDocument = require('../models/CfdiDocument');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
+const { requireMxLocale } = require('../middleware/orgLocale');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createCfdiDocument, updateCfdiDocument, cancelCfdiDocument } = require('../middleware/schemas/cfdiDocuments');
@@ -17,6 +18,7 @@ const ctrl = crudController(CfdiDocument);
 
 router.use(authenticate);
 router.use(orgScope);
+router.use(requireMxLocale);
 
 router.get('/', requirePermission('cfdi_documents.view'), ctrl.list);
 router.get('/:id', requirePermission('cfdi_documents.view'), ctrl.get);

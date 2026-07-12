@@ -22,6 +22,12 @@ jest.mock('../src/utils/logger', () => ({
   child: jest.fn().mockReturnThis(),
 }));
 
+// The MX-locale gate (migration-377 era) is unit-tested in orgLocale.test.js;
+// here we bypass it so gated MX routes stay reachable with the generic db mock.
+jest.mock('../src/middleware/orgLocale', () => ({
+  requireMxLocale: (_req, _res, next) => next(),
+}));
+
 // Raise rate limits well above the test request count so no 429s during testing
 process.env.RATE_LIMIT_API = '9999';
 process.env.RATE_LIMIT_TENANT_API = '9999';
