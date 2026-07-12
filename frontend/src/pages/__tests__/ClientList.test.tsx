@@ -2,7 +2,7 @@
 // FireISP 5.0 — ClientList page tests
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { ClientList } from '../ClientList';
@@ -12,8 +12,12 @@ import { ClientList } from '../ClientList';
 // ---------------------------------------------------------------------------
 
 const mockApiGet = vi.fn();
+const mockApiPut = vi.fn();
 vi.mock('@/api/client', () => ({
-  api: { GET: (...args: unknown[]) => mockApiGet(...args) },
+  api: {
+    GET: (...args: unknown[]) => mockApiGet(...args),
+    PUT: (...args: unknown[]) => mockApiPut(...args),
+  },
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
 }));
 
@@ -23,7 +27,8 @@ vi.mock('@/auth/AuthContext', () => ({
 
 const client1 = {
   id: 1, name: 'Alice Smith', email: 'alice@test.com', phone: null,
-  client_type: 'residential', status: 'active', city: 'CDMX', state: 'CMX', country: 'MX', created_at: '2024-01-01',
+  client_type: 'residential', status: 'active', address: '1 Main St',
+  city: 'CDMX', state: 'CMX', country: 'MX', created_at: '2024-01-01',
 };
 
 function renderClientList() {
@@ -62,6 +67,24 @@ describe('ClientList page', () => {
   it('renders a client row after data loads', async () => {
     renderClientList();
     await waitFor(() => expect(screen.getByText('Alice Smith')).toBeInTheDocument());
+  });
+
+  it('sends address as an explicit null when a previously-set field is cleared on edit', async () => {
+    mockApiPut.mockResolvedValue({ error: undefined });
+    renderClientList();
+    await waitFor(() => expect(screen.getByText('Alice Smith')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText('Edit'));
+    const addressInput = await screen.findByDisplayValue('1 Main St');
+    fireEvent.change(addressInput, { target: { value: '' } });
+    fireEvent.click(screen.getByText('Save'));
+
+    await waitFor(() => expect(mockApiPut).toHaveBeenCalledWith(
+      '/clients/{id}',
+      // The cleared field is nulled; a field that was set and left untouched
+      // (city) still goes through as its real value, not null.
+      expect.objectContaining({ body: expect.objectContaining({ address: null, city: 'CDMX' }) }),
+    ));
   });
 
   it('shows No clients found when list is empty', async () => {

@@ -57,6 +57,7 @@ beforeEach(() => {
   mockConnection = {
     beginTransaction: jest.fn(),
     execute: jest.fn(),
+    query: jest.fn(),
     commit: jest.fn(),
     rollback: jest.fn(),
     release: jest.fn(),
@@ -778,6 +779,23 @@ describe('importController — deep', () => {
   // importContracts
   // -------------------------------------------------------------------------
   describe('importContracts', () => {
+    // insertContractRow runs a per-row transaction on conn (mockConnection),
+    // not the plain pool (db.query) — pattern-match by SQL text since the
+    // number/order of queries differs by connection_type (pppoe/pppoe_dual
+    // provision a RADIUS account via subscriberProvisioningService; static/
+    // dual do not).
+    beforeEach(() => {
+      mockConnection.query = jest.fn().mockImplementation((sql) => {
+        if (/^INSERT INTO contracts/.test(sql)) return Promise.resolve([{ insertId: 1 }]);
+        if (/^SELECT name FROM clients/.test(sql)) return Promise.resolve([[{ name: 'Client' }]]);
+        if (/^SELECT id FROM radius WHERE username/.test(sql)) return Promise.resolve([[]]);
+        if (/^SELECT id FROM ip_pools/.test(sql)) return Promise.resolve([[]]);
+        if (/^INSERT INTO radius/.test(sql)) return Promise.resolve([{ insertId: 2 }]);
+        if (/^UPDATE contracts SET status/.test(sql)) return Promise.resolve([{ affectedRows: 1 }]);
+        return Promise.resolve([[]]);
+      });
+    });
+
     test('returns 422 when csv field is missing', async () => {
       const res = mockRes();
       await importController.importContracts(mockReq({}), res, mockNext);
@@ -790,7 +808,6 @@ describe('importController — deep', () => {
 
     test('reports error for rows missing client_id or plan_id', async () => {
       const csv = 'client_id,plan_id,start_date\n,1,2025-01-01\n2,,2025-01-01\n3,4,2025-02-01';
-      db.query.mockResolvedValue([{ insertId: 1 }]);
       const res = mockRes();
 
       await importController.importContracts(mockReq({ csv }), res, mockNext);
@@ -800,11 +817,34 @@ describe('importController — deep', () => {
       expect(data.errors).toHaveLength(2);
     });
 
-    test('handles DB errors per contract row', async () => {
+    test('rejects an unrecognized connection_type as a per-row error', async () => {
+      const csv = 'client_id,plan_id,connection_type\n1,2,fiber';
+      const res = mockRes();
+
+      await importController.importContracts(mockReq({ csv }), res, mockNext);
+
+      const data = res.json.mock.calls[0][0].data;
+      expect(data.imported).toBe(0);
+      expect(data.errors[0].error).toMatch(/connection_type must be one of/);
+      expect(db.getConnection).not.toHaveBeenCalled();
+    });
+
+    test('handles DB errors per contract row and rolls back that row only', async () => {
       const csv = 'client_id,plan_id\n1,2\n3,4';
-      db.query
-        .mockResolvedValueOnce([{ insertId: 1 }])
-        .mockRejectedValueOnce(new Error('FK constraint'));
+      let insertCount = 0;
+      mockConnection.query = jest.fn().mockImplementation((sql) => {
+        if (/^INSERT INTO contracts/.test(sql)) {
+          insertCount += 1;
+          if (insertCount === 2) return Promise.reject(new Error('FK constraint'));
+          return Promise.resolve([{ insertId: 1 }]);
+        }
+        if (/^SELECT name FROM clients/.test(sql)) return Promise.resolve([[{ name: 'Client' }]]);
+        if (/^SELECT id FROM radius WHERE username/.test(sql)) return Promise.resolve([[]]);
+        if (/^SELECT id FROM ip_pools/.test(sql)) return Promise.resolve([[]]);
+        if (/^INSERT INTO radius/.test(sql)) return Promise.resolve([{ insertId: 2 }]);
+        if (/^UPDATE contracts SET status/.test(sql)) return Promise.resolve([{ affectedRows: 1 }]);
+        return Promise.resolve([[]]);
+      });
       const res = mockRes();
 
       await importController.importContracts(mockReq({ csv }), res, mockNext);
@@ -813,6 +853,8 @@ describe('importController — deep', () => {
       expect(data.imported).toBe(1);
       expect(data.errors).toHaveLength(1);
       expect(data.errors[0].error).toBe('FK constraint');
+      expect(mockConnection.rollback).toHaveBeenCalledTimes(1);
+      expect(mockConnection.commit).toHaveBeenCalledTimes(1);
     });
   });
 });
