@@ -146,3 +146,20 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 ```
 
 **How to apply:** Any frontend test file that renders a component with `MapContainer` from react-leaflet must include both mocks above, or the test will fail with jsdom canvas errors.
+
+## Some test files `jest.mock()` a whole service module — check before assuming "real implementation" test patterns transfer
+
+`tests/routesCoverage.test.js` has `jest.mock('../src/services/billingService')` at the top (Jest auto-mock: every exported function becomes a `jest.fn()` returning `undefined` unless configured). `tests/billingService.test.js`, `tests/e2eBillingWorkflow.test.js`, `tests/e2ePaymentFlow.test.js`, `tests/integrationWorkflow.test.js`, and `tests/routeIntegration.test.js` do NOT mock it — they exercise the real implementation via a mocked `conn`/`db`.
+
+**How to apply:** Before editing `conn.execute`/`conn.query` mock sequences in a route-level test file to account for a change inside a service function, `grep -n "jest.mock.*services/<name>"` that specific test file first. If the service is whole-module-mocked, the route handler's call into it never touches `conn` at all — mock the service function's return value directly (`serviceName.fnName.mockResolvedValue(...)`) instead of trying to replicate its internal DB call sequence. Mixing the two approaches produces a queued-mock off-by-N that manifests as a confusing downstream error (e.g. "X is not iterable") several calls later, not at the call site that's actually wrong. Seen fixing `nextInvoiceNumber()` (PR #389): `routesCoverage.test.js`'s quotes-convert-to-invoice tests needed `billingService.nextInvoiceNumber.mockResolvedValue(...)`, while every other affected test file needed real `conn.execute`/`conn.query` mock entries for the function's actual SQL statements.
+
+## CI's README-sync check has TWO independent assertions — both must be updated
+
+`.github/workflows/ci.yml`'s "Validate README.md is in sync with migrations and schema" step checks (a) the migration range (`grep 'Individual numbered migration files' README.md`, e.g. `001–381`) AND, separately, (b) `grep -oE 'all [0-9]+ tables' README.md` against `grep -c "CREATE TABLE" database/schema.sql`. The second one lives in the repo-tree diagram near the top of README.md (`schema.sql # Combined schema (all N tables + column additions)`), NOT in the numbered "Database Tables" markdown list further down — that list is a curated/incomplete subset and does not need to reach the same number. Adding a new table to `schema.sql` bumps the CREATE TABLE count and requires updating the "all N tables" line specifically, separate from bumping the migration range.
+
+**How to apply:** After any migration that adds a table, run this locally before pushing (matches CI exactly):
+```bash
+grep -c "CREATE TABLE" database/schema.sql
+grep -oE 'all [0-9]+ tables' README.md
+```
+Both numbers must match, and both differ from the "Database Tables" list's last row number.
