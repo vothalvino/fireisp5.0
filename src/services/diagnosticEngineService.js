@@ -931,4 +931,172 @@ async function _storeRun(orgId, clientId, conversationId, accessType, symptom, r
   }
 }
 
-module.exports = { runDiagnostic };
+// ---------------------------------------------------------------------------
+// Customer-facing support reply generation (§21.2 / generateSupportResponse)
+// ---------------------------------------------------------------------------
+// generateSupportResponse() is the bridge between supportConversationService's
+// technical-intent branch and this file's diagnostic handlers. It infers a
+// symptom bucket from the customer's free-text message, runs a fresh
+// diagnostic (never reusing supportContextService's summarized context — see
+// agent-memory design decision D6), and synthesizes an honest, Spanish,
+// customer-facing reply from the structured DiagnosticResult.
+//
+// It deliberately NEVER echoes result.cause / result.recommendation — those
+// are internal/ops English phrasing intended for the ai_diagnostic_runs audit
+// row (see _buildResult / _genericResult above), not the chat transcript.
+
+// Symptom-inference regexes, matched in priority order (most specific/urgent
+// first) against the already-sanitized customer message.
+const _NO_INTERNET_RE = /\b(no (tengo|hay) internet|sin internet|no (conecta|funciona)|sin servicio|no (me )?llega( la)? se[ñn]al|se cay[oó] (el|la) (internet|servicio|conexi[oó]n)|totalmente ca[ií]do|not working|no service|\bdown\b|outage)\b/i;
+const _WIFI_RE = /\b(wi-?fi|router|modem|contrase[ñn]a del? (router|wifi))\b/i;
+const _DISCONNECTS_RE = /\b(se desconecta|se corta|intermitente|va y viene|cada rato|disconnect|se cae (cada|todo el tiempo))\b/i;
+const _NIGHT_RE = /\b(noche|nocturn|at night|por las noches)\b/i;
+const _SLOW_RE = /\b(lent[oa]|lentitud|slow|velocidad|va lento)\b/i;
+
+/**
+ * Infer a diagnostic symptom bucket from the customer's free-text message.
+ * Falls through to 'general' (an honest "couldn't classify" bucket handled
+ * by _genericResult) rather than guessing.
+ *
+ * @param {string} content
+ * @returns {'no_internet'|'wifi'|'disconnects'|'slow_at_night'|'slow'|'general'}
+ */
+function _inferSymptom(content) {
+  const t = content || '';
+  if (_NO_INTERNET_RE.test(t)) return 'no_internet';
+  if (_WIFI_RE.test(t)) return 'wifi';
+  if (_DISCONNECTS_RE.test(t)) return 'disconnects';
+  if (_SLOW_RE.test(t) && _NIGHT_RE.test(t)) return 'slow_at_night';
+  if (_SLOW_RE.test(t)) return 'slow';
+  return 'general'; // unrecognized -> runDiagnostic() falls through to _genericResult; honest, not a guess
+}
+
+// Friendly Spanish labels for every checks[].name value emitted anywhere in
+// this file — used to describe *what* was checked without exposing internal
+// check identifiers to the customer.
+const _CHECK_LABELS = {
+  pppoe_session: 'tu sesión de conexión (PPPoE)',
+  onu_signal: 'la señal óptica de tu equipo ONU',
+  onu_signal_stability: 'la estabilidad de la señal óptica',
+  onu_status: 'el estado de tu equipo ONU',
+  olt_port: 'el puerto del equipo del proveedor (OLT)',
+  olt_hardware: 'el hardware del equipo del proveedor (OLT)',
+  active_alerts: 'alertas activas en tu equipo',
+  account_status: 'el estado de tu contrato',
+  account_suspension: 'el estado de tu cuenta',
+  cpe_signal: 'la señal de tu equipo (router/CPE)',
+  cpe_status: 'el estado de tu equipo (router/CPE)',
+  cpe_model: 'la información de tu equipo',
+  cpe_reachability: 'la comunicación con tu equipo',
+  radius_session: 'tu sesión de conexión',
+  dhcp_session: 'la asignación de tu dirección de red',
+  router_reachability: 'la comunicación con tu router',
+  channel_interference: 'interferencia en el canal inalámbrico',
+  area_outage: 'una posible falla en tu zona',
+  disconnect_frequency: 'la frecuencia de desconexiones',
+  signal_stability: 'la estabilidad de tu señal',
+  pon_utilization: 'la carga del equipo del proveedor',
+  recurring_wifi_issue: 'reportes previos relacionados con tu wifi',
+  fiber_splice: 'una posible falla física en la fibra',
+  power_alerts: 'una posible falla de energía en el equipo',
+  ap_density: 'la densidad de antenas en tu zona',
+  ap_load: 'la carga de la antena que te da servicio',
+  ap_status: 'el estado de la antena que te da servicio',
+  data_throttle: 'límites de datos en tu plan',
+  qos_policy: 'la prioridad de tráfico configurada',
+  quota_status: 'tu consumo de datos',
+  generic_check: 'tu reporte',
+};
+
+function _labelChecks(checks) {
+  const uniq = [...new Set(checks.map(c => _CHECK_LABELS[c.name] || c.name))];
+  if (uniq.length === 0) return 'tu conexión';
+  if (uniq.length === 1) return uniq[0];
+  return `${uniq.slice(0, -1).join(', ')} y ${uniq[uniq.length - 1]}`;
+}
+
+// Self-serve tip per symptom bucket — offered alongside every non-blind reply.
+const _SELF_SERVE_TIPS = {
+  slow: 'Te recomendamos reiniciar tu router/ONT (desconéctalo 30 segundos y vuelve a conectarlo) y, si es posible, probar por cable para confirmar si la velocidad mejora.',
+  no_internet: 'Verifica que los cables de tu router/ONT estén bien conectados y que las luces indicadoras estén encendidas; si no es así, reinicia el equipo desconectándolo 30 segundos.',
+  wifi: 'Prueba reiniciar tu router y acercarte al equipo para confirmar si la señal wifi mejora; si el problema es solo en un área de tu casa, puede tratarse de la distancia al router.',
+  disconnects: 'Revisa que el cable de tu router/ONT no esté flojo y evita usar extensiones o conectores adicionales en la línea.',
+  slow_at_night: 'La lentitud en horas de mayor demanda (noche) puede deberse a la congestión de la red; de cualquier forma te recomendamos reiniciar tu router para descartar una causa local.',
+  general: 'Te recomendamos reiniciar tu router/ONT y contarnos si el problema continúa.',
+};
+
+function _selfServeTip(symptom) { return _SELF_SERVE_TIPS[symptom] || _SELF_SERVE_TIPS.general; }
+
+/**
+ * Build the Spanish customer-facing reply from a DiagnosticResult. Never
+ * reads result.cause / result.recommendation (see file-header note above) —
+ * those remain internal/ops fields, persisted as-is to ai_diagnostic_runs by
+ * _storeRun.
+ *
+ * @param {string} symptom
+ * @param {import('./diagnosticEngineService').DiagnosticResult} result
+ * @returns {string}
+ */
+function _buildCustomerReply(symptom, result) {
+  const checks = Array.isArray(result.checks) ? result.checks : [];
+  const errorChecks = checks.filter(c => c.status === 'error');
+  const warningChecks = checks.filter(c => c.status === 'warning');
+  const knownChecks = checks.filter(c => c.status !== 'unknown');
+  const blind = checks.length > 0 && knownChecks.length === 0;
+
+  if (blind) {
+    const tip = _selfServeTip(symptom);
+    return 'No pudimos verificar automáticamente el estado de tu conexión en este momento (nuestros sistemas de monitoreo no respondieron). Registramos tu reporte para que un técnico lo revise manualmente. Mientras tanto, ' + tip.charAt(0).toLowerCase() + tip.slice(1);
+  }
+
+  if (result.escalate) {
+    return `Detectamos una posible falla física relacionada con ${_labelChecks(errorChecks.length ? errorChecks : checks)} que puede requerir la visita de un técnico. Te estamos conectando con nuestro equipo para coordinar la revisión.`;
+  }
+
+  if (errorChecks.length > 0) {
+    return `Revisamos tu conexión y encontramos un problema con ${_labelChecks(errorChecks)}. ${_selfServeTip(symptom)} Si el problema continúa después de intentarlo, respóndenos y programamos una revisión técnica.`;
+  }
+
+  if (warningChecks.length > 0) {
+    return `Revisamos tu conexión: no encontramos una falla crítica, pero notamos algo relacionado con ${_labelChecks(warningChecks)} que vale la pena atender. ${_selfServeTip(symptom)}`;
+  }
+
+  return `Revisamos tu conexión y no encontramos problemas activos en este momento. ${_selfServeTip(symptom)} Si el problema persiste, respóndenos y con gusto programamos una revisión más a fondo.`;
+}
+
+/**
+ * Generate a customer-facing AI support reply for a technical-intent chat
+ * message, running a fresh diagnostic (never the summarized
+ * supportContextService context — see agent-memory D6) and synthesizing
+ * honest Spanish copy from the structured result.
+ *
+ * @param {object} params
+ * @param {number|string} params.orgId
+ * @param {number|string} params.clientId
+ * @param {number|string|null} [params.conversationId]
+ * @param {string} params.content — sanitized customer message
+ * @returns {Promise<{ reply: string, escalate: boolean, escalationReason: string|null, diagnosticResult: object|null }>}
+ */
+async function generateSupportResponse({ orgId, clientId, conversationId, content }) {
+  const symptom = _inferSymptom(content);
+  let result;
+  try {
+    result = await runDiagnostic({ orgId, clientId, conversationId: conversationId || null, symptom, accessType: null });
+  } catch (err) {
+    logger.warn({ err: err.message, orgId, clientId, conversationId }, 'diagnosticEngineService.generateSupportResponse: runDiagnostic failed');
+    return {
+      reply: 'No pudimos ejecutar un diagnóstico automático en este momento. Registramos tu reporte y un técnico lo revisará. ¿Puedes confirmar si el problema comenzó de repente o gradualmente?',
+      escalate: false,
+      escalationReason: null,
+      diagnosticResult: null,
+    };
+  }
+  return {
+    reply: _buildCustomerReply(symptom, result),
+    escalate: Boolean(result.escalate),
+    escalationReason: result.escalationReason || null,
+    diagnosticResult: result,
+  };
+}
+
+module.exports = { runDiagnostic, generateSupportResponse };

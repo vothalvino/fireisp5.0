@@ -86,13 +86,14 @@ async function getOrgProviderId(orgId) {
  * @param {string} opts.content
  * @param {string|null} [opts.intent]
  * @param {number|null} [opts.confidence]
+ * @param {string|null} [opts.dataSources] — JSON string of diagnostic checks/symptom/confidence (technical-intent replies only)
  * @returns {Promise<number>} — inserted row id
  */
-async function _insertMessage({ conversationId, role, content, intent = null, confidence = null }) {
+async function _insertMessage({ conversationId, role, content, intent = null, confidence = null, dataSources = null }) {
   const [result] = await db.query(
-    `INSERT INTO support_messages (conversation_id, role, content, intent, confidence)
-     VALUES (?, ?, ?, ?, ?)`,
-    [conversationId, role, content, intent, confidence],
+    `INSERT INTO support_messages (conversation_id, role, content, intent, confidence, data_sources)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [conversationId, role, content, intent, confidence, dataSources],
   );
   return result.insertId;
 }
@@ -107,44 +108,82 @@ async function _insertMessage({ conversationId, role, content, intent = null, co
  * Routes to specialist modules when available; falls back to safe generic
  * responses on any error.  Always prefixes with "Soy tu asistente virtual. ".
  *
+ * Return contract (uniform across every branch): `{ text, escalate,
+ * escalationReason, dataSources, requiresConfirmation, actionType,
+ * actionData }`. `escalate`/`escalationReason` let the caller actually invoke
+ * `escalate()` when the diagnostic engine determines a technician is needed —
+ * the reply text must never promise an escalation this function doesn't also
+ * signal. `requiresConfirmation`/`actionType`/`actionData` are threaded
+ * through from supportBillingModule/supportGeneralModule's return shape
+ * (`{response, requiresConfirmation, actionType, actionData}`) so a future
+ * confirmation-flow consumer isn't starved of them; nothing reads them today.
+ *
  * @param {object} opts
  * @param {string} opts.intent            — classified intent
  * @param {object} opts.context           — enriched context from supportContextService
  * @param {string} opts.content           — sanitized customer message
  * @param {Array}  [opts.conversationHistory] — prior messages [{role,content}] (reserved for future LLM multi-turn use)
  * @param {number|null} [opts.orgId]
- * @returns {Promise<string>}
+ * @param {number|null} [opts.clientId]
+ * @param {number|null} [opts.conversationId]
+ * @returns {Promise<{text: string, escalate: boolean, escalationReason: string|null, dataSources: string|null, requiresConfirmation: boolean, actionType: string|null, actionData: object|null}>}
  */
-async function _generateResponse({ intent, context, content, conversationHistory: _conversationHistory = [], orgId = null }) {
+async function _generateResponse({ intent, context, content, conversationHistory: _conversationHistory = [], orgId = null, clientId = null, conversationId = null }) {
   const PREFIX = 'Soy tu asistente virtual. ';
+  const wrap = (text, extra = {}) => ({
+    text: PREFIX + text,
+    escalate: false,
+    escalationReason: null,
+    dataSources: null,
+    requiresConfirmation: false,
+    actionType: null,
+    actionData: null,
+    ...extra,
+  });
 
   try {
     if (intent === 'billing') {
       const billingModule = getSupportBillingModule();
       if (typeof billingModule.handle === 'function') {
         const reply = await billingModule.handle(intent, context, content);
-        return PREFIX + reply;
+        // reply is { response, requiresConfirmation, actionType, actionData }
+        // — NOT a string. String-concatenating it (`PREFIX + reply`) is what
+        // produced the live "[object Object]" bug; use reply.response.
+        return wrap(reply.response, {
+          requiresConfirmation: Boolean(reply.requiresConfirmation),
+          actionType: reply.actionType || null,
+          actionData: reply.actionData || null,
+        });
       }
     }
 
     if (intent === 'technical') {
       const diagnosticEngine = getDiagnosticEngineService();
       if (typeof diagnosticEngine.generateSupportResponse === 'function') {
-        const reply = await diagnosticEngine.generateSupportResponse(intent, context, content);
-        return PREFIX + reply;
+        const outcome = await diagnosticEngine.generateSupportResponse({ orgId, clientId, conversationId, content });
+        return wrap(outcome.reply, {
+          escalate: outcome.escalate,
+          escalationReason: outcome.escalationReason,
+          dataSources: outcome.diagnosticResult ? JSON.stringify(outcome.diagnosticResult) : null,
+        });
       }
       // Generic technical fallback
-      return PREFIX + 'Hemos registrado tu problema de conexión. Nuestro equipo técnico revisará tu servicio a la brevedad. ¿Puedes confirmar si el problema comenzó de repente o gradualmente?';
+      return wrap('Hemos registrado tu problema de conexión. Nuestro equipo técnico revisará tu servicio a la brevedad. ¿Puedes confirmar si el problema comenzó de repente o gradualmente?');
     }
 
     if (intent === 'general') {
       const generalModule = getSupportGeneralModule();
       if (typeof generalModule.handle === 'function') {
         const reply = await generalModule.handle(intent, context, content);
-        return PREFIX + reply;
+        // Same object shape (and same historical bug) as the billing branch above.
+        return wrap(reply.response, {
+          requiresConfirmation: Boolean(reply.requiresConfirmation),
+          actionType: reply.actionType || null,
+          actionData: reply.actionData || null,
+        });
       }
       // Generic general fallback
-      return PREFIX + '¿En qué más puedo ayudarte? Si necesitas información sobre horarios, direcciones o contactos, estoy aquí para asistirte.';
+      return wrap('¿En qué más puedo ayudarte? Si necesitas información sobre horarios, direcciones o contactos, estoy aquí para asistirte.');
     }
 
   } catch (err) {
@@ -152,7 +191,7 @@ async function _generateResponse({ intent, context, content, conversationHistory
   }
 
   // Default / 'other' intent
-  return PREFIX + 'Permíteme conectarte con el área correcta. Un momento, por favor.';
+  return wrap('Permíteme conectarte con el área correcta. Un momento, por favor.');
 }
 
 // ---------------------------------------------------------------------------
@@ -249,16 +288,27 @@ async function startConversation({ orgId, clientId, channel = 'web', message }) 
     context,
     content: intentClassifierService.sanitize(message),
     orgId,
+    clientId,
+    conversationId,
   });
 
   // Insert assistant message
   await _insertMessage({
     conversationId,
-    role:    'assistant',
-    content: aiResponse,
+    role:        'assistant',
+    content:     aiResponse.text,
     intent,
     confidence,
+    dataSources: aiResponse.dataSources,
   });
+
+  // Actually escalate when the diagnostic engine says a technician is
+  // required — a reply that talks about connecting the customer to a
+  // technician must not be a no-op (see PR F brief: no fake "technician
+  // scheduled").
+  if (aiResponse.escalate) {
+    await escalate({ conversationId, reason: aiResponse.escalationReason || 'diagnostic_escalation', orgId });
+  }
 
   return _loadConversation(conversationId, orgId);
 }
@@ -377,15 +427,24 @@ async function sendMessage({ conversationId, orgId, content, clientId }) {
     content: sanitized,
     conversationHistory: historyRows,
     orgId,
+    clientId,
+    conversationId,
   });
 
   await _insertMessage({
     conversationId,
-    role:       'assistant',
-    content:    aiResponse,
+    role:        'assistant',
+    content:     aiResponse.text,
     intent,
     confidence,
+    dataSources: aiResponse.dataSources,
   });
+
+  // See startConversation's identical comment: escalate:true must actually
+  // create the escalation, not just be worded as if it will.
+  if (aiResponse.escalate) {
+    await escalate({ conversationId, reason: aiResponse.escalationReason || 'diagnostic_escalation', orgId });
+  }
 
   return _loadConversation(conversationId, orgId);
 }

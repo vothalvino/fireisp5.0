@@ -526,12 +526,18 @@ describe('supportConversationService', () => {
 
   test('_generateResponse returns prefix + fallback for other intent', async () => {
     const resp = await service._generateResponse({ intent: 'other', context: null, content: 'xyz', orgId: 1 });
-    expect(resp).toContain('Soy tu asistente virtual');
+    expect(resp.text).toContain('Soy tu asistente virtual');
+    expect(resp.escalate).toBe(false);
   });
 
-  test('_generateResponse returns technical fallback when no generateSupportResponse', async () => {
-    const resp = await service._generateResponse({ intent: 'technical', context: null, content: 'no internet', orgId: 1 });
-    expect(resp).toContain('Soy tu asistente virtual');
+  test('_generateResponse returns technical fallback shape (generateSupportResponse always exists now)', async () => {
+    // diagnosticEngineService.generateSupportResponse now exists (this PR).
+    // runDiagnostic is invoked internally; with the default db.query mock
+    // ([[], {}]) every check falls to 'unknown' — asserts the blind, honest
+    // reply shape rather than the old dead "always falls through" branch.
+    const resp = await service._generateResponse({ intent: 'technical', context: null, content: 'no internet', orgId: 1, clientId: 10, conversationId: 1 });
+    expect(resp.text).toContain('Soy tu asistente virtual');
+    expect(typeof resp.escalate).toBe('boolean');
   });
 });
 
