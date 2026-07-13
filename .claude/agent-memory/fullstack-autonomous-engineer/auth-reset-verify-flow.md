@@ -1,6 +1,6 @@
 ---
 name: auth-reset-verify-flow
-description: Migration 382 added the users columns password-reset/email-verify needed; email sending, resend endpoint, and 3 frontend pages wired up in the same PR; next migration is 383
+description: Migration 382 added the users columns password-reset/email-verify needed; email sending, resend endpoint, and 3 frontend pages wired up in the same PR; emailTemplates.js escaping moved to src/utils/htmlEscape.js (own module, not middleware/sanitize.js) and extended to all 8 templates; next migration is 383
 metadata:
   type: project
 ---
@@ -37,15 +37,19 @@ owns "does the token exist."
 
 ## HTML-escaping in email templates
 
-`src/views/emailTemplates.js` now escapes `userName` in `passwordResetEmail`/
-`emailVerificationEmail` via `middleware/sanitize.js`'s existing `escapeHtml` (reused, not
-reinvented). This was flagged as load-bearing because a parallel PR removes the global
-`sanitize` req.body middleware — after that lands, `userName` (sourced from `first_name`/
-`last_name` at signup) arrives unescaped and this is the only remaining defense. The other
-six templates in that file (`welcomeEmail`, `invoiceEmail`, `paymentReceiptEmail`,
-`suspensionWarningEmail`, `serviceSuspendedEmail`, `outageNotificationEmail`) interpolate
-`clientName`/`orgName` **unescaped** and were explicitly out of scope — same latent XSS risk
-once the global middleware is gone, flagged but not fixed here.
+`src/views/emailTemplates.js` escapes every DB-free-text value it interpolates
+(`userName` in `passwordResetEmail`/`emailVerificationEmail`; `clientName`/`orgName` in all
+six other templates; plus per-template free text — invoice line-item `description`,
+`paymentReceiptEmail`'s `reference`, `outageNotificationEmail`'s `outageTitle`/`affectedArea`)
+via `src/utils/htmlEscape.js` — **not** `middleware/sanitize.js`. That middleware is deleted by
+a sibling PR (input-escaping → output-encoding-at-sinks migration); the original version of
+this work imported `escapeHtml` from it, which would have crashed the server at require time
+once both PRs merged. `htmlEscape.js` is a small standalone module (same 5-entity encoding),
+styled like `userSanitize.js`. **Nothing on this branch imports from `middleware/sanitize.js`.**
+Left deliberately un-escaped: amounts/dates/currency codes/numeric IDs/URLs (server-formatted
+or config-built, not free text) and `severity`/`paymentMethod` (DB ENUM columns — closed
+vocabulary, not free text). Subject lines are never escaped anywhere — they're plain text
+headers, not HTML, so escaping would show literal `&amp;` etc. to the recipient.
 
 ## Rate limiting
 
