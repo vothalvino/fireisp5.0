@@ -150,6 +150,56 @@ describe('RADIUS credentials scoping', () => {
     });
   });
 
+  // Represents support/super_admin/noc_operator: migration 383 grants them
+  // radius.credentials.view but NEVER devices.view (confirmed by grepping
+  // every migration for a 'devices.view' grant — only technician, readonly
+  // (wildcard), and org-membership admin (migration 119's blanket grant)
+  // hold it). The base routes must still be reachable with ONLY
+  // radius.credentials.view — requirePermission('devices.view',
+  // 'radius.credentials.view') ORs the two slugs — otherwise the frontend's
+  // split-fetch flow (base fetch must succeed before the credentials fetch
+  // is even attempted) would never let these roles see a password in the UI
+  // despite holding the permission that's supposed to grant it.
+  describe('base endpoints — ONLY radius.credentials.view (no devices.view — support/super_admin/noc_operator)', () => {
+    beforeEach(() => mockPermissions(['radius.credentials.view']));
+
+    test('GET /api/v1/radius/contract/:contractId succeeds password-free', async () => {
+      db.query.mockResolvedValueOnce([[{ id: 42, contract_id: 7, username: 'sub12345', status: 'active' }]]);
+
+      const res = await request(app)
+        .get('/api/v1/radius/contract/7')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data[0]).not.toHaveProperty('password');
+      expect(res.body.data[0].username).toBe('sub12345');
+    });
+
+    test('GET /api/v1/radius (list) succeeds password-free', async () => {
+      db.query
+        .mockResolvedValueOnce([[RADIUS_ROW_FULL]])
+        .mockResolvedValueOnce([[{ total: 1 }]]);
+
+      const res = await request(app)
+        .get('/api/v1/radius')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data[0]).not.toHaveProperty('password');
+    });
+
+    test('GET /api/v1/radius/:id succeeds password-free', async () => {
+      db.query.mockResolvedValueOnce([[RADIUS_ROW_FULL]]);
+
+      const res = await request(app)
+        .get('/api/v1/radius/42')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).not.toHaveProperty('password');
+    });
+  });
+
   describe('credentials endpoints — radius.credentials.view granted', () => {
     beforeEach(() => mockPermissions(['radius.credentials.view']));
 

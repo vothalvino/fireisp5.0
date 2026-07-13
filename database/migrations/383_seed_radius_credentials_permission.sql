@@ -8,14 +8,28 @@
 -- view-only/auditor persona was getting cleartext subscriber passwords for
 -- every account in the org.
 --
--- This migration does NOT touch `devices.view` grants (those already control
--- the base, password-stripped RADIUS account views for everyone who has them
--- today). It seeds a new, finer-grained slug that gates ONLY the new
--- credentials-bearing endpoints (GET /radius/contract/:contractId/credentials
--- and GET /radius/:id/credentials — see src/routes/radius.js), which return
--- the full row including `password`. This lets a role that lacks
--- `devices.view` entirely (e.g. `support`) be granted cleartext-credential
--- access without also broadening its device-management surface.
+-- This migration does NOT touch `devices.view` grants — no role's
+-- role_permissions rows for `devices.view` change. It seeds a new,
+-- finer-grained slug that gates the new credentials-bearing endpoints
+-- (GET /radius/contract/:contractId/credentials and GET /radius/:id/credentials
+-- — see src/routes/radius.js), which return the full row including
+-- `password`. This lets a role that lacks `devices.view` entirely (e.g.
+-- `support`) be granted cleartext-credential access without also broadening
+-- its device-management surface.
+--
+-- Route-level follow-up (src/routes/radius.js, no grant/migration change):
+-- the three BASE (password-free) routes — GET /radius, GET /radius/:id, and
+-- GET /radius/contract/:contractId — accept EITHER `devices.view` OR
+-- `radius.credentials.view` (requirePermission ORs multiple slugs). This is
+-- required for the product UI's split-fetch flow: the frontend fetches the
+-- base account view first and only attempts the credentials fetch once that
+-- succeeds, so a role holding radius.credentials.view but not devices.view
+-- (support, and by the same reasoning super_admin/noc_operator) would
+-- otherwise never reach the credentials fetch at all — the base call would
+-- 403 and the whole PPPoE UI would die before it got a chance to show the
+-- password. No role_permissions rows change for this — it only widens which
+-- permission the route guard accepts; the base routes remain password-free
+-- for every caller regardless of which of the two permissions unlocked them.
 --
 -- Grant matrix — who provisions routers/modems and legitimately needs the
 -- cleartext PPPoE username+password:
@@ -35,9 +49,12 @@
 --   support       — per the user's hard requirement (support programs
 --                   routers/modems too). NOTE: `support` still has no
 --                   `devices.view` grant (migration 119) and this migration
---                   intentionally does not add one — the credentials routes
---                   are gated ONLY by `radius.credentials.view`, so support
---                   reaches them without gaining broader device access.
+--                   intentionally does not add one — this slug alone is
+--                   enough to reach both the base and credentials RADIUS
+--                   routes (see the route-level OR note above), without
+--                   granting support any of `devices.view`'s other routes
+--                   (device CRUD, server-status, etc. all still require
+--                   `devices.view` specifically, unchanged).
 --   noc_operator  — network monitoring, device management, and incident
 --                   response (migration 335) plausibly needs credentials to
 --                   resolve PPPoE auth incidents.
