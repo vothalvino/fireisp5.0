@@ -216,6 +216,10 @@ describe('importController', () => {
     });
 
     test('imports a pppoe row, defaults connection_type, provisions RADIUS, and activates the contract', async () => {
+      // Client.findById + assertPlanSelectable pre-checks (org-verify
+      // hardening) both go through the pooled db.query, not conn.query —
+      // a truthy row satisfies both (client found / plan found).
+      db.query.mockResolvedValue([[{ id: 1 }]]);
       const conn = makeContractConn({ insertId: 7 });
       db.getConnection.mockResolvedValue(conn);
       const csv = 'client_id,plan_id,start_date\n1,2,2024-01-01';
@@ -241,6 +245,7 @@ describe('importController', () => {
     });
 
     test('imports a static row without provisioning a RADIUS account', async () => {
+      db.query.mockResolvedValue([[{ id: 1 }]]);
       const conn = makeContractConn({ insertId: 8 });
       db.getConnection.mockResolvedValue(conn);
       const csv = 'client_id,plan_id,connection_type\n1,2,static';
@@ -275,6 +280,7 @@ describe('importController', () => {
     });
 
     test('rolls back the transaction and reports the error when provisioning fails', async () => {
+      db.query.mockResolvedValue([[{ id: 1 }]]);
       const conn = makeContractConn({ insertId: 9 });
       conn.query.mockImplementation((sql) => {
         if (/^INSERT INTO contracts/.test(sql)) return Promise.resolve([{ insertId: 9 }]);
@@ -292,6 +298,59 @@ describe('importController', () => {
       expect(conn.rollback).toHaveBeenCalledTimes(1);
       expect(conn.commit).not.toHaveBeenCalled();
       expect(conn.release).toHaveBeenCalledTimes(1);
+    });
+
+    // Security hardening: the CSV importer previously accepted client_id and
+    // plan_id with ZERO org-verification (worse than the JSON POST /contracts
+    // route, which at least org-verified plan_id). A cross-org FK must now
+    // error THAT row without aborting the rest of the CSV loop.
+    describe('org-verify hardening (client_id/plan_id)', () => {
+      test('a cross-org client_id errors the row without touching the transactional DB', async () => {
+        db.query.mockResolvedValueOnce([[]]); // Client.findById — not found in this org
+        const csv = 'client_id,plan_id\n1,2';
+        const { req, res, next } = mockReqRes({ body: { csv } });
+        await importContracts(req, res, next);
+
+        const result = res.json.mock.calls[0][0].data;
+        expect(result.imported).toBe(0);
+        expect(result.errors[0]).toEqual(
+          expect.objectContaining({ row: 2, error: expect.stringContaining('does not belong to this organization') }),
+        );
+        expect(db.getConnection).not.toHaveBeenCalled();
+      });
+
+      test('a cross-org plan_id errors the row without touching the transactional DB', async () => {
+        db.query
+          .mockResolvedValueOnce([[{ id: 1 }]])  // Client.findById — found
+          .mockResolvedValueOnce([[]]);           // assertPlanSelectable — plan not in this org
+        const csv = 'client_id,plan_id\n1,2';
+        const { req, res, next } = mockReqRes({ body: { csv } });
+        await importContracts(req, res, next);
+
+        const result = res.json.mock.calls[0][0].data;
+        expect(result.imported).toBe(0);
+        expect(result.errors[0].row).toBe(2);
+        expect(result.errors[0].error).toMatch(/archived|unavailable|different organization/);
+        expect(db.getConnection).not.toHaveBeenCalled();
+      });
+
+      test('a cross-org client_id on one row does not abort a later valid row in the same CSV', async () => {
+        db.query
+          .mockResolvedValueOnce([[]])            // row 1: Client.findById — not found (cross-org)
+          .mockResolvedValueOnce([[{ id: 2 }]])   // row 2: Client.findById — found
+          .mockResolvedValueOnce([[{ id: 5 }]]);  // row 2: assertPlanSelectable — found
+        const conn = makeContractConn({ insertId: 20 });
+        db.getConnection.mockResolvedValue(conn);
+        const csv = 'client_id,plan_id,connection_type\n999,5,static\n2,5,static';
+        const { req, res, next } = mockReqRes({ body: { csv } });
+        await importContracts(req, res, next);
+
+        const result = res.json.mock.calls[0][0].data;
+        expect(result.imported).toBe(1);
+        expect(result.errors).toEqual([
+          expect.objectContaining({ row: 2, error: expect.stringContaining('does not belong to this organization') }),
+        ]);
+      });
     });
   });
 
@@ -394,6 +453,7 @@ describe('importController', () => {
     });
 
     test('imports a pppoe_dual contract from a CSV file buffer, provisioning RADIUS', async () => {
+      db.query.mockResolvedValue([[{ id: 1 }]]);
       const conn = makeContractConn({ insertId: 3 });
       db.getConnection.mockResolvedValue(conn);
       const csv = 'client_id,plan_id,start_date,connection_type\n1,2,2024-01-01,pppoe_dual';

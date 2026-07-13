@@ -9,6 +9,8 @@
 
 const db = require('../config/database');
 const provisioningService = require('../services/subscriberProvisioningService');
+const Client = require('../models/Client');
+const { assertPlanSelectable } = require('../services/planAvailability');
 
 /**
  * Parse CSV string into rows of objects.
@@ -191,6 +193,24 @@ async function insertContractRow(row, orgId) {
   const connectionType = row.connection_type || 'pppoe';
   if (!CONNECTION_TYPES.has(connectionType)) {
     return { error: `connection_type must be one of: ${[...CONNECTION_TYPES].join(', ')}` };
+  }
+
+  // Org-verify BOTH FKs before opening a transaction — read-only lookups, no
+  // need to hold them inside the transactional connection. Mirrors
+  // routes/contracts.js's client_id/plan_id guards (security hardening) so a
+  // CSV row can never attach a contract to another organization's client, or
+  // provision it against another organization's plan — the JSON POST route
+  // already org-verifies plan_id via assertPlanSelectable, but this importer
+  // previously skipped that check entirely. Caught here (rather than left to
+  // throw) so a single bad row reports a per-row `{ error }` and the loop in
+  // importContracts/importContractsFile continues to the next row instead of
+  // an unexpected exception changing shape mid-loop.
+  try {
+    const client = await Client.findById(row.client_id, orgId);
+    if (!client) return { error: 'client_id does not belong to this organization' };
+    await assertPlanSelectable(db, row.plan_id, orgId);
+  } catch (err) {
+    return { error: err.message };
   }
 
   const conn = await db.getConnection();

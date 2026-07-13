@@ -65,6 +65,123 @@ async function evaluateRules(organizationId) {
 }
 
 /**
+ * Write a `suspension_logs` row. Shared by suspendContract, reconnectContract,
+ * softSuspendContract, AND the generic contract PUT/PATCH status-transition
+ * handler (routes/contracts.js#updateContractHandler, migration-384-era
+ * hardening) — the single place that knows this table's column list, instead
+ * of it being copy-pasted at every call site.
+ *
+ * `exec` is a bound query FUNCTION — e.g. `conn.execute.bind(conn)` inside a
+ * transaction, or `db.query.bind(db)` for a standalone pooled call — NOT a
+ * db/conn OBJECT. This is deliberate: suspendContract/reconnectContract's
+ * existing tests assert on `conn.execute` call counts/positions, while
+ * softSuspendContract's tests assert on `db.query` call counts/positions —
+ * the two mocked test doubles are NOT interchangeable even though the real
+ * mysql2 pool/connection exposes both `.query()` and `.execute()` on both
+ * objects. Passing a bound function keeps each call site issuing the exact
+ * SQL method it always has.
+ *
+ * `action` is written as a SQL literal PER BRANCH (never interpolated from a
+ * variable) so `pnpm run sql:check`'s static ENUM-value check can see it —
+ * see the module header note above.
+ *
+ * @param {Function} exec - bound query function: `(sql, params) => Promise`
+ * @param {object} opts
+ * @param {number} opts.contractId
+ * @param {number|null} [opts.ruleId] - only meaningful for action='suspended'
+ * @param {'suspended'|'unsuspended'} opts.action
+ * @param {string} opts.reason
+ * @param {'system'|'manual'} opts.triggeredByValue
+ * @param {number|null} [opts.userId]
+ * @param {boolean} opts.coaSent
+ * @param {string|null} opts.coaResponse
+ * @param {number|null} [opts.invoiceId]
+ * @param {Date|string|null} [opts.suspendedAt] - action='unsuspended' only;
+ *   NULL falls back to NOW() (a fresh suspension with no prior open row).
+ * @param {Date|string|null} [opts.restoredAt] - action='unsuspended' only;
+ *   NULL falls back to NOW().
+ */
+async function logSuspensionEvent(exec, {
+  contractId,
+  ruleId = null,
+  action,
+  reason,
+  triggeredByValue,
+  userId = null,
+  coaSent,
+  coaResponse,
+  invoiceId = null,
+  suspendedAt = null,
+  restoredAt = null,
+} = {}) {
+  if (action === 'suspended') {
+    // suspension_logs.client_id is NOT NULL, so the row is built with an
+    // INSERT ... SELECT off `contracts`: one round trip, and client_id can
+    // never disagree with the contract.
+    return exec(
+      `INSERT INTO suspension_logs
+         (contract_id, client_id, suspension_rule_id, action, reason, triggered_by,
+          performed_by_user_id, radius_coa_sent, radius_coa_response, related_invoice_id, suspended_at)
+       SELECT c.id, c.client_id, ?, 'suspended', ?, ?, ?, ?, ?, ?, NOW()
+       FROM contracts c
+       WHERE c.id = ?`,
+      [ruleId, reason, triggeredByValue, userId, coaSent, coaResponse, invoiceId, contractId],
+    );
+  }
+  if (action === 'unsuspended') {
+    return exec(
+      `INSERT INTO suspension_logs
+         (contract_id, client_id, action, reason, triggered_by,
+          performed_by_user_id, radius_coa_sent, radius_coa_response, related_invoice_id,
+          suspended_at, restored_at)
+       SELECT c.id, c.client_id, 'unsuspended', ?, ?, ?, ?, ?, ?, COALESCE(?, NOW()), COALESCE(?, NOW())
+       FROM contracts c
+       WHERE c.id = ?`,
+      [reason, triggeredByValue, userId, coaSent, coaResponse, invoiceId, suspendedAt, restoredAt, contractId],
+    );
+  }
+  throw new Error(`logSuspensionEvent: unsupported action '${action}'`);
+}
+
+/**
+ * Recover the moment the current open suspension started (the most recent
+ * still-open 'suspended' row's `suspended_at`), then close every open
+ * 'suspended' row for the contract (`restored_at = NOW()`) — EXCEPT open
+ * walled-garden rows, which walledGardenReconnect (radiusService) closes
+ * separately once the CoA and FreeRADIUS re-sync that actually lift the
+ * restriction have run.
+ *
+ * Shared by reconnectContract and the generic contract PUT/PATCH
+ * '-> active' transition (routes/contracts.js) so `restored_at IS NULL`
+ * reliably means "still suspended" no matter which endpoint reactivated the
+ * contract — before this, a contract suspended via /suspend and reactivated
+ * via the Edit modal (PUT) left its suspension_logs row open forever.
+ *
+ * @param {Function} exec - bound query function, see logSuspensionEvent
+ * @param {number} contractId
+ * @returns {Promise<Date|string|null>} the recovered suspended_at, or null
+ *   when there was no open suspension row to recover from.
+ */
+async function closeOpenSuspensionAndGetStart(exec, contractId) {
+  const [priorRows] = await exec(
+    `SELECT suspended_at FROM suspension_logs
+     WHERE contract_id = ? AND action = 'suspended' AND restored_at IS NULL
+     ORDER BY suspended_at DESC, id DESC LIMIT 1`,
+    [contractId],
+  );
+  const suspendedAt = (Array.isArray(priorRows) && priorRows[0]) ? priorRows[0].suspended_at : null;
+
+  await exec(
+    `UPDATE suspension_logs SET restored_at = NOW()
+     WHERE contract_id = ? AND action = 'suspended' AND restored_at IS NULL
+       AND (reason IS NULL OR reason NOT LIKE 'walled\\_garden:%')`,
+    [contractId],
+  );
+
+  return suspendedAt;
+}
+
+/**
  * Suspend a contract. Changes status, logs the event, and sends RADIUS Disconnect-Request.
  */
 async function suspendContract(contractId, ruleId, userId, invoiceId) {
@@ -107,27 +224,17 @@ async function suspendContract(contractId, ruleId, userId, invoiceId) {
       coaResponse = 'CoA send failed';
     }
 
-    // suspension_logs.client_id is NOT NULL, so the row is built with an
-    // INSERT ... SELECT off `contracts` on the same connection/transaction:
-    // one round trip, and client_id can never disagree with the contract.
-    await conn.execute(
-      `INSERT INTO suspension_logs
-         (contract_id, client_id, suspension_rule_id, action, reason, triggered_by,
-          performed_by_user_id, radius_coa_sent, radius_coa_response, related_invoice_id, suspended_at)
-       SELECT c.id, c.client_id, ?, 'suspended', ?, ?, ?, ?, ?, ?, NOW()
-       FROM contracts c
-       WHERE c.id = ?`,
-      [
-        ruleId,
-        describeTrigger('suspension', ruleId, userId, invoiceId),
-        triggeredBy(userId),
-        userId,
-        coaSent,
-        coaResponse,
-        invoiceId,
-        contractId,
-      ],
-    );
+    await logSuspensionEvent(conn.execute.bind(conn), {
+      contractId,
+      ruleId,
+      action: 'suspended',
+      reason: describeTrigger('suspension', ruleId, userId, invoiceId),
+      triggeredByValue: triggeredBy(userId),
+      userId,
+      coaSent,
+      coaResponse,
+      invoiceId,
+    });
 
     await conn.commit();
   } catch (err) {
@@ -179,49 +286,25 @@ async function reconnectContract(contractId, userId, invoiceId) {
 
     // suspended_at is NOT NULL on EVERY row, including this 'unsuspended' one.
     // Recover the moment the outage actually started from the most recent
-    // 'suspended' row for the contract so the reconnect row carries the real
-    // downtime window (suspended_at → restored_at) instead of a meaningless
-    // "suspended and restored at the same instant". Falls back to NOW() when
-    // there is no prior suspension row (e.g. a contract suspended by hand in
-    // the DB, or logs pruned) — COALESCE(?, NOW()) keeps that in one statement.
-    const [priorRows] = await conn.execute(
-      `SELECT suspended_at FROM suspension_logs
-       WHERE contract_id = ? AND action = 'suspended' AND restored_at IS NULL
-       ORDER BY suspended_at DESC, id DESC LIMIT 1`,
-      [contractId],
-    );
-    const suspendedAt = (Array.isArray(priorRows) && priorRows[0]) ? priorRows[0].suspended_at : null;
+    // open 'suspended' row AND close it in the same call, so the reconnect
+    // row carries the real downtime window (suspended_at → restored_at)
+    // instead of a meaningless "suspended and restored at the same instant".
+    // Falls back to NOW() when there is no prior suspension row (e.g. a
+    // contract suspended by hand in the DB, or logs pruned).
+    const suspendedAt = await closeOpenSuspensionAndGetStart(conn.execute.bind(conn), contractId);
 
-    await conn.execute(
-      `INSERT INTO suspension_logs
-         (contract_id, client_id, action, reason, triggered_by,
-          performed_by_user_id, radius_coa_sent, radius_coa_response, related_invoice_id,
-          suspended_at, restored_at)
-       SELECT c.id, c.client_id, 'unsuspended', ?, ?, ?, ?, ?, ?, COALESCE(?, NOW()), NOW()
-       FROM contracts c
-       WHERE c.id = ?`,
-      [
-        describeTrigger('reconnect', null, userId, invoiceId),
-        triggeredBy(userId),
-        userId,
-        coaSent,
-        coaResponse,
-        invoiceId,
-        suspendedAt,
-        contractId,
-      ],
-    );
-
-    // Close the open suspension rows for this contract so `restored_at IS NULL`
-    // keeps meaning "still suspended". Walled-garden rows are deliberately left
-    // open here — walledGardenReconnect (below) closes those once the CoA and
-    // the FreeRADIUS re-sync that actually lift the restriction have run.
-    await conn.execute(
-      `UPDATE suspension_logs SET restored_at = NOW()
-       WHERE contract_id = ? AND action = 'suspended' AND restored_at IS NULL
-         AND (reason IS NULL OR reason NOT LIKE 'walled\\_garden:%')`,
-      [contractId],
-    );
+    await logSuspensionEvent(conn.execute.bind(conn), {
+      contractId,
+      action: 'unsuspended',
+      reason: describeTrigger('reconnect', null, userId, invoiceId),
+      triggeredByValue: triggeredBy(userId),
+      userId,
+      coaSent,
+      coaResponse,
+      invoiceId,
+      suspendedAt,
+      restoredAt: new Date(),
+    });
 
     await conn.commit();
   } catch (err) {
@@ -286,25 +369,18 @@ async function softSuspendContract(contractId, ruleId, userId, invoiceId, downlo
   // online at a degraded rate. 'disconnected' would misreport an outage that
   // did not happen. The ENUM has no dedicated soft-suspend value and we do not
   // extend it; the flavour lives in `reason` (see suspensionLogConstants).
-  await db.query(
-    `INSERT INTO suspension_logs
-       (contract_id, client_id, suspension_rule_id, action, reason, triggered_by,
-        performed_by_user_id, radius_coa_sent, radius_coa_response, related_invoice_id, suspended_at)
-     SELECT c.id, c.client_id, ?, 'suspended', ?, ?, ?, ?, ?, ?, NOW()
-     FROM contracts c
-     WHERE c.id = ?`,
-    [
-      ruleId,
-      `${SOFT_SUSPEND_REASON_PREFIX} ${describeTrigger('soft suspension', ruleId, userId, invoiceId)}`
+  await logSuspensionEvent(db.query.bind(db), {
+    contractId,
+    ruleId,
+    action: 'suspended',
+    reason: `${SOFT_SUSPEND_REASON_PREFIX} ${describeTrigger('soft suspension', ruleId, userId, invoiceId)}`
       + ` (throttled to ${downloadKbps || '?'}/${uploadKbps || '?'} kbps)`,
-      triggeredBy(userId),
-      userId,
-      coaSent,
-      coaResponse,
-      invoiceId,
-      contractId,
-    ],
-  );
+    triggeredByValue: triggeredBy(userId),
+    userId,
+    coaSent,
+    coaResponse,
+    invoiceId,
+  });
 }
 
 /**
@@ -498,4 +574,15 @@ async function sendWithFailover(nas, code, username, extraAttributes = []) {
   return result;
 }
 
-module.exports = { evaluateRules, suspendContract, softSuspendContract, reconnectContract, isClientSuspensionExempt, sendRadiusDisconnect, sendRadiusCoA, sendRadiusPacket };
+module.exports = {
+  evaluateRules,
+  logSuspensionEvent,
+  closeOpenSuspensionAndGetStart,
+  suspendContract,
+  softSuspendContract,
+  reconnectContract,
+  isClientSuspensionExempt,
+  sendRadiusDisconnect,
+  sendRadiusCoA,
+  sendRadiusPacket,
+};

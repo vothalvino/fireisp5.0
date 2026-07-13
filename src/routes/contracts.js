@@ -4,6 +4,7 @@
 
 const { Router } = require('express');
 const Contract = require('../models/Contract');
+const Client = require('../models/Client');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
@@ -18,6 +19,7 @@ const routerProvisioningService = require('../services/routerProvisioningService
 const { assertPlanSelectable } = require('../services/planAvailability');
 const Nas = require('../models/Nas');
 const auditLog = require('../services/auditLog');
+const { ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ service: 'routes/contracts' });
 
 const router = Router();
@@ -51,6 +53,17 @@ async function updateContractHandler(req, res, next) {
       await assertPlanSelectable(db, req.body.plan_id, req.orgId);
     }
 
+    // Block MOVING a contract onto another organization's client (security
+    // hardening — mirrors serviceOrders.js#assertServiceOrderFks, PR #388).
+    // Keeping its current client_id is always fine, even if that client were
+    // somehow already wrong. Without this, PUT/PATCH {client_id: <foreign>}
+    // silently reassigned the contract cross-tenant, exposing that client's
+    // PII on the response.
+    if (req.body.client_id !== undefined && Number(req.body.client_id) !== Number(old.client_id)) {
+      const client = await Client.findById(req.body.client_id, req.orgId);
+      if (!client) throw new ValidationError('client_id does not belong to this organization');
+    }
+
     const record = await Contract.update(req.params.id, req.body, req.orgId);
 
     // A direct PATCH/PUT status change bypasses the dedicated /suspend,
@@ -75,6 +88,26 @@ async function updateContractHandler(req, res, next) {
     //                                       silently offline (same failure mode /renew
     //                                       fixes for its own endpoint).
     //   -> terminated/cancelled/expired  : radius -> inactive (+ CoA disconnect)
+    //
+    // The suspended branch, and the active branch WHEN old.status was
+    // actually 'suspended', ALSO write a suspension_logs row (awaiting the
+    // CoA outcome first so it can be logged) — before this, an
+    // active<->suspended toggle driven through this generic handler left a
+    // hole in the audit trail that the dedicated /suspend and /unsuspend
+    // routes (via suspensionService.suspendContract/reconnectContract) always
+    // filled. A failed suspension_logs write must never fail the request
+    // (the contract/radius state is already committed by that point) but
+    // MUST be logged loudly — a silently-failing audit write is exactly the
+    // bug class being fixed here. The terminated/cancelled/expired branch
+    // stays log-free, matching the deliberate decision already made for
+    // POST /:id/terminate below (no 'terminated' value exists in the
+    // suspension_logs.action ENUM). The active branch's audit write is
+    // gated on old.status === 'suspended' specifically — pending->active
+    // (a brand-new contract's ordinary first activation) and
+    // terminated/cancelled/expired->active are real ->active transitions
+    // that sync radius exactly like a genuine reconnect, but they were
+    // never suspended, so logging an 'unsuspended' row for them would be a
+    // phantom zero-duration suspension polluting the audit table.
     if (req.body.status !== undefined && req.body.status !== old.status) {
       const newStatus = req.body.status;
       if (newStatus === 'suspended') {
@@ -82,13 +115,78 @@ async function updateContractHandler(req, res, next) {
           "UPDATE radius SET status = 'suspended' WHERE contract_id = ? AND deleted_at IS NULL AND status = 'active'",
           [record.id],
         );
-        suspensionService.sendRadiusDisconnect(record.id).catch(() => {});
+        let coaSent = false;
+        let coaResponse = null;
+        try {
+          const r = await suspensionService.sendRadiusDisconnect(record.id);
+          coaSent = r.sent;
+          coaResponse = r.response;
+        } catch (_e) {
+          coaResponse = 'CoA send failed';
+        }
+        try {
+          await suspensionService.logSuspensionEvent(db.query.bind(db), {
+            contractId: record.id,
+            action: 'suspended',
+            reason: `manual status change to 'suspended' via contract update (user #${req.user.id})`,
+            triggeredByValue: 'manual',
+            userId: req.user.id,
+            coaSent,
+            coaResponse,
+          });
+        } catch (logErr) {
+          logger.error({ err: logErr.message, contractId: record.id }, 'Failed to write suspension_logs row for contract-update suspend');
+        }
       } else if (newStatus === 'active') {
         await db.query(
           "UPDATE radius SET status = 'active' WHERE contract_id = ? AND deleted_at IS NULL AND status IN ('suspended', 'inactive')",
           [record.id],
         );
-        suspensionService.sendRadiusCoA(record.id, 'reconnect').catch(() => {});
+        let coaSent = false;
+        let coaResponse = null;
+        try {
+          const r = await suspensionService.sendRadiusCoA(record.id, 'reconnect');
+          coaSent = r.sent;
+          coaResponse = r.response;
+        } catch (_e) {
+          coaResponse = 'CoA send failed';
+        }
+        // Only write (and look for) a suspension_logs audit row when the
+        // contract was ACTUALLY suspended — old.status === 'suspended'. The
+        // FSM also allows pending->active (a brand-new contract's normal
+        // first activation via the Edit modal — the single most common path
+        // through this branch) and terminated/cancelled/expired->active.
+        // Neither of those is a real reconnect: without this guard,
+        // closeOpenSuspensionAndGetStart finds no open row (returns null)
+        // and logSuspensionEvent still fabricates an 'unsuspended' row with
+        // suspended_at=NOW()/restored_at=NOW() — a phantom zero-duration
+        // suspension for a contract that was never suspended, polluting the
+        // suspension_logs audit/compliance table on every ordinary
+        // activation. The radius sync + CoA above are unconditional and
+        // unchanged — they predate this suspension-logging addition and
+        // correctly cover every ->active source (suspended AND inactive).
+        if (old.status === 'suspended') {
+          try {
+            // Closes any suspension_logs row left open by a prior /suspend
+            // (or a prior suspended->active toggle through this same
+            // handler) so restored_at IS NULL keeps meaning "still
+            // suspended" no matter which endpoint reactivated the contract.
+            const suspendedAt = await suspensionService.closeOpenSuspensionAndGetStart(db.query.bind(db), record.id);
+            await suspensionService.logSuspensionEvent(db.query.bind(db), {
+              contractId: record.id,
+              action: 'unsuspended',
+              reason: `manual status change to 'active' via contract update (user #${req.user.id})`,
+              triggeredByValue: 'manual',
+              userId: req.user.id,
+              coaSent,
+              coaResponse,
+              suspendedAt,
+              restoredAt: new Date(),
+            });
+          } catch (logErr) {
+            logger.error({ err: logErr.message, contractId: record.id }, 'Failed to write suspension_logs row for contract-update reactivate');
+          }
+        }
       } else if (['terminated', 'cancelled', 'expired'].includes(newStatus)) {
         await db.query(
           "UPDATE radius SET status = 'inactive' WHERE contract_id = ? AND deleted_at IS NULL",
@@ -147,6 +245,17 @@ router.post('/', requirePermission('contracts.create'), validate(createContract)
     // A new contract may only run on a live (non-archived) plan that belongs
     // to this organization, or a global plan (organization_id IS NULL).
     await assertPlanSelectable(conn, filtered.plan_id, req.orgId);
+
+    // Reject a client_id that does not belong to this organization (security
+    // hardening — mirrors serviceOrders.js#assertServiceOrderFks, PR #388).
+    // Without this, a contract could be created against another
+    // organization's client, exposing that client's PII on the response and
+    // — for pppoe contracts — provisioning a live RADIUS account bound to a
+    // foreign client.
+    if (filtered.client_id !== undefined) {
+      const client = await Client.findById(filtered.client_id, req.orgId);
+      if (!client) throw new ValidationError('client_id does not belong to this organization');
+    }
 
     const cols = Object.keys(filtered);
     const [ins] = await conn.query(

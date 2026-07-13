@@ -137,7 +137,7 @@ router.post('/', requirePermission('service_orders.create'), validate(createServ
     // Reject a cross-org client/lead/plan/contract before writing anything.
     await assertServiceOrderFks(req.body, req.orgId);
 
-    const orderNumber = req.body.order_number || await lifecycleService.generateOrderNumber(conn, req.orgId);
+    const orderNumber = req.body.order_number || await lifecycleService.nextOrderNumber(conn, req.orgId);
 
     const filtered = {};
     for (const key of ServiceOrder.fillable) {

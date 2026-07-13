@@ -140,6 +140,7 @@ describe('Contract Routes — /api/contracts', () => {
         .mockResolvedValueOnce([[{ name: 'Acme' }]]);               // SELECT client name (seed)
       db.getConnection.mockResolvedValue(conn);
       db.query
+        .mockResolvedValueOnce([[{ id: 10 }]])                        // Client.findById — in-org
         .mockResolvedValueOnce([[{ ...mockContract, id: 2 }]])       // Contract.findById
         .mockResolvedValueOnce([{ affectedRows: 1 }]);               // auditLog
 
@@ -192,6 +193,7 @@ describe('Contract Routes — /api/contracts', () => {
         .mockResolvedValueOnce([[{ name: 'Acme' }]]);               // SELECT client name (seed)
       db.getConnection.mockResolvedValue(conn);
       db.query
+        .mockResolvedValueOnce([[{ id: 10 }]])                        // Client.findById — in-org
         .mockResolvedValueOnce([[{ ...mockContract, id: 3 }]])       // Contract.findById
         .mockResolvedValueOnce([{ affectedRows: 1 }]);               // auditLog
 
@@ -325,6 +327,110 @@ describe('Contract Routes — /api/contracts', () => {
       expect(radiusCall).toBeTruthy();
       expect(radiusCall[0]).toContain("'active'");
       expect(radiusCall[1]).toEqual([1]);
+
+      // Adversarial-review finding (medium, confirmed): a terminated contract
+      // reactivated via the Edit modal was never actually "suspended", so it
+      // must not get a phantom 'unsuspended' suspension_logs row either.
+      const logCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && c[0].includes('INSERT INTO suspension_logs'),
+      );
+      expect(logCall).toBeUndefined();
+    });
+
+    // Adversarial-review finding (medium, confirmed): the FSM also allows
+    // pending -> active — a brand-new contract's ORDINARY first activation
+    // via the Edit modal, the single most common path through this branch.
+    // old.status !== 'suspended' here, so this must sync radius exactly like
+    // any other ->active transition but must NOT write a suspension_logs
+    // row — the contract was never suspended, so logging 'unsuspended' with
+    // suspended_at=NOW()/restored_at=NOW() would be a phantom
+    // zero-duration suspension polluting the audit/compliance table.
+    test('pending -> active via PUT reactivates RADIUS but writes NO suspension_logs row', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[{ ...mockContract, status: 'pending' }]])  // findByIdOrFail
+        .mockResolvedValueOnce([{ affectedRows: 1 }])                       // UPDATE contracts
+        .mockResolvedValueOnce([[{ ...mockContract, status: 'active' }]])   // findById (inside Contract.update)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);                      // UPDATE radius -> active
+
+      const res = await request(app)
+        .put('/api/contracts/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ status: 'active' });
+
+      expect(res.status).toBe(200);
+      const radiusCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && /UPDATE radius SET status/.test(c[0]),
+      );
+      expect(radiusCall).toBeTruthy();
+      expect(radiusCall[0]).toContain("'active'");
+      expect(radiusCall[0]).toContain("IN ('suspended', 'inactive')");
+
+      const logCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && c[0].includes('INSERT INTO suspension_logs'),
+      );
+      expect(logCall).toBeUndefined();
+      const closeCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && c[0].includes('UPDATE suspension_logs SET restored_at'),
+      );
+      expect(closeCall).toBeUndefined();
+    });
+
+    // Migration-384-era hardening: the generic PUT/PATCH status toggle now
+    // writes the same suspension_logs audit row the dedicated /suspend and
+    // /unsuspend routes write (suspensionService.suspendContract/
+    // reconnectContract), closing the audit-trail hole the Edit-modal path
+    // used to leave.
+    test('Edit-modal suspend (active -> suspended via PUT) also writes a suspension_logs row', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[mockContract]])                              // findByIdOrFail (status: active)
+        .mockResolvedValueOnce([{ affectedRows: 1 }])                        // UPDATE contracts
+        .mockResolvedValueOnce([[{ ...mockContract, status: 'suspended' }]])  // findById (inside Contract.update)
+        .mockResolvedValueOnce([{ affectedRows: 1 }])                        // UPDATE radius -> suspended
+        .mockResolvedValueOnce([[]])                                          // sendRadiusDisconnect: no RADIUS account (awaited)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);                       // INSERT suspension_logs
+
+      const res = await request(app)
+        .put('/api/contracts/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ status: 'suspended' });
+
+      expect(res.status).toBe(200);
+      const logCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && c[0].includes('INSERT INTO suspension_logs'),
+      );
+      expect(logCall).toBeTruthy();
+      expect(logCall[0]).toContain("'suspended'");
+    });
+
+    test('Edit-modal reactivation (suspended -> active via PUT) writes an \'unsuspended\' suspension_logs row and closes any open prior row', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[{ ...mockContract, status: 'suspended' }]])  // findByIdOrFail
+        .mockResolvedValueOnce([{ affectedRows: 1 }])                        // UPDATE contracts
+        .mockResolvedValueOnce([[{ ...mockContract, status: 'active' }]])     // findById (inside Contract.update)
+        .mockResolvedValueOnce([{ affectedRows: 1 }])                        // UPDATE radius -> active
+        .mockResolvedValueOnce([[]])                                          // sendRadiusCoA: no RADIUS account (awaited)
+        .mockResolvedValueOnce([[{ suspended_at: new Date('2026-07-01T00:00:00Z') }]])  // closeOpenSuspensionAndGetStart SELECT
+        .mockResolvedValueOnce([{ affectedRows: 1 }])                        // closeOpenSuspensionAndGetStart UPDATE close
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);                       // INSERT suspension_logs
+
+      const res = await request(app)
+        .put('/api/contracts/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ status: 'active' });
+
+      expect(res.status).toBe(200);
+      const closeCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && c[0].includes('UPDATE suspension_logs SET restored_at'),
+      );
+      expect(closeCall).toBeTruthy();
+      const logCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && c[0].includes('INSERT INTO suspension_logs'),
+      );
+      expect(logCall).toBeTruthy();
+      expect(logCall[0]).toContain("'unsuspended'");
     });
   });
 
@@ -354,6 +460,14 @@ describe('Contract Routes — /api/contracts', () => {
       expect(radiusCall).toBeTruthy();
       expect(radiusCall[0]).toContain("'inactive'");
       expect(radiusCall[1]).toEqual([1]);
+
+      // Terminal transitions stay log-free — no 'terminated'/'cancelled'
+      // value exists in suspension_logs.action, matching the deliberate
+      // decision already made for POST /:id/terminate.
+      const logCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && c[0].includes('INSERT INTO suspension_logs'),
+      );
+      expect(logCall).toBeUndefined();
     });
 
     test('does not touch RADIUS when the status is not actually changing', async () => {

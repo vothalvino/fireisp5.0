@@ -794,6 +794,11 @@ describe('importController — deep', () => {
         if (/^UPDATE contracts SET status/.test(sql)) return Promise.resolve([{ affectedRows: 1 }]);
         return Promise.resolve([[]]);
       });
+      // insertContractRow's Client.findById + assertPlanSelectable pre-checks
+      // (org-verify hardening) run BEFORE conn.beginTransaction() and go
+      // through the pooled db.query, not mockConnection.query — a truthy row
+      // satisfies both (client found / plan found) for every row in a CSV.
+      db.query.mockResolvedValue([[{ id: 1 }]]);
     });
 
     test('returns 422 when csv field is missing', async () => {

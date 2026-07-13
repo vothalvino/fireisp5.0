@@ -11,7 +11,7 @@ jest.mock('../src/config/database', () => ({
 }));
 
 jest.mock('../src/services/lifecycleService', () => ({
-  generateOrderNumber: jest.fn(),
+  nextOrderNumber: jest.fn(),
   seedDefaultTasks: jest.fn(),
   startOrder: jest.fn(),
   completeOrder: jest.fn(),
@@ -51,7 +51,7 @@ describe('Service order routes (§1.2)', () => {
   });
 
   test('POST /service-orders generates an order number and seeds tasks', async () => {
-    lifecycleService.generateOrderNumber.mockResolvedValue('SO-000001');
+    lifecycleService.nextOrderNumber.mockResolvedValue('SO-000001');
     lifecycleService.seedDefaultTasks.mockResolvedValue(undefined);
 
     const conn = {
@@ -81,7 +81,7 @@ describe('Service order routes (§1.2)', () => {
       .send({ client_id: 50, plan_id: 2, order_type: 'new_install' });
 
     expect(res.status).toBe(201);
-    expect(lifecycleService.generateOrderNumber).toHaveBeenCalled();
+    expect(lifecycleService.nextOrderNumber).toHaveBeenCalled();
     expect(lifecycleService.seedDefaultTasks).toHaveBeenCalledWith(conn, 10);
     expect(conn.commit).toHaveBeenCalled();
   });
@@ -125,7 +125,7 @@ describe('Service order routes (§1.2)', () => {
       expect(res.status).toBe(422);
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
       expect(conn.rollback).toHaveBeenCalled();
-      expect(lifecycleService.generateOrderNumber).not.toHaveBeenCalled();
+      expect(lifecycleService.nextOrderNumber).not.toHaveBeenCalled();
     });
 
     test('POST /service-orders rejects a lead_id from a different organization', async () => {

@@ -3,7 +3,7 @@
 // =============================================================================
 // Implements isp-platform-features.md §1.2 "Customer Lifecycle":
 //   • convertLead          — materialise a won lead into a client record
-//   • generateOrderNumber  — sequential, org-scoped service-order references
+//   • nextOrderNumber      — atomic, org-scoped SO-###### sequence (migration 384)
 //   • seedDefaultTasks     — onboarding checklist for a new service order
 //   • startOrder           — new -> in_process, one transaction: locks the
 //                            order row, auto-creates + provisions the contract
@@ -45,18 +45,42 @@ const DEFAULT_ONBOARDING_TASKS = [
 ];
 
 /**
- * Generate the next sequential service-order number for an organization,
- * e.g. SO-000123. Counts existing rows (including soft-deleted) to avoid reuse.
+ * Atomically allocate the next sequential service-order number for an
+ * organization, e.g. SO-000123. Backed by `organization_order_sequences`
+ * (migration 384) — a one-row-per-org atomic counter — instead of the old
+ * `SELECT COUNT(*) FROM service_orders ...` + 1 pattern, which is a
+ * non-locking read: two concurrent callers for the same org could read the
+ * same count and both attempt to INSERT the same order_number, hitting the
+ * uq_service_orders_org_number unique-key 500. Mirrors
+ * billingService.nextInvoiceNumber(conn, orgId) exactly — see that
+ * function's doc comment for why the INSERT IGNORE + UPDATE pair is
+ * deliberately NOT collapsed into a single `ON DUPLICATE KEY UPDATE`
+ * statement.
  *
- * @param {object} conn - DB connection or pool exposing query()
+ * `organization_id` is NULL for single-tenant deployments; the sequence
+ * table uses sentinel `0` as its primary key for that bucket.
+ *
+ * @param {object} conn - An active connection/transaction (must expose
+ *   `.query`/`.execute`) — this call is meant to run inside the caller's own
+ *   transaction so the order INSERT and the counter advance commit or roll
+ *   back together.
  * @param {number|null} orgId
+ * @returns {Promise<string>} e.g. "SO-000123"
  */
-async function generateOrderNumber(conn, orgId) {
-  const [rows] = await conn.query(
-    'SELECT COUNT(*) AS cnt FROM service_orders WHERE organization_id <=> ?',
-    [orgId ?? null],
+async function nextOrderNumber(conn, orgId) {
+  const bucket = orgId ?? 0;
+  await conn.execute(
+    'INSERT IGNORE INTO organization_order_sequences (organization_id, next_number) VALUES (?, 1)',
+    [bucket],
   );
-  const next = Number(rows[0].cnt) + 1;
+  await conn.execute(
+    `UPDATE organization_order_sequences
+        SET next_number = LAST_INSERT_ID(next_number) + 1
+      WHERE organization_id = ?`,
+    [bucket],
+  );
+  const [[{ id }]] = await conn.query('SELECT LAST_INSERT_ID() AS id');
+  const next = Number(id);
   return `SO-${String(next).padStart(6, '0')}`;
 }
 
@@ -681,7 +705,7 @@ async function winbackTargets(segment, organizationId, { limit = 500 } = {}) {
 
 module.exports = {
   DEFAULT_ONBOARDING_TASKS,
-  generateOrderNumber,
+  nextOrderNumber,
   seedDefaultTasks,
   convertLead,
   startOrder,

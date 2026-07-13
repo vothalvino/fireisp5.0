@@ -16,7 +16,7 @@ jest.mock('../src/config/database', () => ({
 }));
 
 jest.mock('../src/services/lifecycleService', () => ({
-  generateOrderNumber: jest.fn(),
+  nextOrderNumber: jest.fn(),
   seedDefaultTasks: jest.fn(),
   startOrder: jest.fn(),
   completeOrder: jest.fn(),
