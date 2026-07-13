@@ -867,6 +867,39 @@ function _genericResult(symptom) {
 }
 
 // ---------------------------------------------------------------------------
+// Escalation policy — which check-level 'error' statuses justify creating a
+// real support ticket (see supportConversationService.escalate). Deliberately
+// conservative and a NAMED, easy-to-tune constant (documented product
+// decision): only checks representing a PHYSICAL or PROVISIONING fault a
+// customer cannot fix by power-cycling their own equipment. Every name below
+// was verified against the handler that actually emits it (see PR report) —
+// this replaces a prior set that referenced dead/never-'error' check names
+// (olt_hardware/fiber_splice are hardcoded 'unknown'; onu_replacement is
+// never emitted) plus a compound onu_signal+onu_status AND that could never
+// be true (mutually-exclusive handlers). Explicitly excluded:
+//  - pppoe_session / radius_session ('error' = no active session) — the
+//    self-serve tip for no_internet already tells the customer to check
+//    cables and reboot; a bare session drop alone isn't evidence of a
+//    physical fault.
+//  - account_suspension ('error' = billing hold) — routes to payment, not a
+//    truck roll.
+//  - disconnect_frequency ('error' = >10 disconnects/7d, _diagDisconnects) —
+//    a real signal but a noisier pattern-based heuristic than a direct
+//    measurement; left OUT by default to avoid over-ticketing. Add it here
+//    first if support wants tighter coverage.
+const ESCALATABLE_CHECK_NAMES = new Set([
+  // optical RX power below threshold (_diagSlowFiber) — a measured
+  // fiber-plant fault, unrelated to any reboot.
+  'onu_signal',
+  // ONU reporting non-'online' state on a no_internet symptom
+  // (_diagNoInternetFiber) — device/fiber down, not just slow.
+  'onu_status',
+  // CPE not 'active' (offline/error/unprovisioned) on a no_internet
+  // symptom (_diagNoInternetWireless).
+  'cpe_status',
+]);
+
+// ---------------------------------------------------------------------------
 // Helper: build DiagnosticResult from checks array
 // ---------------------------------------------------------------------------
 function _buildResult(checks, defaultRecommendation) {
@@ -880,10 +913,10 @@ function _buildResult(checks, defaultRecommendation) {
   // _genericResult's honest zero-data phrasing above.
   const blind = checks.length > 0 && knownChecks === 0;
 
-  // Escalate if physical infrastructure issues detected
-  const escalateNames = new Set(['olt_hardware', 'onu_replacement', 'fiber_splice']);
-  const escalate = errorChecks.some(c => escalateNames.has(c.name))
-    || (errorChecks.some(c => c.name === 'onu_signal') && errorChecks.some(c => c.name === 'onu_status'));
+  // Escalate when at least one check with status 'error' represents a
+  // physical/provisioning fault the customer cannot self-resolve — see
+  // ESCALATABLE_CHECK_NAMES above for the exact set and rationale.
+  const escalate = errorChecks.some(c => ESCALATABLE_CHECK_NAMES.has(c.name));
 
   return {
     checks,

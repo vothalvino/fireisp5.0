@@ -97,6 +97,42 @@ function makeDbMock({
   });
 }
 
+// ---------------------------------------------------------------------------
+// SQL-text dispatch mock for the symptom='no_internet' + accessType='fiber'
+// path (_diagNoInternetFiber) — needed for the escalate-set coverage below,
+// since onu_status and account_suspension (unlike onu_signal) are only ever
+// emitted by this handler, never _diagSlowFiber.
+// ---------------------------------------------------------------------------
+function makeNoInternetFiberDbMock({
+  onuDeviceId = null,
+  onuDetailsRow = null,
+  accountRow = null, // { status, client_status }
+} = {}) {
+  return jest.fn((sql) => {
+    if (/FROM devices\b/i.test(sql) && /type = 'onu'/i.test(sql)) {
+      return Promise.resolve([onuDeviceId ? [{ id: onuDeviceId }] : [], undefined]);
+    }
+    if (/FROM cpe_devices/i.test(sql) && /d\.type = 'onu'/i.test(sql)) {
+      return Promise.resolve([[], undefined]);
+    }
+    if (/FROM cpe_devices/i.test(sql) && /indoor_cpe/i.test(sql)) {
+      return Promise.resolve([[], undefined]);
+    }
+    if (/FROM onu_details/i.test(sql)) {
+      return Promise.resolve([onuDetailsRow ? [onuDetailsRow] : [], undefined]);
+    }
+    // Account suspension: SELECT c.status, cl.status AS client_status FROM
+    // contracts c JOIN clients cl ...
+    if (/FROM contracts c/i.test(sql) && /JOIN clients/i.test(sql)) {
+      return Promise.resolve([accountRow ? [accountRow] : [], undefined]);
+    }
+    if (/INSERT INTO ai_diagnostic_runs/i.test(sql)) {
+      return Promise.resolve([{ insertId: 1 }, undefined]);
+    }
+    return Promise.resolve([[], undefined]);
+  });
+}
+
 // Extract the `symptom` argument (5th bound param) of the ai_diagnostic_runs
 // INSERT so symptom-inference can be asserted without spying on an internal
 // (non-exported, same-module) function call.
@@ -176,7 +212,7 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
     for (const s of ENGLISH_INTERNAL_STRINGS) expect(result.reply).not.toContain(s);
   });
 
-  test('issue-found case: names the plain-language area, not the internal check name', async () => {
+  test('issue-found case: names the plain-language area, not the internal check name — escalates (onu_signal is a real ESCALATABLE check on its own)', async () => {
     const dbMock = makeDbMock({
       onuDeviceId: 5,
       onuDetailsRow: { onu_state: 'online', olt_port_id: 9, rx_power_dbm: -30, tx_power_dbm: 2 }, // below -27 threshold
@@ -194,15 +230,82 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
     // Not the raw check name 'onu_signal' — the Spanish plain-language label.
     expect(result.reply).toContain('la señal óptica de tu equipo ONU');
     expect(result.reply).not.toContain('onu_signal');
-    expect(result.reply).toMatch(/encontramos un problema/i);
-    // A single onu_signal error (no paired onu_status) never satisfies
-    // _buildResult's escalate condition — see report for the flagged
-    // dead-condition finding.
-    expect(result.escalate).toBe(false);
-    // FIX 3: not escalating -> no ticket -> must not promise a scheduled
-    // technical review that nobody is actually tasked to do.
-    expect(result.reply).not.toMatch(/programamos una revisión técnica/i);
+    // onu_signal is a measured optical-power fault (ESCALATABLE_CHECK_NAMES)
+    // — it escalates on its own; no paired onu_status is required (the old
+    // dead compound AND condition is gone).
+    expect(result.escalate).toBe(true);
+    expect(result.escalationReason).toBe('Physical infrastructure issue detected — technician required');
+    // Escalating -> a real ticket IS created (see #400 wiring) -> this
+    // "connecting you with our team" copy is truthful here.
+    expect(result.reply).toMatch(/posible falla física/i);
+    expect(result.reply).toMatch(/conectando con nuestro equipo/i);
     for (const s of ENGLISH_INTERNAL_STRINGS) expect(result.reply).not.toContain(s);
+  });
+
+  // ---------------------------------------------------------------------------
+  // ESCALATABLE_CHECK_NAMES coverage on the no_internet/fiber path
+  // (_diagNoInternetFiber) — onu_status and account_suspension are only ever
+  // emitted here, never by _diagSlowFiber above.
+  // ---------------------------------------------------------------------------
+  test('no_internet fiber: onu_status error (ONU offline) escalates — a real, non-dead ESCALATABLE check', async () => {
+    const dbMock = makeNoInternetFiberDbMock({
+      onuDeviceId: 5,
+      onuDetailsRow: { onu_state: 'offline', olt_port_id: 9, rx_power_dbm: -20, tx_power_dbm: 2 },
+      accountRow: { status: 'active', client_status: 'active' },
+    });
+    db.query.mockImplementation(dbMock);
+    // pppoe_session 'ok' so onu_status is isolated as the only error check.
+    radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5' });
+
+    const result = await diagnosticEngineService.generateSupportResponse({
+      orgId: 1, clientId: 10, conversationId: 1, content: 'no tengo internet',
+    });
+
+    expect(result.diagnosticResult.checks.find((c) => c.name === 'onu_status').status).toBe('error');
+    expect(result.escalate).toBe(true);
+    expect(result.escalationReason).toBe('Physical infrastructure issue detected — technician required');
+    expect(result.reply).toMatch(/posible falla física/i);
+    expect(result.reply).toContain('el estado de tu equipo ONU');
+  });
+
+  test('no_internet fiber: pppoe_session error alone does NOT escalate (reboot-first, not a truck roll)', async () => {
+    const dbMock = makeNoInternetFiberDbMock({
+      onuDeviceId: 5,
+      onuDetailsRow: { onu_state: 'online', olt_port_id: 9, rx_power_dbm: -20, tx_power_dbm: 2 },
+      accountRow: { status: 'active', client_status: 'active' },
+    });
+    db.query.mockImplementation(dbMock);
+    radiusService.getSessionByClientId.mockResolvedValue(null); // no session -> pppoe_session 'error'
+
+    const result = await diagnosticEngineService.generateSupportResponse({
+      orgId: 1, clientId: 10, conversationId: 1, content: 'no tengo internet',
+    });
+
+    expect(result.diagnosticResult.checks.find((c) => c.name === 'pppoe_session').status).toBe('error');
+    expect(result.escalate).toBe(false);
+    expect(result.escalationReason).toBeNull();
+    // Not escalating -> no ticket -> the reply must offer the self-serve
+    // reboot tip instead of promising a technician.
+    expect(result.reply).not.toMatch(/conectando con nuestro equipo/i);
+  });
+
+  test('no_internet fiber: account_suspension error alone does NOT escalate (billing hold, not a truck roll)', async () => {
+    const dbMock = makeNoInternetFiberDbMock({
+      onuDeviceId: 5,
+      onuDetailsRow: { onu_state: 'online', olt_port_id: 9, rx_power_dbm: -20, tx_power_dbm: 2 },
+      accountRow: { status: 'active', client_status: 'suspended' },
+    });
+    db.query.mockImplementation(dbMock);
+    radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5' });
+
+    const result = await diagnosticEngineService.generateSupportResponse({
+      orgId: 1, clientId: 10, conversationId: 1, content: 'no tengo internet',
+    });
+
+    expect(result.diagnosticResult.checks.find((c) => c.name === 'account_suspension').status).toBe('error');
+    expect(result.escalate).toBe(false);
+    expect(result.escalationReason).toBeNull();
+    expect(result.reply).not.toMatch(/conectando con nuestro equipo/i);
   });
 
   test('blind case: honest non-reassuring reply, never a fabricated clean bill of health', async () => {

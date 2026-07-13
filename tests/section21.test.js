@@ -43,6 +43,7 @@ jest.mock('../src/middleware/rateLimit', () => ({
   exportLimiter: (req, res, next) => next(),
   sseLimiter: (req, res, next) => next(),
   webhookLimiter: (req, res, next) => next(),
+  uploadLimiter: (req, res, next) => next(),
 }));
 
 jest.mock('../src/services/llmProviderService', () => ({
