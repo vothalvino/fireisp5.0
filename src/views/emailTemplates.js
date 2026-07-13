@@ -6,7 +6,7 @@
 // Variables use {{placeholder}} syntax matching message_templates table.
 // =============================================================================
 
-const { escapeHtml } = require('../middleware/sanitize');
+const { escapeHtml } = require('../utils/htmlEscape');
 
 /**
  * Base HTML wrapper shared by all templates.
@@ -58,23 +58,29 @@ function baseLayout(content, footerText) {
 // ---------------------------------------------------------------------------
 
 function welcomeEmail(vars) {
-  const { clientName, orgName, portalUrl } = vars;
+  const { portalUrl } = vars;
+  // clientName/orgName are DB free text (clients.name / organizations.name) —
+  // escape before interpolating into HTML. Subject lines below intentionally
+  // use the RAW vars.* values: a subject header is plain text, never rendered
+  // as HTML, so escaping it would show literal "&amp;" etc. to the recipient.
+  const clientName = escapeHtml(vars.clientName || 'Valued Customer');
+  const orgName = escapeHtml(vars.orgName || 'FireISP');
   const content = `
     <div class="header">
-      <h1>Welcome to ${orgName || 'FireISP'}</h1>
+      <h1>Welcome to ${orgName}</h1>
       <div class="subtitle">Your internet service account is ready</div>
     </div>
-    <p>Hello <strong>${clientName || 'Valued Customer'}</strong>,</p>
-    <p>Thank you for choosing ${orgName || 'FireISP'}! Your account has been created and is ready to use.</p>
+    <p>Hello <strong>${clientName}</strong>,</p>
+    <p>Thank you for choosing ${orgName}! Your account has been created and is ready to use.</p>
     <p>You can access your account portal to view invoices, make payments, and manage your service:</p>
     <p style="text-align: center; margin: 24px 0;">
       <a href="${portalUrl || '#'}" class="btn">Access Your Account</a>
     </p>
     <p>If you have any questions, feel free to contact our support team.</p>
-    <p class="meta">Best regards,<br>${orgName || 'FireISP'} Team</p>`;
+    <p class="meta">Best regards,<br>${orgName} Team</p>`;
 
   return {
-    subject: `Welcome to ${orgName || 'FireISP'} — Account Created`,
+    subject: `Welcome to ${vars.orgName || 'FireISP'} — Account Created`,
     html: baseLayout(content),
   };
 }
@@ -84,9 +90,15 @@ function welcomeEmail(vars) {
 // ---------------------------------------------------------------------------
 
 function invoiceEmail(vars) {
-  const { clientName, orgName, invoiceNumber, total, currency, dueDate, portalUrl, items } = vars;
+  const { invoiceNumber, total, currency, dueDate, portalUrl, items } = vars;
+  // clientName/orgName and each line item's description are DB free text;
+  // invoiceNumber/total/currency/dueDate are system-generated/formatted —
+  // safe as-is (see escapeHtml import note above for the same reasoning
+  // repeated across every template below).
+  const clientName = escapeHtml(vars.clientName || 'Customer');
+  const orgName = escapeHtml(vars.orgName || 'FireISP');
   const itemsHtml = (items || []).map(i =>
-    `<tr><td>${i.description || ''}</td><td style="text-align:right">${currency || 'USD'} ${parseFloat(i.amount || 0).toFixed(2)}</td></tr>`,
+    `<tr><td>${escapeHtml(i.description || '')}</td><td style="text-align:right">${currency || 'USD'} ${parseFloat(i.amount || 0).toFixed(2)}</td></tr>`,
   ).join('');
 
   const content = `
@@ -94,7 +106,7 @@ function invoiceEmail(vars) {
       <h1>New Invoice</h1>
       <div class="subtitle">${invoiceNumber || ''}</div>
     </div>
-    <p>Hello <strong>${clientName || 'Customer'}</strong>,</p>
+    <p>Hello <strong>${clientName}</strong>,</p>
     <p>A new invoice has been generated for your account:</p>
     <div class="amount">${currency || 'USD'} ${parseFloat(total || 0).toFixed(2)}</div>
     ${itemsHtml ? `<table class="table"><thead><tr><th>Description</th><th style="text-align:right">Amount</th></tr></thead><tbody>${itemsHtml}</tbody></table>` : ''}
@@ -102,7 +114,7 @@ function invoiceEmail(vars) {
     <p style="text-align: center; margin: 24px 0;">
       <a href="${portalUrl || '#'}" class="btn">Pay Now</a>
     </p>
-    <p class="meta">${orgName || 'FireISP'}</p>`;
+    <p class="meta">${orgName}</p>`;
 
   return {
     subject: `Invoice ${invoiceNumber || ''} — ${currency || 'USD'} ${parseFloat(total || 0).toFixed(2)} Due ${dueDate || ''}`,
@@ -115,13 +127,21 @@ function invoiceEmail(vars) {
 // ---------------------------------------------------------------------------
 
 function paymentReceiptEmail(vars) {
-  const { clientName, orgName, amount, currency, paymentMethod, reference, invoiceNumber, paymentDate } = vars;
+  const { amount, currency, paymentMethod, invoiceNumber, paymentDate } = vars;
+  // clientName/orgName are DB free text; reference is arbitrary free text too
+  // (a manually-entered check/transaction reference or a gateway-supplied
+  // string) — escape all three. paymentMethod is an ENUM column
+  // (cash/card/oxxo/spei/codi/...), invoiceNumber/amount/currency/paymentDate
+  // are system-generated/formatted — safe as-is.
+  const clientName = escapeHtml(vars.clientName || 'Customer');
+  const orgName = escapeHtml(vars.orgName || 'FireISP');
+  const reference = vars.reference ? escapeHtml(vars.reference) : '';
   const content = `
     <div class="header">
       <h1>Payment Received</h1>
       <div class="subtitle"><span class="badge badge-success">Confirmed</span></div>
     </div>
-    <p>Hello <strong>${clientName || 'Customer'}</strong>,</p>
+    <p>Hello <strong>${clientName}</strong>,</p>
     <p>We have received your payment. Here are the details:</p>
     <div class="amount">${currency || 'USD'} ${parseFloat(amount || 0).toFixed(2)}</div>
     <table class="table">
@@ -133,7 +153,7 @@ function paymentReceiptEmail(vars) {
       </tbody>
     </table>
     <p>Thank you for your payment!</p>
-    <p class="meta">${orgName || 'FireISP'}</p>`;
+    <p class="meta">${orgName}</p>`;
 
   return {
     subject: `Payment Confirmed — ${currency || 'USD'} ${parseFloat(amount || 0).toFixed(2)}`,
@@ -200,13 +220,15 @@ function emailVerificationEmail(vars) {
 // ---------------------------------------------------------------------------
 
 function suspensionWarningEmail(vars) {
-  const { clientName, orgName, daysOverdue, invoiceNumber, total, currency, dueDate, portalUrl } = vars;
+  const { daysOverdue, invoiceNumber, total, currency, dueDate, portalUrl } = vars;
+  const clientName = escapeHtml(vars.clientName || 'Customer');
+  const orgName = escapeHtml(vars.orgName || 'FireISP');
   const content = `
     <div class="header">
       <h1>Service Suspension Warning</h1>
       <div class="subtitle"><span class="badge badge-danger">Action Required</span></div>
     </div>
-    <p>Hello <strong>${clientName || 'Customer'}</strong>,</p>
+    <p>Hello <strong>${clientName}</strong>,</p>
     <p>Your account has an overdue balance. Your service may be suspended if payment is not received.</p>
     <table class="table">
       <tbody>
@@ -219,7 +241,7 @@ function suspensionWarningEmail(vars) {
     <p style="text-align: center; margin: 24px 0;">
       <a href="${portalUrl || '#'}" class="btn btn-danger">Pay Now to Avoid Suspension</a>
     </p>
-    <p class="meta">If you have already made a payment, please disregard this notice. Payments may take up to 24 hours to process.<br>${orgName || 'FireISP'}</p>`;
+    <p class="meta">If you have already made a payment, please disregard this notice. Payments may take up to 24 hours to process.<br>${orgName}</p>`;
 
   return {
     subject: `⚠ Service Suspension Warning — Invoice ${invoiceNumber || ''} Overdue`,
@@ -232,20 +254,22 @@ function suspensionWarningEmail(vars) {
 // ---------------------------------------------------------------------------
 
 function serviceSuspendedEmail(vars) {
-  const { clientName, orgName, contractId, total, currency, portalUrl } = vars;
+  const { contractId, total, currency, portalUrl } = vars;
+  const clientName = escapeHtml(vars.clientName || 'Customer');
+  const orgName = escapeHtml(vars.orgName || 'FireISP');
   const content = `
     <div class="header">
       <h1>Service Suspended</h1>
       <div class="subtitle"><span class="badge badge-danger">Suspended</span></div>
     </div>
-    <p>Hello <strong>${clientName || 'Customer'}</strong>,</p>
+    <p>Hello <strong>${clientName}</strong>,</p>
     <p>Your internet service (contract #${contractId || ''}) has been suspended due to non-payment.</p>
     <p>Outstanding balance: <strong>${currency || 'USD'} ${parseFloat(total || 0).toFixed(2)}</strong></p>
     <p>To restore your service, please make a payment as soon as possible:</p>
     <p style="text-align: center; margin: 24px 0;">
       <a href="${portalUrl || '#'}" class="btn btn-danger">Pay & Restore Service</a>
     </p>
-    <p class="meta">${orgName || 'FireISP'}</p>`;
+    <p class="meta">${orgName}</p>`;
 
   return {
     subject: 'Your Internet Service Has Been Suspended',
@@ -258,28 +282,36 @@ function serviceSuspendedEmail(vars) {
 // ---------------------------------------------------------------------------
 
 function outageNotificationEmail(vars) {
-  const { clientName, orgName, outageTitle, severity, startTime, estimatedRestore, affectedArea } = vars;
+  const { severity, startTime, estimatedRestore } = vars;
+  // clientName/orgName/outageTitle/affectedArea are DB free text — escape.
+  // severity is left as-is: it's an ENUM column ('info'|'warning'|'major'|
+  // 'critical'), a closed vocabulary enforced at the DB layer, not free text,
+  // and it's only ever compared/uppercased here, never used to build markup.
+  const clientName = escapeHtml(vars.clientName || 'Customer');
+  const orgName = escapeHtml(vars.orgName || 'FireISP');
+  const outageTitle = escapeHtml(vars.outageTitle || 'Service Disruption');
+  const affectedArea = vars.affectedArea ? escapeHtml(vars.affectedArea) : '';
   const severityBadge = severity === 'critical' ? 'badge-danger' : severity === 'major' ? 'badge-warning' : 'badge-success';
   const content = `
     <div class="header">
       <h1>Service Outage Notice</h1>
       <div class="subtitle"><span class="badge ${severityBadge}">${(severity || 'info').toUpperCase()}</span></div>
     </div>
-    <p>Hello <strong>${clientName || 'Customer'}</strong>,</p>
+    <p>Hello <strong>${clientName}</strong>,</p>
     <p>We are experiencing a service disruption that may affect your connection.</p>
     <table class="table">
       <tbody>
-        <tr><td><strong>Issue</strong></td><td>${outageTitle || 'Service Disruption'}</td></tr>
+        <tr><td><strong>Issue</strong></td><td>${outageTitle}</td></tr>
         <tr><td><strong>Started</strong></td><td>${startTime || 'N/A'}</td></tr>
         ${estimatedRestore ? `<tr><td><strong>Est. Restoration</strong></td><td>${estimatedRestore}</td></tr>` : ''}
         ${affectedArea ? `<tr><td><strong>Affected Area</strong></td><td>${affectedArea}</td></tr>` : ''}
       </tbody>
     </table>
     <p>Our team is working to resolve this as quickly as possible. We apologize for any inconvenience.</p>
-    <p class="meta">${orgName || 'FireISP'}</p>`;
+    <p class="meta">${orgName}</p>`;
 
   return {
-    subject: `Service Outage: ${outageTitle || 'Disruption'} — ${orgName || 'FireISP'}`,
+    subject: `Service Outage: ${vars.outageTitle || 'Disruption'} — ${vars.orgName || 'FireISP'}`,
     html: baseLayout(content),
   };
 }
