@@ -335,6 +335,29 @@ function outageNotificationEmail(vars) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Ad-hoc / bulk message (free-text subject+body, no template)
+// ---------------------------------------------------------------------------
+
+/**
+ * Wraps a free-text bulk-send body (POST /bulk/email — subject/body are
+ * operator-entered plain text, not a message_templates row) in the shared
+ * HTML shell. recipientName/bodyText are both DB/user free text — escape
+ * both before interpolating. Plain newlines in bodyText are converted to
+ * <br> AFTER escaping so literal HTML in the message can't slip through.
+ */
+function customMessageEmail({ recipientName, bodyText, orgName }) {
+  const name = escapeHtml(recipientName || 'Customer');
+  const org = escapeHtml(orgName || 'FireISP');
+  const escapedBody = escapeHtml(bodyText || '').replace(/\n/g, '<br>');
+  const content = `
+    <p>Hello <strong>${name}</strong>,</p>
+    <p>${escapedBody}</p>
+    <p class="meta">${org}</p>`;
+
+  return baseLayout(content);
+}
+
 module.exports = {
   baseLayout,
   welcomeEmail,
@@ -345,4 +368,5 @@ module.exports = {
   suspensionWarningEmail,
   serviceSuspendedEmail,
   outageNotificationEmail,
+  customMessageEmail,
 };

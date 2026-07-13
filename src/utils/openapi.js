@@ -124,6 +124,7 @@ function generateSpec() {
       { name: 'DSAR', description: 'Data subject access requests (LFPDPPP / GDPR)' },
       { name: 'DR Drill', description: 'Disaster-recovery drill status' },
       { name: 'Invoice Settings', description: 'Per-org invoice branding — logo, color, footer legal text, payment instructions — §2.2B' },
+      { name: 'Email Settings', description: 'Per-org outbound SMTP configuration — password never returned, write-only three-state contract' },
       { name: 'Late Fee Rules', description: 'Configurable late fee rules applied to overdue invoices — §2.2B' },
       { name: 'Payment Reminders', description: 'Automated payment reminder schedule settings — §2.2B' },
       { name: 'Payment Plans', description: 'Payment plan / installment management for overdue invoices — §2.3' },
@@ -1010,6 +1011,15 @@ function generateSpec() {
       '/invoice-settings': {
         get: { tags: ['Invoice Settings'], summary: 'Get invoice branding settings for current org', operationId: 'getInvoiceSettings', security: [{ bearerAuth: [] }], responses: r200('InvoiceSettings') },
         put: { tags: ['Invoice Settings'], summary: 'Upsert invoice branding settings', operationId: 'updateInvoiceSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('InvoiceSettings'), responses: r200('InvoiceSettings') },
+      },
+
+      // ---- Email Settings — per-org outbound SMTP (migration 386) ----
+      '/email-settings': {
+        get: { tags: ['Email Settings'], summary: 'Get per-org outbound email (SMTP) configuration (password masked)', operationId: 'getEmailSettings', security: [{ bearerAuth: [] }], responses: r200('EmailSettings') },
+        put: { tags: ['Email Settings'], summary: 'Update per-org outbound email (SMTP) configuration', operationId: 'updateEmailSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('EmailSettingsUpdate'), responses: r200('EmailSettings') },
+      },
+      '/email-settings/test': {
+        post: { tags: ['Email Settings'], summary: "Send a test email using the org's (or global fallback) SMTP config", operationId: 'testEmailSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('EmailSettingsTest'), responses: r200('EmailTestResult') },
       },
 
       // ---- Late Fee Rules — §2.2B ----
