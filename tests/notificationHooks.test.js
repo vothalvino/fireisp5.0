@@ -33,6 +33,7 @@ jest.mock('../src/utils/logger', () => ({
   child: jest.fn().mockReturnThis(),
 }));
 
+const db = require('../src/config/database');
 const eventBus = require('../src/services/eventBus');
 const emailTransport = require('../src/services/emailTransport');
 const webhookService = require('../src/services/webhookService');
@@ -411,6 +412,178 @@ describe('notificationHooks', () => {
         expect.objectContaining({ event: 'service_order.activated' }),
         'Notification hook error',
       );
+    });
+
+    // Regression: the global input-sanitize.js middleware used to
+    // HTML-entity-encode every request body, which incidentally "protected"
+    // this inline `html` string too. Now that it's removed, the client name
+    // interpolated straight into the welcome email must be escaped at this
+    // output sink instead.
+    test('HTML-escapes the client name in the welcome email body', async () => {
+      await eventBus.emit('service_order.activated', {
+        organizationId: 1,
+        order: { id: 9, order_number: 'SO-000009', client_id: 5, contract_id: 12 },
+        client: { name: "O'Brien <script>alert(1)</script>", email: 'acme@example.com' },
+      });
+
+      const call = emailTransport.sendEmail.mock.calls[0][0];
+      expect(call.html).not.toContain('<script>');
+      expect(call.html).toContain('O&#x27;Brien &lt;script&gt;alert(1)&lt;/script&gt;');
+    });
+  });
+
+  // =========================================================================
+  // followup.due
+  // =========================================================================
+  describe('followup.due', () => {
+    beforeEach(() => registerHooks());
+
+    test('HTML-escapes the reminder title/client name/notes in the email body', async () => {
+      await eventBus.emit('followup.due', {
+        organizationId: 1,
+        reminder: {
+          id: 1,
+          client_id: 3,
+          assignee_email: 'agent@example.com',
+          assignee_first_name: 'Pat & Co',
+          client_name: "O'Brien <img onerror=x>",
+          title: 'Call <b>now</b>',
+          notes: 'Wants & needs a callback',
+          due_at: '2026-04-13T09:00:00Z',
+        },
+      });
+
+      const call = emailTransport.sendEmail.mock.calls[0][0];
+      expect(call.html).not.toContain('<img onerror=x>');
+      expect(call.html).not.toContain('<b>now</b>');
+      expect(call.html).toContain('O&#x27;Brien &lt;img onerror=x&gt;');
+      expect(call.html).toContain('Call &lt;b&gt;now&lt;/b&gt;');
+      expect(call.html).toContain('Wants &amp; needs a callback');
+      expect(call.html).toContain('Pat &amp; Co');
+    });
+  });
+
+  // =========================================================================
+  // survey.requested
+  // =========================================================================
+  describe('survey.requested', () => {
+    beforeEach(() => registerHooks());
+
+    test('HTML-escapes the client name and referenced ticket subject', async () => {
+      await eventBus.emit('survey.requested', {
+        organizationId: 1,
+        survey: { id: 1, client_id: 3, survey_type: 'csat', channel: 'email', ticket_id: 7 },
+        client: { name: "O'Brien", email: 'client@example.com' },
+        ticket: { subject: '<script>alert(1)</script>' },
+      });
+
+      const call = emailTransport.sendEmail.mock.calls[0][0];
+      expect(call.html).not.toContain('<script>alert(1)</script>');
+      expect(call.html).toContain('O&#x27;Brien');
+      expect(call.html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    });
+  });
+
+  // =========================================================================
+  // invoice.late_fee_applied
+  // =========================================================================
+  describe('invoice.late_fee_applied', () => {
+    beforeEach(() => registerHooks());
+
+    test('HTML-escapes the client name and late-fee rule name', async () => {
+      await eventBus.emit('invoice.late_fee_applied', {
+        organizationId: 1,
+        invoice: { id: 1, invoice_number: 'INV-001', client_id: 3 },
+        client: { name: "O'Brien <script>alert(1)</script>", email: 'client@example.com' },
+        rule: { id: 1, name: 'Standard <b>Fee</b> Policy' },
+        fee_amount: 10,
+        currency: 'USD',
+      });
+
+      const call = emailTransport.sendEmail.mock.calls[0][0];
+      expect(call.html).not.toContain('<script>alert(1)</script>');
+      expect(call.html).not.toContain('<b>Fee</b>');
+      expect(call.html).toContain('O&#x27;Brien &lt;script&gt;alert(1)&lt;/script&gt;');
+      expect(call.html).toContain('Standard &lt;b&gt;Fee&lt;/b&gt; Policy');
+    });
+  });
+
+  // =========================================================================
+  // outage.reported — admin-notify email leg (broadcast/webhook already
+  // covered above; this covers the separate emailTransport.sendEmail call)
+  // =========================================================================
+  describe('outage.reported — admin email', () => {
+    beforeEach(() => registerHooks());
+
+    test('HTML-escapes the outage title in the admin notification email', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ client_id: 1 }]]) // portal push subscriptions (best-effort, ignored here)
+        .mockResolvedValueOnce([[{ email: 'admin@example.com', first_name: 'Admin' }]]); // admins/support
+
+      await eventBus.emit('outage.reported', {
+        organizationId: 1,
+        outage: { id: 50, title: '<script>alert(1)</script> Fiber cut', severity: 'critical', started_at: '2026-04-13T09:00:00Z' },
+      });
+
+      const call = emailTransport.sendEmail.mock.calls.find(c => c[0].to === 'admin@example.com');
+      expect(call).toBeTruthy();
+      expect(call[0].html).not.toContain('<script>alert(1)</script>');
+      expect(call[0].html).toContain('&lt;script&gt;alert(1)&lt;/script&gt; Fiber cut');
+    });
+  });
+
+  // =========================================================================
+  // maintenance.scheduled — client-notify email leg
+  // =========================================================================
+  describe('maintenance.scheduled — client email', () => {
+    beforeEach(() => registerHooks());
+
+    test('HTML-escapes the maintenance title and description', async () => {
+      db.query.mockResolvedValueOnce([[
+        { id: 3, email: 'client@example.com', phone: null, name: "O'Brien" },
+      ]]);
+
+      await eventBus.emit('maintenance.scheduled', {
+        organizationId: 1,
+        maintenance: {
+          id: 1,
+          title: 'Router <b>upgrade</b>',
+          description: 'Expect downtime & brief outages',
+          scheduled_at: '2026-04-13T09:00:00Z',
+          estimated_duration_minutes: 30,
+        },
+      });
+
+      const call = emailTransport.sendEmail.mock.calls.find(c => c[0].to === 'client@example.com');
+      expect(call).toBeTruthy();
+      expect(call[0].html).not.toContain('<b>upgrade</b>');
+      expect(call[0].html).toContain('Router &lt;b&gt;upgrade&lt;/b&gt;');
+      expect(call[0].html).toContain('Expect downtime &amp; brief outages');
+    });
+  });
+
+  // =========================================================================
+  // ip_pool.threshold
+  // =========================================================================
+  describe('ip_pool.threshold', () => {
+    beforeEach(() => registerHooks());
+
+    test('HTML-escapes the IP pool name in the admin alert email', async () => {
+      db.query.mockResolvedValueOnce([[{ email: 'admin@example.com', first_name: 'Admin' }]]);
+
+      await eventBus.emit('ip_pool.threshold', {
+        organizationId: 1,
+        pool: { id: 1, name: '<script>alert(1)</script> Pool', network: '10.0.0.0/24' },
+        percent: 92,
+        threshold: 90,
+        assigned: 230,
+        usable: 250,
+      });
+
+      const call = emailTransport.sendEmail.mock.calls.find(c => c[0].to === 'admin@example.com');
+      expect(call).toBeTruthy();
+      expect(call[0].html).not.toContain('<script>alert(1)</script>');
+      expect(call[0].html).toContain('&lt;script&gt;alert(1)&lt;/script&gt; Pool');
     });
   });
 });

@@ -385,7 +385,7 @@ router.post(
         conversationId: req.params.id,
         orgId: req.orgId,
         content: req.body.content,
-        clientId: conv.client_id,
+        clientId: conv.conversation.client_id,
       });
       res.status(201).json({ data: updated });
     } catch (err) {
@@ -428,7 +428,7 @@ router.post(
       const { symptom, accessType } = req.body;
       const result = await diagnosticEngineService.runDiagnostic({
         orgId: req.orgId,
-        clientId: conv.client_id,
+        clientId: conv.conversation.client_id,
         conversationId: Number(req.params.id),
         symptom: symptom || null,
         accessType: accessType || null,

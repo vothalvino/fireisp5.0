@@ -906,6 +906,32 @@
         }
       }
     },
+    "/auth/verify-email/resend": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Resend the email verification link (authenticated); no-op if already verified",
+        "operationId": "resendVerificationEmail",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/refresh": {
       "post": {
         "tags": [
@@ -9567,7 +9593,7 @@
         "tags": [
           "RADIUS"
         ],
-        "summary": "List RADIUS accounts for a contract",
+        "summary": "List RADIUS accounts for a contract (response excludes the cleartext `password` column — see /credentials for that)",
         "operationId": "listRadiusByContract",
         "security": [
           {
@@ -9586,7 +9612,79 @@
         ],
         "responses": {
           "200": {
-            "description": "RadiusAccount[]",
+            "description": "RadiusAccount[] (no password field)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/radius/contract/{contractId}/credentials": {
+      "get": {
+        "tags": [
+          "RADIUS"
+        ],
+        "summary": "View cleartext PPPoE credentials (username+password) for a contract’s RADIUS account(s); requires radius.credentials.view",
+        "operationId": "getRadiusContractCredentials",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RadiusAccount[] (includes cleartext password)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/radius/{id}/credentials": {
+      "get": {
+        "tags": [
+          "RADIUS"
+        ],
+        "summary": "View cleartext PPPoE credentials (username+password) for a single RADIUS account; requires radius.credentials.view",
+        "operationId": "getRadiusCredentials",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RadiusAccount (includes cleartext password)",
             "content": {
               "application/json": {
                 "schema": {
@@ -53538,6 +53636,10 @@
             "type": "number",
             "minimum": 1
           },
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
           "contract_id": {
             "type": "number",
             "minimum": 1
@@ -53634,6 +53736,10 @@
             "type": "number",
             "minimum": 1
           },
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
           "contract_id": {
             "type": "number",
             "minimum": 1
@@ -53723,6 +53829,10 @@
         "type": "object",
         "properties": {
           "site_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "client_id": {
             "type": "number",
             "minimum": 1
           },

@@ -154,7 +154,7 @@ The old refresh token is immediately invalidated (rotation). Each refresh issues
 
 - **Content-Type**: `application/json` for all POST/PUT requests
 - **Body size limit**: 10 MB
-- All string fields in request bodies are HTML-entity sanitized (XSS prevention)
+- Request bodies are stored and returned as submitted — string fields are **not** HTML-entity-encoded on input. XSS defense happens at output sinks instead (React/JSX auto-escaping, `DOMPurify.sanitize()` on the one raw-HTML render in the subscriber portal, and output-encoding at CFDI XML / email-template generation), so clients should not expect or rely on request bodies being transformed before storage
 
 ### Responses
 

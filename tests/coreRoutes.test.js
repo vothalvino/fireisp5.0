@@ -1239,6 +1239,110 @@ describe('Device Routes — /api/devices', () => {
       expect(res.body.data).toHaveLength(0);
     });
   });
+
+  // --- client_id FK org-scoping (fix/diagnostic-engine-blindness-client-id) ---
+  // devices.client_id was previously absent from both the validation schemas
+  // and Device.fillable, so POST/PUT/PATCH silently dropped it (200 OK, field
+  // unchanged) — diagnosticEngineService._resolveOnuDeviceId could therefore
+  // never find a client's ONU. Now that it is settable, a cross-tenant FK
+  // check (assertDeviceClientFk) is required so an org-A caller cannot link
+  // a device to an org-B client id.
+  describe('client_id FK org-scoping', () => {
+    test('POST persists client_id when it belongs to the caller organization', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[]]) // quotaCheck: no row -> unlimited
+        .mockResolvedValueOnce([[{ id: 42, organization_id: 1 }]]) // Client.findById -> found in this org
+        .mockResolvedValueOnce([{ insertId: 3, affectedRows: 1 }]) // INSERT devices
+        .mockResolvedValueOnce([[{ ...mockDevice, id: 3, type: 'onu', client_id: 42 }]]) // findByIdIncludingDeleted
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // audit_log INSERT
+
+      const res = await request(app)
+        .post('/api/devices')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ name: 'ONU-100', type: 'onu', client_id: 42 });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.client_id).toBe(42);
+    });
+
+    test('POST rejects a client_id belonging to another organization with 422', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[]]) // quotaCheck: no row -> unlimited
+        .mockResolvedValueOnce([[]]); // Client.findById -> not found in this org
+
+      const res = await request(app)
+        .post('/api/devices')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ name: 'ONU-101', type: 'onu', client_id: 999 });
+
+      expect(res.status).toBe(422);
+    });
+
+    test('PUT rejects a client_id belonging to another organization with 422', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[mockDevice]]) // findByIdOrFail (old)
+        .mockResolvedValueOnce([[]]); // Client.findById -> not found in this org
+
+      const res = await request(app)
+        .put('/api/devices/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 999 });
+
+      expect(res.status).toBe(422);
+    });
+
+    test('PATCH persists client_id when it belongs to the caller organization', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[mockDevice]]) // findByIdOrFail (old)
+        .mockResolvedValueOnce([[{ id: 42, organization_id: 1 }]]) // Client.findById (beforeUpdate hook)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE
+        .mockResolvedValueOnce([[{ ...mockDevice, client_id: 42 }]]) // findById (updated)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // audit_log INSERT
+
+      const res = await request(app)
+        .patch('/api/devices/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 42 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.client_id).toBe(42);
+    });
+
+    test('PATCH rejects a client_id belonging to another organization with 422', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[mockDevice]]) // findByIdOrFail (old)
+        .mockResolvedValueOnce([[]]); // Client.findById -> not found in this org
+
+      const res = await request(app)
+        .patch('/api/devices/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 999 });
+
+      expect(res.status).toBe(422);
+    });
+
+    test('PATCH with client_id: null clears the link without an org check', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[{ ...mockDevice, client_id: 42 }]]) // findByIdOrFail (old, had a client)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE (no Client.findById in between)
+        .mockResolvedValueOnce([[{ ...mockDevice, client_id: null }]]) // findById (updated)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // audit_log INSERT
+
+      const res = await request(app)
+        .patch('/api/devices/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: null });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.client_id).toBeNull();
+    });
+  });
 });
 
 // =============================================================================

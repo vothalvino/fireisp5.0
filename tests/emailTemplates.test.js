@@ -37,6 +37,21 @@ describe('Email Templates', () => {
       expect(result.subject).toContain('Welcome to FireISP');
       expect(result.html).toContain('Valued Customer');
     });
+
+    it('HTML-escapes clientName/orgName instead of interpolating them raw', () => {
+      const result = templates.welcomeEmail({
+        clientName: '<b>Injected</b>',
+        orgName: '<i>Evil ISP</i>',
+        portalUrl: 'https://portal.isp.mx',
+      });
+      expect(result.html).not.toContain('<b>Injected</b>');
+      expect(result.html).not.toContain('<i>Evil ISP</i>');
+      expect(result.html).toContain('&lt;b&gt;Injected&lt;/b&gt;');
+      expect(result.html).toContain('&lt;i&gt;Evil ISP&lt;/i&gt;');
+      // Subject is plain text, never rendered as HTML — escaping it would
+      // show literal entities to the recipient, so it stays raw.
+      expect(result.subject).toContain('<i>Evil ISP</i>');
+    });
   });
 
   describe('invoiceEmail()', () => {
@@ -59,6 +74,32 @@ describe('Email Templates', () => {
       expect(result.html).toContain('Internet 100 Mbps');
       expect(result.html).toContain('2026-05-01');
     });
+
+    it('HTML-escapes clientName and each line item description', () => {
+      const result = templates.invoiceEmail({
+        clientName: '<script>x</script>',
+        total: 100,
+        currency: 'MXN',
+        items: [{ description: '"><img src=x onerror=alert(1)>', amount: 100 }],
+      });
+      expect(result.html).not.toContain('<script>x</script>');
+      expect(result.html).not.toContain('"><img src=x onerror=alert(1)>');
+      expect(result.html).toContain('&lt;script&gt;x&lt;/script&gt;');
+      expect(result.html).toContain('&quot;&gt;&lt;img src=x onerror=alert(1)&gt;');
+    });
+
+    it('HTML-escapes invoiceNumber instead of interpolating it raw (invoices.invoice_number is user-settable free text, not guaranteed system-generated)', () => {
+      const result = templates.invoiceEmail({
+        clientName: 'Customer',
+        invoiceNumber: '<script>inv</script>',
+        total: 100,
+        currency: 'MXN',
+      });
+      expect(result.html).not.toContain('<script>inv</script>');
+      expect(result.html).toContain('&lt;script&gt;inv&lt;/script&gt;');
+      // Subject is plain text — RAW invoiceNumber is fine there.
+      expect(result.subject).toContain('<script>inv</script>');
+    });
   });
 
   describe('paymentReceiptEmail()', () => {
@@ -78,6 +119,30 @@ describe('Email Templates', () => {
       expect(result.html).toContain('SPEI');
       expect(result.html).toContain('REF-12345');
     });
+
+    it('HTML-escapes clientName and reference instead of interpolating them raw', () => {
+      const result = templates.paymentReceiptEmail({
+        clientName: '<script>x</script>',
+        amount: 100,
+        currency: 'MXN',
+        reference: "'; DROP TABLE payments; --<b>",
+      });
+      expect(result.html).not.toContain('<script>x</script>');
+      expect(result.html).not.toContain('<b>');
+      expect(result.html).toContain('&lt;script&gt;x&lt;/script&gt;');
+      expect(result.html).toContain('&#x27;; DROP TABLE payments; --&lt;b&gt;');
+    });
+
+    it('HTML-escapes invoiceNumber instead of interpolating it raw (invoices.invoice_number is user-settable free text)', () => {
+      const result = templates.paymentReceiptEmail({
+        clientName: 'Customer',
+        amount: 100,
+        currency: 'MXN',
+        invoiceNumber: '<script>inv</script>',
+      });
+      expect(result.html).not.toContain('<script>inv</script>');
+      expect(result.html).toContain('&lt;script&gt;inv&lt;/script&gt;');
+    });
   });
 
   describe('passwordResetEmail()', () => {
@@ -92,6 +157,15 @@ describe('Email Templates', () => {
       expect(result.html).toContain('https://isp.mx/reset?token=abc123');
       expect(result.html).toContain('1 hour');
     });
+
+    it('HTML-escapes a userName containing markup instead of interpolating it raw', () => {
+      const result = templates.passwordResetEmail({
+        userName: '<script>alert(1)</script>',
+        resetUrl: 'https://isp.mx/reset?token=abc123',
+      });
+      expect(result.html).not.toContain('<script>alert(1)</script>');
+      expect(result.html).toContain('&lt;script&gt;');
+    });
   });
 
   describe('emailVerificationEmail()', () => {
@@ -103,6 +177,15 @@ describe('Email Templates', () => {
       expect(result.subject).toBe('Verify Your Email Address');
       expect(result.html).toContain('New User');
       expect(result.html).toContain('https://isp.mx/verify?token=xyz');
+    });
+
+    it('HTML-escapes a userName containing markup instead of interpolating it raw', () => {
+      const result = templates.emailVerificationEmail({
+        userName: '<img src=x onerror=alert(1)>',
+        verifyUrl: 'https://isp.mx/verify?token=xyz',
+      });
+      expect(result.html).not.toContain('<img src=x onerror=alert(1)>');
+      expect(result.html).toContain('&lt;img');
     });
   });
 
@@ -122,6 +205,32 @@ describe('Email Templates', () => {
       expect(result.html).toContain('25 days');
       expect(result.html).toContain('USD 300.00');
     });
+
+    it('HTML-escapes clientName/orgName instead of interpolating them raw', () => {
+      const result = templates.suspensionWarningEmail({
+        clientName: '<script>x</script>',
+        orgName: '<script>y</script>',
+        total: 300,
+        currency: 'USD',
+      });
+      expect(result.html).not.toContain('<script>x</script>');
+      expect(result.html).not.toContain('<script>y</script>');
+      expect(result.html).toContain('&lt;script&gt;x&lt;/script&gt;');
+      expect(result.html).toContain('&lt;script&gt;y&lt;/script&gt;');
+    });
+
+    it('HTML-escapes invoiceNumber instead of interpolating it raw (invoices.invoice_number is user-settable free text)', () => {
+      const result = templates.suspensionWarningEmail({
+        clientName: 'Customer',
+        invoiceNumber: '<script>inv</script>',
+        total: 300,
+        currency: 'USD',
+      });
+      expect(result.html).not.toContain('<script>inv</script>');
+      expect(result.html).toContain('&lt;script&gt;inv&lt;/script&gt;');
+      // Subject is plain text — RAW invoiceNumber is fine there.
+      expect(result.subject).toContain('<script>inv</script>');
+    });
   });
 
   describe('serviceSuspendedEmail()', () => {
@@ -136,6 +245,20 @@ describe('Email Templates', () => {
       expect(result.subject).toContain('Suspended');
       expect(result.html).toContain('contract #42');
       expect(result.html).toContain('MXN 600.00');
+    });
+
+    it('HTML-escapes clientName/orgName instead of interpolating them raw', () => {
+      const result = templates.serviceSuspendedEmail({
+        clientName: '<script>x</script>',
+        orgName: '<script>y</script>',
+        contractId: 42,
+        total: 600,
+        currency: 'MXN',
+      });
+      expect(result.html).not.toContain('<script>x</script>');
+      expect(result.html).not.toContain('<script>y</script>');
+      expect(result.html).toContain('&lt;script&gt;x&lt;/script&gt;');
+      expect(result.html).toContain('&lt;script&gt;y&lt;/script&gt;');
     });
   });
 
@@ -162,6 +285,24 @@ describe('Email Templates', () => {
 
       const minor = templates.outageNotificationEmail({ severity: 'minor' });
       expect(minor.html).toContain('badge-success');
+    });
+
+    it('HTML-escapes clientName/orgName/outageTitle/affectedArea instead of interpolating them raw', () => {
+      const result = templates.outageNotificationEmail({
+        clientName: '<script>a</script>',
+        orgName: '<script>b</script>',
+        outageTitle: '<script>c</script>',
+        affectedArea: '<script>d</script>',
+        severity: 'critical',
+      });
+      expect(result.html).not.toContain('<script>a</script>');
+      expect(result.html).not.toContain('<script>b</script>');
+      expect(result.html).not.toContain('<script>c</script>');
+      expect(result.html).not.toContain('<script>d</script>');
+      expect(result.html).toContain('&lt;script&gt;a&lt;/script&gt;');
+      expect(result.html).toContain('&lt;script&gt;b&lt;/script&gt;');
+      expect(result.html).toContain('&lt;script&gt;c&lt;/script&gt;');
+      expect(result.html).toContain('&lt;script&gt;d&lt;/script&gt;');
     });
   });
 });

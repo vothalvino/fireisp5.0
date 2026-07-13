@@ -11,6 +11,7 @@ const User = require('../models/User');
 const Organization = require('../models/Organization');
 const { sanitizeUser } = require('../utils/userSanitize');
 const config = require('../config');
+const logger = require('../utils/logger');
 const { setCsrfCookie, clearCsrfCookie } = require('../middleware/csrf');
 
 const router = Router();
@@ -230,8 +231,55 @@ router.post('/password-reset/request',
   async (req, res, next) => {
     try {
       const result = await authService.requestPasswordReset(req.body.email);
-      // Always return success to prevent user enumeration
+
+      // Respond BEFORE ever touching email. Timing — not just response body —
+      // is part of the anti-enumeration property the generic message exists
+      // for: emailTransport.sendEmail() is a real SMTP round-trip (nodemailer
+      // defaults to a ~2-minute connection timeout), and only the known-email
+      // branch above reaches it. Awaiting it here would make a registered
+      // address respond measurably slower than an unregistered one — up to
+      // that full timeout if the mail server is unreachable — defeating the
+      // whole point of returning an identical body. The one asymmetry that
+      // DOES remain (an extra indexed UPDATE inside requestPasswordReset()
+      // on the known-email branch, setting the reset token) is accepted as
+      // negligible; the SMTP round-trip was the material timing signal.
       res.json({ message: result.message || 'If that email exists, a reset link has been sent' });
+
+      // Only a real hit carries a token — the anti-enumeration branch above
+      // returns just { message } with none. Fire the send detached from the
+      // request/response cycle: never awaited, so its outcome (success,
+      // failure, or how long it takes) can never leak back to the caller —
+      // that would itself become a new enumeration side-channel. A failure
+      // can only ever become a server-side log line.
+      if (result.token) {
+        try {
+          const emailTransport = require('../services/emailTransport');
+          const templates = require('../views/emailTemplates');
+          const resetUrl = `${config.appUrl}/reset-password?token=${result.token}`;
+          const template = templates.passwordResetEmail({
+            userName: result.userName,
+            resetUrl,
+            expiresIn: '1 hour',
+          });
+          emailTransport.sendEmail({
+            to: result.email,
+            subject: template.subject,
+            html: template.html,
+          })
+            .then((sendResult) => {
+              if (!sendResult || !sendResult.success) {
+                logger.warn(`Password reset email failed to send to ${result.email}: ${sendResult && sendResult.error}`);
+              }
+            })
+            .catch((emailErr) => {
+              logger.error(`Password reset email send threw: ${emailErr.message}`);
+            });
+        } catch (emailErr) {
+          // Synchronous failure (e.g. require()/template build) — the
+          // response is already sent above, so just log it.
+          logger.error(`Password reset email send threw: ${emailErr.message}`);
+        }
+      }
     } catch (err) {
       next(err);
     }
@@ -276,6 +324,18 @@ router.post('/verify-email',
     }
   },
 );
+
+// POST /api/auth/verify-email/resend — resend the verification email for the
+// authenticated user. No body required; no-ops quickly if already verified.
+// Self-service like /change-password: no RBAC permission gate, just identity.
+router.post('/verify-email/resend', authenticate, async (req, res, next) => {
+  try {
+    const result = await authService.resendVerificationEmail(req.user.id);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
 
 // POST /api/auth/refresh — rotate access token using refresh token
 // Accepts the refresh token from the httpOnly cookie (browser SPA) or

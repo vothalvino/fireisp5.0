@@ -61,6 +61,12 @@ const config = {
     // and office NATs put many staff behind one IP — 200 starved real usage.
     api: parseIntEnv('RATE_LIMIT_API', 1000),
     auth: parseIntEnv('RATE_LIMIT_AUTH', 20),
+    // POST /auth/password-reset/request specifically (on top of the shared
+    // `auth` bucket above, which already covers it by prefix). Once wired to
+    // actually send email, this endpoint becomes a mail-bombing and
+    // enumeration-timing vector distinct from login/register, so it gets its
+    // own tighter per-IP budget rather than sharing the looser 20/window.
+    passwordReset: parseIntEnv('RATE_LIMIT_PASSWORD_RESET', 5),
     // Session-keepalive endpoints (/auth/me, /auth/refresh, /auth/logout,
     // /auth/switch-organization) get their own per-IP bucket so a busy
     // dashboard can never starve its own session and force a re-login.

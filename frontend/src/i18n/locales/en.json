@@ -44,7 +44,38 @@
     "passwordLabel": "Password",
     "totpLabel": "Two-Factor Code",
     "totpPlaceholder": "6-digit code",
-    "totpPrompt": "Enter your two-factor authentication code."
+    "totpPrompt": "Enter your two-factor authentication code.",
+    "forgotPasswordLink": "Forgot password?"
+  },
+  "forgotPassword": {
+    "title": "Forgot Password",
+    "subtitle": "Enter your email and we'll send you a link to reset your password.",
+    "submitButton": "Send Reset Link",
+    "submitting": "Sending…",
+    "successMessage": "If that email exists, a reset link has been sent.",
+    "backToLogin": "Back to login"
+  },
+  "resetPassword": {
+    "title": "Reset Password",
+    "subtitle": "Choose a new password for your account.",
+    "passwordLabel": "New Password",
+    "confirmPasswordLabel": "Confirm New Password",
+    "submitButton": "Reset Password",
+    "submitting": "Resetting…",
+    "successMessage": "Your password has been reset. You can now sign in.",
+    "passwordMismatch": "Passwords do not match.",
+    "missingToken": "No reset token was provided. Please request a new link.",
+    "invalidOrExpired": "This link is invalid or has expired.",
+    "requestNewLink": "Request a new link",
+    "goToLogin": "Go to login"
+  },
+  "verifyEmail": {
+    "title": "Verify Email",
+    "verifying": "Verifying your email…",
+    "successMessage": "Your email has been verified.",
+    "missingToken": "No verification token was provided.",
+    "invalidOrExpired": "This link is invalid or has expired.",
+    "goToLogin": "Go to login"
   },
   "portalLogin": {
     "subtitle": "Client Account Portal",
@@ -368,7 +399,8 @@
     "showPassword": "Show",
     "hidePassword": "Hide",
     "credentialsError": "Failed to load credentials.",
-    "credentialsForbidden": "You don't have permission to view PPPoE credentials (requires the devices.view permission)."
+    "credentialsForbidden": "You don't have permission to view PPPoE credentials (requires the devices.view permission).",
+    "passwordForbidden": "Insufficient permission to view the password (requires radius.credentials.view)."
   },
   "invoiceList": {
     "title": "Invoices",

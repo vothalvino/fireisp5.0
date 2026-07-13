@@ -65,12 +65,40 @@ describe('ContractDetail — PPPoE credentials', () => {
     const pppoeTab = screen.getByRole('button', { name: 'PPPoE' });
     fireEvent.click(pppoeTab);
 
-    // Username shown; password masked until revealed.
+    // Username shown immediately (base, password-free fetch); the password
+    // comes from a second, separately-gated /credentials fetch and is masked
+    // until revealed — wait for it (findByRole) rather than assuming it has
+    // already resolved by the time the base account renders.
     await waitFor(() => expect(screen.getByText('sub_ada')).toBeInTheDocument());
     expect(screen.queryByText('topsecret')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show' }));
+    const showBtn = await screen.findByRole('button', { name: 'Show' });
+    fireEvent.click(showBtn);
     expect(screen.getByText('topsecret')).toBeInTheDocument();
+  });
+
+  it('shows an insufficient-permission note in place of the password when the credentials fetch 403s', async () => {
+    mockApiGet.mockImplementation((path: unknown) => {
+      if (typeof path === 'string' && path.includes('/credentials')) {
+        return Promise.resolve({
+          data: undefined,
+          error: { error: { code: 'FORBIDDEN' } },
+          response: { status: 403 },
+        });
+      }
+      return Promise.resolve({ data: { data: [radiusAccount] }, error: undefined });
+    });
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Contract #5' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'PPPoE' }));
+
+    // Username still visible (base fetch only needs devices.view).
+    await waitFor(() => expect(screen.getByText('sub_ada')).toBeInTheDocument());
+    // Password never rendered, replaced by the permission note instead.
+    expect(screen.queryByText('topsecret')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Show' })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Insufficient permission to view the password/)).toBeInTheDocument());
   });
 
   it('asks for confirmation before regenerating, then displays the new value', async () => {

@@ -2,7 +2,7 @@
 // FireISP 5.0 — App Router
 // =============================================================================
 // Implements role-based UI routing:
-//   • Public routes: /login
+//   • Public routes: /login, /forgot-password, /reset-password, /verify-email
 //   • Protected routes (any authenticated user): /, /clients, /contracts, etc.
 //   • Admin-only routes: /users, /settings
 //   • Billing+ routes: /reports
@@ -14,6 +14,9 @@ import { AuthProvider } from '@/auth/AuthContext';
 import { PrivateRoute } from '@/auth/PrivateRoute';
 import { Layout } from '@/components/Layout';
 import { Login } from '@/pages/Login';
+import { ForgotPassword } from '@/pages/ForgotPassword';
+import { ResetPassword } from '@/pages/ResetPassword';
+import { VerifyEmail } from '@/pages/VerifyEmail';
 import { PortalAuthProvider } from '@/auth/PortalAuthContext';
 import { PortalRoute } from '@/auth/PortalRoute';
 import { PortalLayout } from '@/components/PortalLayout';
@@ -184,6 +187,9 @@ export function App() {
             <Routes>
               {/* Public */}
               <Route path="/login" element={<Login />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/verify-email" element={<VerifyEmail />} />
 
               {/* ---- Client Self-Service Portal ---- */}
               <Route path="/portal/login" element={<PortalLogin />} />
