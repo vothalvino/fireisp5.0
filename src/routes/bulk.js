@@ -175,7 +175,15 @@ router.post('/suspend', requirePermission('contracts.update'), validate(bulkSche
 // ---------------------------------------------------------------------------
 // POST /bulk/email — Mass-send emails to clients
 // ---------------------------------------------------------------------------
-router.post('/email', requirePermission('clients.view'), validate(bulkSchemas.email), async (req, res, next) => {
+// Gated by campaigns.create (communication module), NOT clients.view — a
+// mass-send action is a write, not a read, and clients.view is granted
+// nearly org-wide (every seeded role, including technician and readonly).
+// Before this fix, ANY role that could merely view the client list — even
+// readonly, whose whole persona contract is "change nothing" — could
+// trigger a free-form, up-to-1000-recipient email blast with zero rate
+// limiting. campaigns.create is already correctly scoped to admin/support/
+// billing (migration 199) and withheld from technician/readonly.
+router.post('/email', requirePermission('campaigns.create'), validate(bulkSchemas.email), async (req, res, next) => {
   try {
     const orgId = req.orgId;
     const { client_ids, subject, body } = req.body;

@@ -51,12 +51,98 @@ function makeConn() {
 beforeEach(() => jest.clearAllMocks());
 afterEach(() => jest.restoreAllMocks());
 
-describe('generateOrderNumber', () => {
-  test('zero-pads the next sequence for the org', async () => {
-    const conn = { query: jest.fn().mockResolvedValue([[{ cnt: 41 }]]) };
-    const num = await lifecycleService.generateOrderNumber(conn, 7);
-    expect(num).toBe('SO-000042');
-    expect(conn.query.mock.calls[0][1]).toEqual([7]);
+// =========================================================================
+// nextOrderNumber (migration 384 — atomic per-org sequence, mirrors
+// billingService.nextInvoiceNumber / migration 381)
+// =========================================================================
+describe('nextOrderNumber', () => {
+  /** Fresh mock transaction connection exposing both .execute() and .query(). */
+  function makeSeqConn() {
+    return {
+      execute: jest.fn(),
+      // nextOrderNumber() reads back LAST_INSERT_ID() via conn.query() (a
+      // plain query, not a prepared .execute()) — separate mock queue from
+      // conn.execute, matching nextInvoiceNumber's contract exactly.
+      query: jest.fn().mockResolvedValue([[{ id: 1 }]]),
+    };
+  }
+
+  test('first-ever call for an org: INSERT IGNORE seeds the row, UPDATE advances it, returns SO-000001', async () => {
+    const conn = makeSeqConn();
+    conn.execute
+      .mockResolvedValueOnce([{ affectedRows: 1 }])  // INSERT IGNORE actually inserted (no prior row)
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE next_number
+    conn.query.mockResolvedValueOnce([[{ id: 1 }]]);
+
+    const result = await lifecycleService.nextOrderNumber(conn, 7);
+
+    expect(result).toBe('SO-000001');
+    expect(conn.execute).toHaveBeenCalledTimes(2);
+
+    const insertIgnoreCall = conn.execute.mock.calls[0];
+    expect(insertIgnoreCall[0]).toContain('INSERT IGNORE INTO organization_order_sequences');
+    expect(insertIgnoreCall[1]).toEqual([7]);
+
+    const updateCall = conn.execute.mock.calls[1];
+    expect(updateCall[0]).toContain('UPDATE organization_order_sequences');
+    expect(updateCall[0]).toContain('LAST_INSERT_ID(next_number)');
+    expect(updateCall[1]).toEqual([7]);
+
+    expect(conn.query).toHaveBeenCalledWith('SELECT LAST_INSERT_ID() AS id');
+  });
+
+  test('increments across repeated calls for the same org (no gaps, no reuse)', async () => {
+    const conn = makeSeqConn();
+    conn.execute.mockResolvedValue([{ affectedRows: 1 }]);
+    conn.query
+      .mockResolvedValueOnce([[{ id: 1 }]])
+      .mockResolvedValueOnce([[{ id: 2 }]])
+      .mockResolvedValueOnce([[{ id: 3 }]]);
+
+    const first = await lifecycleService.nextOrderNumber(conn, 7);
+    const second = await lifecycleService.nextOrderNumber(conn, 7);
+    const third = await lifecycleService.nextOrderNumber(conn, 7);
+
+    expect([first, second, third]).toEqual(['SO-000001', 'SO-000002', 'SO-000003']);
+  });
+
+  test('uses sentinel 0 (not NULL) for a null orgId — single-tenant deployment bucket', async () => {
+    const conn = makeSeqConn();
+    conn.execute.mockResolvedValue([{ affectedRows: 1 }]);
+    conn.query.mockResolvedValueOnce([[{ id: 5 }]]);
+
+    const result = await lifecycleService.nextOrderNumber(conn, null);
+
+    expect(result).toBe('SO-000005');
+    // Both statements must target the sentinel bucket 0, never NULL — a
+    // NULL primary key wouldn't de-duplicate against itself in MySQL.
+    expect(conn.execute.mock.calls[0][1]).toEqual([0]);
+    expect(conn.execute.mock.calls[1][1]).toEqual([0]);
+  });
+
+  // Regression test for the bug this migration fixes: the OLD algorithm
+  // (`SELECT COUNT(*) FROM service_orders WHERE organization_id <=> ?` then
+  // +1) could hand out an already-used number whenever the row count didn't
+  // track the highest issued sequence value. nextOrderNumber() is
+  // structurally immune: it never reads the `service_orders` table at all.
+  test('never queries the service_orders table — immune to the COUNT(*)-based reuse bug', async () => {
+    const conn = makeSeqConn();
+    conn.execute.mockResolvedValue([{ affectedRows: 1 }]);
+    conn.query
+      .mockResolvedValueOnce([[{ id: 4 }]])
+      .mockResolvedValueOnce([[{ id: 5 }]]);
+
+    const afterFirstOrder = await lifecycleService.nextOrderNumber(conn, 9);
+    const afterCancelledAndSecondOrder = await lifecycleService.nextOrderNumber(conn, 9);
+
+    expect(afterFirstOrder).toBe('SO-000004');
+    expect(afterCancelledAndSecondOrder).toBe('SO-000005'); // NOT reused as SO-000004
+    expect(afterFirstOrder).not.toBe(afterCancelledAndSecondOrder);
+
+    for (const call of conn.execute.mock.calls) {
+      expect(call[0]).not.toMatch(/FROM service_orders/i);
+      expect(call[0]).toContain('organization_order_sequences');
+    }
   });
 });
 

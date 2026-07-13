@@ -219,4 +219,97 @@ describe('suspensionService', () => {
       expect(mockConnection.release).toHaveBeenCalled();
     });
   });
+
+  // =========================================================================
+  // logSuspensionEvent (migration-384-era shared helper, exported so
+  // routes/contracts.js#updateContractHandler can log the generic
+  // active<->suspended PUT/PATCH toggle the same way the dedicated
+  // /suspend, /unsuspend, and rule-driven soft-suspend paths do)
+  // =========================================================================
+  describe('logSuspensionEvent', () => {
+    test("action='suspended' writes the full column set via the given exec function", async () => {
+      const exec = jest.fn().mockResolvedValue([{ affectedRows: 1 }]);
+
+      await suspensionService.logSuspensionEvent(exec, {
+        contractId: 10,
+        ruleId: 3,
+        action: 'suspended',
+        reason: 'manual suspend',
+        triggeredByValue: 'manual',
+        userId: 5,
+        coaSent: true,
+        coaResponse: 'Disconnect-ACK',
+        invoiceId: 50,
+      });
+
+      expect(exec).toHaveBeenCalledTimes(1);
+      const [sql, params] = exec.mock.calls[0];
+      expect(sql).toContain('INSERT INTO suspension_logs');
+      expect(sql).toContain("'suspended'");
+      expect(sql).toMatch(/FROM\s+contracts\s+c/i);
+      expect(params).toEqual([3, 'manual suspend', 'manual', 5, true, 'Disconnect-ACK', 50, 10]);
+    });
+
+    test("action='unsuspended' writes suspended_at/restored_at via COALESCE(?, NOW())", async () => {
+      const exec = jest.fn().mockResolvedValue([{ affectedRows: 1 }]);
+      const suspendedAt = new Date('2026-07-01T10:00:00Z');
+      const restoredAt = new Date('2026-07-01T12:00:00Z');
+
+      await suspensionService.logSuspensionEvent(exec, {
+        contractId: 10,
+        action: 'unsuspended',
+        reason: 'manual reconnect',
+        triggeredByValue: 'manual',
+        userId: 5,
+        coaSent: true,
+        coaResponse: 'CoA-ACK',
+        invoiceId: null,
+        suspendedAt,
+        restoredAt,
+      });
+
+      const [sql, params] = exec.mock.calls[0];
+      expect(sql).toContain("'unsuspended'");
+      expect(sql).toMatch(/COALESCE\(\?,\s*NOW\(\)\)/i);
+      expect(sql).not.toContain('suspension_rule_id');
+      expect(params).toEqual(['manual reconnect', 'manual', 5, true, 'CoA-ACK', null, suspendedAt, restoredAt, 10]);
+    });
+
+    test('rejects an unsupported action without ever calling exec', async () => {
+      const exec = jest.fn();
+      await expect(
+        suspensionService.logSuspensionEvent(exec, { contractId: 10, action: 'bogus' }),
+      ).rejects.toThrow(/unsupported action/);
+      expect(exec).not.toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
+  // closeOpenSuspensionAndGetStart
+  // =========================================================================
+  describe('closeOpenSuspensionAndGetStart', () => {
+    test('returns the prior open suspended_at and closes the row', async () => {
+      const suspendedAt = new Date('2026-07-01T10:00:00Z');
+      const exec = jest.fn()
+        .mockResolvedValueOnce([[{ suspended_at: suspendedAt }]])  // SELECT
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);              // UPDATE close
+
+      const result = await suspensionService.closeOpenSuspensionAndGetStart(exec, 10);
+
+      expect(result).toBe(suspendedAt);
+      expect(exec).toHaveBeenCalledTimes(2);
+      expect(exec.mock.calls[0][0]).toContain('SELECT suspended_at');
+      expect(exec.mock.calls[1][0]).toContain('UPDATE suspension_logs SET restored_at = NOW()');
+      expect(exec.mock.calls[1][0]).toMatch(/NOT LIKE 'walled\\_garden:%'/);
+    });
+
+    test('returns null when there is no open suspension row', async () => {
+      const exec = jest.fn()
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([{ affectedRows: 0 }]);
+
+      const result = await suspensionService.closeOpenSuspensionAndGetStart(exec, 10);
+      expect(result).toBeNull();
+    });
+  });
 });

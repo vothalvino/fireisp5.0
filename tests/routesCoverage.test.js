@@ -272,6 +272,47 @@ describe('Bulk Routes — /api/bulk', () => {
 
       expect(res.status).toBe(400);
     });
+
+    // RBAC hardening: /bulk/email must be gated by campaigns.create (a write
+    // permission), not clients.view (a read permission nearly every seeded
+    // role — including technician and readonly — holds).
+    describe('RBAC — campaigns.create required (not clients.view)', () => {
+      function mockNonAdminUser(role) {
+        User.findById.mockResolvedValue({
+          id: 2,
+          email: 'nonadmin@example.com',
+          status: 'active',
+          role, // legacy users.role — anything other than 'admin' goes through User.getPermissions
+          organization_id: 1,
+        });
+      }
+
+      test('403 for a user with only clients.view (e.g. technician/readonly)', async () => {
+        mockNonAdminUser('technician');
+        User.getPermissions.mockResolvedValue(['clients.view']);
+
+        const res = await request(app)
+          .post('/api/bulk/email')
+          .set('Authorization', `Bearer ${authToken}`)
+          .send({ client_ids: [1], subject: 'Test', body: 'Hello' });
+
+        expect(res.status).toBe(403);
+      });
+
+      test('200 for a user with campaigns.create (e.g. support/billing)', async () => {
+        mockNonAdminUser('support');
+        User.getPermissions.mockResolvedValue(['campaigns.create']);
+        db.query.mockResolvedValue([[{ id: 1, email: 'a@test.com', first_name: 'A', last_name: 'B' }]]);
+
+        const res = await request(app)
+          .post('/api/bulk/email')
+          .set('Authorization', `Bearer ${authToken}`)
+          .send({ client_ids: [1], subject: 'Test', body: 'Hello' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.queued).toBe(1);
+      });
+    });
   });
 });
 

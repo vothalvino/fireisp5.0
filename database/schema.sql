@@ -13646,4 +13646,21 @@ CREATE TABLE IF NOT EXISTS organization_invoice_sequences (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Atomic per-organization invoice-number counter (migration 381) — replaces the collision-prone COUNT(*)+1 pattern';
 
+-- ---------------------------------------------------------------------------
+-- Table: organization_order_sequences (migration 384)
+-- Purpose: Atomic per-organization SO-###### counter, replacing the
+--          collision-prone COUNT(*)+1 service-order-numbering pattern. Keyed
+--          directly on organization_id (sentinel 0 = NULL/single-tenant
+--          bucket) so nextOrderNumber() can advance it atomically, mirroring
+--          organization_invoice_sequences (migration 381).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS organization_order_sequences (
+    organization_id BIGINT UNSIGNED NOT NULL COMMENT 'Owning tenant organisation; sentinel 0 = the NULL/single-tenant-deployment bucket (service_orders.organization_id IS NULL) since primary keys cannot de-duplicate NULL',
+    next_number     BIGINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Next SO-###### sequence value to hand out; advanced atomically by lifecycleService.nextOrderNumber()',
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (organization_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Atomic per-organization service-order-number counter (migration 384) — replaces the collision-prone COUNT(*)+1 pattern';
+
 SET FOREIGN_KEY_CHECKS = 1;

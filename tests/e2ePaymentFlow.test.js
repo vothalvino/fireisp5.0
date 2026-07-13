@@ -218,6 +218,7 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       };
       db.getConnection.mockResolvedValue(conn);
       db.query
+        .mockResolvedValueOnce([[{ id: 10 }]])       // Client.findById — in-org (org-verify hardening)
         .mockResolvedValueOnce([[mockContract]])     // Contract.findById
         .mockResolvedValueOnce([{ affectedRows: 1 }]); // auditLog
 
@@ -577,8 +578,10 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
 
       // --- Step 3: Create contract ---
       // INSERT runs on the transaction connection; db.query serves
-      // Contract.findById then auditLog.
+      // Client.findById (org-verify hardening), then Contract.findById, then
+      // auditLog.
       db.query
+        .mockResolvedValueOnce([[{ id: clientId }]])
         .mockResolvedValueOnce([[{
           id: 1, organization_id: 1, client_id: clientId, plan_id: planId,
           start_date: '2026-02-01', billing_day: 1, status: 'active',

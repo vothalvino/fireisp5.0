@@ -87,6 +87,7 @@ jest.mock('../src/utils/errorTracking', () => ({
 // ---------------------------------------------------------------------------
 // Models under test
 // ---------------------------------------------------------------------------
+const db          = require('../src/config/database');
 const Client      = require('../src/models/Client');
 const Contract    = require('../src/models/Contract');
 const Invoice     = require('../src/models/Invoice');
@@ -362,6 +363,78 @@ describe('Route-level cross-org isolation — mutations return 404', () => {
     const res = await request(app)
       .delete(`/api/v1/invoices/${RECORD_ID}`);
     expect(res.status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 3b — Contract FK-payload isolation (client_id org-verify hardening)
+// ---------------------------------------------------------------------------
+// contracts.js accepted client_id without verifying it belongs to req.orgId —
+// only plan_id was org-verified. A contract could be created or moved onto
+// another organization's client, exposing that client's PII on the response
+// and letting an attacker attach a live service/RADIUS account to a foreign
+// client. These tests pin the fix: both POST and PATCH now reject a
+// cross-org client_id with 422 VALIDATION_ERROR instead of accepting it.
+// ---------------------------------------------------------------------------
+
+describe('Route-level cross-org isolation — contract FK payload guards (client_id)', () => {
+  const ORG_A = 400;
+  const RECORD_ID = 77;
+  const FOREIGN_CLIENT_ID = 9001;
+  const PLAN_ID = 55;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    ctx.orgId = ORG_A;
+  });
+
+  test('POST /api/v1/contracts with a client_id belonging to a different org → 422 VALIDATION_ERROR (not 201)', async () => {
+    const conn = {
+      query: jest.fn().mockResolvedValueOnce([[{ id: PLAN_ID }]]), // assertPlanSelectable: plan exists in this org
+      beginTransaction: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn(),
+    };
+    db.getConnection.mockResolvedValue(conn);
+    // Client.findById(FOREIGN_CLIENT_ID, ORG_A) — the pooled db.query, not
+    // conn.query, since BaseModel always reads via the pool — returns no row.
+    mockQuery.mockResolvedValueOnce([[]]);
+
+    const res = await request(app)
+      .post('/api/v1/contracts')
+      .send({ client_id: FOREIGN_CLIENT_ID, plan_id: PLAN_ID, start_date: '2025-01-01' });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    expect(conn.rollback).toHaveBeenCalled();
+    // Never reached the INSERT.
+    const insertCall = conn.query.mock.calls.find(
+      c => typeof c[0] === 'string' && /^INSERT INTO contracts\b/.test(c[0]),
+    );
+    expect(insertCall).toBeUndefined();
+  });
+
+  test('PATCH /api/v1/contracts/:id with a cross-org client_id → 422, and the contract row is never updated', async () => {
+    const oldContract = {
+      id: RECORD_ID, organization_id: ORG_A, client_id: 111, plan_id: PLAN_ID,
+      status: 'active', connection_type: 'pppoe',
+    };
+    mockQuery
+      .mockResolvedValueOnce([[oldContract]])  // Contract.findByIdOrFail
+      .mockResolvedValueOnce([[]]);             // Client.findById(FOREIGN_CLIENT_ID, ORG_A) — not found
+
+    const res = await request(app)
+      .patch(`/api/v1/contracts/${RECORD_ID}`)
+      .send({ client_id: FOREIGN_CLIENT_ID });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    // Confirm the contract's client_id was never mutated — no UPDATE reached.
+    const updateCall = mockQuery.mock.calls.find(
+      c => typeof c[0] === 'string' && /^UPDATE contracts\b/.test(c[0]),
+    );
+    expect(updateCall).toBeUndefined();
   });
 });
 
