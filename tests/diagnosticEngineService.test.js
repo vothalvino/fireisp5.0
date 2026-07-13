@@ -102,7 +102,7 @@ beforeEach(() => {
 });
 
 describe('diagnosticEngineService.generateSupportResponse', () => {
-  test('healthy case: reassuring but specific, not escalated', async () => {
+  test('healthy case (FULL coverage, all ok): reassuring but specific, not escalated', async () => {
     const dbMock = makeDbMock({
       onuDeviceId: 5,
       onuDetailsRow: { onu_state: 'online', olt_port_id: 9, rx_power_dbm: -20, tx_power_dbm: 2 },
@@ -119,10 +119,46 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
 
     expect(result.escalate).toBe(false);
     expect(result.escalationReason).toBeNull();
+    // Every check is 'ok' here (full coverage) — the ONLY scenario allowed
+    // to claim a clean bill of health.
+    expect(result.diagnosticResult.checks.every(c => c.status === 'ok')).toBe(true);
     expect(result.reply).toMatch(/no encontramos problemas activos/i);
     expect(result.reply).toContain('reiniciar tu router'); // self-serve tip for 'slow'
     expect(result.diagnosticResult.confidence).toBe(1);
     expect(storedSymptom(dbMock)).toBe('slow');
+    for (const s of ENGLISH_INTERNAL_STRINGS) expect(result.reply).not.toContain(s);
+  });
+
+  test('partial coverage (some ok, some unknown, no error/warning): must NOT claim a clean bill of health', async () => {
+    // Common real-world fiber shape: session/signal/alerts/account all check
+    // out, but OLT port utilization can't be resolved (oltPortRow: null ->
+    // olt_port status 'unknown') — one unresolved check alongside four 'ok'
+    // checks is neither blind nor a full pass.
+    const dbMock = makeDbMock({
+      onuDeviceId: 5,
+      onuDetailsRow: { onu_state: 'online', olt_port_id: 9, rx_power_dbm: -20, tx_power_dbm: 2 },
+      oltPortRow: null, // -> olt_port: 'unknown'
+      alertCount: 0,
+      accountActive: true,
+    });
+    db.query.mockImplementation(dbMock);
+    radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5' });
+
+    const result = await diagnosticEngineService.generateSupportResponse({
+      orgId: 1, clientId: 10, conversationId: 1, content: 'mi internet está muy lento',
+    });
+
+    const statuses = result.diagnosticResult.checks.map(c => c.status);
+    expect(statuses).toContain('unknown');
+    expect(statuses).toContain('ok');
+    expect(statuses.every(s => s !== 'error' && s !== 'warning')).toBe(true);
+    expect(result.escalate).toBe(false);
+
+    // Must NOT assert a clean bill of health — coverage was incomplete.
+    expect(result.reply).not.toMatch(/no encontramos problemas activos/i);
+    // Must acknowledge the diagnostic didn't fully complete.
+    expect(result.reply).toMatch(/no logramos comprobar todo el diagnóstico/i);
+    expect(result.reply).toContain('reiniciar tu router'); // self-serve tip still offered
     for (const s of ENGLISH_INTERNAL_STRINGS) expect(result.reply).not.toContain(s);
   });
 
@@ -149,6 +185,9 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
     // _buildResult's escalate condition — see report for the flagged
     // dead-condition finding.
     expect(result.escalate).toBe(false);
+    // FIX 3: not escalating -> no ticket -> must not promise a scheduled
+    // technical review that nobody is actually tasked to do.
+    expect(result.reply).not.toMatch(/programamos una revisión técnica/i);
     for (const s of ENGLISH_INTERNAL_STRINGS) expect(result.reply).not.toContain(s);
   });
 
@@ -168,8 +207,15 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
 
     expect(result.diagnosticResult.confidence).toBe(0);
     expect(result.diagnosticResult.checks.every(c => c.status === 'unknown')).toBe(true);
-    expect(result.reply).toMatch(/no pudimos verificar automáticamente/i);
+    expect(result.reply).toMatch(/no pudimos completar el diagnóstico automático/i);
     expect(result.reply).not.toMatch(/no encontramos problemas activos/i); // never a fake clean bill of health
+    // FIX 2: must not assert a specific cause it doesn't actually know.
+    expect(result.reply).not.toMatch(/monitoreo no respondieron/i);
+    expect(result.reply).not.toContain('(nuestros sistemas de monitoreo no respondieron)');
+    // FIX 3: escalate is false here -> no ticket exists -> must not promise
+    // a human has been tasked to review it.
+    expect(result.reply).not.toMatch(/técnico lo revise/i);
+    expect(result.reply).not.toMatch(/registramos tu reporte/i);
     expect(result.escalate).toBe(false);
     for (const s of ENGLISH_INTERNAL_STRINGS) expect(result.reply).not.toContain(s);
   });

@@ -1033,6 +1033,22 @@ function _selfServeTip(symptom) { return _SELF_SERVE_TIPS[symptom] || _SELF_SERV
  * those remain internal/ops fields, persisted as-is to ai_diagnostic_runs by
  * _storeRun.
  *
+ * Honesty rules enforced here (do not weaken without a product decision):
+ *  - A "clean bill of health" ("no encontramos problemas") may ONLY be said
+ *    when every check actually ran (full coverage). On fiber, the optical
+ *    checks (onu_signal/olt_port) are routinely 'unknown' because polling
+ *    isn't implemented yet — reporting "todo bien" from a partial run would
+ *    be a false clean result for a majority of fiber customers.
+ *  - A fully-blind run (every check 'unknown') must not claim a specific
+ *    cause it doesn't know (e.g. "monitoring didn't respond") — it can be
+ *    blind because the symptom was unclassifiable or the client's device
+ *    isn't on file, not just a service outage.
+ *  - No non-escalating path may promise that a human/technician has been
+ *    tasked to follow up — escalate:true is the ONLY path that actually
+ *    creates a ticket (see supportConversationService.escalate). Every other
+ *    branch must offer an honest next step ("respóndenos" / "contáctanos")
+ *    instead of a fabricated commitment.
+ *
  * @param {string} symptom
  * @param {import('./diagnosticEngineService').DiagnosticResult} result
  * @returns {string}
@@ -1043,24 +1059,49 @@ function _buildCustomerReply(symptom, result) {
   const warningChecks = checks.filter(c => c.status === 'warning');
   const knownChecks = checks.filter(c => c.status !== 'unknown');
   const blind = checks.length > 0 && knownChecks.length === 0;
+  // Partial coverage: some checks ran (knownChecks non-empty) but at least
+  // one did not (e.g. optical telemetry unavailable) — distinct from both
+  // "blind" (nothing ran) and "full coverage" (everything ran). Only
+  // relevant to the no-error/no-warning tail below, since an error/warning
+  // already makes clear the run wasn't a clean pass either way.
+  const partialCoverage = !blind && knownChecks.length < checks.length;
 
   if (blind) {
+    // Fully blind: don't assert a false specific cause (see honesty rules
+    // above), and don't promise a human review that isn't actually tasked —
+    // escalate is false on this path, so no ticket exists. Whether a blind
+    // run should auto-open a review ticket is a ticket-volume product
+    // decision left to the user; deliberately NOT auto-escalated here.
     const tip = _selfServeTip(symptom);
-    return 'No pudimos verificar automáticamente el estado de tu conexión en este momento (nuestros sistemas de monitoreo no respondieron). Registramos tu reporte para que un técnico lo revise manualmente. Mientras tanto, ' + tip.charAt(0).toLowerCase() + tip.slice(1);
+    return 'No pudimos completar el diagnóstico automático de tu conexión en este momento. Mientras tanto, ' + tip.charAt(0).toLowerCase() + tip.slice(1) + ' Si el problema continúa, respóndenos con más detalles o contáctanos y con gusto te ayudamos.';
   }
 
   if (result.escalate) {
+    // escalate:true DOES create a real ticket (generateSupportResponse ->
+    // supportConversationService.escalate) — this wording is truthful and
+    // must stay as-is.
     return `Detectamos una posible falla física relacionada con ${_labelChecks(errorChecks.length ? errorChecks : checks)} que puede requerir la visita de un técnico. Te estamos conectando con nuestro equipo para coordinar la revisión.`;
   }
 
   if (errorChecks.length > 0) {
-    return `Revisamos tu conexión y encontramos un problema con ${_labelChecks(errorChecks)}. ${_selfServeTip(symptom)} Si el problema continúa después de intentarlo, respóndenos y programamos una revisión técnica.`;
+    // Not escalating (handled above) — no ticket is created, so don't
+    // promise a scheduled technical review; offer an honest next step.
+    return `Revisamos tu conexión y encontramos un problema con ${_labelChecks(errorChecks)}. ${_selfServeTip(symptom)} Si el problema continúa, respóndenos con más detalles o contáctanos y con gusto te ayudamos.`;
   }
 
   if (warningChecks.length > 0) {
     return `Revisamos tu conexión: no encontramos una falla crítica, pero notamos algo relacionado con ${_labelChecks(warningChecks)} que vale la pena atender. ${_selfServeTip(symptom)}`;
   }
 
+  if (partialCoverage) {
+    // No error/warning among what ran, but coverage was incomplete — do not
+    // claim a clean bill of health for a diagnostic that never finished.
+    // Same "deliberately not auto-escalated pending a product decision" note
+    // as the blind branch above applies here too.
+    return `Revisamos tu conexión y no vimos fallas en lo que pudimos verificar, pero no logramos comprobar todo el diagnóstico en este momento. ${_selfServeTip(symptom)} Si el problema continúa, respóndenos con más detalles y lo revisamos a fondo.`;
+  }
+
+  // Full coverage, nothing wrong — the only case allowed to say this.
   return `Revisamos tu conexión y no encontramos problemas activos en este momento. ${_selfServeTip(symptom)} Si el problema persiste, respóndenos y con gusto programamos una revisión más a fondo.`;
 }
 
