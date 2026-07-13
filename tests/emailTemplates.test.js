@@ -87,6 +87,19 @@ describe('Email Templates', () => {
       expect(result.html).toContain('&lt;script&gt;x&lt;/script&gt;');
       expect(result.html).toContain('&quot;&gt;&lt;img src=x onerror=alert(1)&gt;');
     });
+
+    it('HTML-escapes invoiceNumber instead of interpolating it raw (invoices.invoice_number is user-settable free text, not guaranteed system-generated)', () => {
+      const result = templates.invoiceEmail({
+        clientName: 'Customer',
+        invoiceNumber: '<script>inv</script>',
+        total: 100,
+        currency: 'MXN',
+      });
+      expect(result.html).not.toContain('<script>inv</script>');
+      expect(result.html).toContain('&lt;script&gt;inv&lt;/script&gt;');
+      // Subject is plain text — RAW invoiceNumber is fine there.
+      expect(result.subject).toContain('<script>inv</script>');
+    });
   });
 
   describe('paymentReceiptEmail()', () => {
@@ -118,6 +131,17 @@ describe('Email Templates', () => {
       expect(result.html).not.toContain('<b>');
       expect(result.html).toContain('&lt;script&gt;x&lt;/script&gt;');
       expect(result.html).toContain('&#x27;; DROP TABLE payments; --&lt;b&gt;');
+    });
+
+    it('HTML-escapes invoiceNumber instead of interpolating it raw (invoices.invoice_number is user-settable free text)', () => {
+      const result = templates.paymentReceiptEmail({
+        clientName: 'Customer',
+        amount: 100,
+        currency: 'MXN',
+        invoiceNumber: '<script>inv</script>',
+      });
+      expect(result.html).not.toContain('<script>inv</script>');
+      expect(result.html).toContain('&lt;script&gt;inv&lt;/script&gt;');
     });
   });
 
@@ -193,6 +217,19 @@ describe('Email Templates', () => {
       expect(result.html).not.toContain('<script>y</script>');
       expect(result.html).toContain('&lt;script&gt;x&lt;/script&gt;');
       expect(result.html).toContain('&lt;script&gt;y&lt;/script&gt;');
+    });
+
+    it('HTML-escapes invoiceNumber instead of interpolating it raw (invoices.invoice_number is user-settable free text)', () => {
+      const result = templates.suspensionWarningEmail({
+        clientName: 'Customer',
+        invoiceNumber: '<script>inv</script>',
+        total: 300,
+        currency: 'USD',
+      });
+      expect(result.html).not.toContain('<script>inv</script>');
+      expect(result.html).toContain('&lt;script&gt;inv&lt;/script&gt;');
+      // Subject is plain text — RAW invoiceNumber is fine there.
+      expect(result.subject).toContain('<script>inv</script>');
     });
   });
 

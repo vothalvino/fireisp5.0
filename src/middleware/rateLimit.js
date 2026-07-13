@@ -72,6 +72,19 @@ const authLimiter = makeLimiter(rl.auth, 'Too many authentication attempts, plea
  */
 const passwordResetLimiter = makeLimiter(rl.passwordReset, 'Too many password reset requests, please try again later');
 
+/**
+ * POST /auth/verify-email/resend only — reuses the same modest budget as
+ * passwordResetLimiter (RATE_LIMIT_PASSWORD_RESET, default 5), since this is
+ * the same class of "sends real email, can be used to mail-bomb an address"
+ * endpoint. Deliberately a SEPARATE limiter instance rather than the same
+ * object mounted twice: express-rate-limit's default in-memory store keys
+ * solely by IP (not by route), so sharing one instance across two routes
+ * would silently merge their budgets into a single combined counter — an
+ * attacker exhausting one endpoint would also lock the other out for
+ * legitimate use.
+ */
+const verifyEmailResendLimiter = makeLimiter(rl.passwordReset, 'Too many verification email requests, please try again later');
+
 /** Public endpoints — configurable via RATE_LIMIT_PUBLIC (default 60). */
 const publicLimiter = makeLimiter(rl.public);
 
@@ -191,6 +204,7 @@ module.exports = {
   apiLimiter,
   authLimiter,
   passwordResetLimiter,
+  verifyEmailResendLimiter,
   sessionLimiter,
   isSessionPath,
   publicLimiter,

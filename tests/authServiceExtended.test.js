@@ -87,6 +87,24 @@ describe('authService — extended flows', () => {
       );
     });
 
+    test('clears the login lockout (failed_login_attempts/locked_until) on a successful reset', async () => {
+      // Possession of the emailed reset token is stronger proof of identity
+      // than a password, so a successful reset must break the
+      // failed-login lockout loop from login() — otherwise the documented
+      // account-recovery path leaves the account still "temporarily locked".
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, failed_login_attempts: 5, locked_until: '2026-01-01 00:15:00' }]])  // SELECT by token hash
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE password
+        .mockResolvedValueOnce([{ affectedRows: 0 }]);  // DELETE sessions
+
+      await authService.resetPassword('valid-token-hex', 'newpassword123');
+
+      expect(db.query).toHaveBeenCalledWith(
+        expect.stringContaining('failed_login_attempts = 0, locked_until = NULL'),
+        expect.arrayContaining(['$hashed$', 1]),
+      );
+    });
+
     test('throws on invalid/expired token (the lookup query enforces reset_token_expires > NOW(), so an expired token returns zero rows same as an invalid one)', async () => {
       db.query.mockResolvedValueOnce([[]]);  // no matching token / expired
 

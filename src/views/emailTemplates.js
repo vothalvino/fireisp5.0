@@ -90,13 +90,19 @@ function welcomeEmail(vars) {
 // ---------------------------------------------------------------------------
 
 function invoiceEmail(vars) {
-  const { invoiceNumber, total, currency, dueDate, portalUrl, items } = vars;
-  // clientName/orgName and each line item's description are DB free text;
-  // invoiceNumber/total/currency/dueDate are system-generated/formatted —
-  // safe as-is (see escapeHtml import note above for the same reasoning
-  // repeated across every template below).
+  const { total, currency, dueDate, portalUrl, items } = vars;
+  // clientName/orgName, each line item's description, AND invoiceNumber are
+  // all DB free text — invoices.invoice_number is a plain VARCHAR(50) that
+  // POST /invoices accepts as arbitrary user input (src/middleware/schemas/
+  // invoices.js only bounds its length, no format/charset constraint), NOT a
+  // guaranteed system-generated sequence value. Escape all four.
+  // total/currency/dueDate ARE genuinely safe as-is: total is numeric
+  // (parseFloat'd below), dueDate is a formatted date string built by the
+  // caller, and currency is a config/UI-selected ISO 4217 code, never
+  // free-form user text.
   const clientName = escapeHtml(vars.clientName || 'Customer');
   const orgName = escapeHtml(vars.orgName || 'FireISP');
+  const invoiceNumber = vars.invoiceNumber ? escapeHtml(vars.invoiceNumber) : '';
   const itemsHtml = (items || []).map(i =>
     `<tr><td>${escapeHtml(i.description || '')}</td><td style="text-align:right">${currency || 'USD'} ${parseFloat(i.amount || 0).toFixed(2)}</td></tr>`,
   ).join('');
@@ -104,7 +110,7 @@ function invoiceEmail(vars) {
   const content = `
     <div class="header">
       <h1>New Invoice</h1>
-      <div class="subtitle">${invoiceNumber || ''}</div>
+      <div class="subtitle">${invoiceNumber}</div>
     </div>
     <p>Hello <strong>${clientName}</strong>,</p>
     <p>A new invoice has been generated for your account:</p>
@@ -117,7 +123,11 @@ function invoiceEmail(vars) {
     <p class="meta">${orgName}</p>`;
 
   return {
-    subject: `Invoice ${invoiceNumber || ''} — ${currency || 'USD'} ${parseFloat(total || 0).toFixed(2)} Due ${dueDate || ''}`,
+    // Subject is plain text, never rendered as HTML — uses the RAW
+    // vars.invoiceNumber, not the escaped local above (escaping it here
+    // would show literal "&lt;...&gt;" to the recipient in their inbox
+    // subject line instead of protecting against anything).
+    subject: `Invoice ${vars.invoiceNumber || ''} — ${currency || 'USD'} ${parseFloat(total || 0).toFixed(2)} Due ${dueDate || ''}`,
     html: baseLayout(content),
   };
 }
@@ -127,15 +137,18 @@ function invoiceEmail(vars) {
 // ---------------------------------------------------------------------------
 
 function paymentReceiptEmail(vars) {
-  const { amount, currency, paymentMethod, invoiceNumber, paymentDate } = vars;
-  // clientName/orgName are DB free text; reference is arbitrary free text too
-  // (a manually-entered check/transaction reference or a gateway-supplied
-  // string) — escape all three. paymentMethod is an ENUM column
-  // (cash/card/oxxo/spei/codi/...), invoiceNumber/amount/currency/paymentDate
-  // are system-generated/formatted — safe as-is.
+  const { amount, currency, paymentMethod, paymentDate } = vars;
+  // clientName/orgName, reference (a manually-entered check/transaction
+  // reference or gateway-supplied string), AND invoiceNumber (invoices.
+  // invoice_number — free VARCHAR(50), not guaranteed system-generated, see
+  // invoiceEmail() above for the full reasoning) are all DB free text —
+  // escape all four. paymentMethod IS a genuine DB ENUM column (cash/card/
+  // oxxo/spei/codi/...); amount/currency/paymentDate are numeric/formatted/
+  // config-selected — those three stay raw.
   const clientName = escapeHtml(vars.clientName || 'Customer');
   const orgName = escapeHtml(vars.orgName || 'FireISP');
   const reference = vars.reference ? escapeHtml(vars.reference) : '';
+  const invoiceNumber = vars.invoiceNumber ? escapeHtml(vars.invoiceNumber) : '';
   const content = `
     <div class="header">
       <h1>Payment Received</h1>
@@ -220,9 +233,13 @@ function emailVerificationEmail(vars) {
 // ---------------------------------------------------------------------------
 
 function suspensionWarningEmail(vars) {
-  const { daysOverdue, invoiceNumber, total, currency, dueDate, portalUrl } = vars;
+  const { daysOverdue, total, currency, dueDate, portalUrl } = vars;
+  // clientName/orgName/invoiceNumber are all DB free text — see invoiceEmail()
+  // above for why invoiceNumber specifically is NOT safe to leave raw despite
+  // looking like a system-generated sequence value.
   const clientName = escapeHtml(vars.clientName || 'Customer');
   const orgName = escapeHtml(vars.orgName || 'FireISP');
+  const invoiceNumber = vars.invoiceNumber ? escapeHtml(vars.invoiceNumber) : '';
   const content = `
     <div class="header">
       <h1>Service Suspension Warning</h1>
@@ -244,7 +261,9 @@ function suspensionWarningEmail(vars) {
     <p class="meta">If you have already made a payment, please disregard this notice. Payments may take up to 24 hours to process.<br>${orgName}</p>`;
 
   return {
-    subject: `⚠ Service Suspension Warning — Invoice ${invoiceNumber || ''} Overdue`,
+    // Subject is plain text — RAW vars.invoiceNumber, same reasoning as
+    // invoiceEmail()'s subject above.
+    subject: `⚠ Service Suspension Warning — Invoice ${vars.invoiceNumber || ''} Overdue`,
     html: baseLayout(content),
   };
 }

@@ -231,11 +231,26 @@ router.post('/password-reset/request',
   async (req, res, next) => {
     try {
       const result = await authService.requestPasswordReset(req.body.email);
+
+      // Respond BEFORE ever touching email. Timing — not just response body —
+      // is part of the anti-enumeration property the generic message exists
+      // for: emailTransport.sendEmail() is a real SMTP round-trip (nodemailer
+      // defaults to a ~2-minute connection timeout), and only the known-email
+      // branch above reaches it. Awaiting it here would make a registered
+      // address respond measurably slower than an unregistered one — up to
+      // that full timeout if the mail server is unreachable — defeating the
+      // whole point of returning an identical body. The one asymmetry that
+      // DOES remain (an extra indexed UPDATE inside requestPasswordReset()
+      // on the known-email branch, setting the reset token) is accepted as
+      // negligible; the SMTP round-trip was the material timing signal.
+      res.json({ message: result.message || 'If that email exists, a reset link has been sent' });
+
       // Only a real hit carries a token — the anti-enumeration branch above
-      // returns just { message } with none. Guard on it so we never attempt
-      // to email a non-existent address, and never let the send outcome leak
-      // into the response (that would itself become a new enumeration
-      // side-channel), regardless of whether the email actually went out.
+      // returns just { message } with none. Fire the send detached from the
+      // request/response cycle: never awaited, so its outcome (success,
+      // failure, or how long it takes) can never leak back to the caller —
+      // that would itself become a new enumeration side-channel. A failure
+      // can only ever become a server-side log line.
       if (result.token) {
         try {
           const emailTransport = require('../services/emailTransport');
@@ -246,20 +261,25 @@ router.post('/password-reset/request',
             resetUrl,
             expiresIn: '1 hour',
           });
-          const sendResult = await emailTransport.sendEmail({
+          emailTransport.sendEmail({
             to: result.email,
             subject: template.subject,
             html: template.html,
-          });
-          if (!sendResult || !sendResult.success) {
-            logger.warn(`Password reset email failed to send to ${result.email}: ${sendResult && sendResult.error}`);
-          }
+          })
+            .then((sendResult) => {
+              if (!sendResult || !sendResult.success) {
+                logger.warn(`Password reset email failed to send to ${result.email}: ${sendResult && sendResult.error}`);
+              }
+            })
+            .catch((emailErr) => {
+              logger.error(`Password reset email send threw: ${emailErr.message}`);
+            });
         } catch (emailErr) {
+          // Synchronous failure (e.g. require()/template build) — the
+          // response is already sent above, so just log it.
           logger.error(`Password reset email send threw: ${emailErr.message}`);
         }
       }
-      // Always return success to prevent user enumeration
-      res.json({ message: result.message || 'If that email exists, a reset link has been sent' });
     } catch (err) {
       next(err);
     }
