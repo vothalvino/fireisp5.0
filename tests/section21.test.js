@@ -416,10 +416,13 @@ describe('supportConversationService', () => {
     // INSERT customer message
     db.query.mockResolvedValueOnce([{ insertId: 12 }, undefined]);
     // supportContextService.enrichContext — db.query for client lookup
+    // (real column is plan_id on the JOINed active contract, not on clients)
     db.query.mockResolvedValueOnce([[{ id: 10, name: 'Test', email: 'x@x.com', status: 'active', plan_id: 1, phone: '123' }], undefined]);
-    // billingService.getBillingSummary — mocked at top level
-    const billingService = require('../src/services/billingService');
-    billingService.getBillingSummary.mockResolvedValueOnce(null);
+    // enrichContext's billing summary — client_balance_ledger + billing_periods
+    // (billingService.getBillingSummary was never a real function; enrichContext
+    // queries the ledger/periods directly now — see supportContextService.js)
+    db.query.mockResolvedValueOnce([[{ balance: '0.00' }], undefined]);
+    db.query.mockResolvedValueOnce([[], undefined]);
     const radiusService = require('../src/services/radiusService');
     radiusService.getSessionByClientId.mockResolvedValueOnce(null);
     const alertService = require('../src/services/alertService');
@@ -927,7 +930,15 @@ describe('nocAiService', () => {
   });
 
   test('explainAlert uses LLM when providerId given', async () => {
-    db.query.mockResolvedValueOnce([[{ id: 1, alert_type: 'device_offline', severity: 'critical', message: 'Device offline', device_id: 5, organization_id: 1 }], undefined]);
+    // alert_events (real table) has no alert_type/severity/message columns —
+    // severity/description come from the joined alert_rule, and the "message"
+    // is reconstructed from metric/current_value/threshold_value when there is
+    // no rule description.
+    db.query.mockResolvedValueOnce([[{
+      id: 1, rule_name: 'Device offline', rule_metric: 'device_offline', severity: 'critical',
+      description: 'Device offline', metric: 'device_offline', current_value: 0, threshold_value: 1,
+      device_id: 5, organization_id: 1,
+    }], undefined]);
     llmProviderService.chat.mockResolvedValueOnce({ text: 'The device lost power.', json: null, usage: {}, cost_usd: 0 });
     db.query.mockResolvedValueOnce([{ insertId: 4, affectedRows: 1 }, undefined]); // insert insight
     const result = await nocService.explainAlert(1, 1, 1);
@@ -936,7 +947,11 @@ describe('nocAiService', () => {
   });
 
   test('explainAlert uses deterministic fallback when no providerId', async () => {
-    db.query.mockResolvedValueOnce([[{ id: 2, alert_type: 'high_latency', severity: 'warning', message: 'High latency', device_id: null, organization_id: 1 }], undefined]);
+    db.query.mockResolvedValueOnce([[{
+      id: 2, rule_name: 'High latency', rule_metric: 'high_latency', severity: 'warning',
+      description: null, metric: 'latency_ms', current_value: 250, threshold_value: 100,
+      device_id: null, organization_id: 1,
+    }], undefined]);
     db.query.mockResolvedValueOnce([{ insertId: 5, affectedRows: 1 }, undefined]);
     const result = await nocService.explainAlert(1, 2, null);
     expect(result).toBeDefined();

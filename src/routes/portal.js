@@ -217,25 +217,31 @@ router.get('/invoices', async (req, res, next) => {
     const offset = (page - 1) * limit;
     const status = req.query.status;
 
-    let whereClause = 'WHERE client_id = ? AND deleted_at IS NULL';
+    // invoices has no discount_amount/period_start/period_end columns — there
+    // is no discount concept anywhere on invoices (dropped; the frontend
+    // already renders it conditionally), and the billing period dates live on
+    // billing_periods, linked via invoice_id.
+    let whereClause = 'WHERE i.client_id = ? AND i.deleted_at IS NULL';
     const params = [req.client.id];
 
     if (status) {
-      whereClause += ' AND status = ?';
+      whereClause += ' AND i.status = ?';
       params.push(status);
     }
 
     const [rows] = await db.query(
-      `SELECT id, invoice_number, subtotal, tax_amount, discount_amount, total,
-              currency, period_start, period_end, due_date, paid_at, status, created_at
-       FROM invoices ${whereClause}
-       ORDER BY created_at DESC
+      `SELECT i.id, i.invoice_number, i.subtotal, i.tax_amount, i.total,
+              i.currency, bp.period_start, bp.period_end, i.due_date, i.paid_at, i.status, i.created_at
+       FROM invoices i
+       LEFT JOIN billing_periods bp ON bp.invoice_id = i.id
+       ${whereClause}
+       ORDER BY i.created_at DESC
        LIMIT ${limit} OFFSET ${offset}`,
       params,
     );
 
     const [[{ total: count }]] = await db.query(
-      `SELECT COUNT(*) AS total FROM invoices ${whereClause}`,
+      `SELECT COUNT(*) AS total FROM invoices i ${whereClause}`,
       params,
     );
 
@@ -251,18 +257,26 @@ router.get('/invoices', async (req, res, next) => {
 // GET /portal/invoices/:id — invoice detail + items
 router.get('/invoices/:id', async (req, res, next) => {
   try {
+    // See the /invoices list route above for why discount_amount is dropped
+    // and period_start/period_end come from a join to billing_periods.
     const [rows] = await db.query(
-      `SELECT id, invoice_number, subtotal, tax_amount, discount_amount, total,
-              currency, period_start, period_end, due_date, paid_at, status, notes, created_at
-       FROM invoices
-       WHERE id = ? AND client_id = ? AND deleted_at IS NULL`,
+      `SELECT i.id, i.invoice_number, i.subtotal, i.tax_amount, i.total,
+              i.currency, bp.period_start, bp.period_end, i.due_date, i.paid_at, i.status, i.notes, i.created_at
+       FROM invoices i
+       LEFT JOIN billing_periods bp ON bp.invoice_id = i.id
+       WHERE i.id = ? AND i.client_id = ? AND i.deleted_at IS NULL`,
       [req.params.id, req.client.id],
     );
 
     if (!rows[0]) throw new NotFoundError('Invoice');
 
+    // invoice_items has tax_rate_id (an FK), not a tax_rate value — join
+    // tax_rates for the actual rate.
     const [items] = await db.query(
-      'SELECT id, description, quantity, unit_price, amount, tax_rate FROM invoice_items WHERE invoice_id = ? AND deleted_at IS NULL',
+      `SELECT ii.id, ii.description, ii.quantity, ii.unit_price, ii.amount, tr.rate AS tax_rate
+       FROM invoice_items ii
+       LEFT JOIN tax_rates tr ON tr.id = ii.tax_rate_id
+       WHERE ii.invoice_id = ? AND ii.deleted_at IS NULL`,
       [req.params.id],
     );
 
@@ -515,7 +529,7 @@ router.get('/dashboard', async (req, res, next) => {
               c.connection_type, c.ip_address,
               p.id AS plan_id, p.name AS plan_name, p.price,
               p.download_speed_mbps, p.upload_speed_mbps,
-              p.billing_cycle_months, p.data_cap_gb
+              p.billing_cycle, p.data_cap_gb
        FROM contracts c
        JOIN plans p ON p.id = c.plan_id
        WHERE c.client_id = ? AND c.status = 'active' AND c.deleted_at IS NULL
@@ -697,10 +711,14 @@ router.get('/invoices/:id/cfdi', async (req, res, next) => {
     if (!invoiceRows[0]) throw new NotFoundError('Invoice');
 
     const [cfdiRows] = await db.query(
-      `SELECT cd.id, cd.uuid, cd.xml_content, cd.stamp_status
+      // cfdi_documents has no deleted_at (not soft-deleted) and the status
+      // column is sat_status ENUM('draft','vigente','cancelado',
+      // 'cancel_pending') — 'stamped' was never a legal value; 'vigente' is
+      // "successfully stamped and valid".
+      `SELECT cd.id, cd.uuid, cd.xml_content, cd.sat_status
        FROM cfdi_documents cd
-       WHERE cd.invoice_id = ? AND cd.deleted_at IS NULL
-         AND cd.stamp_status = 'stamped'
+       WHERE cd.invoice_id = ?
+         AND cd.sat_status = 'vigente'
        ORDER BY cd.created_at DESC
        LIMIT 1`,
       [req.params.id],
@@ -726,7 +744,7 @@ router.get('/payments', async (req, res, next) => {
 
     const [rows] = await db.query(
       `SELECT p.id, p.amount, p.currency, p.payment_method, p.payment_date,
-              p.reference, p.status, p.notes, p.created_at
+              p.reference_number, p.status, p.notes, p.created_at
        FROM payments p
        WHERE p.client_id = ? AND p.deleted_at IS NULL
        ORDER BY p.payment_date DESC, p.created_at DESC

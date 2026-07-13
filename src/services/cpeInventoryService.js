@@ -136,11 +136,16 @@ async function tryAutoLinkSubscriber(cpeDevice) {
   }
 
   // Strategy 2: devices.serial_number cross-reference
+  // contracts has no `device_id` column — the bridge is
+  // cpe_devices.device_id -> devices.id and cpe_devices.contract_id -> contracts.id.
+  // This was unguarded (unlike Strategy 1) and threw on every call, so
+  // auto-linking via device serial number cross-reference never worked.
   try {
     const [matches] = await db.query(
       `SELECT c.client_id FROM devices d
-       JOIN contracts c ON c.device_id = d.id
-       WHERE d.serial_number = ? AND d.deleted_at IS NULL AND c.deleted_at IS NULL
+       JOIN cpe_devices bridge ON bridge.device_id = d.id
+       JOIN contracts c ON c.id = bridge.contract_id
+       WHERE d.serial_number = ? AND bridge.deleted_at IS NULL AND c.deleted_at IS NULL
        ${orgCondition}
        LIMIT 1`,
       params,

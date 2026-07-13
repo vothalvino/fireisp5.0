@@ -57,6 +57,33 @@ const SNMP_METRICS = new Set([
 ]);
 
 /**
+ * Get all currently-active (not yet resolved) alert events for an
+ * organization, with their rule's name/severity/description joined in.
+ *
+ * `alertService.getActiveAlerts` was called by supportContextService.js (AI
+ * support context enrichment) but never existed here — that call was always
+ * guarded with a `typeof === 'function'` check, so it silently never ran
+ * rather than throwing; "active alerts" in the AI support context has always
+ * been an empty array.
+ *
+ * @param {number|string} organizationId
+ * @returns {Promise<Array>}
+ */
+async function getActiveAlerts(organizationId) {
+  const [rows] = await db.query(
+    `SELECT ae.id, ae.device_id, ae.current_value, ae.threshold_value, ae.status, ae.created_at,
+            ar.name, ar.severity, ar.description, ar.metric
+       FROM alert_events ae
+       JOIN alert_rules ar ON ar.id = ae.alert_rule_id
+      WHERE ae.organization_id = ? AND ae.status != 'resolved'
+      ORDER BY ae.created_at DESC
+      LIMIT 50`,
+    [organizationId],
+  );
+  return rows;
+}
+
+/**
  * Evaluate all active alert rules for an organization.
  * Checks the latest SNMP metrics and network health snapshots against thresholds.
  */
@@ -437,4 +464,12 @@ async function evaluateAlertsV2(organizationId) {
   };
 }
 
-module.exports = { evaluateAlerts, checkRule, getAlertHistory, acknowledgeAlert, autoCreateTicket, isInMaintenanceWindow, isSuppressedByCorrelation, checkFlapping, triggerEscalation, evaluateAlertsV2 };
+module.exports = {
+  evaluateAlerts, getActiveAlerts, checkRule, getAlertHistory, acknowledgeAlert, autoCreateTicket,
+  isInMaintenanceWindow, isSuppressedByCorrelation, checkFlapping, triggerEscalation,
+  evaluateAlertsV2,
+  // Exported so other services building a dynamic `snmp_metrics.<column>`
+  // reference (e.g. automationService's remediation-rule engine) validate
+  // against the SAME whitelist rather than maintaining a second, driftable one.
+  SNMP_METRICS,
+};

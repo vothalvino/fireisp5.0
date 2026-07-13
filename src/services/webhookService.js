@@ -419,8 +419,10 @@ async function processRetries() {
  */
 async function listDeadLetters(organizationId, limit = 50) {
   const safeLimit = Math.max(1, parseInt(limit, 10) || 50);
+  // webhooks has no `name` column — `description` is its closest equivalent
+  // (a nullable free-text label; database/schema.sql).
   const [rows] = await db.query(
-    `SELECT wd.*, w.url, w.name
+    `SELECT wd.*, w.url, w.description AS name
      FROM webhook_deliveries wd
      JOIN webhooks w ON w.id = wd.webhook_id
      WHERE w.organization_id = ? AND wd.status = 'dead_letter'

@@ -24,8 +24,15 @@ const {
  * Evaluate suspension rules for an organization and return contracts to act on.
  */
 async function evaluateRules(organizationId) {
+  // Column is `is_active`, not `is_enabled` (database/schema.sql) — this made
+  // the scheduled dunning pipeline (taskRunner's 'auto_suspend' task, the
+  // entire point of the suspension feature) throw on every run, for every
+  // organization, regardless of the INSERT fixes elsewhere in this file.
+  // Also exclude soft-deleted rules (`deleted_at`), matching
+  // taskRunner.runSuspensionWarnings's suspension_rules query, which already
+  // got both of these right.
   const [rules] = await db.query(
-    'SELECT * FROM suspension_rules WHERE organization_id = ? AND is_enabled = TRUE ORDER BY days_past_due ASC',
+    'SELECT * FROM suspension_rules WHERE organization_id = ? AND is_active = TRUE AND deleted_at IS NULL ORDER BY days_past_due ASC',
     [organizationId],
   );
 

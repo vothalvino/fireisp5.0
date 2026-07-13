@@ -12,6 +12,7 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createCfdiDocument, updateCfdiDocument, cancelCfdiDocument } = require('../middleware/schemas/cfdiDocuments');
 const { NotFoundError } = require('../utils/errors');
+const cfdiService = require('../services/cfdiService');
 const db = require('../config/database');
 
 const router = Router();
@@ -47,33 +48,40 @@ router.get('/:id/related', requirePermission('cfdi_documents.view'), async (req,
 });
 
 // Cancel a CFDI document
+//
+// This does NOT hand-roll the cancellation SQL — it delegates to
+// cfdiService.cancel(), the canonical PAC → SAT cancellation flow also used by
+// POST /cfdi/cancel (src/controllers/cfdiController.js). An earlier version of
+// this route inserted cfdi_cancellations directly and immediately set
+// sat_status='cancelado' + cancelled_at=NOW() with NO PAC/SAT submission at
+// all. Per the column comments in database/schema.sql, 'cancelado' means "SAT
+// confirmed cancellation" and cancelled_at means "Timestamp when SAT confirmed
+// cancellation" — that write was a legally false fiscal record: SAT still held
+// the CFDI as vigente while FireISP reported it cancelled (which would
+// under-report declared income in getReconciliationReport /
+// getMonthlyReport), and — because cfdiService.cancel() guards
+// `sat_status !== 'vigente'` — the document became permanently
+// un-cancellable through the real flow afterwards. cfdiService.cancel()
+// correctly records the request as cancellation_status='pending' and sets
+// sat_status='cancel_pending'; it only becomes 'cancelado' (and cancelled_at
+// gets set) once the PAC/SAT response is processed (immediately if the PAC
+// answers synchronously, or later via GET /cfdi/:id/cancellation-status).
 router.post('/:id/cancel', requirePermission('cfdi_documents.update'), validate(cancelCfdiDocument), async (req, res, next) => {
   try {
-    const { motivo, folio_sustitucion } = req.body;
-    // cfdi_cancellations requires organization_id + uuid + requested_at (all NOT
-    // NULL) and the user column is requested_by_user_id, not cancelled_by. The
-    // org and the folio fiscal are taken from the CFDI document itself, which
-    // also scopes the cancellation to the caller's organization.
-    const [result] = await db.query(
-      `INSERT INTO cfdi_cancellations
-         (cfdi_document_id, organization_id, uuid, motivo, folio_sustitucion,
-          requested_by_user_id, requested_at)
-       SELECT d.id, d.organization_id, d.uuid, ?, ?, ?, NOW()
-       FROM cfdi_documents d
-       WHERE d.id = ? AND d.organization_id = ? AND d.uuid IS NOT NULL`,
-      [motivo, folio_sustitucion || null, req.user.id, req.params.id, req.orgId],
+    const { cancellation_reason, replacement_uuid } = req.body;
+
+    // Org-scope before delegating: cfdiService.cancel() looks the document up
+    // by id alone and does not itself check organization_id.
+    const [docs] = await db.query(
+      'SELECT id FROM cfdi_documents WHERE id = ? AND organization_id = ?',
+      [req.params.id, req.orgId],
     );
-    if (result.affectedRows === 0) {
-      throw new NotFoundError('CFDI document (or it has not been stamped yet)');
+    if (!docs[0]) {
+      throw new NotFoundError('CFDI document');
     }
-    // Column is sat_status ENUM('draft','vigente','cancelado','cancel_pending') —
-    // there is no `status` column and no 'cancelled' value (database/schema.sql).
-    await db.query(
-      'UPDATE cfdi_documents SET sat_status = ?, cancelled_at = NOW() WHERE id = ? AND organization_id = ?',
-      ['cancelado', req.params.id, req.orgId],
-    );
-    const [rows] = await db.query('SELECT * FROM cfdi_cancellations WHERE id = ?', [result.insertId]);
-    res.status(201).json({ data: rows[0] });
+
+    const result = await cfdiService.cancel(req.params.id, cancellation_reason, replacement_uuid || null);
+    res.status(201).json({ data: result });
   } catch (err) {
     next(err);
   }

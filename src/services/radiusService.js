@@ -118,6 +118,55 @@ async function getActiveSession(contractId) {
 }
 
 /**
+ * Get the most recent active session for a CLIENT (not a specific contract),
+ * org-scoped. This is what the AI diagnostic engine (diagnosticEngineService.js)
+ * and support context service (supportContextService.js) call — both called
+ * `radiusService.getSessionByClientId(...)`, a function that never existed
+ * here, so every RADIUS/PPPoE session check in both of those always threw
+ * (caught, degrading to an 'unknown'/generic status — silently, forever).
+ *
+ * The returned object exposes the session under every field name a caller
+ * actually reads (`ip` / `framed_ip_address` / `framedipaddress`, `sessionActive`
+ * / `session_active`, `acctstarttime`) — connection_logs is this app's own
+ * accounting table, not a raw FreeRADIUS radacct row, so those names don't
+ * exist on it natively; they're computed here from the real columns
+ * (framed_ip, ip_address, event_at) once, so no caller needs to change.
+ *
+ * @param {number|string} clientId
+ * @param {number|string} orgId
+ * @returns {Promise<object|null>}
+ */
+async function getSessionByClientId(clientId, orgId) {
+  const [rows] = await db.query(`
+    SELECT cl.* FROM connection_logs cl
+    JOIN contracts c ON c.id = cl.contract_id
+    WHERE cl.client_id = ? AND c.organization_id = ? AND cl.event_type = 'start'
+      AND NOT EXISTS (
+        SELECT 1 FROM connection_logs cl2
+        WHERE cl2.session_id = cl.session_id
+          AND cl2.client_id = cl.client_id
+          AND cl2.event_type = 'stop'
+      )
+    ORDER BY cl.event_at DESC LIMIT 1
+  `, [clientId, orgId]);
+  const session = rows[0];
+  if (!session) return null;
+
+  const ip = session.framed_ip || session.ip_address || null;
+  return {
+    ...session,
+    sessionActive: true,
+    session_active: true,
+    ip,
+    framed_ip_address: ip,
+    framedipaddress: ip,
+    acctstarttime: session.event_at || null,
+    uptime: session.session_duration ?? null,
+    session_time: session.session_duration ?? null,
+  };
+}
+
+/**
  * Disconnect a subscriber's active session via RADIUS Disconnect-Request.
  */
 async function disconnectSession(contractId) {
@@ -940,6 +989,7 @@ module.exports = {
   syncFreeradiusTables,
   checkCertificateExpiry,
   getActiveSession,
+  getSessionByClientId,
   disconnectSession,
   changeOfAuth,
   getSessionHistory,

@@ -59,8 +59,11 @@ const MAX_LOW_CONFIDENCE_MESSAGES = 2;
  */
 async function getOrgProviderId(orgId) {
   try {
+    // ai_providers has no `is_default` column — there is no explicit default
+    // flag, only a `priority` ordering (lower = higher priority), the same
+    // convention kbService.js already uses to pick "the" provider.
     const [rows] = await db.query(
-      'SELECT id FROM ai_providers WHERE organization_id = ? AND is_default = 1 LIMIT 1',
+      'SELECT id FROM ai_providers WHERE organization_id = ? AND enabled = 1 ORDER BY priority ASC LIMIT 1',
       [orgId],
     );
     return rows.length > 0 ? rows[0].id : null;

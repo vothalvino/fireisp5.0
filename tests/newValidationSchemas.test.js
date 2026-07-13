@@ -1088,13 +1088,13 @@ describe('SuspensionRule validation schemas', () => {
 
   test('createSuspensionRule accepts valid data', () => {
     const next = run(createSuspensionRule, {
-      name: '30-day suspend', days_past_due: 30, action: 'auto_suspend', notify_days_before: 5,
+      name: '30-day suspend', days_past_due: 30, action: 'auto_suspend', notify_before_days: 5,
     });
     expectPass(next);
   });
 
   test('updateSuspensionRule allows partial updates', () => {
-    const next = run(updateSuspensionRule, { is_enabled: false });
+    const next = run(updateSuspensionRule, { is_active: false });
     expectPass(next);
   });
 });

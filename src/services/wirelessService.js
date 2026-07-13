@@ -28,7 +28,7 @@ const logger = require('../utils/logger').child({ service: 'wirelessService' });
  */
 async function listApSectorConfigs(orgId, { deviceId, deletedAt } = {}) {
   let sql = `
-    SELECT asc_cfg.*, d.hostname AS device_hostname, d.type AS device_type,
+    SELECT asc_cfg.*, d.name AS device_hostname, d.type AS device_type,
            d.ip_address AS device_ip,
            acp.name AS channel_plan_name, acp.frequency_mhz AS plan_frequency_mhz
     FROM ap_sector_configs asc_cfg
@@ -56,7 +56,7 @@ async function listApSectorConfigs(orgId, { deviceId, deletedAt } = {}) {
  */
 async function getApSectorConfig(id, orgId) {
   const [rows] = await db.query(
-    `SELECT asc_cfg.*, d.hostname AS device_hostname, d.type AS device_type,
+    `SELECT asc_cfg.*, d.name AS device_hostname, d.type AS device_type,
             d.ip_address AS device_ip,
             acp.name AS channel_plan_name
      FROM ap_sector_configs asc_cfg
@@ -292,8 +292,8 @@ async function detectChannelConflicts(siteId, orgId) {
  */
 async function listWirelessClientSessions(orgId, { deviceId, since, limit = 100, offset = 0 } = {}) {
   let sql = `
-    SELECT wcs.*, d.hostname AS ap_hostname,
-           cd.hostname AS client_hostname, cd.ip_address AS client_device_ip
+    SELECT wcs.*, d.name AS ap_hostname,
+           cd.name AS client_hostname, cd.ip_address AS client_device_ip
     FROM wireless_client_sessions wcs
     LEFT JOIN devices d ON d.id = wcs.device_id
     LEFT JOIN devices cd ON cd.id = wcs.client_device_id
@@ -450,7 +450,7 @@ async function deleteChannelInterference(id, orgId) {
  */
 async function listApCommandJobs(orgId, { deviceId, status, limit = 100, offset = 0 } = {}) {
   let sql = `
-    SELECT acj.*, d.hostname AS device_hostname, d.ip_address AS device_ip
+    SELECT acj.*, d.name AS device_hostname, d.ip_address AS device_ip
     FROM ap_command_jobs acj
     LEFT JOIN devices d ON d.id = acj.device_id
     WHERE (acj.organization_id = ? OR acj.organization_id IS NULL)
@@ -479,7 +479,7 @@ async function listApCommandJobs(orgId, { deviceId, status, limit = 100, offset 
  */
 async function getApCommandJob(id, orgId) {
   const [rows] = await db.query(
-    `SELECT acj.*, d.hostname AS device_hostname
+    `SELECT acj.*, d.name AS device_hostname
      FROM ap_command_jobs acj
      LEFT JOIN devices d ON d.id = acj.device_id
      WHERE acj.id = ?
@@ -814,8 +814,8 @@ async function getPtpLinkMetrics(linkId, orgId, hours = 24) {
             nl.tx_signal_dbm, nl.rx_signal_dbm, nl.modulation,
             nl.tx_throughput_mbps, nl.rx_throughput_mbps, nl.link_budget_db,
             nl.failover_link_id, nl.is_primary, nl.failover_state,
-            da.hostname AS device_a_hostname, da.ip_address AS device_a_ip,
-            db_dev.hostname AS device_b_hostname, db_dev.ip_address AS device_b_ip
+            da.name AS device_a_hostname, da.ip_address AS device_a_ip,
+            db_dev.name AS device_b_hostname, db_dev.ip_address AS device_b_ip
      FROM network_links nl
      LEFT JOIN devices da ON da.id = nl.device_a_id
      LEFT JOIN devices db_dev ON db_dev.id = nl.device_b_id
@@ -920,7 +920,7 @@ async function listSpectrumScans(orgId, { deviceId, status, page = 1, limit = 20
   const safePage = Math.max(1, parseInt(page, 10) || 1);
   const offset = (safePage - 1) * safeLimit;
   let sql = `
-    SELECT ssr.*, d.hostname AS device_hostname, d.ip_address AS device_ip
+    SELECT ssr.*, d.name AS device_hostname, d.ip_address AS device_ip
     FROM spectrum_scan_results ssr
     LEFT JOIN devices d ON d.id = ssr.device_id
     WHERE (ssr.organization_id = ? OR ssr.organization_id IS NULL)
@@ -960,7 +960,7 @@ async function listSpectrumScans(orgId, { deviceId, status, page = 1, limit = 20
  */
 async function getSpectrumScan(id, orgId) {
   const [rows] = await db.query(
-    `SELECT ssr.*, d.hostname AS device_hostname
+    `SELECT ssr.*, d.name AS device_hostname
      FROM spectrum_scan_results ssr
      LEFT JOIN devices d ON d.id = ssr.device_id
      WHERE ssr.id = ?

@@ -123,39 +123,80 @@ async function chargeRecurringProfile(profileId) {
   );
 
   if (invoices.length === 0) {
-    return { charged: false, message: 'No pending invoices for this client' };
+    return { charged: false, skipped: true, message: 'No pending invoices for this client' };
   }
 
   const invoice = invoices[0];
   const idempotencyKey = `recurring_${profileId}_${invoice.id}_${Date.now()}`;
+  const amount = parseFloat(invoice.total);
+  const description = `Recurring payment for invoice ${invoice.invoice_number}`;
 
-  const result = await paymentGatewayService.charge({
-    organizationId: profile.organization_id,
-    clientId: profile.client_id,
-    amount: parseFloat(invoice.total),
-    currency: invoice.currency,
-    description: `Recurring payment for invoice ${invoice.invoice_number}`,
-    paymentMethodToken: profile.gateway_token,
-    idempotencyKey,
-  });
+  // recurring_payment_profiles has no `gateway_token` column — the stored card
+  // token is `token_reference` (database/schema.sql; paymentRetryService gets
+  // this right: `rp.token_reference AS payment_method_token`). Reading the
+  // nonexistent column silently returned `undefined` for every profile, so
+  // every autopay attempt sent Stripe a PaymentIntent with NO payment_method —
+  // which Stripe *accepts* and parks in `requires_payment_method` forever
+  // (chargeStripe maps any non-'succeeded' status to 'pending'), and
+  // `charged: result.status !== 'failed'` then reported that dead attempt as a
+  // SUCCESSFUL charge. Never even call the gateway with no stored token: it
+  // cannot possibly succeed, and doing so burns an idempotency key and a live
+  // API call for nothing.
+  const token = profile.token_reference;
+  let result;
+  if (!token || !String(token).trim()) {
+    logger.warn({ profileId, clientId: profile.client_id }, 'Recurring profile has no stored payment method token — not calling the gateway');
+    const [txResult] = await db.query(
+      `INSERT INTO payment_transactions
+         (organization_id, payment_gateway_id, client_id, amount, currency,
+          gateway_reference_id, gateway_status, gateway_response_message, idempotency_key, raw_request)
+       VALUES (?, ?, ?, ?, ?, ?, 'failed', ?, ?, ?)`,
+      [
+        profile.organization_id, profile.gateway_id, profile.client_id, amount, invoice.currency,
+        `no_token:${idempotencyKey}`, 'Recurring payment profile has no stored payment method token',
+        idempotencyKey, JSON.stringify({ description, amount, currency: invoice.currency }),
+      ],
+    );
+    result = {
+      transaction_id: txResult.insertId,
+      status: 'failed',
+      error: 'Recurring payment profile has no stored payment method token',
+    };
+  } else {
+    result = await paymentGatewayService.charge({
+      organizationId: profile.organization_id,
+      clientId: profile.client_id,
+      amount,
+      currency: invoice.currency,
+      description,
+      paymentMethodToken: token,
+      idempotencyKey,
+    });
+  }
 
   // NOTE: there is no `last_charged_at` column on recurring_payment_profiles
   // (database/schema.sql). The UPDATE that used to be here threw on every run —
   // *after* the card had already been charged. The charge is recorded in
   // payment_transactions, which is where the last charge is read from.
 
-  // Schedule retry if charge failed
-  if (result.status === 'failed' && result.transaction_id) {
+  // 'succeeded' is the only gateway_status that means money actually moved.
+  // 'pending' (3-D Secure still in progress, an async payment method, or — as
+  // above — a PaymentIntent that was never given a payment method and never
+  // will be) must NOT be reported as charged, and must feed the retry
+  // scheduler exactly like a hard failure so a stuck/declined profile doesn't
+  // silently stop collecting forever with nobody notified.
+  const charged = result.status === 'succeeded';
+  if (!charged && result.transaction_id) {
     try {
       await paymentRetryService.scheduleRetry({
         transactionId: result.transaction_id,
         organizationId: profile.organization_id,
         clientId: profile.client_id,
-        amount: parseFloat(invoice.total),
+        amount,
         currency: invoice.currency,
         invoiceId: invoice.id,
         recurringProfileId: profileId,
-        errorMessage: result.error || 'Charge failed',
+        errorMessage: result.error || `Charge not completed (gateway status: ${result.status})`,
       });
     } catch (retryErr) {
       logger.error({ retryErr, transactionId: result.transaction_id }, 'Failed to schedule payment retry');
@@ -163,7 +204,7 @@ async function chargeRecurringProfile(profileId) {
   }
 
   return {
-    charged: result.status !== 'failed',
+    charged,
     profile_id: profileId,
     invoice_id: invoice.id,
     invoice_number: invoice.invoice_number,
@@ -194,8 +235,15 @@ async function processRecurringCharges(organizationId) {
   for (const profile of profiles) {
     try {
       const result = await chargeRecurringProfile(profile.id);
+      // `skipped` means there was nothing to charge (no pending invoice) — not
+      // "we tried and the gateway didn't collect". An attempted-but-uncharged
+      // outcome (declined, no token, still pending) is a `failed` run so it
+      // shows up in the operator-facing count instead of being lost among
+      // ordinary skips; the retry is already scheduled inside
+      // chargeRecurringProfile.
       if (result.charged) charged++;
-      else skipped++;
+      else if (result.skipped) skipped++;
+      else failed++;
     } catch (err) {
       failed++;
       logger.error({ err, profileId: profile.id }, 'Recurring charge failed');

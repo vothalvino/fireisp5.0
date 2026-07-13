@@ -65427,11 +65427,14 @@
               "soft_suspend"
             ]
           },
-          "notify_days_before": {
+          "notify_before_days": {
             "type": "number",
             "minimum": 0
           },
-          "is_enabled": {
+          "apply_to_plan_ids": {
+            "type": "string"
+          },
+          "is_active": {
             "type": "boolean"
           },
           "soft_suspend_download_kbps": {
@@ -65474,11 +65477,14 @@
               "soft_suspend"
             ]
           },
-          "notify_days_before": {
+          "notify_before_days": {
             "type": "number",
             "minimum": 0
           },
-          "is_enabled": {
+          "apply_to_plan_ids": {
+            "type": "string"
+          },
+          "is_active": {
             "type": "boolean"
           },
           "soft_suspend_download_kbps": {

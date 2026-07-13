@@ -39,8 +39,8 @@ describe('suspensionService', () => {
     });
 
     test('returns matching contracts for each rule', async () => {
-      const rule1 = { id: 1, days_past_due: 15, grace_period_days: 5, action: 'auto_suspend', is_enabled: true };
-      const rule2 = { id: 2, days_past_due: 30, grace_period_days: 0, action: 'auto_suspend', is_enabled: true };
+      const rule1 = { id: 1, days_past_due: 15, grace_period_days: 5, action: 'auto_suspend', is_active: true };
+      const rule2 = { id: 2, days_past_due: 30, grace_period_days: 0, action: 'auto_suspend', is_active: true };
       const contract1 = { id: 10, status: 'active', invoice_id: 50, days_overdue: 17 };
       const contract2 = { id: 11, status: 'active', invoice_id: 51, days_overdue: 32 };
 
@@ -82,6 +82,20 @@ describe('suspensionService', () => {
         expect.stringContaining('organization_id = ?'),
         [99],
       );
+    });
+
+    test('filters on is_active (not is_enabled) and excludes soft-deleted rules', async () => {
+      // suspension_rules.is_enabled has never existed — the real column is
+      // is_active (database/schema.sql). Every scheduled dunning run threw
+      // before this was fixed, regardless of the suspension_logs INSERT fixes.
+      db.query.mockResolvedValueOnce([[]]);
+
+      await suspensionService.evaluateRules(42);
+
+      const [sql] = db.query.mock.calls[0];
+      expect(sql).toMatch(/\bis_active\b/);
+      expect(sql).not.toMatch(/\bis_enabled\b/);
+      expect(sql).toMatch(/deleted_at IS NULL/);
     });
   });
 

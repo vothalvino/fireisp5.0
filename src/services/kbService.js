@@ -222,7 +222,8 @@ async function _semanticSearch(orgId, query, locale, limit, llm) {
 
   // Get query embedding (use first available provider)
   const [providerRow] = await db.query(
-    'SELECT id FROM ai_providers WHERE is_enabled = 1 ORDER BY priority ASC LIMIT 1',
+    // Real column is `enabled`, not `is_enabled` (database/schema.sql).
+    'SELECT id FROM ai_providers WHERE enabled = 1 ORDER BY priority ASC LIMIT 1',
   ).catch(() => [[]]);
   const providerId = providerRow?.[0]?.id;
   if (!providerId) return _keywordSearch(orgId, query, locale, limit);
