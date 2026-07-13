@@ -10,7 +10,7 @@ const cookieParser = require('cookie-parser');
 const config = require('./config');
 const { AppError } = require('./utils/errors');
 const errorTracking = require('./utils/errorTracking');
-const { apiLimiter, authLimiter, sessionLimiter, exportLimiter, sseLimiter, webhookLimiter } = require('./middleware/rateLimit');
+const { apiLimiter, authLimiter, passwordResetLimiter, verifyEmailResendLimiter, sessionLimiter, exportLimiter, sseLimiter, webhookLimiter } = require('./middleware/rateLimit');
 const { requestLogger } = require('./middleware/requestLogger');
 const { sanitize } = require('./middleware/sanitize');
 const { requestId } = require('./middleware/requestId');
@@ -316,6 +316,17 @@ for (const sub of ['/login', '/register', '/password-reset', '/change-password',
   app.use(`/api/auth${sub}`, authLimiter);
   app.use(`/api/v1/auth${sub}`, authLimiter);
 }
+// /password-reset/request and /verify-email/resend additionally get their
+// own tighter, route-scoped budgets (RATE_LIMIT_PASSWORD_RESET, default
+// 5/window) stacked on top of the shared authLimiter above — see
+// passwordResetLimiter/verifyEmailResendLimiter's doc comments in
+// middleware/rateLimit.js for why these two routes warrant a stricter cap
+// than the rest of the /auth surface (both send real email on every hit, so
+// both are mail-bombing vectors, not just brute-force/enumeration ones).
+app.use('/api/auth/password-reset/request', passwordResetLimiter);
+app.use('/api/v1/auth/password-reset/request', passwordResetLimiter);
+app.use('/api/auth/verify-email/resend', verifyEmailResendLimiter);
+app.use('/api/v1/auth/verify-email/resend', verifyEmailResendLimiter);
 // Session-keepalive endpoints get their own per-IP bucket (RATE_LIMIT_SESSION,
 // default 240/window, failures-only counting) and are skipped by apiLimiter
 // above (see isSessionPath). Sharing the general bucket meant a busy dashboard

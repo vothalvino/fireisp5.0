@@ -906,6 +906,32 @@
         }
       }
     },
+    "/auth/verify-email/resend": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Resend the email verification link (authenticated); no-op if already verified",
+        "operationId": "resendVerificationEmail",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/refresh": {
       "post": {
         "tags": [

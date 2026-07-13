@@ -368,7 +368,14 @@ describe('sql-column-check: the repository is clean', () => {
       expect(hitKeys.has(`SELECT — table "${g.table}" does not exist in database/schema.sql`)).toBe(true);
     }
 
-    expect(result.gaps).toHaveLength(10);
+    // Migration 382 added the four columns the last remaining KNOWN_SCHEMA_GAPS
+    // entry (users.reset_token_hash/reset_token_expires/email_verified_at/
+    // email_verify_token_hash) documented, and that entry was deleted —
+    // KNOWN_SCHEMA_GAPS and KNOWN_MISSING_TABLES are both now empty, so no
+    // statement should be silenced as a "known" gap any more.
+    expect(KNOWN_SCHEMA_GAPS).toHaveLength(0);
+    expect(KNOWN_MISSING_TABLES).toHaveLength(0);
+    expect(result.gaps).toHaveLength(0);
   });
 
   test('the known missing tables are all first-party (not radacct or a real EXTERNAL_TABLES entry)', () => {
