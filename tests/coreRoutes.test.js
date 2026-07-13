@@ -327,6 +327,53 @@ describe('Contract Routes — /api/contracts', () => {
       expect(radiusCall).toBeTruthy();
       expect(radiusCall[0]).toContain("'active'");
       expect(radiusCall[1]).toEqual([1]);
+
+      // Adversarial-review finding (medium, confirmed): a terminated contract
+      // reactivated via the Edit modal was never actually "suspended", so it
+      // must not get a phantom 'unsuspended' suspension_logs row either.
+      const logCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && c[0].includes('INSERT INTO suspension_logs'),
+      );
+      expect(logCall).toBeUndefined();
+    });
+
+    // Adversarial-review finding (medium, confirmed): the FSM also allows
+    // pending -> active — a brand-new contract's ORDINARY first activation
+    // via the Edit modal, the single most common path through this branch.
+    // old.status !== 'suspended' here, so this must sync radius exactly like
+    // any other ->active transition but must NOT write a suspension_logs
+    // row — the contract was never suspended, so logging 'unsuspended' with
+    // suspended_at=NOW()/restored_at=NOW() would be a phantom
+    // zero-duration suspension polluting the audit/compliance table.
+    test('pending -> active via PUT reactivates RADIUS but writes NO suspension_logs row', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[{ ...mockContract, status: 'pending' }]])  // findByIdOrFail
+        .mockResolvedValueOnce([{ affectedRows: 1 }])                       // UPDATE contracts
+        .mockResolvedValueOnce([[{ ...mockContract, status: 'active' }]])   // findById (inside Contract.update)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);                      // UPDATE radius -> active
+
+      const res = await request(app)
+        .put('/api/contracts/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ status: 'active' });
+
+      expect(res.status).toBe(200);
+      const radiusCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && /UPDATE radius SET status/.test(c[0]),
+      );
+      expect(radiusCall).toBeTruthy();
+      expect(radiusCall[0]).toContain("'active'");
+      expect(radiusCall[0]).toContain("IN ('suspended', 'inactive')");
+
+      const logCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && c[0].includes('INSERT INTO suspension_logs'),
+      );
+      expect(logCall).toBeUndefined();
+      const closeCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && c[0].includes('UPDATE suspension_logs SET restored_at'),
+      );
+      expect(closeCall).toBeUndefined();
     });
 
     // Migration-384-era hardening: the generic PUT/PATCH status toggle now

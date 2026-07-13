@@ -89,8 +89,9 @@ async function updateContractHandler(req, res, next) {
     //                                       fixes for its own endpoint).
     //   -> terminated/cancelled/expired  : radius -> inactive (+ CoA disconnect)
     //
-    // The suspended/active branches ALSO write a suspension_logs row (awaiting
-    // the CoA outcome first so it can be logged) — before this, an
+    // The suspended branch, and the active branch WHEN old.status was
+    // actually 'suspended', ALSO write a suspension_logs row (awaiting the
+    // CoA outcome first so it can be logged) — before this, an
     // active<->suspended toggle driven through this generic handler left a
     // hole in the audit trail that the dedicated /suspend and /unsuspend
     // routes (via suspensionService.suspendContract/reconnectContract) always
@@ -100,7 +101,13 @@ async function updateContractHandler(req, res, next) {
     // bug class being fixed here. The terminated/cancelled/expired branch
     // stays log-free, matching the deliberate decision already made for
     // POST /:id/terminate below (no 'terminated' value exists in the
-    // suspension_logs.action ENUM).
+    // suspension_logs.action ENUM). The active branch's audit write is
+    // gated on old.status === 'suspended' specifically — pending->active
+    // (a brand-new contract's ordinary first activation) and
+    // terminated/cancelled/expired->active are real ->active transitions
+    // that sync radius exactly like a genuine reconnect, but they were
+    // never suspended, so logging an 'unsuspended' row for them would be a
+    // phantom zero-duration suspension polluting the audit table.
     if (req.body.status !== undefined && req.body.status !== old.status) {
       const newStatus = req.body.status;
       if (newStatus === 'suspended') {
@@ -144,25 +151,41 @@ async function updateContractHandler(req, res, next) {
         } catch (_e) {
           coaResponse = 'CoA send failed';
         }
-        try {
-          // Closes any suspension_logs row left open by a prior /suspend (or
-          // a prior suspended->active toggle through this same handler) so
-          // restored_at IS NULL keeps meaning "still suspended" no matter
-          // which endpoint reactivated the contract.
-          const suspendedAt = await suspensionService.closeOpenSuspensionAndGetStart(db.query.bind(db), record.id);
-          await suspensionService.logSuspensionEvent(db.query.bind(db), {
-            contractId: record.id,
-            action: 'unsuspended',
-            reason: `manual status change to 'active' via contract update (user #${req.user.id})`,
-            triggeredByValue: 'manual',
-            userId: req.user.id,
-            coaSent,
-            coaResponse,
-            suspendedAt,
-            restoredAt: new Date(),
-          });
-        } catch (logErr) {
-          logger.error({ err: logErr.message, contractId: record.id }, 'Failed to write suspension_logs row for contract-update reactivate');
+        // Only write (and look for) a suspension_logs audit row when the
+        // contract was ACTUALLY suspended — old.status === 'suspended'. The
+        // FSM also allows pending->active (a brand-new contract's normal
+        // first activation via the Edit modal — the single most common path
+        // through this branch) and terminated/cancelled/expired->active.
+        // Neither of those is a real reconnect: without this guard,
+        // closeOpenSuspensionAndGetStart finds no open row (returns null)
+        // and logSuspensionEvent still fabricates an 'unsuspended' row with
+        // suspended_at=NOW()/restored_at=NOW() — a phantom zero-duration
+        // suspension for a contract that was never suspended, polluting the
+        // suspension_logs audit/compliance table on every ordinary
+        // activation. The radius sync + CoA above are unconditional and
+        // unchanged — they predate this suspension-logging addition and
+        // correctly cover every ->active source (suspended AND inactive).
+        if (old.status === 'suspended') {
+          try {
+            // Closes any suspension_logs row left open by a prior /suspend
+            // (or a prior suspended->active toggle through this same
+            // handler) so restored_at IS NULL keeps meaning "still
+            // suspended" no matter which endpoint reactivated the contract.
+            const suspendedAt = await suspensionService.closeOpenSuspensionAndGetStart(db.query.bind(db), record.id);
+            await suspensionService.logSuspensionEvent(db.query.bind(db), {
+              contractId: record.id,
+              action: 'unsuspended',
+              reason: `manual status change to 'active' via contract update (user #${req.user.id})`,
+              triggeredByValue: 'manual',
+              userId: req.user.id,
+              coaSent,
+              coaResponse,
+              suspendedAt,
+              restoredAt: new Date(),
+            });
+          } catch (logErr) {
+            logger.error({ err: logErr.message, contractId: record.id }, 'Failed to write suspension_logs row for contract-update reactivate');
+          }
         }
       } else if (['terminated', 'cancelled', 'expired'].includes(newStatus)) {
         await db.query(
