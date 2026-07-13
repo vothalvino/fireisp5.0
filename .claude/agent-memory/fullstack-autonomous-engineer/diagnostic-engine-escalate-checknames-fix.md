@@ -42,4 +42,7 @@ See also [[support-escalate-duplicate-ticket-bug]] — a separate, pre-existing
 bug found while verifying this fix composes safely with PR #400's
 `escalate()` wiring. Initially flagged as an out-of-scope follow-up, then
 fixed in the same PR once it was clear this fix is exactly what makes the
-latent bug live (commit `e273885`, same branch).
+latent bug live — first as a SELECT-then-UPDATE guard (commit `e273885`),
+then hardened into an atomic conditional-claim UPDATE after review found the
+guard had a concurrency gap and a permanent-repair-dead-end gap (commit
+`a631fc4`, same branch).
