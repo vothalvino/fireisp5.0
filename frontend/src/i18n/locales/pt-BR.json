@@ -80,7 +80,30 @@
   "portalLogin": {
     "subtitle": "Portal da conta do cliente",
     "hint": "Entre em contato com seu provedor de internet para ativar o acesso ao portal.",
-    "failed": "Falha ao entrar"
+    "failed": "Falha ao entrar",
+    "forgotPassword": "Esqueceu a senha?"
+  },
+  "portalForgotPassword": {
+    "title": "Esqueci minha senha",
+    "subtitle": "Digite seu e-mail e enviaremos um link para redefinir sua senha do portal.",
+    "submitButton": "Enviar link",
+    "submitting": "Enviando…",
+    "successMessage": "Se esse e-mail existir, um link de redefinição foi enviado.",
+    "backToLogin": "Voltar ao login"
+  },
+  "portalResetPassword": {
+    "title": "Redefinir senha",
+    "subtitle": "Escolha uma nova senha para sua conta.",
+    "passwordLabel": "Nova senha",
+    "confirmPasswordLabel": "Confirmar nova senha",
+    "submitButton": "Redefinir senha",
+    "submitting": "Redefinindo…",
+    "successMessage": "Sua senha foi redefinida. Você já pode entrar.",
+    "passwordMismatch": "As senhas não coincidem.",
+    "missingToken": "Nenhum token de redefinição foi fornecido. Solicite um novo link.",
+    "invalidOrExpired": "Este link é inválido ou expirou.",
+    "requestNewLink": "Solicitar um novo link",
+    "goToLogin": "Ir para o login"
   },
   "nav": {
     "dashboard": "📊 Painel",

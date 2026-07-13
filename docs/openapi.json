@@ -36587,6 +36587,68 @@
         }
       }
     },
+    "/portal/auth/password-reset/request": {
+      "post": {
+        "tags": [
+          "Portal Auth"
+        ],
+        "summary": "Request a portal password reset email",
+        "operationId": "portalRequestPasswordReset",
+        "requestBody": {
+          "description": "email",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/auth/password-reset": {
+      "post": {
+        "tags": [
+          "Portal Auth"
+        ],
+        "summary": "Reset portal password with token",
+        "operationId": "portalResetPassword",
+        "requestBody": {
+          "description": "token + password",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/portal/dashboard": {
       "get": {
         "tags": [

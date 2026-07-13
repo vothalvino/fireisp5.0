@@ -85,6 +85,22 @@ const passwordResetLimiter = makeLimiter(rl.passwordReset, 'Too many password re
  */
 const verifyEmailResendLimiter = makeLimiter(rl.passwordReset, 'Too many verification email requests, please try again later');
 
+/**
+ * POST /portal/auth/password-reset/request only — reuses the same modest
+ * budget as passwordResetLimiter (RATE_LIMIT_PASSWORD_RESET, default 5),
+ * since this is the same class of "sends real email" endpoint. Deliberately
+ * a SEPARATE limiter instance from the staff-side passwordResetLimiter (same
+ * reasoning as verifyEmailResendLimiter above): express-rate-limit's default
+ * in-memory store keys solely by IP, so sharing one instance across the
+ * staff and portal routes would silently merge their budgets — an attacker
+ * flooding one endpoint would also lock out legitimate use of the other.
+ * This is especially relevant here since portal subscribers are far more
+ * likely than office staff to share a CGNAT/NAT IP with unrelated
+ * households (see sessionLimiter's skipSuccessfulRequests comment above for
+ * the same concern in a different context).
+ */
+const portalPasswordResetLimiter = makeLimiter(rl.passwordReset, 'Too many password reset requests, please try again later');
+
 /** Public endpoints — configurable via RATE_LIMIT_PUBLIC (default 60). */
 const publicLimiter = makeLimiter(rl.public);
 
@@ -205,6 +221,7 @@ module.exports = {
   authLimiter,
   passwordResetLimiter,
   verifyEmailResendLimiter,
+  portalPasswordResetLimiter,
   sessionLimiter,
   isSessionPath,
   publicLimiter,

@@ -1874,6 +1874,12 @@ function generateSpec() {
       '/portal/auth/password': {
         put: { tags: ['Portal Auth'], summary: 'Change portal password', operationId: 'portalChangePassword', security: [{ bearerAuth: [] }], requestBody: jsonBody('currentPassword + newPassword'), responses: r200('Message') },
       },
+      '/portal/auth/password-reset/request': {
+        post: { tags: ['Portal Auth'], summary: 'Request a portal password reset email', operationId: 'portalRequestPasswordReset', requestBody: jsonBody('email'), responses: r200('Message') },
+      },
+      '/portal/auth/password-reset': {
+        post: { tags: ['Portal Auth'], summary: 'Reset portal password with token', operationId: 'portalResetPassword', requestBody: jsonBody('token + password'), responses: r200('Message') },
+      },
 
       // ---- Portal Dashboard §11.1 ----
       '/portal/dashboard': {

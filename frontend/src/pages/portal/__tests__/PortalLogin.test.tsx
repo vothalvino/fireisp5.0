@@ -56,6 +56,12 @@ describe('PortalLogin page', () => {
     expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
   });
 
+  it('renders a forgot-password link pointing to /portal/forgot-password', () => {
+    mockPortalLogin(vi.fn());
+    renderPortalLogin();
+    expect(screen.getByRole('link', { name: /forgot password/i })).toHaveAttribute('href', '/portal/forgot-password');
+  });
+
   it('calls login() and navigates on success', async () => {
     const loginFn = vi.fn().mockResolvedValue(undefined);
     mockPortalLogin(loginFn);
