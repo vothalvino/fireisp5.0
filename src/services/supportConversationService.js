@@ -450,57 +450,19 @@ async function sendMessage({ conversationId, orgId, content, clientId }) {
 }
 
 /**
- * Escalate a conversation to a human agent.
- *
- * Updates the conversation status, creates a ticket, and inserts a system
- * notification message. Idempotent: a conversation that is already
- * escalated is a no-op (returns the existing state) rather than creating a
- * second ticket.
+ * Create the escalation ticket for a conversation and link it back via
+ * `ticket_id`. Used both on first escalation and to REPAIR a conversation
+ * whose earlier ticket-creation attempt failed (`ticket_id` still NULL —
+ * see `escalate()`'s affectedRows===0 branch). Ticket-creation failure must
+ * not abort the caller: it's swallowed and logged, leaving `ticket_id` NULL
+ * so a later `escalate()` call retries it again.
  *
  * @param {object} opts
  * @param {number} opts.conversationId
- * @param {string} opts.reason
  * @param {number} opts.orgId
- * @returns {Promise<{ conversation: object, messages: object[] }>}
+ * @param {string} [opts.reason]
  */
-async function escalate({ conversationId, reason, orgId }) {
-  // Idempotency guard — without this, every subsequent caller re-runs the
-  // full side-effect chain below: sendMessage's own "already_escalated"
-  // detection (see its step 5) calls escalate() again on every message a
-  // customer sends AFTER their conversation is already escalated, and there
-  // is no guard anywhere else in the call chain. That used to mean a new
-  // duplicate ticket + an overwritten ticket_id (orphaning the prior ticket)
-  // + a duplicate "you've been escalated" system message on every single
-  // follow-up message. `status === 'escalated'` is the reliable signal to
-  // guard on: it's set unconditionally as the very first side effect below,
-  // whereas `ticket_id` can legitimately stay NULL after a "successful"
-  // escalation if the ticket INSERT itself fails (see the try/catch below,
-  // which deliberately swallows that failure) — guarding on ticket_id alone
-  // would re-run the whole chain (including a second system message) on
-  // every retry of a conversation whose first ticket-creation attempt
-  // failed, not just skip the ticket step.
-  const [existingRows] = await db.query(
-    'SELECT status, ticket_id FROM support_conversations WHERE id = ? AND organization_id = ?',
-    [conversationId, orgId],
-  );
-  const existing = existingRows[0];
-  if (existing && existing.status === 'escalated') {
-    logger.info(
-      { conversationId, orgId, ticketId: existing.ticket_id },
-      'supportConversationService: escalate() no-op — conversation already escalated',
-    );
-    return _loadConversation(conversationId, orgId);
-  }
-
-  // Update conversation status
-  await db.query(
-    `UPDATE support_conversations
-     SET status = 'escalated', escalation_reason = ?, escalated_at = NOW()
-     WHERE id = ? AND organization_id = ?`,
-    [reason || 'manual', conversationId, orgId],
-  );
-
-  // Create ticket directly (avoids circular dep with ticketService)
+async function _createEscalationTicket({ conversationId, orgId, reason }) {
   try {
     const [ticketResult] = await db.query(
       `INSERT INTO tickets (organization_id, client_id, subject, description, status, priority, source)
@@ -532,13 +494,81 @@ async function escalate({ conversationId, reason, orgId }) {
     // Ticket creation failure must not abort the escalation itself
     logger.error({ err: err.message, conversationId, orgId }, 'supportConversationService: failed to create escalation ticket');
   }
+}
 
-  // System notification message
-  await _insertMessage({
-    conversationId,
-    role:    'system',
-    content: 'Tu conversación ha sido escalada a un agente humano. Por favor espera.',
-  });
+/**
+ * Escalate a conversation to a human agent.
+ *
+ * Idempotent AND concurrency-safe via an atomic conditional claim: the
+ * status flip itself (`UPDATE ... WHERE status <> 'escalated'`) is the
+ * lock, so only one caller — even under two simultaneous escalate() calls
+ * for the same conversation — ever creates the ticket + handoff message.
+ * A conversation that's already escalated with a ticket is a true no-op; a
+ * conversation that's already escalated but is missing its ticket (a prior
+ * attempt's ticket INSERT failed, see `_createEscalationTicket`) gets that
+ * ticket repaired without re-touching status or re-sending the handoff
+ * message.
+ *
+ * @param {object} opts
+ * @param {number} opts.conversationId
+ * @param {string} opts.reason
+ * @param {number} opts.orgId
+ * @returns {Promise<{ conversation: object, messages: object[] }>}
+ */
+async function escalate({ conversationId, reason, orgId }) {
+  // Atomic claim: this UPDATE only matches (affectedRows === 1) a
+  // conversation that is NOT already 'escalated'. That condition is what
+  // makes this safe under concurrency (two simultaneous calls: at most one
+  // UPDATE can match, since the loser's WHERE no longer holds once the
+  // winner commits) AND idempotent (a later call on an already-escalated
+  // conversation always affects 0 rows) — a plain SELECT-then-UPDATE guard
+  // is neither: it has a race window between the read and the write, and a
+  // status-only check can't distinguish "already escalated with a ticket"
+  // from "already escalated but the ticket never got created."
+  const [claimResult] = await db.query(
+    `UPDATE support_conversations
+     SET status = 'escalated', escalation_reason = ?, escalated_at = NOW()
+     WHERE id = ? AND organization_id = ? AND status <> 'escalated'`,
+    [reason || 'manual', conversationId, orgId],
+  );
+
+  if (claimResult.affectedRows === 1) {
+    // We won the claim — this is the first escalation for this
+    // conversation. Create the ticket and the handoff message exactly once.
+    await _createEscalationTicket({ conversationId, orgId, reason });
+    await _insertMessage({
+      conversationId,
+      role:    'system',
+      content: 'Tu conversación ha sido escalada a un agente humano. Por favor espera.',
+    });
+    return _loadConversation(conversationId, orgId);
+  }
+
+  // affectedRows === 0: the conversation was already 'escalated' (by an
+  // earlier call, or by a concurrent winner that committed first). Never
+  // re-touch status/escalated_at/escalation_reason and never re-send the
+  // handoff message — but DO repair a missing ticket, so the dedicated
+  // manual retry endpoint (POST /conversations/:id/escalate) can still fix
+  // a conversation whose first ticket-creation attempt failed, rather than
+  // being permanently stuck with status='escalated' and no ticket.
+  const [rows] = await db.query(
+    'SELECT ticket_id FROM support_conversations WHERE id = ? AND organization_id = ?',
+    [conversationId, orgId],
+  );
+  const ticketId = rows[0]?.ticket_id;
+
+  if (!ticketId) {
+    logger.info(
+      { conversationId, orgId },
+      'supportConversationService: escalate() repairing missing ticket for an already-escalated conversation',
+    );
+    await _createEscalationTicket({ conversationId, orgId, reason });
+  } else {
+    logger.info(
+      { conversationId, orgId, ticketId },
+      'supportConversationService: escalate() no-op — conversation already escalated with a ticket',
+    );
+  }
 
   return _loadConversation(conversationId, orgId);
 }

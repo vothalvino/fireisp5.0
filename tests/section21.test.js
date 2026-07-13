@@ -446,9 +446,7 @@ describe('supportConversationService', () => {
   });
 
   test('escalate updates status and inserts system message', async () => {
-    // idempotency guard: SELECT status/ticket_id — not yet escalated
-    db.query.mockResolvedValueOnce([[{ status: 'open', ticket_id: null }], undefined]);
-    // UPDATE support_conversations SET status='escalated'
+    // atomic claim UPDATE — affectedRows:1 means WE claimed it (first escalation)
     db.query.mockResolvedValueOnce([{ affectedRows: 1 }, undefined]);
     // INSERT ticket
     db.query.mockResolvedValueOnce([{ insertId: 99 }, undefined]);
@@ -466,9 +464,7 @@ describe('supportConversationService', () => {
   });
 
   test('escalate handles ticket creation failure gracefully', async () => {
-    // idempotency guard: SELECT status/ticket_id — not yet escalated
-    db.query.mockResolvedValueOnce([[{ status: 'open', ticket_id: null }], undefined]);
-    // UPDATE support_conversations SET status='escalated'
+    // atomic claim UPDATE — affectedRows:1 means WE claimed it (first escalation)
     db.query.mockResolvedValueOnce([{ affectedRows: 1 }, undefined]);
     // ticket INSERT fails
     db.query.mockRejectedValueOnce(new Error('tickets table missing'));
@@ -494,20 +490,18 @@ describe('supportConversationService', () => {
     db.query.mockResolvedValueOnce([[mockConversation], undefined]);
     // 2. INSERT customer message
     db.query.mockResolvedValueOnce([{ insertId: 20 }, undefined]);
-    // 3. escalate: idempotency guard SELECT — not yet escalated
-    db.query.mockResolvedValueOnce([[{ status: 'open', ticket_id: null }], undefined]);
-    // 4. escalate: UPDATE conv status
+    // 3. escalate: atomic claim UPDATE — affectedRows:1 (first escalation)
     db.query.mockResolvedValueOnce([{ affectedRows: 1 }, undefined]);
-    // 5. escalate: INSERT ticket
+    // 4. escalate: INSERT ticket
     db.query.mockResolvedValueOnce([{ insertId: 100 }, undefined]);
-    // 6. escalate: UPDATE ticket_id
+    // 5. escalate: UPDATE ticket_id
     db.query.mockResolvedValueOnce([{ affectedRows: 1 }, undefined]);
-    // 7. escalate: INSERT system message
+    // 6. escalate: INSERT system message
     db.query.mockResolvedValueOnce([{ insertId: 21 }, undefined]);
-    // 8-9. escalate internal _loadConversation (ignored return value in escalate)
+    // 7-8. escalate internal _loadConversation (ignored return value in escalate)
     db.query.mockResolvedValueOnce([[{ ...mockConversation, status: 'escalated' }], undefined]);
     db.query.mockResolvedValueOnce([[mockMessage], undefined]);
-    // 10-11. sendMessage outer _loadConversation (the one that actually gets returned)
+    // 9-10. sendMessage outer _loadConversation (the one that actually gets returned)
     db.query.mockResolvedValueOnce([[{ ...mockConversation, status: 'escalated' }], undefined]);
     db.query.mockResolvedValueOnce([[mockMessage], undefined]);
 
