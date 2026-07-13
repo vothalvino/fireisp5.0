@@ -12,6 +12,54 @@ universal — some clients want auto-escalation off entirely, some clients have
 a UPS and want offline treated as a real fault. Both are now per-contract
 toggles rather than a hardcoded rule.
 
+## Follow-up fix (same branch, commit `7336d43`): soft-deleted contracts could win the lookup
+
+Adversarial review of this same PR found a HIGH-severity gap in
+`_resolveEscalationContract`: its `SELECT ... WHERE client_id=? AND
+organization_id=? AND status='active' ORDER BY id DESC LIMIT 1` had no
+`deleted_at IS NULL` guard. `Contract.softDelete = true` — `DELETE` only sets
+`deleted_at=NOW()`, **status is left untouched**, and a `POST
+/contracts/:id/restore` endpoint exists confirming soft-delete is a normal,
+reversible, expected flow here (not a rare edge case). So a soft-deleted
+duplicate contract with a higher `id` than the real active one — e.g. staff
+creates a duplicate by mistake with `escalate_on_disconnect=1`, then deletes
+it — still has `status='active'` and outranks the real contract on `ORDER BY
+id DESC`, silently winning the lookup. Net effect: that non-UPS client's
+plain disconnects start auto-escalating (the exact unwanted truck roll this
+whole feature exists to prevent). The inverse (a deleted `escalation_enabled
+=0` row suppressing real quality escalation) holds too.
+
+**Fix:** added `AND deleted_at IS NULL` to `_resolveEscalationContract`'s
+query, and to the `account_status` check's contract lookup in
+`_diagSlowFiber` (same bug shape — `c.status = 'active'` with no
+`c.deleted_at IS NULL`, found in the same review pass). Deliberately did
+**not** extend this to the five other `contracts c ... status = 'active'`
+lookups in this file (`_resolveOnuDeviceId`'s bridge query,
+`_resolveCpeDeviceId`, and the `cpe_status`/`cpe_model`/`cpe_reachability`
+per-check contract joins) — the review explicitly scoped the "also fix, cheap,
+same class" ask to "lookups that back the account_status / account_suspension
+checks", and only one such lookup (account_status) actually has that exact
+`status='active'`-without-`deleted_at` shape (the two `account_suspension`
+checks have different query shapes — one has no status filter at all, one
+queries only `clients`, not `contracts`). **Flagged, not fixed:** those five
+device-resolution queries have the identical latent bug (a soft-deleted
+duplicate contract could resolve a stale ONU/CPE as the client's "current"
+device) — worth a dedicated follow-up if this class of bug matters enough to
+sweep the whole file, but out of scope for this review's explicit ask.
+
+**Test technique for a mocked-DB regression test:** since these are jest
+`db.query` mocks (not real MySQL), "prove the soft-deleted row is ignored"
+can't rely on a real `WHERE`/`ORDER BY`/`LIMIT` execution — the mock itself
+has to encode the filter. Pattern used: branch the mock's response on
+whether the actual SQL text contains `deleted_at IS NULL`, returning the
+"correct" (active) fixture row only when it does, and the "wrong" (deleted
+duplicate) row when it doesn't. This makes the test a real regression guard —
+if a future edit drops the guard, the mock starts returning the deleted
+duplicate's flags and the test's behavioral assertion (`escalate` reflects
+the ACTIVE contract's flag, not the deleted one's) fails. Paired with two
+lightweight companion tests that just assert the literal query text contains
+`deleted_at IS NULL` (cheap, direct, catches the regression even faster).
+
 ## Migration 387
 
 `database/migrations/387_add_contract_escalation_toggles.sql` (+ rollback,
