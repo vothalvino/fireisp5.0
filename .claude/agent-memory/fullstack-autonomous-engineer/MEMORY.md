@@ -2,7 +2,7 @@
 
 - [Environment setup](env-setup.md) — Node/pnpm lives at C:\Users\votha\tools\node24; must set PATH before running commands
 - [Testing conventions](testing-conventions.md) — How tests are structured, what mocks are used, and pre-existing failures to ignore
-- [OpenAPI pattern](openapi-pattern.md) — Spec is static (hand-written in openapi.js); new routes need manual path additions; frontend uses `as never` cast on full options objects for paths with `query?: never` types
+- [OpenAPI pattern](openapi-pattern.md) — Spec is static (hand-written in openapi.js); new routes need manual path additions; frontend uses `as never` cast on full options objects for paths with `query?: never` types; components.schemas auto-loads EVERY src/middleware/schemas/*.js file regardless of path $refs — always regenerate after editing one
 - [Regex escape lint rule](regex-escape-lint.md) — ESLint no-useless-escape fires on `\-` in character classes; use `[:.]/g` + `/-/g` for MAC normalization
 - [Section 5 Dual Stack](section5-dual-stack.md) — migrations 241-246 complete; tables, routes, frontend pages, 25 permissions; radiusService IPv6 sync not yet done
 - [Section 6 SNMP & NMS](section6-snmp-nms.md) — migrations 247-265; §6.1–6.6 done; gaps: rollback-to-version, traffic classification; next migration: 266
@@ -28,3 +28,4 @@
 - [Env: node_modules in worktrees](env-node-modules-worktree.md) — worktrees have no local node_modules; `pnpm lint`/`pnpm test` fail on bin resolution, use `npx eslint`/`npx jest` instead (resolves main checkout's node_modules via require() walk-up)
 - [SQL column drift gate](sql-column-drift-gate.md) — sql:check validates INSERT/UPDATE/SELECT columns+ENUM+GENERATED-writes+table existence vs schema.sql; CI gate; SELECT-sweep fixes were reverted from PR #390 after review found silent-wrong-data defects, moved to a follow-up PR — read before touching KNOWN_SCHEMA_GAPS/KNOWN_MISSING_TABLES
 - [gh CLI token scope](gh-cli-token-scope.md) — GH_TOKEN lacks read:org; `gh pr edit`/`--json commits` fail, use `gh api repos/.../pulls/N -X PATCH -F body=@file` (capital -F) to update a PR body instead
+- [Diagnostic engine blindness + devices.client_id fix](diag-engine-blindness-client-id-fix.md) — getConversation() returns {conversation,messages} not flat; supportConversations.js routes must read conv.conversation.client_id; _buildResult needed a knownChecks===0 honest-blind branch; devices.client_id FK guard mirrors assertServiceOrderFks; PR branch fix/diagnostic-engine-blindness-client-id

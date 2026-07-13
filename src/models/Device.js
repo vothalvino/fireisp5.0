@@ -9,7 +9,7 @@ class Device extends BaseModel {
 
   static get fillable() {
     return [
-      'organization_id', 'site_id', 'contract_id', 'name', 'type',
+      'organization_id', 'site_id', 'client_id', 'contract_id', 'name', 'type',
       'manufacturer', 'model', 'serial_number', 'mac_address',
       'ip_address', 'ipv6_address', 'snmp_enabled', 'snmp_community',
       'snmp_version', 'snmp_port', 'snmp_profile_id',
