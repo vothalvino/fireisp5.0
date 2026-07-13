@@ -10,17 +10,22 @@ const { URLSearchParams } = require('url');
 const db = require('../config/database');
 
 /**
- * HTML-escape a template-substitution value for HTML-bodied channels
- * (email). Template subject/body strings are ultimately emailed as HTML by
- * callers that route through src/services/emailTransport.js; the values
- * substituted here (e.g. a client's own name) are potentially
- * client-influenced, so they need output-side escaping at this sink —
- * mirrors cfdiService.escapeXml's output-encoding pattern for CFDI XML.
- * NOT applied to sms/whatsapp, which are plain text — escaping there would
- * corrupt the message the subscriber actually reads (literal "&amp;").
+ * HTML-escape a value for interpolation into an HTML email body/subject.
+ * Shared across every HTML-email sink in the codebase (see the callers
+ * below plus src/views/emailTemplates.js, src/services/notificationHooks.js,
+ * paymentReminderService.js, scheduledReportService.js, and
+ * campaignService.js's merge-field substitution) — this is the ONE escaping
+ * helper for that purpose; do not duplicate it. NOT applied to sms/whatsapp
+ * bodies, which are plain text — escaping there would corrupt the message
+ * the subscriber actually reads (literal "&amp;"). Mirrors
+ * cfdiService.escapeXml's output-encoding pattern for CFDI XML.
+ *
+ * null/undefined become '' rather than the literal strings "null"/
+ * "undefined" (String(val) alone would emit those); numbers and other
+ * primitives pass through String()'s normal coercion unaffected.
  */
 function escapeHtmlForTemplate(val) {
-  return String(val)
+  return String(val ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -150,4 +155,4 @@ async function sendViaTwilio({ to, body, channel }) {
   });
 }
 
-module.exports = { sendNotification, sendViaTwilio };
+module.exports = { sendNotification, sendViaTwilio, escapeHtmlForTemplate };

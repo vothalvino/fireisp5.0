@@ -9,9 +9,22 @@
 //   - The new GET /radius/contract/:contractId/credentials and
 //     GET /radius/:id/credentials routes return the full row (incl.
 //     password) ONLY to a role holding `radius.credentials.view`.
-//   - Both the contract-scoped and id-scoped credentials routes are
-//     org-scoped via a JOIN (through contracts / clients respectively) so a
-//     foreign-org contractId/id can never leak another org's RADIUS row.
+//   - ALL FIVE read routes (the three base ones above plus the two
+//     /credentials ones) are org-scoped via a JOIN (through contracts /
+//     clients) so a foreign-org contractId/id can never leak another org's
+//     RADIUS row. `radius` has no organization_id column
+//     (Radius.hasOrgScope === false), so GET /radius and GET /radius/:id
+//     needed Radius.findAll/findById/count overrides (see
+//     src/models/Radius.js) — the generic BaseModel versions silently skip
+//     org scoping entirely for any hasOrgScope=false model, which combined
+//     with the radius.credentials.view OR-permission widening (below)
+//     opened a same-instance cross-org read for every column except
+//     password (which the pre-existing serialize already stripped).
+//   - The OR-permission widening itself: support/super_admin/noc_operator
+//     hold radius.credentials.view but have never held devices.view, and
+//     the frontend's split-fetch UX needs the BASE (password-free) fetch to
+//     succeed before it ever attempts the credentials fetch — so the three
+//     base routes accept EITHER devices.view OR radius.credentials.view.
 // =============================================================================
 
 jest.mock('../src/config/database', () => ({
@@ -92,7 +105,7 @@ describe('RADIUS credentials scoping', () => {
       expect(params).toEqual([1, '7']);
     });
 
-    test('GET /api/v1/radius (list) strips password via serialize even though the row query returns it', async () => {
+    test('GET /api/v1/radius (list) strips password via serialize and org-scopes both the row query and the count via JOIN clients', async () => {
       // Model.findAll + Model.count (crudController list = 2 queries)
       db.query
         .mockResolvedValueOnce([[RADIUS_ROW_FULL]])
@@ -105,9 +118,19 @@ describe('RADIUS credentials scoping', () => {
       expect(res.status).toBe(200);
       expect(res.body.data[0]).not.toHaveProperty('password');
       expect(res.body.data[0].username).toBe('sub12345');
+
+      const [findAllSql, findAllParams] = db.query.mock.calls[0];
+      expect(findAllSql).toMatch(/JOIN clients cl ON cl\.id = r\.client_id/);
+      expect(findAllSql).toMatch(/cl\.organization_id = \?/);
+      expect(findAllParams).toEqual([1]);
+
+      const [countSql, countParams] = db.query.mock.calls[1];
+      expect(countSql).toMatch(/JOIN clients cl ON cl\.id = r\.client_id/);
+      expect(countSql).toMatch(/cl\.organization_id = \?/);
+      expect(countParams).toEqual([1]);
     });
 
-    test('GET /api/v1/radius/:id strips password via serialize', async () => {
+    test('GET /api/v1/radius/:id strips password via serialize and org-scopes via JOIN clients', async () => {
       db.query.mockResolvedValueOnce([[RADIUS_ROW_FULL]]);
 
       const res = await request(app)
@@ -116,6 +139,35 @@ describe('RADIUS credentials scoping', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data).not.toHaveProperty('password');
+
+      const [sql, params] = db.query.mock.calls[0];
+      expect(sql).toMatch(/JOIN clients cl ON cl\.id = r\.client_id/);
+      expect(sql).toMatch(/cl\.organization_id = \?/);
+      expect(params).toEqual(['42', 1]);
+    });
+
+    test('cross-org id on GET /radius/:id returns 404, never another org\'s row', async () => {
+      db.query.mockResolvedValueOnce([[]]); // JOIN clients excludes it — no matching row
+
+      const res = await request(app)
+        .get('/api/v1/radius/999')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(404);
+    });
+
+    test('cross-org rows are excluded from GET /radius (list) — both the rows and the count are org-scoped', async () => {
+      db.query
+        .mockResolvedValueOnce([[]])              // findAll: no rows match this org
+        .mockResolvedValueOnce([[{ total: 0 }]]); // count: 0 for this org
+
+      const res = await request(app)
+        .get('/api/v1/radius')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([]);
+      expect(res.body.meta.total).toBe(0);
     });
 
     test('GET /api/v1/radius/contract/:contractId/credentials is 403 without radius.credentials.view', async () => {
@@ -163,7 +215,7 @@ describe('RADIUS credentials scoping', () => {
   describe('base endpoints — ONLY radius.credentials.view (no devices.view — support/super_admin/noc_operator)', () => {
     beforeEach(() => mockPermissions(['radius.credentials.view']));
 
-    test('GET /api/v1/radius/contract/:contractId succeeds password-free', async () => {
+    test('GET /api/v1/radius/contract/:contractId succeeds password-free and org-scopes via JOIN contracts', async () => {
       db.query.mockResolvedValueOnce([[{ id: 42, contract_id: 7, username: 'sub12345', status: 'active' }]]);
 
       const res = await request(app)
@@ -173,9 +225,25 @@ describe('RADIUS credentials scoping', () => {
       expect(res.status).toBe(200);
       expect(res.body.data[0]).not.toHaveProperty('password');
       expect(res.body.data[0].username).toBe('sub12345');
+
+      const [sql, params] = db.query.mock.calls[0];
+      expect(sql).toMatch(/JOIN contracts c ON c\.id = r\.contract_id AND c\.organization_id = \?/);
+      expect(sql).not.toMatch(/password/);
+      expect(params).toEqual([1, '7']);
     });
 
-    test('GET /api/v1/radius (list) succeeds password-free', async () => {
+    test('cross-org contractId returns an empty list, not another org\'s RADIUS rows', async () => {
+      db.query.mockResolvedValueOnce([[]]); // JOIN contracts excludes it — no matching row
+
+      const res = await request(app)
+        .get('/api/v1/radius/contract/999')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([]);
+    });
+
+    test('GET /api/v1/radius (list) succeeds password-free and org-scopes both the row query and the count via JOIN clients', async () => {
       db.query
         .mockResolvedValueOnce([[RADIUS_ROW_FULL]])
         .mockResolvedValueOnce([[{ total: 1 }]]);
@@ -186,9 +254,33 @@ describe('RADIUS credentials scoping', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data[0]).not.toHaveProperty('password');
+
+      const [findAllSql, findAllParams] = db.query.mock.calls[0];
+      expect(findAllSql).toMatch(/JOIN clients cl ON cl\.id = r\.client_id/);
+      expect(findAllSql).toMatch(/cl\.organization_id = \?/);
+      expect(findAllParams).toEqual([1]);
+
+      const [countSql, countParams] = db.query.mock.calls[1];
+      expect(countSql).toMatch(/JOIN clients cl ON cl\.id = r\.client_id/);
+      expect(countSql).toMatch(/cl\.organization_id = \?/);
+      expect(countParams).toEqual([1]);
     });
 
-    test('GET /api/v1/radius/:id succeeds password-free', async () => {
+    test('cross-org rows are excluded from GET /radius (list) for a support-only caller too', async () => {
+      db.query
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[{ total: 0 }]]);
+
+      const res = await request(app)
+        .get('/api/v1/radius')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([]);
+      expect(res.body.meta.total).toBe(0);
+    });
+
+    test('GET /api/v1/radius/:id succeeds password-free and org-scopes via JOIN clients', async () => {
       db.query.mockResolvedValueOnce([[RADIUS_ROW_FULL]]);
 
       const res = await request(app)
@@ -197,6 +289,21 @@ describe('RADIUS credentials scoping', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data).not.toHaveProperty('password');
+
+      const [sql, params] = db.query.mock.calls[0];
+      expect(sql).toMatch(/JOIN clients cl ON cl\.id = r\.client_id/);
+      expect(sql).toMatch(/cl\.organization_id = \?/);
+      expect(params).toEqual(['42', 1]);
+    });
+
+    test('cross-org id on GET /radius/:id returns 404 for a support-only caller too', async () => {
+      db.query.mockResolvedValueOnce([[]]); // JOIN clients excludes it — no matching row
+
+      const res = await request(app)
+        .get('/api/v1/radius/999')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(404);
     });
   });
 

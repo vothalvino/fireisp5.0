@@ -61,9 +61,9 @@ const CFDI_TABLE = 'cfdi_documents';
 const CFDI_COLUMN = 'receptor_nombre';
 
 // The 5 entities the old middleware produced (src/middleware/sanitize.js,
-// now removed). Decode &amp; LAST so a literal "&amp;amp;" (which would only
-// occur if something double-encoded) doesn't get mis-collapsed into "&amp;"
-// instead of "&".
+// now removed). Decode &amp; LAST within a single pass so a literal
+// "&amp;amp;" doesn't get mis-collapsed into "&" in one step — see
+// decodeEntities below for why a single pass isn't sufficient on its own.
 const ENTITY_DECODES = [
   [/&lt;/g, '<'],
   [/&gt;/g, '>'],
@@ -72,8 +72,17 @@ const ENTITY_DECODES = [
   [/&amp;/g, '&'],
 ];
 
-function decodeEntities(value) {
-  if (typeof value !== 'string') return value;
+// Safety cap on decode passes — see decodeEntities. With only 5 fixed
+// replacement patterns that can never grow the string, a fixpoint is
+// mathematically guaranteed well before this; it exists purely so a future
+// change to ENTITY_DECODES can't accidentally produce an infinite loop.
+const MAX_DECODE_PASSES = 10;
+
+function isCorrupted(value) {
+  return typeof value === 'string' && /&(amp|lt|gt|quot|#x27);/.test(value);
+}
+
+function decodeEntitiesOnce(value) {
   let out = value;
   for (const [pattern, replacement] of ENTITY_DECODES) {
     out = out.replace(pattern, replacement);
@@ -81,8 +90,29 @@ function decodeEntities(value) {
   return out;
 }
 
-function isCorrupted(value) {
-  return typeof value === 'string' && /&(amp|lt|gt|quot|#x27);/.test(value);
+/**
+ * Decode entity-encoded text to a fixpoint (repeat until isCorrupted() is
+ * false or the string stops changing), not just once.
+ *
+ * A single pass is NOT enough for a value that was run through the old
+ * middleware more than once (e.g. two separate edits, each re-encoding
+ * whatever was already stored). Example: "O&amp;#x27;Brien" — one pass
+ * decodes &amp; -> & giving "O&#x27;Brien", which is STILL corrupted,
+ * because the leading `&` of the inner `&#x27;` was consumed as part of
+ * `&amp;` on pass 1 and only becomes a real `&#x27;` entity again after
+ * that replacement runs; it needs a second pass to become "O'Brien". The
+ * previous single-pass implementation reported rows like this as
+ * "repaired" while they were still corrupted post-write.
+ */
+function decodeEntities(value) {
+  if (typeof value !== 'string') return value;
+  let out = value;
+  for (let pass = 0; pass < MAX_DECODE_PASSES && isCorrupted(out); pass++) {
+    const next = decodeEntitiesOnce(out);
+    if (next === out) break; // no further progress possible
+    out = next;
+  }
+  return out;
 }
 
 async function repairColumn(table, column, { apply }) {
@@ -94,7 +124,7 @@ async function repairColumn(table, column, { apply }) {
   );
 
   const candidates = rows.filter((r) => isCorrupted(r.val));
-  if (candidates.length === 0) return { table, column, count: 0 };
+  if (candidates.length === 0) return { table, column, count: 0, residual: 0 };
 
   logger.info({ table, column, count: candidates.length }, apply ? 'Repairing rows' : 'Would repair rows (dry run)');
   for (const row of candidates.slice(0, 5)) {
@@ -105,14 +135,29 @@ async function repairColumn(table, column, { apply }) {
     console.log(`  ... and ${candidates.length - 5} more`);
   }
 
+  // Track rows that are STILL entity-encoded after decodeEntities' fixpoint
+  // loop (only possible if MAX_DECODE_PASSES was hit without fully
+  // resolving — see decodeEntities). Never silently count these as
+  // "repaired"; report them explicitly instead.
+  const residualRows = [];
+
   if (apply) {
     for (const row of candidates) {
       const decoded = decodeEntities(row.val);
       await db.query(`UPDATE \`${table}\` SET \`${column}\` = ? WHERE id = ?`, [decoded, row.id]);
+      if (isCorrupted(decoded)) residualRows.push({ id: row.id, value: decoded });
+    }
+
+    if (residualRows.length > 0) {
+      console.log('');
+      console.log(`  *** WARNING: ${residualRows.length} row(s) in ${table}.${column} are STILL entity-encoded after repair (hit the decode-pass safety cap) — inspect manually: ***`);
+      for (const r of residualRows.slice(0, 5)) {
+        console.log(`    id=${r.id} value=${JSON.stringify(r.value)}`);
+      }
     }
   }
 
-  return { table, column, count: candidates.length };
+  return { table, column, count: candidates.length, residual: residualRows.length };
 }
 
 async function repairCfdiReceptorNombre({ apply }) {
@@ -127,6 +172,8 @@ async function repairCfdiReceptorNombre({ apply }) {
   const draftRows = candidates.filter((r) => r.uuid === null);
   const stampedRows = candidates.filter((r) => r.uuid !== null);
 
+  const residualRows = [];
+
   if (draftRows.length > 0) {
     logger.info({ count: draftRows.length }, apply ? 'Repairing draft cfdi_documents.receptor_nombre rows' : 'Would repair draft cfdi_documents.receptor_nombre rows (dry run)');
     for (const row of draftRows) {
@@ -134,6 +181,14 @@ async function repairCfdiReceptorNombre({ apply }) {
       console.log(`  [cfdi_documents.receptor_nombre#${row.id}] before: ${JSON.stringify(row.val)} after: ${JSON.stringify(decoded)}`);
       if (apply) {
         await db.query('UPDATE cfdi_documents SET receptor_nombre = ? WHERE id = ?', [decoded, row.id]);
+        if (isCorrupted(decoded)) residualRows.push({ id: row.id, value: decoded });
+      }
+    }
+    if (residualRows.length > 0) {
+      console.log('');
+      console.log(`  *** WARNING: ${residualRows.length} draft cfdi_documents.receptor_nombre row(s) are STILL entity-encoded after repair (hit the decode-pass safety cap) — inspect manually: ***`);
+      for (const r of residualRows.slice(0, 5)) {
+        console.log(`    id=${r.id} value=${JSON.stringify(r.value)}`);
       }
     }
   }
@@ -149,7 +204,7 @@ async function repairCfdiReceptorNombre({ apply }) {
     console.log('  cancellation + refiling decision.');
   }
 
-  return { draftRepaired: draftRows.length, stampedFlagged: stampedRows.length };
+  return { draftRepaired: draftRows.length, stampedFlagged: stampedRows.length, residual: residualRows.length };
 }
 
 async function main() {
@@ -160,19 +215,31 @@ async function main() {
   console.log('');
 
   let totalRepaired = 0;
+  let totalResidual = 0;
 
   for (const { table, columns } of TARGETS) {
     for (const column of columns) {
       const result = await repairColumn(table, column, { apply });
       totalRepaired += result.count;
+      totalResidual += result.residual;
     }
   }
 
   const cfdiResult = await repairCfdiReceptorNombre({ apply });
   totalRepaired += cfdiResult.draftRepaired;
+  totalResidual += cfdiResult.residual;
 
   console.log('');
-  console.log(`Done. ${apply ? 'Repaired' : 'Would repair'} ${totalRepaired} row(s)${cfdiResult.stampedFlagged ? `; ${cfdiResult.stampedFlagged} stamped CFDI row(s) flagged for manual review` : ''}.`);
+  // Never report a clean "repaired" summary when some rows are still
+  // entity-encoded after the fixpoint decode — that was exactly the bug in
+  // the original single-pass implementation (a multiply-encoded value like
+  // "O&amp;#x27;Brien" got written back still-corrupted but counted as
+  // fixed). Surface the residual count explicitly instead.
+  if (apply && totalResidual > 0) {
+    console.log(`Done with WARNINGS. Repaired ${totalRepaired - totalResidual} row(s) cleanly; ${totalResidual} row(s) are STILL entity-encoded after repair (see WARNING lines above) and need manual inspection — they were written with their best-effort decoded value, not left untouched.`);
+  } else {
+    console.log(`Done. ${apply ? 'Repaired' : 'Would repair'} ${totalRepaired} row(s)${cfdiResult.stampedFlagged ? `; ${cfdiResult.stampedFlagged} stamped CFDI row(s) flagged for manual review` : ''}.`);
+  }
   if (!apply && totalRepaired > 0) {
     console.log('Re-run with --apply to write these changes.');
   }

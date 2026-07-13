@@ -4,7 +4,17 @@
 // HTML email template builders for transactional emails.
 // Each function returns { subject, html } ready for nodemailer.
 // Variables use {{placeholder}} syntax matching message_templates table.
+//
+// Every free-text/DB-editable value interpolated into the HTML below (client
+// names, org names, invoice line-item descriptions, payment method/
+// reference, outage titles/affected-area) is HTML-escaped at the point of
+// interpolation via escapeHtmlForTemplate — these values can originate from
+// client- or staff-entered data and are rendered as HTML in a real mail
+// client. Amounts/dates are already numeric/formatted (not free text) and
+// URLs are server-constructed, not user-editable, so those are left as-is.
 // =============================================================================
+
+const { escapeHtmlForTemplate: esc } = require('../services/notificationService');
 
 /**
  * Base HTML wrapper shared by all templates.
@@ -57,19 +67,21 @@ function baseLayout(content, footerText) {
 
 function welcomeEmail(vars) {
   const { clientName, orgName, portalUrl } = vars;
+  const safeOrgName = esc(orgName || 'FireISP');
+  const safeClientName = esc(clientName || 'Valued Customer');
   const content = `
     <div class="header">
-      <h1>Welcome to ${orgName || 'FireISP'}</h1>
+      <h1>Welcome to ${safeOrgName}</h1>
       <div class="subtitle">Your internet service account is ready</div>
     </div>
-    <p>Hello <strong>${clientName || 'Valued Customer'}</strong>,</p>
-    <p>Thank you for choosing ${orgName || 'FireISP'}! Your account has been created and is ready to use.</p>
+    <p>Hello <strong>${safeClientName}</strong>,</p>
+    <p>Thank you for choosing ${safeOrgName}! Your account has been created and is ready to use.</p>
     <p>You can access your account portal to view invoices, make payments, and manage your service:</p>
     <p style="text-align: center; margin: 24px 0;">
       <a href="${portalUrl || '#'}" class="btn">Access Your Account</a>
     </p>
     <p>If you have any questions, feel free to contact our support team.</p>
-    <p class="meta">Best regards,<br>${orgName || 'FireISP'} Team</p>`;
+    <p class="meta">Best regards,<br>${safeOrgName} Team</p>`;
 
   return {
     subject: `Welcome to ${orgName || 'FireISP'} — Account Created`,
@@ -83,16 +95,17 @@ function welcomeEmail(vars) {
 
 function invoiceEmail(vars) {
   const { clientName, orgName, invoiceNumber, total, currency, dueDate, portalUrl, items } = vars;
+  const safeInvoiceNumber = esc(invoiceNumber || '');
   const itemsHtml = (items || []).map(i =>
-    `<tr><td>${i.description || ''}</td><td style="text-align:right">${currency || 'USD'} ${parseFloat(i.amount || 0).toFixed(2)}</td></tr>`,
+    `<tr><td>${esc(i.description || '')}</td><td style="text-align:right">${currency || 'USD'} ${parseFloat(i.amount || 0).toFixed(2)}</td></tr>`,
   ).join('');
 
   const content = `
     <div class="header">
       <h1>New Invoice</h1>
-      <div class="subtitle">${invoiceNumber || ''}</div>
+      <div class="subtitle">${safeInvoiceNumber}</div>
     </div>
-    <p>Hello <strong>${clientName || 'Customer'}</strong>,</p>
+    <p>Hello <strong>${esc(clientName || 'Customer')}</strong>,</p>
     <p>A new invoice has been generated for your account:</p>
     <div class="amount">${currency || 'USD'} ${parseFloat(total || 0).toFixed(2)}</div>
     ${itemsHtml ? `<table class="table"><thead><tr><th>Description</th><th style="text-align:right">Amount</th></tr></thead><tbody>${itemsHtml}</tbody></table>` : ''}
@@ -100,7 +113,7 @@ function invoiceEmail(vars) {
     <p style="text-align: center; margin: 24px 0;">
       <a href="${portalUrl || '#'}" class="btn">Pay Now</a>
     </p>
-    <p class="meta">${orgName || 'FireISP'}</p>`;
+    <p class="meta">${esc(orgName || 'FireISP')}</p>`;
 
   return {
     subject: `Invoice ${invoiceNumber || ''} — ${currency || 'USD'} ${parseFloat(total || 0).toFixed(2)} Due ${dueDate || ''}`,
@@ -119,19 +132,19 @@ function paymentReceiptEmail(vars) {
       <h1>Payment Received</h1>
       <div class="subtitle"><span class="badge badge-success">Confirmed</span></div>
     </div>
-    <p>Hello <strong>${clientName || 'Customer'}</strong>,</p>
+    <p>Hello <strong>${esc(clientName || 'Customer')}</strong>,</p>
     <p>We have received your payment. Here are the details:</p>
     <div class="amount">${currency || 'USD'} ${parseFloat(amount || 0).toFixed(2)}</div>
     <table class="table">
       <tbody>
         <tr><td><strong>Date</strong></td><td>${paymentDate || new Date().toISOString().slice(0, 10)}</td></tr>
-        <tr><td><strong>Method</strong></td><td>${paymentMethod || 'N/A'}</td></tr>
-        ${reference ? `<tr><td><strong>Reference</strong></td><td>${reference}</td></tr>` : ''}
-        ${invoiceNumber ? `<tr><td><strong>Invoice</strong></td><td>${invoiceNumber}</td></tr>` : ''}
+        <tr><td><strong>Method</strong></td><td>${esc(paymentMethod || 'N/A')}</td></tr>
+        ${reference ? `<tr><td><strong>Reference</strong></td><td>${esc(reference)}</td></tr>` : ''}
+        ${invoiceNumber ? `<tr><td><strong>Invoice</strong></td><td>${esc(invoiceNumber)}</td></tr>` : ''}
       </tbody>
     </table>
     <p>Thank you for your payment!</p>
-    <p class="meta">${orgName || 'FireISP'}</p>`;
+    <p class="meta">${esc(orgName || 'FireISP')}</p>`;
 
   return {
     subject: `Payment Confirmed — ${currency || 'USD'} ${parseFloat(amount || 0).toFixed(2)}`,
@@ -149,12 +162,12 @@ function passwordResetEmail(vars) {
     <div class="header">
       <h1>Password Reset</h1>
     </div>
-    <p>Hello <strong>${userName || 'User'}</strong>,</p>
+    <p>Hello <strong>${esc(userName || 'User')}</strong>,</p>
     <p>We received a request to reset your password. Click the button below to set a new password:</p>
     <p style="text-align: center; margin: 24px 0;">
       <a href="${resetUrl || '#'}" class="btn">Reset Password</a>
     </p>
-    <p class="meta">This link expires in ${expiresIn || '1 hour'}. If you did not request a password reset, you can safely ignore this email.</p>`;
+    <p class="meta">This link expires in ${esc(expiresIn || '1 hour')}. If you did not request a password reset, you can safely ignore this email.</p>`;
 
   return {
     subject: 'Password Reset Request',
@@ -172,7 +185,7 @@ function emailVerificationEmail(vars) {
     <div class="header">
       <h1>Verify Your Email</h1>
     </div>
-    <p>Hello <strong>${userName || 'User'}</strong>,</p>
+    <p>Hello <strong>${esc(userName || 'User')}</strong>,</p>
     <p>Please verify your email address by clicking the button below:</p>
     <p style="text-align: center; margin: 24px 0;">
       <a href="${verifyUrl || '#'}" class="btn">Verify Email</a>
@@ -196,11 +209,11 @@ function suspensionWarningEmail(vars) {
       <h1>Service Suspension Warning</h1>
       <div class="subtitle"><span class="badge badge-danger">Action Required</span></div>
     </div>
-    <p>Hello <strong>${clientName || 'Customer'}</strong>,</p>
+    <p>Hello <strong>${esc(clientName || 'Customer')}</strong>,</p>
     <p>Your account has an overdue balance. Your service may be suspended if payment is not received.</p>
     <table class="table">
       <tbody>
-        <tr><td><strong>Invoice</strong></td><td>${invoiceNumber || 'N/A'}</td></tr>
+        <tr><td><strong>Invoice</strong></td><td>${esc(invoiceNumber || 'N/A')}</td></tr>
         <tr><td><strong>Amount Due</strong></td><td>${currency || 'USD'} ${parseFloat(total || 0).toFixed(2)}</td></tr>
         <tr><td><strong>Due Date</strong></td><td>${dueDate || 'N/A'}</td></tr>
         <tr><td><strong>Days Overdue</strong></td><td><span class="badge badge-danger">${daysOverdue || 0} days</span></td></tr>
@@ -209,7 +222,7 @@ function suspensionWarningEmail(vars) {
     <p style="text-align: center; margin: 24px 0;">
       <a href="${portalUrl || '#'}" class="btn btn-danger">Pay Now to Avoid Suspension</a>
     </p>
-    <p class="meta">If you have already made a payment, please disregard this notice. Payments may take up to 24 hours to process.<br>${orgName || 'FireISP'}</p>`;
+    <p class="meta">If you have already made a payment, please disregard this notice. Payments may take up to 24 hours to process.<br>${esc(orgName || 'FireISP')}</p>`;
 
   return {
     subject: `⚠ Service Suspension Warning — Invoice ${invoiceNumber || ''} Overdue`,
@@ -228,14 +241,14 @@ function serviceSuspendedEmail(vars) {
       <h1>Service Suspended</h1>
       <div class="subtitle"><span class="badge badge-danger">Suspended</span></div>
     </div>
-    <p>Hello <strong>${clientName || 'Customer'}</strong>,</p>
+    <p>Hello <strong>${esc(clientName || 'Customer')}</strong>,</p>
     <p>Your internet service (contract #${contractId || ''}) has been suspended due to non-payment.</p>
     <p>Outstanding balance: <strong>${currency || 'USD'} ${parseFloat(total || 0).toFixed(2)}</strong></p>
     <p>To restore your service, please make a payment as soon as possible:</p>
     <p style="text-align: center; margin: 24px 0;">
       <a href="${portalUrl || '#'}" class="btn btn-danger">Pay & Restore Service</a>
     </p>
-    <p class="meta">${orgName || 'FireISP'}</p>`;
+    <p class="meta">${esc(orgName || 'FireISP')}</p>`;
 
   return {
     subject: 'Your Internet Service Has Been Suspended',
@@ -249,24 +262,28 @@ function serviceSuspendedEmail(vars) {
 
 function outageNotificationEmail(vars) {
   const { clientName, orgName, outageTitle, severity, startTime, estimatedRestore, affectedArea } = vars;
+  // severity drives a CSS class from a closed 3-way choice — safe to use
+  // directly for the class attribute (never echoed back as element text
+  // unescaped elsewhere), but the visible badge text below is still escaped
+  // for defense-in-depth since it's DB-sourced.
   const severityBadge = severity === 'critical' ? 'badge-danger' : severity === 'major' ? 'badge-warning' : 'badge-success';
   const content = `
     <div class="header">
       <h1>Service Outage Notice</h1>
-      <div class="subtitle"><span class="badge ${severityBadge}">${(severity || 'info').toUpperCase()}</span></div>
+      <div class="subtitle"><span class="badge ${severityBadge}">${esc((severity || 'info').toUpperCase())}</span></div>
     </div>
-    <p>Hello <strong>${clientName || 'Customer'}</strong>,</p>
+    <p>Hello <strong>${esc(clientName || 'Customer')}</strong>,</p>
     <p>We are experiencing a service disruption that may affect your connection.</p>
     <table class="table">
       <tbody>
-        <tr><td><strong>Issue</strong></td><td>${outageTitle || 'Service Disruption'}</td></tr>
+        <tr><td><strong>Issue</strong></td><td>${esc(outageTitle || 'Service Disruption')}</td></tr>
         <tr><td><strong>Started</strong></td><td>${startTime || 'N/A'}</td></tr>
-        ${estimatedRestore ? `<tr><td><strong>Est. Restoration</strong></td><td>${estimatedRestore}</td></tr>` : ''}
-        ${affectedArea ? `<tr><td><strong>Affected Area</strong></td><td>${affectedArea}</td></tr>` : ''}
+        ${estimatedRestore ? `<tr><td><strong>Est. Restoration</strong></td><td>${esc(estimatedRestore)}</td></tr>` : ''}
+        ${affectedArea ? `<tr><td><strong>Affected Area</strong></td><td>${esc(affectedArea)}</td></tr>` : ''}
       </tbody>
     </table>
     <p>Our team is working to resolve this as quickly as possible. We apologize for any inconvenience.</p>
-    <p class="meta">${orgName || 'FireISP'}</p>`;
+    <p class="meta">${esc(orgName || 'FireISP')}</p>`;
 
   return {
     subject: `Service Outage: ${outageTitle || 'Disruption'} — ${orgName || 'FireISP'}`,

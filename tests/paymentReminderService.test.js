@@ -111,6 +111,33 @@ describe('paymentReminderService', () => {
       );
     });
 
+    it('HTML-escapes the client name interpolated into the reminder email body', async () => {
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      const dueStr = threeDaysAgo.toISOString().slice(0, 10);
+
+      const settings = { enabled: 1, days_before_due: [], send_on_due: 0, days_after_due: [3] };
+      const invoice = {
+        id: 1, invoice_number: 'INV-000001', total: 100, currency: 'USD',
+        due_date: dueStr, client_id: 5,
+        client_name: "O'Brien <script>alert(1)</script>", client_email: 'jane@example.com', client_phone: null,
+      };
+
+      db.query
+        .mockResolvedValueOnce([[settings]])
+        .mockResolvedValueOnce([[invoice]])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([{}]);
+
+      emailTransport.sendEmail.mockResolvedValue(true);
+
+      await paymentReminderService.sendPaymentReminders(1);
+
+      const call = emailTransport.sendEmail.mock.calls[0][0];
+      expect(call.html).not.toContain('<script>alert(1)</script>');
+      expect(call.html).toContain('O&#x27;Brien &lt;script&gt;alert(1)&lt;/script&gt;');
+    });
+
     it('skips already-sent reminders (idempotency)', async () => {
       const threeDaysAgo = new Date();
       threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);

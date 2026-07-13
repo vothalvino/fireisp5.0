@@ -164,4 +164,75 @@ describe('Email Templates', () => {
       expect(minor.html).toContain('badge-success');
     });
   });
+
+  // ===========================================================================
+  // HTML-escaping regression coverage. Once the global input-sanitize.js
+  // middleware was removed (see src/app.js's security-posture comment),
+  // these free-text values are stored exactly as submitted — escaping now
+  // has to happen HERE, at render time, or a client/org name containing
+  // "<script>" would execute in a real mail client.
+  // ===========================================================================
+  describe('HTML escaping', () => {
+    const XSS = "O'Brien <script>alert(1)</script>";
+    const XSS_ESCAPED = 'O&#x27;Brien &lt;script&gt;alert(1)&lt;/script&gt;';
+
+    it('welcomeEmail escapes clientName and orgName', () => {
+      const result = templates.welcomeEmail({ clientName: XSS, orgName: 'Tom & Jerry ISP' });
+      expect(result.html).not.toContain('<script>alert(1)</script>');
+      expect(result.html).toContain(XSS_ESCAPED);
+      expect(result.html).toContain('Tom &amp; Jerry ISP');
+    });
+
+    it('invoiceEmail escapes clientName, orgName, and line-item descriptions', () => {
+      const result = templates.invoiceEmail({
+        clientName: XSS,
+        orgName: 'Tom & Jerry ISP',
+        items: [{ description: '<img src=x onerror=alert(1)>', amount: 10 }],
+      });
+      expect(result.html).not.toContain('<script>alert(1)</script>');
+      expect(result.html).not.toContain('<img src=x onerror=alert(1)>');
+      expect(result.html).toContain(XSS_ESCAPED);
+      expect(result.html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    });
+
+    it('paymentReceiptEmail escapes clientName, paymentMethod, reference, and invoiceNumber', () => {
+      const result = templates.paymentReceiptEmail({
+        clientName: XSS,
+        paymentMethod: '<b>SPEI</b>',
+        reference: '<script>x</script>',
+        invoiceNumber: '<script>y</script>',
+      });
+      expect(result.html).not.toMatch(/<(script|b)>/);
+      expect(result.html).toContain(XSS_ESCAPED);
+      expect(result.html).toContain('&lt;b&gt;SPEI&lt;/b&gt;');
+      expect(result.html).toContain('&lt;script&gt;x&lt;/script&gt;');
+    });
+
+    it('passwordResetEmail and emailVerificationEmail escape userName', () => {
+      expect(templates.passwordResetEmail({ userName: XSS }).html).toContain(XSS_ESCAPED);
+      expect(templates.emailVerificationEmail({ userName: XSS }).html).toContain(XSS_ESCAPED);
+    });
+
+    it('suspensionWarningEmail and serviceSuspendedEmail escape clientName/orgName', () => {
+      const warning = templates.suspensionWarningEmail({ clientName: XSS, orgName: 'Tom & Jerry ISP' });
+      expect(warning.html).not.toContain('<script>alert(1)</script>');
+      expect(warning.html).toContain(XSS_ESCAPED);
+
+      const suspended = templates.serviceSuspendedEmail({ clientName: XSS, orgName: 'Tom & Jerry ISP' });
+      expect(suspended.html).not.toContain('<script>alert(1)</script>');
+      expect(suspended.html).toContain(XSS_ESCAPED);
+    });
+
+    it('outageNotificationEmail escapes clientName, outageTitle, and affectedArea', () => {
+      const result = templates.outageNotificationEmail({
+        clientName: XSS,
+        outageTitle: '<script>alert(2)</script>',
+        affectedArea: 'Zone <b>A</b>',
+      });
+      expect(result.html).not.toMatch(/<(script|b)>/);
+      expect(result.html).toContain(XSS_ESCAPED);
+      expect(result.html).toContain('&lt;script&gt;alert(2)&lt;/script&gt;');
+      expect(result.html).toContain('Zone &lt;b&gt;A&lt;/b&gt;');
+    });
+  });
 });

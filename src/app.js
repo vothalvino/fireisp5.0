@@ -295,10 +295,17 @@ app.use(express.json({
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 // Security posture: no blanket input-side HTML-entity-encoding here. This app's
-// output sinks already do their own correct escaping — React/JSX auto-escapes
-// all rendered text, the one dangerouslySetInnerHTML sink (PortalKb) runs
-// DOMPurify.sanitize() at render time, cfdiService.escapeXml() escapes CFDI XML
-// output, and notificationService HTML-escapes interpolated template variables.
+// output sinks do their own escaping instead — React/JSX auto-escapes all
+// rendered text; the one dangerouslySetInnerHTML sink (PortalKb) runs
+// DOMPurify.sanitize() at render time; cfdiService.escapeXml() escapes CFDI
+// XML output. Every HTML-email builder escapes its interpolated free-text
+// values (client/org names, ticket subjects, outage/maintenance titles,
+// campaign merge-field values, report names) via the shared
+// escapeHtmlForTemplate() helper (src/services/notificationService.js,
+// exported for reuse) — see src/views/emailTemplates.js,
+// src/services/notificationHooks.js, paymentReminderService.js,
+// scheduledReportService.js, and campaignService.js's merge-field
+// substitution. It is never applied to the parallel SMS/plain-text bodies.
 // Encoding on input instead corrupted legitimate data (apostrophes in names,
 // JSON-stringified fields rejected by MySQL's JSON validator) without adding
 // real protection — see the removed src/middleware/sanitize.js.

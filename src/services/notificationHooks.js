@@ -12,6 +12,13 @@ const templates = require('../views/emailTemplates');
 const webhookService = require('./webhookService');
 const portalPushService = require('./portalPushService');
 const logger = require('../utils/logger');
+// Every inline `html` string built directly in this file (as opposed to via
+// templates.xxxEmail(), which escapes internally) interpolates free-text
+// DB fields — client/assignee names, ticket subjects, outage/maintenance
+// titles & descriptions, IP pool names — into HTML sent to a real mail
+// client. `esc()` HTML-escapes each interpolated value; it is never applied
+// to the parallel SMS bodies in this file (those are plain text).
+const { escapeHtmlForTemplate: esc } = require('./notificationService');
 
 // Lazy-load broadcast to avoid circular dependency
 let broadcast;
@@ -36,8 +43,8 @@ function registerHooks() {
 
       if (client?.email) {
         const subject = '¡Bienvenido! Tu servicio está activo';
-        const html = `<p>Hola ${clientName || ''},</p>`
-          + `<p>Tu servicio (orden ${order.order_number}) ha sido activado. `
+        const html = `<p>Hola ${esc(clientName || '')},</p>`
+          + `<p>Tu servicio (orden ${esc(order.order_number)}) ha sido activado. `
           + 'Gracias por elegirnos.</p>'
           + '<p>Si tienes alguna duda, responde a este correo o abre un ticket de soporte.</p>';
         await emailTransport.sendEmail({
@@ -358,8 +365,8 @@ function registerHooks() {
           [organizationId],
         );
         const html = '<p>Se reportó una interrupción de servicio:</p>'
-          + `<p><strong>${outage.title}</strong></p>`
-          + (outage.severity ? `<p>Severidad: ${outage.severity}</p>` : '')
+          + `<p><strong>${esc(outage.title)}</strong></p>`
+          + (outage.severity ? `<p>Severidad: ${esc(outage.severity)}</p>` : '')
           + (outage.started_at ? `<p>Inicio: ${new Date(outage.started_at).toISOString().replace('T', ' ').slice(0, 16)} UTC</p>` : '');
         for (const admin of admins) {
           await emailTransport.sendEmail({
@@ -481,10 +488,10 @@ function registerHooks() {
   eventBus.on('followup.due', async ({ organizationId, reminder }) => {
     try {
       if (reminder.assignee_email) {
-        const html = `<p>Hola ${reminder.assignee_first_name || ''},</p>`
-          + `<p>Tienes un seguimiento pendiente con el cliente <strong>${reminder.client_name || reminder.client_id}</strong>:</p>`
-          + `<p><strong>${reminder.title}</strong></p>`
-          + (reminder.notes ? `<p>${reminder.notes}</p>` : '')
+        const html = `<p>Hola ${esc(reminder.assignee_first_name || '')},</p>`
+          + `<p>Tienes un seguimiento pendiente con el cliente <strong>${esc(reminder.client_name || reminder.client_id)}</strong>:</p>`
+          + `<p><strong>${esc(reminder.title)}</strong></p>`
+          + (reminder.notes ? `<p>${esc(reminder.notes)}</p>` : '')
           + `<p>Vencimiento: ${reminder.due_at ? new Date(reminder.due_at).toISOString().slice(0, 16).replace('T', ' ') : 'N/A'}</p>`;
         await emailTransport.sendEmail({
           organizationId,
@@ -522,8 +529,8 @@ function registerHooks() {
         const question = isNps
           ? '¿Qué tan probable es que nos recomiendes a un amigo o colega?'
           : '¿Qué tan satisfecho quedaste con la atención recibida?';
-        const context = ticket ? `<p>Referencia: ticket "${ticket.subject}".</p>` : '';
-        const html = `<p>Hola ${client.name || ''},</p>`
+        const context = ticket ? `<p>Referencia: ticket "${esc(ticket.subject)}".</p>` : '';
+        const html = `<p>Hola ${esc(client.name || '')},</p>`
           + `<p>${question}</p>${context}`
           + `<p>Responde a este correo con una calificación de <strong>${scale}</strong> y, si lo deseas, un comentario.</p>`
           + '<p>¡Gracias por ayudarnos a mejorar!</p>';
@@ -605,8 +612,8 @@ function registerHooks() {
           : 'duración estimada no disponible';
 
         const html = '<p>Se ha programado un mantenimiento en su servicio:</p>'
-          + `<p><strong>${maintenance.title}</strong></p>`
-          + (maintenance.description ? `<p>${maintenance.description}</p>` : '')
+          + `<p><strong>${esc(maintenance.title)}</strong></p>`
+          + (maintenance.description ? `<p>${esc(maintenance.description)}</p>` : '')
           + `<p>Fecha y hora: ${scheduledAt}</p>`
           + `<p>Duración estimada: ${duration}</p>`
           + '<p>Disculpe las molestias. Le notificaremos cuando el mantenimiento haya concluido.</p>';
@@ -652,10 +659,10 @@ function registerHooks() {
     try {
       if (client?.email) {
         const subject = `Late Fee Applied — Invoice ${invoice.invoice_number}`;
-        const html = `<p>Dear ${client.name || 'Client'},</p>`
+        const html = `<p>Dear ${esc(client.name || 'Client')},</p>`
           + `<p>A late fee of <strong>${currency} ${parseFloat(fee_amount).toFixed(2)}</strong> `
-          + `has been applied to invoice <strong>${invoice.invoice_number}</strong> `
-          + `as per your account's late fee policy (${rule.name}).</p>`
+          + `has been applied to invoice <strong>${esc(invoice.invoice_number)}</strong> `
+          + `as per your account's late fee policy (${esc(rule.name)}).</p>`
           + '<p>Please arrange payment at your earliest convenience to avoid further charges.</p>';
 
         await emailTransport.sendEmail({
@@ -742,7 +749,7 @@ function registerHooks() {
            AND u.email IS NOT NULL`,
         [organizationId],
       );
-      const html = `<p>IP Pool <strong>${pool.name}</strong> (${pool.network}) has reached `
+      const html = `<p>IP Pool <strong>${esc(pool.name)}</strong> (${esc(pool.network)}) has reached `
         + `<strong>${percent}%</strong> utilization (${assigned}/${usable} addresses assigned).</p>`
         + `<p>Threshold crossed: ${threshold}%</p>`
         + '<p>Consider expanding the pool or adding a new one.</p>';

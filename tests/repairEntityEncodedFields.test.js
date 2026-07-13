@@ -30,10 +30,22 @@ describe('repair-entity-encoded-fields', () => {
         .toBe('O\'Brien & Sons <script> say "hi"');
     });
 
-    test('does not double-unescape a literal "&amp;amp;"', () => {
-      // &amp; decodes last, so "&amp;amp;" -> "&amp;" (not "&") — a
-      // conservative choice that avoids mangling genuinely double-encoded data.
-      expect(decodeEntities('&amp;amp;')).toBe('&amp;');
+    // Regression for the under-repair bug: decodeEntities now runs to a
+    // fixpoint (repeat until isCorrupted() is false), not just once. A
+    // single pass left multiply-encoded values still corrupted while the
+    // script reported them as "repaired".
+    test('fully decodes a literal "&amp;amp;" via the fixpoint loop', () => {
+      // pass 1: "&amp;amp;" -> "&amp;" (still corrupted) — pass 2: "&amp;" -> "&"
+      expect(decodeEntities('&amp;amp;')).toBe('&');
+    });
+
+    test('fully decodes a value that was entity-encoded twice by the old middleware (two separate edits)', () => {
+      // "O'Brien" encoded once -> "O&#x27;Brien"; encoded again (a second
+      // edit through the bug) -> "O&amp;#x27;Brien". A single decode pass
+      // only recovers "O&#x27;Brien" (still corrupted); the fixpoint loop
+      // must run a second pass to reach "O'Brien".
+      expect(decodeEntities('O&amp;#x27;Brien')).toBe("O'Brien");
+      expect(isCorrupted(decodeEntities('O&amp;#x27;Brien'))).toBe(false);
     });
 
     test('leaves plain strings untouched', () => {
@@ -44,6 +56,16 @@ describe('repair-entity-encoded-fields', () => {
       expect(decodeEntities(null)).toBe(null);
       expect(decodeEntities(42)).toBe(42);
       expect(decodeEntities(undefined)).toBe(undefined);
+    });
+
+    test('caps at MAX_DECODE_PASSES and leaves a pathologically deep encoding chain still corrupted', () => {
+      // "&" encoded 11 times in a row (11 separate edits through the bug)
+      // needs 11 decode passes to fully resolve; the safety cap is 10, so
+      // this is left one pass short — isCorrupted() must still report true
+      // afterward rather than the caller silently trusting it's clean.
+      const deep = '&' + 'amp;'.repeat(11);
+      const result = decodeEntities(deep);
+      expect(isCorrupted(result)).toBe(true);
     });
   });
 
@@ -76,7 +98,7 @@ describe('repair-entity-encoded-fields', () => {
 
       const result = await repairColumn('clients', 'name', { apply: false });
 
-      expect(result).toEqual({ table: 'clients', column: 'name', count: 1 });
+      expect(result).toEqual({ table: 'clients', column: 'name', count: 1, residual: 0 });
       // Only the SELECT ran — no UPDATE was issued.
       expect(db.query).toHaveBeenCalledTimes(1);
       expect(db.query.mock.calls[0][0]).toMatch(/SELECT id, `name` AS val FROM `clients`/);
@@ -87,7 +109,7 @@ describe('repair-entity-encoded-fields', () => {
 
       const result = await repairColumn('clients', 'notes', { apply: false });
 
-      expect(result).toEqual({ table: 'clients', column: 'notes', count: 0 });
+      expect(result).toEqual({ table: 'clients', column: 'notes', count: 0, residual: 0 });
     });
   });
 
@@ -99,11 +121,40 @@ describe('repair-entity-encoded-fields', () => {
 
       const result = await repairColumn('clients', 'name', { apply: true });
 
-      expect(result.count).toBe(1);
+      expect(result).toEqual({ table: 'clients', column: 'name', count: 1, residual: 0 });
       expect(db.query).toHaveBeenCalledTimes(2);
       const [updateSql, updateParams] = db.query.mock.calls[1];
       expect(updateSql).toMatch(/UPDATE `clients` SET `name` = \? WHERE id = \?/);
       expect(updateParams).toEqual(['Tom & Jerry', 3]);
+    });
+
+    test('fully decodes a multiply-encoded value in one --apply pass (regression for the under-repair bug)', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ id: 4, val: 'O&amp;#x27;Brien' }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      const result = await repairColumn('clients', 'name', { apply: true });
+
+      expect(result).toEqual({ table: 'clients', column: 'name', count: 1, residual: 0 });
+      const [, updateParams] = db.query.mock.calls[1];
+      expect(updateParams).toEqual(["O'Brien", 4]);
+    });
+
+    test('reports a residual row rather than silently claiming a clean repair when the decode-pass cap is hit', async () => {
+      const deep = '&' + 'amp;'.repeat(11); // needs 11 passes; cap is 10
+      db.query
+        .mockResolvedValueOnce([[{ id: 5, val: deep }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      const result = await repairColumn('clients', 'name', { apply: true });
+
+      expect(result.count).toBe(1);
+      expect(result.residual).toBe(1);
+      // The row is still written with its best-effort decoded value, not
+      // left untouched — but the caller must be told it's still corrupted.
+      const [, updateParams] = db.query.mock.calls[1];
+      expect(updateParams[1]).toBe(5);
+      expect(isCorrupted(updateParams[0])).toBe(true);
     });
   });
 
@@ -117,7 +168,7 @@ describe('repair-entity-encoded-fields', () => {
 
       const result = await repairCfdiReceptorNombre({ apply: true });
 
-      expect(result).toEqual({ draftRepaired: 1, stampedFlagged: 1 });
+      expect(result).toEqual({ draftRepaired: 1, stampedFlagged: 1, residual: 0 });
       // SELECT + exactly one UPDATE (the draft row) — the stamped row is
       // never written.
       expect(db.query).toHaveBeenCalledTimes(2);
