@@ -873,7 +873,7 @@ function EmailSettingsTab() {
       <h3 style={sty.sectionTitle}>{t('emailSettings.title')}</h3>
 
       {isLoading && <p style={sty.muted}>{t('common.loading')}</p>}
-      {error && <p style={sty.errorText}>{t('emailSettings.saveError')}</p>}
+      {error && <p style={sty.errorText}>{t('emailSettings.loadError')}</p>}
 
       <p style={{ fontSize: '0.85rem', color: configured ? '#16a34a' : '#888', marginTop: 0 }}>
         {configured ? `✓ ${t('emailSettings.configuredLabel')}` : t('emailSettings.notConfigured')}

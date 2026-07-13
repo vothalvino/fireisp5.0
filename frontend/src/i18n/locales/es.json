@@ -1050,6 +1050,7 @@
     "testFailed": "Error al enviar el correo de prueba: {{error}}",
     "saved": "Configuración de correo guardada.",
     "saveError": "Error al guardar la configuración de correo.",
+    "loadError": "Error al cargar la configuración de correo.",
     "notConfigured": "No configurado — usando el relevo de correo global.",
     "configuredLabel": "Configurado",
     "lastTested": "Última prueba: {{date}} — {{status}}"

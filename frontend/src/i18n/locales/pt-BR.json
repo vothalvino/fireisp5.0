@@ -1050,6 +1050,7 @@
     "testFailed": "Falha ao enviar o e-mail de teste: {{error}}",
     "saved": "Configurações de e-mail salvas.",
     "saveError": "Erro ao salvar as configurações de e-mail.",
+    "loadError": "Erro ao carregar as configurações de e-mail.",
     "notConfigured": "Não configurado — usando o relé de e-mail global.",
     "configuredLabel": "Configurado",
     "lastTested": "Último teste: {{date}} — {{status}}"

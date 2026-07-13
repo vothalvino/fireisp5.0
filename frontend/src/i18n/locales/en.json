@@ -1050,6 +1050,7 @@
     "testFailed": "Test email failed: {{error}}",
     "saved": "Email settings saved.",
     "saveError": "Failed to save email settings.",
+    "loadError": "Failed to load email settings.",
     "notConfigured": "Not configured — using the global email relay.",
     "configuredLabel": "Configured",
     "lastTested": "Last tested: {{date}} — {{status}}"
