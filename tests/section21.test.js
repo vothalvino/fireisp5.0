@@ -43,6 +43,7 @@ jest.mock('../src/middleware/rateLimit', () => ({
   exportLimiter: (req, res, next) => next(),
   sseLimiter: (req, res, next) => next(),
   webhookLimiter: (req, res, next) => next(),
+  uploadLimiter: (req, res, next) => next(),
 }));
 
 jest.mock('../src/services/llmProviderService', () => ({
@@ -445,7 +446,7 @@ describe('supportConversationService', () => {
   });
 
   test('escalate updates status and inserts system message', async () => {
-    // UPDATE support_conversations SET status='escalated'
+    // atomic claim UPDATE — affectedRows:1 means WE claimed it (first escalation)
     db.query.mockResolvedValueOnce([{ affectedRows: 1 }, undefined]);
     // INSERT ticket
     db.query.mockResolvedValueOnce([{ insertId: 99 }, undefined]);
@@ -463,7 +464,7 @@ describe('supportConversationService', () => {
   });
 
   test('escalate handles ticket creation failure gracefully', async () => {
-    // UPDATE support_conversations SET status='escalated'
+    // atomic claim UPDATE — affectedRows:1 means WE claimed it (first escalation)
     db.query.mockResolvedValueOnce([{ affectedRows: 1 }, undefined]);
     // ticket INSERT fails
     db.query.mockRejectedValueOnce(new Error('tickets table missing'));
@@ -489,7 +490,7 @@ describe('supportConversationService', () => {
     db.query.mockResolvedValueOnce([[mockConversation], undefined]);
     // 2. INSERT customer message
     db.query.mockResolvedValueOnce([{ insertId: 20 }, undefined]);
-    // 3. escalate: UPDATE conv status
+    // 3. escalate: atomic claim UPDATE — affectedRows:1 (first escalation)
     db.query.mockResolvedValueOnce([{ affectedRows: 1 }, undefined]);
     // 4. escalate: INSERT ticket
     db.query.mockResolvedValueOnce([{ insertId: 100 }, undefined]);

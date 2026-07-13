@@ -255,7 +255,7 @@ describe('sendMessage — technical intent wiring', () => {
       .mockResolvedValueOnce([{ insertId: 40 }, undefined])           // 2. insert customer message
       .mockResolvedValueOnce([[mockMessage], undefined])              // 3. history
       .mockResolvedValueOnce([{ insertId: 41 }, undefined])           // 4. insert assistant message (reply text)
-      .mockResolvedValueOnce([{ affectedRows: 1 }, undefined])        // 5. escalate: UPDATE status='escalated'
+      .mockResolvedValueOnce([{ affectedRows: 1 }, undefined])        // 5. escalate: atomic claim UPDATE (affectedRows:1 = we claimed it)
       .mockResolvedValueOnce([{ insertId: 500 }, undefined])          // 6. escalate: INSERT ticket
       .mockResolvedValueOnce([{ affectedRows: 1 }, undefined])        // 7. escalate: UPDATE ticket_id
       .mockResolvedValueOnce([{ insertId: 42 }, undefined])           // 8. escalate: INSERT system message
@@ -323,7 +323,7 @@ describe('startConversation — technical intent wiring', () => {
       .mockResolvedValueOnce([{ insertId: 21 }, undefined])   // system greeting
       .mockResolvedValueOnce([{ insertId: 22 }, undefined])   // customer message
       .mockResolvedValueOnce([{ insertId: 23 }, undefined])   // assistant message
-      .mockResolvedValueOnce([{ affectedRows: 1 }, undefined])// escalate: UPDATE status
+      .mockResolvedValueOnce([{ affectedRows: 1 }, undefined])// escalate: atomic claim UPDATE (affectedRows:1 = we claimed it)
       .mockResolvedValueOnce([{ insertId: 600 }, undefined])  // escalate: INSERT ticket
       .mockResolvedValueOnce([{ affectedRows: 1 }, undefined])// escalate: UPDATE ticket_id
       .mockResolvedValueOnce([{ insertId: 24 }, undefined])   // escalate: INSERT system message
@@ -337,5 +337,133 @@ describe('startConversation — technical intent wiring', () => {
     expect(result.conversation.status).toBe('escalated');
     const escalateUpdateCalls = db.query.mock.calls.filter(([sql]) => /SET status = 'escalated'/.test(sql));
     expect(escalateUpdateCalls).toHaveLength(1);
+  });
+});
+
+// =============================================================================
+// 3. escalate() idempotency guard — atomic conditional claim
+// =============================================================================
+// escalate() used to do a plain SELECT-then-UPDATE guard, which has two race
+// gaps sharing one root cause (no atomicity between the read and the
+// write): (1) it can't tell "already escalated with a ticket" apart from
+// "already escalated but the ticket creation failed" — a status-only check
+// permanently no-ops a conversation whose ticket never got created, so the
+// manual retry endpoint (POST /conversations/:id/escalate) could never
+// repair it; (2) two concurrent escalate() calls for the same conversation
+// (customer double-send, or auto-escalate racing the manual endpoint) can
+// both read "not yet escalated" and both create a ticket.
+//
+// Fixed via an atomic conditional claim: `UPDATE ... WHERE status <>
+// 'escalated'` IS the lock (only one caller's UPDATE can ever match), and
+// affectedRows distinguishes "we just claimed it" (1) from "someone already
+// has it" (0) without a separate read. On the affectedRows===0 path, a
+// missing ticket_id is repaired (creates just the ticket, never re-touches
+// status or re-sends the handoff message) instead of being a dead end.
+describe('escalate() idempotency guard (atomic conditional claim)', () => {
+  test('(a) first call on a NOT-yet-escalated conversation claims it and creates the ticket + system message', async () => {
+    db.query
+      .mockResolvedValueOnce([{ affectedRows: 1 }, undefined])                    // atomic claim UPDATE — WE claimed it
+      .mockResolvedValueOnce([{ insertId: 700 }, undefined])                      // INSERT ticket
+      .mockResolvedValueOnce([{ affectedRows: 1 }, undefined])                    // UPDATE ticket_id
+      .mockResolvedValueOnce([{ insertId: 71 }, undefined])                       // INSERT system message
+      .mockResolvedValueOnce([[{ ...mockConversation, status: 'escalated', ticket_id: 700 }], undefined]) // _loadConversation: conv
+      .mockResolvedValueOnce([[mockMessage], undefined]);                         // _loadConversation: messages
+
+    const result = await service.escalate({ conversationId: 1, reason: 'human_requested', orgId: 1 });
+
+    expect(result.conversation.status).toBe('escalated');
+    const calls = db.query.mock.calls;
+    // The claim UPDATE carries the conditional guard clause.
+    expect(calls[0][0]).toMatch(/SET status = 'escalated'/);
+    expect(calls[0][0]).toMatch(/AND status <> 'escalated'/);
+    expect(calls.filter(([sql]) => /INSERT INTO tickets/.test(sql))).toHaveLength(1);
+    expect(calls.filter(([sql, params]) =>
+      /INSERT INTO support_messages/.test(sql) && params[1] === 'system')).toHaveLength(1);
+  });
+
+  test('(b) second call when ticket_id is already present is a true no-op: no new ticket, no new system message', async () => {
+    db.query
+      .mockResolvedValueOnce([{ affectedRows: 0 }, undefined])   // atomic claim UPDATE — matches nothing, already escalated
+      .mockResolvedValueOnce([[{ ticket_id: 700 }], undefined])  // SELECT ticket_id — present
+      .mockResolvedValueOnce([[{ ...mockConversation, status: 'escalated', ticket_id: 700 }], undefined]) // _loadConversation: conv
+      .mockResolvedValueOnce([[mockMessage], undefined]);        // _loadConversation: messages
+
+    const result = await service.escalate({ conversationId: 1, reason: 'already_escalated', orgId: 1 });
+
+    expect(result.conversation.status).toBe('escalated');
+    const calls = db.query.mock.calls;
+    expect(calls).toHaveLength(4); // claim UPDATE + ticket_id SELECT + _loadConversation's 2 queries
+    expect(calls.some(([sql]) => /INSERT INTO tickets/.test(sql))).toBe(false);
+    expect(calls.some(([sql]) => /SET ticket_id = /.test(sql))).toBe(false);
+    expect(calls.some(([sql, params]) =>
+      /INSERT INTO support_messages/.test(sql) && params?.[1] === 'system')).toBe(false);
+  });
+
+  test('(c) call on an already-escalated conversation with ticket_id NULL repairs the missing ticket without re-sending the handoff message', async () => {
+    db.query
+      .mockResolvedValueOnce([{ affectedRows: 0 }, undefined])    // atomic claim UPDATE — matches nothing, already escalated
+      .mockResolvedValueOnce([[{ ticket_id: null }], undefined])  // SELECT ticket_id — a prior attempt's ticket INSERT failed
+      .mockResolvedValueOnce([{ insertId: 900 }, undefined])      // repair: INSERT ticket
+      .mockResolvedValueOnce([{ affectedRows: 1 }, undefined])    // repair: UPDATE ticket_id
+      .mockResolvedValueOnce([[{ ...mockConversation, status: 'escalated', ticket_id: 900 }], undefined]) // _loadConversation: conv
+      .mockResolvedValueOnce([[mockMessage], undefined]);         // _loadConversation: messages
+
+    const result = await service.escalate({ conversationId: 1, reason: 'already_escalated', orgId: 1 });
+
+    expect(result.conversation.status).toBe('escalated');
+    const calls = db.query.mock.calls;
+    // Ticket IS created (repair) — this is the fix for the "permanently
+    // stuck, can never repair" gap the review flagged.
+    expect(calls.filter(([sql]) => /INSERT INTO tickets/.test(sql))).toHaveLength(1);
+    // Exactly ONE status-touching query fires — the atomic claim attempt
+    // itself (which matched nothing, affectedRows:0). No SECOND UPDATE
+    // re-touches status/escalated_at/escalation_reason on repair.
+    expect(calls.filter(([sql]) => /SET status = 'escalated'/.test(sql))).toHaveLength(1);
+    // The handoff system message is NOT re-sent — it already went out once.
+    expect(calls.some(([sql, params]) =>
+      /INSERT INTO support_messages/.test(sql) && params?.[1] === 'system')).toBe(false);
+  });
+
+  test('(d) affectedRows===0 (conditional UPDATE matches nothing) is what routes execution to the ticket_id branch, never straight back to the caller', async () => {
+    db.query
+      .mockResolvedValueOnce([{ affectedRows: 0 }, undefined])
+      .mockResolvedValueOnce([[{ ticket_id: 700 }], undefined])
+      .mockResolvedValueOnce([[{ ...mockConversation, status: 'escalated', ticket_id: 700 }], undefined])
+      .mockResolvedValueOnce([[mockMessage], undefined]);
+
+    await service.escalate({ conversationId: 1, reason: 'already_escalated', orgId: 1 });
+
+    const calls = db.query.mock.calls;
+    expect(calls[0][0]).toMatch(/AND status <> 'escalated'/); // the claim attempt always runs first
+    expect(calls[1][0]).toMatch(/SELECT ticket_id FROM support_conversations/); // affectedRows:0 -> branch query
+  });
+
+  test('sendMessage on an already-escalated conversation (step-5 already_escalated path) does not create a second ticket', async () => {
+    const alreadyEscalatedConv = { ...mockConversation, status: 'escalated', ticket_id: 700 };
+    db.query
+      .mockResolvedValueOnce([[alreadyEscalatedConv], undefined])       // 1. conv lookup — already escalated
+      .mockResolvedValueOnce([{ insertId: 80 }, undefined])              // 2. insert customer message
+      .mockResolvedValueOnce([{ affectedRows: 0 }, undefined])           // 3. escalate: atomic claim UPDATE — matches nothing
+      .mockResolvedValueOnce([[{ ticket_id: 700 }], undefined])          // 4. escalate: SELECT ticket_id — present
+      .mockResolvedValueOnce([[alreadyEscalatedConv], undefined])        // 5. escalate's own _loadConversation: conv
+      .mockResolvedValueOnce([[mockMessage], undefined])                 // 6. escalate's own _loadConversation: messages
+      .mockResolvedValueOnce([[alreadyEscalatedConv], undefined])        // 7. sendMessage's final _loadConversation: conv
+      .mockResolvedValueOnce([[mockMessage], undefined]);                // 8. sendMessage's final _loadConversation: messages
+
+    // Keyword-classified 'technical' (confidence 0.85, above
+    // LOW_CONFIDENCE_THRESHOLD) so step 4's extra low-confidence COUNT query
+    // doesn't fire — keeps the mocked call sequence above exact. Contains
+    // none of HUMAN_REQUEST_RE/NEGATIVE_SENTIMENT_RE/BILLING_DISPUTE_RE, so
+    // the already_escalated branch (step 5) is the one that actually fires.
+    const result = await service.sendMessage({ conversationId: 1, orgId: 1, content: 'sigo esperando, mi internet sigue caído' });
+
+    expect(result.conversation.status).toBe('escalated');
+    const calls = db.query.mock.calls;
+    expect(calls.some(([sql]) => /INSERT INTO tickets/.test(sql))).toBe(false);
+    expect(calls.some(([sql, params]) =>
+      /INSERT INTO support_messages/.test(sql) && params?.[1] === 'system')).toBe(false);
+    // generateSupportResponse must never be reached on this path — it's the
+    // already_escalated short-circuit, not a fresh AI turn.
+    expect(diagnosticEngineService.generateSupportResponse).not.toHaveBeenCalled();
   });
 });
