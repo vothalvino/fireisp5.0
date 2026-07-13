@@ -40,4 +40,6 @@ symptom/accessType dispatch (lines ~193-208).
 
 See also [[support-escalate-duplicate-ticket-bug]] — a separate, pre-existing
 bug found while verifying this fix composes safely with PR #400's
-`escalate()` wiring (not fixed, flagged as a follow-up).
+`escalate()` wiring. Initially flagged as an out-of-scope follow-up, then
+fixed in the same PR once it was clear this fix is exactly what makes the
+latent bug live (commit `e273885`, same branch).
