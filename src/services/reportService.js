@@ -142,6 +142,9 @@ async function technicianReport(organizationId, { from, to } = {}) {
   const dateFrom = from || defaultFrom();
   const dateTo = to || defaultTo();
 
+  // `jobs` was consolidated into `work_orders` (migration 363) — it has a
+  // dedicated `completed_at` column, which is a more accurate completion-time
+  // signal than `updated_at` (which any unrelated edit would also bump).
   const [rows] = await db.queryReplica(`
     SELECT
       j.assigned_to AS user_id,
@@ -150,8 +153,8 @@ async function technicianReport(organizationId, { from, to } = {}) {
       SUM(j.status = 'completed') AS completed,
       SUM(j.status = 'cancelled') AS cancelled,
       SUM(j.status IN ('pending', 'in_progress')) AS in_progress,
-      ROUND(AVG(CASE WHEN j.status = 'completed' THEN TIMESTAMPDIFF(HOUR, j.created_at, j.updated_at) END), 1) AS avg_completion_hours
-    FROM \`jobs\` j
+      ROUND(AVG(CASE WHEN j.status = 'completed' THEN TIMESTAMPDIFF(HOUR, j.created_at, j.completed_at) END), 1) AS avg_completion_hours
+    FROM \`work_orders\` j
     LEFT JOIN \`users\` u ON u.id = j.assigned_to
     WHERE j.organization_id = ?
       AND j.created_at >= ? AND j.created_at <= ?
@@ -1030,15 +1033,18 @@ async function capacityForecast(organizationId, { months = 6 } = {}) {
  * PON Utilization — OLT port utilization by ONU count.
  */
 async function ponUtilization(organizationId) {
+  // Real columns are onu_count / max_onus (database/schema.sql) — the response
+  // field names (current_onu_count / max_onu_count) are kept as-is via aliasing
+  // since they are already part of this endpoint's response shape.
   const [rows] = await db.queryReplica(`
     SELECT
       id,
       port_name,
       olt_device_id,
-      current_onu_count,
-      max_onu_count,
+      onu_count AS current_onu_count,
+      max_onus AS max_onu_count,
       CASE
-        WHEN max_onu_count > 0 THEN ROUND(current_onu_count / max_onu_count * 100, 2)
+        WHEN max_onus > 0 THEN ROUND(onu_count / max_onus * 100, 2)
         ELSE 0
       END AS utilization_pct
     FROM \`olt_ports\`

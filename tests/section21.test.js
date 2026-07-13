@@ -416,10 +416,13 @@ describe('supportConversationService', () => {
     // INSERT customer message
     db.query.mockResolvedValueOnce([{ insertId: 12 }, undefined]);
     // supportContextService.enrichContext — db.query for client lookup
+    // (real column is plan_id on the JOINed active contract, not on clients)
     db.query.mockResolvedValueOnce([[{ id: 10, name: 'Test', email: 'x@x.com', status: 'active', plan_id: 1, phone: '123' }], undefined]);
-    // billingService.getBillingSummary — mocked at top level
-    const billingService = require('../src/services/billingService');
-    billingService.getBillingSummary.mockResolvedValueOnce(null);
+    // enrichContext's billing summary — client_balance_ledger + billing_periods
+    // (billingService.getBillingSummary was never a real function; enrichContext
+    // queries the ledger/periods directly now — see supportContextService.js)
+    db.query.mockResolvedValueOnce([[{ balance: '0.00' }], undefined]);
+    db.query.mockResolvedValueOnce([[], undefined]);
     const radiusService = require('../src/services/radiusService');
     radiusService.getSessionByClientId.mockResolvedValueOnce(null);
     const alertService = require('../src/services/alertService');
@@ -707,12 +710,104 @@ describe('diagnosticEngineService', () => {
     expect(result.confidence).toBe(0);
   });
 
-  test('runDiagnostic unknown accessType infers from radius (no session)', async () => {
-    const radiusService = require('../src/services/radiusService');
-    radiusService.getSessionByClientId.mockResolvedValueOnce(null);
+  test('runDiagnostic unknown accessType with no resolvable device falls through to the generic result', async () => {
+    // Neither an ONU nor a CPE device resolves (default mock returns no
+    // rows for everything) — access type genuinely cannot be determined, so
+    // this must land on the generic 'unknown symptom' path, never a guess.
     const result = await diagService.runDiagnostic({ orgId: 1, clientId: 10, symptom: 'slow', accessType: 'unknown' });
     expect(result).toBeDefined();
     expect(result.checks).toBeInstanceOf(Array);
+    expect(result.checks.map((c) => c.name)).toEqual(['generic_check']);
+  });
+
+  test('runDiagnostic infers fiber access type from a resolved ONU device, never from a RADIUS session', async () => {
+    // item 2 of the third adversarial review: a RADIUS/PPPoE session says
+    // nothing about access type (fixed-wireless subscribers have one too).
+    // Even with NO RADIUS session at all, an ONU device alone must be
+    // enough to correctly infer 'fiber' and run the fiber diagnostic.
+    const radiusService = require('../src/services/radiusService');
+    radiusService.getSessionByClientId.mockResolvedValue(null);
+
+    db.query.mockImplementation((sql) => {
+      if (/FROM devices\b/i.test(sql) && /type = 'onu'/i.test(sql)) {
+        return Promise.resolve([[{ id: 55 }], undefined]);
+      }
+      return Promise.resolve([[], undefined]);
+    });
+
+    const result = await diagService.runDiagnostic({ orgId: 1, clientId: 10, symptom: 'slow', accessType: 'unknown' });
+    const checkNames = result.checks.map((c) => c.name);
+    expect(checkNames).toContain('onu_signal');
+    expect(checkNames).not.toContain('cpe_signal');
+  });
+
+  test('runDiagnostic infers wireless access type from a resolved CPE device even when a RADIUS session exists', async () => {
+    // The regression this guards: once getSessionByClientId started working,
+    // EVERY wireless customer with a RADIUS session was misclassified as
+    // fiber (onu/olt checks all 'unknown', real wireless signal never
+    // checked). A live session must never be read as a fiber signal.
+    const radiusService = require('../src/services/radiusService');
+    radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5', sessionActive: true });
+
+    db.query.mockImplementation((sql) => {
+      if (/FROM devices\b/i.test(sql) && /type = 'onu'/i.test(sql)) {
+        return Promise.resolve([[], undefined]); // no ONU for this client
+      }
+      if (/FROM cpe_devices/i.test(sql) && /JOIN contracts/i.test(sql)) {
+        return Promise.resolve([[{ device_id: 77 }], undefined]); // wireless CPE found
+      }
+      return Promise.resolve([[], undefined]);
+    });
+
+    const result = await diagService.runDiagnostic({ orgId: 1, clientId: 10, symptom: 'slow', accessType: 'unknown' });
+    const checkNames = result.checks.map((c) => c.name);
+    expect(checkNames).toContain('cpe_signal');
+    expect(checkNames).not.toContain('onu_signal');
+  });
+
+  test('onu_signal reports unknown (not a fabricated error) when optical telemetry was never polled', async () => {
+    // item 1 of the third adversarial review: onu_optical_metrics is never
+    // written (ftth_onu_optical_poll is not implemented) — rx_power_dbm is
+    // ALWAYS null in production. A NULL reading must never collapse into a
+    // fabricated 'error' (which would dispatch a technician to a healthy
+    // customer) or count as a 'known' check inflating confidence.
+    db.query.mockImplementation((sql) => {
+      if (/FROM devices\b/i.test(sql) && /type = 'onu'/i.test(sql)) {
+        return Promise.resolve([[{ id: 55 }], undefined]);
+      }
+      if (/FROM onu_details/i.test(sql)) {
+        return Promise.resolve([[{
+          onu_state: 'online', olt_port_id: null, rx_power_dbm: null, tx_power_dbm: null,
+        }], undefined]);
+      }
+      return Promise.resolve([[], undefined]);
+    });
+
+    const result = await diagService.runDiagnostic({ orgId: 1, clientId: 10, symptom: 'slow', accessType: 'fiber' });
+    const onuCheck = result.checks.find((c) => c.name === 'onu_signal');
+    expect(onuCheck.status).toBe('unknown');
+    expect(onuCheck.detail).toMatch(/optical polling not yet implemented/i);
+    expect(result.cause).not.toMatch(/onu_signal/);
+  });
+
+  test('onu_signal reports a real error when optical telemetry IS present and below threshold', async () => {
+    // Confirms the fix didn't just silence the check entirely — a genuine
+    // low-signal reading must still surface as 'error'.
+    db.query.mockImplementation((sql) => {
+      if (/FROM devices\b/i.test(sql) && /type = 'onu'/i.test(sql)) {
+        return Promise.resolve([[{ id: 55 }], undefined]);
+      }
+      if (/FROM onu_details/i.test(sql)) {
+        return Promise.resolve([[{
+          onu_state: 'online', olt_port_id: null, rx_power_dbm: -30, tx_power_dbm: 2,
+        }], undefined]);
+      }
+      return Promise.resolve([[], undefined]);
+    });
+
+    const result = await diagService.runDiagnostic({ orgId: 1, clientId: 10, symptom: 'slow', accessType: 'fiber' });
+    const onuCheck = result.checks.find((c) => c.name === 'onu_signal');
+    expect(onuCheck.status).toBe('error');
   });
 
   test('result has all required fields', async () => {
@@ -927,7 +1022,19 @@ describe('nocAiService', () => {
   });
 
   test('explainAlert uses LLM when providerId given', async () => {
-    db.query.mockResolvedValueOnce([[{ id: 1, alert_type: 'device_offline', severity: 'critical', message: 'Device offline', device_id: 5, organization_id: 1 }], undefined]);
+    // alert_events (real table) has no alert_type/severity/message columns —
+    // severity/description come from the joined alert_rule, and the "message"
+    // is reconstructed from metric/current_value/threshold_value when there is
+    // no rule description.
+    db.query.mockResolvedValueOnce([[{
+      id: 1, rule_name: 'Device offline', rule_metric: 'device_offline', severity: 'critical',
+      description: 'Device offline', metric: 'device_offline', current_value: 0, threshold_value: 1,
+      device_id: 5, organization_id: 1,
+    }], undefined]);
+    // _resolveOrgProviderId's ownership check — providerId=1 belongs to org 1
+    // (item 1 hardening: a client-supplied providerId is never trusted
+    // without verifying it belongs to req.orgId first).
+    db.query.mockResolvedValueOnce([[{ id: 1 }], undefined]);
     llmProviderService.chat.mockResolvedValueOnce({ text: 'The device lost power.', json: null, usage: {}, cost_usd: 0 });
     db.query.mockResolvedValueOnce([{ insertId: 4, affectedRows: 1 }, undefined]); // insert insight
     const result = await nocService.explainAlert(1, 1, 1);
@@ -936,7 +1043,11 @@ describe('nocAiService', () => {
   });
 
   test('explainAlert uses deterministic fallback when no providerId', async () => {
-    db.query.mockResolvedValueOnce([[{ id: 2, alert_type: 'high_latency', severity: 'warning', message: 'High latency', device_id: null, organization_id: 1 }], undefined]);
+    db.query.mockResolvedValueOnce([[{
+      id: 2, rule_name: 'High latency', rule_metric: 'high_latency', severity: 'warning',
+      description: null, metric: 'latency_ms', current_value: 250, threshold_value: 100,
+      device_id: null, organization_id: 1,
+    }], undefined]);
     db.query.mockResolvedValueOnce([{ insertId: 5, affectedRows: 1 }, undefined]);
     const result = await nocService.explainAlert(1, 2, null);
     expect(result).toBeDefined();

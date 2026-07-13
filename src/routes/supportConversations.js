@@ -242,7 +242,7 @@ router.post(
 
       // Resolve the org's embedding provider (first enabled provider by priority).
       const [providerRows] = await db.query(
-        'SELECT id FROM ai_providers WHERE organization_id = ? AND enabled = 1 ORDER BY priority ASC LIMIT 1',
+        'SELECT id FROM ai_providers WHERE organization_id = ? AND enabled = 1 AND deleted_at IS NULL ORDER BY priority ASC LIMIT 1',
         [req.orgId],
       );
       const providerId = providerRows[0]?.id;
