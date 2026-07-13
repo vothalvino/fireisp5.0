@@ -7,9 +7,11 @@
 
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
+import { ClientPicker } from '@/components/ClientPicker';
+import { extractApiError } from '@/components/ClientFormModal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -135,6 +137,8 @@ export function DeviceDetail() {
     { id: 'outages',     label: t('deviceDetail.tabs.outages') },
   ];
 
+  const qc = useQueryClient();
+
   const { data: device, isLoading, error } = useQuery({
     queryKey: ['device-detail', id],
     queryFn: async () => {
@@ -143,6 +147,40 @@ export function DeviceDetail() {
       return ((res as { data: { data?: DeviceRecord } }).data?.data ?? (res as { data: DeviceRecord }).data) as DeviceRecord;
     },
     enabled: Boolean(id),
+  });
+
+  // device.client_id is a raw FK with no join — resolve the linked client's
+  // name so the UI never shows a bare internal id with no context.
+  const { data: linkedClient } = useQuery({
+    queryKey: ['device-linked-client', device?.client_id],
+    queryFn: async () => {
+      const res = await api.GET('/clients/{id}' as never, { params: { path: { id: device!.client_id! } } } as never);
+      if ((res as { error?: unknown }).error) return null;
+      return ((res as { data: { data?: { id: number; name: string } } }).data?.data ?? null);
+    },
+    enabled: device?.client_id != null,
+  });
+
+  const [editingClient, setEditingClient] = useState(false);
+  const [pickerValue, setPickerValue] = useState<number | ''>('');
+  const [pickerName, setPickerName] = useState('');
+  const [clientError, setClientError] = useState('');
+
+  const assignClientMutation = useMutation({
+    mutationFn: async (nextClientId: number | null) => {
+      const { error: e } = await api.PATCH('/devices/{id}' as never, {
+        params: { path: { id: Number(id) } },
+        body: { client_id: nextClientId },
+      } as never);
+      if (e) throw new Error(extractApiError(e, t('deviceDetail.clientAssign.saveFailed')));
+    },
+    onSuccess: () => {
+      setEditingClient(false);
+      setClientError('');
+      qc.invalidateQueries({ queryKey: ['device-detail', id] });
+      qc.invalidateQueries({ queryKey: ['device-linked-client'] });
+    },
+    onError: (err: unknown) => setClientError(err instanceof Error ? err.message : t('deviceDetail.clientAssign.saveFailed')),
   });
 
   const { data: snmpMetrics } = useQuery({
@@ -236,7 +274,57 @@ export function DeviceDetail() {
           <InfoRow label={t('deviceDetail.fields.firmwareVersion')} value={device.firmware_version}  mono />
           <InfoRow label={t('deviceDetail.fields.snmpVersion')}     value={device.snmp_version}      />
           <InfoRow label={t('deviceDetail.fields.siteId')}          value={device.site_id != null ? String(device.site_id) : null} />
-          <InfoRow label={t('deviceDetail.fields.clientId')}        value={device.client_id != null ? String(device.client_id) : null} />
+          <div style={styles.infoRow}>
+            <span style={styles.infoLabel}>{t('deviceDetail.fields.clientId')}</span>
+            {!editingClient ? (
+              <span style={styles.infoValue}>
+                {device.client_id != null ? (
+                  <Link to={`/clients/${device.client_id}`} style={{ color: 'var(--accent)' }}>
+                    {linkedClient?.name ?? `#${device.client_id}`}
+                  </Link>
+                ) : (
+                  <span style={{ color: 'var(--text-dimmed)', fontStyle: 'italic' }}>
+                    {t('deviceDetail.clientAssign.unassigned')}
+                  </span>
+                )}
+                {' '}
+                <button
+                  type="button"
+                  style={styles.changeLinkStyle}
+                  onClick={() => {
+                    setPickerValue(device.client_id ?? '');
+                    setPickerName(linkedClient?.name ?? '');
+                    setClientError('');
+                    setEditingClient(true);
+                  }}
+                >
+                  {device.client_id != null ? t('deviceDetail.clientAssign.change') : t('deviceDetail.clientAssign.assign')}
+                </button>
+              </span>
+            ) : (
+              <div style={{ flex: 1 }}>
+                <ClientPicker
+                  value={pickerValue}
+                  initialName={pickerName}
+                  required={false}
+                  onChange={(cid, name) => { setPickerValue(cid || ''); setPickerName(name); }}
+                />
+                {clientError && <p style={styles.clientErrorText}>{clientError}</p>}
+                <div style={{ display: 'flex', gap: 8, marginTop: '0.5rem' }}>
+                  <button
+                    type="button"
+                    disabled={assignClientMutation.isPending}
+                    onClick={() => assignClientMutation.mutate(pickerValue === '' || pickerValue === 0 ? null : pickerValue)}
+                  >
+                    {t('deviceDetail.clientAssign.save')}
+                  </button>
+                  <button type="button" onClick={() => { setEditingClient(false); setClientError(''); }}>
+                    {t('common.cancel')}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
           <InfoRow label={t('deviceDetail.fields.contractId')}      value={device.contract_id != null ? String(device.contract_id) : null} />
           <InfoRow label={t('deviceDetail.fields.snmpEnabled')}     value={device.snmp_enabled ? 'Yes' : device.snmp_enabled === false ? 'No' : null} />
           <InfoRow label={t('deviceDetail.fields.lastPolledAt')}    value={fmt(device.last_polled_at)} />
@@ -407,6 +495,8 @@ const styles = {
   infoRow:  { display: 'flex', gap: '0.5rem', alignItems: 'baseline', fontSize: '0.85rem' },
   infoLabel: { color: 'var(--text-dimmed)', fontSize: '0.75rem', textTransform: 'uppercase' as const, letterSpacing: '0.04em', minWidth: 80 },
   infoValue: { color: 'var(--text-secondary)' },
+  changeLinkStyle: { background: 'transparent', color: 'var(--accent)', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', padding: 0 },
+  clientErrorText: { color: '#ef4444', fontSize: '0.78rem', margin: '0.35rem 0' },
   notesRow: { marginTop: '0.75rem', fontSize: '0.82rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)', paddingTop: '0.75rem' },
   noteLabel: { fontWeight: 600, color: 'var(--text-secondary)' },
   tabBar: { display: 'flex', gap: '0.25rem', borderBottom: '2px solid var(--border)', marginBottom: '0' },

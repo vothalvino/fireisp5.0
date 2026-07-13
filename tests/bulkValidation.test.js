@@ -17,6 +17,15 @@ jest.mock('../src/services/eventBus', () => ({
   removeListener: jest.fn(),
 }));
 jest.mock('../src/services/suspensionService');
+// checkBulkEmailDailyBudget reads/writes cacheService directly (not
+// express-rate-limit) — mock it so the daily-recipient-budget tests are
+// deterministic instead of depending on the real in-memory LRU cache's state.
+jest.mock('../src/services/cacheService', () => ({
+  get: jest.fn(),
+  set: jest.fn(),
+  del: jest.fn(),
+  flush: jest.fn(),
+}));
 
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
@@ -24,6 +33,8 @@ const config = require('../src/config');
 const db = require('../src/config/database');
 const User = require('../src/models/User');
 const suspensionService = require('../src/services/suspensionService');
+const eventBus = require('../src/services/eventBus');
+const cacheService = require('../src/services/cacheService');
 const app = require('../src/app');
 
 // ---------------------------------------------------------------------------
@@ -272,5 +283,100 @@ describe('POST /api/bulk/email', () => {
 
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  // Per-organization rolling-24h recipient budget (checkBulkEmailDailyBudget)
+  // — a second, independent rate-limit layer on top of bulkEmailLimiter's
+  // per-IP request-count budget, since one request can already fan out to up
+  // to 1000 recipients.
+  describe('daily recipient budget', () => {
+    test('returns 429 when the daily recipient budget is exceeded, and emits zero events', async () => {
+      mockAuthUser();
+      db.query.mockResolvedValue([[
+        { id: 1, email: 'client@example.com', name: 'John Doe' },
+      ]]);
+      // Already at the default 5000/day cap — tenantApiLimiter's own
+      // cacheService.get calls (for its unrelated 'rl_tenant:*' key) return
+      // this same mocked shape too, but its comparison logic tolerates the
+      // mismatched fields without blocking the request itself.
+      cacheService.get.mockResolvedValue({ count: 5000, resetAt: Date.now() + 60 * 60 * 1000 });
+
+      const res = await request(app)
+        .post('/api/bulk/email')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_ids: [1], subject: 'Notice', body: 'Service update' });
+
+      expect(res.status).toBe(429);
+      expect(res.body.error.code).toBe('RATE_LIMITED');
+      expect(eventBus.emit).not.toHaveBeenCalledWith('bulk.email.queued', expect.anything());
+    });
+
+    test('succeeds and emits one event per resolved client when under both budgets', async () => {
+      mockAuthUser();
+      db.query.mockResolvedValue([[
+        { id: 1, email: 'a@example.com', name: 'A' },
+        { id: 2, email: 'b@example.com', name: 'B' },
+      ]]);
+      cacheService.get.mockResolvedValue(null);
+
+      const res = await request(app)
+        .post('/api/bulk/email')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_ids: [1, 2], subject: 'Notice', body: 'Service update' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.queued).toBe(2);
+      expect(eventBus.emit).toHaveBeenCalledTimes(2);
+      expect(eventBus.emit).toHaveBeenCalledWith('bulk.email.queued', expect.objectContaining({ clientId: 1 }));
+      expect(eventBus.emit).toHaveBeenCalledWith('bulk.email.queued', expect.objectContaining({ clientId: 2 }));
+      // The budget check is keyed by org, and its increment must be persisted.
+      expect(cacheService.set).toHaveBeenCalledWith(
+        'bulk_email_daily:1',
+        expect.objectContaining({ count: 2 }),
+        expect.any(Number),
+      );
+    });
+
+    test('does not consult the daily budget when zero clients resolve (all not_found)', async () => {
+      mockAuthUser();
+      db.query.mockResolvedValue([[]]); // no matching clients in this org
+
+      const res = await request(app)
+        .post('/api/bulk/email')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_ids: [999], subject: 'Notice', body: 'Service update' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.queued).toBe(0);
+      // tenantApiLimiter's own CacheStore also calls cacheService.get (for
+      // its unrelated 'rl_tenant:*' key) — assert the daily-budget-specific
+      // key was never consulted, rather than "cacheService.get was never
+      // called at all".
+      expect(cacheService.get).not.toHaveBeenCalledWith('bulk_email_daily:1');
+    });
+  });
+});
+
+// =============================================================================
+// Regression smoke: other /bulk/* routes are unaffected by bulkEmailLimiter
+// =============================================================================
+describe('bulkEmailLimiter does not leak onto other /bulk routes', () => {
+  test('POST /bulk/invoices/generate and /bulk/suspend still work (not gated by bulkEmailLimiter)', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValue([{ affectedRows: 1 }]);
+
+    const genRes = await request(app)
+      .post('/api/bulk/invoices/generate')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ contract_ids: [1] });
+    expect(genRes.status).toBe(200);
+
+    db.query.mockResolvedValue([[{ id: 10, status: 'active', organization_id: 1 }]]);
+    suspensionService.suspendContract.mockResolvedValue(undefined);
+    const suspendRes = await request(app)
+      .post('/api/bulk/suspend')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ contract_ids: [10] });
+    expect(suspendRes.status).toBe(200);
   });
 });

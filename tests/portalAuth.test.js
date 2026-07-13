@@ -20,10 +20,21 @@ jest.mock('jsonwebtoken', () => ({
   verify: jest.fn(),
 }));
 
+// The password-reset request route sends real transactional email — mock the
+// transport so these tests never attempt a real SMTP connection and can
+// assert on the send call directly (mirrors tests/routeIntegration.test.js's
+// staff-side password-reset coverage).
+jest.mock('../src/services/emailTransport', () => ({
+  sendEmail: jest.fn().mockResolvedValue({ success: true, messageId: 'test-message-id' }),
+}));
+
+const request = require('supertest');
 const db = require('../src/config/database');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const emailTransport = require('../src/services/emailTransport');
 const portalAuthService = require('../src/services/portalAuthService');
+const app = require('../src/app');
 
 // ---------------------------------------------------------------------------
 // portalAuthService.login
@@ -248,6 +259,149 @@ describe('portalAuthService.setPassword()', () => {
       expect.stringContaining('portal_password_hash'),
       expect.arrayContaining(['$2a$12$hashedpw', 1]),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /portal/auth/password-reset/request
+// ---------------------------------------------------------------------------
+// Anti-enumeration: unknown email, portal-never-enabled, and inactive-status
+// must all fall through to the IDENTICAL generic response with no token
+// generated and no email sent (see design decision #2 in the spec — forgot-
+// password must never become a self-service enablement path for a portal
+// account the ISP has not turned on).
+// ---------------------------------------------------------------------------
+
+describe('POST /portal/auth/password-reset/request', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('known, portal-enabled, active client — 200 generic message, updates token columns, emails a /portal/reset-password link', async () => {
+    db.query
+      .mockResolvedValueOnce([[{
+        id: 1, organization_id: 1, name: 'Alice', email: 'alice@example.com',
+        status: 'active', portal_password_hash: '$2a$12$x',
+      }]]) // SELECT client
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE token columns
+
+    const res = await request(app)
+      .post('/api/v1/portal/auth/password-reset/request')
+      .send({ email: 'alice@example.com' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toContain('If that email exists');
+
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE clients SET portal_reset_token_hash'),
+      expect.any(Array),
+    );
+
+    expect(emailTransport.sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'alice@example.com', subject: 'Password Reset Request' }),
+    );
+    const emailCall = emailTransport.sendEmail.mock.calls[0][0];
+    expect(emailCall.html).toContain('/portal/reset-password?token=');
+  });
+
+  test('unknown email — same generic message, no UPDATE, no email (anti-enumeration)', async () => {
+    db.query.mockResolvedValueOnce([[]]); // SELECT client — no match
+
+    const res = await request(app)
+      .post('/api/v1/portal/auth/password-reset/request')
+      .send({ email: 'nobody@example.com' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toContain('If that email exists');
+    expect(db.query).toHaveBeenCalledTimes(1); // SELECT only, no UPDATE
+    expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+  });
+
+  test('known email, portal access never enabled (portal_password_hash NULL) — same generic message, no UPDATE, no email', async () => {
+    db.query.mockResolvedValueOnce([[{
+      id: 2, organization_id: 1, name: 'Bob', email: 'bob@example.com',
+      status: 'active', portal_password_hash: null,
+    }]]);
+
+    const res = await request(app)
+      .post('/api/v1/portal/auth/password-reset/request')
+      .send({ email: 'bob@example.com' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toContain('If that email exists');
+    expect(db.query).toHaveBeenCalledTimes(1);
+    expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+  });
+
+  test('known email, inactive status — same generic message, no UPDATE, no email', async () => {
+    db.query.mockResolvedValueOnce([[{
+      id: 3, organization_id: 1, name: 'Carla', email: 'carla@example.com',
+      status: 'inactive', portal_password_hash: '$2a$12$x',
+    }]]);
+
+    const res = await request(app)
+      .post('/api/v1/portal/auth/password-reset/request')
+      .send({ email: 'carla@example.com' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toContain('If that email exists');
+    expect(db.query).toHaveBeenCalledTimes(1);
+    expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /portal/auth/password-reset
+// ---------------------------------------------------------------------------
+
+describe('POST /portal/auth/password-reset', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('valid unexpired token — 200, hashes new password, clears reset + lockout columns, revokes refresh tokens', async () => {
+    db.query
+      .mockResolvedValueOnce([[{
+        id: 1, organization_id: 1, name: 'Alice', email: 'alice@example.com',
+        status: 'active', portal_reset_token_hash: 'x', portal_reset_token_expires: '2099-01-01 00:00:00',
+      }]]) // SELECT by token hash
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE clients (password + clear reset/lockout)
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE portal_refresh_tokens revoke
+
+    const res = await request(app)
+      .post('/api/v1/portal/auth/password-reset')
+      .send({ token: 'sometoken', password: 'newpassword123' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toBe('Password reset successfully');
+    expect(bcrypt.hash).toHaveBeenCalledWith('newpassword123', 12);
+
+    const updateClientsCall = db.query.mock.calls[1];
+    expect(updateClientsCall[0]).toContain('portal_password_hash');
+    expect(updateClientsCall[0]).toContain('portal_reset_token_hash = NULL');
+    expect(updateClientsCall[0]).toContain('portal_login_attempts = 0');
+    expect(updateClientsCall[0]).toContain('portal_locked_until = NULL');
+
+    const revokeCall = db.query.mock.calls[2];
+    expect(revokeCall[0]).toContain('portal_refresh_tokens');
+    expect(revokeCall[0]).toContain('revoked_at = NOW()');
+    expect(revokeCall[1]).toEqual([1]);
+  });
+
+  test('expired or unknown token — 401, no mutation', async () => {
+    db.query.mockResolvedValueOnce([[]]); // no matching, unexpired token
+
+    const res = await request(app)
+      .post('/api/v1/portal/auth/password-reset')
+      .send({ token: 'badtoken', password: 'newpassword123' });
+
+    expect(res.status).toBe(401);
+    expect(db.query).toHaveBeenCalledTimes(1);
+  });
+
+  test('password shorter than 8 chars — 422 before any DB hit', async () => {
+    const res = await request(app)
+      .post('/api/v1/portal/auth/password-reset')
+      .send({ token: 'sometoken', password: 'short' });
+
+    expect(res.status).toBe(422);
+    expect(db.query).not.toHaveBeenCalled();
   });
 });
 

@@ -76,6 +76,15 @@ const config = {
     export: parseIntEnv('RATE_LIMIT_EXPORT', 20),
     sse: parseIntEnv('RATE_LIMIT_SSE', 10),
     webhook: parseIntEnv('RATE_LIMIT_WEBHOOK', 100),
+    // POST /bulk/email only — a mass-send action reaching real client
+    // inboxes, the same rationale passwordReset/verifyEmailResend already
+    // get their own tighter per-IP budget on top of the shared `api` bucket.
+    bulkEmail: parseIntEnv('RATE_LIMIT_BULK_EMAIL', 10),
+    // Per-organization rolling-24h RECIPIENT-count budget for POST
+    // /bulk/email (not a request count — one request already fans out to up
+    // to 1000 recipients, so request-count alone under-protects against
+    // mail-bombing). Enforced via cacheService, not express-rate-limit.
+    bulkEmailDailyRecipients: parseIntEnv('RATE_LIMIT_BULK_EMAIL_DAILY_RECIPIENTS', 5000),
     // Per-tenant limits — apply to all authenticated/org-scoped requests
     tenantWindowMs: parseIntEnv('RATE_LIMIT_TENANT_WINDOW_MS', 15 * 60 * 1000),
     tenantApi: parseIntEnv('RATE_LIMIT_TENANT_API', 2000),

@@ -166,6 +166,16 @@ async function importDevices(req, res, next) {
 
 const CONNECTION_TYPES = new Set(['pppoe', 'pppoe_dual', 'static', 'dual']);
 
+// radius.password is VARCHAR(255) (database/migrations/008_create_radius_table.sql,
+// renamed password_hash -> password in migration 189).
+const MAX_PPPOE_PASSWORD_LEN = 255;
+// Defense-in-depth safe-charset restriction on a caller-supplied PPPoE
+// username: usernames eventually get pushed into RouterOS/NAS command
+// construction elsewhere in the codebase. Stricter than POST /radius
+// (createRadius schema has no charset restriction beyond length) deliberately
+// — CSV import is the more exposed, bulk-untrusted-input surface.
+const PPPOE_USERNAME_RE = /^[A-Za-z0-9._@-]{1,64}$/;
+
 /**
  * Insert one contract row from a parsed row object.
  *
@@ -182,10 +192,20 @@ const CONNECTION_TYPES = new Set(['pppoe', 'pppoe_dual', 'static', 'dual']);
  * column yet), so they go through the same pending → active flow as a no-op
  * provisioning step.
  *
+ * Optional columns `pppoe_username` / `pppoe_password` let an operator carry
+ * over pre-existing PPPoE credentials instead of always auto-generating a
+ * new pair — both columns must be present together (on a pppoe/pppoe_dual
+ * row only) or the row errors; a duplicate supplied username errors the row
+ * via the same uniqueness rule as auto-generated usernames
+ * (assertUsernameAvailable). The caller-supplied password is never echoed
+ * back in the response — only the username is (see the `credentials` array
+ * below), matching migration 383's radius.credentials.view gating for
+ * cleartext password exposure.
+ *
  * Returns `{ error }` on failure (validation or DB, already rolled back), or
  * `{ contractId, pppoeUsername }` on success — `pppoeUsername` is only set
- * for pppoe/pppoe_dual rows so the operator can export the generated
- * credentials.
+ * for pppoe/pppoe_dual rows so the operator can export the (generated or
+ * caller-supplied) username.
  */
 async function insertContractRow(row, orgId) {
   if (!row.client_id || !row.plan_id) return { error: 'client_id and plan_id are required' };
@@ -193,6 +213,30 @@ async function insertContractRow(row, orgId) {
   const connectionType = row.connection_type || 'pppoe';
   if (!CONNECTION_TYPES.has(connectionType)) {
     return { error: `connection_type must be one of: ${[...CONNECTION_TYPES].join(', ')}` };
+  }
+
+  // Optional caller-supplied PPPoE credentials (CSV columns pppoe_username /
+  // pppoe_password). Validated up front, before the org-verify DB round trips
+  // below, so an obviously-malformed pair fails fast without wasted queries.
+  const rawUsername = row.pppoe_username || '';
+  const rawPassword = row.pppoe_password || '';
+  const hasUsername = rawUsername !== '';
+  const hasPassword = rawPassword !== '';
+  let pppoeCreds;
+  if (hasUsername || hasPassword) {
+    if (hasUsername !== hasPassword) {
+      return { error: 'pppoe_username and pppoe_password must both be provided together' };
+    }
+    if (!provisioningService.isPppoe(connectionType)) {
+      return { error: 'pppoe_username/pppoe_password only apply to connection_type pppoe or pppoe_dual' };
+    }
+    if (!PPPOE_USERNAME_RE.test(rawUsername)) {
+      return { error: 'pppoe_username must be 1-64 characters: letters, digits, ".", "_", "@", or "-"' };
+    }
+    if (rawPassword.length > MAX_PPPOE_PASSWORD_LEN) {
+      return { error: `pppoe_password must be at most ${MAX_PPPOE_PASSWORD_LEN} characters` };
+    }
+    pppoeCreds = { username: rawUsername, password: rawPassword };
   }
 
   // Org-verify BOTH FKs before opening a transaction — read-only lookups, no
@@ -238,7 +282,7 @@ async function insertContractRow(row, orgId) {
     const provisioning = await provisioningService.provisionNewContract(
       conn,
       { id: contractId, ...contractData },
-      { seed },
+      { seed, pppoeUsername: pppoeCreds?.username, pppoePassword: pppoeCreds?.password },
     );
 
     await conn.query("UPDATE contracts SET status = 'active' WHERE id = ?", [contractId]);
@@ -260,8 +304,12 @@ async function insertContractRow(row, orgId) {
  * connection_type must be one of pppoe, pppoe_dual, static, dual (defaults
  * to pppoe when omitted); pppoe/pppoe_dual rows get a RADIUS account
  * provisioned automatically — see the `credentials` array in the response.
- * Credential import (pre-existing username/password) is not supported by
- * this CSV shape; a future enhancement could add optional columns for it.
+ * Optional columns pppoe_username / pppoe_password carry over pre-existing
+ * PPPoE credentials instead of auto-generating a pair; both columns must be
+ * present together on a pppoe/pppoe_dual row. A duplicate supplied username,
+ * an unpaired column, or credentials on a static/dual row error only that
+ * row (via the existing per-row `{ error }` contract) without aborting the
+ * rest of the import — see insertContractRow.
  */
 async function importContracts(req, res, next) {
   try {
@@ -392,7 +440,8 @@ async function importDevicesFile(req, res, next) {
 /**
  * POST /api/import/contracts/upload
  * Import contracts from an uploaded CSV file.
- * Same column contract and RADIUS-provisioning behavior as importContracts
+ * Same column contract (including the optional pppoe_username /
+ * pppoe_password pair) and RADIUS-provisioning behavior as importContracts
  * — see insertContractRow.
  */
 async function importContractsFile(req, res, next) {
