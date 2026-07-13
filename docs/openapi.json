@@ -353,6 +353,10 @@
       "description": "Per-org invoice branding — logo, color, footer legal text, payment instructions — §2.2B"
     },
     {
+      "name": "Email Settings",
+      "description": "Per-org outbound SMTP configuration — password never returned, write-only three-state contract"
+    },
+    {
       "name": "Late Fee Rules",
       "description": "Configurable late fee rules applied to overdue invoices — §2.2B"
     },
@@ -21338,6 +21342,102 @@
         "responses": {
           "200": {
             "description": "InvoiceSettings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/email-settings": {
+      "get": {
+        "tags": [
+          "Email Settings"
+        ],
+        "summary": "Get per-org outbound email (SMTP) configuration (password masked)",
+        "operationId": "getEmailSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "EmailSettings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Email Settings"
+        ],
+        "summary": "Update per-org outbound email (SMTP) configuration",
+        "operationId": "updateEmailSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "EmailSettingsUpdate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "EmailSettings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/email-settings/test": {
+      "post": {
+        "tags": [
+          "Email Settings"
+        ],
+        "summary": "Send a test email using the org's (or global fallback) SMTP config",
+        "operationId": "testEmailSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "EmailSettingsTest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "EmailTestResult",
             "content": {
               "application/json": {
                 "schema": {
@@ -54499,6 +54599,56 @@
             ]
           }
         }
+      },
+      "emailSettings_updateEmailSettings": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "smtp_host": {
+            "type": "string",
+            "maximum": 255
+          },
+          "smtp_port": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "smtp_secure": {
+            "type": "boolean"
+          },
+          "smtp_user": {
+            "type": "string",
+            "maximum": 255
+          },
+          "smtp_password": {
+            "type": "string",
+            "maximum": 500
+          },
+          "from_email": {
+            "type": "string",
+            "format": "email",
+            "maximum": 255
+          },
+          "from_name": {
+            "type": "string",
+            "maximum": 255
+          }
+        }
+      },
+      "emailSettings_testEmailSettings": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "format": "email",
+            "maximum": 255
+          }
+        },
+        "required": [
+          "to"
+        ]
       },
       "events_ticketStream": {
         "type": "object",

@@ -26,6 +26,12 @@ jest.mock('../src/services/cacheService', () => ({
   del: jest.fn(),
   flush: jest.fn(),
 }));
+// POST /bulk/email now sends real emails (detached, after the response) via
+// emailTransport.sendEmail instead of the old eventBus.emit no-op — mock it
+// so these tests never attempt a real SMTP round-trip.
+jest.mock('../src/services/emailTransport', () => ({
+  sendEmail: jest.fn().mockResolvedValue({ success: true, messageId: '<test>' }),
+}));
 
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
@@ -33,8 +39,8 @@ const config = require('../src/config');
 const db = require('../src/config/database');
 const User = require('../src/models/User');
 const suspensionService = require('../src/services/suspensionService');
-const eventBus = require('../src/services/eventBus');
 const cacheService = require('../src/services/cacheService');
+const emailTransport = require('../src/services/emailTransport');
 const app = require('../src/app');
 
 // ---------------------------------------------------------------------------
@@ -290,7 +296,7 @@ describe('POST /api/bulk/email', () => {
   // per-IP request-count budget, since one request can already fan out to up
   // to 1000 recipients.
   describe('daily recipient budget', () => {
-    test('returns 429 when the daily recipient budget is exceeded, and emits zero events', async () => {
+    test('returns 429 when the daily recipient budget is exceeded, and sends zero emails', async () => {
       mockAuthUser();
       db.query.mockResolvedValue([[
         { id: 1, email: 'client@example.com', name: 'John Doe' },
@@ -308,10 +314,10 @@ describe('POST /api/bulk/email', () => {
 
       expect(res.status).toBe(429);
       expect(res.body.error.code).toBe('RATE_LIMITED');
-      expect(eventBus.emit).not.toHaveBeenCalledWith('bulk.email.queued', expect.anything());
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
     });
 
-    test('succeeds and emits one event per resolved client when under both budgets', async () => {
+    test('succeeds and sends one email per resolved client when under both budgets', async () => {
       mockAuthUser();
       db.query.mockResolvedValue([[
         { id: 1, email: 'a@example.com', name: 'A' },
@@ -326,15 +332,44 @@ describe('POST /api/bulk/email', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.queued).toBe(2);
-      expect(eventBus.emit).toHaveBeenCalledTimes(2);
-      expect(eventBus.emit).toHaveBeenCalledWith('bulk.email.queued', expect.objectContaining({ clientId: 1 }));
-      expect(eventBus.emit).toHaveBeenCalledWith('bulk.email.queued', expect.objectContaining({ clientId: 2 }));
+      // The send loop is detached (fires after res.json()) but is kicked off
+      // synchronously within the same tick, so the mock's call count is
+      // already observable by the time the supertest response resolves.
+      expect(emailTransport.sendEmail).toHaveBeenCalledTimes(2);
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+        organizationId: 1, clientId: 1, to: 'a@example.com', subject: 'Notice', text: 'Service update',
+      }));
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+        organizationId: 1, clientId: 2, to: 'b@example.com', subject: 'Notice', text: 'Service update',
+      }));
       // The budget check is keyed by org, and its increment must be persisted.
       expect(cacheService.set).toHaveBeenCalledWith(
         'bulk_email_daily:1',
         expect.objectContaining({ count: 2 }),
         expect.any(Number),
       );
+    });
+
+    test('one recipient failing to send does not stop the others', async () => {
+      mockAuthUser();
+      db.query.mockResolvedValue([[
+        { id: 1, email: 'bad@example.com', name: 'Bad' },
+        { id: 2, email: 'good@example.com', name: 'Good' },
+      ]]);
+      cacheService.get.mockResolvedValue(null);
+      emailTransport.sendEmail
+        .mockRejectedValueOnce(new Error('SMTP refused'))
+        .mockResolvedValueOnce({ success: true, messageId: '<ok>' });
+
+      const res = await request(app)
+        .post('/api/bulk/email')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_ids: [1, 2], subject: 'Notice', body: 'Service update' });
+
+      expect(res.status).toBe(200);
+      // Both sends were attempted despite the first one rejecting.
+      await Promise.resolve().then().then();
+      expect(emailTransport.sendEmail).toHaveBeenCalledTimes(2);
     });
 
     test('does not consult the daily budget when zero clients resolve (all not_found)', async () => {
@@ -353,6 +388,7 @@ describe('POST /api/bulk/email', () => {
       // key was never consulted, rather than "cacheService.get was never
       // called at all".
       expect(cacheService.get).not.toHaveBeenCalledWith('bulk_email_daily:1');
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
     });
   });
 });

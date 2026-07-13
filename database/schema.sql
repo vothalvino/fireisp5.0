@@ -3768,6 +3768,7 @@ CREATE TABLE IF NOT EXISTS client_balance_ledger (
 CREATE TABLE IF NOT EXISTS email_logs (
     id               BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     client_id        BIGINT UNSIGNED  NULL     COMMENT 'Client recipient; NULL for internal messages',
+    organization_id  BIGINT UNSIGNED  NULL     COMMENT 'Owning org; NULL for legacy rows and auth flows with no org in scope (migration 386)',
     user_id          BIGINT UNSIGNED  NULL     COMMENT 'Internal user recipient; NULL for client messages',
     channel          ENUM('email', 'sms', 'whatsapp', 'other') NOT NULL DEFAULT 'email',
     recipient        VARCHAR(255)     NOT NULL COMMENT 'Email address or phone number',
@@ -3786,6 +3787,7 @@ CREATE TABLE IF NOT EXISTS email_logs (
 
     PRIMARY KEY (id),
     KEY idx_email_logs_client_id (client_id),
+    KEY idx_email_logs_organization_id (organization_id),
     KEY idx_email_logs_status (status),
     KEY idx_email_logs_reference (reference_type, reference_id),
     KEY idx_email_logs_sent_at (sent_at),
@@ -7809,6 +7811,33 @@ CREATE TABLE IF NOT EXISTS organization_database_configs (
         FOREIGN KEY (organization_id) REFERENCES organizations (id)
         ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Per-organization outbound email (SMTP) configuration  (migration 386)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS organization_email_settings (
+    id                      BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id         BIGINT UNSIGNED  NOT NULL,
+    enabled                 TINYINT(1)       NOT NULL DEFAULT 1 COMMENT 'When 0, org falls back to global SMTP even if fields are populated',
+    smtp_host               VARCHAR(255)     NULL,
+    smtp_port               INT UNSIGNED     NULL DEFAULT 587,
+    smtp_secure             TINYINT(1)       NOT NULL DEFAULT 0,
+    smtp_user               VARCHAR(255)     NULL,
+    smtp_password_encrypted TEXT             NULL,
+    from_email              VARCHAR(255)     NULL,
+    from_name               VARCHAR(255)     NULL,
+    last_test_at            TIMESTAMP        NULL,
+    last_test_status        ENUM('success', 'failed') NULL,
+    last_test_error         TEXT             NULL,
+    created_at              TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_organization_email_settings_org (organization_id),
+    CONSTRAINT fk_organization_email_settings_org
+        FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Per-organization outbound SMTP configuration (migration 386) — password encrypted at rest, never returned in API responses';
 
 -- =============================================================================
 -- Table: profeco_complaints (migration 168)

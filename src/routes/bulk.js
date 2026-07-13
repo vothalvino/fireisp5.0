@@ -16,6 +16,8 @@ const logger = require('../utils/logger');
 const eventBus = require('../services/eventBus');
 const billingService = require('../services/billingService');
 const suspensionService = require('../services/suspensionService');
+const emailTransport = require('../services/emailTransport');
+const { customMessageEmail } = require('../views/emailTemplates');
 
 const router = Router();
 
@@ -232,19 +234,40 @@ router.post('/email', bulkEmailLimiter, requirePermission('campaigns.create'), v
 
     const results = { queued: clients.length, not_found: client_ids.length - clients.length };
 
-    // In a production system these would go to the job queue
-    for (const client of clients) {
-      eventBus.emit('bulk.email.queued', {
-        organizationId: orgId,
-        clientId: client.id,
-        email: client.email,
-        subject,
-        body,
-      });
-    }
-
-    logger.info({ orgId, ...results }, 'Bulk email queued');
+    logger.info({ orgId, ...results }, 'Bulk email accepted');
     res.json({ data: results });
+
+    // Detached — do NOT await. Sends with bounded concurrency so up to 1000
+    // recipients never sit on the request/response path (mirrors auth.js's
+    // fire-and-forget password-reset email). Per-recipient failures are
+    // logged, never thrown — one bad address must not abort the batch.
+    // KNOWN LIMITATION: a server restart mid-batch drops any not-yet-sent
+    // recipients with no automatic retry — acceptable for a first cut (an
+    // admin can re-run the same/failed subset).
+    const CONCURRENCY = 5;
+    let idx = 0;
+    async function worker() {
+      while (idx < clients.length) {
+        const client = clients[idx++];
+        try {
+          await emailTransport.sendEmail({
+            organizationId: orgId,
+            clientId: client.id,
+            to: client.email,
+            subject,
+            html: customMessageEmail({ recipientName: client.name, bodyText: body }),
+            text: body,
+          });
+        } catch (err) {
+          logger.error({ orgId, clientId: client.id, err: err.message }, 'Bulk email send failed');
+        }
+      }
+    }
+    Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, clients.length) }, worker),
+    ).catch((err) => {
+      logger.error({ orgId, err: err.message }, 'Bulk email detached send loop failed');
+    });
   } catch (err) { next(err); }
 });
 
