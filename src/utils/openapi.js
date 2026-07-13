@@ -518,7 +518,15 @@ function generateSpec() {
       ...crudPaths('suspension-rules', 'Suspension Rules', 'SuspensionRule'),
 
       // ---- Devices ----
-      ...crudPaths('devices', 'Devices', 'Device'),
+      '/devices': crudPaths('devices', 'Devices', 'Device')['/devices'],
+      '/devices/{id}': {
+        ...crudPaths('devices', 'Devices', 'Device')['/devices/{id}'],
+        // Hand-added: crudPaths() has no `patch` case (it would falsely document
+        // PATCH for ~40 other resources that don't have the route). Only /devices
+        // actually registers PATCH /:id (src/routes/devices.js) — used to
+        // assign/clear the client_id link from the UI without a full PUT.
+        patch: { tags: ['Devices'], summary: 'Partially update a device (e.g. assign/clear client_id)', operationId: 'patchDevice', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('devices_patchDevice'), responses: r200('Device') },
+      },
       '/devices/{id}/restore': { post: { tags: ['Devices'], summary: 'Restore a soft-deleted device', operationId: 'restoreDevice', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Device') } },
 
       // ---- NAS ----
@@ -1865,6 +1873,12 @@ function generateSpec() {
       },
       '/portal/auth/password': {
         put: { tags: ['Portal Auth'], summary: 'Change portal password', operationId: 'portalChangePassword', security: [{ bearerAuth: [] }], requestBody: jsonBody('currentPassword + newPassword'), responses: r200('Message') },
+      },
+      '/portal/auth/password-reset/request': {
+        post: { tags: ['Portal Auth'], summary: 'Request a portal password reset email', operationId: 'portalRequestPasswordReset', requestBody: jsonBody('email'), responses: r200('Message') },
+      },
+      '/portal/auth/password-reset': {
+        post: { tags: ['Portal Auth'], summary: 'Reset portal password with token', operationId: 'portalResetPassword', requestBody: jsonBody('token + password'), responses: r200('Message') },
       },
 
       // ---- Portal Dashboard §11.1 ----

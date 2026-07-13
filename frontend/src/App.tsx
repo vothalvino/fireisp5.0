@@ -21,6 +21,8 @@ import { PortalAuthProvider } from '@/auth/PortalAuthContext';
 import { PortalRoute } from '@/auth/PortalRoute';
 import { PortalLayout } from '@/components/PortalLayout';
 import { PortalLogin } from '@/pages/portal/PortalLogin';
+import { PortalForgotPassword } from '@/pages/portal/PortalForgotPassword';
+import { PortalResetPassword } from '@/pages/portal/PortalResetPassword';
 import { PortalDashboard } from '@/pages/portal/PortalDashboard';
 import { PortalInvoices } from '@/pages/portal/PortalInvoices';
 import { PortalInvoiceDetail } from '@/pages/portal/PortalInvoiceDetail';
@@ -193,6 +195,8 @@ export function App() {
 
               {/* ---- Client Self-Service Portal ---- */}
               <Route path="/portal/login" element={<PortalLogin />} />
+              <Route path="/portal/forgot-password" element={<PortalForgotPassword />} />
+              <Route path="/portal/reset-password" element={<PortalResetPassword />} />
               <Route element={<PortalRoute />}>
                 <Route element={<PortalLayout />}>
                   <Route path="/portal" element={<PortalDashboard />} />

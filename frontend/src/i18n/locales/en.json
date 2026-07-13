@@ -80,7 +80,30 @@
   "portalLogin": {
     "subtitle": "Client Account Portal",
     "hint": "Contact your ISP to activate portal access.",
-    "failed": "Login failed"
+    "failed": "Login failed",
+    "forgotPassword": "Forgot password?"
+  },
+  "portalForgotPassword": {
+    "title": "Forgot Password",
+    "subtitle": "Enter your email and we'll send you a link to reset your portal password.",
+    "submitButton": "Send Reset Link",
+    "submitting": "Sending…",
+    "successMessage": "If that email exists, a reset link has been sent.",
+    "backToLogin": "Back to login"
+  },
+  "portalResetPassword": {
+    "title": "Reset Password",
+    "subtitle": "Choose a new password for your account.",
+    "passwordLabel": "New Password",
+    "confirmPasswordLabel": "Confirm New Password",
+    "submitButton": "Reset Password",
+    "submitting": "Resetting…",
+    "successMessage": "Your password has been reset. You can now sign in.",
+    "passwordMismatch": "Passwords do not match.",
+    "missingToken": "No reset token was provided. Please request a new link.",
+    "invalidOrExpired": "This link is invalid or has expired.",
+    "requestNewLink": "Request a new link",
+    "goToLogin": "Go to login"
   },
   "nav": {
     "dashboard": "📊 Dashboard",
@@ -286,6 +309,16 @@
     "hint": "Automated checks (backup + integrity queries) run every quarter. Phases 2–3 (destroy + restore) must be run manually on a test instance.",
     "openRunbook": "Open DR Runbook ↗",
     "dismiss": "Acknowledge & dismiss for this session"
+  },
+  "emailVerify": {
+    "banner": "Please verify your email address.",
+    "resend": "Resend verification email",
+    "sending": "Sending…",
+    "sentConfirm": "Verification email sent — check your inbox.",
+    "alreadyDone": "I already verified — refresh",
+    "rateLimited": "Too many requests — please wait a minute and try again.",
+    "sendFailed": "Couldn't send the verification email. Try again shortly.",
+    "dismiss": "Dismiss"
   },
   "portalDashboard": {
     "welcome": "Welcome, {{name}}",
@@ -3317,6 +3350,13 @@
       "contractId": "Contract ID",
       "lastPolledAt": "Last Polled",
       "lastPollError": "Last Poll Error"
+    },
+    "clientAssign": {
+      "assign": "Assign client",
+      "change": "Change",
+      "unassigned": "Unassigned",
+      "save": "Save",
+      "saveFailed": "Could not update the linked client."
     },
     "tabs": {
       "overview": "Overview",

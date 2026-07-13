@@ -227,4 +227,97 @@ async function setPassword(clientId, newPassword) {
   );
 }
 
-module.exports = { login, refreshToken, logout, setPassword };
+// ---------------------------------------------------------------------------
+// requestPasswordReset — generate + store a reset token (caller emails it)
+// ---------------------------------------------------------------------------
+//
+// Anti-enumeration + never-a-self-enablement-path: a token is only ever
+// generated when the matched client (a) exists, (b) has portal access
+// already enabled (portal_password_hash IS NOT NULL — that column is a
+// deliberate admin control; see login()'s distinct "not enabled" error
+// above), and (c) is not inactive. All other cases return the IDENTICAL
+// generic message with no token, so "forgot password" can never become a
+// silent self-activation path for a portal account the ISP has not turned
+// on — mirroring authService.requestPasswordReset's shape exactly.
+// ---------------------------------------------------------------------------
+
+async function requestPasswordReset(email) {
+  const [rows] = await db.query(
+    `SELECT id, organization_id, name, email, status, portal_password_hash
+     FROM clients
+     WHERE email = ? AND deleted_at IS NULL
+     LIMIT 1`,
+    [email.toLowerCase().trim()],
+  );
+
+  const client = rows[0];
+
+  if (!client || !client.portal_password_hash || client.status === 'inactive') {
+    return { message: 'If that email exists, a reset link has been sent' };
+  }
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+  await db.query(
+    `UPDATE clients SET portal_reset_token_hash = ?, portal_reset_token_expires = DATE_ADD(NOW(), INTERVAL 1 HOUR)
+     WHERE id = ?`,
+    [tokenHash, client.id],
+  );
+
+  return {
+    token,
+    email: client.email,
+    clientId: client.id,
+    userName: client.name,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// resetPassword — redeem a portal reset token for a new password
+// ---------------------------------------------------------------------------
+
+async function resetPassword(token, newPassword) {
+  if (!newPassword || newPassword.length < 8) {
+    throw new ValidationError('Password must be at least 8 characters');
+  }
+
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+  const [rows] = await db.query(
+    `SELECT * FROM clients
+     WHERE portal_reset_token_hash = ? AND portal_reset_token_expires > NOW() AND deleted_at IS NULL`,
+    [tokenHash],
+  );
+
+  if (rows.length === 0) {
+    throw new UnauthorizedError('Invalid or expired reset token');
+  }
+
+  const client = rows[0];
+  const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+
+  // Clear the reset token AND the brute-force lockout: possession of the
+  // emailed reset token is stronger proof of identity than a password, so a
+  // successful reset should also break the portal_login_attempts/
+  // portal_locked_until loop from login()'s lockout logic — mirroring
+  // authService.resetPassword's lockout-clear.
+  await db.query(
+    `UPDATE clients
+        SET portal_password_hash = ?, portal_reset_token_hash = NULL, portal_reset_token_expires = NULL,
+            portal_login_attempts = 0, portal_locked_until = NULL
+      WHERE id = ?`,
+    [passwordHash, client.id],
+  );
+
+  // Invalidate all outstanding refresh tokens — the portal's equivalent of
+  // the staff flow's `DELETE FROM user_sessions`.
+  await db.query(
+    'UPDATE portal_refresh_tokens SET revoked_at = NOW() WHERE client_id = ? AND revoked_at IS NULL',
+    [client.id],
+  );
+
+  return { message: 'Password reset successfully' };
+}
+
+module.exports = { login, refreshToken, logout, setPassword, requestPasswordReset, resetPassword };

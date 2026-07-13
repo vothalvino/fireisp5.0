@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { type FormEvent, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { usePortalAuth } from '@/auth/PortalAuthContext';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
@@ -72,6 +72,8 @@ export function PortalLogin() {
         <button type="submit" disabled={loading} style={styles.button}>
           {loading ? t('common.signingIn') : t('common.signIn')}
         </button>
+
+        <Link to="/portal/forgot-password" style={styles.link}>{t('portalLogin.forgotPassword')}</Link>
 
         <p style={styles.hint}>
           {t('portalLogin.hint')}
@@ -145,5 +147,11 @@ const styles = {
     fontSize: '0.8rem',
     color: 'var(--text-dimmed)',
     textAlign: 'center' as const,
+  },
+  link: {
+    color: 'var(--accent)',
+    fontSize: '0.85rem',
+    textAlign: 'center' as const,
+    textDecoration: 'none',
   },
 };

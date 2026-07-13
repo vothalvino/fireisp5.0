@@ -80,7 +80,30 @@
   "portalLogin": {
     "subtitle": "Portal de cuenta de cliente",
     "hint": "Contacta a tu proveedor de internet para activar el acceso al portal.",
-    "failed": "Error al iniciar sesión"
+    "failed": "Error al iniciar sesión",
+    "forgotPassword": "¿Olvidaste tu contraseña?"
+  },
+  "portalForgotPassword": {
+    "title": "Recuperar contraseña",
+    "subtitle": "Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña del portal.",
+    "submitButton": "Enviar enlace",
+    "submitting": "Enviando…",
+    "successMessage": "Si ese correo existe, se ha enviado un enlace de restablecimiento.",
+    "backToLogin": "Volver al inicio de sesión"
+  },
+  "portalResetPassword": {
+    "title": "Restablecer contraseña",
+    "subtitle": "Elige una nueva contraseña para tu cuenta.",
+    "passwordLabel": "Nueva contraseña",
+    "confirmPasswordLabel": "Confirmar nueva contraseña",
+    "submitButton": "Restablecer contraseña",
+    "submitting": "Restableciendo…",
+    "successMessage": "Tu contraseña ha sido restablecida. Ahora puedes iniciar sesión.",
+    "passwordMismatch": "Las contraseñas no coinciden.",
+    "missingToken": "No se proporcionó un token de restablecimiento. Solicita un nuevo enlace.",
+    "invalidOrExpired": "Este enlace no es válido o ha expirado.",
+    "requestNewLink": "Solicitar un nuevo enlace",
+    "goToLogin": "Ir a iniciar sesión"
   },
   "nav": {
     "dashboard": "📊 Panel",
@@ -286,6 +309,16 @@
     "hint": "Las verificaciones automáticas (copia de seguridad + consultas de integridad) se ejecutan trimestralmente. Las fases 2–3 (destrucción + restauración) deben ejecutarse manualmente en una instancia de prueba.",
     "openRunbook": "Abrir runbook de DR ↗",
     "dismiss": "Reconocer y descartar para esta sesión"
+  },
+  "emailVerify": {
+    "banner": "Por favor verifica tu dirección de correo electrónico.",
+    "resend": "Reenviar correo de verificación",
+    "sending": "Enviando…",
+    "sentConfirm": "Correo de verificación enviado — revisa tu bandeja de entrada.",
+    "alreadyDone": "Ya lo verifiqué — actualizar",
+    "rateLimited": "Demasiadas solicitudes — espera un minuto e inténtalo de nuevo.",
+    "sendFailed": "No se pudo enviar el correo de verificación. Inténtalo de nuevo en breve.",
+    "dismiss": "Descartar"
   },
   "portalDashboard": {
     "welcome": "Bienvenido, {{name}}",
@@ -3317,6 +3350,13 @@
       "contractId": "ID Contrato",
       "lastPolledAt": "Último Sondeo",
       "lastPollError": "Error Último Sondeo"
+    },
+    "clientAssign": {
+      "assign": "Asignar cliente",
+      "change": "Cambiar",
+      "unassigned": "Sin asignar",
+      "save": "Guardar",
+      "saveFailed": "No se pudo actualizar el cliente vinculado."
     },
     "tabs": {
       "overview": "Resumen",

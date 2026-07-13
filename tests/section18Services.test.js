@@ -31,6 +31,7 @@ jest.mock('../src/middleware/rateLimit', () => ({
   passwordResetLimiter: (_q, _r, next) => next(),
   verifyEmailResendLimiter: (_q, _r, next) => next(),
   bulkEmailLimiter: (_q, _r, next) => next(),
+  portalPasswordResetLimiter: (_q, _r, next) => next(),
   exportLimiter:(_q, _r, next) => next(),
   sseLimiter:   (_q, _r, next) => next(),
   webhookLimiter:(_q, _r, next) => next(),

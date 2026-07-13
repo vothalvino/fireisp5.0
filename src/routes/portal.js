@@ -7,6 +7,8 @@
 //   POST   /portal/auth/login
 //   POST   /portal/auth/refresh
 //   POST   /portal/auth/logout
+//   POST   /portal/auth/password-reset/request  request a password reset email
+//   POST   /portal/auth/password-reset          redeem a reset token for a new password
 //
 // Authenticated (requires portal JWT):
 //   GET    /portal/auth/me
@@ -62,7 +64,11 @@ const { validate } = require('../middleware/validate');
 // all of /api/, so a second router-level pass double-counted every portal
 // request against the same per-IP bucket (and /auth/refresh + /auth/me now
 // live in the dedicated sessionLimiter carve-out — see middleware/rateLimit.js).
-const { authLimiter } = require('../middleware/rateLimit');
+// portalPasswordResetLimiter is a DEDICATED instance from the staff-side
+// passwordResetLimiter (see its doc comment in middleware/rateLimit.js) —
+// sharing one instance across the staff and portal routes would silently
+// merge their budgets since express-rate-limit's default store keys by IP.
+const { authLimiter, portalPasswordResetLimiter } = require('../middleware/rateLimit');
 const portalAuthService = require('../services/portalAuthService');
 const checkoutService = require('../services/checkoutService');
 const db = require('../config/database');
@@ -71,6 +77,7 @@ const dataPackService = require('../services/dataPackService');
 const portalServiceRequestService = require('../services/portalServiceRequestService');
 const pdfService = require('../services/pdfService');
 const aiReplyService = require('../services/aiReplyService');
+const logger = require('../utils/logger');
 
 const router = Router();
 
@@ -81,6 +88,15 @@ const router = Router();
 const portalLoginSchema = {
   email: { type: 'email', required: true },
   password: { type: 'string', required: true, min: 1, max: 200 },
+};
+
+const portalRequestPasswordResetSchema = {
+  email: { type: 'email', required: true },
+};
+
+const portalResetPasswordSchema = {
+  token: { type: 'string', required: true },
+  password: { type: 'string', required: true, min: 8, max: 200 },
 };
 
 const portalRefreshSchema = {
@@ -164,6 +180,63 @@ router.post('/auth/logout', async (req, res, next) => {
     const { refreshToken } = req.body || {};
     await portalAuthService.logout(refreshToken);
     res.json({ message: 'Logged out' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /portal/auth/password-reset/request
+router.post('/auth/password-reset/request', authLimiter, portalPasswordResetLimiter,
+  validate(portalRequestPasswordResetSchema), async (req, res, next) => {
+    try {
+      const result = await portalAuthService.requestPasswordReset(req.body.email);
+
+      // Respond BEFORE ever touching email — see auth.js's identical
+      // timing-oracle note. Only a real hit carries a token; the
+      // anti-enumeration branch inside requestPasswordReset() returns just
+      // { message } with none, so the send below can never fire for it.
+      res.json({ message: result.message || 'If that email exists, a reset link has been sent' });
+
+      if (result.token) {
+        try {
+          const emailTransport = require('../services/emailTransport');
+          const templates = require('../views/emailTemplates');
+          const config = require('../config');
+          const resetUrl = `${config.appUrl}/portal/reset-password?token=${result.token}`;
+          const template = templates.passwordResetEmail({
+            userName: result.userName,
+            resetUrl,
+            expiresIn: '1 hour',
+          });
+          emailTransport.sendEmail({
+            to: result.email,
+            subject: template.subject,
+            html: template.html,
+          })
+            .then((sendResult) => {
+              if (!sendResult || !sendResult.success) {
+                logger.warn(`Portal password reset email failed to send to ${result.email}: ${sendResult && sendResult.error}`);
+              }
+            })
+            .catch((emailErr) => {
+              logger.error(`Portal password reset email send threw: ${emailErr.message}`);
+            });
+        } catch (emailErr) {
+          // Synchronous failure (e.g. require()/template build) — the
+          // response is already sent above, so just log it.
+          logger.error(`Portal password reset email send threw: ${emailErr.message}`);
+        }
+      }
+    } catch (err) {
+      next(err);
+    }
+  });
+
+// POST /portal/auth/password-reset
+router.post('/auth/password-reset', authLimiter, validate(portalResetPasswordSchema), async (req, res, next) => {
+  try {
+    const result = await portalAuthService.resetPassword(req.body.token, req.body.password);
+    res.json(result);
   } catch (err) {
     next(err);
   }
