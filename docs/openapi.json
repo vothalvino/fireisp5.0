@@ -52434,6 +52434,21 @@
           },
           "escalate_on_disconnect": {
             "type": "boolean"
+          },
+          "optical_min_dbm": {
+            "type": "number",
+            "minimum": -100,
+            "maximum": 0
+          },
+          "wireless_signal_min_dbm": {
+            "type": "number",
+            "minimum": -100,
+            "maximum": 0
+          },
+          "wireless_link_capacity_min_mbps": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 10000
           }
         },
         "required": [
@@ -52499,6 +52514,21 @@
           },
           "escalate_on_disconnect": {
             "type": "boolean"
+          },
+          "optical_min_dbm": {
+            "type": "number",
+            "minimum": -100,
+            "maximum": 0
+          },
+          "wireless_signal_min_dbm": {
+            "type": "number",
+            "minimum": -100,
+            "maximum": 0
+          },
+          "wireless_link_capacity_min_mbps": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 10000
           }
         }
       },
@@ -52559,6 +52589,21 @@
           },
           "escalate_on_disconnect": {
             "type": "boolean"
+          },
+          "optical_min_dbm": {
+            "type": "number",
+            "minimum": -100,
+            "maximum": 0
+          },
+          "wireless_signal_min_dbm": {
+            "type": "number",
+            "minimum": -100,
+            "maximum": 0
+          },
+          "wireless_link_capacity_min_mbps": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 10000
           }
         }
       },
@@ -67506,6 +67551,16 @@
             "minimum": 1,
             "maximum": 32767
           },
+          "signal_min_dbm": {
+            "type": "number",
+            "minimum": -100,
+            "maximum": 0
+          },
+          "link_capacity_min_mbps": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 10000
+          },
           "notes": {
             "type": "string",
             "maximum": 5000
@@ -67581,6 +67636,16 @@
             "type": "number",
             "minimum": 1,
             "maximum": 32767
+          },
+          "signal_min_dbm": {
+            "type": "number",
+            "minimum": -100,
+            "maximum": 0
+          },
+          "link_capacity_min_mbps": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 10000
           },
           "notes": {
             "type": "string",

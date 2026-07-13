@@ -253,6 +253,55 @@ describe('Contract Routes — /api/contracts', () => {
       expect(res.body.data.status).toBe('suspended');
     });
 
+    // Migration 388 — configurable diagnostic thresholds: the 3 per-contract
+    // override columns must be on Contract.fillable (or BaseModel.update
+    // silently drops them) and the validation schema (or validate() 422s).
+    test('PUT persists the 3 migration-388 threshold override fields (optical_min_dbm, wireless_signal_min_dbm, wireless_link_capacity_min_mbps)', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[mockContract]])                              // findByIdOrFail
+        .mockResolvedValueOnce([{ affectedRows: 1 }])                        // UPDATE contracts
+        .mockResolvedValueOnce([[{                                            // findById (inside Contract.update)
+          ...mockContract,
+          optical_min_dbm: -30, wireless_signal_min_dbm: -68, wireless_link_capacity_min_mbps: '15.00',
+        }]]);
+
+      const res = await request(app)
+        .put('/api/contracts/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ optical_min_dbm: -30, wireless_signal_min_dbm: -68, wireless_link_capacity_min_mbps: 15 });
+
+      expect(res.status).toBe(200);
+      const updateCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && c[0].startsWith('UPDATE `contracts`'),
+      );
+      expect(updateCall).toBeTruthy();
+      expect(updateCall[0]).toContain('`optical_min_dbm` = ?');
+      expect(updateCall[0]).toContain('`wireless_signal_min_dbm` = ?');
+      expect(updateCall[0]).toContain('`wireless_link_capacity_min_mbps` = ?');
+      expect(updateCall[1]).toEqual(expect.arrayContaining([-30, -68, 15]));
+      expect(res.body.data.optical_min_dbm).toBe(-30);
+      expect(res.body.data.wireless_signal_min_dbm).toBe(-68);
+    });
+
+    // Out-of-bounds values must 422 via validate(), never silently clamp or
+    // reach the model layer.
+    test('PUT rejects an out-of-range wireless_link_capacity_min_mbps (> 10000) with 422, no UPDATE issued', async () => {
+      mockAuthUser();
+      db.query.mockResolvedValueOnce([[mockContract]]); // findByIdOrFail
+
+      const res = await request(app)
+        .put('/api/contracts/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ wireless_link_capacity_min_mbps: 20000 });
+
+      expect(res.status).toBe(422);
+      const updateCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && c[0].startsWith('UPDATE `contracts`'),
+      );
+      expect(updateCall).toBeUndefined();
+    });
+
     // Adversarial-review finding (HIGH, confirmed 2/2): the Edit Contract
     // modal (ContractList.tsx EDIT_STATUSES) always PUTs a `status` field and
     // legally drives active<->suspended — the FSM trigger permits both, and

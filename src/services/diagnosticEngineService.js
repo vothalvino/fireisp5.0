@@ -12,10 +12,40 @@
 // escalation toggles (migration 387: contracts.escalation_enabled /
 // escalate_on_disconnect) — see the "Escalation policy" comment above
 // _buildResult below for the full rule.
+//
+// Migration 388 — configurable RF/optical thresholds. Three checks compare
+// live telemetry against a threshold that used to be a single hardcoded
+// constant; each now resolves via a three-tier, null-safe `??` chain
+// (most-specific wins), matching migration 387's contract-flag-wins-else-
+// safe-default shape:
+//   fiber optical min (dBm):      contract.optical_min_dbm ?? FIBER_OPTICAL_MIN_DBM_DEFAULT
+//   wireless signal min (dBm):    contract.wireless_signal_min_dbm
+//                                   ?? sector.signal_min_dbm ?? WIRELESS_SIGNAL_MIN_DBM_DEFAULT
+//   wireless link-capacity min (Mbps): contract.wireless_link_capacity_min_mbps
+//                                   ?? sector.link_capacity_min_mbps ?? null
+// The "sector" is the serving AP's ap_sector_configs row, resolved from the
+// CPE's latest wireless_client_sessions row (see _getWirelessSignal /
+// _getApSectorThresholds below) — soft-delete-guarded (`deleted_at IS NULL`),
+// same lesson as the contract lookup (#404). Link-capacity has NO global
+// default: an unconfigured client's cpe_link_capacity check honestly reports
+// 'unknown' rather than fabricating ok/warning against a made-up number.
 // =============================================================================
 'use strict';
 const db = require('../config/database');
 const logger = require('../utils/logger').child({ service: 'diagnosticEngineService' });
+
+// ---------------------------------------------------------------------------
+// Diagnostic threshold defaults (migration 388) — code constants, not a
+// settings-table row: the only existing "org setting" mechanism (the
+// key/value `settings` table) has no organization_id column at all, so it is
+// genuinely global across every tenant on a shared deployment — using it here
+// would let one org's threshold choice silently leak into every other org's
+// diagnostics. There is deliberately NO global default for wireless
+// link-capacity: unset means the new cpe_link_capacity check reports
+// 'unknown', never a fabricated ok/warning.
+// ---------------------------------------------------------------------------
+const FIBER_OPTICAL_MIN_DBM_DEFAULT = -27;
+const WIRELESS_SIGNAL_MIN_DBM_DEFAULT = -75;
 
 // ---------------------------------------------------------------------------
 // Lazy service loaders — avoids hard coupling to optional services
@@ -132,14 +162,49 @@ async function _getOnuStatus(deviceId, orgId) {
 
 /**
  * Latest wireless signal observation for a monitored CPE device, or null.
+ *
+ * Also returns `ap_device_id` (the serving AP that observed this client —
+ * wireless_client_sessions.device_id, per-row on every observation, migration
+ * 279) and `tx_rate_mbps`/`rx_rate_mbps` (the negotiated RF link rate,
+ * migration 388) from the SAME row, so callers needing per-sector thresholds
+ * or link-capacity never issue a second query for data already in hand.
  */
 async function _getWirelessSignal(deviceId, orgId) {
   const [rows] = await db.query(
-    `SELECT signal_dbm, noise_floor_dbm, ccq_pct
+    `SELECT device_id AS ap_device_id, signal_dbm, noise_floor_dbm, ccq_pct,
+            tx_rate_mbps, rx_rate_mbps
        FROM wireless_client_sessions
       WHERE client_device_id = ? AND organization_id = ?
       ORDER BY last_seen_at DESC LIMIT 1`,
     [deviceId, orgId],
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Per-sector diagnostic thresholds (migration 388) for the AP/PTP device that
+ * served a client's latest wireless observation, or null if no matching
+ * (non-deleted) sector config row exists.
+ *
+ * Soft-delete-guarded (`deleted_at IS NULL`) — the same lesson as
+ * _resolveEscalationContract below (#404): ap_sector_configs rows are
+ * soft-deleted (DELETE only sets deleted_at, with a /restore endpoint), so
+ * omitting this guard could let a deleted duplicate sector config silently
+ * win over the real one. `device_id` has no DB-enforced uniqueness (a
+ * non-unique index only), so `ORDER BY id DESC LIMIT 1` is the established
+ * idiom this file already uses for the same soft ambiguity elsewhere
+ * (_resolveOnuDeviceId, _resolveCpeDeviceId, _resolveEscalationContract).
+ * Never throws — callers already wrap this in the same try/catch that covers
+ * the rest of the wireless signal lookup.
+ */
+async function _getApSectorThresholds(apDeviceId, orgId) {
+  const [rows] = await db.query(
+    `SELECT signal_min_dbm, link_capacity_min_mbps
+       FROM ap_sector_configs
+      WHERE device_id = ? AND (organization_id = ? OR organization_id IS NULL)
+        AND deleted_at IS NULL
+      ORDER BY id DESC LIMIT 1`,
+    [apDeviceId, orgId],
   );
   return rows[0] || null;
 }
@@ -271,11 +336,15 @@ async function _diagSlowFiber(clientId, orgId, contract) {
         detail: 'Optical telemetry unavailable (ONU optical polling not yet implemented)',
       });
     } else {
-      const rxOk = onu.rx_power_dbm > -27;
+      // Migration 388: per-contract override, else the org-wide code
+      // constant — see the file-header comment block for the full
+      // three-tier resolution shape.
+      const opticalMinDbm = contract?.optical_min_dbm ?? FIBER_OPTICAL_MIN_DBM_DEFAULT;
+      const rxOk = onu.rx_power_dbm > opticalMinDbm;
       checks.push({
         name: 'onu_signal',
         status: rxOk ? 'ok' : 'error',
-        detail: `RX: ${onu.rx_power_dbm} dBm, TX: ${onu.tx_power_dbm} dBm, State: ${onu.onu_state}`,
+        detail: `RX: ${onu.rx_power_dbm} dBm (min ${opticalMinDbm} dBm), TX: ${onu.tx_power_dbm} dBm, State: ${onu.onu_state}`,
       });
     }
   } catch {
@@ -389,27 +458,97 @@ async function _diagSlowWireless(clientId, orgId, contract) {
   // || null`) — same NULL-means-bad inversion as the ONU checks, just a
   // narrower window. A missing reading on an existing session is 'unknown',
   // not a fabricated 'warning'.
+  //
+  // The same row also carries the serving AP's device_id and the negotiated
+  // TX/RX link rate (migration 388) — resolved once here so the new
+  // cpe_link_capacity check right below reuses this exact lookup instead of
+  // re-querying wireless_client_sessions a second time.
+  let signal = null;
+  let signalLookupFailed = false;
   try {
     const deviceId = await _resolveCpeDeviceId(clientId, orgId);
-    const signal = deviceId ? await _getWirelessSignal(deviceId, orgId) : null;
-    if (!signal) {
-      checks.push({ name: 'cpe_signal', status: 'unknown', detail: 'CPE device not found' });
-    } else if (signal.signal_dbm === null) {
-      checks.push({
-        name: 'cpe_signal',
-        status: 'unknown',
-        detail: 'Signal telemetry unavailable for this CPE observation',
-      });
+    signal = deviceId ? await _getWirelessSignal(deviceId, orgId) : null;
+  } catch {
+    signalLookupFailed = true;
+  }
+
+  // Serving sector's per-sector thresholds (migration 388), resolved from the
+  // AP id carried on the session row above. Used by both cpe_signal and
+  // cpe_link_capacity below. Never throws — no sector (no telemetry, no
+  // configured sector row, or lookup failure) just means both checks fall
+  // through to their next resolution tier (contract override already
+  // considered first, then the org-wide default / no default for capacity).
+  let sector = null;
+  if (signal?.ap_device_id) {
+    try {
+      sector = await _getApSectorThresholds(signal.ap_device_id, orgId);
+    } catch {
+      sector = null;
+    }
+  }
+
+  if (signalLookupFailed) {
+    checks.push({ name: 'cpe_signal', status: 'unknown', detail: 'CPE service unavailable' });
+  } else if (!signal) {
+    checks.push({ name: 'cpe_signal', status: 'unknown', detail: 'CPE device not found' });
+  } else if (signal.signal_dbm === null) {
+    checks.push({
+      name: 'cpe_signal',
+      status: 'unknown',
+      detail: 'Signal telemetry unavailable for this CPE observation',
+    });
+  } else {
+    // Migration 388: contract override wins, else the serving sector's
+    // default, else the org-wide code constant — see the file-header comment
+    // block for the full three-tier resolution shape.
+    const wirelessMinDbm = contract?.wireless_signal_min_dbm ?? sector?.signal_min_dbm ?? WIRELESS_SIGNAL_MIN_DBM_DEFAULT;
+    const signalOk = signal.signal_dbm > wirelessMinDbm;
+    checks.push({
+      name: 'cpe_signal',
+      status: signalOk ? 'ok' : 'warning',
+      detail: `Signal: ${signal.signal_dbm} dBm (min ${wirelessMinDbm} dBm), Noise: ${signal.noise_floor_dbm} dBm, CCQ: ${signal.ccq_pct}%`,
+    });
+  }
+
+  // Check 1b: CPE link capacity (migration 388, NEW) — the negotiated RF
+  // link rate in Mbps (e.g. Ubiquiti "link capacity"), read from the same
+  // session row's tx_rate_mbps/rx_rate_mbps. This is NOT the client-count/
+  // AP-load percentage the separate, still-unimplemented `ap_load` check
+  // below is meant to cover — the two are unrelated metrics with the same
+  // "capacity" name in casual conversation, not a shared implementation.
+  //
+  // Honesty rule (this is genuinely new functionality, unlike cpe_signal
+  // above which had an existing hardcoded comparison to make configurable):
+  // status is 'unknown', never a fabricated ok/warning, whenever no
+  // link-capacity threshold is configured for this client/sector (min
+  // resolves to null — there is deliberately no org-wide default) OR there is
+  // no recent link-rate telemetry at all on the resolved session row.
+  if (signalLookupFailed) {
+    checks.push({ name: 'cpe_link_capacity', status: 'unknown', detail: 'CPE service unavailable' });
+  } else if (!signal) {
+    checks.push({ name: 'cpe_link_capacity', status: 'unknown', detail: 'CPE device not found' });
+  } else {
+    const capacityMinRaw = contract?.wireless_link_capacity_min_mbps ?? sector?.link_capacity_min_mbps ?? null;
+    // tx_rate_mbps/rx_rate_mbps/*_min_mbps are DECIMAL columns — mysql2
+    // returns DECIMAL as a string (precision-safe default), not a JS number;
+    // comparing/interpolating without Number() risks lexicographic string
+    // comparison ("9.00" > "10.00") instead of numeric. Same idiom as this
+    // codebase's other DECIMAL reads (e.g. billingService.js price_override).
+    const capacityMinMbps = capacityMinRaw === null || capacityMinRaw === undefined ? null : Number(capacityMinRaw);
+    const tx = signal.tx_rate_mbps === null || signal.tx_rate_mbps === undefined ? null : Number(signal.tx_rate_mbps);
+    const rx = signal.rx_rate_mbps === null || signal.rx_rate_mbps === undefined ? null : Number(signal.rx_rate_mbps);
+    if (capacityMinMbps === null) {
+      checks.push({ name: 'cpe_link_capacity', status: 'unknown', detail: 'Link-capacity threshold not configured for this sector' });
+    } else if (tx === null && rx === null) {
+      checks.push({ name: 'cpe_link_capacity', status: 'unknown', detail: 'No recent link-rate telemetry' });
     } else {
-      const signalOk = signal.signal_dbm > -75;
+      const belowMin = (tx !== null && tx < capacityMinMbps) || (rx !== null && rx < capacityMinMbps);
       checks.push({
-        name: 'cpe_signal',
-        status: signalOk ? 'ok' : 'warning',
-        detail: `Signal: ${signal.signal_dbm} dBm, Noise: ${signal.noise_floor_dbm} dBm, CCQ: ${signal.ccq_pct}%`,
+        name: 'cpe_link_capacity',
+        status: belowMin ? 'warning' : 'ok',
+        detail: `TX ${tx ?? 'unknown'} / RX ${rx ?? 'unknown'} Mbps (min ${capacityMinMbps})`,
       });
     }
-  } catch {
-    checks.push({ name: 'cpe_signal', status: 'unknown', detail: 'CPE service unavailable' });
   }
 
   // Check 2: AP channel congestion
@@ -765,11 +904,14 @@ async function _diagDisconnects(clientId, orgId, accessType, contract) {
           detail: 'Optical telemetry unavailable (ONU optical polling not yet implemented)',
         });
       } else {
-        const rxOk = onu.rx_power_dbm > -27;
+        // Migration 388: same resolved threshold as the onu_signal check
+        // above — both fiber checks must move in lockstep.
+        const opticalMinDbm = contract?.optical_min_dbm ?? FIBER_OPTICAL_MIN_DBM_DEFAULT;
+        const rxOk = onu.rx_power_dbm > opticalMinDbm;
         checks.push({
           name: 'onu_signal_stability',
           status: rxOk ? 'ok' : 'warning',
-          detail: `ONU RX: ${onu.rx_power_dbm} dBm, Status: ${onu.onu_state}`,
+          detail: `ONU RX: ${onu.rx_power_dbm} dBm (min ${opticalMinDbm} dBm), Status: ${onu.onu_state}`,
         });
       }
     } catch {
@@ -905,10 +1047,23 @@ function _genericResult(symptom) {
 //  RF/optical QUALITY-degradation measurement the customer cannot fix by
 //  power-cycling anything:
 //   - FIBER: bad optical RX power on the ONU (`onu_signal`, status 'error' —
-//     rx_power_dbm <= -27, see _diagSlowFiber).
+//     rx_power_dbm <= the resolved optical threshold, see _diagSlowFiber;
+//     migration 388: contract.optical_min_dbm ?? -27).
 //   - WIRELESS: low CPE signal (`cpe_signal`). This check's threshold logic
-//     (see _diagSlowWireless) emits status 'warning' — NOT 'error' — for
-//     signal_dbm <= -75, so its escalation trigger must match 'warning'.
+//     (see _diagSlowWireless) emits status 'warning' — NOT 'error' — for a
+//     signal below the resolved threshold (migration 388:
+//     contract.wireless_signal_min_dbm ?? sector.signal_min_dbm ?? -75), so
+//     its escalation trigger must match 'warning'.
+//   - WIRELESS (migration 388, NEW): low negotiated link-capacity
+//     (`cpe_link_capacity`, status 'warning' — tx_rate_mbps/rx_rate_mbps
+//     below the resolved Mbps minimum, see _diagSlowWireless). A degraded RF
+//     link rate is a per-client quality problem (the customer's own link is
+//     struggling and will saturate the sector faster than a healthy one),
+//     the same category as low signal — NOT the sector-wide `ap_load`
+//     client-count/AP-load check below, which stays non-escalatable. Only
+//     fires when a threshold is actually configured (contract or sector);
+//     an unconfigured/no-telemetry client reports 'unknown', which is not in
+//     any status list here and therefore never escalates.
 //
 //  DISCONNECT_ESCALATE (active ONLY when escalate_on_disconnect=1 — for
 //  clients who DO have a UPS, where an offline/dropped state genuinely is
@@ -926,18 +1081,18 @@ function _genericResult(symptom) {
 // No contract resolved (e.g. no active contract on file) -> the safe org-wide
 // default applies: enabled, quality-only (same as `escalate_on_disconnect=0`).
 //
-// NOT escalatable today, deliberately, in EITHER tier: wireless "capacity"
-// (raised by the owner alongside signal quality) has no reliable per-client
-// signal yet — `ap_load` is unimplemented (always 'unknown', see
-// _diagSlowWireless) and `channel_interference` is computed org-wide via
-// wirelessService.getInterferenceReport(orgId), not per client, so treating
+// STILL NOT escalatable, deliberately, in EITHER tier: the client-count/
+// AP-load-percentage `ap_load` check (a genuinely different metric from the
+// new cpe_link_capacity above — see _diagSlowWireless's Check 3 comment) and
+// `channel_interference`, which is computed org-wide via
+// wirelessService.getInterferenceReport(orgId), not per client — treating
 // either as escalatable would auto-dispatch a technician for every wireless
-// customer in the org simultaneously off a single interference event.
-// Per-client wireless capacity escalation is pending ap_load telemetry — not
-// escalatable today; flagged as a follow-up, not implemented here.
+// customer on/near an affected sector simultaneously off a single shared
+// event, not a genuine per-client fault.
 const QUALITY_ESCALATE = {
   onu_signal: ['error'],
   cpe_signal: ['warning', 'error'],
+  cpe_link_capacity: ['warning'],
 };
 const DISCONNECT_ESCALATE = {
   onu_status: ['error'],
@@ -966,9 +1121,16 @@ function _escalatingChecks(checks, contract) {
 }
 
 /**
- * Resolve the client's active contract's two escalation toggles
- * (migration 387). Returns `null` (safe default: enabled, quality-only)
- * when there is no active contract or the lookup fails — never throws.
+ * Resolve the client's active contract's two escalation toggles (migration
+ * 387) AND its three diagnostic-threshold overrides (migration 388:
+ * optical_min_dbm / wireless_signal_min_dbm / wireless_link_capacity_min_mbps
+ * — see the file-header comment block for the three-tier resolution shape
+ * each one feeds). One round trip, not two: `contract` is already threaded
+ * through every _diag* handler for the escalation toggles, so the same
+ * object carries the threshold overrides too, with no signature change.
+ * Returns `null` (safe default: enabled, quality-only, all thresholds at
+ * their org-wide/no default) when there is no active contract or the lookup
+ * fails — never throws.
  */
 async function _resolveEscalationContract(clientId, orgId) {
   try {
@@ -988,7 +1150,8 @@ async function _resolveEscalationContract(clientId, orgId) {
     // deleted_at-aware pattern already used elsewhere for the same table
     // (see supportContextService.js / topologyMapService.js).
     const [rows] = await db.query(
-      `SELECT escalation_enabled, escalate_on_disconnect
+      `SELECT escalation_enabled, escalate_on_disconnect,
+              optical_min_dbm, wireless_signal_min_dbm, wireless_link_capacity_min_mbps
          FROM contracts
         WHERE client_id = ? AND organization_id = ? AND status = 'active'
           AND deleted_at IS NULL
@@ -1143,6 +1306,7 @@ const _CHECK_LABELS = {
   account_status: 'el estado de tu contrato',
   account_suspension: 'el estado de tu cuenta',
   cpe_signal: 'la señal de tu equipo (router/CPE)',
+  cpe_link_capacity: 'la capacidad del enlace inalámbrico',
   cpe_status: 'el estado de tu equipo (router/CPE)',
   cpe_model: 'la información de tu equipo',
   cpe_reachability: 'la comunicación con tu equipo',

@@ -14,6 +14,9 @@ const createContract = {
   facturar: { type: 'boolean' },
   escalation_enabled: { type: 'boolean' },
   escalate_on_disconnect: { type: 'boolean' },
+  optical_min_dbm: { type: 'number', min: -100, max: 0 },
+  wireless_signal_min_dbm: { type: 'number', min: -100, max: 0 },
+  wireless_link_capacity_min_mbps: { type: 'number', min: 0.1, max: 10000 },
 };
 
 const updateContract = {
@@ -29,6 +32,9 @@ const updateContract = {
   facturar: { type: 'boolean' },
   escalation_enabled: { type: 'boolean' },
   escalate_on_disconnect: { type: 'boolean' },
+  optical_min_dbm: { type: 'number', min: -100, max: 0 },
+  wireless_signal_min_dbm: { type: 'number', min: -100, max: 0 },
+  wireless_link_capacity_min_mbps: { type: 'number', min: 0.1, max: 10000 },
 };
 
 const createContractAddon = {

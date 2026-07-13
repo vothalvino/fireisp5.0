@@ -154,7 +154,8 @@ function makeNoInternetFiberDbMock({
 function makeSlowWirelessDbMock({
   cpeDeviceId = null,
   wirelessSignalRow = null,
-  escalationContractRow = null, // { escalation_enabled, escalate_on_disconnect } | null
+  sectorConfigRow = null, // { signal_min_dbm, link_capacity_min_mbps } | null (migration 388)
+  escalationContractRow = null, // { escalation_enabled, escalate_on_disconnect, optical_min_dbm, wireless_signal_min_dbm, wireless_link_capacity_min_mbps } | null
 } = {}) {
   return jest.fn((sql) => {
     if (/escalation_enabled/i.test(sql)) {
@@ -173,6 +174,10 @@ function makeSlowWirelessDbMock({
     }
     if (/FROM wireless_client_sessions/i.test(sql)) {
       return Promise.resolve([wirelessSignalRow ? [wirelessSignalRow] : [], undefined]);
+    }
+    // Per-sector thresholds (migration 388): _getApSectorThresholds.
+    if (/FROM ap_sector_configs/i.test(sql)) {
+      return Promise.resolve([sectorConfigRow ? [sectorConfigRow] : [], undefined]);
     }
     if (/INSERT INTO ai_diagnostic_runs/i.test(sql)) {
       return Promise.resolve([{ insertId: 1 }, undefined]);
@@ -433,7 +438,11 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
   test('wireless slow: cpe_signal warning (low signal, not error) DOES escalate — names only the degraded check, not a garbled all-checks dump', async () => {
     const dbMock = makeSlowWirelessDbMock({
       cpeDeviceId: 7,
-      wirelessSignalRow: { signal_dbm: -80, noise_floor_dbm: -95, ccq_pct: 60 }, // <= -75 -> 'warning', not 'error'
+      // <= -75 -> cpe_signal 'warning', not 'error'. No ap_device_id on this
+      // row (never-polled/no serving-sector case) and no link-rate telemetry
+      // -> cpe_link_capacity resolves to 'unknown' (no contract/sector
+      // threshold either) and must NOT be the thing driving escalation here.
+      wirelessSignalRow: { signal_dbm: -80, noise_floor_dbm: -95, ccq_pct: 60, tx_rate_mbps: null, rx_rate_mbps: null },
     });
     db.query.mockImplementation(dbMock);
     wirelessService.getInterferenceReport.mockResolvedValue([]); // channel_interference -> 'ok'
@@ -444,8 +453,9 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
     });
 
     expect(result.diagnosticResult.checks.find((c) => c.name === 'cpe_signal').status).toBe('warning');
-    // cpe_signal 'warning' is the other of exactly two ESCALATE_WHEN entries
-    // — a measured wireless quality fault escalates even though its status
+    expect(result.diagnosticResult.checks.find((c) => c.name === 'cpe_link_capacity').status).toBe('unknown');
+    // cpe_signal 'warning' is one of the QUALITY_ESCALATE entries — a
+    // measured wireless quality fault escalates even though its status
     // is 'warning', not 'error' (see the binding product decision).
     expect(result.escalate).toBe(true);
     expect(result.escalationReason).toBe('Signal/optical quality degraded — technician recommended');
@@ -456,6 +466,8 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
     // ...never a dump of every check (this is a 'warning', not an 'error',
     // so the old errorChecks-based naming would have found nothing and
     // fallen back to ALL checks, including the unrelated 'unknown' ones).
+    // cpe_link_capacity is 'unknown' here, not 'warning' -> must not be named.
+    expect(result.reply).not.toContain('la capacidad del enlace inalámbrico');
     expect(result.reply).not.toContain('la carga de la antena');
     expect(result.reply).not.toContain('tu consumo de datos');
     expect(result.reply).not.toContain('interferencia en el canal inalámbrico');
@@ -589,6 +601,259 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
       orgId: 1, clientId: 10, conversationId: 1, content: 'no tengo internet',
     });
     expect(disconnectResult.escalate).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Migration 388 — configurable diagnostic thresholds (fiber optical,
+  // wireless signal, wireless link-capacity). Three-tier resolution:
+  // contract override -> (wireless only) serving-sector default -> the
+  // org-wide code constant (-27 dBm / -75 dBm; link-capacity has NO global
+  // default at all, unset means 'unknown').
+  // ---------------------------------------------------------------------------
+  describe('migration 388 — configurable diagnostic thresholds', () => {
+    test('fiber onu_signal: no contract override -> resolves to the -27 dBm global default (regression guard: identical to pre-388 behavior)', async () => {
+      const dbMock = makeDbMock({
+        onuDeviceId: 5,
+        onuDetailsRow: { onu_state: 'online', olt_port_id: 9, rx_power_dbm: -28, tx_power_dbm: 2 }, // below -27
+        oltPortRow: { port_no: 1, onu_count: 5, max_onus: 64 },
+        alertCount: 0,
+        accountActive: true,
+      });
+      db.query.mockImplementation(dbMock);
+      radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5' });
+
+      const result = await diagnosticEngineService.generateSupportResponse({
+        orgId: 1, clientId: 10, conversationId: 1, content: 'la velocidad está muy lenta',
+      });
+
+      const onuCheck = result.diagnosticResult.checks.find((c) => c.name === 'onu_signal');
+      expect(onuCheck.status).toBe('error');
+      expect(onuCheck.detail).toContain('min -27 dBm');
+    });
+
+    test('fiber onu_signal: a per-contract optical_min_dbm override relaxes the threshold and flips error -> ok (the "keep the client" case)', async () => {
+      const dbMock = makeDbMock({
+        onuDeviceId: 5,
+        onuDetailsRow: { onu_state: 'online', olt_port_id: 9, rx_power_dbm: -28, tx_power_dbm: 2 }, // -28: 'error' at default -27
+        oltPortRow: { port_no: 1, onu_count: 5, max_onus: 64 },
+        alertCount: 0,
+        accountActive: true,
+        // Known long fiber run for this client — relaxed to -30 so a healthy
+        // reading for THIS client no longer trips a fault.
+        escalationContractRow: { escalation_enabled: 1, escalate_on_disconnect: 0, optical_min_dbm: -30 },
+      });
+      db.query.mockImplementation(dbMock);
+      radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5' });
+
+      const result = await diagnosticEngineService.generateSupportResponse({
+        orgId: 1, clientId: 10, conversationId: 1, content: 'la velocidad está muy lenta',
+      });
+
+      const onuCheck = result.diagnosticResult.checks.find((c) => c.name === 'onu_signal');
+      expect(onuCheck.status).toBe('ok');
+      expect(onuCheck.detail).toContain('min -30 dBm');
+      // Not tripping onu_signal at all -> nothing to escalate.
+      expect(result.escalate).toBe(false);
+    });
+
+    test('wireless cpe_signal: serving-sector signal_min_dbm applies when no contract override is set — flips a reading that would be "ok" under the -75 dBm global default', async () => {
+      const dbMock = makeSlowWirelessDbMock({
+        cpeDeviceId: 7,
+        // -65 dBm is 'ok' under the -75 default, but 'warning' once this
+        // sector's stricter -60 dBm floor applies.
+        wirelessSignalRow: { ap_device_id: 42, signal_dbm: -65, noise_floor_dbm: -95, ccq_pct: 80, tx_rate_mbps: null, rx_rate_mbps: null },
+        sectorConfigRow: { signal_min_dbm: -60, link_capacity_min_mbps: null },
+      });
+      db.query.mockImplementation(dbMock);
+      wirelessService.getInterferenceReport.mockResolvedValue([]);
+      radiusService.getSessionByClientId.mockResolvedValue({ acctstarttime: '2026-01-01' });
+
+      const result = await diagnosticEngineService.generateSupportResponse({
+        orgId: 1, clientId: 10, conversationId: 1, content: 'la velocidad está muy lenta',
+      });
+
+      const cpeCheck = result.diagnosticResult.checks.find((c) => c.name === 'cpe_signal');
+      expect(cpeCheck.status).toBe('warning');
+      expect(cpeCheck.detail).toContain('min -60 dBm');
+      expect(result.escalate).toBe(true); // cpe_signal 'warning' is QUALITY_ESCALATE
+    });
+
+    test('wireless cpe_signal: a per-contract override wins over the serving sector default (resolution-order test)', async () => {
+      const dbMock = makeSlowWirelessDbMock({
+        cpeDeviceId: 7,
+        wirelessSignalRow: { ap_device_id: 42, signal_dbm: -65, noise_floor_dbm: -95, ccq_pct: 80, tx_rate_mbps: null, rx_rate_mbps: null },
+        sectorConfigRow: { signal_min_dbm: -60, link_capacity_min_mbps: null }, // would make -65 'warning'
+        // Contract explicitly relaxed for this one known-marginal client.
+        escalationContractRow: { escalation_enabled: 1, escalate_on_disconnect: 0, wireless_signal_min_dbm: -70 },
+      });
+      db.query.mockImplementation(dbMock);
+      wirelessService.getInterferenceReport.mockResolvedValue([]);
+      radiusService.getSessionByClientId.mockResolvedValue({ acctstarttime: '2026-01-01' });
+
+      const result = await diagnosticEngineService.generateSupportResponse({
+        orgId: 1, clientId: 10, conversationId: 1, content: 'la velocidad está muy lenta',
+      });
+
+      const cpeCheck = result.diagnosticResult.checks.find((c) => c.name === 'cpe_signal');
+      // Contract (-70) wins over sector (-60): -65 > -70 -> 'ok'.
+      expect(cpeCheck.status).toBe('ok');
+      expect(cpeCheck.detail).toContain('min -70 dBm');
+      expect(result.escalate).toBe(false); // relaxed -> stops tripping -> stops escalating
+    });
+
+    test('cpe_link_capacity: below the resolved minimum (TX side) -> warning and escalates (quality tier, alongside cpe_signal)', async () => {
+      const dbMock = makeSlowWirelessDbMock({
+        cpeDeviceId: 7,
+        // Healthy signal (won't itself escalate) but a degraded negotiated
+        // link rate — TX 8 Mbps is below the sector's 20 Mbps floor.
+        wirelessSignalRow: { ap_device_id: 42, signal_dbm: -60, noise_floor_dbm: -95, ccq_pct: 90, tx_rate_mbps: '8.00', rx_rate_mbps: '54.00' },
+        sectorConfigRow: { signal_min_dbm: null, link_capacity_min_mbps: '20.00' },
+      });
+      db.query.mockImplementation(dbMock);
+      wirelessService.getInterferenceReport.mockResolvedValue([]);
+      radiusService.getSessionByClientId.mockResolvedValue({ acctstarttime: '2026-01-01' });
+
+      const result = await diagnosticEngineService.generateSupportResponse({
+        orgId: 1, clientId: 10, conversationId: 1, content: 'la velocidad está muy lenta',
+      });
+
+      expect(result.diagnosticResult.checks.find((c) => c.name === 'cpe_signal').status).toBe('ok');
+      const capCheck = result.diagnosticResult.checks.find((c) => c.name === 'cpe_link_capacity');
+      expect(capCheck.status).toBe('warning');
+      expect(capCheck.detail).toContain('TX 8');
+      expect(capCheck.detail).toContain('min 20');
+      // cpe_link_capacity 'warning' is in QUALITY_ESCALATE — drives escalation
+      // on its own even though cpe_signal itself is healthy.
+      expect(result.escalate).toBe(true);
+      expect(result.escalationReason).toBe('Signal/optical quality degraded — technician recommended');
+      // The customer-facing reply names the check that actually drove
+      // escalation — cpe_link_capacity, not cpe_signal (which is 'ok' here).
+      expect(result.reply).toContain('la capacidad del enlace inalámbrico');
+      expect(result.reply).not.toContain('la señal de tu equipo (router/CPE)');
+    });
+
+    test('cpe_link_capacity: no threshold configured (no contract override, no sector default) -> unknown, never a fabricated ok/warning', async () => {
+      const dbMock = makeSlowWirelessDbMock({
+        cpeDeviceId: 7,
+        wirelessSignalRow: { ap_device_id: 42, signal_dbm: -60, noise_floor_dbm: -95, ccq_pct: 90, tx_rate_mbps: '8.00', rx_rate_mbps: '54.00' },
+        sectorConfigRow: { signal_min_dbm: null, link_capacity_min_mbps: null },
+      });
+      db.query.mockImplementation(dbMock);
+      wirelessService.getInterferenceReport.mockResolvedValue([]);
+      radiusService.getSessionByClientId.mockResolvedValue({ acctstarttime: '2026-01-01' });
+
+      const result = await diagnosticEngineService.generateSupportResponse({
+        orgId: 1, clientId: 10, conversationId: 1, content: 'la velocidad está muy lenta',
+      });
+
+      const capCheck = result.diagnosticResult.checks.find((c) => c.name === 'cpe_link_capacity');
+      expect(capCheck.status).toBe('unknown');
+      expect(capCheck.detail).toMatch(/not configured/i);
+      expect(result.escalate).toBe(false);
+    });
+
+    test('cpe_link_capacity: threshold IS configured but no recent link-rate telemetry (both tx/rx null) -> unknown, never fabricated', async () => {
+      const dbMock = makeSlowWirelessDbMock({
+        cpeDeviceId: 7,
+        wirelessSignalRow: { ap_device_id: 42, signal_dbm: -60, noise_floor_dbm: -95, ccq_pct: 90, tx_rate_mbps: null, rx_rate_mbps: null },
+        sectorConfigRow: { signal_min_dbm: null, link_capacity_min_mbps: '20.00' },
+      });
+      db.query.mockImplementation(dbMock);
+      wirelessService.getInterferenceReport.mockResolvedValue([]);
+      radiusService.getSessionByClientId.mockResolvedValue({ acctstarttime: '2026-01-01' });
+
+      const result = await diagnosticEngineService.generateSupportResponse({
+        orgId: 1, clientId: 10, conversationId: 1, content: 'la velocidad está muy lenta',
+      });
+
+      const capCheck = result.diagnosticResult.checks.find((c) => c.name === 'cpe_link_capacity');
+      expect(capCheck.status).toBe('unknown');
+      expect(capCheck.detail).toMatch(/no recent link-rate telemetry/i);
+      expect(result.escalate).toBe(false);
+    });
+
+    test('cpe_link_capacity: at/above the resolved minimum on both directions -> ok, does not escalate', async () => {
+      const dbMock = makeSlowWirelessDbMock({
+        cpeDeviceId: 7,
+        wirelessSignalRow: { ap_device_id: 42, signal_dbm: -60, noise_floor_dbm: -95, ccq_pct: 90, tx_rate_mbps: '54.00', rx_rate_mbps: '54.00' },
+        sectorConfigRow: { signal_min_dbm: null, link_capacity_min_mbps: '20.00' },
+      });
+      db.query.mockImplementation(dbMock);
+      wirelessService.getInterferenceReport.mockResolvedValue([]);
+      radiusService.getSessionByClientId.mockResolvedValue({ acctstarttime: '2026-01-01' });
+
+      const result = await diagnosticEngineService.generateSupportResponse({
+        orgId: 1, clientId: 10, conversationId: 1, content: 'la velocidad está muy lenta',
+      });
+
+      const capCheck = result.diagnosticResult.checks.find((c) => c.name === 'cpe_link_capacity');
+      expect(capCheck.status).toBe('ok');
+      expect(result.escalate).toBe(false);
+    });
+
+    test('cpe_link_capacity numeric comparison uses Number(), not lexicographic string comparison, on DECIMAL-typed rates ("9.50" must be treated as below "20.00")', async () => {
+      // Regression guard: wireless_client_sessions.tx_rate_mbps/rx_rate_mbps
+      // and ap_sector_configs.link_capacity_min_mbps are DECIMAL columns —
+      // mysql2 returns DECIMAL as a string. A naive `<` comparison without
+      // Number() would compare "9.50" against "20.00" lexicographically
+      // ('9' > '2') and wrongly conclude 9.50 is NOT below 20.00.
+      const dbMock = makeSlowWirelessDbMock({
+        cpeDeviceId: 7,
+        wirelessSignalRow: { ap_device_id: 42, signal_dbm: -60, noise_floor_dbm: -95, ccq_pct: 90, tx_rate_mbps: '9.50', rx_rate_mbps: '54.00' },
+        sectorConfigRow: { signal_min_dbm: null, link_capacity_min_mbps: '20.00' },
+      });
+      db.query.mockImplementation(dbMock);
+      wirelessService.getInterferenceReport.mockResolvedValue([]);
+      radiusService.getSessionByClientId.mockResolvedValue({ acctstarttime: '2026-01-01' });
+
+      const result = await diagnosticEngineService.generateSupportResponse({
+        orgId: 1, clientId: 10, conversationId: 1, content: 'la velocidad está muy lenta',
+      });
+
+      const capCheck = result.diagnosticResult.checks.find((c) => c.name === 'cpe_link_capacity');
+      expect(capCheck.status).toBe('warning');
+    });
+
+    test('_getApSectorThresholds query text includes the deleted_at IS NULL guard (same #404 lesson applied to ap_sector_configs)', async () => {
+      const dbMock = makeSlowWirelessDbMock({
+        cpeDeviceId: 7,
+        wirelessSignalRow: { ap_device_id: 42, signal_dbm: -65, noise_floor_dbm: -95, ccq_pct: 80, tx_rate_mbps: null, rx_rate_mbps: null },
+        sectorConfigRow: { signal_min_dbm: -60, link_capacity_min_mbps: null },
+      });
+      db.query.mockImplementation(dbMock);
+      wirelessService.getInterferenceReport.mockResolvedValue([]);
+      radiusService.getSessionByClientId.mockResolvedValue({ acctstarttime: '2026-01-01' });
+
+      await diagnosticEngineService.generateSupportResponse({
+        orgId: 1, clientId: 10, conversationId: 1, content: 'la velocidad está muy lenta',
+      });
+
+      const call = dbMock.mock.calls.find(([sql]) => /FROM ap_sector_configs/i.test(sql));
+      expect(call).toBeTruthy();
+      expect(call[0]).toMatch(/deleted_at IS NULL/i);
+    });
+
+    test('_resolveEscalationContract now also selects the 3 migration-388 threshold override columns (single round trip, no second contract lookup)', async () => {
+      const dbMock = makeDbMock({
+        onuDeviceId: 5,
+        onuDetailsRow: { onu_state: 'online', olt_port_id: 9, rx_power_dbm: -20, tx_power_dbm: 2 },
+        oltPortRow: { port_no: 1, onu_count: 5, max_onus: 64 },
+        alertCount: 0,
+        accountActive: true,
+      });
+      db.query.mockImplementation(dbMock);
+      radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5' });
+
+      await diagnosticEngineService.generateSupportResponse({
+        orgId: 1, clientId: 10, conversationId: 1, content: 'mi internet está muy lento',
+      });
+
+      const calls = dbMock.mock.calls.filter(([sql]) => /escalation_enabled/i.test(sql));
+      expect(calls.length).toBe(1); // one round trip, not a second lookup
+      expect(calls[0][0]).toMatch(/optical_min_dbm/i);
+      expect(calls[0][0]).toMatch(/wireless_signal_min_dbm/i);
+      expect(calls[0][0]).toMatch(/wireless_link_capacity_min_mbps/i);
+    });
   });
 
   // ---------------------------------------------------------------------------
