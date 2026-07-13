@@ -463,6 +463,10 @@ CREATE TABLE IF NOT EXISTS contracts (
     facturar       BOOLEAN         NOT NULL DEFAULT FALSE
                        COMMENT 'MX only: TRUE = generate individual CFDI for this contract invoices; FALSE = invoices go to factura pública (venta al público en general). When TRUE the client must have a client_mx_profiles row with valid SAT data. Ignored when client locale is not MX',
     status         ENUM('pending','active','suspended','expired','cancelled','terminated') NOT NULL DEFAULT 'pending',
+    escalation_enabled TINYINT(1) NOT NULL DEFAULT 1
+                       COMMENT 'Master switch for AI-diagnostic auto-escalation (creates a real technician ticket) on this contract; 0 = never auto-escalate regardless of fault (migration 387)',
+    escalate_on_disconnect TINYINT(1) NOT NULL DEFAULT 0
+                       COMMENT 'When 1, ALSO auto-escalate on offline/disconnect faults (onu_status/cpe_status offline, dropped pppoe/radius session) on top of the always-on signal-quality rule; for clients with a UPS where offline is abnormal (migration 387)',
     version        INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
     created_by     BIGINT UNSIGNED NULL,
     created_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,

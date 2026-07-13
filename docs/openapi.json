@@ -52428,6 +52428,12 @@
           },
           "facturar": {
             "type": "boolean"
+          },
+          "escalation_enabled": {
+            "type": "boolean"
+          },
+          "escalate_on_disconnect": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -52487,6 +52493,12 @@
           },
           "facturar": {
             "type": "boolean"
+          },
+          "escalation_enabled": {
+            "type": "boolean"
+          },
+          "escalate_on_disconnect": {
+            "type": "boolean"
           }
         }
       },
@@ -52540,6 +52552,12 @@
             ]
           },
           "facturar": {
+            "type": "boolean"
+          },
+          "escalation_enabled": {
+            "type": "boolean"
+          },
+          "escalate_on_disconnect": {
             "type": "boolean"
           }
         }

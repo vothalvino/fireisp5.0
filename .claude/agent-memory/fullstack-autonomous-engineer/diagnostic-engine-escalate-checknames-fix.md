@@ -1,9 +1,17 @@
 ---
 name: diagnostic-engine-escalate-checknames-fix
-description: Verified which diagnosticEngineService.js check names actually emit status:'error' and from which handler — canonical reference for ESCALATABLE_CHECK_NAMES and any future escalate-rule tuning
+description: Verified which diagnosticEngineService.js check names actually emit status:'error' and from which handler — canonical reference for ESCALATE_WHEN and any future escalate-rule tuning
 metadata:
   type: project
 ---
+
+**SUPERSEDED (escalate-SET column only):** see
+[[diagnostic-engine-escalate-quality-only]] for the current binding rule —
+`onu_status` and `cpe_status` (offline states) no longer escalate; only
+`onu_signal` (error) and `cpe_signal` (warning|error) do. The
+**handler ground-truth table below is still accurate** for which check name
+emits which status from which function — only the "escalates?" column is
+stale for those two rows.
 
 `src/services/diagnosticEngineService.js`'s `_buildResult` escalate rule was
 fixed (branch `feat/escalate-trigger-upload-limiter`) from a dead condition

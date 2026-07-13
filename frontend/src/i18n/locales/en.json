@@ -433,7 +433,13 @@
     "hidePassword": "Hide",
     "credentialsError": "Failed to load credentials.",
     "credentialsForbidden": "You don't have permission to view PPPoE credentials (requires the devices.view permission).",
-    "passwordForbidden": "Insufficient permission to view the password (requires radius.credentials.view)."
+    "passwordForbidden": "Insufficient permission to view the password (requires radius.credentials.view).",
+    "editModal": {
+      "escalationEnabled": "Auto-escalation enabled",
+      "escalationEnabledHint": "When off, this contract never automatically creates a technician ticket, regardless of the fault detected.",
+      "escalateOnDisconnect": "Escalate on disconnection (client has UPS)",
+      "escalateOnDisconnectHint": "Only enable this for clients with a battery backup — otherwise normal power outages will trigger unnecessary technician tickets."
+    }
   },
   "invoiceList": {
     "title": "Invoices",

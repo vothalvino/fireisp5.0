@@ -33,6 +33,8 @@ interface Contract {
   status: string;
   facturar: boolean | number | null;
   notes: string | null;
+  escalation_enabled: boolean | number | null;
+  escalate_on_disconnect: boolean | number | null;
 }
 
 // A provisioned PPPoE / RADIUS account belonging to a contract.  The base
@@ -214,6 +216,8 @@ interface UpdateContractBody {
   ip_address?: string;
   status?: string;
   facturar?: boolean;
+  escalation_enabled?: boolean;
+  escalate_on_disconnect?: boolean;
 }
 
 async function updateContract(id: number, body: UpdateContractBody): Promise<void> {
@@ -632,6 +636,7 @@ interface EditContractModalProps {
 const EDIT_STATUSES = ['pending', 'active', 'suspended', 'cancelled', 'terminated'];
 
 function EditContractModal({ contract, plans, onClose, onSaved }: EditContractModalProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
     plan_id: String(contract.plan_id),
@@ -643,6 +648,10 @@ function EditContractModal({ contract, plans, onClose, onSaved }: EditContractMo
     price_override: contract.price_override != null ? String(contract.price_override) : '',
     status: contract.status,
     facturar: !!contract.facturar,
+    // Migration 387: default ON (matches the DB column default) unless the
+    // contract explicitly has it off; escalate_on_disconnect defaults OFF.
+    escalation_enabled: contract.escalation_enabled == null ? true : !!contract.escalation_enabled,
+    escalate_on_disconnect: !!contract.escalate_on_disconnect,
   });
   const [error, setError] = useState('');
 
@@ -657,6 +666,8 @@ function EditContractModal({ contract, plans, onClose, onSaved }: EditContractMo
         connection_type: form.connection_type,
         status: form.status,
         facturar: form.facturar,
+        escalation_enabled: form.escalation_enabled,
+        escalate_on_disconnect: form.escalate_on_disconnect,
         end_date: form.end_date || null,
       };
       if (form.start_date) body.start_date = form.start_date;
@@ -753,6 +764,26 @@ function EditContractModal({ contract, plans, onClose, onSaved }: EditContractMo
             <input type="checkbox" checked={form.facturar} onChange={e => setField('facturar', e.target.checked)} />
             Generate CFDI invoice automatically
           </label>
+
+          <label style={modalStyles.checkboxLabel}>
+            <input
+              type="checkbox"
+              checked={form.escalation_enabled}
+              onChange={e => setField('escalation_enabled', e.target.checked)}
+            />
+            {t('contractList.editModal.escalationEnabled')}
+          </label>
+          <p style={modalStyles.hint}>{t('contractList.editModal.escalationEnabledHint')}</p>
+
+          <label style={modalStyles.checkboxLabel}>
+            <input
+              type="checkbox"
+              checked={form.escalate_on_disconnect}
+              onChange={e => setField('escalate_on_disconnect', e.target.checked)}
+            />
+            {t('contractList.editModal.escalateOnDisconnect')}
+          </label>
+          <p style={modalStyles.hint}>{t('contractList.editModal.escalateOnDisconnectHint')}</p>
 
           {error && <p style={modalStyles.error}>{error}</p>}
 
@@ -1556,6 +1587,11 @@ const modalStyles = {
     fontWeight: 600,
     color: 'var(--text-secondary)',
     cursor: 'pointer',
+  },
+  hint: {
+    margin: '-0.55rem 0 0',
+    fontSize: '0.74rem',
+    color: 'var(--text-muted)',
   },
 };
 

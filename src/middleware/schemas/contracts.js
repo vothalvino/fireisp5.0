@@ -12,6 +12,8 @@ const createContract = {
   ip_address: { type: 'string', max: 45 },
   status: { type: 'string', enum: ['pending', 'active', 'suspended', 'cancelled', 'terminated'] },
   facturar: { type: 'boolean' },
+  escalation_enabled: { type: 'boolean' },
+  escalate_on_disconnect: { type: 'boolean' },
 };
 
 const updateContract = {
@@ -25,6 +27,8 @@ const updateContract = {
   ip_address: { type: 'string', max: 45 },
   status: { type: 'string', enum: ['pending', 'active', 'suspended', 'cancelled', 'terminated'] },
   facturar: { type: 'boolean' },
+  escalation_enabled: { type: 'boolean' },
+  escalate_on_disconnect: { type: 'boolean' },
 };
 
 const createContractAddon = {
