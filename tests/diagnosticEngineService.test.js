@@ -17,9 +17,23 @@ jest.mock('../src/services/radiusService', () => ({
 jest.mock('../src/services/wirelessService', () => ({
   getInterferenceReport: jest.fn(),
 }));
+// Only mocked so the "runDiagnostic itself throws" test below can force a
+// real, uncaught exception out of _storeRun's own catch block (its
+// logger.warn call is the one call inside runDiagnostic() that isn't
+// already defensively wrapped by a per-check try/catch — see that test for
+// the full explanation). `child()` always returns the same object so a test
+// can grab a handle to it and override `.warn` for a single call.
+jest.mock('../src/utils/logger', () => {
+  const sharedChildLogger = { warn: jest.fn(), error: jest.fn(), info: jest.fn(), debug: jest.fn() };
+  return {
+    child: jest.fn(() => sharedChildLogger),
+    warn: jest.fn(), error: jest.fn(), info: jest.fn(), debug: jest.fn(),
+  };
+});
 
 const db = require('../src/config/database');
 const radiusService = require('../src/services/radiusService');
+const mockLoggerModule = require('../src/utils/logger');
 const diagnosticEngineService = require('../src/services/diagnosticEngineService');
 
 // ---------------------------------------------------------------------------
@@ -221,12 +235,14 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
   });
 
   test('runDiagnostic failure is caught: reply is the safe fallback, escalate:false, no throw', async () => {
-    // _storeRun/_buildResult/every check-level query is individually
-    // try/caught inside runDiagnostic by design (see file header), so this
-    // exercises generateSupportResponse's own outer catch by making the
-    // FIRST unprotected call it makes — none exist today — impossible to
-    // simulate without a real service outage. Instead, assert the function
-    // never throws given a maximally hostile db mock (every query rejects).
+    // Every check-level query inside every diagnostic handler is
+    // individually try/caught by design (see file header) and swallows into
+    // status:'unknown' without logging, so a total DB outage alone can't
+    // make runDiagnostic() itself reject (see the next test for the one
+    // call that CAN). This test instead asserts the weaker but still real
+    // property: generateSupportResponse never throws given a maximally
+    // hostile db mock (every query rejects) — it degrades to the honest
+    // fully-blind reply instead.
     db.query.mockImplementation(() => Promise.reject(new Error('total db outage')));
     radiusService.getSessionByClientId.mockRejectedValue(new Error('radius down'));
 
@@ -240,6 +256,39 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
     expect(result.escalate).toBe(false);
     expect(typeof result.reply).toBe('string');
     expect(result.reply.length).toBeGreaterThan(0);
+  });
+
+  test('generateSupportResponse catch path (runDiagnostic itself throws): honest reply, no technician-tasked promise', async () => {
+    // The ONE call inside runDiagnostic() that isn't already defensively
+    // wrapped by a per-check try/catch is _storeRun's own logger.warn call
+    // on a DB failure (_storeRun's catch logs and swallows — but a throw
+    // FROM WITHIN that catch handler is not caught by the same try/catch,
+    // and propagates out of runDiagnostic() as a real rejection). Forcing
+    // logger.warn to throw exactly once is the one legitimate way to
+    // exercise generateSupportResponse's own outer catch for real, rather
+    // than asserting a string that's never actually reached at runtime.
+    const childLogger = mockLoggerModule.child();
+    childLogger.warn.mockImplementationOnce(() => { throw new Error('logger transport failure'); });
+
+    db.query.mockImplementation((sql) => {
+      if (/INSERT INTO ai_diagnostic_runs/i.test(sql)) return Promise.reject(new Error('db down for audit insert'));
+      return Promise.resolve([[], undefined]);
+    });
+    radiusService.getSessionByClientId.mockResolvedValue(null);
+
+    const result = await diagnosticEngineService.generateSupportResponse({
+      orgId: 1, clientId: 10, conversationId: 1, content: 'está lento',
+    });
+
+    expect(result.escalate).toBe(false);
+    expect(result.escalationReason).toBeNull();
+    expect(result.diagnosticResult).toBeNull();
+    expect(result.reply).toMatch(/no pudimos completar el diagnóstico automático/i);
+    // Coordinator follow-up (FIX 3 extended to this path): must not promise
+    // a technician has been tasked — escalate is always false here, so no
+    // ticket exists to back that promise.
+    expect(result.reply).not.toMatch(/técnico lo revisará/i);
+    expect(result.reply).not.toMatch(/registramos tu reporte/i);
   });
 
   // ---------------------------------------------------------------------------

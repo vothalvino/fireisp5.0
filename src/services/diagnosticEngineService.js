@@ -1125,8 +1125,11 @@ async function generateSupportResponse({ orgId, clientId, conversationId, conten
     result = await runDiagnostic({ orgId, clientId, conversationId: conversationId || null, symptom, accessType: null });
   } catch (err) {
     logger.warn({ err: err.message, orgId, clientId, conversationId }, 'diagnosticEngineService.generateSupportResponse: runDiagnostic failed');
+    // Same honesty rules as _buildCustomerReply's blind branch (see its
+    // header comment): escalate is false here too, so no ticket exists —
+    // don't promise a technician has been tasked to review this.
     return {
-      reply: 'No pudimos ejecutar un diagnóstico automático en este momento. Registramos tu reporte y un técnico lo revisará. ¿Puedes confirmar si el problema comenzó de repente o gradualmente?',
+      reply: 'No pudimos completar el diagnóstico automático de tu conexión en este momento. Si el problema continúa, respóndenos con más detalles o contáctanos y con gusto te ayudamos.',
       escalate: false,
       escalationReason: null,
       diagnosticResult: null,
