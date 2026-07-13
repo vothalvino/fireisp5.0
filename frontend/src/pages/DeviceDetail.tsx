@@ -5,7 +5,7 @@
 // Data: GET /devices/{id} via REST api client
 // =============================================================================
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -73,9 +73,26 @@ interface OutageRecord {
 
 interface ListResp<T> { data: T[]; }
 
+// AP sector RF-threshold record (migration 388) — only the 2 fields this
+// tab edits, plus the identity fields needed to resolve create-vs-update.
+// link_capacity_min_mbps is DECIMAL(8,2) — the API may return it as a
+// numeric string, so it's typed loosely and normalized on read.
+interface ApSectorRecord {
+  id: number;
+  device_id: number;
+  signal_min_dbm: number | null;
+  link_capacity_min_mbps: string | number | null;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// Devices whose serving-sector RF thresholds (migration 388) are editable
+// from this page — AP/PTP radios, the only devices ap_sector_configs models.
+function isApOrPtpDevice(type: string | null): boolean {
+  return type === 'ptmp_ap' || type === 'ptp';
+}
 
 function fmt(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
@@ -118,7 +135,142 @@ function InfoRow({ label, value, mono, capitalize }: { label: string; value: str
 // Tab types
 // ---------------------------------------------------------------------------
 
-type TabId = 'overview' | 'snmp' | 'backups' | 'workOrders' | 'outages';
+type TabId = 'overview' | 'snmp' | 'backups' | 'workOrders' | 'outages' | 'rfThresholds';
+
+// ---------------------------------------------------------------------------
+// RF Thresholds tab (migration 388) — AP/PTP-only. Edits the serving
+// sector's per-sector diagnostic-threshold defaults (signal_min_dbm,
+// link_capacity_min_mbps) via the existing /wireless/ap-sectors CRUD,
+// matching WirelessManagementPage's fetch pattern. There is no
+// server-enforced 1:1 between a device and its sector config row
+// (ap_sector_configs.device_id has a non-unique index only) — when more
+// than one row exists for this device, the last one returned is treated as
+// "the" sector, mirroring the backend's own `ORDER BY id DESC LIMIT 1`
+// idiom (diagnosticEngineService._getApSectorThresholds). No row yet ->
+// Save creates one (POST); a row already exists -> Save updates it (PUT).
+// ---------------------------------------------------------------------------
+function RfThresholdsTab({ deviceId }: { deviceId: number }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [signalMinDbm, setSignalMinDbm] = useState('');
+  const [linkCapacityMinMbps, setLinkCapacityMinMbps] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [saved, setSaved] = useState(false);
+  const primedRef = useRef(false);
+
+  const { data: sectors, isLoading } = useQuery({
+    queryKey: ['device-ap-sector', deviceId],
+    queryFn: async () => {
+      const res = await api.GET('/wireless/ap-sectors' as never, {
+        params: { query: { device_id: deviceId } as never },
+      } as never);
+      if ((res as { error?: unknown }).error) return [];
+      const d = (res as { data: unknown }).data as { data?: ApSectorRecord[] } | ApSectorRecord[];
+      return Array.isArray(d) ? d : (d as { data?: ApSectorRecord[] })?.data ?? [];
+    },
+  });
+
+  const sector: ApSectorRecord | null = sectors && sectors.length > 0 ? sectors[sectors.length - 1] : null;
+
+  // Prime the form once from whatever the first fetch resolves (an existing
+  // sector's values, or blanks if none exists yet) — a one-shot init so a
+  // later refetch (e.g. after Save) doesn't clobber in-progress edits.
+  useEffect(() => {
+    if (!primedRef.current && sectors !== undefined) {
+      setSignalMinDbm(sector?.signal_min_dbm != null ? String(sector.signal_min_dbm) : '');
+      setLinkCapacityMinMbps(sector?.link_capacity_min_mbps != null ? String(sector.link_capacity_min_mbps) : '');
+      primedRef.current = true;
+    }
+    // Intentionally one-shot: only re-run when `sectors` first resolves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectors]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      // Blank input explicitly sends `null` (not omitted) so a previously-set
+      // threshold can be cleared back to "use the org-wide/no default" —
+      // validate() forwards an explicit null through untouched, and
+      // BaseModel/buildUpdate both SET the column to NULL for it.
+      const body = {
+        signal_min_dbm: signalMinDbm === '' ? null : Number(signalMinDbm),
+        link_capacity_min_mbps: linkCapacityMinMbps === '' ? null : Number(linkCapacityMinMbps),
+      };
+      if (sector) {
+        const { error: putErr } = await api.PUT('/wireless/ap-sectors/{id}' as never, {
+          params: { path: { id: sector.id } },
+          body: body as never,
+        } as never);
+        if (putErr) throw new Error(extractApiError(putErr, t('deviceDetail.rfThresholds.saveFailed')));
+      } else {
+        const { error: postErr } = await api.POST('/wireless/ap-sectors' as never, {
+          body: { device_id: deviceId, ...body } as never,
+        } as never);
+        if (postErr) throw new Error(extractApiError(postErr, t('deviceDetail.rfThresholds.saveFailed')));
+      }
+    },
+    onSuccess: () => {
+      setSaveError('');
+      setSaved(true);
+      qc.invalidateQueries({ queryKey: ['device-ap-sector', deviceId] });
+    },
+    onError: (err: unknown) => {
+      setSaved(false);
+      setSaveError(err instanceof Error ? err.message : t('deviceDetail.rfThresholds.saveFailed'));
+    },
+  });
+
+  if (isLoading) return <p style={styles.msg}>{t('deviceDetail.loading')}</p>;
+
+  return (
+    <div style={styles.rfThresholdsPanel}>
+      <p style={styles.rfThresholdsIntro}>
+        {sector ? t('deviceDetail.rfThresholds.introExisting') : t('deviceDetail.rfThresholds.introNew')}
+      </p>
+
+      <label style={styles.rfThresholdsLabel}>
+        {t('deviceDetail.rfThresholds.signalMinDbm')}
+        <input
+          style={styles.rfThresholdsInput}
+          type="number"
+          step="1"
+          min={-100}
+          max={0}
+          placeholder="-75"
+          value={signalMinDbm}
+          onChange={e => { setSaved(false); setSignalMinDbm(e.target.value); }}
+        />
+      </label>
+      <p style={styles.rfThresholdsHint}>{t('deviceDetail.rfThresholds.signalMinDbmHint')}</p>
+
+      <label style={styles.rfThresholdsLabel}>
+        {t('deviceDetail.rfThresholds.linkCapacityMinMbps')}
+        <input
+          style={styles.rfThresholdsInput}
+          type="number"
+          step="0.1"
+          min={0.1}
+          max={10000}
+          placeholder={t('deviceDetail.rfThresholds.linkCapacityPlaceholder')}
+          value={linkCapacityMinMbps}
+          onChange={e => { setSaved(false); setLinkCapacityMinMbps(e.target.value); }}
+        />
+      </label>
+      <p style={styles.rfThresholdsHint}>{t('deviceDetail.rfThresholds.linkCapacityMinMbpsHint')}</p>
+
+      {saveError && <p style={styles.msgError}>{saveError}</p>}
+      {saved && !saveError && <p style={styles.rfThresholdsSaved}>{t('deviceDetail.rfThresholds.saved')}</p>}
+
+      <button
+        type="button"
+        disabled={saveMutation.isPending}
+        onClick={() => { setSaveError(''); saveMutation.mutate(); }}
+        style={styles.rfThresholdsSaveBtn}
+      >
+        {saveMutation.isPending ? t('common.saving') : t('common.save')}
+      </button>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -128,14 +280,6 @@ export function DeviceDetail() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
-
-  const TABS: { id: TabId; label: string }[] = [
-    { id: 'overview',    label: t('deviceDetail.tabs.overview') },
-    { id: 'snmp',        label: t('deviceDetail.tabs.snmpMetrics') },
-    { id: 'backups',     label: t('deviceDetail.tabs.configBackups') },
-    { id: 'workOrders',  label: t('deviceDetail.tabs.workOrders') },
-    { id: 'outages',     label: t('deviceDetail.tabs.outages') },
-  ];
 
   const qc = useQueryClient();
 
@@ -148,6 +292,22 @@ export function DeviceDetail() {
     },
     enabled: Boolean(id),
   });
+
+  // RF Thresholds tab (migration 388) only makes sense for AP/PTP radios —
+  // ap_sector_configs models one row per such device. `device` is
+  // undefined until the query above resolves; the tab list is only ever
+  // rendered after the loading/error guards below, by which point it's
+  // guaranteed defined.
+  const TABS: { id: TabId; label: string }[] = [
+    { id: 'overview',    label: t('deviceDetail.tabs.overview') },
+    { id: 'snmp',        label: t('deviceDetail.tabs.snmpMetrics') },
+    { id: 'backups',     label: t('deviceDetail.tabs.configBackups') },
+    { id: 'workOrders',  label: t('deviceDetail.tabs.workOrders') },
+    { id: 'outages',     label: t('deviceDetail.tabs.outages') },
+    ...(isApOrPtpDevice(device?.type ?? null)
+      ? [{ id: 'rfThresholds' as TabId, label: t('deviceDetail.tabs.rfThresholds') }]
+      : []),
+  ];
 
   // device.client_id is a raw FK with no join — resolve the linked client's
   // name so the UI never shows a bare internal id with no context.
@@ -470,6 +630,26 @@ export function DeviceDetail() {
             )}
           </div>
         )}
+
+        {/* Re-check isApOrPtpDevice here too, not just when building TABS:
+            `activeTab` is component state that can outlive a `device.type`
+            change (e.g. a client-side nav from an AP device to a router
+            without DeviceDetail unmounting) — without this guard the panel
+            (and its Save button, which would then POST/PUT against a device
+            the backend rejects with 400) could render for a non-AP device
+            even though no RF Thresholds tab button is shown for it. */}
+        {activeTab === 'rfThresholds' && isApOrPtpDevice(device.type) && (
+          <div style={{ padding: '1.25rem' }}>
+            {/* key={device.id} forces a full remount (fresh useState/useRef,
+                including the one-shot form-priming ref) if a caller ever
+                navigates directly between two AP/PTP devices' detail pages
+                without an intervening unmount — React Router does not
+                remount on a route-param change alone, so without this key a
+                stale primedRef could leave device A's threshold values
+                showing while device B's data has already loaded. */}
+            <RfThresholdsTab key={device.id} deviceId={device.id} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -509,4 +689,11 @@ const styles = {
   td: { padding: '0.65rem 0.75rem', color: 'var(--text-secondary)', verticalAlign: 'middle' as const },
   msg:      { padding: '2rem 1.5rem', color: 'var(--text-muted)', fontStyle: 'italic' as const, margin: 0 },
   msgError: { padding: '2rem 1.5rem', color: '#ef4444', margin: 0 },
+  rfThresholdsPanel: { maxWidth: 420, display: 'flex' as const, flexDirection: 'column' as const, gap: '0.35rem' },
+  rfThresholdsIntro: { fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' },
+  rfThresholdsLabel: { display: 'flex' as const, flexDirection: 'column' as const, gap: '0.3rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginTop: '0.5rem' },
+  rfThresholdsInput: { padding: '0.5rem 0.6rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: '0.9rem', fontFamily: 'var(--font-sans)' },
+  rfThresholdsHint: { fontSize: '0.75rem', color: 'var(--text-dimmed)', margin: '0 0 0.25rem' },
+  rfThresholdsSaved: { fontSize: '0.8rem', color: '#16a34a', margin: '0.25rem 0' },
+  rfThresholdsSaveBtn: { marginTop: '0.75rem', alignSelf: 'flex-start' as const, padding: '0.5rem 1.2rem', borderRadius: 6, border: 'none', background: 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' },
 };

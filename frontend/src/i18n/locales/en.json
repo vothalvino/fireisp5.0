@@ -123,6 +123,7 @@
     "nocDashboard": "🖥 NOC Dashboard",
     "workOrders": "🔧 Work Orders",
     "devices": "🖧 Devices",
+    "wireless": "📶 Wireless / WISP",
     "inventory": "📦 Inventory",
     "warehouses": "🏭 Warehouses",
     "inventoryManagement": "📋 Inventory Management",
@@ -438,7 +439,14 @@
       "escalationEnabled": "Auto-escalation enabled",
       "escalationEnabledHint": "When off, this contract never automatically creates a technician ticket, regardless of the fault detected.",
       "escalateOnDisconnect": "Escalate on disconnection (client has UPS)",
-      "escalateOnDisconnectHint": "Only enable this for clients with a battery backup — otherwise normal power outages will trigger unnecessary technician tickets."
+      "escalateOnDisconnectHint": "Only enable this for clients with a battery backup — otherwise normal power outages will trigger unnecessary technician tickets.",
+      "opticalMinDbm": "Fiber optical threshold override (dBm)",
+      "opticalMinDbmHint": "Rare-case override for this client only — leave blank to use the standard threshold (-27 dBm).",
+      "wirelessSignalMinDbm": "Wireless signal threshold override (dBm)",
+      "wirelessSignalMinDbmHint": "Rare-case override for this client only — leave blank to use the serving sector's default, or -75 dBm if the sector has none set.",
+      "wirelessLinkCapacityMinMbps": "Wireless link-capacity threshold override (Mbps)",
+      "wirelessLinkCapacityMinMbpsHint": "Rare-case override for this client only — leave blank to use the serving sector's default. There is no organization-wide default, so the capacity check reports 'unknown' until a threshold is set here or on the sector.",
+      "wirelessLinkCapacityPlaceholder": "e.g. 20"
     }
   },
   "invoiceList": {
@@ -3393,7 +3401,19 @@
       "snmpMetrics": "SNMP Metrics",
       "configBackups": "Config Backups",
       "workOrders": "Work Orders",
-      "outages": "Outages"
+      "outages": "Outages",
+      "rfThresholds": "RF Thresholds"
+    },
+    "rfThresholds": {
+      "introExisting": "Default diagnostic thresholds for clients served by this sector. A per-client override on the contract always wins over these values.",
+      "introNew": "This AP/PTP device has no sector configuration yet. Set a threshold below and Save to create one — the rest of the sector's RF settings can be filled in later from Wireless Management.",
+      "signalMinDbm": "Signal Threshold (dBm)",
+      "signalMinDbmHint": "Minimum healthy CPE signal for clients on this sector. Leave blank to use the org-wide default (-75 dBm).",
+      "linkCapacityMinMbps": "Link Capacity Threshold (Mbps)",
+      "linkCapacityMinMbpsHint": "Minimum acceptable negotiated RF link rate (TX/RX) for clients on this sector. Leave blank — there is no org-wide default, so the capacity check reports 'unknown' until a threshold is set here or on the client's contract.",
+      "linkCapacityPlaceholder": "e.g. 20",
+      "saved": "Saved.",
+      "saveFailed": "Could not save the sector's RF thresholds."
     },
     "snmp": {
       "empty": "No SNMP metrics found.",

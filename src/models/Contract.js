@@ -13,6 +13,7 @@ class Contract extends BaseModel {
       'connection_type', 'start_date', 'end_date', 'billing_day',
       'price_override', 'ip_address', 'status', 'facturar', 'notes',
       'escalation_enabled', 'escalate_on_disconnect',
+      'optical_min_dbm', 'wireless_signal_min_dbm', 'wireless_link_capacity_min_mbps',
     ];
   }
 

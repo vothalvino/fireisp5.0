@@ -123,6 +123,7 @@
     "nocDashboard": "🖥 Painel NOC",
     "workOrders": "🔧 Ordens de Trabalho",
     "devices": "🖧 Dispositivos",
+    "wireless": "📶 Wireless / WISP",
     "inventory": "📦 Inventário",
     "warehouses": "🏭 Armazéns",
     "inventoryManagement": "📋 Gerenciamento de Inventário",
@@ -438,7 +439,14 @@
       "escalationEnabled": "Escalonamento automático habilitado",
       "escalationEnabledHint": "Quando desativado, este contrato nunca cria automaticamente um chamado para técnico, independentemente da falha detectada.",
       "escalateOnDisconnect": "Escalar por desconexão (cliente tem nobreak)",
-      "escalateOnDisconnectHint": "Ative apenas para clientes com nobreak (UPS) — caso contrário, quedas de energia normais vão gerar chamados de técnico desnecessários."
+      "escalateOnDisconnectHint": "Ative apenas para clientes com nobreak (UPS) — caso contrário, quedas de energia normais vão gerar chamados de técnico desnecessários.",
+      "opticalMinDbm": "Substituição do limiar óptico de fibra (dBm)",
+      "opticalMinDbmHint": "Exceção apenas para este cliente — deixe em branco para usar o limiar padrão (-27 dBm).",
+      "wirelessSignalMinDbm": "Substituição do limiar de sinal wireless (dBm)",
+      "wirelessSignalMinDbmHint": "Exceção apenas para este cliente — deixe em branco para usar o padrão do setor que o atende, ou -75 dBm se o setor não tiver um configurado.",
+      "wirelessLinkCapacityMinMbps": "Substituição do limiar de capacidade do enlace wireless (Mbps)",
+      "wirelessLinkCapacityMinMbpsHint": "Exceção apenas para este cliente — deixe em branco para usar o padrão do setor que o atende. Não existe um padrão geral, então a verificação de capacidade reportará 'desconhecido' até que um limiar seja definido aqui ou no setor.",
+      "wirelessLinkCapacityPlaceholder": "ex. 20"
     }
   },
   "invoiceList": {
@@ -3393,7 +3401,19 @@
       "snmpMetrics": "Métricas SNMP",
       "configBackups": "Backups de Config.",
       "workOrders": "Ordens de Serviço",
-      "outages": "Interrupções"
+      "outages": "Interrupções",
+      "rfThresholds": "Limiares de RF"
+    },
+    "rfThresholds": {
+      "introExisting": "Limiares de diagnóstico padrão para os clientes atendidos por este setor. Uma substituição específica no contrato do cliente sempre tem prioridade sobre estes valores.",
+      "introNew": "Este dispositivo AP/PTP ainda não tem uma configuração de setor. Defina um limiar abaixo e Salve para criar uma — o restante dos parâmetros de RF do setor pode ser preenchido depois em Gestão Wireless.",
+      "signalMinDbm": "Limiar de Sinal (dBm)",
+      "signalMinDbmHint": "Sinal mínimo saudável do CPE para os clientes deste setor. Deixe em branco para usar o padrão geral (-75 dBm).",
+      "linkCapacityMinMbps": "Limiar de Capacidade do Enlace (Mbps)",
+      "linkCapacityMinMbpsHint": "Taxa de enlace RF negociada mínima aceitável (TX/RX) para os clientes deste setor. Deixe em branco — não há padrão geral, então a verificação de capacidade reportará 'desconhecido' até que um limiar seja definido aqui ou no contrato do cliente.",
+      "linkCapacityPlaceholder": "ex. 20",
+      "saved": "Salvo.",
+      "saveFailed": "Não foi possível salvar os limiares de RF do setor."
     },
     "snmp": {
       "empty": "Nenhuma métrica SNMP encontrada.",

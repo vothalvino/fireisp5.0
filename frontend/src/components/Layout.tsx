@@ -83,6 +83,7 @@ const NAV_GROUPS: NavGroup[] = [
     titleKey: 'nav.sections.network',
     items: [
       { to: '/devices', labelKey: 'nav.devices' },
+      { to: '/wireless', labelKey: 'nav.wireless', requiredRole: 'technician' },
       { to: '/inventory', labelKey: 'nav.inventory', requiredRole: 'technician' },
       { to: '/warehouses', labelKey: 'nav.warehouses', requiredRole: 'technician' },
       { to: '/inventory-management', labelKey: 'nav.inventoryManagement', requiredRole: 'technician' },
@@ -182,6 +183,7 @@ const TECHNICIAN_NAV_GROUPS: NavGroup[] = [
     titleKey: 'nav.sections.network',
     items: [
       { to: '/nas', labelKey: 'nav.nas' },
+      { to: '/wireless', labelKey: 'nav.wireless' },
       { to: '/snmp-metrics', labelKey: 'nav.snmpMetrics' },
       { to: '/snmp-traps', labelKey: 'nav.snmpTraps' },
       { to: '/dhcp-servers', labelKey: 'nav.dhcpServers' },

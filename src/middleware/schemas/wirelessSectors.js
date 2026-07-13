@@ -39,6 +39,8 @@ const createApSectorConfig = {
   height_m:           { type: 'number', min: 0, max: 999.9 },
   polarization:       { type: 'string', enum: ['vertical', 'horizontal', 'dual', 'cross'] },
   max_clients:        { type: 'number', min: 1, max: 32767 },
+  signal_min_dbm:     { type: 'number', min: -100, max: 0 },
+  link_capacity_min_mbps: { type: 'number', min: 0.1, max: 10000 },
   notes:              { type: 'string', max: 5000 },
 };
 
@@ -55,6 +57,8 @@ const updateApSectorConfig = {
   height_m:           { type: 'number', min: 0, max: 999.9 },
   polarization:       { type: 'string', enum: ['vertical', 'horizontal', 'dual', 'cross'] },
   max_clients:        { type: 'number', min: 1, max: 32767 },
+  signal_min_dbm:     { type: 'number', min: -100, max: 0 },
+  link_capacity_min_mbps: { type: 'number', min: 0.1, max: 10000 },
   notes:              { type: 'string', max: 5000 },
 };
 
