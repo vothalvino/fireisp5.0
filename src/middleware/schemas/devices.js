@@ -4,6 +4,7 @@
 
 const createDevice = {
   site_id: { type: 'number', min: 1 },
+  client_id: { type: 'number', min: 1 },
   contract_id: { type: 'number', min: 1 },
   name: { type: 'string', required: true, min: 1, max: 200 },
   type: { type: 'string', required: true, enum: ['outdoor_cpe', 'indoor_cpe', 'ptp', 'ptmp_ap', 'olt', 'router', 'switch', 'onu', 'other'] },
@@ -24,6 +25,7 @@ const createDevice = {
 
 const updateDevice = {
   site_id: { type: 'number', min: 1 },
+  client_id: { type: 'number', min: 1 },
   contract_id: { type: 'number', min: 1 },
   name: { type: 'string', min: 1, max: 200 },
   type: { type: 'string', enum: ['outdoor_cpe', 'indoor_cpe', 'ptp', 'ptmp_ap', 'olt', 'router', 'switch', 'onu', 'other'] },

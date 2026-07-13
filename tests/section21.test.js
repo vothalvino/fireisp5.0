@@ -820,6 +820,130 @@ describe('diagnosticEngineService', () => {
     expect(result).toHaveProperty('escalate');
     expect(result).toHaveProperty('escalationReason');
   });
+
+  // ---------------------------------------------------------------------
+  // Fix spec: diag-blind-engine — _buildResult must not report a clean
+  // bill of health when every check came back 'unknown' (total blindness).
+  // ---------------------------------------------------------------------
+  test('reports honest blindness (not a false "no issues") when every check is unknown', async () => {
+    // Simulates total service unavailability — every db.query call this
+    // symptom's checks make throws, and every check in this file's per-check
+    // try/catch swallows that into status:'unknown' (the exact symptom the
+    // bug-report traced to the /diagnose route passing clientId=undefined).
+    db.query.mockRejectedValue(new Error('simulated total service unavailability'));
+    // _diagSlowFiber's first check also hits radiusService directly (not via
+    // db.query) — must fail too, or it comes back 'ok'/'warning' (a known
+    // check) and this becomes a partial-confidence case instead of blind.
+    const radiusService = require('../src/services/radiusService');
+    radiusService.getSessionByClientId.mockRejectedValue(new Error('RADIUS unavailable'));
+
+    const result = await diagService.runDiagnostic({ orgId: 1, clientId: 10, symptom: 'slow', accessType: 'fiber' });
+
+    expect(result.confidence).toBe(0);
+    expect(result.checks.every((c) => c.status === 'unknown')).toBe(true);
+    expect(result.cause).not.toBe('No critical issues detected');
+    expect(result.cause).toMatch(/unable to determine|manual review/i);
+    expect(result.recommendation).toMatch(/contact technical support/i);
+    expect(result.escalate).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------
+  // Fix spec: diag-client-id — _resolveOnuDeviceId/_resolveCpeDeviceId are
+  // not exported, so these are exercised through runDiagnostic exactly like
+  // the existing device-resolution tests above, but distinguish the NEW
+  // bridge-fallback query (cpe_devices -> devices, type='onu') from the
+  // CPE query (cpe_devices -> devices, type IN indoor/outdoor) by SQL text,
+  // instead of relying on the broader shared regex the pre-existing tests use.
+  // ---------------------------------------------------------------------
+  test('_resolveOnuDeviceId falls back to the cpe_devices bridge (type=onu) when no direct client_id link exists', async () => {
+    // Regression test for the actual reported bug: a client whose ONLY link
+    // to a monitored ONU is a cpe_devices bridge row (device.client_id was
+    // unsettable until Part A of this fix) must still resolve as fiber.
+    db.query.mockImplementation((sql) => {
+      // Direct lookup: SELECT id FROM devices WHERE client_id = ... (no bridge)
+      if (/FROM devices\b/i.test(sql) && !/cpe_devices/i.test(sql)) {
+        return Promise.resolve([[], undefined]); // no direct client_id link
+      }
+      // Bridge ONU lookup: cpe_devices -> contracts -> devices, filtered type='onu'
+      if (/FROM cpe_devices/i.test(sql) && /JOIN devices/i.test(sql) && /type = 'onu'/i.test(sql)) {
+        return Promise.resolve([[{ id: 88 }], undefined]);
+      }
+      return Promise.resolve([[], undefined]);
+    });
+
+    const result = await diagService.runDiagnostic({ orgId: 1, clientId: 10, symptom: 'slow', accessType: 'unknown' });
+    const checkNames = result.checks.map((c) => c.name);
+    expect(checkNames).toContain('onu_signal');
+    expect(checkNames).not.toContain('cpe_signal');
+  });
+
+  test('_resolveOnuDeviceId excludes a soft-deleted direct-linked ONU and falls through to the bridge', async () => {
+    // Adversarial-review finding: the direct lookup was missing
+    // `AND deleted_at IS NULL`, unlike the bridge fallback and
+    // _resolveCpeDeviceId. A soft-deleted (replaced/decommissioned) ONU
+    // that still has client_id set would otherwise short-circuit the
+    // resolver and report stale optical metrics as the customer's live
+    // status. The mock stands in for a real MySQL server filtering that row
+    // out via `deleted_at IS NULL` by returning no rows for the direct
+    // lookup; the SQL-text assertion after the call proves the filter is
+    // actually present in the query the code sends (not just that the mock
+    // happens to return nothing).
+    db.query.mockImplementation((sql) => {
+      if (/FROM devices\b/i.test(sql) && !/cpe_devices/i.test(sql)) {
+        return Promise.resolve([[], undefined]); // soft-deleted direct link filtered out
+      }
+      if (/FROM cpe_devices/i.test(sql) && /JOIN devices/i.test(sql) && /type = 'onu'/i.test(sql)) {
+        return Promise.resolve([[{ id: 456 }], undefined]); // live replacement ONU via bridge
+      }
+      return Promise.resolve([[], undefined]);
+    });
+
+    const result = await diagService.runDiagnostic({ orgId: 1, clientId: 10, symptom: 'slow', accessType: 'unknown' });
+    const checkNames = result.checks.map((c) => c.name);
+    expect(checkNames).toContain('onu_signal');
+    expect(checkNames).not.toContain('cpe_signal');
+
+    const directQueryCall = db.query.mock.calls.find(
+      ([sql]) => /FROM devices\b/i.test(sql) && !/cpe_devices/i.test(sql),
+    );
+    expect(directQueryCall).toBeDefined();
+    expect(directQueryCall[0]).toMatch(/deleted_at IS NULL/);
+  });
+
+  test('_resolveCpeDeviceId never returns a bridged device whose devices.type is onu', async () => {
+    // The original misclassification bug: cpe_devices.device_id has no
+    // server-side type guard, so nothing stopped a cpe_devices row from
+    // pointing at an 'onu'-typed devices row. Force an explicit accessType
+    // of 'wireless' so runDiagnostic calls _diagSlowWireless directly
+    // (bypassing the ONU-first inference order, which would otherwise mask
+    // this by resolving the ONU before the CPE resolver is ever reached).
+    // The CPE query now joins back to `devices` and restricts to
+    // indoor_cpe/outdoor_cpe, so a bridge row aimed at an onu device must
+    // resolve to nothing here — this is the regression test the pre-existing
+    // suite lacked (spec: "no case that would have caught the original
+    // misclassification").
+    db.query.mockImplementation(() => {
+      // A real MySQL server would filter this row out via
+      // `d.type IN ('indoor_cpe','outdoor_cpe')` since the bridged device is
+      // type='onu' — the mock stands in for that filter by returning no
+      // rows; the SQL-text assertion after the call proves the filter is
+      // actually present in the query the code sends (not just that the
+      // mock happens to return nothing).
+      return Promise.resolve([[], undefined]);
+    });
+
+    const result = await diagService.runDiagnostic({ orgId: 1, clientId: 10, symptom: 'slow', accessType: 'wireless' });
+    const cpeCheck = result.checks.find((c) => c.name === 'cpe_signal');
+    expect(cpeCheck.status).toBe('unknown');
+    expect(cpeCheck.detail).toBe('CPE device not found');
+
+    const cpeQueryCall = db.query.mock.calls.find(
+      ([sql]) => /FROM cpe_devices/i.test(sql) && /JOIN devices/i.test(sql),
+    );
+    expect(cpeQueryCall).toBeDefined();
+    expect(cpeQueryCall[0]).toMatch(/indoor_cpe/);
+    expect(cpeQueryCall[0]).toMatch(/outdoor_cpe/);
+  });
 });
 
 // ============================================================================
@@ -1130,6 +1254,82 @@ describe('Support Conversations API', () => {
       db.query.mockResolvedValueOnce([[mockMessage], undefined]);
       const res = await request(app).get('/api/v1/support/conversations/1').set('x-org-id', '1');
       expect(res.status).toBe(200);
+    });
+  });
+
+  // POST /api/v1/support/conversations/:id/messages — Fix spec diag-blind-engine,
+  // Fix A: getConversation() returns { conversation, messages }, not a flat
+  // object — conv.client_id was always undefined, which mysql2's
+  // pool.execute() (prepared statements) hard-rejects as a bind param,
+  // silently degrading every follow-up AI reply. Assert the route reads
+  // conv.conversation.client_id instead.
+  describe('POST /api/v1/support/conversations/:id/messages — clientId forwarding', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    test('forwards clientId as a number from conv.conversation.client_id, not undefined', async () => {
+      const supportConversationService = require('../src/services/supportConversationService');
+      jest.spyOn(supportConversationService, 'getConversation').mockResolvedValue({
+        conversation: { id: 1, client_id: 42 },
+        messages: [],
+      });
+      jest.spyOn(supportConversationService, 'sendMessage').mockResolvedValue({
+        conversation: { id: 1, client_id: 42 },
+        messages: [mockMessage],
+      });
+
+      const res = await request(app)
+        .post('/api/v1/support/conversations/1/messages')
+        .set('x-org-id', '1')
+        .send({ content: 'Hello' });
+
+      expect(res.status).toBe(201);
+      expect(supportConversationService.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ clientId: 42 }),
+      );
+      const forwarded = supportConversationService.sendMessage.mock.calls[0][0].clientId;
+      expect(typeof forwarded).toBe('number');
+    });
+  });
+
+  // POST /api/v1/support/conversations/:id/diagnose — same Fix A regression,
+  // for the route that also feeds diagnosticEngineService (a missing
+  // clientId there is what made every /diagnose call blind in the live
+  // repro — see Fix B tests in the diagnosticEngineService describe block).
+  describe('POST /api/v1/support/conversations/:id/diagnose — clientId forwarding', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    test('forwards clientId as a number from conv.conversation.client_id, not undefined', async () => {
+      const supportConversationService = require('../src/services/supportConversationService');
+      const diagnosticEngineService = require('../src/services/diagnosticEngineService');
+      jest.spyOn(supportConversationService, 'getConversation').mockResolvedValue({
+        conversation: { id: 1, client_id: 42 },
+        messages: [],
+      });
+      jest.spyOn(diagnosticEngineService, 'runDiagnostic').mockResolvedValue({
+        checks: [],
+        cause: 'No critical issues detected',
+        recommendation: 'n/a',
+        autoFixAvailable: 0,
+        confidence: 1,
+        escalate: false,
+        escalationReason: null,
+      });
+
+      const res = await request(app)
+        .post('/api/v1/support/conversations/1/diagnose')
+        .set('x-org-id', '1')
+        .send({ symptom: 'slow', accessType: 'fiber' });
+
+      expect(res.status).toBe(200);
+      expect(diagnosticEngineService.runDiagnostic).toHaveBeenCalledWith(
+        expect.objectContaining({ clientId: 42 }),
+      );
+      const forwarded = diagnosticEngineService.runDiagnostic.mock.calls[0][0].clientId;
+      expect(typeof forwarded).toBe('number');
     });
   });
 
