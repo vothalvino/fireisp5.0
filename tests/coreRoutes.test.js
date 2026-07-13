@@ -507,6 +507,39 @@ describe('Contract Routes — /api/contracts', () => {
       );
       expect(radiusCall).toBeUndefined();
     });
+
+    // Migration 387: the two per-contract AI-diagnostic escalation toggles
+    // (see diagnosticEngineService.js's ESCALATE_WHEN-equivalent contract-
+    // aware logic) must actually persist through the generic PATCH handler —
+    // both are on Contract.fillable and the patchContract validation schema.
+    test('persists escalation_enabled and escalate_on_disconnect', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[mockContract]])                                  // findByIdOrFail
+        .mockResolvedValueOnce([{ affectedRows: 1 }])                            // UPDATE contracts
+        .mockResolvedValueOnce([[{                                                // findById (inside Contract.update)
+          ...mockContract, escalation_enabled: 0, escalate_on_disconnect: 1,
+        }]]);
+
+      const res = await request(app)
+        .patch('/api/contracts/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ escalation_enabled: false, escalate_on_disconnect: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.escalation_enabled).toBe(0);
+      expect(res.body.data.escalate_on_disconnect).toBe(1);
+
+      const updateCall = db.query.mock.calls.find(
+        c => typeof c[0] === 'string' && /^UPDATE `?contracts`?\b/.test(c[0]),
+      );
+      expect(updateCall).toBeTruthy();
+      expect(updateCall[0]).toContain('escalation_enabled');
+      expect(updateCall[0]).toContain('escalate_on_disconnect');
+      // validate() coerces JSON booleans through as booleans; MySQL itself
+      // round-trips them as 0/1 (see CLAUDE.md — not something to "fix").
+      expect(updateCall[1]).toEqual(expect.arrayContaining([false, true]));
+    });
   });
 
   // --- DELETE /:id ---

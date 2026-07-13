@@ -8,6 +8,10 @@
 //   checks: [{ name, status:'ok'|'warning'|'error'|'unknown', detail }],
 //   cause, recommendation, autoFixAvailable, confidence, escalate, escalationReason
 // }
+// `escalate` is decided per the diagnosed client's active contract's two
+// escalation toggles (migration 387: contracts.escalation_enabled /
+// escalate_on_disconnect) — see the "Escalation policy" comment above
+// _buildResult below for the full rule.
 // =============================================================================
 'use strict';
 const db = require('../config/database');
@@ -188,22 +192,29 @@ async function runDiagnostic({ orgId, clientId, conversationId, symptom, accessT
     }
   }
 
+  // Resolve this client's active contract's escalation toggles (migration
+  // 387) once, up front, and thread it into whichever handler runs below —
+  // every handler's final _buildResult(...) call needs it to decide
+  // escalate. Never throws; null (safe default: enabled, quality-only) if no
+  // active contract resolves or the lookup fails.
+  const contract = await _resolveEscalationContract(clientId, orgId);
+
   let result;
 
   if (symptom === 'slow' && resolvedAccessType === 'fiber') {
-    result = await _diagSlowFiber(clientId, orgId);
+    result = await _diagSlowFiber(clientId, orgId, contract);
   } else if (symptom === 'slow' && resolvedAccessType === 'wireless') {
-    result = await _diagSlowWireless(clientId, orgId);
+    result = await _diagSlowWireless(clientId, orgId, contract);
   } else if (symptom === 'no_internet' && resolvedAccessType === 'fiber') {
-    result = await _diagNoInternetFiber(clientId, orgId);
+    result = await _diagNoInternetFiber(clientId, orgId, contract);
   } else if (symptom === 'no_internet' && resolvedAccessType === 'wireless') {
-    result = await _diagNoInternetWireless(clientId, orgId);
+    result = await _diagNoInternetWireless(clientId, orgId, contract);
   } else if (symptom === 'wifi') {
-    result = await _diagWifi(clientId, orgId);
+    result = await _diagWifi(clientId, orgId, contract);
   } else if (symptom === 'disconnects') {
-    result = await _diagDisconnects(clientId, orgId, resolvedAccessType);
+    result = await _diagDisconnects(clientId, orgId, resolvedAccessType, contract);
   } else if (symptom === 'slow_at_night') {
-    result = await _diagSlowAtNight(clientId, orgId, resolvedAccessType);
+    result = await _diagSlowAtNight(clientId, orgId, resolvedAccessType, contract);
   } else {
     result = _genericResult(symptom);
   }
@@ -218,7 +229,7 @@ async function runDiagnostic({ orgId, clientId, conversationId, symptom, accessT
 // Diagnostic handlers
 // ---------------------------------------------------------------------------
 
-async function _diagSlowFiber(clientId, orgId) {
+async function _diagSlowFiber(clientId, orgId, contract) {
   const checks = [];
 
   // Check 1: PPPoE/RADIUS session
@@ -358,10 +369,10 @@ async function _diagSlowFiber(clientId, orgId) {
     checks.push({ name: 'account_status', status: 'unknown', detail: 'Account data unavailable' });
   }
 
-  return _buildResult(checks, 'Check fiber connections and ONT device. If signal is low, a technician visit may be required.');
+  return _buildResult(checks, 'Check fiber connections and ONT device. If signal is low, a technician visit may be required.', contract);
 }
 
-async function _diagSlowWireless(clientId, orgId) {
+async function _diagSlowWireless(clientId, orgId, contract) {
   const checks = [];
 
   // Check 1: CPE signal level
@@ -438,10 +449,10 @@ async function _diagSlowWireless(clientId, orgId) {
   // tracking is not yet implemented.
   checks.push({ name: 'quota_status', status: 'unknown', detail: 'Data cap tracking not yet implemented' });
 
-  return _buildResult(checks, 'Check CPE antenna alignment and AP channel. Consider channel change or CPE repositioning if signal is weak.');
+  return _buildResult(checks, 'Check CPE antenna alignment and AP channel. Consider channel change or CPE repositioning if signal is weak.', contract);
 }
 
-async function _diagNoInternetFiber(clientId, orgId) {
+async function _diagNoInternetFiber(clientId, orgId, contract) {
   const checks = [];
 
   // Check 1: RADIUS/PPPoE session
@@ -508,10 +519,10 @@ async function _diagNoInternetFiber(clientId, orgId) {
   // Check 5: Fiber splice alert — same limitation as Check 4.
   checks.push({ name: 'fiber_splice', status: 'unknown', detail: 'Fiber alert categorization not yet implemented' });
 
-  return _buildResult(checks, 'Verify ONT device is powered on. Check for service outages in your area. If account is suspended, review billing status.');
+  return _buildResult(checks, 'Verify ONT device is powered on. Check for service outages in your area. If account is suspended, review billing status.', contract);
 }
 
-async function _diagNoInternetWireless(clientId, orgId) {
+async function _diagNoInternetWireless(clientId, orgId, contract) {
   const checks = [];
 
   // Check 1: RADIUS session
@@ -618,10 +629,10 @@ async function _diagNoInternetWireless(clientId, orgId) {
     checks.push({ name: 'area_outage', status: 'unknown', detail: 'Alert data unavailable' });
   }
 
-  return _buildResult(checks, 'Verify CPE antenna is powered and aligned. Check if area outage is affecting service. If account is suspended, resolve billing issue.');
+  return _buildResult(checks, 'Verify CPE antenna is powered and aligned. Check if area outage is affecting service. If account is suspended, resolve billing issue.', contract);
 }
 
-async function _diagWifi(clientId, orgId) {
+async function _diagWifi(clientId, orgId, contract) {
   const checks = [];
 
   // Check 1: Customer router reachability via ping (simulated from context)
@@ -688,10 +699,11 @@ async function _diagWifi(clientId, orgId) {
   return _buildResult(
     checks,
     'Restart your router by unplugging it for 30 seconds. If the issue persists, try connecting via Ethernet cable to check if the problem is the router or the Internet connection.',
+    contract,
   );
 }
 
-async function _diagDisconnects(clientId, orgId, accessType) {
+async function _diagDisconnects(clientId, orgId, accessType, contract) {
   const checks = [];
 
   // Check 1: RADIUS disconnect history
@@ -793,10 +805,11 @@ async function _diagDisconnects(clientId, orgId, accessType) {
   return _buildResult(
     checks,
     'Frequent disconnects may be caused by signal instability, power issues, or faulty equipment. Consider a site visit if disconnects are frequent.',
+    contract,
   );
 }
 
-async function _diagSlowAtNight(clientId, orgId, accessType) {
+async function _diagSlowAtNight(clientId, orgId, accessType, contract) {
   const checks = [];
 
   // Check 1: PON port utilization at peak hours
@@ -847,6 +860,7 @@ async function _diagSlowAtNight(clientId, orgId, accessType) {
   return _buildResult(
     checks,
     'Slow speeds at night are typically caused by network congestion at peak hours. If your QoS priority is low or PON utilization is high, a plan upgrade may help.',
+    contract,
   );
 }
 
@@ -869,54 +883,113 @@ function _genericResult(symptom) {
 // ---------------------------------------------------------------------------
 // Escalation policy — which checks justify auto-creating a real support
 // ticket (a technician truck roll — see supportConversationService.escalate).
+// Per-contract configurable since migration 387 (`contracts.escalation_enabled`
+// / `contracts.escalate_on_disconnect`) — see [[diagnostic-engine-escalate-quality-only]]
+// in agent memory for the base rule's history.
 //
-// BINDING PRODUCT DECISION (ISP owner): this service area has frequent grid
-// power outages and customers rarely run a UPS, so an offline/disconnected
-// ONU or CPE, a dropped PPPoE/RADIUS session, or a suspended account are
-// NORMAL day-to-day states here, not faults — auto-dispatching a technician
-// for any of them would be wrong. Auto-escalation must fire ONLY on a
-// genuine RF/optical QUALITY-degradation measurement the customer cannot fix
-// by power-cycling anything:
-//  - FIBER: bad optical RX power on the ONU (`onu_signal`, status 'error' —
-//    rx_power_dbm <= -27, see _diagSlowFiber).
-//  - WIRELESS: low CPE signal (`cpe_signal`). This check's threshold logic
-//    (see _diagSlowWireless) emits status 'warning' — NOT 'error' — for
-//    signal_dbm <= -75, so its escalation trigger must match 'warning'.
-// Offline/status/session/account checks (onu_status, cpe_status,
-// pppoe_session, radius_session, dhcp_session, account_suspension,
-// disconnect_frequency) are explicitly EXCLUDED, on purpose, per the above —
-// do not add any of them back to ESCALATE_WHEN without a new product
-// decision.
+// BINDING PRODUCT DECISION (ISP owner): the ORG-WIDE DEFAULT is that this
+// service area has frequent grid power outages and customers rarely run a
+// UPS, so an offline/disconnected ONU or CPE, a dropped PPPoE/RADIUS
+// session, or a suspended account are NORMAL day-to-day states, not faults —
+// auto-dispatching a technician for any of them would be wrong by default.
+// Two tiers of escalatable check, and two per-contract toggles that control
+// them:
 //
-// ESCALATE_WHEN is the single source of truth: { checkName: [statuses that
-// trigger escalation] }. The -27 dBm / -75 dBm thresholds live in the check
-// handlers above (_diagSlowFiber / _diagSlowWireless) and are tunable there —
-// ESCALATE_WHEN only says which (name, status) combination coming out of
-// those handlers counts as "quality degraded enough to dispatch a
-// technician".
+//  QUALITY_ESCALATE (always active while escalation_enabled=1) — a genuine
+//  RF/optical QUALITY-degradation measurement the customer cannot fix by
+//  power-cycling anything:
+//   - FIBER: bad optical RX power on the ONU (`onu_signal`, status 'error' —
+//     rx_power_dbm <= -27, see _diagSlowFiber).
+//   - WIRELESS: low CPE signal (`cpe_signal`). This check's threshold logic
+//     (see _diagSlowWireless) emits status 'warning' — NOT 'error' — for
+//     signal_dbm <= -75, so its escalation trigger must match 'warning'.
 //
-// NOT escalatable today, deliberately: wireless "capacity" (raised by the
-// owner alongside signal quality) has no reliable per-client signal yet —
-// `ap_load` is unimplemented (always 'unknown', see _diagSlowWireless) and
-// `channel_interference` is computed org-wide via
+//  DISCONNECT_ESCALATE (active ONLY when escalate_on_disconnect=1 — for
+//  clients who DO have a UPS, where an offline/dropped state genuinely is
+//  abnormal, not a normal power-outage side effect): onu_status / cpe_status
+//  offline, or a dropped pppoe_session / radius_session. `account_suspension`
+//  is deliberately never included in either tier — a billing hold is not a
+//  disconnect/quality fault, it routes to payment, not a truck roll.
+//  `disconnect_frequency` (the noisy pattern-based _diagDisconnects heuristic)
+//  is also deliberately excluded from both tiers.
+//
+//  escalation_enabled=0 is a master switch: this contract NEVER
+//  auto-escalates, on ANY check, regardless of the two tiers above — for a
+//  client who has explicitly opted out of automatic dispatch.
+//
+// No contract resolved (e.g. no active contract on file) -> the safe org-wide
+// default applies: enabled, quality-only (same as `escalate_on_disconnect=0`).
+//
+// NOT escalatable today, deliberately, in EITHER tier: wireless "capacity"
+// (raised by the owner alongside signal quality) has no reliable per-client
+// signal yet — `ap_load` is unimplemented (always 'unknown', see
+// _diagSlowWireless) and `channel_interference` is computed org-wide via
 // wirelessService.getInterferenceReport(orgId), not per client, so treating
 // either as escalatable would auto-dispatch a technician for every wireless
 // customer in the org simultaneously off a single interference event.
 // Per-client wireless capacity escalation is pending ap_load telemetry — not
 // escalatable today; flagged as a follow-up, not implemented here.
-const ESCALATE_WHEN = {
+const QUALITY_ESCALATE = {
   onu_signal: ['error'],
   cpe_signal: ['warning', 'error'],
 };
+const DISCONNECT_ESCALATE = {
+  onu_status: ['error'],
+  cpe_status: ['error'],
+  pppoe_session: ['error'],
+  radius_session: ['error'],
+};
 
-function _escalatingChecks(checks) {
-  return checks.filter(c => (ESCALATE_WHEN[c.name] || []).includes(c.status));
+/**
+ * Which checks trigger escalation for this run, given the client's active
+ * contract's two escalation toggles (or `null`/no contract -> safe defaults:
+ * enabled, quality-only).
+ *
+ * @param {Array<{name:string, status:string}>} checks
+ * @param {{escalation_enabled?:number|boolean, escalate_on_disconnect?:number|boolean}|null} contract
+ */
+function _escalatingChecks(checks, contract) {
+  // Explicit escalation_enabled=0 -> never, on any check. No contract, or no
+  // explicit 0, falls through to the enabled default.
+  if (contract && Number(contract.escalation_enabled) === 0) return [];
+  const map = {
+    ...QUALITY_ESCALATE,
+    ...((contract && Number(contract.escalate_on_disconnect) === 1) ? DISCONNECT_ESCALATE : {}),
+  };
+  return checks.filter(c => (map[c.name] || []).includes(c.status));
+}
+
+/**
+ * Resolve the client's active contract's two escalation toggles
+ * (migration 387). Returns `null` (safe default: enabled, quality-only)
+ * when there is no active contract or the lookup fails — never throws.
+ */
+async function _resolveEscalationContract(clientId, orgId) {
+  try {
+    const [rows] = await db.query(
+      `SELECT escalation_enabled, escalate_on_disconnect
+         FROM contracts
+        WHERE client_id = ? AND organization_id = ? AND status = 'active'
+        ORDER BY id DESC LIMIT 1`,
+      [clientId, orgId],
+    );
+    return rows[0] || null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Helper: build DiagnosticResult from checks array
 // ---------------------------------------------------------------------------
-function _buildResult(checks, defaultRecommendation) {
+/**
+ * @param {Array<{name:string, status:string, detail:string}>} checks
+ * @param {string} defaultRecommendation
+ * @param {{escalation_enabled?:number|boolean, escalate_on_disconnect?:number|boolean}|null} [contract]
+ *   The diagnosed client's active contract's escalation toggles (migration
+ *   387), or null if none resolved — see _escalatingChecks for the default.
+ */
+function _buildResult(checks, defaultRecommendation, contract) {
   const errorChecks = checks.filter(c => c.status === 'error');
   const knownChecks = checks.filter(c => c.status !== 'unknown').length;
   const confidence = checks.length > 0 ? knownChecks / checks.length : 0;
@@ -927,12 +1000,16 @@ function _buildResult(checks, defaultRecommendation) {
   // _genericResult's honest zero-data phrasing above.
   const blind = checks.length > 0 && knownChecks === 0;
 
-  // Escalate only on genuine RF/optical quality degradation — see
-  // ESCALATE_WHEN above for the exact (check, status) set and the binding
-  // product rationale (power outages are normal here; offline is not a
-  // fault).
-  const escalatingChecks = _escalatingChecks(checks);
+  // Escalate per this contract's toggles — see QUALITY_ESCALATE /
+  // DISCONNECT_ESCALATE / _escalatingChecks above for the exact (check,
+  // status) sets, the two contract flags, and the binding product rationale.
+  const escalatingChecks = _escalatingChecks(checks, contract);
   const escalate = escalatingChecks.length > 0;
+  // Distinguish which tier actually fired for a more useful audit trail /
+  // support-facing escalationReason — a disconnect-driven escalation (only
+  // possible when this contract has escalate_on_disconnect=1) is not a
+  // signal-quality fault and shouldn't be reported as one.
+  const qualityEscalated = escalatingChecks.some(c => Object.prototype.hasOwnProperty.call(QUALITY_ESCALATE, c.name));
 
   return {
     checks,
@@ -945,7 +1022,17 @@ function _buildResult(checks, defaultRecommendation) {
     autoFixAvailable: 0,
     confidence: Math.round(confidence * 100) / 100,
     escalate,
-    escalationReason: escalate ? 'Signal/optical quality degraded — technician recommended' : null,
+    escalationReason: escalate
+      ? (qualityEscalated
+        ? 'Signal/optical quality degraded — technician recommended'
+        : 'Offline/disconnected — technician recommended (contract has escalate_on_disconnect enabled)')
+      : null,
+    // Internal field, not part of the documented DiagnosticResult shape at
+    // the top of this file — carries the resolved contract forward so
+    // _buildCustomerReply can re-derive the SAME escalatingChecks set (for
+    // naming which check(s) triggered escalation in the customer reply)
+    // without a second contract lookup. _storeRun does not persist it.
+    escalationContract: contract || null,
   };
 }
 
@@ -1129,11 +1216,16 @@ function _buildCustomerReply(symptom, result) {
     // escalate:true DOES create a real ticket (generateSupportResponse ->
     // supportConversationService.escalate) — this wording is truthful and
     // must stay as-is. Name exactly the check(s) that triggered escalation
-    // (see ESCALATE_WHEN / _escalatingChecks above) — NOT errorChecks: a
-    // 'warning'-driven escalation (e.g. cpe_signal) has no errorChecks, and
-    // falling back to `checks` would wrongly dump every check (including
-    // unrelated 'unknown' ones) into this sentence.
-    return `Detectamos una posible falla física relacionada con ${_labelChecks(_escalatingChecks(checks))} que puede requerir la visita de un técnico. Te estamos conectando con nuestro equipo para coordinar la revisión.`;
+    // (see QUALITY_ESCALATE / DISCONNECT_ESCALATE / _escalatingChecks above)
+    // — NOT errorChecks: a 'warning'-driven escalation (e.g. cpe_signal) has
+    // no errorChecks, and falling back to `checks` would wrongly dump every
+    // check (including unrelated 'unknown' ones) into this sentence.
+    // result.escalationContract is the SAME contract _buildResult already
+    // resolved and used to decide escalate:true — re-deriving with it here
+    // (rather than `checks` alone) keeps this naming in lockstep with
+    // whichever tier (quality vs disconnect) actually fired, without a
+    // second contract lookup.
+    return `Detectamos una posible falla física relacionada con ${_labelChecks(_escalatingChecks(checks, result.escalationContract))} que puede requerir la visita de un técnico. Te estamos conectando con nuestro equipo para coordinar la revisión.`;
   }
 
   if (errorChecks.length > 0) {

@@ -12,6 +12,7 @@ class Contract extends BaseModel {
       'organization_id', 'client_id', 'plan_id', 'contract_template_mx_id',
       'connection_type', 'start_date', 'end_date', 'billing_day',
       'price_override', 'ip_address', 'status', 'facturar', 'notes',
+      'escalation_enabled', 'escalate_on_disconnect',
     ];
   }
 

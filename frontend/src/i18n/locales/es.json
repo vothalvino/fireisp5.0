@@ -433,7 +433,13 @@
     "hidePassword": "Ocultar",
     "credentialsError": "Error al cargar las credenciales.",
     "credentialsForbidden": "No tienes permiso para ver las credenciales PPPoE (requiere el permiso devices.view).",
-    "passwordForbidden": "Permiso insuficiente para ver la contraseña (requiere radius.credentials.view)."
+    "passwordForbidden": "Permiso insuficiente para ver la contraseña (requiere radius.credentials.view).",
+    "editModal": {
+      "escalationEnabled": "Auto-escalación habilitada",
+      "escalationEnabledHint": "Si está desactivado, este contrato nunca creará automáticamente un ticket para técnico, sin importar la falla detectada.",
+      "escalateOnDisconnect": "Escalar por desconexión (el cliente tiene UPS)",
+      "escalateOnDisconnectHint": "Actívalo solo para clientes con respaldo de energía (UPS) — de lo contrario, los cortes de luz normales generarán tickets de técnico innecesarios."
+    }
   },
   "invoiceList": {
     "title": "Facturas",

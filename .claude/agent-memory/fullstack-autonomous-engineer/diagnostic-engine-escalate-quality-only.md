@@ -5,6 +5,15 @@ metadata:
   type: project
 ---
 
+**SUPERSEDED (same day, same branch/PR, ESCALATE_WHEN constant only):** see
+[[diagnostic-engine-escalate-per-contract]] — the ISP owner extended this into
+a per-contract-configurable rule (migration 387) a few hours after this fix
+landed. The base rule and rationale below are still the correct DEFAULT and
+the naming-bug fix / capacity-not-implemented notes are still accurate; only
+the single `ESCALATE_WHEN` constant was split into `QUALITY_ESCALATE` +
+`DISCONNECT_ESCALATE` behind two new `contracts` columns. Read this file for
+history/rationale, read the new one for the current code shape.
+
 Branch `fix/escalate-quality-only` (commit `bdaf466`) replaced the
 `ESCALATABLE_CHECK_NAMES` set (`onu_signal`, `onu_status`, `cpe_status`) in
 `src/services/diagnosticEngineService.js` with a per-`(check, status)` map:

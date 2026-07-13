@@ -54,8 +54,16 @@ function makeDbMock({
   alertThrows = false,
   accountActive = true,
   accountThrows = false,
+  escalationContractRow = null, // { escalation_enabled, escalate_on_disconnect } | null (no active contract -> defaults)
 } = {}) {
   return jest.fn((sql) => {
+    // _resolveEscalationContract (migration 387): SELECT escalation_enabled,
+    // escalate_on_disconnect FROM contracts WHERE ... — matched on the
+    // column names alone since they're unique to this one query, regardless
+    // of aliasing.
+    if (/escalation_enabled/i.test(sql)) {
+      return Promise.resolve([escalationContractRow ? [escalationContractRow] : [], undefined]);
+    }
     // Direct ONU resolver: SELECT id FROM devices WHERE client_id = ? ... type = 'onu'
     if (/FROM devices\b/i.test(sql) && /type = 'onu'/i.test(sql)) {
       return Promise.resolve([onuDeviceId ? [{ id: onuDeviceId }] : [], undefined]);
@@ -108,8 +116,12 @@ function makeNoInternetFiberDbMock({
   onuDeviceId = null,
   onuDetailsRow = null,
   accountRow = null, // { status, client_status }
+  escalationContractRow = null, // { escalation_enabled, escalate_on_disconnect } | null
 } = {}) {
   return jest.fn((sql) => {
+    if (/escalation_enabled/i.test(sql)) {
+      return Promise.resolve([escalationContractRow ? [escalationContractRow] : [], undefined]);
+    }
     if (/FROM devices\b/i.test(sql) && /type = 'onu'/i.test(sql)) {
       return Promise.resolve([onuDeviceId ? [{ id: onuDeviceId }] : [], undefined]);
     }
@@ -142,8 +154,12 @@ function makeNoInternetFiberDbMock({
 function makeSlowWirelessDbMock({
   cpeDeviceId = null,
   wirelessSignalRow = null,
+  escalationContractRow = null, // { escalation_enabled, escalate_on_disconnect } | null
 } = {}) {
   return jest.fn((sql) => {
+    if (/escalation_enabled/i.test(sql)) {
+      return Promise.resolve([escalationContractRow ? [escalationContractRow] : [], undefined]);
+    }
     // No ONU for this client -> access-type inference falls through to CPE.
     if (/FROM devices\b/i.test(sql) && /type = 'onu'/i.test(sql)) {
       return Promise.resolve([[], undefined]);
@@ -176,8 +192,12 @@ function makeNoInternetWirelessDbMock({
   cpeStatusRow = null, // { status, device_id }
   wirelessSignalRow = null,
   clientStatusRow = null, // { status }
+  escalationContractRow = null, // { escalation_enabled, escalate_on_disconnect } | null
 } = {}) {
   return jest.fn((sql) => {
+    if (/escalation_enabled/i.test(sql)) {
+      return Promise.resolve([escalationContractRow ? [escalationContractRow] : [], undefined]);
+    }
     if (/FROM devices\b/i.test(sql) && /type = 'onu'/i.test(sql)) {
       return Promise.resolve([[], undefined]);
     }
@@ -440,6 +460,135 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
     expect(result.reply).not.toContain('tu consumo de datos');
     expect(result.reply).not.toContain('interferencia en el canal inalámbrico');
     expect(result.reply).not.toContain('tu sesión de conexión');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Per-contract escalation toggles (migration 387:
+  // contracts.escalation_enabled / escalate_on_disconnect). Coordinator spec
+  // scenarios (a)-(e) below.
+  // ---------------------------------------------------------------------------
+  test('(a) escalation_enabled=0 (master switch OFF): does NOT escalate even on onu_signal error (quality fault)', async () => {
+    const dbMock = makeDbMock({
+      onuDeviceId: 5,
+      onuDetailsRow: { onu_state: 'online', olt_port_id: 9, rx_power_dbm: -30, tx_power_dbm: 2 }, // below -27 -> onu_signal 'error'
+      oltPortRow: { port_no: 1, onu_count: 5, max_onus: 64 },
+      alertCount: 0,
+      accountActive: true,
+      escalationContractRow: { escalation_enabled: 0, escalate_on_disconnect: 0 },
+    });
+    db.query.mockImplementation(dbMock);
+    radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5' });
+
+    const result = await diagnosticEngineService.generateSupportResponse({
+      orgId: 1, clientId: 10, conversationId: 1, content: 'la velocidad está muy lenta',
+    });
+
+    expect(result.diagnosticResult.checks.find((c) => c.name === 'onu_signal').status).toBe('error');
+    // Master switch beats every tier — even the always-on quality rule.
+    expect(result.escalate).toBe(false);
+    expect(result.escalationReason).toBeNull();
+    // Still honest about the fault (no ticket, but not silent either) — the
+    // client who opted out of auto-dispatch still learns what's wrong.
+    expect(result.reply).not.toMatch(/posible falla física/i);
+    expect(result.reply).not.toMatch(/conectando con nuestro equipo/i);
+    expect(result.reply).toContain('la señal óptica de tu equipo ONU');
+  });
+
+  test('(b) escalate_on_disconnect=0 (explicit, contract on file) + onu_status error (offline): does NOT escalate', async () => {
+    const dbMock = makeNoInternetFiberDbMock({
+      onuDeviceId: 5,
+      onuDetailsRow: { onu_state: 'offline', olt_port_id: 9, rx_power_dbm: -20, tx_power_dbm: 2 },
+      accountRow: { status: 'active', client_status: 'active' },
+      escalationContractRow: { escalation_enabled: 1, escalate_on_disconnect: 0 },
+    });
+    db.query.mockImplementation(dbMock);
+    radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5' });
+
+    const result = await diagnosticEngineService.generateSupportResponse({
+      orgId: 1, clientId: 10, conversationId: 1, content: 'no tengo internet',
+    });
+
+    expect(result.diagnosticResult.checks.find((c) => c.name === 'onu_status').status).toBe('error');
+    expect(result.escalate).toBe(false);
+    expect(result.escalationReason).toBeNull();
+    expect(result.reply).not.toMatch(/conectando con nuestro equipo/i);
+  });
+
+  test('(c) escalate_on_disconnect=1 (client has a UPS) + onu_status error (offline): DOES escalate, reply names the ONU status', async () => {
+    const dbMock = makeNoInternetFiberDbMock({
+      onuDeviceId: 5,
+      onuDetailsRow: { onu_state: 'offline', olt_port_id: 9, rx_power_dbm: -20, tx_power_dbm: 2 },
+      accountRow: { status: 'active', client_status: 'active' },
+      escalationContractRow: { escalation_enabled: 1, escalate_on_disconnect: 1 },
+    });
+    db.query.mockImplementation(dbMock);
+    // pppoe_session 'ok' so onu_status is isolated as the only escalating check.
+    radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5' });
+
+    const result = await diagnosticEngineService.generateSupportResponse({
+      orgId: 1, clientId: 10, conversationId: 1, content: 'no tengo internet',
+    });
+
+    expect(result.diagnosticResult.checks.find((c) => c.name === 'onu_status').status).toBe('error');
+    expect(result.escalate).toBe(true);
+    // Disconnect-tier escalation is NOT a quality fault — distinct reason text.
+    expect(result.escalationReason).toBe('Offline/disconnected — technician recommended (contract has escalate_on_disconnect enabled)');
+    expect(result.reply).toMatch(/posible falla física/i);
+    expect(result.reply).toMatch(/conectando con nuestro equipo/i);
+    expect(result.reply).toContain('el estado de tu equipo ONU');
+  });
+
+  test('(d) quality escalation still fires under an explicit-defaults contract (enabled=1, disconnect=0) — not just when no contract resolves', async () => {
+    const dbMock = makeDbMock({
+      onuDeviceId: 5,
+      onuDetailsRow: { onu_state: 'online', olt_port_id: 9, rx_power_dbm: -30, tx_power_dbm: 2 }, // below -27
+      oltPortRow: { port_no: 1, onu_count: 5, max_onus: 64 },
+      alertCount: 0,
+      accountActive: true,
+      escalationContractRow: { escalation_enabled: 1, escalate_on_disconnect: 0 },
+    });
+    db.query.mockImplementation(dbMock);
+    radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5' });
+
+    const result = await diagnosticEngineService.generateSupportResponse({
+      orgId: 1, clientId: 10, conversationId: 1, content: 'la velocidad está muy lenta',
+    });
+
+    expect(result.escalate).toBe(true);
+    expect(result.escalationReason).toBe('Signal/optical quality degraded — technician recommended');
+  });
+
+  test('(e) no active contract resolves: falls back to defaults (enabled, quality-only) — onu_signal error still escalates, onu_status offline does not', async () => {
+    // No escalationContractRow passed to either mock below -> the
+    // escalation_enabled/escalate_on_disconnect SELECT returns zero rows ->
+    // _resolveEscalationContract returns null -> _escalatingChecks(checks,
+    // null) falls back to QUALITY_ESCALATE only, exactly like the pre-387
+    // hardcoded rule.
+    const qualityDb = makeDbMock({
+      onuDeviceId: 5,
+      onuDetailsRow: { onu_state: 'online', olt_port_id: 9, rx_power_dbm: -30, tx_power_dbm: 2 },
+      oltPortRow: { port_no: 1, onu_count: 5, max_onus: 64 },
+      alertCount: 0,
+      accountActive: true,
+    });
+    db.query.mockImplementation(qualityDb);
+    radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5' });
+    const qualityResult = await diagnosticEngineService.generateSupportResponse({
+      orgId: 1, clientId: 10, conversationId: 1, content: 'la velocidad está muy lenta',
+    });
+    expect(qualityResult.escalate).toBe(true);
+
+    const disconnectDb = makeNoInternetFiberDbMock({
+      onuDeviceId: 5,
+      onuDetailsRow: { onu_state: 'offline', olt_port_id: 9, rx_power_dbm: -20, tx_power_dbm: 2 },
+      accountRow: { status: 'active', client_status: 'active' },
+    });
+    db.query.mockImplementation(disconnectDb);
+    radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5' });
+    const disconnectResult = await diagnosticEngineService.generateSupportResponse({
+      orgId: 1, clientId: 10, conversationId: 1, content: 'no tengo internet',
+    });
+    expect(disconnectResult.escalate).toBe(false);
   });
 
   test('blind case: honest non-reassuring reply, never a fabricated clean bill of health', async () => {
