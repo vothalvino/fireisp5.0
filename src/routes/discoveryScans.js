@@ -14,12 +14,28 @@ const { createDiscoveryScan, updateDiscoveryScan } = require('../middleware/sche
 const { encrypt } = require('../utils/encryption');
 const db = require('../config/database');
 const { assertDeviceClientFk } = require('../services/deviceAuthz');
+const { redactDevice } = require('../utils/deviceSanitize');
 
 const router = Router();
 router.use(authenticate);
 router.use(orgScope);
 
-const ctrl = crudController(DiscoveryScan);
+// Never expose encrypted SNMPv3 credentials in any response body. Same
+// vulnerability class as src/routes/paymentGateways.js's redact — see
+// src/utils/deviceSanitize.js's redactDevice for the analogous devices.js
+// columns. discovery_scans has its own copy of the same two columns (an
+// operator-entered SNMPv3 key to probe the scanned CIDR range with).
+function redactDiscoveryScan(row) {
+  if (!row || typeof row !== 'object') return row;
+  const rest = { ...row };
+  const hasAuthKey = Boolean(rest.snmp_v3_auth_key_encrypted);
+  const hasPrivKey = Boolean(rest.snmp_v3_priv_key_encrypted);
+  delete rest.snmp_v3_auth_key_encrypted;
+  delete rest.snmp_v3_priv_key_encrypted;
+  return { ...rest, has_snmp_v3_auth_key: hasAuthKey, has_snmp_v3_priv_key: hasPrivKey };
+}
+
+const ctrl = crudController(DiscoveryScan, { serialize: redactDiscoveryScan });
 
 // Middleware to encrypt SNMPv3 keys before create/update
 function encryptV3Keys(req, _res, next) {
@@ -46,7 +62,7 @@ router.post('/',   requirePermission('discovery_scans.create'), validate(createD
       req.body.cidr_ranges = JSON.stringify(req.body.cidr_ranges);
     }
     const created = await DiscoveryScan.create(req.body);
-    res.status(201).json({ data: created });
+    res.status(201).json({ data: redactDiscoveryScan(created) });
   } catch (err) { next(err); }
 });
 router.put('/:id',  requirePermission('discovery_scans.update'), validate(updateDiscoveryScan), encryptV3Keys, ctrl.update);
@@ -108,7 +124,7 @@ router.post('/:id/results/:resultId/onboard', requirePermission('discovery_scans
       ['onboarded', device.id, result.id],
     );
 
-    res.status(201).json({ data: device });
+    res.status(201).json({ data: redactDevice(device) });
   } catch (err) { next(err); }
 });
 
