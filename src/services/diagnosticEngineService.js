@@ -347,12 +347,18 @@ async function _diagSlowFiber(clientId, orgId, contract) {
   // Check 5: Account status
   // NOTE: contracts has no data-cap-throttle column in the schema — data cap
   // tracking is not yet implemented, so this only reports contract status.
+  //
+  // A soft-deleted contract (deleted_at set, status left untouched — see
+  // _resolveEscalationContract's header comment for the full explanation)
+  // shouldn't represent the client's account state either: without
+  // `deleted_at IS NULL`, a deleted duplicate contract with a higher id
+  // could win this `ORDER BY ... LIMIT 1` over the genuinely-active one.
   try {
     const [rows] = await db.query(
       `SELECT c.status
          FROM contracts c
          JOIN clients cl ON cl.id = c.client_id
-        WHERE cl.id = ? AND c.status = 'active'
+        WHERE cl.id = ? AND c.status = 'active' AND c.deleted_at IS NULL
         ORDER BY c.id DESC LIMIT 1`,
       [clientId],
     );
@@ -966,10 +972,26 @@ function _escalatingChecks(checks, contract) {
  */
 async function _resolveEscalationContract(clientId, orgId) {
   try {
+    // HIGH — adversarial-review finding: contracts are soft-deleted
+    // (Contract.softDelete=true; DELETE only sets deleted_at=NOW(), status
+    // is left untouched, and there's a /restore endpoint — this is a normal,
+    // reversible flow). Without `deleted_at IS NULL`, `ORDER BY id DESC
+    // LIMIT 1` can pick a soft-deleted duplicate contract over the
+    // genuinely-active one whenever the deleted row has a higher id. Concrete
+    // harm: staff creates a duplicate contract with escalate_on_disconnect=1
+    // by mistake, then deletes it — it's soft-deleted but still
+    // status='active' and a higher id than the real contract, so it now wins
+    // this lookup and every diagnosis silently escalates that non-UPS client
+    // on plain disconnects (the exact unwanted truck roll this rule exists
+    // to prevent). The inverse — a soft-deleted escalation_enabled=0 row
+    // suppressing real quality escalation — also holds. Matches the
+    // deleted_at-aware pattern already used elsewhere for the same table
+    // (see supportContextService.js / topologyMapService.js).
     const [rows] = await db.query(
       `SELECT escalation_enabled, escalate_on_disconnect
          FROM contracts
         WHERE client_id = ? AND organization_id = ? AND status = 'active'
+          AND deleted_at IS NULL
         ORDER BY id DESC LIMIT 1`,
       [clientId, orgId],
     );

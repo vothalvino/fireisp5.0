@@ -591,6 +591,101 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
     expect(disconnectResult.escalate).toBe(false);
   });
 
+  // ---------------------------------------------------------------------------
+  // Adversarial-review finding (HIGH): _resolveEscalationContract's SELECT
+  // filtered status='active' but not deleted_at IS NULL. Contracts are
+  // soft-deleted (Contract.softDelete=true — DELETE only sets deleted_at,
+  // status is left untouched, and a /restore endpoint exists confirming this
+  // is a normal reversible flow), so a soft-deleted duplicate contract with a
+  // higher id could win `ORDER BY id DESC LIMIT 1` over the genuinely-active
+  // one. Concrete harm: staff creates a duplicate contract with
+  // escalate_on_disconnect=1 by mistake, then deletes it — it stays
+  // status='active' with a higher id, so it silently wins and every
+  // diagnosis escalates that non-UPS client on plain disconnects (the exact
+  // unwanted truck roll this feature exists to prevent).
+  // ---------------------------------------------------------------------------
+  test('soft-deleted contract (deleted_at set, status still active, higher id) is IGNORED — the genuinely-active contract wins', async () => {
+    // Simulates two contracts on file for this client: the real active one
+    // (escalate_on_disconnect=0) and a soft-deleted duplicate
+    // (escalate_on_disconnect=1) that would incorrectly win a `status=
+    // 'active' ORDER BY id DESC LIMIT 1` lookup without the deleted_at
+    // guard. This mock enforces that the guard is actually present in the
+    // query text — it only returns the correct (active) row when the SQL
+    // contains `deleted_at IS NULL`; a regression that drops the guard would
+    // make this test return the deleted duplicate's flags instead and fail
+    // the escalate:false assertion below.
+    const activeContractRow = { escalation_enabled: 1, escalate_on_disconnect: 0 };
+    const deletedDuplicateRow = { escalation_enabled: 1, escalate_on_disconnect: 1 };
+    const baseDbMock = makeNoInternetFiberDbMock({
+      onuDeviceId: 5,
+      onuDetailsRow: { onu_state: 'offline', olt_port_id: 9, rx_power_dbm: -20, tx_power_dbm: 2 },
+      accountRow: { status: 'active', client_status: 'active' },
+    });
+    db.query.mockImplementation((sql, params) => {
+      if (/escalation_enabled/i.test(sql)) {
+        return Promise.resolve([
+          /deleted_at IS NULL/i.test(sql) ? [activeContractRow] : [deletedDuplicateRow],
+          undefined,
+        ]);
+      }
+      return baseDbMock(sql, params);
+    });
+    // pppoe_session 'ok' so onu_status is isolated as the only error check.
+    radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5' });
+
+    const result = await diagnosticEngineService.generateSupportResponse({
+      orgId: 1, clientId: 10, conversationId: 1, content: 'no tengo internet',
+    });
+
+    expect(result.diagnosticResult.checks.find((c) => c.name === 'onu_status').status).toBe('error');
+    // The genuinely-active row's escalate_on_disconnect=0 must win — NOT the
+    // soft-deleted duplicate's =1, which would wrongly escalate this offline
+    // check.
+    expect(result.escalate).toBe(false);
+    expect(result.escalationReason).toBeNull();
+  });
+
+  test('_resolveEscalationContract query text includes the deleted_at IS NULL guard (regression guard for the finding above)', async () => {
+    const dbMock = makeDbMock({
+      onuDeviceId: 5,
+      onuDetailsRow: { onu_state: 'online', olt_port_id: 9, rx_power_dbm: -20, tx_power_dbm: 2 },
+      oltPortRow: { port_no: 1, onu_count: 5, max_onus: 64 },
+      alertCount: 0,
+      accountActive: true,
+    });
+    db.query.mockImplementation(dbMock);
+    radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5' });
+
+    await diagnosticEngineService.generateSupportResponse({
+      orgId: 1, clientId: 10, conversationId: 1, content: 'mi internet está muy lento',
+    });
+
+    const call = dbMock.mock.calls.find(([sql]) => /escalation_enabled/i.test(sql));
+    expect(call).toBeTruthy();
+    expect(call[0]).toMatch(/deleted_at IS NULL/i);
+    expect(call[0]).toMatch(/status = 'active'/i);
+  });
+
+  test('account_status check (_diagSlowFiber) query text includes the deleted_at IS NULL guard (same finding, same fix, different check)', async () => {
+    const dbMock = makeDbMock({
+      onuDeviceId: 5,
+      onuDetailsRow: { onu_state: 'online', olt_port_id: 9, rx_power_dbm: -20, tx_power_dbm: 2 },
+      oltPortRow: { port_no: 1, onu_count: 5, max_onus: 64 },
+      alertCount: 0,
+      accountActive: true,
+    });
+    db.query.mockImplementation(dbMock);
+    radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5' });
+
+    await diagnosticEngineService.generateSupportResponse({
+      orgId: 1, clientId: 10, conversationId: 1, content: 'mi internet está muy lento',
+    });
+
+    const call = dbMock.mock.calls.find(([sql]) => /FROM contracts c/i.test(sql) && /JOIN clients/i.test(sql));
+    expect(call).toBeTruthy();
+    expect(call[0]).toMatch(/deleted_at IS NULL/i);
+  });
+
   test('blind case: honest non-reassuring reply, never a fabricated clean bill of health', async () => {
     const dbMock = makeDbMock({
       onuDeviceId: 5, // resolves so accessType is 'fiber' and _diagSlowFiber runs
