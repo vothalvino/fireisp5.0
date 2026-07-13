@@ -12,6 +12,7 @@
 
 const db = require('../config/database');
 const logger = require('../utils/logger').child({ service: 'automationService' });
+const { SNMP_METRICS } = require('./alertService');
 
 // Lazily required to avoid circular deps at module load
 let _suspensionService = null;
@@ -433,7 +434,7 @@ async function evaluateRemediationRules(organizationId) {
       if (now.getTime() - lastMs < cooldownMs) continue;
     }
 
-    const conditionMet = await checkRemediationCondition(organizationId, rule);
+    const { triggered: conditionMet, deviceId } = await checkRemediationCondition(organizationId, rule);
     if (!conditionMet) continue;
 
     const start = Date.now();
@@ -444,9 +445,9 @@ async function evaluateRemediationRules(organizationId) {
 
     await db.query(
       `INSERT INTO remediation_executions
-         (organization_id, remediation_rule_id, action_type, status, result_message, duration_ms)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [organizationId, rule.id, rule.action_type, execStatus, resultMessage, Date.now() - start],
+         (organization_id, remediation_rule_id, device_id, action_type, status, result_message, duration_ms)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [organizationId, rule.id, deviceId, rule.action_type, execStatus, resultMessage, Date.now() - start],
     );
 
     await db.query(
@@ -459,34 +460,91 @@ async function evaluateRemediationRules(organizationId) {
   return { evaluated: rules.length, triggered };
 }
 
+/**
+ * @param {number|string} organizationId
+ * @param {object} rule - a remediation_rules row
+ * @returns {Promise<{triggered: boolean, deviceId: number|null}>}
+ */
 async function checkRemediationCondition(organizationId, rule) {
-  // Check snmp_metrics for the condition metric
+  // snmp_metrics is a WIDE table (one column per metric: cpu_usage,
+  // memory_usage, signal_strength, …) — there is no generic `metric`/`value`
+  // pair column, so `rule.condition_metric` names WHICH COLUMN to read, not a
+  // row to filter on. `condition_metric` is an admin-supplied free-form
+  // string (remediationRules.js validates only length, not content) so it
+  // MUST be checked against the same fixed whitelist alertService.js uses
+  // before being interpolated into a backtick-quoted identifier — never
+  // build a dynamic column reference from unvalidated input.
+  if (!SNMP_METRICS.has(rule.condition_metric)) {
+    logger.warn({ organizationId, metric: rule.condition_metric }, 'Remediation rule references an unknown/disallowed metric column');
+    return { triggered: false, deviceId: null };
+  }
+
+  // HIGH — item 4 of the second adversarial review: this used to pick ONE
+  // arbitrary device org-wide (no device filter, no recency bound, `LIMIT
+  // 1`) and let it decide the WHOLE org. A single device's spike fired an
+  // org-wide action and started a cooldown that then suppressed a real
+  // breach on a DIFFERENT device; a NULL reading on that one arbitrary
+  // device silently read as "no breach" even while every other device in
+  // the org was over threshold; `condition_duration_minutes` was never
+  // consulted at all.
+  //
+  // Evaluate every device with a recent reading instead (remediation_rules
+  // has no device_id of its own — it is genuinely org-wide by design, but
+  // "org-wide" must mean "any device", not "one arbitrary device"), and when
+  // condition_duration_minutes is set, require the breach to have held for
+  // the WHOLE window (every reading in it breaches), not just the latest
+  // instant. `remediation_executions.device_id` records which device
+  // actually triggered it.
+  const windowMinutes = Math.max(15, Number(rule.condition_duration_minutes) || 0);
   const [rows] = await db.query(
-    `SELECT m.value AS metric_value, d.id AS device_id
-     FROM snmp_metrics m
-     JOIN devices d ON d.id = m.device_id
-     WHERE d.organization_id = ?
-       AND m.metric = ?
-     ORDER BY m.recorded_at DESC
-     LIMIT 1`,
-    [organizationId, rule.condition_metric],
+    `SELECT m.device_id, m.\`${rule.condition_metric}\` AS metric_value, m.polled_at
+       FROM snmp_metrics m
+       JOIN devices d ON d.id = m.device_id
+      WHERE d.organization_id = ? AND m.polled_at >= NOW() - INTERVAL ? MINUTE
+      ORDER BY m.device_id ASC, m.polled_at DESC`,
+    [organizationId, windowMinutes],
   );
 
-  if (!rows.length) return false;
-
-  const val = parseFloat(rows[0].metric_value);
   const threshold = rule.condition_threshold !== null ? parseFloat(rule.condition_threshold) : null;
+  const breaches = (rawValue) => {
+    if (rawValue === null || rawValue === undefined) return false;
+    const val = parseFloat(rawValue);
+    if (Number.isNaN(val)) return false;
+    switch (rule.condition_operator) {
+      case 'gt':      return threshold !== null && val > threshold;
+      case 'lt':      return threshold !== null && val < threshold;
+      case 'gte':     return threshold !== null && val >= threshold;
+      case 'lte':     return threshold !== null && val <= threshold;
+      case 'eq':      return threshold !== null && val === threshold;
+      case 'neq':     return threshold !== null && val !== threshold;
+      case 'is_true': return Boolean(val);
+      default:        return false;
+    }
+  };
 
-  switch (rule.condition_operator) {
-    case 'gt':      return threshold !== null && val > threshold;
-    case 'lt':      return threshold !== null && val < threshold;
-    case 'gte':     return threshold !== null && val >= threshold;
-    case 'lte':     return threshold !== null && val <= threshold;
-    case 'eq':      return threshold !== null && val === threshold;
-    case 'neq':     return threshold !== null && val !== threshold;
-    case 'is_true': return Boolean(val);
-    default:        return false;
+  const byDevice = new Map();
+  for (const row of rows) {
+    if (!byDevice.has(row.device_id)) byDevice.set(row.device_id, []);
+    byDevice.get(row.device_id).push(row); // already ordered newest-first per device
   }
+
+  const durationMs = (Number(rule.condition_duration_minutes) || 0) * 60 * 1000;
+
+  for (const [deviceId, readings] of byDevice) {
+    const latest = readings[0];
+    if (!breaches(latest.metric_value)) continue; // this device is not currently breaching
+
+    if (durationMs > 0) {
+      const windowStart = new Date(latest.polled_at).getTime() - durationMs;
+      const withinWindow = readings.filter((r) => new Date(r.polled_at).getTime() >= windowStart);
+      const sustained = withinWindow.length > 0 && withinWindow.every((r) => breaches(r.metric_value));
+      if (!sustained) continue; // spike, not a sustained breach — don't trigger yet
+    }
+
+    return { triggered: true, deviceId };
+  }
+
+  return { triggered: false, deviceId: null };
 }
 
 module.exports = {

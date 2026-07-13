@@ -24,6 +24,94 @@ function getWirelessService() {
 }
 
 // ---------------------------------------------------------------------------
+// Device-resolution helpers
+// ---------------------------------------------------------------------------
+// Every FTTH/wireless monitoring table (onu_details, onu_optical_metrics,
+// wireless_client_sessions) is keyed on `devices.id` — never on
+// clients.id/contracts.id directly. cpe_devices.device_id is the bridge:
+// cpe_devices.contract_id -> contracts.client_id -> clients.id on one side,
+// cpe_devices.device_id -> devices.id on the other. The checks below used to
+// query nonexistent tables (`onu_devices`, `access_points`, `alerts` [real:
+// alert_events], `olt_pon_ports` [real: olt_ports]) with a nonexistent
+// `client_id` column on cpe_devices/onu tables — every one of them threw,
+// was caught by the surrounding try/catch (per this file's documented
+// contract), and silently reported status:'unknown' forever.
+//
+// item 8 of the second adversarial review: `devices.type` distinguishes
+// `onu` from `indoor_cpe`/`outdoor_cpe` — cpe_devices.device_id (see
+// `_resolveCpeDeviceId` below) is documented on the schema itself as "FK to
+// devices table (indoor_cpe/outdoor_cpe types)", i.e. the TR-069 home
+// router/CPE, never the ONU. A single resolver used for BOTH used to hand
+// fiber clients their router's devices.id and then join it against
+// onu_details (which is keyed on devices of type='onu') — that join always
+// returns nothing, so every FTTH-specific check (onu_signal, olt_port,
+// active_alerts, pon_utilization) silently read 'unknown' forever, even for
+// a perfectly healthy, actively-monitored ONU. `devices` carries client_id
+// directly for both device kinds, so each gets its own resolver querying the
+// right `type`.
+
+/**
+ * Resolve the `devices.id` (type='onu') monitored for a client's fiber
+ * service. Returns null if there is no monitored ONU for this client.
+ */
+async function _resolveOnuDeviceId(clientId, orgId) {
+  const [rows] = await db.query(
+    `SELECT id FROM devices
+      WHERE client_id = ? AND organization_id = ? AND type = 'onu'
+      ORDER BY id DESC LIMIT 1`,
+    [clientId, orgId],
+  );
+  return rows[0]?.id ?? null;
+}
+
+/**
+ * Resolve the `devices.id` (indoor_cpe/outdoor_cpe) monitored for a client's
+ * active contract's TR-069 CPE. Returns null if there is no active contract
+ * or no monitored CPE.
+ */
+async function _resolveCpeDeviceId(clientId, orgId) {
+  const [rows] = await db.query(
+    `SELECT cd.device_id
+       FROM cpe_devices cd
+       JOIN contracts c ON c.id = cd.contract_id
+      WHERE c.client_id = ? AND c.organization_id = ? AND c.status = 'active'
+        AND cd.deleted_at IS NULL AND cd.device_id IS NOT NULL
+      ORDER BY cd.id DESC LIMIT 1`,
+    [clientId, orgId],
+  );
+  return rows[0]?.device_id ?? null;
+}
+
+/**
+ * Latest ONU state + optical metrics for a monitored device, or null.
+ */
+async function _getOnuStatus(deviceId, orgId) {
+  const [rows] = await db.query(
+    `SELECT od.onu_state, od.olt_port_id, om.rx_power_dbm, om.tx_power_dbm
+       FROM onu_details od
+       LEFT JOIN onu_optical_metrics om ON om.device_id = od.device_id
+      WHERE od.device_id = ? AND od.organization_id = ?
+      ORDER BY om.polled_at DESC LIMIT 1`,
+    [deviceId, orgId],
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Latest wireless signal observation for a monitored CPE device, or null.
+ */
+async function _getWirelessSignal(deviceId, orgId) {
+  const [rows] = await db.query(
+    `SELECT signal_dbm, noise_floor_dbm, ccq_pct
+       FROM wireless_client_sessions
+      WHERE client_device_id = ? AND organization_id = ?
+      ORDER BY last_seen_at DESC LIMIT 1`,
+    [deviceId, orgId],
+  );
+  return rows[0] || null;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -102,76 +190,90 @@ async function _diagSlowFiber(clientId, orgId) {
 
   // Check 2: ONU/ONT signal level from FTTH
   try {
-    const [rows] = await db.query(
-      `SELECT o.rx_power_dbm, o.tx_power_dbm, o.status
-         FROM onu_devices o
-         JOIN clients c ON c.id = ?
-        WHERE o.organization_id = ? AND o.client_id = ?
-        LIMIT 1`,
-      [clientId, orgId, clientId],
-    );
-    if (rows.length === 0) {
+    const deviceId = await _resolveOnuDeviceId(clientId, orgId);
+    const onu = deviceId ? await _getOnuStatus(deviceId, orgId) : null;
+    if (!onu) {
       checks.push({ name: 'onu_signal', status: 'unknown', detail: 'ONU device not found' });
     } else {
-      const onu = rows[0];
       const rxOk = onu.rx_power_dbm !== null && onu.rx_power_dbm > -27;
       checks.push({
         name: 'onu_signal',
         status: rxOk ? 'ok' : 'error',
-        detail: `RX: ${onu.rx_power_dbm} dBm, TX: ${onu.tx_power_dbm} dBm, Status: ${onu.status}`,
+        detail: `RX: ${onu.rx_power_dbm} dBm, TX: ${onu.tx_power_dbm} dBm, State: ${onu.onu_state}`,
       });
     }
   } catch {
     checks.push({ name: 'onu_signal', status: 'unknown', detail: 'Service unavailable' });
   }
 
-  // Check 3: OLT port errors
+  // Check 3: OLT port utilization
   try {
-    const [rows] = await db.query(
-      `SELECT pp.client_count, pp.max_clients, pp.port_number
-         FROM olt_pon_ports pp
-         JOIN onu_devices od ON od.olt_port_id = pp.id
-        WHERE od.client_id = ? AND pp.organization_id = ?
-        LIMIT 1`,
-      [clientId, orgId],
-    );
-    if (rows.length === 0) {
+    const deviceId = await _resolveOnuDeviceId(clientId, orgId);
+    const onu = deviceId ? await _getOnuStatus(deviceId, orgId) : null;
+    if (!onu || !onu.olt_port_id) {
       checks.push({ name: 'olt_port', status: 'unknown', detail: 'OLT port not found' });
     } else {
-      const port = rows[0];
-      const overloaded = port.client_count > port.max_clients * 0.85;
-      checks.push({
-        name: 'olt_port',
-        status: overloaded ? 'warning' : 'ok',
-        detail: `Port ${port.port_number}: ${port.client_count}/${port.max_clients} clients`,
-      });
+      const [portRows] = await db.query(
+        'SELECT port_no, onu_count, max_onus FROM olt_ports WHERE id = ? AND organization_id = ?',
+        [onu.olt_port_id, orgId],
+      );
+      if (portRows.length === 0) {
+        checks.push({ name: 'olt_port', status: 'unknown', detail: 'OLT port not found' });
+      } else {
+        const port = portRows[0];
+        const overloaded = port.max_onus > 0 && port.onu_count > port.max_onus * 0.85;
+        checks.push({
+          name: 'olt_port',
+          status: overloaded ? 'warning' : 'ok',
+          detail: `Port ${port.port_no}: ${port.onu_count}/${port.max_onus} ONUs`,
+        });
+      }
     }
   } catch {
     checks.push({ name: 'olt_port', status: 'unknown', detail: 'OLT data unavailable' });
   }
 
   // Check 4: Active alerts for device
+  // alert_events has no `severity` column (it lives on the parent alert_rules
+  // row) and status is ENUM('triggered','acknowledged','resolved') — there is
+  // no 'active' value. "Active" = not yet resolved.
+  //
+  // MEDIUM — item 7 of the second adversarial review: `ae.device_id = ?`
+  // with a NULL deviceId is not a SQL error (MySQL just matches nothing), so
+  // when the client's device couldn't be resolved at all this used to
+  // confidently report "0 high/critical alerts — ok" instead of admitting it
+  // never actually checked anything. An unresolved device must report
+  // 'unknown', never a clean bill of health.
   try {
-    const [alerts] = await db.query(
-      `SELECT COUNT(*) AS cnt FROM alerts
-        WHERE organization_id = ? AND status = 'active' AND severity IN ('critical','high')
-          AND device_id IN (SELECT id FROM onu_devices WHERE client_id = ? LIMIT 5)`,
-      [orgId, clientId],
-    );
-    const alertCount = alerts[0]?.cnt ?? 0;
-    checks.push({
-      name: 'active_alerts',
-      status: alertCount > 0 ? 'warning' : 'ok',
-      detail: `${alertCount} high/critical alerts on ONU device`,
-    });
+    const deviceId = await _resolveOnuDeviceId(clientId, orgId);
+    if (!deviceId) {
+      checks.push({ name: 'active_alerts', status: 'unknown', detail: 'Device not resolved — cannot check alerts' });
+    } else {
+      const [alerts] = await db.query(
+        `SELECT COUNT(*) AS cnt
+           FROM alert_events ae
+           JOIN alert_rules ar ON ar.id = ae.alert_rule_id
+          WHERE ae.organization_id = ? AND ae.status != 'resolved' AND ar.severity IN ('critical','major')
+            AND ae.device_id = ?`,
+        [orgId, deviceId],
+      );
+      const alertCount = alerts[0]?.cnt ?? 0;
+      checks.push({
+        name: 'active_alerts',
+        status: alertCount > 0 ? 'warning' : 'ok',
+        detail: `${alertCount} high/critical alerts on ONU device`,
+      });
+    }
   } catch {
     checks.push({ name: 'active_alerts', status: 'unknown', detail: 'Alert service unavailable' });
   }
 
-  // Check 5: Account suspension/quota
+  // Check 5: Account status
+  // NOTE: contracts has no data-cap-throttle column in the schema — data cap
+  // tracking is not yet implemented, so this only reports contract status.
   try {
     const [rows] = await db.query(
-      `SELECT c.status, c.data_cap_status
+      `SELECT c.status
          FROM contracts c
          JOIN clients cl ON cl.id = c.client_id
         WHERE cl.id = ? AND c.status = 'active'
@@ -179,12 +281,10 @@ async function _diagSlowFiber(clientId, orgId) {
       [clientId],
     );
     if (rows.length > 0) {
-      const contract = rows[0];
-      const throttled = contract.data_cap_status === 'throttled';
       checks.push({
         name: 'account_status',
-        status: throttled ? 'warning' : 'ok',
-        detail: `Contract status: ${contract.status}, data cap: ${contract.data_cap_status || 'none'}`,
+        status: 'ok',
+        detail: `Contract status: ${rows[0].status}`,
       });
     } else {
       checks.push({ name: 'account_status', status: 'unknown', detail: 'No active contract found' });
@@ -201,19 +301,16 @@ async function _diagSlowWireless(clientId, orgId) {
 
   // Check 1: CPE signal level
   try {
-    const [rows] = await db.query(
-      'SELECT signal_dbm, noise_floor, ccq FROM cpe_devices WHERE client_id = ? AND organization_id = ? LIMIT 1',
-      [clientId, orgId],
-    );
-    if (rows.length === 0) {
+    const deviceId = await _resolveCpeDeviceId(clientId, orgId);
+    const signal = deviceId ? await _getWirelessSignal(deviceId, orgId) : null;
+    if (!signal) {
       checks.push({ name: 'cpe_signal', status: 'unknown', detail: 'CPE device not found' });
     } else {
-      const cpe = rows[0];
-      const signalOk = cpe.signal_dbm !== null && cpe.signal_dbm > -75;
+      const signalOk = signal.signal_dbm !== null && signal.signal_dbm > -75;
       checks.push({
         name: 'cpe_signal',
         status: signalOk ? 'ok' : 'warning',
-        detail: `Signal: ${cpe.signal_dbm} dBm, Noise: ${cpe.noise_floor} dBm, CCQ: ${cpe.ccq}%`,
+        detail: `Signal: ${signal.signal_dbm} dBm, Noise: ${signal.noise_floor_dbm} dBm, CCQ: ${signal.ccq_pct}%`,
       });
     }
   } catch {
@@ -239,30 +336,11 @@ async function _diagSlowWireless(clientId, orgId) {
   }
 
   // Check 3: AP load
-  try {
-    const [rows] = await db.query(
-      `SELECT ap.name, COUNT(cd.id) AS client_count
-         FROM access_points ap
-         JOIN cpe_devices cd ON cd.access_point_id = ap.id
-        WHERE cd.client_id = ? AND ap.organization_id = ?
-        GROUP BY ap.id, ap.name
-        LIMIT 1`,
-      [clientId, orgId],
-    );
-    if (rows.length > 0) {
-      const ap = rows[0];
-      const overloaded = ap.client_count > 40;
-      checks.push({
-        name: 'ap_load',
-        status: overloaded ? 'warning' : 'ok',
-        detail: `AP "${ap.name}" serving ${ap.client_count} clients`,
-      });
-    } else {
-      checks.push({ name: 'ap_load', status: 'unknown', detail: 'AP not identified' });
-    }
-  } catch {
-    checks.push({ name: 'ap_load', status: 'unknown', detail: 'AP data unavailable' });
-  }
+  // NOTE: there is no access-point inventory / assignment table in the schema
+  // (an `access_points` table with a `cpe_devices.access_point_id` FK was
+  // referenced here, but neither exists) — AP-load reporting is not yet
+  // implemented. Not a query worth attempting: it can never resolve.
+  checks.push({ name: 'ap_load', status: 'unknown', detail: 'AP load reporting not yet implemented' });
 
   // Check 4: RADIUS session
   try {
@@ -278,22 +356,9 @@ async function _diagSlowWireless(clientId, orgId) {
   }
 
   // Check 5: Account quota
-  try {
-    const [rows] = await db.query(
-      `SELECT data_cap_status FROM contracts
-        WHERE client_id = ? AND status = 'active'
-        ORDER BY id DESC LIMIT 1`,
-      [clientId],
-    );
-    const throttled = rows[0]?.data_cap_status === 'throttled';
-    checks.push({
-      name: 'quota_status',
-      status: throttled ? 'warning' : 'ok',
-      detail: `Data cap status: ${rows[0]?.data_cap_status || 'normal'}`,
-    });
-  } catch {
-    checks.push({ name: 'quota_status', status: 'unknown', detail: 'Contract data unavailable' });
-  }
+  // NOTE: contracts has no data-cap-throttle column in the schema — data cap
+  // tracking is not yet implemented.
+  checks.push({ name: 'quota_status', status: 'unknown', detail: 'Data cap tracking not yet implemented' });
 
   return _buildResult(checks, 'Check CPE antenna alignment and AP channel. Consider channel change or CPE repositioning if signal is weak.');
 }
@@ -316,19 +381,16 @@ async function _diagNoInternetFiber(clientId, orgId) {
 
   // Check 2: ONU status
   try {
-    const [rows] = await db.query(
-      'SELECT status, rx_power_dbm FROM onu_devices WHERE client_id = ? AND organization_id = ? LIMIT 1',
-      [clientId, orgId],
-    );
-    if (rows.length === 0) {
+    const deviceId = await _resolveOnuDeviceId(clientId, orgId);
+    const onu = deviceId ? await _getOnuStatus(deviceId, orgId) : null;
+    if (!onu) {
       checks.push({ name: 'onu_status', status: 'unknown', detail: 'ONU not found' });
     } else {
-      const onu = rows[0];
-      const offline = onu.status !== 'online';
+      const offline = onu.onu_state !== 'online';
       checks.push({
         name: 'onu_status',
         status: offline ? 'error' : 'ok',
-        detail: `ONU status: ${onu.status}, RX: ${onu.rx_power_dbm} dBm`,
+        detail: `ONU status: ${onu.onu_state}, RX: ${onu.rx_power_dbm} dBm`,
       });
     }
   } catch {
@@ -338,14 +400,14 @@ async function _diagNoInternetFiber(clientId, orgId) {
   // Check 3: Account suspension
   try {
     const [rows] = await db.query(
-      `SELECT c.status, cl.suspended
+      `SELECT c.status, cl.status AS client_status
          FROM contracts c
          JOIN clients cl ON cl.id = c.client_id
         WHERE cl.id = ? ORDER BY c.id DESC LIMIT 1`,
       [clientId],
     );
     if (rows.length > 0) {
-      const suspended = rows[0].suspended === 1 || rows[0].status === 'suspended';
+      const suspended = rows[0].client_status === 'suspended' || rows[0].status === 'suspended';
       checks.push({
         name: 'account_suspension',
         status: suspended ? 'error' : 'ok',
@@ -359,38 +421,14 @@ async function _diagNoInternetFiber(clientId, orgId) {
   }
 
   // Check 4: OLT hardware alerts
-  try {
-    const [rows] = await db.query(
-      `SELECT COUNT(*) AS cnt FROM alerts
-        WHERE organization_id = ? AND status = 'active' AND alert_type = 'olt_hardware_failure'`,
-      [orgId],
-    );
-    const oltFailing = (rows[0]?.cnt ?? 0) > 0;
-    checks.push({
-      name: 'olt_hardware',
-      status: oltFailing ? 'error' : 'ok',
-      detail: oltFailing ? 'OLT hardware failure alert active — mass outage possible' : 'No OLT hardware failures',
-    });
-  } catch {
-    checks.push({ name: 'olt_hardware', status: 'unknown', detail: 'Alert data unavailable' });
-  }
+  // NOTE: alert_events (real table; `alerts` does not exist) has no
+  // categorical `alert_type` column to filter on — alert categorization by
+  // infrastructure type is not yet implemented, so this cannot be narrowed to
+  // "OLT hardware" specifically without guessing at metric-name conventions.
+  checks.push({ name: 'olt_hardware', status: 'unknown', detail: 'OLT hardware alert categorization not yet implemented' });
 
-  // Check 5: Fiber splice alert
-  try {
-    const [rows] = await db.query(
-      `SELECT COUNT(*) AS cnt FROM alerts
-        WHERE organization_id = ? AND status = 'active' AND alert_type LIKE '%fiber%'`,
-      [orgId],
-    );
-    const fiberIssue = (rows[0]?.cnt ?? 0) > 0;
-    checks.push({
-      name: 'fiber_splice',
-      status: fiberIssue ? 'error' : 'ok',
-      detail: fiberIssue ? 'Fiber infrastructure alert active' : 'No fiber alerts',
-    });
-  } catch {
-    checks.push({ name: 'fiber_splice', status: 'unknown', detail: 'Alert data unavailable' });
-  }
+  // Check 5: Fiber splice alert — same limitation as Check 4.
+  checks.push({ name: 'fiber_splice', status: 'unknown', detail: 'Fiber alert categorization not yet implemented' });
 
   return _buildResult(checks, 'Verify ONT device is powered on. Check for service outages in your area. If account is suspended, review billing status.');
 }
@@ -414,18 +452,26 @@ async function _diagNoInternetWireless(clientId, orgId) {
   // Check 2: CPE status
   try {
     const [rows] = await db.query(
-      'SELECT status, signal_dbm FROM cpe_devices WHERE client_id = ? AND organization_id = ? LIMIT 1',
+      `SELECT cd.status, cd.device_id
+         FROM cpe_devices cd
+         JOIN contracts c ON c.id = cd.contract_id
+        WHERE c.client_id = ? AND c.organization_id = ? AND c.status = 'active'
+          AND cd.deleted_at IS NULL
+        ORDER BY cd.id DESC LIMIT 1`,
       [clientId, orgId],
     );
     if (rows.length === 0) {
       checks.push({ name: 'cpe_status', status: 'unknown', detail: 'CPE not found' });
     } else {
       const cpe = rows[0];
-      const offline = cpe.status !== 'online';
+      // cpe_devices.status is ENUM('new','provisioning','active','error',
+      // 'offline') — there is no 'online' value; 'active' is the up state.
+      const offline = cpe.status !== 'active';
+      const signal = cpe.device_id ? await _getWirelessSignal(cpe.device_id, orgId) : null;
       checks.push({
         name: 'cpe_status',
         status: offline ? 'error' : 'ok',
-        detail: `CPE status: ${cpe.status}, Signal: ${cpe.signal_dbm} dBm`,
+        detail: `CPE status: ${cpe.status}, Signal: ${signal ? signal.signal_dbm : 'unknown'} dBm`,
       });
     }
   } catch {
@@ -433,37 +479,17 @@ async function _diagNoInternetWireless(clientId, orgId) {
   }
 
   // Check 3: AP status
-  try {
-    const [rows] = await db.query(
-      `SELECT ap.name, ap.status
-         FROM access_points ap
-         JOIN cpe_devices cd ON cd.access_point_id = ap.id
-        WHERE cd.client_id = ? AND ap.organization_id = ?
-        LIMIT 1`,
-      [clientId, orgId],
-    );
-    if (rows.length > 0) {
-      const ap = rows[0];
-      const apDown = ap.status !== 'active';
-      checks.push({
-        name: 'ap_status',
-        status: apDown ? 'error' : 'ok',
-        detail: `AP "${ap.name}" status: ${ap.status}`,
-      });
-    } else {
-      checks.push({ name: 'ap_status', status: 'unknown', detail: 'AP not identified' });
-    }
-  } catch {
-    checks.push({ name: 'ap_status', status: 'unknown', detail: 'AP data unavailable' });
-  }
+  // NOTE: there is no access-point inventory / assignment table in the schema
+  // — see _diagSlowWireless's ap_load check for the same limitation.
+  checks.push({ name: 'ap_status', status: 'unknown', detail: 'AP status reporting not yet implemented' });
 
   // Check 4: Account suspension
   try {
     const [rows] = await db.query(
-      'SELECT suspended FROM clients WHERE id = ?',
+      'SELECT status FROM clients WHERE id = ?',
       [clientId],
     );
-    const suspended = rows[0]?.suspended === 1;
+    const suspended = rows[0]?.status === 'suspended';
     checks.push({
       name: 'account_suspension',
       status: suspended ? 'error' : 'ok',
@@ -474,18 +500,42 @@ async function _diagNoInternetWireless(clientId, orgId) {
   }
 
   // Check 5: Area alerts
+  // Same alert_events shape note as the active_alerts check above.
+  //
+  // item 8 of the second adversarial review: this used to count ANY
+  // critical alert anywhere in the whole org as "an outage in your area" —
+  // a critical CPU alert on a router across town would tell this customer
+  // there's a local outage. `devices.site_id` is the closest real
+  // geographic grouping in the schema; scope to alerts on devices sharing
+  // the client's own CPE's site. If the client's device (or its site)
+  // can't be resolved, we genuinely don't know whether there's a local
+  // outage — report 'unknown', not a fabricated "no outage detected".
   try {
-    const [rows] = await db.query(
-      `SELECT COUNT(*) AS cnt FROM alerts
-        WHERE organization_id = ? AND status = 'active' AND severity = 'critical'`,
-      [orgId],
-    );
-    const hasOutage = (rows[0]?.cnt ?? 0) > 0;
-    checks.push({
-      name: 'area_outage',
-      status: hasOutage ? 'warning' : 'ok',
-      detail: hasOutage ? 'Critical alerts active in your area — possible service outage' : 'No area-wide outage detected',
-    });
+    const deviceId = await _resolveCpeDeviceId(clientId, orgId);
+    const [siteRows] = deviceId
+      ? await db.query('SELECT site_id FROM devices WHERE id = ? AND organization_id = ?', [deviceId, orgId])
+      : [[]];
+    const siteId = siteRows[0]?.site_id ?? null;
+
+    if (!siteId) {
+      checks.push({ name: 'area_outage', status: 'unknown', detail: 'Site not resolved — cannot check for a local outage' });
+    } else {
+      const [rows] = await db.query(
+        `SELECT COUNT(*) AS cnt
+           FROM alert_events ae
+           JOIN alert_rules ar ON ar.id = ae.alert_rule_id
+           JOIN devices ad ON ad.id = ae.device_id
+          WHERE ae.organization_id = ? AND ae.status != 'resolved' AND ar.severity = 'critical'
+            AND ad.site_id = ?`,
+        [orgId, siteId],
+      );
+      const hasOutage = (rows[0]?.cnt ?? 0) > 0;
+      checks.push({
+        name: 'area_outage',
+        status: hasOutage ? 'warning' : 'ok',
+        detail: hasOutage ? 'Critical alerts active in your area — possible service outage' : 'No area-wide outage detected',
+      });
+    }
   } catch {
     checks.push({ name: 'area_outage', status: 'unknown', detail: 'Alert data unavailable' });
   }
@@ -519,14 +569,19 @@ async function _diagWifi(clientId, orgId) {
   // Check 3: Check for CPE model (some have known WiFi bugs)
   try {
     const [rows] = await db.query(
-      'SELECT model, firmware_version FROM cpe_devices WHERE client_id = ? AND organization_id = ? LIMIT 1',
+      `SELECT cd.model_name, cd.firmware_version
+         FROM cpe_devices cd
+         JOIN contracts c ON c.id = cd.contract_id
+        WHERE c.client_id = ? AND c.organization_id = ? AND c.status = 'active'
+          AND cd.deleted_at IS NULL
+        ORDER BY cd.id DESC LIMIT 1`,
       [clientId, orgId],
     );
     if (rows.length > 0) {
       checks.push({
         name: 'cpe_model',
         status: 'ok',
-        detail: `CPE model: ${rows[0].model}, Firmware: ${rows[0].firmware_version || 'unknown'}`,
+        detail: `CPE model: ${rows[0].model_name}, Firmware: ${rows[0].firmware_version || 'unknown'}`,
       });
     } else {
       checks.push({ name: 'cpe_model', status: 'unknown', detail: 'CPE not found' });
@@ -583,16 +638,14 @@ async function _diagDisconnects(clientId, orgId, accessType) {
   // Check 2: CPE/ONU signal stability
   if (accessType === 'wireless') {
     try {
-      const [rows] = await db.query(
-        'SELECT signal_dbm, noise_floor FROM cpe_devices WHERE client_id = ? AND organization_id = ? LIMIT 1',
-        [clientId, orgId],
-      );
-      if (rows.length > 0) {
-        const snr = (rows[0].signal_dbm || 0) - (rows[0].noise_floor || -100);
+      const deviceId = await _resolveCpeDeviceId(clientId, orgId);
+      const signal = deviceId ? await _getWirelessSignal(deviceId, orgId) : null;
+      if (signal) {
+        const snr = (signal.signal_dbm || 0) - (signal.noise_floor_dbm || -100);
         checks.push({
           name: 'signal_stability',
           status: snr < 15 ? 'warning' : 'ok',
-          detail: `Signal: ${rows[0].signal_dbm} dBm, SNR: ${snr} dB`,
+          detail: `Signal: ${signal.signal_dbm} dBm, SNR: ${snr} dB`,
         });
       } else {
         checks.push({ name: 'signal_stability', status: 'unknown', detail: 'CPE not found' });
@@ -602,16 +655,14 @@ async function _diagDisconnects(clientId, orgId, accessType) {
     }
   } else {
     try {
-      const [rows] = await db.query(
-        'SELECT rx_power_dbm, status FROM onu_devices WHERE client_id = ? AND organization_id = ? LIMIT 1',
-        [clientId, orgId],
-      );
-      if (rows.length > 0) {
-        const rxOk = rows[0].rx_power_dbm !== null && rows[0].rx_power_dbm > -27;
+      const deviceId = await _resolveOnuDeviceId(clientId, orgId);
+      const onu = deviceId ? await _getOnuStatus(deviceId, orgId) : null;
+      if (onu) {
+        const rxOk = onu.rx_power_dbm !== null && onu.rx_power_dbm > -27;
         checks.push({
           name: 'onu_signal_stability',
           status: rxOk ? 'ok' : 'warning',
-          detail: `ONU RX: ${rows[0].rx_power_dbm} dBm, Status: ${rows[0].status}`,
+          detail: `ONU RX: ${onu.rx_power_dbm} dBm, Status: ${onu.onu_state}`,
         });
       } else {
         checks.push({ name: 'onu_signal_stability', status: 'unknown', detail: 'ONU not found' });
@@ -622,36 +673,28 @@ async function _diagDisconnects(clientId, orgId, accessType) {
   }
 
   // Check 3: Power fluctuation / UPS alerts
-  try {
-    const [rows] = await db.query(
-      `SELECT COUNT(*) AS cnt FROM alerts
-        WHERE organization_id = ? AND status = 'active'
-          AND (alert_type LIKE '%power%' OR alert_type LIKE '%ups%')`,
-      [orgId],
-    );
-    const powerAlerts = rows[0]?.cnt ?? 0;
-    checks.push({
-      name: 'power_alerts',
-      status: powerAlerts > 0 ? 'warning' : 'ok',
-      detail: `${powerAlerts} power-related alerts active`,
-    });
-  } catch {
-    checks.push({ name: 'power_alerts', status: 'unknown', detail: 'Alert data unavailable' });
-  }
+  // NOTE: alert_events has no `alert_type` column — see the OLT-hardware /
+  // fiber checks in _diagNoInternetFiber for the same limitation.
+  checks.push({ name: 'power_alerts', status: 'unknown', detail: 'Power/UPS alert categorization not yet implemented' });
 
   // Check 4: Router/CPE reboots (firmware)
   try {
     const [rows] = await db.query(
-      `SELECT firmware_version, last_seen FROM cpe_devices
-        WHERE client_id = ? AND organization_id = ? LIMIT 1`,
+      `SELECT cd.firmware_version, cd.last_inform_at
+         FROM cpe_devices cd
+         JOIN contracts c ON c.id = cd.contract_id
+        WHERE c.client_id = ? AND c.organization_id = ? AND c.status = 'active'
+          AND cd.deleted_at IS NULL
+        ORDER BY cd.id DESC LIMIT 1`,
       [clientId, orgId],
     );
     if (rows.length > 0) {
-      const stale = rows[0].last_seen && (Date.now() - new Date(rows[0].last_seen).getTime()) > 3600000;
+      const lastInform = rows[0].last_inform_at;
+      const stale = lastInform && (Date.now() - new Date(lastInform).getTime()) > 3600000;
       checks.push({
         name: 'cpe_reachability',
         status: stale ? 'warning' : 'ok',
-        detail: `Last seen: ${rows[0].last_seen || 'unknown'}, Firmware: ${rows[0].firmware_version || 'unknown'}`,
+        detail: `Last seen: ${lastInform || 'unknown'}, Firmware: ${rows[0].firmware_version || 'unknown'}`,
       });
     } else {
       checks.push({ name: 'cpe_reachability', status: 'unknown', detail: 'CPE not found' });
@@ -671,100 +714,48 @@ async function _diagSlowAtNight(clientId, orgId, accessType) {
 
   // Check 1: PON port utilization at peak hours
   try {
-    const [rows] = await db.query(
-      `SELECT pp.client_count, pp.max_clients, pp.port_number
-         FROM olt_pon_ports pp
-         JOIN onu_devices od ON od.olt_port_id = pp.id
-        WHERE od.client_id = ? AND pp.organization_id = ?
-        LIMIT 1`,
-      [clientId, orgId],
-    );
-    if (rows.length > 0) {
-      const util = rows[0].client_count / (rows[0].max_clients || 1);
-      checks.push({
-        name: 'pon_utilization',
-        status: util > 0.8 ? 'warning' : 'ok',
-        detail: `PON port ${rows[0].port_number}: ${rows[0].client_count}/${rows[0].max_clients} clients (${Math.round(util * 100)}% utilization)`,
-      });
-    } else {
+    const deviceId = await _resolveOnuDeviceId(clientId, orgId);
+    const onu = deviceId ? await _getOnuStatus(deviceId, orgId) : null;
+    if (!onu || !onu.olt_port_id) {
       checks.push({ name: 'pon_utilization', status: 'unknown', detail: 'PON data unavailable' });
+    } else {
+      const [portRows] = await db.query(
+        'SELECT port_no, onu_count, max_onus FROM olt_ports WHERE id = ? AND organization_id = ?',
+        [onu.olt_port_id, orgId],
+      );
+      if (portRows.length === 0) {
+        checks.push({ name: 'pon_utilization', status: 'unknown', detail: 'PON data unavailable' });
+      } else {
+        const port = portRows[0];
+        const util = port.onu_count / (port.max_onus || 1);
+        checks.push({
+          name: 'pon_utilization',
+          status: util > 0.8 ? 'warning' : 'ok',
+          detail: `PON port ${port.port_no}: ${port.onu_count}/${port.max_onus} ONUs (${Math.round(util * 100)}% utilization)`,
+        });
+      }
     }
   } catch {
     checks.push({ name: 'pon_utilization', status: 'unknown', detail: 'PON data unavailable' });
   }
 
   // Check 2: AP client density (wireless)
+  // NOTE: there is no access-point inventory / assignment table in the schema
+  // — see _diagSlowWireless's ap_load check for the same limitation.
   if (accessType === 'wireless') {
-    try {
-      const [rows] = await db.query(
-        `SELECT ap.name, COUNT(cd.id) AS cnt
-           FROM access_points ap
-           JOIN cpe_devices cd ON cd.access_point_id = ap.id
-          WHERE cd.client_id = ? AND ap.organization_id = ?
-          GROUP BY ap.id, ap.name LIMIT 1`,
-        [clientId, orgId],
-      );
-      if (rows.length > 0) {
-        const overloaded = rows[0].cnt > 30;
-        checks.push({
-          name: 'ap_density',
-          status: overloaded ? 'warning' : 'ok',
-          detail: `AP "${rows[0].name}" serves ${rows[0].cnt} clients — congestion likely at peak hours`,
-        });
-      } else {
-        checks.push({ name: 'ap_density', status: 'unknown', detail: 'AP data unavailable' });
-      }
-    } catch {
-      checks.push({ name: 'ap_density', status: 'unknown', detail: 'AP data unavailable' });
-    }
+    checks.push({ name: 'ap_density', status: 'unknown', detail: 'AP density reporting not yet implemented' });
   }
 
   // Check 3: QoS policy applied
-  try {
-    const [rows] = await db.query(
-      `SELECT qp.name, qp.priority_level
-         FROM qos_policies qp
-         JOIN contracts c ON c.qos_policy_id = qp.id
-         JOIN clients cl ON cl.id = c.client_id
-        WHERE cl.id = ? LIMIT 1`,
-      [clientId],
-    );
-    if (rows.length > 0) {
-      checks.push({
-        name: 'qos_policy',
-        status: 'ok',
-        detail: `QoS policy: ${rows[0].name}, priority: ${rows[0].priority_level}`,
-      });
-    } else {
-      checks.push({ name: 'qos_policy', status: 'warning', detail: 'No QoS policy assigned — may experience peak-hour congestion' });
-    }
-  } catch {
-    checks.push({ name: 'qos_policy', status: 'unknown', detail: 'QoS data unavailable' });
-  }
+  // NOTE: there is no qos_policies table, and contracts has no qos_policy_id
+  // column — per-contract QoS policy assignment is not yet implemented.
+  checks.push({ name: 'qos_policy', status: 'unknown', detail: 'QoS policy assignment not yet implemented' });
 
   // Check 4: Data cap throttling
-  try {
-    const [rows] = await db.query(
-      `SELECT data_cap_status, data_used_gb, p.data_cap_gb
-         FROM contracts c JOIN plans p ON p.id = c.plan_id
-        WHERE c.client_id = ? AND c.status = 'active'
-        ORDER BY c.id DESC LIMIT 1`,
-      [clientId],
-    );
-    if (rows.length > 0) {
-      const r = rows[0];
-      const throttled = r.data_cap_status === 'throttled';
-      checks.push({
-        name: 'data_throttle',
-        status: throttled ? 'warning' : 'ok',
-        detail: `Used: ${r.data_used_gb || 0} GB / Cap: ${r.data_cap_gb || 'unlimited'} GB — ${r.data_cap_status || 'normal'}`,
-      });
-    } else {
-      checks.push({ name: 'data_throttle', status: 'unknown', detail: 'Contract data unavailable' });
-    }
-  } catch {
-    checks.push({ name: 'data_throttle', status: 'unknown', detail: 'Contract data unavailable' });
-  }
+  // NOTE: plans.data_cap_gb exists, but there is no usage-tracking column
+  // (contracts has no data_cap_status/data_used_gb) to compare it against —
+  // data cap throttling is not yet implemented for this diagnostic.
+  checks.push({ name: 'data_throttle', status: 'unknown', detail: 'Data cap tracking not yet implemented' });
 
   return _buildResult(
     checks,

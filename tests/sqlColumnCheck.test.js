@@ -368,7 +368,7 @@ describe('sql-column-check: the repository is clean', () => {
       expect(hitKeys.has(`SELECT — table "${g.table}" does not exist in database/schema.sql`)).toBe(true);
     }
 
-    expect(result.gaps).toHaveLength(128);
+    expect(result.gaps).toHaveLength(10);
   });
 
   test('the known missing tables are all first-party (not radacct or a real EXTERNAL_TABLES entry)', () => {

@@ -136,11 +136,28 @@ async function tryAutoLinkSubscriber(cpeDevice) {
   }
 
   // Strategy 2: devices.serial_number cross-reference
+  // contracts has no `device_id` column — the bridge is
+  // cpe_devices.device_id -> devices.id and cpe_devices.contract_id -> contracts.id.
+  // This was unguarded (unlike Strategy 1) and threw on every call, so
+  // auto-linking via device serial number cross-reference never worked.
+  //
+  // item 8 of the second adversarial review (flagged, not confirmed this
+  // round): matching purely on `d.serial_number` with no cross-check that
+  // the matched device and the matched contract actually belong to the same
+  // organization could, in principle, bridge a CPE to the wrong client if a
+  // serial number were ever reused/stale across orgs. `orgCondition` only
+  // constrains the *contract's* org (and only when the new CPE already has
+  // one, which is not always true at first TR-069 contact) — it never
+  // constrains the matched `devices` row itself. Added as defense in depth;
+  // this does not change behavior for the correct/common case where the
+  // device and its bridging contract already agree on organization.
   try {
     const [matches] = await db.query(
       `SELECT c.client_id FROM devices d
-       JOIN contracts c ON c.device_id = d.id
-       WHERE d.serial_number = ? AND d.deleted_at IS NULL AND c.deleted_at IS NULL
+       JOIN cpe_devices bridge ON bridge.device_id = d.id
+       JOIN contracts c ON c.id = bridge.contract_id
+       WHERE d.serial_number = ? AND bridge.deleted_at IS NULL AND c.deleted_at IS NULL
+         AND d.organization_id = c.organization_id
        ${orgCondition}
        LIMIT 1`,
       params,

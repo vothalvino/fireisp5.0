@@ -63,7 +63,7 @@ async function getOrgProviderId(orgId) {
     // flag, only a `priority` ordering (lower = higher priority), the same
     // convention kbService.js already uses to pick "the" provider.
     const [rows] = await db.query(
-      'SELECT id FROM ai_providers WHERE organization_id = ? AND enabled = 1 ORDER BY priority ASC LIMIT 1',
+      'SELECT id FROM ai_providers WHERE organization_id = ? AND enabled = 1 AND deleted_at IS NULL ORDER BY priority ASC LIMIT 1',
       [orgId],
     );
     return rows.length > 0 ? rows[0].id : null;

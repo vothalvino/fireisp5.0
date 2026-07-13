@@ -6,6 +6,7 @@
 // =============================================================================
 'use strict';
 const db = require('../config/database');
+const ClientBalanceLedger = require('../models/ClientBalanceLedger');
 const logger = require('../utils/logger').child({ service: 'supportBillingModule' });
 
 // ---------------------------------------------------------------------------
@@ -64,11 +65,18 @@ async function _balanceQuery(context) {
       };
     }
 
+    // clients has no `balance` column — the running balance is derived from
+    // client_balance_ledger via ClientBalanceLedger.signedAmountSql, the
+    // single source of truth also used by the statement PDF and the GraphQL
+    // resolver (a second, ad-hoc computation here would risk disagreeing
+    // with those — see the model's own comment on why that happened before).
     const [rows] = await db.query(
-      'SELECT balance FROM clients WHERE id = ?',
+      `SELECT COALESCE(SUM(${ClientBalanceLedger.signedAmountSql}), 0) AS balance
+         FROM client_balance_ledger
+        WHERE client_id = ?`,
       [context?.customer?.id],
     );
-    const bal = rows[0]?.balance ?? 'N/A';
+    const bal = rows[0] ? parseFloat(rows[0].balance).toFixed(2) : 'N/A';
     return {
       response: `Tu saldo actual es $${bal} MXN.`,
       requiresConfirmation: false,
@@ -98,21 +106,59 @@ async function _nextDueDate(context) {
       };
     }
 
-    const [rows] = await db.query(
-      `SELECT c.next_billing_date
-         FROM contracts c
-         JOIN clients cl ON cl.id = c.client_id
-        WHERE cl.id = ?
-        ORDER BY c.id DESC LIMIT 1`,
+    // MEDIUM — item 6 of the second adversarial review: this used to answer
+    // "when is my payment DUE" with billing_periods.scheduled_at — the date
+    // the invoice is auto-GENERATED, not the date payment is due. Those can
+    // differ by weeks, and scheduled_at can already be in the PAST (the
+    // period was invoiced days ago) while still being reported to the
+    // customer as their upcoming due date. An actual invoice, once
+    // generated, carries its own real `due_date` — that is the only correct
+    // source for "when do I need to pay". Prefer the earliest due_date among
+    // this client's still-payable invoices (issued/sent/overdue — never
+    // draft, paid, cancelled or void). Only when NO invoice has been
+    // generated yet do we fall back to telling them when the NEXT billing
+    // cycle starts, phrased as that (not as a payment being "due").
+    const [invoiceRows] = await db.query(
+      `SELECT due_date FROM invoices
+        WHERE client_id = ? AND deleted_at IS NULL AND status IN ('issued', 'sent', 'overdue')
+        ORDER BY due_date ASC LIMIT 1`,
       [context?.customer?.id],
     );
-    const date = rows[0]?.next_billing_date ?? null;
-    const formatted = date ? new Date(date).toLocaleDateString('es-MX') : 'no disponible';
+
+    if (invoiceRows[0]) {
+      const formatted = new Date(invoiceRows[0].due_date).toLocaleDateString('es-MX');
+      return {
+        response: `Tu próximo pago vence el ${formatted}.`,
+        requiresConfirmation: false,
+        actionType: 'next_due_date',
+        actionData: { nextDueDate: formatted },
+      };
+    }
+
+    const [periodRows] = await db.query(
+      `SELECT bp.scheduled_at AS next_billing_date
+         FROM contracts c
+         JOIN clients cl ON cl.id = c.client_id
+         JOIN billing_periods bp ON bp.contract_id = c.id AND bp.status = 'pending'
+        WHERE cl.id = ?
+        ORDER BY bp.scheduled_at ASC LIMIT 1`,
+      [context?.customer?.id],
+    );
+    const date = periodRows[0]?.next_billing_date ?? null;
+    if (!date) {
+      return {
+        response: 'No tienes ningún pago pendiente en este momento.',
+        requiresConfirmation: false,
+        actionType: 'next_due_date',
+        actionData: { nextDueDate: null },
+      };
+    }
+    const formatted = new Date(date).toLocaleDateString('es-MX');
     return {
-      response: `Tu próximo pago vence el ${formatted}.`,
+      response: `No tienes una factura pendiente todavía. Tu próximo ciclo de facturación comienza el ${formatted}.`,
       requiresConfirmation: false,
       actionType: 'next_due_date',
-      actionData: { nextDueDate: formatted },
+      actionData: { nextBillingCycle: formatted },
     };
   } catch (err) {
     logger.warn({ err }, 'billingModule: nextDueDate query failed');
@@ -128,7 +174,9 @@ async function _nextDueDate(context) {
 async function _planUpgrade(context, messageContent, orgId) {
   try {
     const [plans] = await db.query(
-      'SELECT name, price, speed_download, speed_upload FROM plans WHERE organization_id = ? AND is_active = 1 LIMIT 10',
+      // Real columns: download_speed_mbps/upload_speed_mbps and status='active'
+      // (no speed_download/speed_upload/is_active columns).
+      'SELECT name, price, download_speed_mbps AS speed_download, upload_speed_mbps AS speed_upload FROM plans WHERE organization_id = ? AND status = \'active\' LIMIT 10',
       [orgId || context?.customer?.orgId],
     );
     const planText = plans.length > 0
@@ -201,48 +249,33 @@ async function _cancellationFlow(context) {
   };
 }
 
+// eslint-disable-next-line no-unused-vars -- kept for DISPATCH signature parity
 async function _oxxoReference(context) {
-  try {
-    const [rows] = await db.query(
-      `SELECT reference_number, amount, expiry_date
-         FROM payment_references
-        WHERE client_id = ? AND status = 'pending'
-        ORDER BY created_at DESC LIMIT 1`,
-      [context?.customer?.id],
-    );
-    if (rows.length === 0) {
-      return {
-        response: 'No tienes referencias OXXO pendientes. Si deseas generar una, por favor visita tu portal de cliente.',
-        requiresConfirmation: false,
-        actionType: 'oxxo_reference',
-        actionData: {},
-      };
-    }
-    const ref = rows[0];
-    return {
-      response: `Tu referencia OXXO es: ${ref.reference_number}\nMonto: $${ref.amount} MXN\nVigente hasta: ${ref.expiry_date ? new Date(ref.expiry_date).toLocaleDateString('es-MX') : 'N/A'}`,
-      requiresConfirmation: false,
-      actionType: 'oxxo_reference',
-      actionData: { reference: ref },
-    };
-  } catch (err) {
-    logger.warn({ err }, 'billingModule: oxxoReference query failed');
-    return {
-      response: 'No pude recuperar tu referencia OXXO en este momento.',
-      requiresConfirmation: false,
-      actionType: 'oxxo_reference',
-      actionData: {},
-    };
-  }
+  // There is no `payment_references` table, or any other store of
+  // outstanding OXXO barcode references, anywhere in the schema — generating
+  // and tracking a pending cash-payment reference is not yet implemented.
+  // The (unconditionally reached) "no pending references" response below is
+  // the honest, always-correct answer today; it used to be reached only via a
+  // query that could never succeed.
+  return {
+    response: 'No tienes referencias OXXO pendientes. Si deseas generar una, por favor visita tu portal de cliente.',
+    requiresConfirmation: false,
+    actionType: 'oxxo_reference',
+    actionData: {},
+  };
 }
 
 async function _cfdiReceipt(context) {
   try {
+    // invoices has neither `uuid` nor `folio`/`cfdi_status` — those belong to
+    // the linked cfdi_documents row (invoice_number is the invoice's own
+    // folio-like field; sat_status='vigente' is "successfully stamped").
     const [rows] = await db.query(
-      `SELECT uuid, folio, total, created_at
-         FROM invoices
-        WHERE client_id = ? AND cfdi_status = 'stamped'
-        ORDER BY created_at DESC LIMIT 3`,
+      `SELECT cd.uuid, i.invoice_number AS folio, i.total, i.created_at
+         FROM invoices i
+         JOIN cfdi_documents cd ON cd.invoice_id = i.id
+        WHERE i.client_id = ? AND cd.sat_status = 'vigente'
+        ORDER BY i.created_at DESC LIMIT 3`,
       [context?.customer?.id],
     );
     if (rows.length === 0) {
@@ -273,8 +306,9 @@ async function _cfdiReceipt(context) {
 
 async function _overchargeReview(context, messageContent) {
   try {
+    // invoices has no `folio` column — invoice_number is the real one.
     const [rows] = await db.query(
-      `SELECT id, folio, total, created_at
+      `SELECT id, invoice_number AS folio, total, created_at
          FROM invoices
         WHERE client_id = ?
         ORDER BY created_at DESC LIMIT 1`,
@@ -303,7 +337,9 @@ async function _overchargeReview(context, messageContent) {
 async function _planList(context, messageContent, orgId) {
   try {
     const [plans] = await db.query(
-      'SELECT name, price, speed_download, speed_upload FROM plans WHERE organization_id = ? AND is_active = 1 LIMIT 10',
+      // Real columns: download_speed_mbps/upload_speed_mbps and status='active'
+      // (no speed_download/speed_upload/is_active columns).
+      'SELECT name, price, download_speed_mbps AS speed_download, upload_speed_mbps AS speed_upload FROM plans WHERE organization_id = ? AND status = \'active\' LIMIT 10',
       [orgId || context?.customer?.orgId],
     );
     if (plans.length === 0) {

@@ -48,7 +48,17 @@ jest.mock('../src/services/emailTransport',           () => ({ processQueue: jes
 jest.mock('../src/services/smsTransport',             () => ({ processQueue: jest.fn() }));
 jest.mock('../src/services/webhookService',           () => ({ processRetries: jest.fn() }));
 jest.mock('../src/services/checkoutService',          () => ({ processRecurringCharges: jest.fn() }));
-jest.mock('../src/services/alertService',             () => ({ evaluateAlerts: jest.fn() }));
+jest.mock('../src/services/alertService',             () => ({
+  evaluateAlerts: jest.fn(),
+  // automationService reads this real (unmocked) whitelist to validate
+  // condition_metric before building a dynamic snmp_metrics column reference.
+  SNMP_METRICS: new Set([
+    'cpu_usage', 'memory_usage', 'signal_strength', 'latency_ms', 'if_in_octets',
+    'if_out_octets', 'voltage_mv', 'temperature_c', 'fan_speed_rpm', 'if_in_discards',
+    'if_out_discards', 'sfp_tx_power_dbm', 'sfp_rx_power_dbm', 'sfp_temperature_c',
+    'ups_battery_pct', 'ups_runtime_min', 'poe_power_mw', 'humidity_pct',
+  ]),
+}));
 jest.mock('../src/services/retentionService',         () => ({ runAll: jest.fn() }));
 jest.mock('../src/services/paymentRetryService',      () => ({ processPendingRetries: jest.fn() }));
 jest.mock('../src/services/configBackupService',      () => ({ runNightlyBackups: jest.fn() }));
