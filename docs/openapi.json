@@ -19412,7 +19412,7 @@
         "tags": [
           "Import"
         ],
-        "summary": "Bulk import contracts from CSV",
+        "summary": "Bulk import contracts from CSV (optional pppoe_username/pppoe_password columns carry over pre-existing PPPoE credentials instead of auto-generating them)",
         "operationId": "importContracts",
         "security": [
           {

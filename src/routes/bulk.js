@@ -10,6 +10,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
+const { bulkEmailLimiter, checkBulkEmailDailyBudget } = require('../middleware/rateLimit');
 const bulkSchemas = require('../middleware/schemas/bulk');
 const logger = require('../utils/logger');
 const eventBus = require('../services/eventBus');
@@ -183,7 +184,21 @@ router.post('/suspend', requirePermission('contracts.update'), validate(bulkSche
 // trigger a free-form, up-to-1000-recipient email blast with zero rate
 // limiting. campaigns.create is already correctly scoped to admin/support/
 // billing (migration 199) and withheld from technician/readonly.
-router.post('/email', requirePermission('campaigns.create'), validate(bulkSchemas.email), async (req, res, next) => {
+//
+// Two independent rate-limit layers on top of that RBAC gate:
+//   1. bulkEmailLimiter — per-IP request-count budget (RATE_LIMIT_BULK_EMAIL,
+//      default 10/window), guards against scripted-retry abuse. Runs before
+//      requirePermission (matches authLimiter's placement on POST
+//      /auth/login) so a caller lacking campaigns.create still consumes
+//      budget on a 403 attempt.
+//   2. checkBulkEmailDailyBudget — per-organization rolling-24h RECIPIENT
+//      count budget (RATE_LIMIT_BULK_EMAIL_DAILY_RECIPIENTS, default
+//      5000/day), keyed by req.orgId (no user component — multiple staff in
+//      one org share one budget, since request-count alone would still allow
+//      up to 10,000 send-attempts/window at 1000 recipients/request). This
+//      is the layer that actually caps mail-bombing volume; the per-request
+//      hard cap of 1000 clients below is unchanged.
+router.post('/email', bulkEmailLimiter, requirePermission('campaigns.create'), validate(bulkSchemas.email), async (req, res, next) => {
   try {
     const orgId = req.orgId;
     const { client_ids, subject, body } = req.body;
@@ -202,6 +217,18 @@ router.post('/email', requirePermission('campaigns.create'), validate(bulkSchema
       `SELECT id, email, name FROM clients WHERE id IN (${placeholders}) AND organization_id = ? AND deleted_at IS NULL`,
       [...client_ids, orgId],
     );
+
+    if (clients.length > 0) {
+      const budget = await checkBulkEmailDailyBudget(orgId, clients.length);
+      if (!budget.allowed) {
+        return res.status(429).json({
+          error: {
+            code: 'RATE_LIMITED',
+            message: `Daily bulk-email recipient budget exceeded for this organization (${budget.remaining} of the daily budget remaining)`,
+          },
+        });
+      }
+    }
 
     const results = { queued: clients.length, not_found: client_ids.length - clients.length };
 
