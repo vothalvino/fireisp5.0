@@ -446,6 +446,8 @@ describe('supportConversationService', () => {
   });
 
   test('escalate updates status and inserts system message', async () => {
+    // idempotency guard: SELECT status/ticket_id — not yet escalated
+    db.query.mockResolvedValueOnce([[{ status: 'open', ticket_id: null }], undefined]);
     // UPDATE support_conversations SET status='escalated'
     db.query.mockResolvedValueOnce([{ affectedRows: 1 }, undefined]);
     // INSERT ticket
@@ -464,6 +466,8 @@ describe('supportConversationService', () => {
   });
 
   test('escalate handles ticket creation failure gracefully', async () => {
+    // idempotency guard: SELECT status/ticket_id — not yet escalated
+    db.query.mockResolvedValueOnce([[{ status: 'open', ticket_id: null }], undefined]);
     // UPDATE support_conversations SET status='escalated'
     db.query.mockResolvedValueOnce([{ affectedRows: 1 }, undefined]);
     // ticket INSERT fails
@@ -490,18 +494,20 @@ describe('supportConversationService', () => {
     db.query.mockResolvedValueOnce([[mockConversation], undefined]);
     // 2. INSERT customer message
     db.query.mockResolvedValueOnce([{ insertId: 20 }, undefined]);
-    // 3. escalate: UPDATE conv status
+    // 3. escalate: idempotency guard SELECT — not yet escalated
+    db.query.mockResolvedValueOnce([[{ status: 'open', ticket_id: null }], undefined]);
+    // 4. escalate: UPDATE conv status
     db.query.mockResolvedValueOnce([{ affectedRows: 1 }, undefined]);
-    // 4. escalate: INSERT ticket
+    // 5. escalate: INSERT ticket
     db.query.mockResolvedValueOnce([{ insertId: 100 }, undefined]);
-    // 5. escalate: UPDATE ticket_id
+    // 6. escalate: UPDATE ticket_id
     db.query.mockResolvedValueOnce([{ affectedRows: 1 }, undefined]);
-    // 6. escalate: INSERT system message
+    // 7. escalate: INSERT system message
     db.query.mockResolvedValueOnce([{ insertId: 21 }, undefined]);
-    // 7-8. escalate internal _loadConversation (ignored return value in escalate)
+    // 8-9. escalate internal _loadConversation (ignored return value in escalate)
     db.query.mockResolvedValueOnce([[{ ...mockConversation, status: 'escalated' }], undefined]);
     db.query.mockResolvedValueOnce([[mockMessage], undefined]);
-    // 9-10. sendMessage outer _loadConversation (the one that actually gets returned)
+    // 10-11. sendMessage outer _loadConversation (the one that actually gets returned)
     db.query.mockResolvedValueOnce([[{ ...mockConversation, status: 'escalated' }], undefined]);
     db.query.mockResolvedValueOnce([[mockMessage], undefined]);
 

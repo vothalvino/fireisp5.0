@@ -453,7 +453,9 @@ async function sendMessage({ conversationId, orgId, content, clientId }) {
  * Escalate a conversation to a human agent.
  *
  * Updates the conversation status, creates a ticket, and inserts a system
- * notification message.
+ * notification message. Idempotent: a conversation that is already
+ * escalated is a no-op (returns the existing state) rather than creating a
+ * second ticket.
  *
  * @param {object} opts
  * @param {number} opts.conversationId
@@ -462,6 +464,34 @@ async function sendMessage({ conversationId, orgId, content, clientId }) {
  * @returns {Promise<{ conversation: object, messages: object[] }>}
  */
 async function escalate({ conversationId, reason, orgId }) {
+  // Idempotency guard — without this, every subsequent caller re-runs the
+  // full side-effect chain below: sendMessage's own "already_escalated"
+  // detection (see its step 5) calls escalate() again on every message a
+  // customer sends AFTER their conversation is already escalated, and there
+  // is no guard anywhere else in the call chain. That used to mean a new
+  // duplicate ticket + an overwritten ticket_id (orphaning the prior ticket)
+  // + a duplicate "you've been escalated" system message on every single
+  // follow-up message. `status === 'escalated'` is the reliable signal to
+  // guard on: it's set unconditionally as the very first side effect below,
+  // whereas `ticket_id` can legitimately stay NULL after a "successful"
+  // escalation if the ticket INSERT itself fails (see the try/catch below,
+  // which deliberately swallows that failure) — guarding on ticket_id alone
+  // would re-run the whole chain (including a second system message) on
+  // every retry of a conversation whose first ticket-creation attempt
+  // failed, not just skip the ticket step.
+  const [existingRows] = await db.query(
+    'SELECT status, ticket_id FROM support_conversations WHERE id = ? AND organization_id = ?',
+    [conversationId, orgId],
+  );
+  const existing = existingRows[0];
+  if (existing && existing.status === 'escalated') {
+    logger.info(
+      { conversationId, orgId, ticketId: existing.ticket_id },
+      'supportConversationService: escalate() no-op — conversation already escalated',
+    );
+    return _loadConversation(conversationId, orgId);
+  }
+
   // Update conversation status
   await db.query(
     `UPDATE support_conversations
